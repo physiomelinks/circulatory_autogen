@@ -20,6 +20,10 @@
       {
         "port_type":"Na_Nernst_potential",
         "variables":["E_Na"]
+      },
+      {
+        "port_type":"piezo_current",
+        "variables":["I_piezo"]
       }
     ],
     "variables_and_units":
@@ -33,7 +37,14 @@
       ["m_V_inf", "dimensionless", "access", "variable"],
       ["tau_V", "ms", "access", "constant"],
       ["V_50", "milliV", "access", "constant"],
-      ["k_V", "milliV", "access", "constant"]
+      ["k_V", "milliV", "access", "constant"],
+      ["m_r", "dimensionless", "access", "variable"],
+      ["m_r_init", "dimensionless", "access", "constant"],
+      ["m_r_inf", "dimensionless", "access", "variable"],
+      ["tau_r", "ms", "access", "constant"],
+      ["r_50", "dimensionless", "access", "constant"],
+      ["r_ratio", "dimensionless", "access", "boundary_condition"],
+      ["k_r", "dimensionless", "access", "constant"]
     ]
   },
   {

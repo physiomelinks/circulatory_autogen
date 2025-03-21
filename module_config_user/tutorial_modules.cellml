@@ -13,6 +13,13 @@
         <variable name="E_Na" public_interface="in" units="milliV"/>
         <variable name="k_V" public_interface="in" units="milliV"/>
         <!--!!!!! Here you need to define variables and constants used for the stretch sensitive gating.-->
+        <variable initial_value="m_V_init" name="m_r" public_interface="out" units="dimensionless"/>
+        <variable name="m_r_init" public_interface="in" units="dimensionless"/>
+        <variable name="m_r_inf" public_interface="out" units="dimensionless"/>
+        <variable name="tau_r" public_interface="in" units="ms"/>
+        <variable name="r_50" public_interface="in" units="dimensionless"/>
+        <variable name="k_r" public_interface="in" units="dimensionless"/>
+        <variable name="r_ratio" public_interface="in" units="dimensionless"/>
         <!--!!!!! Currently the model only has voltage dependent activation. You need to include stretch dependence-->
         <math xmlns="http://www.w3.org/1998/Math/MathML">
             <apply>
@@ -22,6 +29,7 @@
                     <times/>
                     <ci>g</ci>
                     <ci>m_V</ci>
+                    <ci>m_r</ci>
                     <apply>
                         <minus/>
                         <ci>Vm</ci>
@@ -75,8 +83,54 @@
                     </apply>
                 </apply>
             </apply>
+            <!--!!!!! Below here include the equations for stretch sensitive gating.-->
+            <apply>
+                <eq/>
+                <apply>
+                    <diff/>
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>m_r</ci>
+                </apply>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <minus/>
+                        <ci>m_r_inf</ci>
+                        <ci>m_r</ci>
+                    </apply>
+                    <ci>tau_r</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>m_r_inf</ci>
+                <apply>
+                    <divide/>
+                    <cn cellml:units="dimensionless">1</cn>
+                    <apply>
+                        <plus/>
+                        <cn cellml:units="dimensionless">1</cn>
+                        <apply>
+                            <exp/>
+                            <apply>
+                                <divide/>
+                                <apply>
+                                    <minus/>
+                                    <apply>
+                                        <minus/>
+                                        <ci>r_ratio</ci>
+                                        <ci>r_50</ci>
+                                    </apply>
+                                </apply>
+                                <ci>k_r</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
         </math>
-        <!--!!!!! Below here include the equations for stretch sensitive gating.-->
         <!--!!!!!-->
     </component>
     <component name="smc_hernandez_with_piezo">
@@ -118,12 +172,14 @@
         </math>
         <variable name="I_Na_total" public_interface="out" units="picoA"/>
         <!--!!!!!! Here is where to add the piezo channel current for molar conservation-->
+        <!--I_Na_total   = 3{dimensionless}*I_NCX+3{dimensionless}*I_NaK+I_NSC_Na+I_Na_Leak;-->
         <math xmlns="http://www.w3.org/1998/Math/MathML">
             <apply>
                 <eq/>
                 <ci>I_Na_total</ci>
                 <apply>
                     <plus/>
+                    <ci>I_piezo</ci>
                     <apply>
                         <times/>
                         <cn cellml:units="dimensionless">3</cn>
@@ -1943,6 +1999,7 @@
                 <ci>I_total</ci>
                 <apply>
                     <plus/>
+                    <ci>I_piezo</ci>
                     <ci>I_CaV</ci>
                     <ci>I_leak_all</ci>
                     <ci>I_PMCA</ci>
