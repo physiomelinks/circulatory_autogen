@@ -340,6 +340,11 @@ class JSONFileParser(object):
                 print(f'combination of vessel_type = {vessel_type} and BC_type = {BC_type} doesn\'t exist, check module_config.json',
                         'for this combination')
                 exit()
+            elif this_vessel_module_df.ndim > 1:
+                print(f'combination of vessel_type = {vessel_type} and BC_type = {BC_type} is not unique, Make sure you',
+                      'are not trying to redefine a module with a defined type and BC that is already in module_config.json',
+                      'or in one of the other user defined module_config.json files in module_config_user/')
+                exit()
             for column in add_on_lists:
                 # deepcopy to make sure that the lists for different vessel same module are not linked
                 try:
