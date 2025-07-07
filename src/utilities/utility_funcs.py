@@ -1,6 +1,8 @@
 import numpy as np
 import math
 import sys
+import re
+import pint
 
 class Normalise_class:
     def __init__(self, param_mins, param_maxs, mod_first_variables=0, modVal = 1.0):
@@ -99,7 +101,85 @@ def get_size(obj, seen=None):
         size += sum([get_size(i, seen) for i in obj])
     return size
 
+class UnitConverter:
+    def __init__(self):
+        self.ureg = pint.UnitRegistry()
+        self.abbreviations = {
+            'cm': 'centimeter',
+            'mm': 'millimeter',
+            'm': 'meter',
+            'g': 'gram',
+            'kg': 'kilogram',
+            's': 'second',
+            'ms': 'millisecond',
+            'mol': 'mole',
+            'L': 'liter',
+            'J': 'joule',
+            'N': 'newton',
+            'A': 'ampere',
+            'V': 'volt',
+            'Hz': 'hertz',
+            'W': 'watt',
+            'dim': 'dimensionless'
+        }
+        self.compound_aliases = {
+            'Js': 'joule*second',
+            'Vs': 'volt*second',
+            'As': 'ampere*second',
+            'Ns': 'newton*second',
+            'milliJs': 'millijoule*second',
+        }
 
+    def expand_compound_unit(self, token):
+        # First, check for compound alias with exponent, e.g., Js2
+        match = re.match(r'([A-Za-z]+)(\d+)$', token)
+        if match and match.group(1) in self.compound_aliases:
+            base = match.group(1)
+            exponent = match.group(2)
+            # Expand the compound alias, then apply exponent to the last unit
+            expanded = self.compound_aliases[base]
+            # Split expanded into its units (e.g., 'joule*second')
+            units = expanded.split('*')
+            # Apply exponent to the last unit
+            units[-1] = f"{units[-1]}**{exponent}"
+            return '*'.join(units)
+        # If it's a plain compound alias
+        if token in self.compound_aliases:
+            return self.compound_aliases[token]
+        # Otherwise, expand as before
+        units = re.findall(r'[a-zA-Z]+(?:[a-zA-Z])?(?:\d*)', token)
+        expanded_parts = []
+        for u in units:
+            match = re.match(r'([a-zA-Z]+)(\d*)$', u)
+            if not match:
+                raise ValueError(f"Could not parse unit token: {u}")
+            base, exponent = match.groups()
+            base_expanded = self.abbreviations.get(base, base)
+            if exponent:
+                expanded_parts.append(f"{base_expanded}**{exponent}")
+            else:
+                expanded_parts.append(base_expanded)
+        return "*".join(expanded_parts)
+
+    def parse_unit_string(self, unit_str):
+        parts = unit_str.split('_per_')
+        if len(parts) == 2:
+            numerator = self.expand_compound_unit(parts[0])
+            denominator = self.expand_compound_unit(parts[1])
+            return f"{numerator} / {denominator}"
+        else:
+            return self.expand_compound_unit(unit_str)
+
+    def get_scale_factor(self, from_unit_str, to_unit_str):
+        try:
+            from_unit = self.ureg(self.parse_unit_string(from_unit_str))
+            to_unit = self.ureg(self.parse_unit_string(to_unit_str))
+            factor = (1 * from_unit).to(to_unit).magnitude
+            return factor
+        except pint.DimensionalityError as e:
+            raise ValueError(f"Incompatible units: {e}")
+        except Exception as e:
+            raise ValueError(f"Failed to parse or convert units: {e}")
 
 
 
