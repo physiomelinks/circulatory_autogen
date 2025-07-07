@@ -22,6 +22,7 @@ except ImportError as e:
           'You will need to open generated models in OpenCOR to check for errors.')
     LIBCELLML_available = False
 
+from utilities.utility_funcs import UnitConverter
 
 
 class CVS0DCellMLGenerator(object):
@@ -62,6 +63,10 @@ class CVS0DCellMLGenerator(object):
 
         # this is a temporary hack to include zero flow ivc if only one input to heart TODO make more robust
         self.ivc_connection_done = 0
+
+        # this is a list of converter components that are used to convert units
+        self.unit_converter_components = []
+        self.unit_converter = UnitConverter()
 
     def generate_files(self):
         if type(self.model).__name__ != "CVS0DModel":
@@ -232,6 +237,9 @@ class CVS0DCellMLGenerator(object):
                 print('writing writing time mappings between environment and modules')
                 self.__write_section_break(wf, 'time mapping')
                 self.__write_time_mappings(wf, self.model.vessels_df)
+
+                # write the converter components
+                self.__write_unit_converter(wf)
 
                 # Finalise the file
                 wf.write('</model>\n')
@@ -2005,15 +2013,43 @@ class CVS0DCellMLGenerator(object):
             print(f'downstream module general ports: {[general_port["port_type"] for general_port in input_general_ports]}')
             exit()
 
-    def __write_mapping(self, wf, inp_name, out_name, inp_vars_list, out_vars_list):
-        mapping = ['<connection>\n', f'   <map_components component_1="{inp_name}" component_2="{out_name}"/>\n']
+    def __write_mapping(self, wf, inp_name, out_name, inp_vars_list, out_vars_list):    # add kwargs for units given out_module_row
         for inp_var, out_var in zip(inp_vars_list, out_vars_list):
             if inp_var and out_var:
-                mapping.append(f'   <map_variables variable_1="{inp_var}" variable_2="{out_var}"/>\n')
-
-        mapping.append('</connection>\n')
-        if len(mapping) > 3:
-            wf.writelines(mapping)
+                inp_unit = self.get_variable_from_component(inp_name, inp_var)
+                out_unit = self.get_variable_from_component(out_name, out_var)
+                print(input(f'Checking units for mapping {inp_name} -> {out_name}: {inp_var} ({inp_unit}) -> {out_var} ({out_unit})'))
+                if inp_unit != out_unit:
+                    try:
+                        scale = self.unit_converter.get_scale_factor(inp_unit, out_unit)
+                        converter_name = f"unit_converter_{inp_var}_{out_var}"
+                        converter_component = self.create_unit_converter_component(
+                            converter_name, inp_var, out_var, scale, inp_unit, out_unit
+                        )
+                        self.add_converter_component(converter_component)
+                        # Connect input module to converter
+                        wf.writelines([
+                            f'<connection>\n'
+                            f'   <map_components component_1="{inp_name}" component_2="{converter_name}"/>\n'
+                            f'   <map_variables variable_1="{inp_var}" variable_2="{inp_var}"/>\n'
+                            f'</connection>\n'
+                        ])
+                        # Connect converter to output module
+                        wf.writelines([
+                            f'<connection>\n'
+                            f'   <map_components component_1="{converter_name}" component_2="{out_name}"/>\n'
+                            f'   <map_variables variable_1="{out_var}" variable_2="{out_var}"/>\n'
+                            f'</connection>\n'
+                        ])
+                    except Exception as e:
+                        print(f"Could not convert units for {inp_var} and {out_var}: {e}")
+                else:
+                    wf.writelines([
+                        '<connection>\n',
+                        f'   <map_components component_1="{inp_name}" component_2="{out_name}"/>\n',
+                        f'   <map_variables variable_1="{inp_var}" variable_2="{out_var}"/>\n',
+                        '</connection>\n'
+                    ])
 
     def __write_variable_declarations(self, wf, variables, units, in_outs):
         for variable, unit, in_out in zip(variables, units, in_outs):
@@ -2089,3 +2125,60 @@ class CVS0DCellMLGenerator(object):
 
         wf.write('   </apply>\n')
         wf.write('</math>\n')
+
+    def __write_unit_converter(self, wf):
+        for comp_str in self.unit_converter_components:
+            wf.write(comp_str + "\n")
+
+    def create_unit_converter_component(self, name, input_var, output_var, scale_factor, units_in, units_out):
+        """
+        Returns a CellML component string that converts input_var (units_in) to output_var (units_out)
+        using the given scale_factor.
+        """
+        return f"""
+        <component name="{name}">
+            <variable name="{input_var}" units="{units_in}" public_interface="in"/>
+            <variable name="{output_var}" units="{out_unit}" public_interface="out"/>
+            <math xmlns="http://www.w3.org/1998/Math/MathML">
+                <apply>
+                    <eq/>
+                    <ci>{output_var}</ci>
+                    <apply>
+                        <times/>
+                        <cn>{scale_factor}</cn>
+                        <ci>{input_var}</ci>
+                    </apply>
+                </apply>
+            </math>
+        </component>
+        """
+    
+    def add_converter_component(self, converter_component_str):
+        """
+        Stores the converter component string for later writing to the CellML file.
+        """
+        self.unit_converter_components.append(converter_component_str)
+
+    def get_variable_from_component(self, component_name, variable_name):
+        """
+        Given a component (module) name and variable name, return the unit name as a string.
+        """
+        # Remove '_module' suffix if present
+        if component_name.endswith('_module'):
+            component_name = component_name[:-7]
+        # Try to find the row in vessels_df
+        df = self.model.vessels_df
+        if hasattr(df, 'loc'):
+            if (df["name"] == component_name).any():
+                row = df.loc[df["name"] == component_name].squeeze()
+                for var_tuple in row["variables_and_units"]:
+                    if var_tuple[0] == variable_name:
+                        return var_tuple[1]
+        # Fallback: for special components like 'parameters_global', 'global', etc.
+        if component_name in ["parameters_global", "global"]:
+            arr = self.model.parameters_array
+            for i in range(len(arr["variable_name"])):
+                if arr["variable_name"][i] == variable_name:
+                    return arr["units"][i]
+        # Not found
+        return "not found"
