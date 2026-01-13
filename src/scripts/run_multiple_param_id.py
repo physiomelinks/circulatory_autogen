@@ -48,7 +48,8 @@ if __name__ == '__main__':
         comm = MPI.COMM_WORLD
         rank = comm.Get_rank()
         num_procs = comm.Get_size()
-        print(f'starting script for rank = {rank}')
+        if rank == 0:
+            print(f'Starting multi-run parameter ID with {num_procs} MPI rank(s)')
 
 
         resources_dir= os.path.join(root_dir, 'resources')
@@ -87,7 +88,10 @@ if __name__ == '__main__':
 
         solver_info = inp_data_dict['solver_info']
         dt = inp_data_dict['dt']
-        ga_options = inp_data_dict['ga_options']
+        # Prefer optimiser_options; fall back to legacy ga_options for compatibility
+        optimiser_options = inp_data_dict.get('optimiser_options', None)
+        if optimiser_options is None:
+            optimiser_options = inp_data_dict.get('ga_options', {})
 
         obs_dir = '/eresearch/heart/farg967/Sandboxes/Finbar/combined'
         # obs_dir = '/home/farg967/Documents/data/heart_projects/Argus_2022'
@@ -133,17 +137,14 @@ if __name__ == '__main__':
                                     input_params_path=input_params_path,
                                     param_id_obs_path=param_id_obs_path,
                                     sim_time=sim_time, pre_time=pre_time,
-                                    solver_info=solver_info, dt=dt, ga_options=ga_options, DEBUG=DEBUG,
+                                    solver_info=solver_info, dt=dt, optimiser_options=optimiser_options, DEBUG=DEBUG,
                                     param_id_output_dir=param_id_output_dir, resources_dir=resources_dir)
 
             if rank == 0:
                 if os.path.exists(os.path.join(param_id.output_dir, 'param_names_to_remove.csv')):
                     os.remove(os.path.join(param_id.output_dir, 'param_names_to_remove.csv'))
 
-            if DEBUG:
-                num_calls_to_function = inp_data_dict['debug_ga_options']['num_calls_to_function']
-            else:
-                num_calls_to_function = inp_data_dict['ga_options']['num_calls_to_function']
+            num_calls_to_function = optimiser_options.get('num_calls_to_function', 10000)
 
             if param_id_method == 'genetic_algorithm':
                 param_id.set_genetic_algorithm_parameters(num_calls_to_function)

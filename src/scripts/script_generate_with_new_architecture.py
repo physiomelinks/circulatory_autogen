@@ -17,6 +17,7 @@ user_inputs_dir= os.path.join(root_dir, 'user_run_files')
 from parsers.ModelParsers import CSV0DModelParser
 from generators.CVSCellMLGenerator import CVS0DCellMLGenerator
 from generators.CVSCppGenerator import CVS0DCppGenerator
+from generators.PythonGenerator import PythonGenerator
 from parsers.PrimitiveParsers import YamlFileParser
 
 
@@ -49,6 +50,15 @@ def generate_with_new_architecture(do_generation_with_fit_parameters,
     if inp_data_dict['model_type'] == 'cellml_only':
         code_generator = CVS0DCellMLGenerator(model, inp_data_dict)
         success = code_generator.generate_files()
+    elif inp_data_dict['model_type'] == 'python':
+        # First generate the CellML model, then emit a Python module in the same directory.
+        cellml_generator = CVS0DCellMLGenerator(model, inp_data_dict)
+        success = cellml_generator.generate_files()
+        if success:
+            cellml_path = os.path.join(generated_models_subdir, f'{file_prefix}.cellml')
+            py_gen = PythonGenerator(cellml_path, output_dir=generated_models_subdir, module_name=file_prefix)
+            py_gen.generate()
+            success = True
     elif inp_data_dict['model_type'] == 'cpp':
         if inp_data_dict['couple_to_1d']:
             code_generator = CVS0DCppGenerator(model, generated_models_subdir, file_prefix,

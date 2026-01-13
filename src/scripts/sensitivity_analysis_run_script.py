@@ -13,6 +13,9 @@ def run_SA(inp_data_dict=None):
 
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
+    num_procs = comm.Get_size()
+    if rank == 0:
+        print(f'Running sensitivity analysis with {num_procs} MPI rank(s)')
 
     yaml_parser = YamlFileParser()
     inp_data_dict = yaml_parser.parse_user_inputs_file(inp_data_dict, obs_path_needed=True, do_generation_with_fit_parameters=False)
@@ -26,7 +29,8 @@ def run_SA(inp_data_dict=None):
     param_id_obs_path = inp_data_dict['param_id_obs_path']
     solver_info = inp_data_dict['solver_info']
     dt = inp_data_dict['dt']
-    ga_options = inp_data_dict['ga_options']
+    # Prefer optimiser_options; parser merges legacy ga_options for compatibility
+    optimiser_options = inp_data_dict.get('optimiser_options', None)
     sa_options = inp_data_dict['sa_options']
     
     # param_orig_vals = inp_data_dict['param_orig_vals']
@@ -38,15 +42,15 @@ def run_SA(inp_data_dict=None):
 
     SA_agent = SensitivityAnalysis(model_path=model_path, model_type=model_type, file_name_prefix=file_name_prefix,
                                    DEBUG=DEBUG, model_out_names=model_out_names, solver_info=solver_info, dt=dt, 
-                                   ga_options=ga_options, param_id_obs_path=param_id_obs_path, params_for_id_path=params_for_id_path)
+                                   ga_options=optimiser_options, param_id_obs_path=param_id_obs_path, params_for_id_path=params_for_id_path)
     SA_agent.run_sensitivity_analysis(sa_options=sa_options)
-
-    MPI.Finalize()
 
 if __name__ == '__main__':
     comm = MPI.COMM_WORLD
     try:
         run_SA()
+        MPI.Finalize()
     except:
         print(traceback.format_exc())
         comm.Abort()
+        MPI.Finalize()

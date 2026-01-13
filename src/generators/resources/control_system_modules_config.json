@@ -1,0 +1,45 @@
+[
+  {
+    "vessel_type":"pid_control",
+    "BC_type":"nn",
+    "module_format":"cellml",
+    "module_file":"control_system_modules.cellml",
+    "module_type":"pid_control_type",
+    "entrance_ports":
+    [
+      {
+        "port_type":"pressure_and_deriv_port",
+        "variables":["P_a", "dP_a_dt"]
+      }
+    ],
+    "exit_ports":
+    [
+      {
+        "port_type":"stimulation_frequency_port",
+        "variables":["f_stim"],
+        "multi_port":"True"
+      }
+    ],
+    "general_ports":[],
+    "variables_and_units":
+    [
+      ["P_a", "J_per_m3", "access", "boundary_condition"],
+      ["dP_a_dt", "J_per_m3s", "access", "boundary_condition"],
+      ["P_target", "J_per_m3", "access", "constant"],
+      ["P_scale", "J_per_m3", "access", "constant"],
+      ["K_p", "per_s", "access", "constant"],
+      ["K_i", "per_s2", "access", "constant"],
+      ["K_d", "dimensionless", "access", "constant"],
+      ["f_stim_min", "per_s", "access", "constant"],
+      ["f_stim_max", "per_s", "access", "constant"],
+      ["f_stim_HF", "per_s", "access", "constant"],
+      ["e_int_init", "second", "access", "constant"],
+      ["e_norm", "dimensionless", "access", "variable"],
+      ["d_e_dt", "per_s", "access", "variable"],
+      ["e_int", "second", "access", "variable"],
+      ["f_stim_raw", "per_s", "access", "variable"],
+      ["f_stim", "per_s", "access", "variable"]
+    ]
+  }
+]
+

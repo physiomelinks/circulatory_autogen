@@ -4,4 +4,5 @@ if [[ $# -eq 0 ]] ; then
 fi
 
 source opencor_pythonshell_path.sh
-mpiexec -n "$1" "${opencor_pythonshell_path}" ../src/scripts/run_sensitivity_analysis_test.py
+
+mpiexec -n "$1" "${opencor_pythonshell_path}" -m pytest ../tests/test_sensitivity_analysis.py -v

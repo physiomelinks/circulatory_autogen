@@ -319,6 +319,9 @@
     <units name="per_s">
         <unit exponent="-1" units="second"/>
     </units>
+    <units name="per_s2">
+        <unit exponent="-2" units="second"/>
+    </units>
     <!-- reaction rate (order2)-->
     <units name="per_mM_s">
         <unit exponent="-1" units="mM"/>

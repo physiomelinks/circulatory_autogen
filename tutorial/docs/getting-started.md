@@ -81,6 +81,12 @@ To install required python packages, navigate to `[OpenCOR_dir]` directory and r
     
     **Required packages for sensitivity analysis **:
     SALib==1.5.1 seaborn
+    
+    **Required packages for CMAES**:
+    nevergrad
+    
+    **Required packages for testing**:
+    pytest
 
     **Required for some utilities**:
     ruamel.yaml

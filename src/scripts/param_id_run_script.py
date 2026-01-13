@@ -32,7 +32,8 @@ def run_param_id(inp_data_dict=None):
     pre_time = inp_data_dict['pre_time']
     solver_info = inp_data_dict['solver_info']
     dt = inp_data_dict['dt']
-    ga_options = inp_data_dict['ga_options']
+    # Get optimiser_options (parser already merged any legacy ga_options/debug_ga_options)
+    optimiser_options = inp_data_dict.get('optimiser_options', None)
     resources_dir = inp_data_dict['resources_dir']
     param_id_output_dir = inp_data_dict['param_id_output_dir']
     
@@ -43,13 +44,15 @@ def run_param_id(inp_data_dict=None):
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
     num_procs = comm.Get_size()
-    print(f'starting script for rank = {rank}')
+    if rank == 0:
+        print(f'Starting parameter identification with {num_procs} MPI rank(s)')
 
     param_id = CVS0DParamID(model_path, model_type, param_id_method, False, file_prefix,
                             params_for_id_path=params_for_id_path,
                             param_id_obs_path=param_id_obs_path,
                             sim_time=sim_time, pre_time=pre_time,
-                            solver_info=solver_info, dt=dt, ga_options=ga_options, DEBUG=DEBUG,
+                            solver_info=solver_info, dt=dt,
+                            optimiser_options=optimiser_options, DEBUG=DEBUG,
                             param_id_output_dir=param_id_output_dir, resources_dir=resources_dir)
 
     if rank == 0:
@@ -68,10 +71,10 @@ def run_param_id(inp_data_dict=None):
                                                             # gp_hedge, chooses the best from "EI", "PI", and "LCB
                                                             # so it needs both xi and kappa
         # TODO this needs to be defined better if we want to keep bayesian optimiser functionality
-        if DEBUG:
-            num_calls_to_function = inp_data_dict['debug_ga_options']['num_calls_to_function']
-        else:
-            num_calls_to_function = inp_data_dict['ga_options']['num_calls_to_function']
+        # Use optimiser_options (already merged with any legacy options by parser)
+        num_calls_to_function = optimiser_options.get('num_calls_to_function')
+        if num_calls_to_function is None:
+            num_calls_to_function = 10000  # fallback default
         param_id.set_bayesian_parameters(num_calls_to_function, n_initial_points, acq_func,  random_seed,
                                             acq_func_kwargs=acq_func_kwargs)
     param_id.run()
@@ -126,4 +129,5 @@ if __name__ == '__main__':
     except:
         print(traceback.format_exc())
         comm.Abort()
+        MPI.Finalize()
         exit()

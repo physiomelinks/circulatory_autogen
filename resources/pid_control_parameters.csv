@@ -1,0 +1,13 @@
+variable_name,units,value,data_reference
+P_a_pid_control,J_per_m3,12000,prototype
+dP_a_dt_pid_control,J_per_m3s,0,prototype
+P_target_pid_control,J_per_m3,12000,prototype
+P_scale_pid_control,J_per_m3,4000,prototype
+K_p_pid_control,per_s,0.1,prototype
+K_i_pid_control,per_s2,0.01,prototype
+K_d_pid_control,dimensionless,0.02,prototype
+f_stim_min_pid_control,per_s,0,prototype
+f_stim_max_pid_control,per_s,30,prototype
+f_stim_HF_pid_control,per_s,20000,prototype
+e_int_init_pid_control,second,0,prototype
+

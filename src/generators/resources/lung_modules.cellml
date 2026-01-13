@@ -631,14 +631,15 @@
     <component name="lung_bond_graph_Argus_Chase_type">
         <variable name="t" public_interface="in" units="second"/>
         <!-- ______  Pressures _________
- atmospheric/mouth pressure-->
-        <variable name="P_m" public_interface="in" units="J_per_m3"/>
-        <!-- larynx pressure-->
-        <variable name="P_l" public_interface="out" units="J_per_m3"/>
+ atmospheric/cpap pressure-->
+        <variable name="P_in" public_interface="in" units="J_per_m3"/>
+        <!-- mouth pressure-->
+        <variable initial_value="P_in" name="P_m" public_interface="out" units="J_per_m3"/>
         <!-- trachea pressure-->
         <variable name="P_t" public_interface="out" units="J_per_m3"/>
         <!-- bronchea pressure-->
         <variable name="P_b" public_interface="out" units="J_per_m3"/>
+        <!-- var PEEP: J_per_m3 {pub: in};-->
         <!-- Alveolar pressure-->
         <variable name="P_A" public_interface="out" units="J_per_m3"/>
         <!-- Pleural pressure-->
@@ -649,9 +650,8 @@
         <variable name="P_mus_min_wCont" public_interface="out" units="J_per_m3"/>
         <variable name="P_plEE" public_interface="in" units="J_per_m3"/>
         <variable name="Delta_P_mus" public_interface="in" units="J_per_m3"/>
-        <!-- ______  volumes_________
- larynx volume-->
-        <variable initial_value="1.0e-2" name="q_l" public_interface="out" units="m3"/>
+        <!-- ______  volumes_________   -->
+        <!-- volume of tube/mask-->
         <variable initial_value="1.0e-3" name="q_t" public_interface="out" units="m3"/>
         <variable initial_value="1.0e-3" name="q_b" public_interface="out" units="m3"/>
         <variable initial_value="0.0" name="q_A_stressed" public_interface="out" units="m3"/>
@@ -659,27 +659,119 @@
         <variable initial_value="0.0" name="q_pl" public_interface="out" units="m3"/>
         <variable name="q_D" public_interface="out" units="m3"/>
         <variable name="q_str" public_interface="out" units="m3"/>
+        <variable name="q_tot" public_interface="out" units="m3"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <ci>q_tot</ci>
+                <apply>
+                    <plus/>
+                    <ci>q_A</ci>
+                    <ci>q_b</ci>
+                    <ci>q_t</ci>
+                </apply>
+            </apply>
+        </math>
         <!-- ______  flows _________-->
-        <variable name="v_ml" public_interface="out" units="m3_per_s"/>
-        <variable name="v_lt" public_interface="out" units="m3_per_s"/>
+        <variable name="v_vm" public_interface="out" units="m3_per_s"/>
+        <variable name="v_mt" public_interface="out" units="m3_per_s"/>
         <variable name="v_tb" public_interface="out" units="m3_per_s"/>
         <variable name="v_bA" public_interface="out" units="m3_per_s"/>
         <variable name="v_twall" public_interface="out" units="m3_per_s"/>
         <variable name="v_bwall" public_interface="out" units="m3_per_s"/>
         <variable name="v_plwall" public_interface="out" units="m3_per_s"/>
         <!-- ______  Resistances_________-->
-        <variable name="R_ml" public_interface="in" units="Js_per_m6"/>
-        <variable name="R_lt" public_interface="in" units="Js_per_m6"/>
-        <variable name="R_tb" public_interface="in" units="Js_per_m6"/>
-        <variable name="R_bA" public_interface="in" units="Js_per_m6"/>
+        <variable name="frac_R_bA" public_interface="in" units="dimensionless"/>
+        <!-- total airway resistance-->
+        <variable name="R_tot" public_interface="in" units="Js_per_m6"/>
+        <variable name="R_mt" public_interface="out" units="Js_per_m6"/>
+        <variable name="R_tb" public_interface="out" units="Js_per_m6"/>
+        <variable name="R_bA" public_interface="out" units="Js_per_m6"/>
         <variable name="alpha_LR" public_interface="out" units="dimensionless"/>
         <variable name="R_plwall" public_interface="in" units="Js_per_m6"/>
+        <!-- non bronchile resistance is split evenly in airway compartments.-->
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <ci>R_mt</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <minus/>
+                            <cn cellml:units="dimensionless">1</cn>
+                            <ci>frac_R_bA</ci>
+                        </apply>
+                        <ci>R_tot</ci>
+                    </apply>
+                    <cn cellml:units="dimensionless">2</cn>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>R_tb</ci>
+                <ci>R_mt</ci>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>R_bA</ci>
+                <apply>
+                    <times/>
+                    <ci>frac_R_bA</ci>
+                    <ci>R_tot</ci>
+                </apply>
+            </apply>
+        </math>
         <!-- ______  Compliances_________-->
-        <variable name="C_l" public_interface="in" units="m6_per_J"/>
         <variable name="C_t" public_interface="in" units="m6_per_J"/>
-        <variable name="C_b" public_interface="in" units="m6_per_J"/>
-        <variable name="C_A" public_interface="in" units="m6_per_J"/>
+        <variable name="C_b" public_interface="out" units="m6_per_J"/>
+        <variable name="C_A" public_interface="out" units="m6_per_J"/>
         <variable name="C_pl" public_interface="in" units="m6_per_J"/>
+        <variable name="C_tot" public_interface="in" units="m6_per_J"/>
+        <variable name="beta_C_insp_to_exp" public_interface="in" units="dimensionless"/>
+        <variable name="alpha_C_A_to_tot" public_interface="in" units="dimensionless"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <ci>C_A</ci>
+                <piecewise>
+                    <piece>
+                        <apply>
+                            <times/>
+                            <ci>alpha_C_A_to_tot</ci>
+                            <ci>C_tot</ci>
+                        </apply>
+                        <apply>
+                            <lt/>
+                            <ci>t_floor</ci>
+                            <ci>T_I</ci>
+                        </apply>
+                    </piece>
+                    <otherwise>
+                        <apply>
+                            <times/>
+                            <ci>beta_C_insp_to_exp</ci>
+                            <ci>alpha_C_A_to_tot</ci>
+                            <ci>C_tot</ci>
+                        </apply>
+                    </otherwise>
+                </piecewise>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>C_b</ci>
+                <apply>
+                    <times/>
+                    <apply>
+                        <minus/>
+                        <cn cellml:units="dimensionless">1</cn>
+                        <ci>alpha_C_A_to_tot</ci>
+                    </apply>
+                    <ci>C_tot</ci>
+                </apply>
+            </apply>
+        </math>
         <!-- periods/times-->
         <variable name="t_floor" public_interface="out" units="second"/>
         <variable name="T_resp" public_interface="in" units="second"/>
@@ -687,10 +779,9 @@
         <variable name="T_resp_wCont" public_interface="out" units="second"/>
         <variable name="T_I" public_interface="out" units="second"/>
         <variable name="T_E" public_interface="out" units="second"/>
-        <variable name="tau" public_interface="out" units="second"/>
-        <variable name="IE_ratio" public_interface="in" units="dimensionless"/>
+        <variable name="frac_T_insp" public_interface="in" units="dimensionless"/>
+        <variable name="frac_T_exp" public_interface="in" units="dimensionless"/>
         <!-- unstressed volumes-->
-        <variable name="q_l_us" public_interface="in" units="m3"/>
         <variable name="q_t_us" public_interface="in" units="m3"/>
         <variable name="q_b_us" public_interface="in" units="m3"/>
         <variable name="q_A_us" public_interface="in" units="m3"/>
@@ -726,13 +817,9 @@
                 <eq/>
                 <ci>T_E</ci>
                 <apply>
-                    <divide/>
+                    <times/>
+                    <ci>frac_T_exp</ci>
                     <ci>T_resp</ci>
-                    <apply>
-                        <plus/>
-                        <cn cellml:units="dimensionless">1</cn>
-                        <ci>IE_ratio</ci>
-                    </apply>
                 </apply>
             </apply>
             <apply>
@@ -740,31 +827,44 @@
                 <ci>T_I</ci>
                 <apply>
                     <times/>
-                    <ci>T_E</ci>
-                    <ci>IE_ratio</ci>
+                    <ci>frac_T_insp</ci>
+                    <ci>T_resp</ci>
                 </apply>
             </apply>
+        </math>
+        <!-- TODO split this into submodules-->
+        <variable name="C_vent" public_interface="in" units="m6_per_J"/>
+        <variable name="C_m" public_interface="in" units="m6_per_J"/>
+        <!-- mouth/mask compliance-->
+        <variable name="R_tube" public_interface="in" units="Js_per_m6"/>
+        <variable name="k_p_vent" public_interface="in" units="per_s"/>
+        <variable name="k_I_vent" public_interface="in" units="per_s2"/>
+        <variable initial_value="0.0" name="P_err_int" public_interface="out" units="Js_per_m3"/>
+        <variable initial_value="0.0" name="P_vent" public_interface="out" units="J_per_m3"/>
+        <variable name="alpha_vent" public_interface="in" units="per_s"/>
+        <!-- reverse engineered controller for the ventilator.-->
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
             <apply>
                 <eq/>
-                <ci>tau</ci>
                 <apply>
-                    <divide/>
-                    <ci>T_E</ci>
-                    <cn cellml:units="dimensionless">5</cn>
+                    <diff/>
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>P_err_int</ci>
                 </apply>
-            </apply>
-            <!-- TODO split this into submodules-->
-            <apply>
-                <eq/>
-                <ci>v_ml</ci>
                 <apply>
-                    <divide/>
+                    <minus/>
                     <apply>
                         <minus/>
-                        <ci>P_m</ci>
-                        <ci>P_l</ci>
+                        <ci>P_vent</ci>
+                        <ci>P_in</ci>
                     </apply>
-                    <ci>R_ml</ci>
+                    <apply>
+                        <times/>
+                        <ci>alpha_vent</ci>
+                        <ci>P_err_int</ci>
+                    </apply>
                 </apply>
             </apply>
             <apply>
@@ -774,34 +874,80 @@
                     <bvar>
                         <ci>t</ci>
                     </bvar>
-                    <ci>q_l</ci>
+                    <ci>P_vent</ci>
                 </apply>
                 <apply>
                     <minus/>
-                    <ci>v_ml</ci>
-                    <ci>v_lt</ci>
+                    <apply>
+                        <minus/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <ci>v_vm</ci>
+                            </apply>
+                            <ci>C_vent</ci>
+                        </apply>
+                        <apply>
+                            <times/>
+                            <ci>k_p_vent</ci>
+                            <apply>
+                                <minus/>
+                                <ci>P_vent</ci>
+                                <ci>P_in</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>k_I_vent</ci>
+                        <ci>P_err_int</ci>
+                    </apply>
                 </apply>
             </apply>
             <apply>
                 <eq/>
-                <ci>P_l</ci>
-                <apply>
-                    <divide/>
-                    <ci>q_l</ci>
-                    <ci>C_l</ci>
-                </apply>
-            </apply>
-            <apply>
-                <eq/>
-                <ci>v_lt</ci>
+                <ci>v_vm</ci>
                 <apply>
                     <divide/>
                     <apply>
                         <minus/>
-                        <ci>P_l</ci>
+                        <ci>P_vent</ci>
+                        <ci>P_m</ci>
+                    </apply>
+                    <ci>R_tube</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <apply>
+                    <diff/>
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>P_m</ci>
+                </apply>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <minus/>
+                        <ci>v_vm</ci>
+                        <ci>v_mt</ci>
+                    </apply>
+                    <ci>C_m</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>v_mt</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <minus/>
+                        <ci>P_m</ci>
                         <ci>P_t</ci>
                     </apply>
-                    <ci>R_lt</ci>
+                    <ci>R_mt</ci>
                 </apply>
             </apply>
             <apply>
@@ -809,7 +955,7 @@
                 <ci>v_twall</ci>
                 <apply>
                     <minus/>
-                    <ci>v_lt</ci>
+                    <ci>v_mt</ci>
                     <ci>v_tb</ci>
                 </apply>
             </apply>
@@ -944,7 +1090,8 @@
                 </apply>
                 <ci>v_bA</ci>
             </apply>
-            <!-- The square below comes from Morton2020Prediction-->
+            <!-- The square below comes from Morton2020Prediction
+ P_A          = sqr(q_A_stressed)/C_A+P_pl; // C_A value in square, 4e-9 was okay-->
             <apply>
                 <eq/>
                 <ci>P_A</ci>
@@ -952,11 +1099,7 @@
                     <plus/>
                     <apply>
                         <divide/>
-                        <apply>
-                            <power/>
-                            <ci>q_A_stressed</ci>
-                            <cn cellml:units="dimensionless">2</cn>
-                        </apply>
+                        <ci>q_A_stressed</ci>
                         <ci>C_A</ci>
                     </apply>
                     <ci>P_pl</ci>
@@ -1020,10 +1163,8 @@
                     <max/>
                     <apply>
                         <plus/>
-                        <ci>q_l</ci>
                         <ci>q_t</ci>
                         <ci>q_b</ci>
-                        <ci>q_l_us</ci>
                         <ci>q_t_us</ci>
                         <ci>q_b_us</ci>
                     </apply>
@@ -1040,7 +1181,6 @@
                 </apply>
             </apply>
         </math>
-        <!-- TODO + unstressed volume-->
         <variable initial_value="0.0" name="s" public_interface="out" units="dimensionless"/>
         <variable name="s_floor" public_interface="out" units="dimensionless"/>
         <!-- calculate normalised time through this period-->
@@ -1082,7 +1222,6 @@
                     <ci>T_resp</ci>
                 </apply>
             </apply>
-            <!-- TODO swap this muscle model for the one used in ben tal and smith 2008-->
             <apply>
                 <eq/>
                 <ci>P_mus_min_wCont</ci>
@@ -1121,147 +1260,1215 @@
                     </apply>
                 </apply>
             </apply>
+        </math>
+        <!-- TODO apply the P_mus_max_wCont to the 
+ Figure out whether the negative P_plEE and the positive PEEP are the same things.-->
+        <!-- TODO turn the below b-spline calculation into a separate module-->
+        <variable name="P_d" public_interface="out" units="J_per_m3"/>
+        <!-- TODO also need to scale k_w in lung control-->
+        <variable name="k_w" public_interface="in" units="second"/>
+        <!-- coeffs-->
+        <variable name="P_d_1" public_interface="in" units="J_per_m3"/>
+        <variable name="P_d_2" public_interface="in" units="J_per_m3"/>
+        <variable name="P_d_3" public_interface="in" units="J_per_m3"/>
+        <variable name="P_d_4" public_interface="in" units="J_per_m3"/>
+        <variable name="P_d_5" public_interface="in" units="J_per_m3"/>
+        <variable name="P_d_6" public_interface="in" units="J_per_m3"/>
+        <variable name="P_d_7" public_interface="in" units="J_per_m3"/>
+        <variable name="P_d_8" public_interface="in" units="J_per_m3"/>
+        <!-- here we calculate the driving pressure from 8 b-spline functions.-->
+        <variable name="phi_1_0" public_interface="out" units="dimensionless"/>
+        <variable name="phi_2_0" public_interface="out" units="dimensionless"/>
+        <variable name="phi_3_0" public_interface="out" units="dimensionless"/>
+        <variable name="phi_4_0" public_interface="out" units="dimensionless"/>
+        <variable name="phi_5_0" public_interface="out" units="dimensionless"/>
+        <variable name="phi_6_0" public_interface="out" units="dimensionless"/>
+        <variable name="phi_7_0" public_interface="out" units="dimensionless"/>
+        <variable name="phi_8_0" public_interface="out" units="dimensionless"/>
+        <variable name="phi_9_0" public_interface="out" units="dimensionless"/>
+        <variable name="phi_10_0" public_interface="out" units="dimensionless"/>
+        <variable name="phi_1_1" public_interface="out" units="dimensionless"/>
+        <variable name="phi_2_1" public_interface="out" units="dimensionless"/>
+        <variable name="phi_3_1" public_interface="out" units="dimensionless"/>
+        <variable name="phi_4_1" public_interface="out" units="dimensionless"/>
+        <variable name="phi_5_1" public_interface="out" units="dimensionless"/>
+        <variable name="phi_6_1" public_interface="out" units="dimensionless"/>
+        <variable name="phi_7_1" public_interface="out" units="dimensionless"/>
+        <variable name="phi_8_1" public_interface="out" units="dimensionless"/>
+        <variable name="phi_9_1" public_interface="out" units="dimensionless"/>
+        <variable name="phi_1_2" public_interface="out" units="dimensionless"/>
+        <variable name="phi_2_2" public_interface="out" units="dimensionless"/>
+        <variable name="phi_3_2" public_interface="out" units="dimensionless"/>
+        <variable name="phi_4_2" public_interface="out" units="dimensionless"/>
+        <variable name="phi_5_2" public_interface="out" units="dimensionless"/>
+        <variable name="phi_6_2" public_interface="out" units="dimensionless"/>
+        <variable name="phi_7_2" public_interface="out" units="dimensionless"/>
+        <variable name="phi_8_2" public_interface="out" units="dimensionless"/>
+        <!-- the below uses one more k_w than in calibration on purpose.
+ P_d should go just past T_insp (one k_w past)-->
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
             <apply>
                 <eq/>
-                <ci>P_mus</ci>
+                <ci>phi_1_0</ci>
                 <piecewise>
                     <piece>
+                        <cn cellml:units="dimensionless">1.0</cn>
                         <apply>
-                            <plus/>
+                            <and/>
                             <apply>
-                                <minus/>
-                                <ci>P_mus_max_wCont</ci>
+                                <lt/>
                                 <apply>
                                     <times/>
-                                    <apply>
-                                        <divide/>
-                                        <apply>
-                                            <minus/>
-                                            <ci>P_mus_min_wCont</ci>
-                                            <ci>P_mus_max_wCont</ci>
-                                        </apply>
-                                        <apply>
-                                            <times/>
-                                            <ci>T_I</ci>
-                                            <ci>T_E</ci>
-                                        </apply>
-                                    </apply>
-                                    <apply>
-                                        <power/>
-                                        <ci>t_floor</ci>
-                                        <cn cellml:units="dimensionless">2</cn>
-                                    </apply>
-                                </apply>
-                            </apply>
-                            <apply>
-                                <times/>
-                                <apply>
-                                    <divide/>
-                                    <apply>
-                                        <times/>
-                                        <apply>
-                                            <minus/>
-                                            <ci>P_mus_min_wCont</ci>
-                                            <ci>P_mus_max_wCont</ci>
-                                        </apply>
-                                        <ci>T_resp</ci>
-                                    </apply>
-                                    <apply>
-                                        <times/>
-                                        <ci>T_I</ci>
-                                        <ci>T_E</ci>
-                                    </apply>
+                                    <cn cellml:units="dimensionless">0</cn>
+                                    <ci>k_w</ci>
                                 </apply>
                                 <ci>t_floor</ci>
                             </apply>
-                        </apply>
-                        <apply>
-                            <lt/>
-                            <ci>t_floor</ci>
-                            <ci>T_I</ci>
-                        </apply>
-                    </piece>
-                    <otherwise>
-                        <apply>
-                            <plus/>
-                            <ci>P_mus_max_wCont</ci>
                             <apply>
-                                <times/>
+                                <lt/>
+                                <ci>t_floor</ci>
                                 <apply>
-                                    <divide/>
-                                    <apply>
-                                        <minus/>
-                                        <ci>P_mus_min_wCont</ci>
-                                        <ci>P_mus_max_wCont</ci>
-                                    </apply>
-                                    <apply>
-                                        <minus/>
-                                        <cn cellml:units="dimensionless">1</cn>
-                                        <apply>
-                                            <exp/>
-                                            <apply>
-                                                <divide/>
-                                                <apply>
-                                                    <minus/>
-                                                    <ci>T_E</ci>
-                                                </apply>
-                                                <ci>tau</ci>
-                                            </apply>
-                                        </apply>
-                                    </apply>
-                                </apply>
-                                <apply>
-                                    <minus/>
-                                    <apply>
-                                        <exp/>
-                                        <apply>
-                                            <divide/>
-                                            <apply>
-                                                <minus/>
-                                                <apply>
-                                                    <minus/>
-                                                    <ci>t_floor</ci>
-                                                    <ci>T_I</ci>
-                                                </apply>
-                                            </apply>
-                                            <ci>tau</ci>
-                                        </apply>
-                                    </apply>
-                                    <apply>
-                                        <exp/>
-                                        <apply>
-                                            <divide/>
-                                            <apply>
-                                                <minus/>
-                                                <ci>T_E</ci>
-                                            </apply>
-                                            <ci>tau</ci>
-                                        </apply>
-                                    </apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">1</cn>
+                                    <ci>k_w</ci>
                                 </apply>
                             </apply>
                         </apply>
+                    </piece>
+                    <otherwise>
+                        <cn cellml:units="dimensionless">0.0</cn>
                     </otherwise>
                 </piecewise>
             </apply>
-            <!-- Here we add the nonlinear control law for alpha TODO should this be dependednt on each vessels volume? probably-->
             <apply>
                 <eq/>
-                <ci>alpha_LR</ci>
-                <apply>
-                    <divide/>
-                    <cn cellml:units="m3" type="e-notation">1.0<sep/>-4</cn>
-                    <apply>
-                        <plus/>
+                <ci>phi_2_0</ci>
+                <piecewise>
+                    <piece>
+                        <cn cellml:units="dimensionless">1.0</cn>
                         <apply>
-                            <abs/>
-                            <ci>q_b</ci>
+                            <and/>
+                            <apply>
+                                <lt/>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">1</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                                <ci>t_floor</ci>
+                            </apply>
+                            <apply>
+                                <lt/>
+                                <ci>t_floor</ci>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">2</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                            </apply>
                         </apply>
-                        <cn cellml:units="m3" type="e-notation">1<sep/>-12</cn>
+                    </piece>
+                    <otherwise>
+                        <cn cellml:units="dimensionless">0.0</cn>
+                    </otherwise>
+                </piecewise>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>phi_3_0</ci>
+                <piecewise>
+                    <piece>
+                        <cn cellml:units="dimensionless">1.0</cn>
+                        <apply>
+                            <and/>
+                            <apply>
+                                <lt/>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">2</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                                <ci>t_floor</ci>
+                            </apply>
+                            <apply>
+                                <lt/>
+                                <ci>t_floor</ci>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">3</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                            </apply>
+                        </apply>
+                    </piece>
+                    <otherwise>
+                        <cn cellml:units="dimensionless">0.0</cn>
+                    </otherwise>
+                </piecewise>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>phi_4_0</ci>
+                <piecewise>
+                    <piece>
+                        <cn cellml:units="dimensionless">1.0</cn>
+                        <apply>
+                            <and/>
+                            <apply>
+                                <lt/>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">3</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                                <ci>t_floor</ci>
+                            </apply>
+                            <apply>
+                                <lt/>
+                                <ci>t_floor</ci>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">4</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                            </apply>
+                        </apply>
+                    </piece>
+                    <otherwise>
+                        <cn cellml:units="dimensionless">0.0</cn>
+                    </otherwise>
+                </piecewise>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>phi_5_0</ci>
+                <piecewise>
+                    <piece>
+                        <cn cellml:units="dimensionless">1.0</cn>
+                        <apply>
+                            <and/>
+                            <apply>
+                                <lt/>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">4</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                                <ci>t_floor</ci>
+                            </apply>
+                            <apply>
+                                <lt/>
+                                <ci>t_floor</ci>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">5</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                            </apply>
+                        </apply>
+                    </piece>
+                    <otherwise>
+                        <cn cellml:units="dimensionless">0.0</cn>
+                    </otherwise>
+                </piecewise>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>phi_6_0</ci>
+                <piecewise>
+                    <piece>
+                        <cn cellml:units="dimensionless">1.0</cn>
+                        <apply>
+                            <and/>
+                            <apply>
+                                <lt/>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">5</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                                <ci>t_floor</ci>
+                            </apply>
+                            <apply>
+                                <lt/>
+                                <ci>t_floor</ci>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">6</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                            </apply>
+                        </apply>
+                    </piece>
+                    <otherwise>
+                        <cn cellml:units="dimensionless">0.0</cn>
+                    </otherwise>
+                </piecewise>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>phi_7_0</ci>
+                <piecewise>
+                    <piece>
+                        <cn cellml:units="dimensionless">1.0</cn>
+                        <apply>
+                            <and/>
+                            <apply>
+                                <lt/>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">6</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                                <ci>t_floor</ci>
+                            </apply>
+                            <apply>
+                                <lt/>
+                                <ci>t_floor</ci>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">7</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                            </apply>
+                        </apply>
+                    </piece>
+                    <otherwise>
+                        <cn cellml:units="dimensionless">0.0</cn>
+                    </otherwise>
+                </piecewise>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>phi_8_0</ci>
+                <piecewise>
+                    <piece>
+                        <cn cellml:units="dimensionless">1.0</cn>
+                        <apply>
+                            <and/>
+                            <apply>
+                                <lt/>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">7</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                                <ci>t_floor</ci>
+                            </apply>
+                            <apply>
+                                <lt/>
+                                <ci>t_floor</ci>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">8</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                            </apply>
+                        </apply>
+                    </piece>
+                    <otherwise>
+                        <cn cellml:units="dimensionless">0.0</cn>
+                    </otherwise>
+                </piecewise>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>phi_9_0</ci>
+                <piecewise>
+                    <piece>
+                        <cn cellml:units="dimensionless">1.0</cn>
+                        <apply>
+                            <and/>
+                            <apply>
+                                <lt/>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">8</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                                <ci>t_floor</ci>
+                            </apply>
+                            <apply>
+                                <lt/>
+                                <ci>t_floor</ci>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">9</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                            </apply>
+                        </apply>
+                    </piece>
+                    <otherwise>
+                        <cn cellml:units="dimensionless">0.0</cn>
+                    </otherwise>
+                </piecewise>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>phi_10_0</ci>
+                <piecewise>
+                    <piece>
+                        <cn cellml:units="dimensionless">1.0</cn>
+                        <apply>
+                            <and/>
+                            <apply>
+                                <lt/>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">9</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                                <ci>t_floor</ci>
+                            </apply>
+                            <apply>
+                                <lt/>
+                                <ci>t_floor</ci>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">10</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                            </apply>
+                        </apply>
+                    </piece>
+                    <otherwise>
+                        <cn cellml:units="dimensionless">0.0</cn>
+                    </otherwise>
+                </piecewise>
+            </apply>
+            <!-- first order-->
+            <apply>
+                <eq/>
+                <ci>phi_1_1</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <ci>t_floor</ci>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">0</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                            </apply>
+                            <ci>k_w</ci>
+                        </apply>
+                        <ci>phi_1_0</ci>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">2</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                                <ci>t_floor</ci>
+                            </apply>
+                            <ci>k_w</ci>
+                        </apply>
+                        <ci>phi_2_0</ci>
                     </apply>
                 </apply>
             </apply>
+            <apply>
+                <eq/>
+                <ci>phi_2_1</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <ci>t_floor</ci>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">1</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                            </apply>
+                            <ci>k_w</ci>
+                        </apply>
+                        <ci>phi_2_0</ci>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">3</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                                <ci>t_floor</ci>
+                            </apply>
+                            <ci>k_w</ci>
+                        </apply>
+                        <ci>phi_3_0</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>phi_3_1</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <ci>t_floor</ci>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">2</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                            </apply>
+                            <ci>k_w</ci>
+                        </apply>
+                        <ci>phi_3_0</ci>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">4</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                                <ci>t_floor</ci>
+                            </apply>
+                            <ci>k_w</ci>
+                        </apply>
+                        <ci>phi_4_0</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>phi_4_1</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <ci>t_floor</ci>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">3</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                            </apply>
+                            <ci>k_w</ci>
+                        </apply>
+                        <ci>phi_4_0</ci>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">5</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                                <ci>t_floor</ci>
+                            </apply>
+                            <ci>k_w</ci>
+                        </apply>
+                        <ci>phi_5_0</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>phi_5_1</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <ci>t_floor</ci>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">4</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                            </apply>
+                            <ci>k_w</ci>
+                        </apply>
+                        <ci>phi_5_0</ci>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">6</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                                <ci>t_floor</ci>
+                            </apply>
+                            <ci>k_w</ci>
+                        </apply>
+                        <ci>phi_6_0</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>phi_6_1</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <ci>t_floor</ci>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">5</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                            </apply>
+                            <ci>k_w</ci>
+                        </apply>
+                        <ci>phi_6_0</ci>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">7</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                                <ci>t_floor</ci>
+                            </apply>
+                            <ci>k_w</ci>
+                        </apply>
+                        <ci>phi_7_0</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>phi_7_1</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <ci>t_floor</ci>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">6</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                            </apply>
+                            <ci>k_w</ci>
+                        </apply>
+                        <ci>phi_7_0</ci>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">8</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                                <ci>t_floor</ci>
+                            </apply>
+                            <ci>k_w</ci>
+                        </apply>
+                        <ci>phi_8_0</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>phi_8_1</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <ci>t_floor</ci>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">7</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                            </apply>
+                            <ci>k_w</ci>
+                        </apply>
+                        <ci>phi_8_0</ci>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">9</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                                <ci>t_floor</ci>
+                            </apply>
+                            <ci>k_w</ci>
+                        </apply>
+                        <ci>phi_9_0</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>phi_9_1</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <ci>t_floor</ci>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">8</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                            </apply>
+                            <ci>k_w</ci>
+                        </apply>
+                        <ci>phi_9_0</ci>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">10</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                                <ci>t_floor</ci>
+                            </apply>
+                            <ci>k_w</ci>
+                        </apply>
+                        <ci>phi_10_0</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <!-- second order-->
+            <apply>
+                <eq/>
+                <ci>phi_1_2</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <ci>t_floor</ci>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">0</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                            </apply>
+                            <apply>
+                                <times/>
+                                <cn cellml:units="dimensionless">2</cn>
+                                <ci>k_w</ci>
+                            </apply>
+                        </apply>
+                        <ci>phi_1_1</ci>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">3</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                                <ci>t_floor</ci>
+                            </apply>
+                            <apply>
+                                <times/>
+                                <cn cellml:units="dimensionless">2</cn>
+                                <ci>k_w</ci>
+                            </apply>
+                        </apply>
+                        <ci>phi_2_1</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>phi_2_2</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <ci>t_floor</ci>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">1</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                            </apply>
+                            <apply>
+                                <times/>
+                                <cn cellml:units="dimensionless">2</cn>
+                                <ci>k_w</ci>
+                            </apply>
+                        </apply>
+                        <ci>phi_2_1</ci>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">4</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                                <ci>t_floor</ci>
+                            </apply>
+                            <apply>
+                                <times/>
+                                <cn cellml:units="dimensionless">2</cn>
+                                <ci>k_w</ci>
+                            </apply>
+                        </apply>
+                        <ci>phi_3_1</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>phi_3_2</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <ci>t_floor</ci>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">2</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                            </apply>
+                            <apply>
+                                <times/>
+                                <cn cellml:units="dimensionless">2</cn>
+                                <ci>k_w</ci>
+                            </apply>
+                        </apply>
+                        <ci>phi_3_1</ci>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">5</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                                <ci>t_floor</ci>
+                            </apply>
+                            <apply>
+                                <times/>
+                                <cn cellml:units="dimensionless">2</cn>
+                                <ci>k_w</ci>
+                            </apply>
+                        </apply>
+                        <ci>phi_4_1</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>phi_4_2</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <ci>t_floor</ci>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">3</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                            </apply>
+                            <apply>
+                                <times/>
+                                <cn cellml:units="dimensionless">2</cn>
+                                <ci>k_w</ci>
+                            </apply>
+                        </apply>
+                        <ci>phi_4_1</ci>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">6</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                                <ci>t_floor</ci>
+                            </apply>
+                            <apply>
+                                <times/>
+                                <cn cellml:units="dimensionless">2</cn>
+                                <ci>k_w</ci>
+                            </apply>
+                        </apply>
+                        <ci>phi_5_1</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>phi_5_2</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <ci>t_floor</ci>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">4</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                            </apply>
+                            <apply>
+                                <times/>
+                                <cn cellml:units="dimensionless">2</cn>
+                                <ci>k_w</ci>
+                            </apply>
+                        </apply>
+                        <ci>phi_5_1</ci>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">7</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                                <ci>t_floor</ci>
+                            </apply>
+                            <apply>
+                                <times/>
+                                <cn cellml:units="dimensionless">2</cn>
+                                <ci>k_w</ci>
+                            </apply>
+                        </apply>
+                        <ci>phi_6_1</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>phi_6_2</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <ci>t_floor</ci>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">5</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                            </apply>
+                            <apply>
+                                <times/>
+                                <cn cellml:units="dimensionless">2</cn>
+                                <ci>k_w</ci>
+                            </apply>
+                        </apply>
+                        <ci>phi_6_1</ci>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">8</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                                <ci>t_floor</ci>
+                            </apply>
+                            <apply>
+                                <times/>
+                                <cn cellml:units="dimensionless">2</cn>
+                                <ci>k_w</ci>
+                            </apply>
+                        </apply>
+                        <ci>phi_7_1</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>phi_7_2</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <ci>t_floor</ci>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">6</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                            </apply>
+                            <apply>
+                                <times/>
+                                <cn cellml:units="dimensionless">2</cn>
+                                <ci>k_w</ci>
+                            </apply>
+                        </apply>
+                        <ci>phi_7_1</ci>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">9</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                                <ci>t_floor</ci>
+                            </apply>
+                            <apply>
+                                <times/>
+                                <cn cellml:units="dimensionless">2</cn>
+                                <ci>k_w</ci>
+                            </apply>
+                        </apply>
+                        <ci>phi_8_1</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>phi_8_2</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <ci>t_floor</ci>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">7</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                            </apply>
+                            <apply>
+                                <times/>
+                                <cn cellml:units="dimensionless">2</cn>
+                                <ci>k_w</ci>
+                            </apply>
+                        </apply>
+                        <ci>phi_8_1</ci>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <minus/>
+                                <apply>
+                                    <times/>
+                                    <cn cellml:units="dimensionless">10</cn>
+                                    <ci>k_w</ci>
+                                </apply>
+                                <ci>t_floor</ci>
+                            </apply>
+                            <apply>
+                                <times/>
+                                <cn cellml:units="dimensionless">2</cn>
+                                <ci>k_w</ci>
+                            </apply>
+                        </apply>
+                        <ci>phi_9_1</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>P_d</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <ci>P_d_1</ci>
+                        <ci>phi_1_2</ci>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>P_d_2</ci>
+                        <ci>phi_2_2</ci>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>P_d_3</ci>
+                        <ci>phi_3_2</ci>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>P_d_4</ci>
+                        <ci>phi_4_2</ci>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>P_d_5</ci>
+                        <ci>phi_5_2</ci>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>P_d_6</ci>
+                        <ci>phi_6_2</ci>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>P_d_7</ci>
+                        <ci>phi_7_2</ci>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>P_d_8</ci>
+                        <ci>phi_8_2</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>P_mus</ci>
+                <apply>
+                    <plus/>
+                    <ci>P_d</ci>
+                    <ci>P_mus_max_wCont</ci>
+                </apply>
+            </apply>
+            <!-- TODO expiratory pressure.
+otherwise:
+   P_mus_max_wCont+(P_mus_min_wCont-P_mus_max_wCont)/(1{dimensionless}-exp(-T_E/tau))*(exp(-(t_floor-T_I)/tau)-exp(-T_E/tau));
+endsel;-->
+            <!-- Here we add the nonlinear relationship with bronchiole volume for alpha TODO should this be dependednt on each vessels volume? probably
+ TODO need to think about how to set this and still use the R_total.-->
+            <apply>
+                <eq/>
+                <ci>alpha_LR</ci>
+                <cn cellml:units="dimensionless">1.0</cn>
+            </apply>
         </math>
+        <!-- 1.0e-4{m3}/(abs(q_b)+1e-12{m3});-->
         <!-- this could be the square of volume, to explore.-->
     </component>
 </model>

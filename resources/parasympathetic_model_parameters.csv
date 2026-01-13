@@ -1,5 +1,6 @@
 variable_name,units,value,data_reference
 tau_lung_lung_stretch,second,2.0,Gee2023
+q_str_lung_stretch,m3,0.0,0.0
 G_al_lung_stretch,per_m3_s,23.291e6,Gee2023
 q_A_lung_stretch,m3,4e-3,user_defined_BC
 q_b_lung_stretch,m3,0.3e-3,user_defined_BC
@@ -98,3 +99,5 @@ tau_Rsp_peripheral_effector_arms,second,2.0,Gee2023
 G_Rsp_peripheral_effector_arms,Js_per_m6,92.6574e6,Gee2023
 tau_Vusv_venous_volume_effector_lb,second,5.0,Gee2023
 G_Vusv_venous_volume_effector_lb,m3,-265.4e-6,Gee2023
+s_floor_NA,dimensionless,0.0,NEEDS_TO_BE_COUPLED_TO_LUNG
+f_vagal_stim_PNNA,Hz,0.0,NEEDS_TO_BE_COUPLED

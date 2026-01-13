@@ -34,7 +34,17 @@ class sobol_SA():
         3. The 'run' method will generate sobol indices
         4. You can plot the results using the `plot_sobol_first_order_idx` and `plot_sobol_S2_idx` methods.
     """
-        
+
+    def _is_rank0(self):
+        try:
+            return MPI.COMM_WORLD.Get_rank() == 0
+        except Exception:
+            return True
+
+    def _rank0_print(self, *args, **kwargs):
+        if self._is_rank0():
+            print(*args, **kwargs)
+
     def __init__(self, model_path, model_out_names, solver_info, SA_cfg, dt, save_path, 
                  param_id_path = None, params_for_id_path=None, use_MPI = False, verbose=False, ga_options=None,
                  sim_time=2.0, pre_time=20.0):
@@ -62,7 +72,10 @@ class sobol_SA():
         self.sample_type = SA_cfg["sample_type"]
         self.num_params = None
         self.model_output_names = model_out_names
-        self.ga_options = ga_options
+        # For backwards compatibility, accept both ga_options and optimiser_options
+        # optimiser_options takes precedence
+        self.ga_options = ga_options  # Keep for backwards compatibility
+        self.optimiser_options = None  # Will be set if passed
         self.protocol_info = None
         self.dt = dt
         
@@ -178,7 +191,7 @@ class sobol_SA():
 
 
         else:
-            print(f'params_for_id_path cannot be None, exiting')
+            self._rank0_print(f'params_for_id_path cannot be None, exiting')
 
         if self.rank == 0:
             with open(os.path.join(self.output_dir, 'param_names.csv'), 'w') as f:
@@ -221,7 +234,7 @@ class sobol_SA():
             elif 'data_item' in json_obj.keys():
                 self.gt_df = pd.DataFrame(json_obj['data_item']) # should be data_items but accept this
             else:
-                print("data_items not found in json object. ",
+                self._rank0_print("data_items not found in json object. ",
                       "Please check that data_items is the key for the list of data items")
             if 'protocol_info' in json_obj.keys():
                 self.protocol_info = json_obj['protocol_info']
@@ -231,7 +244,7 @@ class sobol_SA():
                     self.protocol_info["pre_times"] = [pre_time]
             else:
                 if pre_time is None or sim_time is None:
-                    print("protocol_info not found in json object. ",
+                    self._rank0_print("protocol_info not found in json object. ",
                           "If this is the case sim_time and pre_time must be set",
                           "in the user_inputs.yaml file")
                     exit()
@@ -249,13 +262,13 @@ class sobol_SA():
                     if 'variable' in entry.keys():
                         self.prediction_info['names'].append(entry['variable'])
                     else:
-                        print('"variable" not found in prediction item in obs_data.json file, ',
+                        self._rank0_print('"variable" not found in prediction item in obs_data.json file, ',
                               'exitiing') 
                         exit()
                     if 'unit' in entry.keys():
                         self.prediction_info['units'].append(entry['unit'])
                     else:
-                        print('"unit" not found in prediction item in obs_data.json file, ',
+                        self._rank0_print('"unit" not found in prediction item in obs_data.json file, ',
                               'exitiing') 
                         exit()
                     if 'name_for_plotting' in entry.keys():
@@ -269,7 +282,7 @@ class sobol_SA():
             else:
                 self.prediction_info = None
         else:
-            print(f"unknown data type for imported json object of {type(json_obj)}")
+            self._rank0_print(f"unknown data type for imported json object of {type(json_obj)}")
         
         self.obs_info = {}
         self.obs_info["obs_names"] = [self.gt_df.iloc[II]["variable"] for II in range(self.gt_df.shape[0])]
@@ -299,13 +312,13 @@ class sobol_SA():
             if "plot_type" not in self.gt_df.iloc[II].keys():
                 if self.gt_df.iloc[II]["data_type"] == "constant":
                     if not warning_printed:
-                        print('constant data types plot type defaults to horizontal lines',
+                        self._rank0_print('constant data types plot type defaults to horizontal lines',
                             'change "plot_type" in obs_data.json to change this')
                         warning_printed = True
                     self.obs_info["plot_type"].append("horizontal")
                 elif self.gt_df.iloc[II]["data_type"] == "prob_dist":
                     if not warning_printed:
-                        print('prob_dist data types plot type defaults to horizontal lines',
+                        self._rank0_print('prob_dist data types plot type defaults to horizontal lines',
                             'change "plot_type" in obs_data.json to change this')
                         warning_printed = True
                     self.obs_info["plot_type"].append("horizontal")
@@ -316,7 +329,7 @@ class sobol_SA():
                 elif self.gt_df.iloc[II]["data_type"] == "plot_dist":
                     self.obs_info["plot_type"].append("horizontal")
                 else:
-                    print(f'data type {self.gt_df.iloc[II]["data_type"]} not recognised')
+                    self._rank0_print(f'data type {self.gt_df.iloc[II]["data_type"]} not recognised')
             else:
                 self.obs_info["plot_type"].append(self.gt_df.iloc[II]["plot_type"])
                 if self.obs_info["plot_type"][II] in ["None", "null", "Null", "none", "NONE"]:
@@ -414,9 +427,11 @@ class sobol_SA():
             if "cost_type" in self.gt_df.iloc[II].keys() and self.gt_df.iloc[II]["cost_type"] not in [np.nan, None, "None", ""]:
                 self.obs_info["cost_type"].append(self.gt_df.iloc[II]["cost_type"])
             else:
-                if self.ga_options is not None:
-                    if "cost_type" in self.ga_options.keys():
-                        self.obs_info["cost_type"].append(self.ga_options["cost_type"]) # default to cost type in ga_options
+                # Check optimiser_options first, then ga_options for backwards compatibility
+                options_dict = self.optimiser_options if self.optimiser_options is not None else self.ga_options
+                if options_dict is not None:
+                    if "cost_type" in options_dict.keys():
+                        self.obs_info["cost_type"].append(options_dict["cost_type"]) # default to cost type in options
                     else:
                         self.obs_info["cost_type"].append("MSE") # default to mean squared error
                 elif self.mcmc_options is not None:
@@ -425,7 +440,7 @@ class sobol_SA():
                     else:
                         self.obs_info["cost_type"].append("MSE") # default to mean squared error
                 else:
-                    print("cost_type not found in obs_data.json, ga_options, or mcmc_options, exiting")
+                    self._rank0_print("cost_type not found in obs_data.json, ga_options, or mcmc_options, exiting")
                     exit()
 
 
@@ -456,12 +471,12 @@ class sobol_SA():
                 self.protocol_info["experiment_colors"] = ['r']*self.protocol_info['num_experiments']
         else:
             if len(self.protocol_info["experiment_colors"]) != self.protocol_info['num_experiments']:
-                print('experiment_colors in obs_data.json not the same length as num_experiments, exiting')
+                self._rank0_print('experiment_colors in obs_data.json not the same length as num_experiments, exiting')
                 exit()
 
         if "experiment_labels" in self.protocol_info.keys():
             if len(self.protocol_info["experiment_labels"]) != self.protocol_info['num_experiments']:
-                print('experiment_labels in obs_data.json not the same length as num_experiments, exiting')
+                self._rank0_print('experiment_labels in obs_data.json not the same length as num_experiments, exiting')
                 exit()
         else:
             self.protocol_info["experiment_labels"] = [None]
@@ -473,13 +488,13 @@ class sobol_SA():
             if "experiment_idx" not in self.gt_df.iloc[II].keys():
                 self.gt_df["experiment_idx"] = 0
                 if self.protocol_info['num_sub_total'] > 1:
-                    print(f'experiment_idx not found in obs_data.json entry {self.gt_df.iloc[II]["variable"]}, '
+                    self._rank0_print(f'experiment_idx not found in obs_data.json entry {self.gt_df.iloc[II]["variable"]}, '
                           'but multiple experiments are defined.',
                           'Setting experiment_idx to 0 for all data points')
             if "subexperiment_idx" not in self.gt_df.iloc[II].keys():
                 self.gt_df["subexperiment_idx"] = 0
                 if self.protocol_info['num_sub_total'] > 1:
-                    print(f'subexperiment_idx not found in obs_data.json entry {self.gt_df.iloc[II]["variable"]}, '
+                    self._rank0_print(f'subexperiment_idx not found in obs_data.json entry {self.gt_df.iloc[II]["variable"]}, '
                           'but multiple subexperiments are defined.',
                           'Setting subexperiment_idx to 0 for all data points')
         
@@ -603,12 +618,12 @@ class sobol_SA():
 
         local_samples = samples[start:end]
 
-        print(f"[MPI Rank {self.rank}] Starting samples {start}:{end} (total {len(local_samples)})")
+        self._rank0_print(f"[MPI Rank {self.rank}] Starting samples {start}:{end} (total {len(local_samples)})")
 
         local_outputs = []
 
-        # Create a single progress bar for this rank
-        with tqdm(total=len(local_samples), desc=f"Rank {self.rank}", position=self.rank, leave=True) as pbar:
+        # Create a single progress bar for rank 0 only to avoid noisy output from all ranks
+        with tqdm(total=len(local_samples), desc=f"Rank {self.rank}", position=self.rank, leave=True, disable=self.rank != 0) as pbar:
             for param_vals in local_samples:
 
                 # --- handle single vs multi subexperiment ---
@@ -624,7 +639,7 @@ class sobol_SA():
                         # For single experiment and subexperiment, use (0, 0) as key
                         operands_outputs_dict[(0, 0)] = operands_outputs
                     else:
-                        print(f"[MPI Rank {self.rank}] Simulation failed for params: {param_vals}")
+                        self._rank0_print(f"[MPI Rank {self.rank}] Simulation failed for params: {param_vals}")
                         local_outputs.append([np.inf])  # fail marker
                         pbar.update(1)
                         continue
@@ -694,7 +709,7 @@ class sobol_SA():
                                 if this_sub_idx == self.protocol_info["num_sub_per_exp"][exp_idx] - 1:
                                     self.sim_helper.reset_and_clear()
                             else:
-                                print(f"[MPI Rank {self.rank}] Simulation failed for params: {param_vals}, subexp={subexp_count} after {retry_count} retries")
+                                self._rank0_print(f"[MPI Rank {self.rank}] Simulation failed for params: {param_vals}, subexp={subexp_count} after {retry_count} retries")
                                 # Set a flag in operands_outputs_dict to indicate failure
                                 operands_outputs_dict[(exp_idx, this_sub_idx)] = {"failed": True}
 
@@ -720,7 +735,7 @@ class sobol_SA():
                 local_outputs.append(features)
                 pbar.update(1)
 
-        print(f"[MPI Rank {self.rank}] Finished processing samples {start}:{end}")
+        self._rank0_print(f"[MPI Rank {self.rank}] Finished processing samples {start}:{end}")
 
         # Gather results at rank 0
         all_outputs = self.comm.gather(local_outputs, root=0)
@@ -728,7 +743,7 @@ class sobol_SA():
         if self.rank == 0:
             outputs = [item for sublist in all_outputs for item in sublist]
             outputs = np.array(outputs)
-            print(f"[MPI Rank 0] Gathered and flattened all outputs. Total outputs: {outputs.shape}")
+            self._rank0_print(f"[MPI Rank 0] Gathered and flattened all outputs. Total outputs: {outputs.shape}")
             return outputs
         else:
             return None

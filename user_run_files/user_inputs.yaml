@@ -9,17 +9,13 @@ file_prefix: 3compartment
 input_param_file: 3compartment_parameters.csv
 
 # cpp generation inputs
-# solver options are: RK4, forward_euler, CVODE
-# TODO make this also change the solver in the opencor sims when not generating cpp.
-# solver: RK4
-solver: CVODE
 # model_type can be cellml_only or cpp atm 
 # model_type: cpp
 model_type: cellml_only
 
 #__________ parameter identification inputs __________
-# param_id_method can be any of [genetic_algorithm]
-param_id_method: genetic_algorithm
+# param_id_method can be any of [genetic_algorithm, CMA-ES, bayesian]
+param_id_method: CMA-ES
 
 # pre_time is the amount of time simulated to get to steady state
 # TODO this is not important if it is specified in the obs_data.json file
@@ -48,6 +44,11 @@ cpp_1d_model_config_path:
 
 # Output time step (sampling) 
 dt: 0.01 # This should be smaller than all of the dt in your obs_data.json file. 
+
+# solver options are: RK4, forward_euler, CVODE, or if using python, any method from solve_ivp methods.
+solver: CVODE
+# TODO make this also change the solver in the opencor sims when not generating cpp.
+# solver: RK4
 # These are inputs to solver_properties of the solver
 solver_info:
   # Maximum time step for solver
@@ -63,19 +64,24 @@ param_id_obs_path: /home/farg967/Documents/git_projects/circulatory_autogen/reso
 #_______ sensitivity analysis inputs __________
 do_sensitivity: false
 
-#______ genetic algorithm inputs ___________
-ga_options:
-  cost_type: MSE # This should be defined for each entry in the
-                 # obs_data.json file instead. Currently if there is no cost_type entry in the
-                 # obs_data.json entry, it will be set to this entry
-  # maximum number of calls to the forward function during one run of the param_id_method
-  num_calls_to_function: 50000
-  cost_convergence: 0.001
+#______ optimiser options (for all optimisers) ___________
+optimiser_options:
+  # Common options (shared across optimisers):
+  num_calls_to_function: 10000  # maximum function evaluations (default: 10000)
+  cost_convergence: 0.001        # convergence tolerance (default: 0.0001)
+  max_patience: 10              # max patience for convergence (default: 10)
+  cost_type: MSE                # cost function type
+  
+  # CMA-ES specific options:
+  # sigma0: 0.1    # optional, initial standard deviation (default: 0.2 * mean(param_range))
+  # Note: Initial parameter values (x0) are automatically loaded from {file_prefix}_parameters.csv
 
-debug_ga_options:
-  cost_type: MSE
+#______ debug optimiser options (used when DEBUG is True) ___________
+debug_optimiser_options:
   num_calls_to_function: 30 # TODO change back to 30 for tests
   cost_convergence: 0.001
+  cost_type: MSE
+  # Note: When DEBUG is True, debug_optimiser_options overrides optimiser_options
 
 #______ mcmc inputs ___________
 do_mcmc: False

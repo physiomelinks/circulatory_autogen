@@ -8,6 +8,7 @@ import sys
 from sys import exit
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '../utilities'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '../solver_wrappers'))
 import math as math
 import opencor as oc
 import time
@@ -62,6 +63,8 @@ class SensitivityAnalysis():
         self.model_out_names = model_out_names
         self.solver_info = solver_info
         self.dt = dt
+        # For backwards compatibility, accept both ga_options and optimiser_options
+        # The parser will merge ga_options into optimiser_options, but we keep ga_options for now
         self.ga_options = ga_options
         self.param_id_obs_path = param_id_obs_path
         self.params_for_id_path = params_for_id_path

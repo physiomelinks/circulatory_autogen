@@ -322,7 +322,7 @@ class CVS0DCppGenerator(object):
 
     def generate_cellml(self):
         print("generating CellML files, before Cpp generation")
-        cellml_generator = CVS0DCellMLGenerator(self.model, self.generated_model_subdir, self.file_prefix)
+        cellml_generator = CVS0DCellMLGenerator(self.model, self.inp_data_dict)
         cellml_generator.generate_files()
 
     def set_annotated_model_file_path(self, annotated_model_file_path):

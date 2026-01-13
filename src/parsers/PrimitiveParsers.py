@@ -143,11 +143,16 @@ class YamlFileParser(object):
         if not os.path.exists(inp_data_dict['generated_models_subdir']):
             os.mkdir(inp_data_dict['generated_models_subdir'])
             
-        inp_data_dict['model_path'] = os.path.join(inp_data_dict['generated_models_subdir'], f'{file_prefix}.cellml')
+        if inp_data_dict.get('model_type') == 'python':
+            model_ext = '.py'
+        else:
+            model_ext = '.cellml'
+
+        inp_data_dict['model_path'] = os.path.join(inp_data_dict['generated_models_subdir'], f'{file_prefix}{model_ext}')
 
         if do_generation_with_fit_parameters:
-            inp_data_dict['uncalibrated_model_path'] = os.path.join(inp_data_dict["generated_models_dir"], file_prefix, 
-                                               file_prefix + '.cellml')
+            inp_data_dict['uncalibrated_model_path'] = os.path.join(inp_data_dict["generated_models_dir"], file_prefix,
+                                               file_prefix + model_ext)
         else:
             inp_data_dict['uncalibrated_model_path'] = inp_data_dict['model_path']
 
@@ -166,10 +171,27 @@ class YamlFileParser(object):
                 'MaximumStep is now an entry of solver_info in the user_inputs.yaml file')
             exit()
 
+        # For the Python solver path, use the 'solver' entry to select the solve_ivp method.
+        # Fall back to legacy 'method' or the top-level solver setting for backwards compatibility.
+        solver_method = inp_data_dict['solver']
+        if solver_method is None and 'method' in inp_data_dict['solver_info']:
+            solver_method = inp_data_dict['solver_info']['method']
+            print(f'solver_info["method"] = {solver_method} is now deprecated, use solver = {solver_method} instead')
+            print('This will be removed in a future version')
+            inp_data_dict['solver'] = solver_method
+        if solver_method is None:
+            print('solver must be an entry in the user_inputs.yaml file')
+            exit()
+        # also store it as method.
+        inp_data_dict['solver_info']['method'] = solver_method
+
         if 'DEBUG' in inp_data_dict.keys(): 
             if inp_data_dict['DEBUG']:
-                inp_data_dict['ga_options'] = inp_data_dict['debug_ga_options']
-                inp_data_dict['mcmc_options'] = inp_data_dict['debug_mcmc_options']
+                # For backwards compatibility, still set ga_options if debug_ga_options exists
+                if 'debug_ga_options' in inp_data_dict.keys():
+                    inp_data_dict['ga_options'] = inp_data_dict['debug_ga_options']
+                if 'debug_mcmc_options' in inp_data_dict.keys():
+                    inp_data_dict['mcmc_options'] = inp_data_dict['debug_mcmc_options']
             else:
                 pass
         else:
@@ -177,6 +199,16 @@ class YamlFileParser(object):
 
         if not 'external_modules_dir' in inp_data_dict.keys():
             inp_data_dict['external_modules_dir'] = None
+        else:
+            # check if it is an absolute path
+            if not os.path.isabs(inp_data_dict['external_modules_dir']):
+                inp_data_dict['external_modules_dir'] = os.path.join(user_files_dir, inp_data_dict['external_modules_dir'])
+            else:
+                inp_data_dict['external_modules_dir'] = inp_data_dict['external_modules_dir']
+            # check if external_modules_dir is a valid directory
+            if not os.path.exists(inp_data_dict['external_modules_dir']):
+                print(f'external_modules_dir={inp_data_dict["external_modules_dir"]} does not exist')
+                exit()
         
         # for sensitivity analysis and parameter identification
         if not 'sa_options' in inp_data_dict.keys():
@@ -220,6 +252,62 @@ class YamlFileParser(object):
             if 'method' not in inp_data_dict['ia_options'].keys():
                 print('No method specified for identifiability analysis, setting to Laplace by default')
                 inp_data_dict['ia_options']['method'] = 'Laplace'
+        
+        # Parse optimiser_options - this is the new unified way to specify options
+        # Handle backwards compatibility: if ga_options or debug_ga_options is specified, merge into optimiser_options
+        if 'optimiser_options' not in inp_data_dict.keys():
+            inp_data_dict['optimiser_options'] = {}
+        else:
+            # Ensure optimiser_options is a dictionary
+            if inp_data_dict['optimiser_options'] is None:
+                inp_data_dict['optimiser_options'] = {}
+        
+        # Backwards compatibility: convert ga_options to optimiser_options
+        # Only copy entries that don't already exist in optimiser_options to avoid duplicates
+        # Note: If DEBUG is True, ga_options may have been set to debug_ga_options above,
+        # but we still want to merge the original ga_options first (if it exists and DEBUG is False)
+        # or merge debug_ga_options with higher precedence when DEBUG is True
+        if not inp_data_dict['DEBUG']:
+            # When DEBUG is False, merge ga_options normally
+            if 'ga_options' in inp_data_dict.keys() and inp_data_dict['ga_options'] is not None:
+                ga_opts = inp_data_dict['ga_options']
+                if isinstance(ga_opts, dict):
+                    for key, value in ga_opts.items():
+                        # Only add if not already in optimiser_options
+                        if key not in inp_data_dict['optimiser_options']:
+                            inp_data_dict['optimiser_options'][key] = value
+                        # Warn if there's a conflict (same key, different value)
+                        elif inp_data_dict['optimiser_options'][key] != value:
+                            print(f'Warning: ga_options["{key}"] conflicts with optimiser_options["{key}"]. '
+                                  f'Using optimiser_options value: {inp_data_dict["optimiser_options"][key]}')
+        
+        # Handle debug_ga_options for backwards compatibility
+        # When DEBUG is True, debug_ga_options should override optimiser_options
+        if inp_data_dict['DEBUG']:
+            if 'debug_ga_options' in inp_data_dict.keys() and inp_data_dict['debug_ga_options'] is not None:
+                debug_ga_opts = inp_data_dict['debug_ga_options']
+                if isinstance(debug_ga_opts, dict):
+                    for key, value in debug_ga_opts.items():
+                        # Debug options override optimiser_options (they take precedence)
+                        if key in inp_data_dict['optimiser_options']:
+                            if inp_data_dict['optimiser_options'][key] != value:
+                                print(f'Note: debug_ga_options["{key}"] overriding optimiser_options["{key}"] '
+                                      f'({inp_data_dict["optimiser_options"][key]} -> {value})')
+                        inp_data_dict['optimiser_options'][key] = value
+        
+        # Handle debug_optimiser_options (new preferred way)
+        # When DEBUG is True, debug_optimiser_options should override everything
+        if inp_data_dict['DEBUG']:
+            if 'debug_optimiser_options' in inp_data_dict.keys() and inp_data_dict['debug_optimiser_options'] is not None:
+                debug_opts = inp_data_dict['debug_optimiser_options']
+                if isinstance(debug_opts, dict):
+                    for key, value in debug_opts.items():
+                        # Debug optimiser options override everything (highest precedence)
+                        if key in inp_data_dict['optimiser_options']:
+                            if inp_data_dict['optimiser_options'][key] != value:
+                                print(f'Note: debug_optimiser_options["{key}"] overriding optimiser_options["{key}"] '
+                                      f'({inp_data_dict["optimiser_options"][key]} -> {value})')
+                        inp_data_dict['optimiser_options'][key] = value
 
         # for generation only
     
@@ -412,13 +500,22 @@ class JSONFileParser(object):
                 exit()
             for column in add_on_lists:
                 # deepcopy to make sure that the lists for different vessel same module are not linked
+                val = this_vessel_module_df[column]
+                is_na = False
                 try:
-                    if np.isnan(this_vessel_module_df[column]):
-                        add_on_lists[column].append("None")
+                    mask = pd.isna(val)
+                    if isinstance(mask, (np.bool_, bool)):
+                        is_na = bool(mask)
                     else:
-                        add_on_lists[column].append(copy.deepcopy(this_vessel_module_df[column]))
-                except:
-                    add_on_lists[column].append(copy.deepcopy(this_vessel_module_df[column]))
+                        # array-like: consider NaN only if all entries are NaN
+                        is_na = bool(np.all(mask))
+                except Exception:
+                    is_na = False
+
+                if is_na:
+                    add_on_lists[column].append("None")
+                else:
+                    add_on_lists[column].append(copy.deepcopy(val))
 
         for column in add_on_lists:
             vessel_df[column] = add_on_lists[column]
