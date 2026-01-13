@@ -1,270 +1,292 @@
 <?xml version='1.0' encoding='UTF-8'?>
-<model name="Units" xmlns="http://www.cellml.org/cellml/1.1#" xmlns:cellml="http://www.cellml.org/cellml/1.1#">
-    <units name="mmol_per_l">
-        <unit prefix="milli" units="mole"/>
-        <unit exponent="-1" units="litre"/>
-    </units>
-    <units name="l_per_mmol">
-        <unit units="litre"/>
-        <unit exponent="-1" prefix="milli" units="mole"/>
-    </units>
-    <units name="l_per_mmol_per_s">
-        <unit units="litre"/>
-        <unit exponent="-1" prefix="milli" units="mole"/>
-        <unit exponent="-1" units="second"/>
-    </units>
-    <units name="l2_per_mmol_per_s">
-        <unit exponent="2" units="litre"/>
-        <unit exponent="-1" prefix="milli" units="mole"/>
-        <unit exponent="-1" units="second"/>
-    </units>
-    <units name="mmol_per_s2">
-        <unit prefix="milli" units="mole"/>
-        <unit exponent="-2" units="second"/>
-    </units>
-    <units name="mmol">
-        <unit prefix="milli" units="mole"/>
-    </units>
-    <units name="mmol_per_l_per_s">
-        <unit prefix="milli" units="mole"/>
-        <unit exponent="-1" units="litre"/>
-        <unit exponent="-1" units="second"/>
-    </units>
+<model xmlns="http://www.cellml.org/cellml/1.0#" name="Units">
     <units name="Hz2">
-        <unit exponent="-2" units="second"/>
+        <unit exponent="-2" units="second" />
     </units>
     <units name="cm">
-        <unit prefix="centi" units="metre"/>
+        <unit prefix="centi" units="metre" />
     </units>
     <units name="J_per_m4_s">
-        <unit exponent="-4" units="meter"/>
-        <unit units="joule"/>
-        <unit exponent="-1" units="second"/>
+        <unit exponent="-4" units="meter" />
+        <unit units="joule" />
+        <unit exponent="-1" units="second" />
     </units>
     <units name="m3_per_mol_per_sec">
-        <unit exponent="3" units="metre"/>
-        <unit exponent="-1" units="mole"/>
-        <unit exponent="-1" units="second"/>
+        <unit exponent="3" units="metre" />
+        <unit exponent="-1" units="mole" />
+        <unit exponent="-1" units="second" />
     </units>
     <units name="mol_per_m3_per_kPa">
-        <unit exponent="1" units="mole"/>
-        <unit exponent="-3" units="metre"/>
-        <unit exponent="-1" prefix="kilo" units="pascal"/>
+        <unit exponent="1" units="mole" />
+        <unit exponent="-3" units="metre" />
+        <unit exponent="-1" prefix="kilo" units="pascal" />
     </units>
     <units name="mol_per_m3_per_Pa">
-        <unit exponent="1" units="mole"/>
-        <unit exponent="-3" units="metre"/>
-        <unit exponent="-1" units="pascal"/>
+        <unit exponent="1" units="mole" />
+        <unit exponent="-3" units="metre" />
+        <unit exponent="-1" units="pascal" />
     </units>
     <units name="m3_per_mol_per_s">
-        <unit exponent="3" units="meter"/>
-        <unit exponent="-1" units="mole"/>
-        <unit exponent="-1" units="second"/>
+        <unit exponent="3" units="meter" />
+        <unit exponent="-1" units="mole" />
+        <unit exponent="-1" units="second" />
     </units>
     <units name="mol_per_m3_per_s">
-        <unit units="mole"/>
-        <unit exponent="-3" units="meter"/>
-        <unit exponent="-1" units="second"/>
+        <unit units="mole" />
+        <unit exponent="-3" units="meter" />
+        <unit exponent="-1" units="second" />
     </units>
     <units name="dim">
-        <unit units="dimensionless"/>
+        <unit units="dimensionless" />
     </units>
     <units name="fmol">
-        <unit prefix="femto" units="mole"/>
+        <unit prefix="femto" units="mole" />
     </units>
     <units name="per_fmol">
-        <unit exponent="-1" units="fmol"/>
+        <unit exponent="-1" units="fmol" />
     </units>
     <units name="nJ_per_s">
-        <unit prefix="nano" units="joule"/>
-        <unit exponent="-1" units="second"/>
+        <unit prefix="nano" units="joule" />
+        <unit exponent="-1" units="second" />
     </units>
     <units name="fmol_per_s">
-        <unit units="fmol"/>
-        <unit exponent="-1" units="second"/>
+        <unit units="fmol" />
+        <unit exponent="-1" units="second" />
     </units>
     <units name="nC_per_fmol">
-        <unit prefix="nano" units="coulomb"/>
-        <unit exponent="-1" units="fmol"/>
+        <unit prefix="nano" units="coulomb" />
+        <unit exponent="-1" units="fmol" />
     </units>
     <units name="nC">
-        <unit prefix="nano" units="coulomb"/>
+        <unit prefix="nano" units="coulomb" />
     </units>
     <units name="nJ_per_fmol">
-        <unit prefix="nano" units="joule"/>
-        <unit exponent="-1" units="fmol"/>
+        <unit prefix="nano" units="joule" />
+        <unit exponent="-1" units="fmol" />
     </units>
     <units name="nJ_per_nC">
-        <unit prefix="nano" units="joule"/>
-        <unit exponent="-1" units="nC"/>
+        <unit prefix="nano" units="joule" />
+        <unit exponent="-1" units="nC" />
     </units>
     <units name="fC">
-        <unit prefix="femto" units="coulomb"/>
+        <unit prefix="femto" units="coulomb" />
     </units>
     <units name="fF">
-        <unit prefix="femto" units="farad"/>
+        <unit prefix="femto" units="farad" />
     </units>
     <units name="volt_per_sec">
-        <unit exponent="-1.0" units="second"/>
-        <unit units="volt"/>
+        <unit exponent="-1.0" units="second" />
+        <unit units="volt" />
     </units>
     <units name="J_per_K_per_mol">
-        <unit units="joule"/>
-        <unit exponent="-1.0" units="kelvin"/>
-        <unit exponent="-1.0" units="mole"/>
+        <unit units="joule" />
+        <unit exponent="-1.0" units="kelvin" />
+        <unit exponent="-1.0" units="mole" />
     </units>
     <units name="nS">
-        <unit prefix="nano" units="siemens"/>
+        <unit prefix="nano" units="siemens" />
     </units>
     <units name="nSmV">
-        <unit units="nS"/>
-        <unit units="mV"/>
+        <unit units="nS" />
+        <unit units="mV" />
     </units>
     <units name="per_ms">
-        <unit exponent="-1" prefix="milli" units="second"/>
+        <unit exponent="-1" prefix="milli" units="second" />
     </units>
     <units name="mM4">
-        <unit exponent="4" units="mM"/>
+        <unit exponent="4" units="mM" />
     </units>
     <units name="mM_per_ms">
-        <unit units="mM"/>
-        <unit exponent="-1" units="ms"/>
+        <unit units="mM" />
+        <unit exponent="-1" units="ms" />
     </units>
     <units name="mMms">
-        <unit units="mM"/>
-        <unit units="ms"/>
+        <unit units="mM" />
+        <unit units="ms" />
     </units>
     <units name="per_mMms">
-        <unit exponent="-1" units="mMms"/>
+        <unit exponent="-1" units="mMms" />
     </units>
     <units name="molar">
-        <unit units="mole"/>
-        <unit exponent="-1" units="litre"/>
+        <unit units="mole" />
+        <unit exponent="-1" units="litre" />
     </units>
     <units name="micromolar">
-        <unit prefix="micro" units="mole"/>
-        <unit exponent="-1" units="litre"/>
+        <unit prefix="micro" units="mole" />
+        <unit exponent="-1" units="litre" />
     </units>
     <units name="nanomolar">
-        <unit prefix="nano" units="mole"/>
-        <unit exponent="-1" units="litre"/>
+        <unit prefix="nano" units="mole" />
+        <unit exponent="-1" units="litre" />
     </units>
     <units name="ms">
-        <unit prefix="milli" units="second"/>
+        <unit prefix="milli" units="second" />
     </units>
     <units name="m_cubed">
-        <unit prefix="kilo" units="meter"/>
+        <unit prefix="kilo" units="meter" />
     </units>
     <units name="mV">
-        <unit prefix="milli" units="volt"/>
+        <unit prefix="milli" units="volt" />
     </units>
     <units name="m_cubed_per_second">
-        <unit units="m_cubed"/>
-        <unit units="per_s"/>
+        <unit units="m_cubed" />
+        <unit units="per_s" />
     </units>
     <units name="micromolar_m_cubed">
-        <unit units="micromolar"/>
-        <unit units="m_cubed"/>
+        <unit units="micromolar" />
+        <unit units="m_cubed" />
     </units>
     <units name="C">
-        <unit units="ampere"/>
-        <unit units="second"/>
+        <unit units="ampere" />
+        <unit units="second" />
     </units>
     <units name="C_per_millimol">
-        <unit units="C"/>
-        <unit exponent="-1" prefix="milli" units="mole"/>
+        <unit units="C" />
+        <unit exponent="-1" prefix="milli" units="mole" />
     </units>
     <units name="picoA">
-        <unit prefix="pico" units="ampere"/>
+        <unit prefix="pico" units="ampere" />
     </units>
     <units name="picoA_per_picoFarad">
-        <unit units="picoA"/>
-        <unit exponent="-1" units="picoFarad"/>
+        <unit units="picoA" />
+        <unit exponent="-1" units="picoFarad" />
     </units>
     <units name="microL">
-        <unit prefix="micro" units="litre"/>
+        <unit prefix="micro" units="litre" />
     </units>
     <units name="picoFarad">
-        <unit prefix="pico" units="farad"/>
+        <unit prefix="pico" units="farad" />
     </units>
     <units name="cm3_per_second">
-        <unit exponent="3" prefix="centi" units="meter"/>
-        <unit exponent="-1" units="second"/>
+        <unit exponent="3" prefix="centi" units="meter" />
+        <unit exponent="-1" units="second" />
     </units>
     <units name="um3_per_second">
-        <unit exponent="3" prefix="micro" units="meter"/>
-        <unit exponent="-1" units="second"/>
+        <unit exponent="3" prefix="micro" units="meter" />
+        <unit exponent="-1" units="second" />
     </units>
     <units name="m3mM">
-        <unit exponent="3" units="meter"/>
-        <unit exponent="1" units="mM"/>
+        <unit exponent="3" units="meter" />
+        <unit exponent="1" units="mM" />
     </units>
     <units name="ms2">
-        <unit exponent="2" units="ms"/>
+        <unit exponent="2" units="ms" />
     </units>
     <units name="nM3_per_ps">
-        <unit exponent="3" prefix="nano" units="meter"/>
-        <unit exponent="-1" prefix="pico" units="second"/>
+        <unit exponent="3" prefix="nano" units="meter" />
+        <unit exponent="-1" prefix="pico" units="second" />
     </units>
     <units name="per_s_squared_m_cubed">
-        <unit exponent="-2" units="second"/>
-        <unit exponent="-3" units="meter"/>
+        <unit exponent="-2" units="second" />
+        <unit exponent="-3" units="meter" />
     </units>
     <units name="per_meters_cubed">
-        <unit exponent="-3" units="meter"/>
+        <unit exponent="-3" units="meter" />
     </units>
     <units name="umeter3">
-        <unit exponent="3" prefix="micro" units="meter"/>
+        <unit exponent="3" prefix="micro" units="meter" />
     </units>
     <units name="mill1">
-        <unit exponent="-1" units="volt"/>
-        <unit prefix="milli" units="volt"/>
+        <unit exponent="-1" units="volt" />
+        <unit prefix="milli" units="volt" />
     </units>
     <units name="picoV">
-        <unit prefix="pico" units="volt"/>
+        <unit prefix="pico" units="volt" />
     </units>
     <units name="pic0">
-        <unit exponent="-1" units="volt"/>
-        <unit units="picoV"/>
+        <unit exponent="-1" units="volt" />
+        <unit units="picoV" />
     </units>
     <units name="nanoV">
-        <unit prefix="nano" units="volt"/>
+        <unit prefix="nano" units="volt" />
     </units>
     <units name="nan0">
-        <unit exponent="-1" units="volt"/>
-        <unit units="nanoV"/>
+        <unit exponent="-1" units="volt" />
+        <unit units="nanoV" />
     </units>
-    <!--//////////////////////////////////////////////////////////////////////////////////////////////////////
-/////////////////////////////////////////// new units ////////////////////////////////////////////////
-//////////////////////////////////////////////////////////////////////////////////////////////////////-->
+    
     <units name="kPa">
-        <unit prefix="kilo" units="pascal"/>
+        <unit prefix="kilo" units="pascal" />
     </units>
     <units name="L_per_s">
-        <!--unit litre;-->
-        <unit exponent="3" prefix="deci" units="meter"/>
-        <unit exponent="-1" units="second"/>
+        
+        <unit exponent="3" prefix="deci" units="meter" />
+        <unit exponent="-1" units="second" />
     </units>
     <units name="L_per_s_per_kPa">
-        <!--unit litre;-->
-        <unit exponent="3" prefix="deci" units="meter"/>
-        <unit exponent="-1" units="second"/>
-        <unit exponent="-1" prefix="kilo" units="pascal"/>
+        
+        <unit exponent="3" prefix="deci" units="meter" />
+        <unit exponent="-1" units="second" />
+        <unit exponent="-1" prefix="kilo" units="pascal" />
     </units>
     <units name="kPa_per_L">
-        <unit prefix="kilo" units="pascal"/>
-        <!--unit litre {expo: -1};-->
-        <unit exponent="-3" prefix="deci" units="meter"/>
+        <unit prefix="kilo" units="pascal" />
+        
+        <unit exponent="-3" prefix="deci" units="meter" />
     </units>
     <units name="L_per_kPa">
-        <!--unit litre;-->
-        <unit exponent="3" prefix="deci" units="meter"/>
-        <unit exponent="-1" prefix="kilo" units="pascal"/>
+        
+        <unit exponent="3" prefix="deci" units="meter" />
+        <unit exponent="-1" prefix="kilo" units="pascal" />
     </units>
     <units name="kPa_s_per_L">
-        <unit prefix="kilo" units="pascal"/>
-        <unit units="second"/>
-        <!--unit litre {expo: -1};-->
-        <unit exponent="-3" prefix="deci" units="meter"/>
+        <unit prefix="kilo" units="pascal" />
+        <unit units="second" />
+        
+        <unit exponent="-3" prefix="deci" units="meter" />
     </units>
-</model>
+<units name="mol_per_L">
+        <unit units="mole" />
+        <unit exponent="-1" units="litre" />
+    </units>
+    <units name="L_per_mol">
+        <unit units="litre" />
+        <unit exponent="-1" units="mole" />
+    </units>
+    <units name="dim">
+        <unit units="dimensionless" />
+    </units>
+    <units name="minute">
+        <unit multiplier="60.0" units="second" />
+    </units>
+    <units name="umol">
+        <unit prefix="micro" units="mole" />
+    </units>
+    <units name="per_umol">
+        <unit exponent="-1" units="umol" />
+    </units>
+    <units name="umol_per_minute">
+        <unit units="umol" />
+        <unit exponent="-1" units="minute" />
+    </units>
+    <units name="J_per_umol">
+        <unit units="joule" />
+        <unit exponent="-1" units="umol" />
+    </units>
+    <units name="per_minute">
+        <unit exponent="-1" units="minute" />
+    </units>
+    <units name="per_minute_umol">
+        <unit exponent="-1" units="minute" />
+        <unit exponent="-1" units="umol" />
+    </units>
+    <units name="umolar">
+        <unit prefix="micro" units="mole" />
+        <unit exponent="-1" units="litre" />
+    </units>
+    <units name="per_umolar">
+        <unit exponent="-1" units="umolar" />
+    </units>
+    <units name="umolar_per_minute">
+        <unit units="umolar" />
+        <unit exponent="-1" units="minute" />
+    </units>
+    <units name="J_per_umolar">
+        <unit units="joule" />
+        <unit exponent="-1" units="umolar" />
+    </units>
+    <units name="per_minute_umolar">
+        <unit exponent="-1" units="minute" />
+        <unit exponent="-1" units="umolar" />
+    </units>
+    </model>

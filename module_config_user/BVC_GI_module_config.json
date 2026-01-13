@@ -1,0 +1,65 @@
+[
+  {
+    "vessel_type": "BVC_GI",
+    "BC_type": "nn",
+    "module_format": "cellml",
+    "module_file": "BVC_GI_modules.cellml",
+    "module_type": "BVC_GI_main_type",
+    "entrance_ports": [
+      {
+        "port_type": "circulation_Na_port",
+        "variables": ["q_vc_Na"],
+        "multi_port": "True"
+      },
+      {
+        "port_type": "osmotic_vol_port",
+        "variables": ["q_vc_W"]
+      }
+    ],
+    "exit_ports": [
+      {
+        "port_type": "blood_uptake_port",
+        "variables": ["v_gi_W"]
+      },
+      {
+        "port_type": "GI_sodium_flux_port",
+        "variables": ["v_giEpi_NKE"],
+        "multi_port": "True"
+      }
+    ],
+    "general_ports": [],
+    "variables_and_units": [
+      ["c_gi_Na", "mol_per_L", "access", "variable"],
+      ["C_gi_Na", "mM", "access", "variable"],
+      ["c_giEpi_Na", "mol_per_L", "access", "variable"],
+      ["C_giEpi_Na", "mM", "access", "variable"],
+      ["u_gi_osmotic", "kPa", "access", "variable"],
+      ["v_gi_W", "L_per_s", "access", "variable"],
+      ["v_gi_Na", "mol_per_s", "access", "variable"],
+      ["v_giEpi_NKE", "mol_per_s", "access", "variable"],
+      ["RT", "J_per_mol", "access", "constant"],
+      ["F", "C_per_mol", "access", "constant"],
+      ["q_gi_W_init", "litre", "access", "constant"],
+      ["q_gi_Na_init", "mole", "access", "constant"],
+      ["q_giEpi_Na_init", "mole", "access", "constant"],
+      ["u_giEpi_e", "J_per_C", "access", "constant"],
+      ["v_giOut_W", "L_per_s", "access", "constant"],
+      ["v_giOut_Na", "mol_per_s", "access", "constant"],
+      ["v_giIn_W", "L_per_s", "access", "constant"],
+      ["v_giIn_Na", "mol_per_s", "access", "constant"],
+      ["q_vc_Na", "mole", "access", "boundary_condition"],
+      ["q_vc_W", "litre", "access", "boundary_condition"],
+      ["q_vc_K", "mole", "access", "constant"],
+      ["q_giEpi_W", "litre", "access", "constant"],
+      ["k_gi_W", "L_per_s_per_kPa", "access", "constant"],
+      ["kK_gi_Na", "per_s", "access", "constant"],
+      ["k_giEpi_NKE", "mol_per_s", "access", "constant"],
+      ["q_giEpi_K", "mole", "access", "constant"],
+      ["K_Na", "L_per_mol", "access", "constant"],
+      ["K_K", "L_per_mol", "access", "constant"],
+      ["q_gi_W", "litre", "access", "variable"],
+      ["q_gi_Na", "mole", "access", "variable"],
+      ["q_giEpi_Na", "mole", "access", "variable"]
+    ]
+  }
+]

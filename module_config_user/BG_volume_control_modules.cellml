@@ -1,0 +1,810 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<model xmlns="http://www.cellml.org/cellml/1.1#" xmlns:math="http://www.w3.org/1998/Math/MathML" name="my_model" xmlns:cellml="http://www.cellml.org/cellml/1.1#">
+    
+    <component name="BG_volume_control_main_type">
+        <variable name="t" units="second" public_interface="in" />
+        <variable name="RT" units="J_per_mol" public_interface="in" />
+        <variable name="F" units="C_per_mol" public_interface="in" />
+        <variable name="q_ac_W" units="litre" public_interface="in" />
+        <variable name="q_vc_W" units="litre" public_interface="in" />
+        <variable name="q_gi_W_init" units="litre" public_interface="in" />
+        <variable name="q_pt_W_init" units="litre" public_interface="in" />
+        <variable name="q_giEpi_W" units="litre" public_interface="in" />
+        <variable name="q_ptEpi_W" units="litre" public_interface="in" />
+        <variable name="q_tot_W" units="litre" public_interface="out" />
+        <variable name="q_vc_Na_init" units="mole" public_interface="in" />
+        <variable name="q_gi_Na_init" units="mole" public_interface="in" />
+        <variable name="q_pt_Na_init" units="mole" public_interface="in" />
+        <variable name="q_giEpi_Na_init" units="mole" public_interface="in" />
+        <variable name="q_ptEpi_Na_init" units="mole" public_interface="in" />
+        <variable name="q_vc_K" units="mole" public_interface="in" />
+        <variable name="q_giEpi_K" units="mole" public_interface="in" />
+        <variable name="q_ptEpi_K" units="mole" public_interface="in" />
+        <variable name="q_tot_Na" units="mole" public_interface="out" />
+        <variable name="c_vc_Na" units="mol_per_L" public_interface="out" />
+        <variable name="c_gi_Na" units="mol_per_L" public_interface="out" />
+        <variable name="c_pt_Na" units="mol_per_L" public_interface="out" />
+        <variable name="c_giEpi_Na" units="mol_per_L" public_interface="out" />
+        <variable name="c_ptEpi_Na" units="mol_per_L" public_interface="out" />
+        <variable name="C_vc_Na" units="mM" public_interface="out" />
+        <variable name="C_gi_Na" units="mM" public_interface="out" />
+        <variable name="C_pt_Na" units="mM" public_interface="out" />
+        <variable name="C_giEpi_Na" units="mM" public_interface="out" />
+        <variable name="C_ptEpi_Na" units="mM" public_interface="out" />
+        <variable name="v_in_W" units="L_per_s" public_interface="in" />
+        <variable name="v_out1_W" units="L_per_s" public_interface="in" />
+        <variable name="v_out2_W" units="L_per_s" public_interface="in" />
+        <variable name="v_gl_W" units="L_per_s" public_interface="out" />
+        <variable name="v_gi_W" units="L_per_s" public_interface="out" />
+        <variable name="v_pt_W" units="L_per_s" public_interface="out" />
+        <variable name="v_in_Na" units="mol_per_s" public_interface="in" />
+        <variable name="v_out1_Na" units="mol_per_s" public_interface="in" />
+        <variable name="v_out2_Na" units="mol_per_s" public_interface="in" />
+        <variable name="v_gl_Na" units="mol_per_s" public_interface="out" />
+        <variable name="v_gi_Na" units="mol_per_s" public_interface="out" />
+        <variable name="v_pt_Na" units="mol_per_s" public_interface="out" />
+        <variable name="v_giEpi_NKE" units="mol_per_s" public_interface="out" />
+        <variable name="v_ptEpi_NKE" units="mol_per_s" public_interface="out" />
+        <variable name="u_ac_W" units="kPa" public_interface="in" />
+        <variable name="u_pt_W" units="kPa" public_interface="out" />
+        <variable name="u_vc_osmotic" units="kPa" public_interface="out" />
+        <variable name="u_gi_osmotic" units="kPa" public_interface="out" />
+        <variable name="u_pt_osmotic" units="kPa" public_interface="out" />
+        <variable name="u_giEpi_e" units="J_per_C" public_interface="in" />
+        <variable name="u_ptEpi_e" units="J_per_C" public_interface="in" />
+        <variable name="k_gi_W" units="L_per_s_per_kPa" public_interface="in" />
+        <variable name="k_pt_W" units="L_per_s_per_kPa" public_interface="in" />
+        <variable name="k_gl_W" units="L_per_s_per_kPa" public_interface="in" />
+        <variable name="k_cc_W" units="L_per_s_per_kPa" public_interface="in" />
+        <variable name="kK_gi_Na" units="per_s" public_interface="in" />
+        <variable name="kK_pt_Na" units="per_s" public_interface="in" />
+        <variable name="kK_gl_Na" units="per_s" public_interface="in" />
+        <variable name="k_giEpi_NKE" units="mol_per_s" public_interface="in" />
+        <variable name="k_ptEpi_NKE" units="mol_per_s" public_interface="in" />
+        <variable name="K_Na" units="L_per_mol" public_interface="in" />
+        <variable name="K_K" units="L_per_mol" public_interface="in" />
+        <variable name="E_vc" units="joule" public_interface="in" />
+        <variable name="E_ac" units="joule" public_interface="in" />
+        <variable name="E_pt" units="joule" public_interface="in" />
+        <variable name="U_ac_W" units="litre" public_interface="in" />
+        <variable name="U_pt_W" units="litre" public_interface="in" />
+        <variable name="L_ac_W" units="litre" public_interface="in" />
+        <variable name="L_vc_W" units="litre" public_interface="in" />
+        <variable name="L_pt_W" units="litre" public_interface="in" />
+        
+        
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq />
+                <apply>
+                    <diff />
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>q_gi_W</ci>
+                </apply>
+                <apply>
+                    <minus />
+                    <apply>
+                        <minus />
+                        <ci>v_in_W</ci>
+                        <ci>v_gi_W</ci>
+                    </apply>
+                    <ci>v_out1_W</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq />
+                <apply>
+                    <diff />
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>q_pt_W</ci>
+                </apply>
+                <apply>
+                    <minus />
+                    <apply>
+                        <minus />
+                        <ci>v_gl_W</ci>
+                        <ci>v_pt_W</ci>
+                    </apply>
+                    <ci>v_out2_W</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq />
+                <apply>
+                    <diff />
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>q_gi_Na</ci>
+                </apply>
+                <apply>
+                    <minus />
+                    <apply>
+                        <minus />
+                        <ci>v_in_Na</ci>
+                        <ci>v_gi_Na</ci>
+                    </apply>
+                    <ci>v_out1_Na</ci>
+                </apply>
+            </apply>
+            
+            <apply>
+                <eq />
+                <apply>
+                    <diff />
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>q_giEpi_Na</ci>
+                </apply>
+                <apply>
+                    <minus />
+                    <ci>v_gi_Na</ci>
+                    <ci>v_giEpi_NKE</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq />
+                <apply>
+                    <diff />
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>q_pt_Na</ci>
+                </apply>
+                <apply>
+                    <minus />
+                    <apply>
+                        <minus />
+                        <ci>v_gl_Na</ci>
+                        <ci>v_pt_Na</ci>
+                    </apply>
+                    <ci>v_out2_Na</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq />
+                <apply>
+                    <diff />
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>q_ptEpi_Na</ci>
+                </apply>
+                <apply>
+                    <minus />
+                    <ci>v_pt_Na</ci>
+                    <ci>v_ptEpi_NKE</ci>
+                </apply>
+            </apply>
+            
+            <apply>
+                <eq />
+                <apply>
+                    <diff />
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>q_vc_Na</ci>
+                </apply>
+                <apply>
+                    <minus />
+                    <apply>
+                        <minus />
+                        <apply>
+                            <plus />
+                            <ci>v_giEpi_NKE</ci>
+                            <ci>v_ptEpi_NKE</ci>
+                        </apply>
+                        <ci>v_gl_Na</ci>
+                    </apply>
+                    <ci>v_diff_Na</ci>
+                </apply>
+            </apply>
+        </math>
+        
+        <variable name="q_other_Na_init" units="mole" public_interface="in" />
+        <variable name="v_diff_Na" units="mol_per_s" public_interface="out" />
+        
+        <variable name="p_Na" units="per_s" public_interface="in" />
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq />
+                <ci>v_diff_Na</ci>
+                <apply>
+                    <times />
+                    <ci>p_Na</ci>
+                    <apply>
+                        <minus />
+                        <ci>q_vc_Na</ci>
+                        <ci>q_other_Na</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq />
+                <apply>
+                    <diff />
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>q_other_Na</ci>
+                </apply>
+                <ci>v_diff_Na</ci>
+            </apply>
+            
+            
+            
+            
+            
+            <apply>
+                <eq />
+                <ci>u_pt_W</ci>
+                <apply>
+                    <divide />
+                    <apply>
+                        <times />
+                        <ci>E_pt</ci>
+                        <apply>
+                            <minus />
+                            <ci>q_pt_W</ci>
+                            <ci>U_pt_W</ci>
+                        </apply>
+                    </apply>
+                    <apply>
+                        <power />
+                        <apply>
+                            <minus />
+                            <ci>L_pt_W</ci>
+                            <ci>q_pt_W</ci>
+                        </apply>
+                        <cn cellml:units="dimensionless">2</cn>
+                    </apply>
+                </apply>
+            </apply>
+            
+            
+            <apply>
+                <eq />
+                <ci>c_vc_Na</ci>
+                <apply>
+                    <divide />
+                    <ci>q_vc_Na</ci>
+                    <ci>q_vc_W</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq />
+                <ci>c_gi_Na</ci>
+                <apply>
+                    <divide />
+                    <ci>q_gi_Na</ci>
+                    <ci>q_gi_W</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq />
+                <ci>c_pt_Na</ci>
+                <apply>
+                    <divide />
+                    <ci>q_pt_Na</ci>
+                    <ci>q_pt_W</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq />
+                <ci>c_giEpi_Na</ci>
+                <apply>
+                    <divide />
+                    <ci>q_giEpi_Na</ci>
+                    <ci>q_giEpi_W</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq />
+                <ci>c_ptEpi_Na</ci>
+                <apply>
+                    <divide />
+                    <ci>q_ptEpi_Na</ci>
+                    <ci>q_ptEpi_W</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq />
+                <ci>C_vc_Na</ci>
+                <apply>
+                    <times />
+                    <cn type="e-notation" cellml:units="dim">1<sep />3</cn>
+                    <ci>c_vc_Na</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq />
+                <ci>C_gi_Na</ci>
+                <apply>
+                    <times />
+                    <cn type="e-notation" cellml:units="dim">1<sep />3</cn>
+                    <ci>c_gi_Na</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq />
+                <ci>C_pt_Na</ci>
+                <apply>
+                    <times />
+                    <cn type="e-notation" cellml:units="dim">1<sep />3</cn>
+                    <ci>c_pt_Na</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq />
+                <ci>C_giEpi_Na</ci>
+                <apply>
+                    <times />
+                    <cn type="e-notation" cellml:units="dim">1<sep />3</cn>
+                    <ci>c_giEpi_Na</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq />
+                <ci>C_ptEpi_Na</ci>
+                <apply>
+                    <times />
+                    <cn type="e-notation" cellml:units="dim">1<sep />3</cn>
+                    <ci>c_ptEpi_Na</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq />
+                <ci>u_gi_osmotic</ci>
+                <apply>
+                    <times />
+                    <ci>RT</ci>
+                    <ci>c_gi_Na</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq />
+                <ci>u_vc_osmotic</ci>
+                <apply>
+                    <times />
+                    <ci>RT</ci>
+                    <ci>c_vc_Na</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq />
+                <ci>u_pt_osmotic</ci>
+                <apply>
+                    <times />
+                    <ci>RT</ci>
+                    <ci>c_pt_Na</ci>
+                </apply>
+            </apply>
+            
+            <apply>
+                <eq />
+                <ci>v_gi_W</ci>
+                <apply>
+                    <times />
+                    <ci>k_gi_W</ci>
+                    <apply>
+                        <minus />
+                        <ci>u_vc_osmotic</ci>
+                        <ci>u_gi_osmotic</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq />
+                <ci>v_pt_W</ci>
+                <apply>
+                    <times />
+                    <ci>k_pt_W</ci>
+                    <apply>
+                        <minus />
+                        <ci>u_vc_osmotic</ci>
+                        <ci>u_pt_osmotic</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq />
+                <ci>v_gl_W</ci>
+                <apply>
+                    <times />
+                    <ci>k_gl_W</ci>
+                    <apply>
+                        <minus />
+                        <ci>u_ac_W</ci>
+                        <ci>u_pt_W</ci>
+                    </apply>
+                </apply>
+            </apply>
+            
+            <apply>
+                <eq />
+                <ci>v_gl_Na</ci>
+                <apply>
+                    <times />
+                    <ci>kK_gl_Na</ci>
+                    <apply>
+                        <minus />
+                        <ci>q_vc_Na</ci>
+                        <ci>q_pt_Na</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq />
+                <ci>v_gi_Na</ci>
+                <apply>
+                    <times />
+                    <ci>kK_gi_Na</ci>
+                    <apply>
+                        <minus />
+                        <ci>q_gi_Na</ci>
+                        <ci>q_giEpi_Na</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq />
+                <ci>v_pt_Na</ci>
+                <apply>
+                    <times />
+                    <ci>kK_pt_Na</ci>
+                    <apply>
+                        <minus />
+                        <ci>q_pt_Na</ci>
+                        <ci>q_ptEpi_Na</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq />
+                <ci>v_giEpi_NKE</ci>
+                <apply>
+                    <divide />
+                    <apply>
+                        <times />
+                        <cn cellml:units="dim">3</cn>
+                        <ci>k_giEpi_NKE</ci>
+                        <apply>
+                            <minus />
+                            <apply>
+                                <times />
+                                <apply>
+                                    <power />
+                                    <apply>
+                                        <divide />
+                                        <apply>
+                                            <times />
+                                            <ci>K_Na</ci>
+                                            <ci>q_giEpi_Na</ci>
+                                        </apply>
+                                        <ci>q_giEpi_W</ci>
+                                    </apply>
+                                    <cn cellml:units="dim">3</cn>
+                                </apply>
+                                <apply>
+                                    <power />
+                                    <apply>
+                                        <divide />
+                                        <apply>
+                                            <times />
+                                            <ci>K_K</ci>
+                                            <ci>q_vc_K</ci>
+                                        </apply>
+                                        <ci>q_vc_W</ci>
+                                    </apply>
+                                    <cn cellml:units="dimensionless">2</cn>
+                                </apply>
+                            </apply>
+                            <apply>
+                                <times />
+                                <apply>
+                                    <power />
+                                    <apply>
+                                        <divide />
+                                        <apply>
+                                            <times />
+                                            <ci>K_Na</ci>
+                                            <ci>q_vc_Na</ci>
+                                        </apply>
+                                        <ci>q_vc_W</ci>
+                                    </apply>
+                                    <cn cellml:units="dim">3</cn>
+                                </apply>
+                                <apply>
+                                    <power />
+                                    <apply>
+                                        <divide />
+                                        <apply>
+                                            <times />
+                                            <ci>K_K</ci>
+                                            <ci>q_giEpi_K</ci>
+                                        </apply>
+                                        <ci>q_giEpi_W</ci>
+                                    </apply>
+                                    <cn cellml:units="dimensionless">2</cn>
+                                </apply>
+                                <apply>
+                                    <exp />
+                                    <apply>
+                                        <divide />
+                                        <apply>
+                                            <times />
+                                            <cn cellml:units="dim">2</cn>
+                                            <ci>F</ci>
+                                            <ci>u_giEpi_e</ci>
+                                        </apply>
+                                        <ci>RT</ci>
+                                    </apply>
+                                </apply>
+                            </apply>
+                        </apply>
+                    </apply>
+                    <apply>
+                        <times />
+                        <apply>
+                            <plus />
+                            <cn cellml:units="dim">1</cn>
+                            <apply>
+                                <power />
+                                <apply>
+                                    <divide />
+                                    <apply>
+                                        <times />
+                                        <ci>K_Na</ci>
+                                        <ci>q_giEpi_Na</ci>
+                                    </apply>
+                                    <ci>q_giEpi_W</ci>
+                                </apply>
+                                <cn cellml:units="dim">3</cn>
+                            </apply>
+                        </apply>
+                        <apply>
+                            <plus />
+                            <cn cellml:units="dim">1</cn>
+                            <apply>
+                                <power />
+                                <apply>
+                                    <divide />
+                                    <apply>
+                                        <times />
+                                        <ci>K_Na</ci>
+                                        <ci>q_vc_Na</ci>
+                                    </apply>
+                                    <ci>q_vc_W</ci>
+                                </apply>
+                                <cn cellml:units="dim">3</cn>
+                            </apply>
+                        </apply>
+                        <apply>
+                            <plus />
+                            <cn cellml:units="dim">1</cn>
+                            <apply>
+                                <power />
+                                <apply>
+                                    <divide />
+                                    <apply>
+                                        <times />
+                                        <ci>K_K</ci>
+                                        <ci>q_vc_K</ci>
+                                    </apply>
+                                    <ci>q_vc_W</ci>
+                                </apply>
+                                <cn cellml:units="dimensionless">2</cn>
+                            </apply>
+                        </apply>
+                        <apply>
+                            <plus />
+                            <cn cellml:units="dim">1</cn>
+                            <apply>
+                                <power />
+                                <apply>
+                                    <divide />
+                                    <apply>
+                                        <times />
+                                        <ci>K_K</ci>
+                                        <ci>q_giEpi_K</ci>
+                                    </apply>
+                                    <ci>q_giEpi_W</ci>
+                                </apply>
+                                <cn cellml:units="dimensionless">2</cn>
+                            </apply>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq />
+                <ci>v_ptEpi_NKE</ci>
+                <apply>
+                    <divide />
+                    <apply>
+                        <times />
+                        <cn cellml:units="dim">3</cn>
+                        <ci>k_ptEpi_NKE</ci>
+                        <apply>
+                            <minus />
+                            <apply>
+                                <times />
+                                <apply>
+                                    <power />
+                                    <apply>
+                                        <divide />
+                                        <apply>
+                                            <times />
+                                            <ci>K_Na</ci>
+                                            <ci>q_ptEpi_Na</ci>
+                                        </apply>
+                                        <ci>q_ptEpi_W</ci>
+                                    </apply>
+                                    <cn cellml:units="dim">3</cn>
+                                </apply>
+                                <apply>
+                                    <power />
+                                    <apply>
+                                        <divide />
+                                        <apply>
+                                            <times />
+                                            <ci>K_K</ci>
+                                            <ci>q_vc_K</ci>
+                                        </apply>
+                                        <ci>q_vc_W</ci>
+                                    </apply>
+                                    <cn cellml:units="dimensionless">2</cn>
+                                </apply>
+                            </apply>
+                            <apply>
+                                <times />
+                                <apply>
+                                    <power />
+                                    <apply>
+                                        <divide />
+                                        <apply>
+                                            <times />
+                                            <ci>K_Na</ci>
+                                            <ci>q_vc_Na</ci>
+                                        </apply>
+                                        <ci>q_vc_W</ci>
+                                    </apply>
+                                    <cn cellml:units="dim">3</cn>
+                                </apply>
+                                <apply>
+                                    <power />
+                                    <apply>
+                                        <divide />
+                                        <apply>
+                                            <times />
+                                            <ci>K_K</ci>
+                                            <ci>q_ptEpi_K</ci>
+                                        </apply>
+                                        <ci>q_ptEpi_W</ci>
+                                    </apply>
+                                    <cn cellml:units="dimensionless">2</cn>
+                                </apply>
+                                <apply>
+                                    <exp />
+                                    <apply>
+                                        <divide />
+                                        <apply>
+                                            <times />
+                                            <cn cellml:units="dim">2</cn>
+                                            <ci>F</ci>
+                                            <ci>u_ptEpi_e</ci>
+                                        </apply>
+                                        <ci>RT</ci>
+                                    </apply>
+                                </apply>
+                            </apply>
+                        </apply>
+                    </apply>
+                    <apply>
+                        <times />
+                        <apply>
+                            <plus />
+                            <cn cellml:units="dim">1</cn>
+                            <apply>
+                                <power />
+                                <apply>
+                                    <divide />
+                                    <apply>
+                                        <times />
+                                        <ci>K_Na</ci>
+                                        <ci>q_ptEpi_Na</ci>
+                                    </apply>
+                                    <ci>q_ptEpi_W</ci>
+                                </apply>
+                                <cn cellml:units="dim">3</cn>
+                            </apply>
+                        </apply>
+                        <apply>
+                            <plus />
+                            <cn cellml:units="dim">1</cn>
+                            <apply>
+                                <power />
+                                <apply>
+                                    <divide />
+                                    <apply>
+                                        <times />
+                                        <ci>K_Na</ci>
+                                        <ci>q_vc_Na</ci>
+                                    </apply>
+                                    <ci>q_vc_W</ci>
+                                </apply>
+                                <cn cellml:units="dim">3</cn>
+                            </apply>
+                        </apply>
+                        <apply>
+                            <plus />
+                            <cn cellml:units="dim">1</cn>
+                            <apply>
+                                <power />
+                                <apply>
+                                    <divide />
+                                    <apply>
+                                        <times />
+                                        <ci>K_K</ci>
+                                        <ci>q_vc_K</ci>
+                                    </apply>
+                                    <ci>q_vc_W</ci>
+                                </apply>
+                                <cn cellml:units="dimensionless">2</cn>
+                            </apply>
+                        </apply>
+                        <apply>
+                            <plus />
+                            <cn cellml:units="dim">1</cn>
+                            <apply>
+                                <power />
+                                <apply>
+                                    <divide />
+                                    <apply>
+                                        <times />
+                                        <ci>K_K</ci>
+                                        <ci>q_ptEpi_K</ci>
+                                    </apply>
+                                    <ci>q_ptEpi_W</ci>
+                                </apply>
+                                <cn cellml:units="dimensionless">2</cn>
+                            </apply>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+            
+            <apply>
+                <eq />
+                <ci>q_tot_W</ci>
+                <apply>
+                    <plus />
+                    <ci>q_ac_W</ci>
+                    <ci>q_vc_W</ci>
+                    <ci>q_gi_W</ci>
+                    <ci>q_pt_W</ci>
+                    <ci>q_giEpi_W</ci>
+                    <ci>q_ptEpi_W</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq />
+                <ci>q_tot_Na</ci>
+                <apply>
+                    <plus />
+                    <ci>q_vc_Na</ci>
+                    <ci>q_gi_Na</ci>
+                    <ci>q_pt_Na</ci>
+                    <ci>q_giEpi_Na</ci>
+                    <ci>q_ptEpi_Na</ci>
+                </apply>
+            </apply>
+        </math>
+    <variable name="q_gi_W" units="litre" public_interface="out" initial_value="q_gi_W_init" /><variable name="q_pt_W" units="litre" public_interface="out" initial_value="q_pt_W_init" /><variable name="q_vc_Na" units="mole" public_interface="out" initial_value="q_vc_Na_init" /><variable name="q_gi_Na" units="mole" public_interface="out" initial_value="q_gi_Na_init" /><variable name="q_pt_Na" units="mole" public_interface="out" initial_value="q_pt_Na_init" /><variable name="q_giEpi_Na" units="mole" public_interface="out" initial_value="q_giEpi_Na_init" /><variable name="q_ptEpi_Na" units="mole" public_interface="out" initial_value="q_ptEpi_Na_init" /><variable name="q_other_Na" units="mole" public_interface="out" initial_value="q_other_Na_init" /></component>
+</model>

@@ -1,0 +1,52 @@
+[
+  {
+    "vessel_type": "BVC_Na_circ",
+    "BC_type": "nn",
+    "module_format": "cellml",
+    "module_file": "BVC_Na_circ_modules.cellml",
+    "module_type": "BVC_Na_circ_main_type",
+    "entrance_ports": [
+      {
+        "port_type": "GI_sodium_flux_port",
+        "variables": ["v_giEpi_NKE"]
+      },
+      {
+        "port_type": "left_pt_sodium_flux_port",
+        "variables": ["v_lptEpi_NKE"],
+        "multi_port": "True"
+      },
+      {
+        "port_type": "right_pt_sodium_flux_port",
+        "variables": ["v_rptEpi_NKE"],
+        "multi_port": "True"
+      },
+      {
+        "port_type": "left_gl_sodium_flux_port",
+        "variables": ["v_lgl_Na"],
+        "multi_port": "True"
+      },
+      {
+        "port_type": "right_gl_sodium_flux_port",
+        "variables": ["v_rgl_Na"],
+        "multi_port": "True"
+      }
+    ],
+    "exit_ports": [
+      {
+        "port_type": "circulation_Na_port",
+        "variables": ["q_vc_Na"],
+        "multi_port": "True"
+      }
+    ],
+    "general_ports": [],
+    "variables_and_units": [
+      ["q_vc_Na_init", "mole", "access", "constant"],
+      ["v_giEpi_NKE", "mol_per_s", "access", "boundary_condition"],
+      ["v_lptEpi_NKE", "mol_per_s", "access", "boundary_condition"],
+      ["v_rptEpi_NKE", "mol_per_s", "access", "boundary_condition"],
+      ["v_lgl_Na", "mol_per_s", "access", "boundary_condition"],
+      ["v_rgl_Na", "mol_per_s", "access", "boundary_condition"],
+      ["q_vc_Na", "mole", "access", "variable"]
+    ]
+  }
+]

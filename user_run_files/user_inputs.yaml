@@ -1,7 +1,7 @@
 #_______ general inputs ________
 DEBUG: false # TODO change back
 # user_inputs_path_override: /home/farg967/Documents/git_projects/CA_user/lung_dev/user_inputs_lung_dev.yaml
-user_inputs_path_override: /home/hsma807/hpc/PhD/CA_user/3compartment/3compartment_user_inputs.yaml
+user_inputs_path_override: /home/hsma807/Animus/RA/ANS-BGCVS/Code/CA_user_ANS-CVS-BVC/CA_user_files_ANS_CVS_BVC/ANS_CVS_BVC_user_inputs.yaml
 file_prefix: 3compartment
 # input_param_file must be stored in resources. If first creating a parameters file 
 # set this to parameters_orig.csv and a 

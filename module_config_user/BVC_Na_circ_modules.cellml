@@ -1,0 +1,39 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<model name="my_model" xmlns="http://www.cellml.org/cellml/1.1#" xmlns:cellml="http://www.cellml.org/cellml/1.1#">
+    <component name="BVC_Na_circ_main_type">
+        <variable name="t" public_interface="in" units="second"/>
+        <variable name="q_vc_Na_init" public_interface="in" units="mole"/>
+        <variable name="v_giEpi_NKE" public_interface="in" units="mol_per_s"/>
+        <variable name="v_lptEpi_NKE" public_interface="in" units="mol_per_s"/>
+        <variable name="v_rptEpi_NKE" public_interface="in" units="mol_per_s"/>
+        <variable name="v_lgl_Na" public_interface="in" units="mol_per_s"/>
+        <variable name="v_rgl_Na" public_interface="in" units="mol_per_s"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <apply>
+                    <diff/>
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>q_vc_Na</ci>
+                </apply>
+                <apply>
+                    <minus/>
+                    <apply>
+                        <minus/>
+                        <apply>
+                            <plus/>
+                            <ci>v_giEpi_NKE</ci>
+                            <ci>v_lptEpi_NKE</ci>
+                            <ci>v_rptEpi_NKE</ci>
+                        </apply>
+                        <ci>v_lgl_Na</ci>
+                    </apply>
+                    <ci>v_rgl_Na</ci>
+                </apply>
+            </apply>
+        </math>
+        <variable initial_value="q_vc_Na_init" name="q_vc_Na" public_interface="out" units="mole"/>
+    </component>
+</model>
