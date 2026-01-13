@@ -537,6 +537,64 @@
         ]
       },
       {
+        "vessel_type":"vol_ctl_terminal",
+        "BC_type":"pp",
+        "module_format":"cellml",
+        "module_file":"BG_modules.cellml",
+        "module_type":"pp_T_vol_ctl_type",
+        "entrance_ports":
+        [
+          {
+            "port_type":"vessel_port",
+            "variables":["v","u_in"]
+          },
+          {
+            "port_type":"blood_intake_port",
+            "variables":["v_extra"]
+          },
+          {
+            "port_type":"blood_uptake_port",
+            "variables":["v_ctl_W"]
+          }
+        ],
+        "exit_ports":
+        [
+          {
+            "port_type":"vessel_port",
+            "variables":["v_T", "u_out"]
+          },
+          {
+            "port_type":"osmotic_vol_port",
+            "variables":["q"]
+          },
+          {
+            "port_type":"volume_port",
+            "variables":["q"]
+          },
+          {
+            "port_type":"capillary_extracellular_port",
+            "variables":["u"]
+          }
+        ],
+        "general_ports":[],
+        "variables_and_units":
+        [
+          ["u", "J_per_m3", "access", "variable"],
+          ["u_C", "J_per_m3", "access", "variable"],
+          ["v", "m3_per_s", "access", "variable"],
+          ["v_T", "m3_per_s", "access", "variable"],
+          ["R_T", "Js_per_m6", "access", "constant"],
+          ["C_T", "m6_per_J", "access", "constant"],
+          ["u_ext", "J_per_m3", "access", "constant"],
+          ["u_in", "J_per_m3", "access", "boundary_condition"],
+          ["u_out", "J_per_m3", "access", "boundary_condition"],
+          ["q", "m3", "access", "variable"],
+          ["q_us", "m3", "access", "constant"],
+          ["q_init", "m3", "access", "constant"],
+          ["v_extra", "m3_per_s", "access", "boundary_condition"]
+        ]
+      },
+      {
         "vessel_type":"terminal",
         "BC_type":"pp_RCR_wCont",
         "module_format":"cellml",
@@ -575,7 +633,7 @@
           ["q_init", "m3", "access", "constant"],
           ["u_in", "J_per_m3", "access", "boundary_condition"],
           ["u_out", "J_per_m3", "access", "boundary_condition"],
-          ["Delta_R", "dimensionless", "access", "boundary_condition"],
+          ["Delta_R", "Js_per_m6", "access", "boundary_condition"],
           ["R_local_multiplier", "dimensionless", "access", "boundary_condition"]
         ]
       },
@@ -725,7 +783,7 @@
           ["q", "m3", "access", "variable"],
           ["v_in", "m3_per_s", "access", "boundary_condition"],
           ["u_out", "J_per_m3", "access", "boundary_condition"],
-          ["Delta_R", "dimensionless", "access", "boundary_condition"],
+          ["Delta_R", "Js_per_m6", "access", "boundary_condition"],
           ["R_local_multiplier", "dimensionless", "access", "boundary_condition"]
         ]
       },
@@ -886,7 +944,7 @@
           ["q", "m3", "access", "variable"],
           ["q_us", "m3", "access", "constant"],
           ["q_init", "m3", "access", "constant"],
-          ["Delta_R", "dimensionless", "access", "boundary_condition"],
+          ["Delta_R", "Js_per_m6", "access", "boundary_condition"],
           ["u_ext", "J_per_m3", "access", "constant"],
           ["u_out", "J_per_m3", "access", "boundary_condition"],
           ["u_in", "J_per_m3", "access", "boundary_condition"],
@@ -944,7 +1002,7 @@
           ["q", "m3", "access", "variable"],
           ["q_us", "m3", "access", "constant"],
           ["q_init", "m3", "access", "constant"],
-          ["Delta_R", "dimensionless", "access", "boundary_condition"],
+          ["Delta_R", "Js_per_m6", "access", "boundary_condition"],
           ["u_ext", "J_per_m3", "access", "constant"],
           ["u_out", "J_per_m3", "access", "boundary_condition"],
           ["u_in", "J_per_m3", "access", "boundary_condition"],
@@ -1001,7 +1059,7 @@
           ["q", "m3", "access", "variable"],
           ["q_us", "m3", "access", "constant"],
           ["q_init", "m3", "access", "constant"],
-          ["Delta_R", "dimensionless", "access", "boundary_condition"],
+          ["Delta_R", "Js_per_m6", "access", "boundary_condition"],
           ["u_ext", "J_per_m3", "access", "constant"],
           ["u_out", "J_per_m3", "access", "boundary_condition"],
           ["u_in", "J_per_m3", "access", "boundary_condition"],
@@ -1058,7 +1116,7 @@
           ["q", "m3", "access", "variable"],
           ["q_us", "m3", "access", "constant"],
           ["q_init", "m3", "access", "constant"],
-          ["Delta_R", "dimensionless", "access", "boundary_condition"],
+          ["Delta_R", "Js_per_m6", "access", "boundary_condition"],
           ["u_ext", "J_per_m3", "access", "constant"],
           ["u_out", "J_per_m3", "access", "boundary_condition"],
           ["u_in", "J_per_m3", "access", "boundary_condition"],
@@ -1090,7 +1148,7 @@
           },
           {
             "port_type":"pressure_and_deriv_port",
-            "variables":["u","du_C_dt"]
+            "variables":["u_C","du_C_dt"]
           },
           
           {
@@ -1161,7 +1219,7 @@
           },
           {
             "port_type":"pressure_and_deriv_port",
-            "variables":["u","du_C_dt"]
+            "variables":["u_C","du_C_dt"]
           },
           
           {
@@ -1911,6 +1969,10 @@
             "variables":["v"]
           },
           {
+            "port_type":"pressure_port",
+            "variables":["u"]
+          },
+          {
             "port_type":"volume_port",
             "variables":["q"]
           }
@@ -1930,6 +1992,56 @@
           ["u_0", "J_per_m3", "access", "constant"],
           ["v_in", "m3_per_s", "access", "boundary_condition"],
           ["u_out", "J_per_m3", "access", "boundary_condition"]
+        ]
+      },
+      {
+        "vessel_type":"venous_Rctl",
+        "BC_type":"vp_woCont",
+        "module_format":"cellml",
+        "module_file":"BG_modules.cellml",
+        "module_type":"vp_simple_Rctl_type",
+        "entrance_ports":
+        [
+          {
+            "port_type":"vessel_port",
+            "variables":["v_in","u"]
+          },
+          {
+            "port_type":"resistance_delta_port",
+            "variables":["Delta_R"]
+          }
+        ],
+        "exit_ports":
+        [
+          {
+            "port_type":"vessel_port",
+            "variables":["v","u_out"]
+          },
+          {
+            "port_type":"flow_port",
+            "variables":["v"]
+          },
+          {
+            "port_type":"volume_port",
+            "variables":["q"]
+          }
+        ],
+        "general_ports":[],
+        "variables_and_units":
+        [
+          ["u", "J_per_m3", "access", "variable"],
+          ["v", "m3_per_s", "access", "variable"],
+          ["q_C", "m3", "access", "variable"],
+          ["q_0", "m3", "access", "constant"],
+          ["q", "m3", "access", "variable"],
+          ["R", "Js_per_m6", "access", "constant"],
+          ["C", "m6_per_J", "access", "constant"],
+          ["I", "Js2_per_m6", "access", "constant"],
+          ["u_ext", "J_per_m3", "access", "constant"],
+          ["u_0", "J_per_m3", "access", "constant"],
+          ["v_in", "m3_per_s", "access", "boundary_condition"],
+          ["u_out", "J_per_m3", "access", "boundary_condition"],
+          ["Delta_R", "Js_per_m6", "access", "boundary_condition"]
         ]
       },
       {
@@ -4377,6 +4489,124 @@
         ]
       },
       {
+        "vessel_type":"capillary_simple_vol_ctl_intake",
+        "BC_type":"vv",
+        "module_format":"cellml",
+        "module_file":"BG_modules.cellml",
+        "module_type":"vv_simple_vol_ctl_type",
+        "entrance_ports":
+        [
+          {
+            "port_type":"vessel_port",
+            "variables":["v_in","u"]
+          },
+          {
+            "port_type":"blood_intake_port",
+            "variables":["v_blood_intake"]
+          }
+        ],
+        "exit_ports":
+        [
+          {
+            "port_type":"vessel_port",
+            "variables":["v_out","u_d"]
+          },
+          {
+            "port_type":"flow_port",
+            "variables":["v"]
+          },
+          {
+            "port_type":"volume_port",
+            "variables":["q"]
+          },
+          {
+            "port_type":"capillary_extracellular_port",
+            "variables":["u"]
+          }
+        ],
+        "general_ports":[],
+        "variables_and_units":
+        [
+          ["u", "J_per_m3", "access", "variable"],
+          ["u_d", "J_per_m3", "access", "variable"],
+          ["u_C", "J_per_m3", "access", "variable"],
+          ["u_C_d", "J_per_m3", "access", "variable"],
+          ["v", "m3_per_s", "access", "variable"],
+          ["q_C", "m3", "access", "variable"],
+          ["q_C_d", "m3", "access", "variable"],
+          ["q_0", "m3", "access", "constant"],
+          ["q", "m3", "access", "variable"],
+          ["R", "Js_per_m6", "access", "constant"],
+          ["C", "m6_per_J", "access", "constant"],
+          ["u_ext", "J_per_m3", "access", "constant"],
+          ["I", "Js2_per_m6", "access", "constant"],
+          ["u_0", "J_per_m3", "access", "constant"],
+          ["v_in", "m3_per_s", "access", "boundary_condition"],
+          ["v_out", "m3_per_s", "access", "boundary_condition"],
+          ["blood_ctl_dir", "dimensionless", "access", "constant"],
+          ["v_blood_intake", "m3_per_s", "access", "variable"]
+        ]
+      },
+      {
+        "vessel_type":"capillary_simple_vol_ctl_uptake",
+        "BC_type":"vv",
+        "module_format":"cellml",
+        "module_file":"BG_modules.cellml",
+        "module_type":"vv_simple_vol_ctl_type",
+        "entrance_ports":
+        [
+          {
+            "port_type":"vessel_port",
+            "variables":["v_in","u"]
+          },
+          {
+            "port_type":"blood_uptake_port",
+            "variables":["v_blood_intake"]
+          }
+        ],
+        "exit_ports":
+        [
+          {
+            "port_type":"vessel_port",
+            "variables":["v_out","u_d"]
+          },
+          {
+            "port_type":"flow_port",
+            "variables":["v"]
+          },
+          {
+            "port_type":"volume_port",
+            "variables":["q"]
+          },
+          {
+            "port_type":"osmotic_vol_port",
+            "variables":["q"]
+          }
+        ],
+        "general_ports":[],
+        "variables_and_units":
+        [
+          ["u", "J_per_m3", "access", "variable"],
+          ["u_d", "J_per_m3", "access", "variable"],
+          ["u_C", "J_per_m3", "access", "variable"],
+          ["u_C_d", "J_per_m3", "access", "variable"],
+          ["v", "m3_per_s", "access", "variable"],
+          ["q_C", "m3", "access", "variable"],
+          ["q_C_d", "m3", "access", "variable"],
+          ["q_0", "m3", "access", "constant"],
+          ["q", "m3", "access", "variable"],
+          ["R", "Js_per_m6", "access", "constant"],
+          ["C", "m6_per_J", "access", "constant"],
+          ["u_ext", "J_per_m3", "access", "constant"],
+          ["I", "Js2_per_m6", "access", "constant"],
+          ["u_0", "J_per_m3", "access", "constant"],
+          ["v_in", "m3_per_s", "access", "boundary_condition"],
+          ["v_out", "m3_per_s", "access", "boundary_condition"],
+          ["blood_ctl_dir", "dimensionless", "access", "constant"],
+          ["v_blood_intake", "m3_per_s", "access", "variable"]
+        ]
+      },
+      {
         "vessel_type":"capillary_split",
         "BC_type":"pv",
         "module_format":"cellml",
@@ -4970,6 +5200,60 @@
         ]
       },
       {
+        "vessel_type":"Min_junction_usV_C_ctl",
+        "BC_type":"vp_simple",
+        "module_format":"cellml",
+        "module_file":"BG_modules.cellml",
+        "module_type":"vp_Min_usV_C_ctl_type",
+        "entrance_ports":
+        [
+          {
+            "port_type":"vessel_port",
+            "variables":["v_in_sum","u"],
+            "multi_port":"True"
+          },
+          {
+            "port_type":"venous_us_volume_delta_port",
+            "variables":["Delta_q_us"]
+          },
+          {
+            "port_type":"venous_us_and_compliance_delta_port",
+            "variables":["Delta_q_us", "Delta_C"]
+          }
+        ],
+        "exit_ports":
+        [
+          {
+            "port_type":"vessel_port",
+            "variables":["v","u_out"]
+          },
+          {
+            "port_type":"volume_port",
+            "variables":["q"]
+          }
+        ],
+        "variables_and_units":
+        [
+          ["u", "J_per_m3", "access", "variable"],
+          ["v", "m3_per_s", "access", "variable"],
+          ["v_in_sum", "m3_per_s", "access", "boundary_condition"],
+          ["u_out", "J_per_m3", "access", "boundary_condition"],
+          ["u_ext", "J_per_m3", "access", "constant"],
+          ["u_0", "J_per_m3", "access", "constant"],
+          ["u_C", "J_per_m3", "access", "variable"],
+          ["q_C", "m3", "access", "variable"],
+          ["q", "m3", "access", "variable"],
+          ["q_0", "m3", "access", "constant"],
+          ["R", "Js_per_m6", "access", "constant"],
+          ["C", "m6_per_J", "access", "constant"],
+          ["I", "Js2_per_m6", "access", "constant"],
+          ["q_us_wCont", "m3", "access", "variable"],
+          ["C_wCont", "m6_per_J", "access", "variable"],
+          ["Delta_q_us", "dimensionless", "access", "boundary_condition"],
+          ["Delta_C", "dimensionless", "access", "boundary_condition"]
+        ]
+      },
+      {
         "vessel_type":"Min_junction",
         "BC_type":"vp",
         "module_format":"cellml",
@@ -5523,7 +5807,7 @@
           },
           {
             "port_type":"pressure_and_deriv_port",
-            "variables":["u","du_C_dt"]
+            "variables":["u_C","du_C_dt"]
           },
           {
             "port_type":"volume_port",
@@ -5570,7 +5854,7 @@
           },
           {
             "port_type":"pressure_and_deriv_port",
-            "variables":["u","du_C_dt"]
+            "variables":["u_C","du_C_dt"]
           },
           {
             "port_type":"volume_port",
