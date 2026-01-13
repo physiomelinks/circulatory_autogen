@@ -9,7 +9,7 @@
         [
           {
             "port_type":"volume_stretch_port",
-            "variables":["q_str"]
+            "variables":["q_b"]
           }
         ],
         "exit_ports":
@@ -26,7 +26,7 @@
           ["f_ls", "Hz", "access", "variable"],
           ["tau_lung", "second", "access", "constant"],
           ["G_al", "per_m3_s", "access", "constant"],
-          ["q_str", "m3", "access", "boundary_condition"]
+          ["q_b", "m3", "access", "boundary_condition"]
         ]
       },
       {

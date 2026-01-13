@@ -6,7 +6,7 @@
     <!-- lung stretch receptor ////////////////////////////////////////////////////////////////////////-->
     <!-- step fxn for testing, replace w/ valid data  ********************************************-->
     <component name="lung_stretch_receptor_Gee2023">
-        <variable name="q_str" public_interface="in" units="m3"/>
+        <variable name="q_b" public_interface="in" units="m3"/>
         <variable name="t" public_interface="in" units="second"/>
         <!--V_lung = sel
     case t > 50{second}:
@@ -44,7 +44,11 @@ endsel;-->
                         <apply>
                             <times/>
                             <ci>G_al</ci>
-                            <ci>q_str</ci>
+                            <apply>
+                                <max/>
+                                <ci>q_b</ci>
+                                <cn cellml:units="m3">0</cn>
+                            </apply>
                         </apply>
                     </apply>
                     <ci>tau_lung</ci>

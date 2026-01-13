@@ -6122,13 +6122,9 @@ Vol_ER = Vol*c_ER;-->
                         <times/>
                         <ci>k_NE</ci>
                         <apply>
-                            <max/>
-                            <apply>
-                                <minus/>
-                                <ci>Cai</ci>
-                                <ci>Cai_NE_base</ci>
-                            </apply>
-                            <cn cellml:units="millimolar">0</cn>
+                            <minus/>
+                            <ci>Cai</ci>
+                            <ci>Cai_NE_base</ci>
                         </apply>
                     </apply>
                     <apply>

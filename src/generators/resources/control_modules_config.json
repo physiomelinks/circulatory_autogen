@@ -90,10 +90,6 @@
           ["alpha_2", "m3_per_J", "access", "global_constant"],
           ["beta_1", "m3_per_J", "access", "global_constant"],
           ["beta_2", "m3_per_J", "access", "global_constant"],
-          ["C_CO2_a_capped", "dimensionless", "access", "variable"],
-          ["C_O2_a_capped", "dimensionless", "access", "variable"],
-          ["overcap_solubility", "J_per_m3", "access", "global_constant"],
-          ["saturation_cap", "dimensionless", "access", "global_constant"],
           ["C_O2_sat", "dimensionless", "access", "global_constant"],
           ["C_CO2_sat", "dimensionless", "access", "global_constant"],
           ["alpha_O2", "m3_per_J", "access", "constant"]
@@ -191,14 +187,6 @@
           {
             "port_type":"chemoreceptor_firing_rate_port",
             "variables":["f_apc"]
-          },
-          {
-            "port_type":"TODO baroreceptor_firing_rate_port",
-            "variables":["f_ab"]
-          },
-          {
-            "port_type":"chemoreceptor_firing_rate_port",
-            "variables":["f_apc"]
           }
         ],
         "exit_ports":
@@ -233,39 +221,6 @@
         "BC_type":"nn",
         "module_format":"cellml",
         "module_file":"control_modules.cellml",
-        "module_type":"efferent_resistance_effector_Argus_type",
-        "entrance_ports":
-        [
-          {
-            "port_type":"sympathetic_efferent_firing_rate_port",
-            "variables":["f_s"]
-          }
-        ],
-        "exit_ports":
-        [
-          {
-            "port_type":"resistance_delta_port",
-            "variables":["Delta_theta"],
-            "multi_port":"True"
-          }
-        ],
-        "general_ports":[],
-        "variables_and_units":
-        [
-          ["G_theta", "dimensionless", "access", "constant"],
-          ["f_es_min", "per_s", "access", "global_constant"],
-          ["f_es_mid", "per_s", "access", "global_constant"],
-          ["tau_theta", "second", "access", "constant"],
-          ["f_s", "per_s", "access", "boundary_condition"],
-          ["Delta_theta", "dimensionless", "access", "variable"],
-          ["sigma_theta", "per_s", "access", "variable"]
-        ]
-    },
-    {
-        "vessel_type":"efferent_resistance_effector_Ursino",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"control_modules.cellml",
         "module_type":"efferent_resistance_effector_type",
         "entrance_ports":
         [
@@ -289,8 +244,40 @@
           ["f_es_min", "per_s", "access", "global_constant"],
           ["tau_theta", "second", "access", "constant"],
           ["f_s", "per_s", "access", "boundary_condition"],
-          ["Delta_theta", "Js_per_m3", "access", "variable"],
-          ["sigma_theta", "Js_per_m3", "access", "variable"]
+          ["Delta_theta", "Js_per_m6", "access", "variable"],
+          ["sigma_theta", "Js_per_m6", "access", "variable"]
+        ]
+    },
+    {
+        "vessel_type":"efferent_venous_us_volume_effector",
+        "BC_type":"nn",
+        "module_format":"cellml",
+        "module_file":"control_modules.cellml",
+        "module_type":"efferent_venous_us_volume_effector_type",
+        "entrance_ports":
+        [
+          {
+            "port_type":"sympathetic_efferent_firing_rate_port",
+            "variables":["f_s"]
+          }
+        ],
+        "exit_ports":
+        [
+          {
+            "port_type":"venous_us_volume_delta_port",
+            "variables":["Delta_theta"],
+            "multi_port":"True"
+          }
+        ],
+        "general_ports":[],
+        "variables_and_units":
+        [
+          ["G_theta", "m3", "access", "constant"],
+          ["f_es_min", "per_s", "access", "global_constant"],
+          ["tau_theta", "second", "access", "constant"],
+          ["f_s", "per_s", "access", "boundary_condition"],
+          ["Delta_theta", "m3", "access", "variable"],
+          ["sigma_theta", "m3", "access", "variable"]
         ]
     },
     {
@@ -298,7 +285,7 @@
         "BC_type":"nn",
         "module_format":"cellml",
         "module_file":"control_modules.cellml",
-        "module_type":"efferent_venous_us_volume_and_compliance_effector_Argus_type",
+        "module_type":"efferent_venous_us_volume_and_compliance_effector_type",
         "entrance_ports":
         [
           {
@@ -320,7 +307,6 @@
           ["G_theta_us", "dimensionless", "access", "constant"],
           ["G_theta_compliance", "dimensionless", "access", "constant"],
           ["f_es_min", "per_s", "access", "global_constant"],
-          ["f_es_mid", "per_s", "access", "global_constant"],
           ["tau_theta_us", "second", "access", "constant"],
           ["tau_theta_compliance", "second", "access", "constant"],
           ["f_s", "per_s", "access", "boundary_condition"],

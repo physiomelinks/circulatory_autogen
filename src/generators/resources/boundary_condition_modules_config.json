@@ -44,6 +44,50 @@
         ]
       },
       {
+        "vessel_type":"pressure_BC",
+        "BC_type":"nn_constant",
+        "module_format":"cellml",
+        "module_file":"boundary_condition_modules.cellml",
+        "module_type":"constant_pressure_BC_type",
+        "entrance_ports":
+        [
+        ],
+        "exit_ports":
+        [
+          {
+            "port_type":"thoracic_pressure_port",
+            "variables":["P"]
+          }
+        ],
+        "general_ports":[],
+        "variables_and_units":
+        [
+          ["P", "J_per_m3", "access", "constant"] 
+        ]
+      },
+      {
+        "vessel_type":"muscle_pressure",
+        "BC_type":"nn_constant",
+        "module_format":"cellml",
+        "module_file":"boundary_condition_modules.cellml",
+        "module_type":"constant_pressure_generator_type",
+        "entrance_ports":
+        [
+        ],
+        "exit_ports":
+        [
+          {
+            "port_type":"thoracic_pressure_port",
+            "variables":["P"]
+          }
+        ],
+        "general_ports":[],
+        "variables_and_units":
+        [
+          ["P", "J_per_m3", "access", "constant"] 
+        ]
+      },
+      {
         "vessel_type":"outlet_flow",
         "BC_type":"nn_constant",
         "module_format":"cellml",
@@ -151,5 +195,62 @@
           ["v_1", "m3_per_s", "access", "constant"], 
           ["v_2", "m3_per_s", "access", "constant"]
         ]
-      }    
+      },
+      {
+        "vessel_type": "lung_vol_generator",
+        "BC_type": "nn",
+        "module_format": "cellml",
+        "module_file": "boundary_condition_modules.cellml",
+        "module_type": "lung_Vol_generator_type",
+        "entrance_ports": [],
+        "exit_ports": [
+          {
+            "port_type": "volume_stretch_port",
+            "variables": ["q_lung_V", "q_b"]
+          }
+        ],
+        "general_ports": [],
+        "variables_and_units": [
+          ["phi_lung", "radian", "access", "constant"],
+          ["T_lung_0", "second", "access", "constant"],
+          ["q_lung_max", "m3", "access", "constant"],
+          ["q_lung_baseline", "m3", "access", "constant"],
+          ["t_start_T_lung", "second", "access", "constant"],
+          ["t_end_T_lung", "second", "access", "constant"],
+          ["T_lung_multiplier", "dim", "access", "constant"],
+          ["q_lung_max_multiplier", "dim", "access", "constant"],
+          ["t_start_q_lung_amp", "second", "access", "constant"],
+          ["t_end_q_lung_amp", "second", "access", "constant"],
+          ["q_lung_V", "m3", "access", "variable"],
+          ["q_b", "m3", "access", "variable"]
+        ]
+      },
+      {
+        "vessel_type": "CO2_O2_generator",
+        "BC_type": "nn",
+        "module_format": "cellml",
+        "module_file": "boundary_condition_modules.cellml",
+        "module_type": "CO2_O2_generator_type",
+        "entrance_ports": [],
+        "exit_ports": [
+          {
+            "port_type": "gas_and_C_CO2_deriv_port",
+            "variables": ["C_O2_a", "C_CO2_a", "dot_C_CO2_a"]
+          }
+        ],
+        "general_ports": [],
+        "variables_and_units": [
+            ["C_CO2_multiplier", "dim", "access", "constant"],
+            ["t_start_C_CO2", "second", "access", "constant"],
+            ["t_end_C_CO2", "second", "access", "constant"],
+            ["C_O2_multiplier", "dim", "access", "constant"],
+            ["t_start_C_O2", "second", "access", "constant"],
+            ["t_end_C_O2", "second", "access", "constant"],
+            ["C_CO2_a0", "dimensionless", "access", "constant"],
+            ["C_O2_a0", "dimensionless", "access", "constant"],
+            ["C_O2_a", "dimensionless", "access", "variable"],
+            ["C_CO2_a", "dimensionless", "access", "variable"],
+            ["dot_C_CO2_a", "per_s", "access", "variable"]
+        ]
+      }
 ]
