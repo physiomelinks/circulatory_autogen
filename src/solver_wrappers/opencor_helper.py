@@ -30,6 +30,8 @@ class SimulationHelper():
             # ignore high-level/legacy keys that aren't part of OpenCOR solver properties
             if key.lower() == "method":
                 continue
+            if key.lower() == "solver":
+                continue
             if key not in self.data.odeSolverProperties():
                 print(f'{key} is not a valid key for CVODE solver properties; valid keys are '
                       f'{list(self.data.odeSolverProperties())}. Skipping.')

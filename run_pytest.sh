@@ -59,6 +59,15 @@ if ! command -v mpiexec >/dev/null 2>&1; then
 fi
 
 MPIEXEC_BIN="${MPIEXEC_BIN:-mpiexec}"
+MPIEXEC_ARGS=()
+if [ -n "${MPIEXEC_EXTRA_ARGS:-}" ]; then
+    # shellcheck disable=SC2206
+    MPIEXEC_ARGS+=(${MPIEXEC_EXTRA_ARGS})
+fi
+if "${MPIEXEC_BIN}" --version 2>/dev/null | grep -qi "Open MPI"; then
+    MPIEXEC_ARGS+=(--mca orte_abort_on_non_zero_status 0)
+    export OMPI_MCA_orte_abort_on_non_zero_status=0
+fi
 
 # Run pytest with the OpenCOR Python shell
 # Pass all arguments to pytest and tee output to a log file
@@ -66,6 +75,6 @@ LOG_FILE="${SCRIPT_DIR}/log_test.log"
 touch "$LOG_FILE"
 echo "===== pytest run $(date -Iseconds) =====" | tee -a "$LOG_FILE"
 echo "Running pytest with ${NUM_PROCS} MPI rank(s) via ${MPIEXEC_BIN}" | tee -a "$LOG_FILE"
-"${MPIEXEC_BIN}" -n "${NUM_PROCS}" "${opencor_pythonshell_path}" -m pytest "${PYTEST_ARGS[@]}" 2>&1 | tee -a "$LOG_FILE"
+"${MPIEXEC_BIN}" "${MPIEXEC_ARGS[@]}" -n "${NUM_PROCS}" "${opencor_pythonshell_path}" -m pytest "${PYTEST_ARGS[@]}" 2>&1 | tee -a "$LOG_FILE"
 exit "${PIPESTATUS[0]}"
 

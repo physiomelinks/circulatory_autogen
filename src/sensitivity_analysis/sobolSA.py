@@ -10,8 +10,16 @@ from sys import exit
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '../utilities'))
 import math as math
-import opencor as oc
-from opencor_helper import SimulationHelper
+try:
+    import opencor as oc
+    opencor_available = True
+except:
+    opencor_available = False
+    pass
+if opencor_available:
+    from solver_wrappers.opencor_helper import SimulationHelper as OpenCORSimulationHelper
+else:
+    from solver_wrappers.python_solver_helper import SimulationHelper as PythonSimulationHelper
 from SALib.sample import saltelli
 import pandas as pd
 from SALib.analyze import sobol
@@ -203,7 +211,11 @@ class sobol_SA():
         return
 
     def initialise_sim_helper(self):
-        return SimulationHelper(self.model_path, self.dt, self.sim_time,
+        if opencor_available:
+            return OpenCORSimulationHelper(self.model_path, self.dt, self.sim_time,
+                                solver_info=self.solver_info, pre_time=self.pre_time)
+        else:
+            return PythonSimulationHelper(self.model_path, self.dt, self.sim_time,
                                 solver_info=self.solver_info, pre_time=self.pre_time)
 
     def __set_obs_names_and_df(self, param_id_obs_path, pre_time=None, sim_time=None):
@@ -789,7 +801,7 @@ class sobol_SA():
         for i in range(n_outputs):
             S1 = S1_all[i]
             ST = ST_all[i]
-            output_name = rf"${self.obs_info['names_for_plotting'][i]}$ - experiment{self.obs_info["experiment_idxs"][i]}, subexperiment{self.obs_info["subexperiment_idxs"][i]}"
+            output_name = rf"${self.obs_info['names_for_plotting'][i]}$ - experiment{self.obs_info['experiment_idxs'][i]}, subexperiment{self.obs_info['subexperiment_idxs'][i]}"
             # output_name = self.obs_info["names_for_plotting"][i] if hasattr(self, "obs_info") else f"Output_{i}"
 
             # Set figure width adaptively based on number of parameters (xticks)
@@ -823,7 +835,7 @@ class sobol_SA():
         n_outputs = S2_all.shape[0]
         for i in range(n_outputs):
             S2 = S2_all[i]
-            output_name = rf"${self.obs_info['names_for_plotting'][i]}$ - experiment{self.obs_info["experiment_idxs"][i]}, subexperiment{self.obs_info["subexperiment_idxs"][i]}"
+            output_name = rf"${self.obs_info['names_for_plotting'][i]}$ - experiment{self.obs_info['experiment_idxs'][i]}, subexperiment{self.obs_info['subexperiment_idxs'][i]}"
 
             # plt.figure(figsize=(6, 5))
             fig_width = max(6, 1.0 * len(self.SA_cfg["param_names"]))

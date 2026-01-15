@@ -1,22 +1,22 @@
 #_______ general inputs ________
-DEBUG: false # TODO change back
-user_inputs_path_override: /home/farg967/Documents/git_projects/lymph_CA_user/lymphatic_user_inputs.yaml
+DEBUG: True# TODO change back
+# user_inputs_path_override: /home/farg967/Documents/git_projects/lymph_CA_user/lymphatic_user_inputs.yaml
 # user_inputs_path_override: /home/farg967/Documents/git_projects/CA_user/3compartment/3compartment_user_inputs.yaml
 # user_inputs_path_override: /hpc/farg967/git_projects/CA_user_FA_MG/control_parasymp/user_inputs_control_parasymp.yaml
-file_prefix: 3compartment
+file_prefix: 3compartment 
 # input_param_file must be stored in resources. If first creating a parameters file 
 # set this to parameters_orig.csv and a 
 # parameters file will be generated with spaces for the required parameters
 input_param_file: 3compartment_parameters.csv
 
 # cpp generation inputs
-# model_type can be cellml_only or cpp atm 
+# model_type can be cellml_only, cpp, or python atm 
 # model_type: cpp
 model_type: cellml_only
 
 #__________ parameter identification inputs __________
 # param_id_method can be any of [genetic_algorithm, CMA-ES, bayesian]
-param_id_method: CMA-ES
+param_id_method: genetic_algorithm
 
 # pre_time is the amount of time simulated to get to steady state
 # TODO this is not important if it is specified in the obs_data.json file
@@ -46,7 +46,7 @@ cpp_1d_model_config_path:
 # Output time step (sampling) 
 dt: 0.01 # This should be smaller than all of the dt in your obs_data.json file. 
 
-# solver options are: RK4, forward_euler, CVODE, or if using python, any method from solve_ivp methods.
+# solver options are: CVODE (uses Myokit, default), CVODE_opencor (uses OpenCOR), or for Python models: solve_ivp
 solver: CVODE
 # TODO make this also change the solver in the opencor sims when not generating cpp.
 # solver: RK4
@@ -55,6 +55,7 @@ solver_info:
   # Maximum time step for solver
   MaximumStep: 0.001
   MaximumNumberOfSteps: 5000
+  # method: RK45 # any method for solve_ivp
 
 # param_id_obs_path needs to be an absolute path.
 # This for 3compartment

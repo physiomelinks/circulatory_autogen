@@ -96,6 +96,5 @@ def example_format_obs_data_json_file():
 
 if __name__ == "__main__":
     example_format_obs_data_json_file()
-    print(f"Observation data JSON file created at: {os.path.join(root_dir, 'resources',
-          'NKE_pump_obs_data.json')}")
+    print(f"Observation data JSON file created at: {os.path.join(root_dir, 'resources', 'NKE_pump_obs_data.json')}")
     # This script demonstrates how to create a JSON file for observation data

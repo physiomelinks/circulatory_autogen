@@ -1,0 +1,3 @@
+name,                    BC_type,     vessel_type,        inp_vessels,          out_vessels
+test_vessel,             nn,          init_states_test,   ,                    
+

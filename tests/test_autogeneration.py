@@ -13,6 +13,7 @@ from scripts.script_generate_with_new_architecture import generate_with_new_arch
 @pytest.mark.slow
 @pytest.mark.parametrize("file_prefix,input_param_file,model_type,solver", [
     ('ports_test', 'ports_test_parameters.csv', 'cellml_only', 'CVODE'),
+    ('test_init_states', 'test_init_states_parameters.csv', 'cellml_only', 'CVODE'),
     ('3compartment', '3compartment_parameters.csv', 'cellml_only', 'CVODE'),
     ('simple_physiological', 'simple_physiological_parameters.csv', 'cellml_only', 'CVODE'),
     ('parasympathetic_model', 'parasympathetic_model_parameters.csv', 'cellml_only', 'CVODE'),
@@ -63,9 +64,9 @@ def test_generate_cellml_model_succeeds(file_prefix, input_param_file, model_typ
 @pytest.mark.parametrize(
     "file_prefix,input_param_file,model_type,solver",
     [
-        ('3compartment', '3compartment_parameters.csv', 'python', 'CVODE'),
-        ('SN_simple', 'SN_simple_parameters.csv', 'python', 'CVODE'),
-        ('pid_control', 'pid_control_parameters.csv', 'python', 'CVODE'),
+        ('3compartment', '3compartment_parameters.csv', 'python', 'solve_ivp'),
+        ('SN_simple', 'SN_simple_parameters.csv', 'python', 'solve_ivp'),
+        ('pid_control', 'pid_control_parameters.csv', 'python', 'solve_ivp'),
     ],
 )
 def test_generate_python_model_succeeds(file_prefix, input_param_file, model_type, solver, base_user_inputs, resources_dir):

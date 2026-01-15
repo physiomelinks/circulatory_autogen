@@ -8,7 +8,7 @@ This project allows the generation and calibration of cellml (and soon to be mor
 
 # Tutorial
 
-Follow the instructions in the tutorial to run the project: https://finbarargus.github.io/circulatory_autogen/
+Follow the instructions in the tutorial to run the project: https://physiomelinks.github.io/circulatory_autogen/
 
 # AI-generated interactive tutorial
 

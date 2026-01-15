@@ -78,6 +78,7 @@ markers = [
     "need_autogen: waits for all autogeneration tests to finish before running",
     "autogen_task: marks an autogeneration test that signals completion",
     "autogen_rank(idx): autogeneration test assigned rank index",
+    "compare_optimisers: marks compare_optimisers tests",
     "xdist_group(name): group marker used by pytest-xdist to serialize groups",
 ]
 # Coverage options

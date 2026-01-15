@@ -38,13 +38,13 @@ def run_identifiability_analysis(inp_data_dict=None):
     param_id_output_dir = inp_data_dict['param_id_output_dir']
     
 
-    if DEBUG:
-        print('WARNING: DEBUG IS ON, TURN THIS OFF IF YOU WANT TO DO ANYTHING QUICKLY')
 
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
     num_procs = comm.Get_size()
     if rank == 0:
+        if DEBUG:
+            print('WARNING: DEBUG IS ON, TURN THIS OFF IF YOU WANT TO DO ANYTHING QUICKLY')
         print(f'Starting identifiability analysis with {num_procs} MPI rank(s)')
 
     param_id = CVS0DParamID(model_path, model_type, param_id_method, False, file_prefix,

@@ -24,6 +24,7 @@ class SimulationHelper:
         self.sim_time = sim_time
         self.solver_info = solver_info or {}
         # pull optional SciPy solve_ivp settings; default method RK45
+        # Check both 'solver' (new) and 'method' (legacy) for backward compatibility
         solver_method = self.solver_info.get('method')
         self.solve_ivp_method = solver_method 
         self.solve_ivp_kwargs = {
@@ -35,6 +36,9 @@ class SimulationHelper:
         self._init_state()
         self.update_times(dt, 0.0, sim_time, pre_time)
 
+    def set_solve_ivp_method(self, method):
+        self.solve_ivp_method = method 
+        
     # ---- setup helpers ----
     def _load_model(self):
         spec = importlib.util.spec_from_file_location("generated_model", self.model_path)

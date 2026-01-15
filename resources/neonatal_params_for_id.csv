@@ -1,12 +1,12 @@
 vessel_name,                  param_name,       min,        max, name_for_plotting
-global,                        q_lv_init,        5.00E-05,2.00E-04,  q_{sbv}
-leg_L_T leg_R_T,              R_T,              1.00E+07,1.00E+10,  R_{LE_T}
-arm_L_T arm_R_T,              R_T,              1.00E+07,1.00E+10,  R_{AR_T}
-head_L_T head_R_T ,           R_T,              1.00E+07,1.00E+10,  R_{HE_T}
-abdomen_T,                    R_T,              1.00E+07,1.00E+10,  R_{AB_T}
-pvn,                          C,                1.11E-10,1.11E-07,  C_{pvn}
-venous_ivc venous_svc ,       C,                1.00E-08,1.00E-06,  C_(VE}
-aortic_root,                  E,                1.00E+05,6.00E+05,  E_{ar}
-ascending_aorta brachiocephalic subclavian_R common_carotid_R common_carotid_L aortic_arch_I aortic_arch_II subclavian_L  descending_aorta abdominal_aorta,E,                1.00E+05,6.00E+05,  E_{rest}
-heart,                        E_lv_A,           1.00E+08,1.00E+10,  E_{lv_A}
-heart,                        E_lv_B,           1.00E+07,1.00E+08,  E_{lv_B}
+global,                        q_lv_init,        5.00e-05,2.00e-04,  q_{sbv}
+leg_L_T leg_R_T,              R_T,              1.00e+07,1.00e+10,  R_{LE_T}
+arm_L_T arm_R_T,              R_T,              1.00e+07,1.00e+10,  R_{AR_T}
+head_L_T head_R_T ,           R_T,              1.00e+07,1.00e+10,  R_{HE_T}
+abdomen_T,                    R_T,              1.00e+07,1.00e+10,  R_{AB_T}
+pvn,                          C,                1.11e-10,1.11e-07,  C_{pvn}
+venous_ivc venous_svc ,       C,                1.00e-08,1.00e-06,  C_(VE}
+aortic_root,                  E,                1.00e+05,6.00e+05,  E_{ar}
+ascending_aorta brachiocephalic subclavian_R common_carotid_R common_carotid_L aortic_arch_I aortic_arch_II subclavian_L  descending_aorta abdominal_aorta,E,                1.00e+05,6.00e+05,  E_{rest}
+heart,                        E_lv_A,           1.00e+08,1.00e+10,  E_{lv_A}
+heart,                        E_lv_B,           1.00e+07,1.00e+08,  E_{lv_B}

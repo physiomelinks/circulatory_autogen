@@ -8,7 +8,7 @@ q_us_0_pvn,m3,0,user_defined
 Delta_q_us_pvn,dimensionless,0,user_defined
 Delta_C_pvn,dimensionless,0,user_defined
 R_par,Js_per_m6,10664000,Blanco_2013_Table_8
-C_par,m6_per_J,3.09077E-10,to_be_identified
+C_par,m6_per_J,3.09077e-10,to_be_identified
 u_ext_par,J_per_m3,0,user_defined
 I_par,Js2_per_m6,0.000001,Blanco_2013_Table_8
 u_0_par,J_per_m3,1463,Mynard&Smolich_2015_assumedRefOf11mmHg
@@ -65,7 +65,7 @@ C_aortic_root,m6_per_J,0.000000012028,to_be_identified
 u_ext_aortic_root,J_per_m3,0,user_defined
 I_aortic_root,Js2_per_m6,10000,to_be_identified
 u_0_aortic_root,J_per_m3,13300,Mynard&Smolich_2015_assumedRefOf100mmHg
-q_0_aortic_root,m3,6.94E-06,Mynard&Smolich_2015
+q_0_aortic_root,m3,6.94e-06,Mynard&Smolich_2015
 r_0_aortic_root,metre,0.014865,Mynard&Smolich_2015_NOT_USED
 l_aortic_root,metre,0.01,Mynard&Smolich_2015_NOT_USED
 R_T_systemic_T,Js_per_m6,110000000,calculated_from_mean_P_and_v

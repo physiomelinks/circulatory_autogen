@@ -125,6 +125,19 @@ Note:
 
 - Currently there are no kwargs for user defined cost functions. But there will be: see [issue](https://github.com/FinbarArgus/circulatory_autogen/issues/84)
 
+## Solver
+
+Before doing calibration, a solver for the model needs to be chosen
+
+- **solver** this defines what solver (and wrapper of that solver) to use. Options are: 
+    - CVODE: solver by Sundials, using opencor to wrap around CVODE 
+    - CVODE\_myokit: CVODE solver by Sundials, using myokit to wrap around CVODE 
+    - solve\_ivp: solver by scipy, using myokit to wrap around CVODE 
+- **solver_info** this defines settings for the solver you have chosen
+    - **MaximumStep**: maximum step size that the adaptive time step solver will use. Equal to dt if a non-adaptive time step solver is used
+    - **MaximumNumberOfSteps**: maximum number of substeps that the adaptive timestep solver will attempt before stepping
+    - **method**: any method for solve\_ivp, e.g. RK45, BDF, etc. Not needed for CVODE as that is the solver and the method.
+
 
 ## Parameter Identification Settings
 

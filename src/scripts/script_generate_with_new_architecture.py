@@ -36,6 +36,9 @@ def generate_with_new_architecture(do_generation_with_fit_parameters,
     generated_models_subdir = inp_data_dict['generated_models_subdir']
     vessels_csv_abs_path = inp_data_dict['vessels_csv_abs_path']
     parameters_csv_abs_path = inp_data_dict['parameters_csv_abs_path']
+    solver_info = inp_data_dict['solver_info']
+    # Get solver from solver_info (check both 'solver' and 'method' for backward compatibility)
+    solver = solver_info.get('solver') or solver_info.get('method')
 
 
     if do_generation_with_fit_parameters:
@@ -62,13 +65,13 @@ def generate_with_new_architecture(do_generation_with_fit_parameters,
     elif inp_data_dict['model_type'] == 'cpp':
         if inp_data_dict['couple_to_1d']:
             code_generator = CVS0DCppGenerator(model, generated_models_subdir, file_prefix,
-                                            resources_dir=resources_dir, solver=inp_data_dict['solver'], 
+                                            resources_dir=resources_dir, solver=solver, 
                                             couple_to_1d=inp_data_dict['couple_to_1d'],
                                             cpp_generated_models_dir=inp_data_dict['cpp_generated_models_dir'],
                                             cpp_1d_model_config_path=inp_data_dict['cpp_1d_model_config_path'])
         else:
             code_generator = CVS0DCppGenerator(model, generated_models_subdir, file_prefix,
-                                            resources_dir=resources_dir, solver=inp_data_dict['solver'])
+                                            resources_dir=resources_dir, solver=solver)
 
         code_generator.generate_cellml()
         code_generator.annotate_cellml()

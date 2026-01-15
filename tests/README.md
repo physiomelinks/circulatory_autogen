@@ -42,6 +42,10 @@ You can pass any pytest arguments to the script:
 
 ./run_pytest.sh -n NUM_RANKS -v -s
 
+# Run in parallel and verbose without the slow compare_optimisers (this is the fast way to test nearly everything)
+
+./run_pytest.sh -n NUM_RANKS -v -s -m "not compare_optimisers"
+
 # Run only the optimiser method comparisons
 ./run_pytest.sh -n 8 tests/test_param_id.py::test_compare_optimisers -v -s
 ```

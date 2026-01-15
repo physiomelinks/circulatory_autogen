@@ -94,5 +94,22 @@
           ["x", "dimensionless", "access", "variable"],
           ["x_init", "dimensionless", "access", "constant"]
         ]
-    }    
+    },
+    {
+        "vessel_type":"init_states_test",
+        "BC_type":"nn",
+        "module_format":"cellml",
+        "module_file":"test_modules.cellml",
+        "module_type":"init_states_test_type",
+        "entrance_ports": [],
+        "exit_ports": [],
+        "general_ports": [],
+        "variables_and_units":
+        [
+          ["a", "dimensionless", "access", "constant"],
+          ["x0", "dimensionless", "no_access", "variable"],
+          ["x", "dimensionless", "access", "variable"],
+          ["y", "dimensionless", "access", "variable"]
+        ]
+    }
 ]

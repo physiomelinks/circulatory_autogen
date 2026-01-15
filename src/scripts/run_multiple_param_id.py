@@ -42,13 +42,13 @@ if __name__ == '__main__':
 
         DEBUG = inp_data_dict['DEBUG']
 
-        if DEBUG:
-            print('WARNING: DEBUG IS ON, TURN THIS OFF IF YOU WANT TO DO ANYTHING QUICKLY')
 
         comm = MPI.COMM_WORLD
         rank = comm.Get_rank()
         num_procs = comm.Get_size()
         if rank == 0:
+            if DEBUG:
+                print('WARNING: DEBUG IS ON, TURN THIS OFF IF YOU WANT TO DO ANYTHING QUICKLY')
             print(f'Starting multi-run parameter ID with {num_procs} MPI rank(s)')
 
 

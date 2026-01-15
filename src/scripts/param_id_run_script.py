@@ -38,13 +38,13 @@ def run_param_id(inp_data_dict=None):
     param_id_output_dir = inp_data_dict['param_id_output_dir']
     
 
-    if DEBUG:
-        print('WARNING: DEBUG IS ON, TURN THIS OFF IF YOU WANT TO DO ANYTHING QUICKLY')
 
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
     num_procs = comm.Get_size()
     if rank == 0:
+        if DEBUG:
+            print('WARNING: DEBUG IS ON, TURN THIS OFF IF YOU WANT TO DO ANYTHING QUICKLY')
         print(f'Starting parameter identification with {num_procs} MPI rank(s)')
 
     param_id = CVS0DParamID(model_path, model_type, param_id_method, False, file_prefix,
@@ -81,6 +81,9 @@ def run_param_id(inp_data_dict=None):
     # param_id.param_id.set_best_param_vals(np.asarray([0.59779409, 0.32321317, 0.05664833, 0.35665839]))
     best_param_vals = param_id.get_best_param_vals()
     
+    if rank == 0:
+        print('param id complete with method:', param_id_method)
+
     # param_id.close_simulation() comment for identifiability analysis run otherwise the model will be closed before analysis
     do_mcmc = inp_data_dict['do_mcmc']
 
@@ -90,6 +93,10 @@ def run_param_id(inp_data_dict=None):
         mcmc_options = inp_data_dict['mcmc_options']
 
     if do_mcmc:
+
+        if rank == 0:
+            print('running mcmc')
+
         mcmc = CVS0DParamID(model_path, model_type, param_id_method, True, file_prefix,
                                 params_for_id_path=params_for_id_path,
                                 param_id_obs_path=param_id_obs_path,
@@ -100,6 +107,10 @@ def run_param_id(inp_data_dict=None):
         # mcmc.set_mcmc_parameters() TODO
         mcmc.run_mcmc()
 
+        if rank == 0:
+            print('mcmc complete')
+    
+
     if inp_data_dict['do_ia']:
         # id_analysis = IdentifiabilityAnalysis(model_path, model_type, param_id_method, False, file_prefix,
         #                                      params_for_id_path=params_for_id_path,
@@ -108,17 +119,17 @@ def run_param_id(inp_data_dict=None):
         #                                      solver_info=solver_info, dt=dt, DEBUG=DEBUG,
         #                                      param_id_output_dir=param_id_output_dir, resources_dir=resources_dir,
         #                                      param_id=param_id.param_id) # pass in param_id object so we can use its cost functions
-        print('running identifiability analysis')
         id_analysis = IdentifiabilityAnalysis(model_path, model_type, file_prefix, param_id_output_dir=param_id_output_dir,
                                             resources_dir=resources_dir, param_id=param_id.param_id)  # pass in param_id object so we can use its cost functions
 
         id_analysis.set_best_param_vals(best_param_vals)    
-        print('Running identifiability analysis with method:', inp_data_dict['ia_options']['method'])
+        if rank == 0:
+            print('Running identifiability analysis with method:', inp_data_dict['ia_options']['method'])
         #id_analysis.run_identifiability_analysis(inp_data_dict['identifiability_analysis_options'])
         id_analysis.run(inp_data_dict['ia_options'])
-    
-    if rank == 0:
-        print('param id complete')
+
+        if rank == 0:
+            print('Identifiability analysis complete')
         
 
 if __name__ == '__main__':

@@ -16,7 +16,6 @@ import fcntl
 import io
 import contextlib
 import time
-import functools
 from mpi4py import MPI
 
 # Ensure src is on sys.path before importing project modules
@@ -29,15 +28,16 @@ from scripts.script_generate_with_new_architecture import generate_with_new_arch
 
 # Store pytest config for hooks that need plugin access (xdist reports lack config)
 _PYTEST_CONFIG = None
-_AUTOGEN_RESULTS = []
 _AUTOGEN_RESULTS_FILE = os.path.join(os.path.dirname(__file__), "..", ".pytest_autogen_results")
 _SESSION_START = None
+_PARAM_ID_RESULTS_FILE = os.path.join(os.path.dirname(__file__), "..", ".pytest_param_id_results")
 _AUTOGEN_CONFIGS = [
     {"file_prefix": "3compartment", "input_param_file": "3compartment_parameters.csv", "model_type": "cellml_only", "solver": "CVODE"},
     {"file_prefix": "simple_physiological", "input_param_file": "simple_physiological_parameters.csv", "model_type": "cellml_only", "solver": "CVODE"},
     {"file_prefix": "test_fft", "input_param_file": "test_fft_parameters.csv", "model_type": "cellml_only", "solver": "CVODE"},
 ]
 _LOCK_FILE = os.path.realpath(os.path.join(_TEST_ROOT, ".pytest_param_id_lock"))
+_PARAM_ID_TRIGGERS = ("test_param_id", "compare_optimisers", "test_sensitivity_analysis")
 
 
 def _mpi_rank_size():
@@ -139,12 +139,21 @@ def pytest_sessionstart(session):
             os.remove(_AUTOGEN_RESULTS_FILE)
         except OSError:
             pass
+    if rank == 0 and os.path.exists(_PARAM_ID_RESULTS_FILE):
+        try:
+            os.remove(_PARAM_ID_RESULTS_FILE)
+        except OSError:
+            pass
 
 
 def _has_serial_marker(item):
     """Return True if item should be serialized across ranks/workers."""
     nodeid = item.nodeid
-    return any(trigger in nodeid for trigger in ("test_param_id", "compare_optimisers", "test_sensitivity_analysis"))
+    return any(trigger in nodeid for trigger in _PARAM_ID_TRIGGERS)
+
+
+def _is_param_id_related_nodeid(nodeid: str) -> bool:
+    return any(trigger in nodeid for trigger in _PARAM_ID_TRIGGERS)
 
 
 def pytest_runtest_setup(item):
@@ -200,15 +209,10 @@ def pytest_runtest_logreport(report):
                 msg = str(report.longrepr)
             except Exception:
                 msg = None
-        result = {"nodeid": report.nodeid, "status": report.outcome, "rank": assigned_rank, "message": msg}
-        _AUTOGEN_RESULTS.append(result)
-        # Emit immediate status from each rank to avoid waiting on summary
+        # Persist to shared file for rank0 summary without MPI gather.
+        # Do not emit immediate PASSED/FAILED lines here: we want only the
+        # "[AUTOGEN] Starting ..." line before the captured test output.
         try:
-            rank = MPI.COMM_WORLD.Get_rank()
-            color = _GREEN if report.outcome == "passed" else _RED
-            sys.__stdout__.write(f"{color}[AUTOGEN] {report.nodeid} {report.outcome.upper()} on rank {rank}{_RESET}\n")
-            sys.__stdout__.flush()
-            # Persist to shared file for rank0 summary without MPI gather
             with open(_AUTOGEN_RESULTS_FILE, "a") as f:
                 if msg:
                     f.write(f"{report.nodeid}|{report.outcome}|{assigned_rank}|call|{msg}\n")
@@ -216,6 +220,33 @@ def pytest_runtest_logreport(report):
                     f.write(f"{report.nodeid}|{report.outcome}|{assigned_rank}\n")
         except Exception:
             pass
+
+    # Collect param_id/comparison/sensitivity outcomes for summary aggregation.
+    # These tests run under MPI; to avoid duplicate spam, only rank 0 records.
+    try:
+        nodeid = getattr(report, "nodeid", "")
+        if nodeid and _is_param_id_related_nodeid(nodeid) and "autogen_task" not in getattr(report, "keywords", {}):
+            rank, size = _mpi_rank_size()
+            if rank == 0:
+                status = report.outcome
+                # capture a small failure hint if available
+                msg = None
+                if getattr(report, "failed", False):
+                    try:
+                        msg = str(getattr(report, "longrepr", "")).strip()
+                    except Exception:
+                        msg = None
+                try:
+                    with open(_PARAM_ID_RESULTS_FILE, "a") as f:
+                        if msg:
+                            f.write(f"{nodeid}|{status}|{rank}|call|{msg}\n")
+                        else:
+                            f.write(f"{nodeid}|{status}|{rank}\n")
+                except OSError:
+                    pass
+    except Exception:
+        # Never fail the run due to reporting
+        pass
 
     if report.passed and "test_compare_optimisers" in report.nodeid:
         # report in xdist may not carry config; use stored config instead
@@ -252,6 +283,18 @@ def pytest_runtest_logreport(report):
         except Exception:
             # Do not fail the test if reading the file fails
             pass
+
+
+@pytest.hookimpl(hookwrapper=True, tryfirst=True)
+def pytest_runtest_makereport(item, call):
+    """
+    Attach per-phase reports to the item so fixtures can access the final outcome.
+    Used by autogen_output_buffer to print a colored PASSED/FAILED status after
+    emitting captured output (while keeping the log clean at test start).
+    """
+    outcome = yield
+    rep = outcome.get_result()
+    setattr(item, "rep_" + rep.when, rep)
 
 @pytest.fixture(scope="session")
 def project_root():
@@ -374,6 +417,17 @@ def pytest_collection_modifyitems(items):
     rank = comm.Get_rank()
     size = comm.Get_size()
     assigned_counts = {}
+
+    # Guard: if using more MPI ranks than autogen tests, nothing useful can be
+    # scheduled on many ranks and output ordering/progress becomes confusing.
+    # Exit early with a clear message rather than silently wasting ranks.
+    if autogen_items and size > len(autogen_items):
+        msg = (
+            f"Requested {size} MPI rank(s) (-n {size}) but only {len(autogen_items)} "
+            f"autogeneration test(s) were collected. Please rerun with -n <= {len(autogen_items)}."
+        )
+        # Exit on all ranks so mpiexec terminates cleanly.
+        pytest.exit(msg, returncode=2)
 
     def sort_key(item):
         nodeid = item.nodeid
@@ -503,16 +557,14 @@ def autogen_rank_gate(request):
     assigned_rank = _get_assigned_autogen_rank(request)
 
     # Announce start so concurrency across ranks is visible immediately.
-    # Temporarily suspend capture so the line is flushed to the shared stdout and
-    # always begins on a fresh line for readability.
+    # Write to the original stdout to avoid pytest capture/xdist buffering, so the
+    # "Starting" line appears before any later PASSED/FAILED reporting hooks.
     try:
-        capman = _PYTEST_CONFIG.pluginmanager.getplugin("capturemanager") if _PYTEST_CONFIG else None
-        if capman:
-            capman.suspend_global_capture(in_=True)
+        sys.__stdout__.write(f"\n{_BLUE}[AUTOGEN] Starting {request.node.nodeid} on rank {rank}{_RESET}\n")
+        sys.__stdout__.flush()
+    except Exception:
+        # Fall back to regular print if sys.__stdout__ isn't usable
         print(f"\n{_BLUE}[AUTOGEN] Starting {request.node.nodeid} on rank {rank}{_RESET}", flush=True)
-    finally:
-        if capman:
-            capman.resume_global_capture()
 
     if rank != assigned_rank:
         pytest.fail(f"Autogeneration test assigned to rank {assigned_rank} reached rank {rank}")
@@ -535,10 +587,25 @@ def autogen_output_buffer(request):
     with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
         yield
     captured = buf.getvalue()
-    # Emit completion on the executing rank so progress is visible live
-    print(f"\n[AUTOGEN] Completed {request.node.nodeid} on rank {comm.Get_rank()}", flush=True)
+    # Emit captured output first (no extra headers before it), then a short
+    # completion line. This keeps the log clean: only the "[AUTOGEN] Starting ..."
+    # line precedes the simulation/generation output.
     if captured:
-        print(f"[AUTOGEN OUTPUT rank {comm.Get_rank()}] {request.node.nodeid}\n{captured}")
+        try:
+            sys.__stdout__.write("\n" + captured.rstrip() + "\n")
+            sys.__stdout__.flush()
+        except Exception:
+            print("\n" + captured.rstrip() + "\n", flush=True)
+    # Print completion status (colored) after the captured output.
+    rep = getattr(request.node, "rep_call", None)
+    outcome = getattr(rep, "outcome", None) if rep is not None else None
+    status = (outcome or "unknown").upper()
+    color = _GREEN if outcome == "passed" else (_RED if outcome == "failed" else _RESET)
+    try:
+        sys.__stdout__.write(f"{color}[AUTOGEN] Completed {request.node.nodeid} {status} on rank {comm.Get_rank()}{_RESET}\n")
+        sys.__stdout__.flush()
+    except Exception:
+        print(f"[AUTOGEN] Completed {request.node.nodeid} {status} on rank {comm.Get_rank()}", flush=True)
 
 
 def pytest_report_teststatus(report, config):
@@ -553,19 +620,45 @@ def pytest_report_teststatus(report, config):
             rank = 0
         if rank == 0 and report.outcome == "passed":
             return report.outcome, "", ""
+    if report.when == "call" and _is_param_id_related_nodeid(getattr(report, "nodeid", "")):
+        try:
+            rank = MPI.COMM_WORLD.Get_rank()
+        except Exception:
+            rank = 0
+        if rank == 0:
+            nodeid = getattr(report, "nodeid", "")
+            if report.outcome == "passed":
+                return report.outcome, "P", f"PASSED[PARAM_ID] {nodeid} PASSED on rank {rank}"
+            if report.outcome == "failed":
+                # Keep status line single-line; full traceback is already in pytest output.
+                full_msg = ""
+                try:
+                    full_msg = str(getattr(report, "longrepr", "")).strip()
+                except Exception:
+                    full_msg = ""
+                first_line = full_msg.splitlines()[0] if full_msg else ""
+                details = f" :: {first_line}" if first_line else ""
+                return report.outcome, "F", f"FAILED[PARAM_ID] {nodeid} FAILED on rank {rank}{details}"
+    if report.when == "call" and report.outcome == "failed":
+        nodeid = getattr(report, "nodeid", "")
+        return report.outcome, "F", f"FAILED[TEST] {nodeid}"
     return None
 
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
     """
     Aggregate autogen results across ranks and print a global summary after
-    pytest's own summary. This avoids the default single-rank count confusion.
+    pytest's own summary. Also print a concise summary for param_id/comparison/SA
+    tests so it's obvious which ones passed/failed.
     """
     rank = MPI.COMM_WORLD.Get_rank()
     if rank != 0:
         return
 
-    results = []
+    duration = time.time() - (_SESSION_START or time.time())
+
+    # --- AUTOGEN summary (existing behavior, but don't return early if absent) ---
+    autogen_results = []
     if os.path.exists(_AUTOGEN_RESULTS_FILE):
         try:
             with open(_AUTOGEN_RESULTS_FILE, "r") as f:
@@ -573,72 +666,107 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
                     parts = line.strip().split("|")
                     if len(parts) == 3:
                         nodeid, status, r = parts
-                        results.append({"nodeid": nodeid, "status": status, "rank": int(r)})
+                        autogen_results.append({"nodeid": nodeid, "status": status, "rank": int(r)})
                     elif len(parts) >= 5:
                         # extended format with failure info (nodeid|status|rank|phase|message)
                         nodeid, status, r, phase, msg = parts[0], parts[1], parts[2], parts[3], "|".join(parts[4:])
-                        results.append({"nodeid": nodeid, "status": status, "rank": int(r), "phase": phase, "message": msg})
+                        autogen_results.append({"nodeid": nodeid, "status": status, "rank": int(r), "phase": phase, "message": msg})
         except OSError:
             pass
 
-    if not results:
-        return
+    if autogen_results:
+        autogen_results.sort(key=lambda r: r["nodeid"])
+        passed = sum(1 for r in autogen_results if r["status"] == "passed")
+        failed = [r for r in autogen_results if r["status"] != "passed"]
+        total = len(autogen_results)
 
-    duration = time.time() - (_SESSION_START or time.time())
-    results.sort(key=lambda r: r["nodeid"])
-    passed = sum(1 for r in results if r["status"] == "passed")
-    failed = [r for r in results if r["status"] != "passed"]
-    total = len(results)
+        # Align pytest stats: add dummy passed for unmatched, and dummy failed for failures (no duplicates)
+        stats_pass = terminalreporter.stats.setdefault("passed", [])
+        stats_failed = terminalreporter.stats.setdefault("failed", [])
+        existing_fail_nodeids = set(getattr(r, "nodeid", None) for r in stats_failed if hasattr(r, "nodeid"))
+        existing_passes = len(stats_pass)
+        additional_needed = max(0, total - len(failed) - existing_passes)
+        if additional_needed:
+            class _DummyReport:
+                def __init__(self, nodeid):
+                    self.nodeid = nodeid
+            stats_pass.extend(_DummyReport(f"[autogen-aggregate-pass-{i}]") for i in range(additional_needed))
+            terminalreporter._numcollected = max(getattr(terminalreporter, "_numcollected", 0), total)
 
-    # Align pytest stats: add dummy passed for unmatched, and dummy failed for failures (no duplicates)
-    stats_pass = terminalreporter.stats.setdefault("passed", [])
-    stats_failed = terminalreporter.stats.setdefault("failed", [])
-    existing_fail_nodeids = set(getattr(r, "nodeid", None) for r in stats_failed if hasattr(r, "nodeid"))
-    existing_passes = len(stats_pass)
-    additional_needed = max(0, total - len(failed) - existing_passes)
-    if additional_needed:
-        class _DummyReport:
-            def __init__(self, nodeid):
-                self.nodeid = nodeid
-        stats_pass.extend(_DummyReport(f"[autogen-aggregate-pass-{i}]") for i in range(additional_needed))
-        terminalreporter._numcollected = max(getattr(terminalreporter, "_numcollected", 0), total)
+        for fail in failed:
+            if fail["nodeid"] in existing_fail_nodeids:
+                continue
+            class _DummyFailReport:
+                def __init__(self, nodeid, longrepr=None):
+                    self.nodeid = nodeid
+                    self.longrepr = longrepr
+                    self.when = "call"
+                    self.outcome = "failed"
+                    self.failed = True
+                    self.passed = False
+                    self.skipped = False
+                def _get_verbose_word_with_markup(self, *args, **kwargs):
+                    # minimal implementation expected by pytest terminal summary
+                    return ("FAILED", {"red": True})
+            longrepr = None
+            if "message" in fail:
+                longrepr = fail["message"]
+            stats_failed.append(_DummyFailReport(fail["nodeid"], longrepr=longrepr))
+            terminalreporter._numcollected = max(getattr(terminalreporter, "_numcollected", 0), total)
 
-    for fail in failed:
-        if fail["nodeid"] in existing_fail_nodeids:
-            continue
-        class _DummyFailReport:
-            def __init__(self, nodeid, longrepr=None):
-                self.nodeid = nodeid
-                self.longrepr = longrepr
-                self.when = "call"
-                self.outcome = "failed"
-                self.failed = True
-                self.passed = False
-                self.skipped = False
-            def _get_verbose_word_with_markup(self, *args, **kwargs):
-                # minimal implementation expected by pytest terminal summary
-                return ("FAILED", {"red": True})
-        longrepr = None
-        if "message" in fail:
-            longrepr = fail["message"]
-        stats_failed.append(_DummyFailReport(fail["nodeid"], longrepr=longrepr))
-        terminalreporter._numcollected = max(getattr(terminalreporter, "_numcollected", 0), total)
+        terminalreporter.write_line("")
+        for res in autogen_results:
+            line = f"[AUTOGEN] {res['nodeid']} {res['status'].upper()} on rank {res['rank']}"
+            if "phase" in res:
+                line += f" ({res['phase']})"
+            terminalreporter.write_line(line)
+            if res.get("message"):
+                terminalreporter.write_line(f"[AUTOGEN OUTPUT] {res['message']}")
 
-    terminalreporter.write_line("")
-    for res in results:
-        line = f"[AUTOGEN] {res['nodeid']} {res['status'].upper()} on rank {res['rank']}"
-        if "phase" in res:
-            line += f" ({res['phase']})"
-        terminalreporter.write_line(line)
-        if res.get("message"):
-            terminalreporter.write_line(f"[AUTOGEN OUTPUT] {res['message']}")
+        terminalreporter.write_line(
+            f"[AUTOGEN] Summary: {passed}/{total} passed, {len(failed)} failed in {duration:.2f}s"
+        )
+        footer_line = f"{passed} passed, {len(failed)} failed in {duration:.2f}s across ranks"
+        terminalreporter.write_sep("=", footer_line)
 
-    terminalreporter.write_line(
-        f"[AUTOGEN] Summary: {passed}/{total} passed, {len(failed)} failed in {duration:.2f}s"
-    )
-    footer_status = "passed" if not failed else "failed"
-    footer_line = f"{passed} passed, {len(failed)} failed in {duration:.2f}s across ranks"
-    terminalreporter.write_sep("=", footer_line)
+    # --- PARAM_ID summary ---
+    param_results = []
+    if os.path.exists(_PARAM_ID_RESULTS_FILE):
+        try:
+            with open(_PARAM_ID_RESULTS_FILE, "r") as f:
+                for line in f:
+                    parts = line.strip().split("|")
+                    if len(parts) == 3:
+                        nodeid, status, r = parts
+                        param_results.append({"nodeid": nodeid, "status": status, "rank": int(r)})
+                    elif len(parts) >= 5:
+                        nodeid, status, r, phase, msg = parts[0], parts[1], parts[2], parts[3], "|".join(parts[4:])
+                        param_results.append({"nodeid": nodeid, "status": status, "rank": int(r), "phase": phase, "message": msg})
+        except OSError:
+            pass
+
+    if param_results:
+        param_results.sort(key=lambda r: r["nodeid"])
+        passed = sum(1 for r in param_results if r["status"] == "passed")
+        failed = [r for r in param_results if r["status"] != "passed"]
+        total = len(param_results)
+
+        terminalreporter.write_line("")
+        for res in param_results:
+            line = f"[PARAM_ID] {res['nodeid']} {res['status'].upper()} on rank {res['rank']}"
+            if "phase" in res:
+                line += f" ({res['phase']})"
+            terminalreporter.write_line(line)
+            if res.get("message"):
+                # Keep it compact; full traceback is already in pytest output.
+                first_line = res["message"].splitlines()[0] if res["message"].splitlines() else res["message"]
+                terminalreporter.write_line(f"[PARAM_ID OUTPUT] {first_line[:300]}")
+
+        terminalreporter.write_line(
+            f"[PARAM_ID] Summary: {passed}/{total} passed, {len(failed)} failed in {duration:.2f}s"
+        )
+        footer_line = f"{passed} passed, {len(failed)} failed in {duration:.2f}s (param_id/comparison/SA)"
+        terminalreporter.write_sep("=", footer_line)
 
 
 

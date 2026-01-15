@@ -10,19 +10,19 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '../utilities'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '../solver_wrappers'))
 import math as math
-import opencor as oc
+try:
+    import opencor as oc
+    opencor_available = True
+except:
+    opencor_available = False
+    pass
 import time
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.ticker as tick
 import paperPlotSetup
-import diagnostics
-import utility_funcs
-import traceback
-from utility_funcs import Normalise_class
 paperPlotSetup.Setup_Plot(3)
-from opencor_helper import SimulationHelper
 from parsers.PrimitiveParsers import scriptFunctionParser
 from mpi4py import MPI
 import re

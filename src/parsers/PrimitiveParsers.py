@@ -171,19 +171,59 @@ class YamlFileParser(object):
                 'MaximumStep is now an entry of solver_info in the user_inputs.yaml file')
             exit()
 
-        # For the Python solver path, use the 'solver' entry to select the solve_ivp method.
-        # Fall back to legacy 'method' or the top-level solver setting for backwards compatibility.
-        solver_method = inp_data_dict['solver']
-        if solver_method is None and 'method' in inp_data_dict['solver_info']:
-            solver_method = inp_data_dict['solver_info']['method']
-            print(f'solver_info["method"] = {solver_method} is now deprecated, use solver = {solver_method} instead')
-            print('This will be removed in a future version')
-            inp_data_dict['solver'] = solver_method
-        if solver_method is None:
+        # Parse and validate the solver parameter
+        # Supported solvers: CVODE (OpenCOR), CVODE_myokit (Myokit), or solve_ivp methods (RK45, RK4, etc.)
+        solver = inp_data_dict.get('solver')
+        if solver is None:
             print('solver must be an entry in the user_inputs.yaml file')
             exit()
-        # also store it as method.
+        else:
+            inp_data_dict['solver'] = solver
+
+        if 'method' in inp_data_dict.get('solver_info', {}):
+            solver_method = inp_data_dict['solver_info']['method']
+        else:
+            if solver.startswith('CVODE'):
+                solver_method = 'CVODE'
+                inp_data_dict['solver_info']['method'] = solver_method
+            else:
+                print('method not set in solver_options, which should be set for solver solve_ivp,'
+                      'using default method RK45')
+                solver_method = 'RK45'
+                inp_data_dict['solver_info']['method'] = solver_method
+
+        # Validate solver value
+        valid_cellml_solvers = ['CVODE', 'CVODE_myokit']
+        # Common solve_ivp methods (add more as needed)
+        valid_python_solvers = ['solve_ivp']
+        valid_solve_ivp_methods = ['RK45', 'RK23', 'DOP853', 'Radau', 'BDF', 'LSODA', 'forward_euler']
+
+        if solver not in valid_cellml_solvers and solver not in valid_python_solvers:
+            print(f'Invalid solver: {solver}')
+            print(f'Valid CellML solvers: {valid_cellml_solvers}')
+            print(f'Valid Python solvers: {valid_python_solvers}')
+            exit()
+        
+        
+
+        # Validate solver-model compatibility
+        # CellML solvers cannot be used with Python models
+        if solver_method in valid_cellml_solvers:
+            if inp_data_dict.get('model_type') == 'python':
+                print(f'CellML solver {solver_method} cannot be used with Python models (model_type="python")')
+                print('Use a solve_ivp method (RK45, RK4, etc.) for Python models')
+                exit()
+
+        # solve_ivp methods can only be used with Python models
+        if solver_method in valid_solve_ivp_methods:
+            if inp_data_dict.get('model_type') not in ['python', None]:
+                print(f'solve_ivp method {solver_method} requires model_type to be "python"')
+                print('Use CVODE or CVODE_myokit for CellML models')
+                exit()
+
+        # Store in solver_info for backward compatibility and as primary key
         inp_data_dict['solver_info']['method'] = solver_method
+        inp_data_dict['solver_info']['solver'] = solver_method
 
         if 'DEBUG' in inp_data_dict.keys(): 
             if inp_data_dict['DEBUG']:
@@ -197,7 +237,7 @@ class YamlFileParser(object):
         else:
             inp_data_dict['DEBUG'] = False
 
-        if not 'external_modules_dir' in inp_data_dict.keys():
+        if 'external_modules_dir' not in inp_data_dict.keys() or inp_data_dict['external_modules_dir'] is None:
             inp_data_dict['external_modules_dir'] = None
         else:
             # check if it is an absolute path
