@@ -1,0 +1,920 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://finbarargus.github.io/circulatory_autogen/design-model/">
+      
+      
+        <link rel="prev" href="../model-generation-simulation/">
+      
+      
+        <link rel="next" href="../parameter-identification/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+    
+    
+      
+        <title>Designing a model - Circulatory Autogen</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#designing-a-model" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Circulatory Autogen" class="md-header__button md-logo" aria-label="Circulatory Autogen" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Circulatory Autogen
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Designing a model
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Circulatory Autogen" class="md-nav__button md-logo" aria-label="Circulatory Autogen" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Circulatory Autogen
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Welcome to Circulatory Autogen
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../model-generation-simulation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Generation and Simulation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Designing a model
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Designing a model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#creating-a-new-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Creating a new model
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Creating a new model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#creating-vessel_array-and-parameter-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Creating vessel_array and parameter files
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#modules-and-definition-of-a-new-module" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Modules and definition of a new module
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-of-creating-a-new-module" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example of creating a new module
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#converting-an-existing-cellml-model-to-run-in-circulatory-autogen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Converting an existing CellML model to run in Circulatory Autogen
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../parameter-identification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parameter Identification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sensitivity-analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sensitivity Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../identifiability-analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Identifiability Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../example-3compartment-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Example: 3Compartment Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../running-on-hpc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Running on the HPC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../other-features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Other Useful Features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#creating-a-new-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Creating a new model
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Creating a new model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#creating-vessel_array-and-parameter-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Creating vessel_array and parameter files
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#modules-and-definition-of-a-new-module" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Modules and definition of a new module
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-of-creating-a-new-module" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example of creating a new module
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#converting-an-existing-cellml-model-to-run-in-circulatory-autogen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Converting an existing CellML model to run in Circulatory Autogen
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="designing-a-model">Designing a model</h1>
+<p>This section describes how to design a model to be run in Circulatory Autogen. There are two sub sections included in this guide as follows.</p>
+<ol>
+<li>
+<p><a href="#creating-a-new-model">Creating a new model</a></p>
+</li>
+<li>
+<p><a href="#converting-an-existing-cellml-model-to-run-in-circulatory-autogen">Converting an existing CellML model to run in Circulatory Autogen</a></p>
+</li>
+</ol>
+<h2 id="creating-a-new-model">Creating a new model</h2>
+<p>This software is designed so the user can easily make their own modules and couple them with existing modules. The steps are as follows.</p>
+<ol>
+<li>
+<p>Either choose an existing <code>[module_category]_modules.cellml</code> file to write your module, or if it is a new category of module, create a <code>[module_category]_modules.cellml</code> file in <code>[project_dir]/module_config_user/</code>.</p>
+</li>
+<li>
+<p>Put your cellml model into the <code>[module_category]_modules.cellml</code> file.</p>
+</li>
+<li>
+<p>Create a corresponding module configuration entry into <code>[module_category]_config.json</code> within <code>[project_dir]/module_config_user/</code>. These module declarations detail the variables that can be accessed, the constants that must be defined and the available ports of the module.</p>
+</li>
+<li>
+<p>When possible, use units defined in <code>[project_dir]/src/generators/resources/units.cellml</code>. If 
+you need to define new units, define them in <code>[project_dir]/module_config_user/user_units.cellml</code></p>
+</li>
+<li>
+<p>Include your new module into a <code>[CA_user_dir]/[file_prefix]_vessel_array.csv</code> file.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Modules that are connected as each others inputs and outputs will be coupled together with any ports with corresponding name. </p>
+<p>For an example, if VesselOne has an exit_port 'vessel_port' and VesselTwo has an entrance_port 'vessel_port', they will be coupled with the variables declared in their corresponding 'vessel_port'. You must be careful when making a new module, that the modules it couples to only has matching port types for the ones that are necessary for coupling.</p>
+<p>Additionally, if a module has a general_port [port_name], it will couple to any entrance, exit, or general port in a connected vessel with the port name [port_name]. </p>
+<p>Standard usage: entrance and exit ports are used for spatial connections (e.g. exit to entrance of a parent and daughter vessel), whereas general ports are used for non-spatial connections (e.g a port for a material property of a whole vessel)</p>
+</div>
+</li>
+<li>
+<p>Define model constants in a <code>[CA_user_dir]/[file_prefix]_parameters.csv</code> file. OR run the autogeneration, which will call an error and create a <code>[CA_user_dir]/[file_prefix]_parameters_unfinished.csv</code>. See <a href="../model-generation-simulation/">model generation and simulation</a></p>
+</li>
+</ol>
+<p>The following sections include more details on creating the above required files.</p>
+<h3 id="creating-vessel_array-and-parameter-files">Creating vessel_array and parameter files</h3>
+<p>This section discusses creating a vessel_array and parameters files to build a new desired model.</p>
+<p>One standard vessel array file contains five important columns as elaborated in the table below. </p>
+<ul>
+<li><strong>vessel_name</strong> is the name of a common organ or part of the cardiovascular system.</li>
+<li><strong>BC_type</strong> is the type of the boundary condition for the vessel's input and output or more generally, the subtype of the module.</li>
+<li><strong>vessel_type</strong> can be defined as the desired module which exists in the <code>[project_dir]/src/generators/resources/module_config.json</code> or one of the <code>[project_dir]/module_config_user/[model_category]_config.json</code> file. </li>
+<li><strong>inp_vessel</strong> is the input of each part.</li>
+<li><strong>out_vessel</strong> is the output of each part.</li>
+</ul>
+<p>Some examples of possible inputs</p>
+<table>
+<thead>
+<tr>
+<th>Column name</th>
+<th>Possible inputs</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>vessel_name</td>
+<td>User defined, but it is better to use common names like 'heart', 'pvn', 'par', etc.</td>
+</tr>
+<tr>
+<td>BC_type</td>
+<td>'vv', 'vp', 'pv', 'pp', 'pp_wCont', 'pp_wLocal', 'nn' (linked to BC_type in the module_config.json file)</td>
+</tr>
+<tr>
+<td>vessel_type</td>
+<td>'heart', 'arterial', 'arterial_simple', 'venous', 'terminal', 'split_junction', 'merge_junction', '2in2out_junction', 'gas_transport_simple', 'pulomonary_GE', 'baroreceptor', 'chemoreceptor' (linked to vessel_type in the module_config.json file)</td>
+</tr>
+<tr>
+<td>inp_vessels</td>
+<td>name of the input vessels, which is one (or more) of the vessel_name entries in the other rows</td>
+</tr>
+<tr>
+<td>out_vessel</td>
+<td>name of the output vessels, which is one (or more) of the vessel_name entries in other rows</td>
+</tr>
+</tbody>
+</table>
+<p>Below figure is an example of a vessel_array file.</p>
+<p><img alt="Example of vessel_array file" src="../images/vessel-array.png" /></p>
+<p>Every row of the vessel array file represents a specific part or module in the defined system. Therefore, each module needs several parameters for modeling and generating a CellML file.</p>
+<p>These parameters should be inserted in the parameters file: <code>[resources_dir]/[file_prefix]_parameters.csv</code>.</p>
+<p>This file has the structure as shown below.</p>
+<table>
+<thead>
+<tr>
+<th>Column Name</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>variable_name</td>
+<td>Parameter name</td>
+</tr>
+<tr>
+<td>units</td>
+<td>Unit in the defined units in CellML's unit file</td>
+</tr>
+<tr>
+<td>value</td>
+<td>Value of parameter</td>
+</tr>
+<tr>
+<td>data_reference</td>
+<td>Reference of the parameter value. Typically in [last_name][date][first_word_of_paper] format for papers.</td>
+</tr>
+</tbody>
+</table>
+<p>The following is an example of a parameter file.</p>
+<p><img alt="Example of parameter file" src="../images/parameter-file.png" /></p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>If you forget to add or insert any needed parameter in the file when you run the code, it shows you this message at the end:</p>
+<p><img alt="Error in parameter file" src="../images/error-parameters.png" /></p>
+<p>At this time, you should open the <code>[resources_dir]/[file_prefix]_parameters_unfinished.csv</code>, which will include the parameters which were not inserted in the file with <em>EMPTY_MUST_BE_FILLED</em> value and data_reference entries. You should add the parameter value and reference, then copy the line to the original [file_prefix].csv file. Or you can add the value in the _unfinished.csv file then remove the last part of the file's name (“_unfinished”) (overwriting the original) and rerun the code with the correctly set parameters.</p>
+</div>
+<h3 id="modules-and-definition-of-a-new-module">Modules and definition of a new module</h3>
+<p>In the <code>[CA_dir]/src/generators/resources</code> directory, there are several CellML files which contain the modules that can be coupled together in your model. The <code>module_config.json file</code> defines the connection ports and variables of each cellml module. Additionally the cellml and .json files in module_config.user contains more available modules that have not yet been accepted into the source code.</p>
+<p><img alt="Modules" src="../images/module-folder.png" /></p>
+<!-- The `base_script.cellml` is the template of the main cellml file that gets generated (shown below). It uses the `units.cellml` in the main generated code to add all types of units. Also, `module_config.json` is the main file used in autogeneration to know how to couple the cellml files in the arrangement defined by the vessel_array file. -->
+<!--  -->
+<!-- ![base_script.cellml](images/base-script.png) -->
+
+<p>If you want to create a new module, you can create or add to a <code>module_config_user/[module_category]_modules.cellml</code> and link to the file where the cellml file is contained, e.g. <code>tutorial_modules.cellml</code> or another cellml file in <code>[CA_dir]/module_config_user/</code> or <code>[CA_dir]/src/generators/resources/</code>.</p>
+<p>As shown in the below figure, there are three different parts for each module. The primary specification includes vessel_type, boundary condition type, and module_file, then the ports and their types, and finally, variables and constants.</p>
+<p><img alt="module_config.json" src="../images/module-config.png" /></p>
+<p>Following is one of the modules in the <code>BG_modules</code> file. The main body of a specific module contains variables declaration, constitutive parameters, and state variables. Then, the constitutive relations and eventually, ODE equations.</p>
+<p><img alt="Module" src="../images/module.png" /></p>
+<h3 id="example-of-creating-a-new-module">Example of creating a new module</h3>
+<p>This section shows a simple example to create a new module</p>
+<p>We want to define a new vessel type with the name of <strong>"arterial"</strong> with boundary condition type <strong>"vp"</strong>. Additionally, we want to use the <strong>"vp_type"</strong> module, whose cellml code is shown in the above figure. Also, the module is located in the <code>BG_modules.cellml</code> file.</p>
+<p>Vessel_type, BC_type, module_format, module_file location, module_type and other related information are added to the <code>module_config.json</code> file, as shown below. We can now use this vessel_type in the vessel_array file in <code>[resources_dir]</code> to add the module with specified inputs, outputs and parameters. In the ports, you should add the <strong>"vessel_port"</strong> type for connecting to the other parts. Additionally, each module can be used in many vessel_types.</p>
+<p><img alt="vp_type module" src="../images/vp_type-module.png" /></p>
+<p>The entries in the <code>module_config.json</code> file are detailed as follows:</p>
+<ul>
+<li><strong>vessel_type</strong>: This will be the "vessel_type" entry in the vessel_array file</li>
+<li><strong>BC_type</strong>: This will be the "BC_type" entry in the vessel_array file</li>
+<li><strong>module_format</strong>: Currently only cellml is supported but in the future, cpp modules and others will be allowed.</li>
+<li><strong>module_file</strong>: The file within <code>[CA_dir]/src/generators/resources/</code> or <code>[CA_dir]/module_config_user/</code> that contains the cellml module that this config entry links to.</li>
+<li><strong>module_type</strong>: The name of the module/computational_environment within the module cellml file.</li>
+<li><strong>entrance_ports</strong>: Specification of the port types that this module can take if it is connected as an "out_vessel" to another module. If a port_type matches to the port_type of a exit_port in a module coupled as an input, then the port_types variables, e.g. [v_in, u] get mapped to the variables in the coupled modules exit port e.g. [v, u_out].</li>
+<li><strong>exit_ports</strong>: Specification of the port types that this module can take if it is connected as an "inp_vessel" to another module.</li>
+<li><strong>general_ports</strong>: Specification of the port types that this module can take if it is connected as any type of connection to another module. Port entries are:<ul>
+<li><strong>port_types</strong>: The name of the type of port. If two vessels are connected vessel_a to vessel_b, and vessel_a has an exit_port with the same port_type as an entrance_port of vessel_b, then a connection will be made. </li>
+<li><strong>variables</strong>: These are the variables within the module that will be connected to the variables in the corresponding port of the connected vessel/module.</li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>If you want a port variable to be able to couple to multiple other modules, you must set <code>"multi_port": "True"</code> as an entry within the entrance, exit, or general port.</p>
+</div>
+</li>
+<li>
+<p><strong>variables_and_units</strong>: This specifies all of the constants and the accesible variables of the cellml module. The entries are:</p>
+<ul>
+<li>[0] <strong>variable name</strong>: corresponding to the name in the cellml file</li>
+<li>[1] <strong>variable unit</strong>: corresponsing to the unit specification in <code>units.cellml</code></li>
+<li>[2] <strong>access or no_access</strong>: whether the variable can be accessed within the cellml simulation. This should always be "access" for accessibility, unless you want to decrease memory usage.</li>
+<li>[3] <strong>parameter type</strong>: can be constant, global_constant, variable, or boundary_condition.</li>
+<li>If parameter_type is boundary_condition it will be set to a variable accesses from another module if the corresponding port is connected. However, if the 
+    corresponding port is not connected, the boundary_condition will be set to a constant, and required to be set in the <code>[resources_dir]/[file_prefix]_parameters.csv</code> file </li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>All constants are required to be entered in the <code>[resources_dir]/[file_prefix]_parameters.csv</code> file with the following naming convention: <strong>[variable_name]_[vessel_name]</strong>.</p>
+<p>All global_constants are required to be entered in the <code>[resources_dir]/[file_prefix]_parameters.csv</code> file as just <strong>[variable_name]</strong>.</p>
+</div>
+</li>
+</ul>
+<h2 id="converting-an-existing-cellml-model-to-run-in-circulatory-autogen">Converting an existing CellML model to run in Circulatory Autogen</h2>
+<p>Circulatory Autogen provides a script to convert an existing cellml model (with parameters hardcoded in the modules) to a format that can be used with Circulatory_Autogen, which is a format that defines parameters in a separate file so that they can be used in model calibration and specifies modules in a config file with ports for easy coupling of modules.). 
+You can find the script <strong>"generate_modules_files.py"</strong> at <code>[CA_dir]/src/scripts</code>.</p>
+<p>Update the script to change the <code>input_model</code> variable to the path of your CellML model and <code>output_dir</code> variable to the directory where you need to create the resources files and the new <code>[file_prefix]_user_inputs.yaml</code> file.</p>
+<p>This script generates the <code>[file_prefix]_modules.cellml</code> and <code>module_config.json</code> files in the <code>module_config_user</code> directory. <code>[file_prefix]_parameters.csv</code> and <code>[file_prefix]_vessel_array.csv</code> files are created in <code>[output_dir]/resources</code> and the <code>[file_prefix]_user_inputs.yaml</code> is created in <code>[output_dir]</code>.</p>
+<p>You only need to update the <code>user_inputs.yaml</code> file at the <code>user_run_files</code> directory to update <strong><code>user_inputs_path_override:</code></strong> to <code>[output_dir]/[file_prefix]_user_inputs.yaml</code> to run model autogeneration.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>You can update the <strong>file_prefix</strong>, <strong>vessel_name</strong> and the <strong>data_reference</strong> variables in the <code>generate_modules_files.py</code> at the <code>src/scripts</code> directory before running the script, so it will generate files with the defined variables.</p>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>You need to specify the variable name of time as the <strong>time_variable</strong>.</p>
+<p>Variable <strong>component_name</strong> should be the name of the component for which you want to generate files.</p>
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["instant", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
