@@ -1,7 +1,7 @@
 #_______ general inputs ________
 DEBUG: false # TODO change back
 
-user_inputs_path_override: /home/farg967/Documents/git_projects/CA_chemo/chemo_model/user_inputs_chemo_model.yaml
+# user_inputs_path_override: /home/farg967/Documents/git_projects/CA_chemo/chemo_model/user_inputs_chemo_model.yaml
 
 # file_prefix: image_to_model
 file_prefix: 3compartment
