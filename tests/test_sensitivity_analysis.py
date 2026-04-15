@@ -23,7 +23,7 @@ def mpi_comm():
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.mpi
-def test_sensitivity_analysis_3compartment_succeeds(base_user_inputs, resources_dir, temp_output_dir, mpi_comm):
+def test_sensitivity_analysis_3compartment_succeeds(base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
     """
     Test that sensitivity analysis succeeds for 3compartment model.
     
@@ -56,6 +56,7 @@ def test_sensitivity_analysis_3compartment_succeeds(base_user_inputs, resources_
         },
         'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
         'param_id_output_dir': temp_output_dir,
+        'generated_models_dir': temp_generated_models_dir,
         'debug_optimiser_options': {'num_calls_to_function': 60},
         'sa_options': {
             'method': 'sobol',
