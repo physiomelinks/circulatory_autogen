@@ -90,6 +90,47 @@ def test_generate_python_model_succeeds(file_prefix, input_param_file, model_typ
 
 @pytest.mark.integration
 @pytest.mark.slow
+def test_generate_python_model_is_human_readable_by_default(base_user_inputs, resources_dir):
+    """
+    Test that default Python generation adds the debug-friendly readability layer.
+    """
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': '3compartment',
+        'input_param_file': '3compartment_parameters.csv',
+        'model_type': 'python',
+        'solver': 'solve_ivp',
+    })
+
+    param_file_path = os.path.join(resources_dir, '3compartment_parameters.csv')
+    assert os.path.exists(param_file_path), f"Parameter file not found: {param_file_path}"
+
+    success = generate_with_new_architecture(False, config)
+    assert success, "Python model generation failed for 3compartment"
+
+    model_path = os.path.join('generated_models', '3compartment', '3compartment.py')
+    utilities_path = os.path.join('generated_models', '3compartment', '3compartment_utilities.py')
+    assert os.path.exists(model_path), f"Generated Python model not found: {model_path}"
+    assert os.path.exists(utilities_path), f"Generated Python utilities not found: {utilities_path}"
+
+    with open(model_path, 'r', encoding='utf-8') as fh:
+        generated_code = fh.read()
+    with open(utilities_path, 'r', encoding='utf-8') as fh:
+        utilities_code = fh.read()
+
+    assert "state = StateView(states)" in generated_code
+    assert "var = VarView(variables)" in generated_code
+    assert "rate = RateView(rates)" in generated_code
+    assert "def initialise_variables(states, rates, variables):" in generated_code
+    assert "var.pvn_module_q_c = state.pvn_module_q_c_change" in generated_code
+    assert "var.heart_module_u_lv" in generated_code
+    assert "class VarView(_ArrayView):" in utilities_code
+    assert "def initialise_variables(states, rates, variables):" not in utilities_code
+    assert "def describe_variables(variables):" in utilities_code
+
+
+@pytest.mark.integration
+@pytest.mark.slow
 def test_generate_cpp_model_succeeds(base_user_inputs, resources_dir, temp_output_dir):
     """
     Test that CPP model generation succeeds for aortic_bif_1d model.
