@@ -409,7 +409,7 @@ def opencor_python_path():
     Returns None if the path cannot be determined.
     """
     root_dir = os.path.join(os.path.dirname(__file__), '..')
-    opencor_path_file = os.path.join(root_dir, 'user_run_files', 'opencor_pythonshell_path.sh')
+    opencor_path_file = os.path.join(root_dir, 'user_run_files', 'python_path.sh')
     
     if os.path.exists(opencor_path_file):
         try:
@@ -418,9 +418,9 @@ def opencor_python_path():
                 for line in f:
                     line = line.strip()
                     # Skip comments and empty lines
-                    if line and not line.startswith('#') and 'opencor_pythonshell_path=' in line:
+                    if line and not line.startswith('#') and 'python_path=' in line:
                         # Extract the path value
-                        path = line.split('opencor_pythonshell_path=', 1)[1].strip()
+                        path = line.split('python_path=', 1)[1].strip()
                         # Remove quotes if present
                         path = path.strip('"\'')
                         if os.path.exists(path):

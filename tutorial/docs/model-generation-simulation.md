@@ -64,7 +64,7 @@ The following are the steps for model autogeneration.
     As shown below, this will create CellML files for the generated model and test that the simulation runs. Consequently, If there are no errors, it shows the *"Model generation has been successful."* message at the end.
 
     !!! Note 
-    Alternatively, use an IDE, set the Python interpreter to `opencor_pythonshell_path` (see [Getting Started](getting-started.md)), and run `script_generate_with_new_architecture.py` from `[project_dir]/src/scripts`.
+    Alternatively, use an IDE, set the Python interpreter to `python_path` (see [Getting Started](getting-started.md)), and run `script_generate_with_new_architecture.py` from `[project_dir]/src/scripts`.
 
     ![Run autogeneration output](images/run-autogeneration.png)
 

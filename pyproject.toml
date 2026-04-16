@@ -63,7 +63,7 @@ dev = [
 # Pytest configuration
 # NOTE: Tests should be run using the OpenCOR Python shell.
 # Use ./run_pytest.sh to run tests, which automatically uses the Python
-# from opencor_pythonshell_path.sh
+# from python_path.sh
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
