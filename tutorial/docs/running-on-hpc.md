@@ -2,9 +2,9 @@
 
 ## ABI HPC Standard
 
-If running on the ABI HPC, you can use a pre-installed (with all necessary libraries) OpenCOR pythonshell. To do this, clone the circulatory_autogen repo into a directory of your choice, then change the `opencor_pythonshell_path` in `opencor_pythonshell_path.sh` to:
+If running on the ABI HPC, you can use a pre-installed (with all necessary libraries) OpenCOR pythonshell. To do this, clone the circulatory_autogen repo into a directory of your choice, then change the `python_path` in `python_path.sh` to:
 
-`opencor_pythonshell_path=/hpc/farg967/OpenCOR-0-8-3-Linux/pythonshell`
+`python_path=/hpc/farg967/OpenCOR-0-8-3-Linux/pythonshell`
 
 To run in parallel you need to load MPI. Do the following from the `{project_dir}/user_run_files` dir:
 

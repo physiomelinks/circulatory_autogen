@@ -5,9 +5,9 @@ This file sets up the test environment to work with OpenCOR's Python shell.
 It provides fixtures for test data, configuration, and deterministic randomness.
 """
 import os
+import re
 import sys
 import yaml
-import tempfile
 import shutil
 import pytest
 import numpy as np
@@ -32,6 +32,7 @@ _AUTOGEN_RESULTS_FILE = os.path.join(os.path.dirname(__file__), "..", ".pytest_o
 _SOLVER_RESULTS_FILE = os.path.join(os.path.dirname(__file__), "..", ".pytest_solver_results")
 _SESSION_START = None
 _PARAM_ID_RESULTS_FILE = os.path.join(os.path.dirname(__file__), "..", ".pytest_param_id_results")
+_TEST_OUTPUT_ROOT = os.path.join(os.path.dirname(__file__), "test_outputs")
 # _AUTOGEN_CONFIGS = [
 #     {"file_prefix": "3compartment", "input_param_file": "3compartment_parameters.csv", "model_type": "cellml_only", "solver": "CVODE"},
 #     {"file_prefix": "simple_physiological", "input_param_file": "simple_physiological_parameters.csv", "model_type": "cellml_only", "solver": "CVODE"},
@@ -48,6 +49,42 @@ def _mpi_rank_size():
         return comm.Get_rank(), comm.Get_size()
     except Exception:
         return 0, 1
+
+
+def _sanitize_nodeid(nodeid: str) -> str:
+    """Convert a pytest nodeid into a stable filesystem-safe name."""
+    sanitized = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(nodeid)).strip("._")
+    return sanitized or "unnamed_test"
+
+
+def _is_one_rank_task(request) -> bool:
+    return "one_rank_task" in getattr(request.node, "keywords", {})
+
+
+def _prepare_persistent_test_dir(request):
+    """
+    Prepare a persistent per-test output directory.
+
+    One-rank-distributed tests must not use global MPI barriers here because
+    different ranks may be executing different tests at the same time. In that
+    case the executing rank prepares its own directory locally. True all-rank
+    MPI tests still use rank 0 plus a barrier so all ranks see the same path.
+    """
+    comm = MPI.COMM_WORLD
+    rank = comm.Get_rank()
+
+    test_dir = os.path.join(_TEST_OUTPUT_ROOT, _sanitize_nodeid(request.node.nodeid))
+    use_local_setup = _is_one_rank_task(request)
+    setup_rank = rank if use_local_setup else 0
+
+    if rank == setup_rank:
+        os.makedirs(_TEST_OUTPUT_ROOT, exist_ok=True)
+        shutil.rmtree(test_dir, ignore_errors=True)
+        os.makedirs(test_dir, exist_ok=True)
+
+    if not use_local_setup:
+        comm.Barrier()
+    return test_dir
 
 
 def _silence_non_root_output():
@@ -383,7 +420,7 @@ def opencor_python_path():
     Returns None if the path cannot be determined.
     """
     root_dir = os.path.join(os.path.dirname(__file__), '..')
-    opencor_path_file = os.path.join(root_dir, 'user_run_files', 'opencor_pythonshell_path.sh')
+    opencor_path_file = os.path.join(root_dir, 'user_run_files', 'python_path.sh')
     
     if os.path.exists(opencor_path_file):
         try:
@@ -392,9 +429,9 @@ def opencor_python_path():
                 for line in f:
                     line = line.strip()
                     # Skip comments and empty lines
-                    if line and not line.startswith('#') and 'opencor_pythonshell_path=' in line:
+                    if line and not line.startswith('#') and 'python_path=' in line:
                         # Extract the path value
-                        path = line.split('opencor_pythonshell_path=', 1)[1].strip()
+                        path = line.split('python_path=', 1)[1].strip()
                         # Remove quotes if present
                         path = path.strip('"\'')
                         if os.path.exists(path):
@@ -427,17 +464,28 @@ def base_user_inputs(user_inputs_dir):
 
 
 @pytest.fixture(scope="function")
-def temp_output_dir():
+def temp_output_dir(request):
     """
-    Fixture that creates a temporary directory for test outputs.
-    Automatically cleans up after the test.
+    Fixture that provides a persistent per-test output directory under tests/.
     """
-    os.makedirs(os.path.join(os.path.dirname(__file__), 'tmp'), exist_ok=True)
-    temp_dir = tempfile.mkdtemp(dir=os.path.join(os.path.dirname(__file__), 'tmp'), prefix='circulatory_autogen_test_')
-    yield temp_dir
-    # Cleanup
-    if os.path.exists(temp_dir):
-        shutil.rmtree(temp_dir, ignore_errors=True)
+    return _prepare_persistent_test_dir(request)
+
+
+@pytest.fixture(scope="function")
+def temp_generated_models_dir(request, temp_output_dir):
+    """
+    Fixture that provides a persistent generated-models directory under tests/.
+    """
+    comm = MPI.COMM_WORLD
+    rank = comm.Get_rank()
+    generated_dir = os.path.join(temp_output_dir, "generated_models")
+    use_local_setup = _is_one_rank_task(request)
+    setup_rank = rank if use_local_setup else 0
+    if rank == setup_rank:
+        os.makedirs(generated_dir, exist_ok=True)
+    if not use_local_setup:
+        comm.Barrier()
+    return generated_dir
 
 
 @pytest.fixture(scope="function", autouse=True)

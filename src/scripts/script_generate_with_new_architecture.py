@@ -114,7 +114,12 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
         success = cellml_generator.generate_files()
         if success:
             cellml_path = os.path.join(generated_models_subdir, f'{file_prefix}.cellml')
-            py_gen = PythonGenerator(cellml_path, output_dir=generated_models_subdir, module_name=file_prefix)
+            py_gen = PythonGenerator(
+                cellml_path,
+                output_dir=generated_models_subdir,
+                module_name=file_prefix,
+                human_readable=inp_data_dict.get('human_readable', True),
+            )
             py_gen.generate()
             success = True
     elif inp_data_dict['model_type'] == 'cpp':

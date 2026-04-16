@@ -132,7 +132,7 @@ You should now have:
 
 ## Deprecated: OpenCOR-based setup
 
-This section documents the **older workflow** that used **OpenCOR’s bundled Python** and `opencor_pythonshell_path.sh`. It is **not required** for the default Myokit-based path described above. Keep it only if you maintain legacy scripts or environments that still call OpenCOR’s interpreter.
+This section documents the **older workflow** that used **OpenCOR’s bundled Python** and `python_path.sh`. It is **not required** for the default Myokit-based path described above. Keep it only if you maintain legacy scripts or environments that still call OpenCOR’s interpreter.
 
 ### Install OpenCOR (legacy)
 
@@ -175,18 +175,18 @@ cd [project_dir]
 
 (Use `./pythonshell -m pip` / `./pythonshell.bat -m pip` on Mac/Windows as above.) For development tools: `pip install -e ".[dev]"`.
 
-### `opencor_pythonshell_path.sh` (legacy)
+### `python_path.sh` (legacy)
 
-Shell scripts under `user_run_files/` may read `[project_dir]/user_run_files/opencor_pythonshell_path.sh`. Set `opencor_pythonshell_path` to your OpenCOR pythonshell:
+Shell scripts under `user_run_files/` may read `[project_dir]/user_run_files/python_path.sh`. Set `python_path` to your OpenCOR pythonshell:
 
 !!! Note
     === "Linux and Mac"
         ```
-        opencor_pythonshell_path=<OpenCOR_dir>/pythonshell
+        python_path=<OpenCOR_dir>/pythonshell
         ```
     === "Windows"
         ```
-        opencor_pythonshell_path=C:\<OpenCOR_dir>\pythonshell.bat
+        python_path=C:\<OpenCOR_dir>\pythonshell.bat
         ```
         Use Windows path conventions (`C:\`, backslashes).
 
