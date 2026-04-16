@@ -57,22 +57,33 @@ def _sanitize_nodeid(nodeid: str) -> str:
     return sanitized or "unnamed_test"
 
 
+def _is_one_rank_task(request) -> bool:
+    return "one_rank_task" in getattr(request.node, "keywords", {})
+
+
 def _prepare_persistent_test_dir(request):
     """
-    Prepare a persistent per-test output directory shared across MPI ranks.
-    The directory is cleared at the start of each test but preserved afterwards.
+    Prepare a persistent per-test output directory.
+
+    One-rank-distributed tests must not use global MPI barriers here because
+    different ranks may be executing different tests at the same time. In that
+    case the executing rank prepares its own directory locally. True all-rank
+    MPI tests still use rank 0 plus a barrier so all ranks see the same path.
     """
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
 
     test_dir = os.path.join(_TEST_OUTPUT_ROOT, _sanitize_nodeid(request.node.nodeid))
+    use_local_setup = _is_one_rank_task(request)
+    setup_rank = rank if use_local_setup else 0
 
-    if rank == 0:
+    if rank == setup_rank:
         os.makedirs(_TEST_OUTPUT_ROOT, exist_ok=True)
         shutil.rmtree(test_dir, ignore_errors=True)
         os.makedirs(test_dir, exist_ok=True)
 
-    comm.Barrier()
+    if not use_local_setup:
+        comm.Barrier()
     return test_dir
 
 
@@ -461,16 +472,19 @@ def temp_output_dir(request):
 
 
 @pytest.fixture(scope="function")
-def temp_generated_models_dir(temp_output_dir):
+def temp_generated_models_dir(request, temp_output_dir):
     """
     Fixture that provides a persistent generated-models directory under tests/.
     """
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
     generated_dir = os.path.join(temp_output_dir, "generated_models")
-    if rank == 0:
+    use_local_setup = _is_one_rank_task(request)
+    setup_rank = rank if use_local_setup else 0
+    if rank == setup_rank:
         os.makedirs(generated_dir, exist_ok=True)
-    comm.Barrier()
+    if not use_local_setup:
+        comm.Barrier()
     return generated_dir
 
 

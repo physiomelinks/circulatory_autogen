@@ -7,6 +7,7 @@ import os
 import pytest
 from mpi4py import MPI
 
+from scripts.script_generate_with_new_architecture import generate_with_new_architecture
 from scripts.sensitivity_analysis_run_script import run_SA
 
 
@@ -18,6 +19,22 @@ def mpi_comm():
         # pytest.skip("MPI tests require mpiexec with at least 2 ranks")
         print("Running param ID and Sensitivity Analysis tests with 1 rank, this is slow")
     return comm
+
+
+def _ensure_cellml_model_generated(config, mpi_comm):
+    """
+    Ensure generated CellML exists before run_SA.
+
+    CI checkouts omit gitignored generated_models/; local runs may already have artifacts.
+    """
+    if config.get("model_type") != "cellml_only":
+        return
+    rank = mpi_comm.Get_rank()
+    if rank == 0:
+        success = generate_with_new_architecture(False, config)
+        prefix = config.get("file_prefix", "<unknown>")
+        assert success, f"CellML autogeneration failed for {prefix}"
+    mpi_comm.Barrier()
 
 
 @pytest.mark.integration
@@ -65,7 +82,9 @@ def test_sensitivity_analysis_3compartment_succeeds(base_user_inputs, resources_
             'output_dir': os.path.join(temp_output_dir, '3compartment_SA_results'),
         },
     })
-    
+
+    _ensure_cellml_model_generated(config, mpi_comm)
+
     # Run sensitivity analysis
     run_SA(config)
     
