@@ -10,6 +10,7 @@ import sys
 import numpy as np
 import pytest
 
+from parsers.OMEXParsers import OMEXArchiveParser
 from scripts.generate_omex_analysis_script import generate_omex_analysis_script
 
 
@@ -47,17 +48,41 @@ def _cellml_backend_available(python_executable):
     return completed.stdout.strip() == "True"
 
 
-@pytest.mark.integration
-@pytest.mark.slow
-def test_generate_omex_analysis_pipeline_runs_successfully(temp_output_dir):
-    project_root = os.path.join(os.path.dirname(__file__), "..")
-    python_executable = _venv_python(project_root)
-    omex_path = os.path.join(
+def _omex_test_archive(project_root):
+    return os.path.join(
         project_root,
         "tests",
         "test_inputs",
         "cardiomyocyte_with_data_omex_test.omex",
     )
+
+
+def test_omex_parser_selects_duplicate_series_by_user_index():
+    project_root = os.path.join(os.path.dirname(__file__), "..")
+    parser = OMEXArchiveParser(_omex_test_archive(project_root))
+
+    default_specs = parser.build_direct_series_observable_specs()
+    override_specs = parser.build_direct_series_observable_specs({"V": 1})
+    selection_options = parser.get_direct_series_selection_options()
+
+    default_v_specs = [spec for spec in default_specs if spec.name == "V"]
+    override_v_specs = [spec for spec in override_specs if spec.name == "V"]
+
+    assert selection_options["V"] == ["V_ext", "V_ext_1"]
+    assert len(default_v_specs) == 1
+    assert len(override_v_specs) == 1
+    assert default_v_specs[0].external_expression == "V_ext"
+    assert override_v_specs[0].external_expression == "V_ext_1"
+    assert default_v_specs[0].trace_index == 0
+    assert override_v_specs[0].trace_index == 1
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_generate_omex_analysis_pipeline_runs_successfully(temp_output_dir):
+    project_root = os.path.join(os.path.dirname(__file__), "..")
+    python_executable = _venv_python(project_root)
+    omex_path = _omex_test_archive(project_root)
     generated_script_path = os.path.join(temp_output_dir, "omex_analysis_pipeline.py")
 
     generated_path = generate_omex_analysis_script(omex_path, generated_script_path)
@@ -67,9 +92,15 @@ def test_generate_omex_analysis_pipeline_runs_successfully(temp_output_dir):
         generated_script = fh.read()
     assert "PARAMS_FOR_ID =" in generated_script
     assert "OBSERVABLE_SELECTIONS =" in generated_script
+    assert "OBSERVABLE_DATASET_INDEX_BY_VARIABLE =" in generated_script
+    assert "OBSERVABLE_DATASET_OPTIONS =" in generated_script
     assert "run_pipeline()" in generated_script
     assert '"model_type": "cellml_only"' in generated_script
     assert '"solver": "CVODE"' in generated_script
+    assert '"num_calls_to_function": 200' in generated_script
+    assert "'V': 0" in generated_script
+    assert "'external_expression': 'V_ext'" in generated_script
+    assert "'V': ['V_ext', 'V_ext_1']" in generated_script
     assert "PythonGenerator(" not in generated_script
 
     if not os.path.exists(python_executable):
@@ -131,7 +162,7 @@ def test_generate_omex_analysis_pipeline_runs_successfully(temp_output_dir):
     best_cost = float(np.load(best_cost_path))
     assert np.isfinite(best_cost), f"Calibration cost should be finite, got {best_cost}"
     assert best_cost >= 0.0, f"Calibration cost should be non-negative, got {best_cost}"
-    assert best_cost < 1.0e6, f"Calibration cost should remain below threshold, got {best_cost}"
+    assert best_cost < 150.0, f"Calibration cost should remain below threshold, got {best_cost}"
 
     assert os.path.exists(laplace_mean_path), f"Laplace mean file missing: {laplace_mean_path}"
     assert os.path.exists(laplace_covariance_path), (
