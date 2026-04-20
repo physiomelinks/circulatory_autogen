@@ -8,6 +8,7 @@ import numpy as np
 import re
 import pandas as pd
 import os
+import tempfile
 from sys import exit
 generators_dir = os.path.dirname(__file__)
 base_dir = os.path.join(os.path.dirname(__file__), '../..')
@@ -188,11 +189,39 @@ class CVS0DCellMLGenerator(object):
                     "but it is recommended to fix them.")
         
 
+        cellml_path = os.path.join(self.output_dir, f'{self.file_prefix}.cellml')
+        myokit_success, myokit_error = self._validate_with_myokit(cellml_path)
+        if myokit_success:
+            print('Model generation has been successful. Validation status: Myokit run succeeded.')
+            return True
+
+        print('Myokit validation failed for the generated model.')
+        if myokit_error:
+            print(f'Myokit error: {myokit_error}')
+
+        python_success, python_error = self._validate_with_python(cellml_path)
+        if python_success:
+            print('Model generation has been successful. Validation status: Myokit failed but Python run succeeded.')
+            return True
+
+        if self.all_parameters_defined:
+            print('Model generation validation failed. Validation status: both Myokit and Python runs failed.')
+            if python_error:
+                print(f'Python error: {python_error}')
+            return False
+
+        print('Model generation validation failed. Validation status: both Myokit and Python runs failed because not all parameters have been given values.')
+        if python_error:
+            print(f'Python error: {python_error}')
+        print('Enter the values in '
+              f'{os.path.join(self.resources_dir, f"{self.file_prefix}_parameters_unfinished.csv")}')
+        return False
+
+    def _validate_with_myokit(self, cellml_path):
         print('Testing to see if model runs with Myokit')
         try:
             from solver_wrappers import get_simulation_helper
 
-            cellml_path = os.path.join(self.output_dir, f'{self.file_prefix}.cellml')
             solver_info = {'MaximumStep': 0.00001, 'MaximumNumberOfSteps': 5000}
             sim_helper = get_simulation_helper(
                 model_path=cellml_path,
@@ -205,20 +234,27 @@ class CVS0DCellMLGenerator(object):
             )
             success = sim_helper.run()
             if success:
-                print('Model generation has been successful.')
-                return True
+                return True, None
+            return False, 'Simulation returned False.'
         except Exception as e:
-            if self.all_parameters_defined:
-                print('The Myokit validation run failed for the generated model. \n'
-                      f'Error: {e}\n')
-                return False
-            print('The Myokit validation run failed because all parameters have not been given values, \n'
-                  f'Enter the values in '
-                  f'{os.path.join(self.resources_dir, f"{self.file_prefix}_parameters_unfinished.csv")}')
-            return False
+            return False, str(e)
 
-        print('Model generation has failed. Or the simulation fails when trying to simulate in Myokit')
-        return False
+    def _validate_with_python(self, cellml_path):
+        print('Testing to see if model runs with generated Python')
+        try:
+            from generators.PythonGenerator import PythonGenerator
+
+            with tempfile.TemporaryDirectory(prefix=f'{self.file_prefix}_python_validation_') as temp_dir:
+                py_gen = PythonGenerator(
+                    cellml_path,
+                    output_dir=temp_dir,
+                    module_name=self.file_prefix,
+                    human_readable=False,
+                )
+                py_gen.generate()
+            return True, None
+        except Exception as e:
+            return False, str(e)
 
     def __adjust_units_import_line(self, line):
         if 'import xlink:href="units.cellml"' in line:
@@ -574,6 +610,10 @@ class CVS0DCellMLGenerator(object):
     def __write_module_mapping_for_row(self, module_row, module_df, entrance_general_ports_connected, wf):
         """This function maps between ports of the modules in a one row of a module dataframe."""
 
+        # Accumulate variable pairs per (comp1, comp2) so each component pair produces
+        # exactly one <connection> block, satisfying the CellML 2.0 uniqueness rule.
+        pending_mappings = {}  # key: (comp1, comp2), value: (vars_1_list, vars_2_list)
+
         # input and output modules
         main_module = module_row["name"]
         main_module_BC_type = module_row["BC_type"]
@@ -791,7 +831,11 @@ class CVS0DCellMLGenerator(object):
                         out_module_module = out_module + '_module'
 
                         if module_row['module_format'] == 'cellml' and out_module_row['module_format'] == 'cellml':
-                            self.__write_mapping(wf, main_module_module, out_module_module, variables_1, variables_2)
+                            key = (main_module_module, out_module_module)
+                            if key not in pending_mappings:
+                                pending_mappings[key] = ([], [])
+                            pending_mappings[key][0].extend(variables_1)
+                            pending_mappings[key][1].extend(variables_2)
 
                     # only assign connected if the port doesnt have a multi_ports flag
                     if 'multi_port' in module_exit_general_ports[out_port_idx].keys():
@@ -937,7 +981,11 @@ class CVS0DCellMLGenerator(object):
                                 out_module_module = out_module + '_module'
 
                                 if module_row['module_format'] == 'cellml' and out_module_row['module_format'] == 'cellml':
-                                    self.__write_mapping(wf, main_module_module, out_module_module, variables_1, variables_2)
+                                    key = (main_module_module, out_module_module)
+                                    if key not in pending_mappings:
+                                        pending_mappings[key] = ([], [])
+                                    pending_mappings[key][0].extend(variables_1)
+                                    pending_mappings[key][1].extend(variables_2)
 
                             for II in range(len(variables_1)):
                                 if variables_1[II] in self.BC_set[main_module].keys():
@@ -973,6 +1021,10 @@ class CVS0DCellMLGenerator(object):
                     if break_out:
                         break_out = False
                         break     
+
+        # Flush all accumulated variable pairs — one <connection> block per component pair.
+        for (comp1, comp2), (vars_1, vars_2) in pending_mappings.items():
+            self.__write_mapping(wf, comp1, comp2, vars_1, vars_2)
 
         return entrance_general_ports_connected
 
