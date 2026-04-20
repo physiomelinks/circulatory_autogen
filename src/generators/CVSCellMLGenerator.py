@@ -655,6 +655,10 @@ class CVS0DCellMLGenerator(object):
     def __write_module_mapping_for_row(self, module_row, module_df, entrance_general_ports_connected, wf):
         """This function maps between ports of the modules in a one row of a module dataframe."""
 
+        # Accumulate variable pairs per (comp1, comp2) so each component pair produces
+        # exactly one <connection> block, satisfying the CellML 2.0 uniqueness rule.
+        pending_mappings = {}  # key: (comp1, comp2), value: (vars_1_list, vars_2_list)
+
         # input and output modules
         main_module = module_row["name"]
         main_module_BC_type = module_row["BC_type"]
@@ -872,7 +876,11 @@ class CVS0DCellMLGenerator(object):
                         out_module_module = out_module + '_module'
 
                         if module_row['module_format'] == 'cellml' and out_module_row['module_format'] == 'cellml':
-                            self.__write_mapping(wf, main_module_module, out_module_module, variables_1, variables_2)
+                            key = (main_module_module, out_module_module)
+                            if key not in pending_mappings:
+                                pending_mappings[key] = ([], [])
+                            pending_mappings[key][0].extend(variables_1)
+                            pending_mappings[key][1].extend(variables_2)
 
                     # only assign connected if the port doesnt have a multi_ports flag
                     if 'multi_port' in module_exit_general_ports[out_port_idx].keys():
@@ -1018,7 +1026,11 @@ class CVS0DCellMLGenerator(object):
                                 out_module_module = out_module + '_module'
 
                                 if module_row['module_format'] == 'cellml' and out_module_row['module_format'] == 'cellml':
-                                    self.__write_mapping(wf, main_module_module, out_module_module, variables_1, variables_2)
+                                    key = (main_module_module, out_module_module)
+                                    if key not in pending_mappings:
+                                        pending_mappings[key] = ([], [])
+                                    pending_mappings[key][0].extend(variables_1)
+                                    pending_mappings[key][1].extend(variables_2)
 
                             for II in range(len(variables_1)):
                                 if variables_1[II] in self.BC_set[main_module].keys():
@@ -1054,6 +1066,10 @@ class CVS0DCellMLGenerator(object):
                     if break_out:
                         break_out = False
                         break     
+
+        # Flush all accumulated variable pairs — one <connection> block per component pair.
+        for (comp1, comp2), (vars_1, vars_2) in pending_mappings.items():
+            self.__write_mapping(wf, comp1, comp2, vars_1, vars_2)
 
         return entrance_general_ports_connected
 
