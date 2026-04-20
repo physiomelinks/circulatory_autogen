@@ -83,6 +83,7 @@ markers = [
     "solver: marks solver-focused tests",
     "one_rank_task: marks an autogeneration test that signals completion",
     "autogen_task: marks an autogeneration test that signals completion",
+    "misc_task: marks a one-rank miscellaneous integration test",
     "autogen_rank(idx): autogeneration test assigned rank index",
     "solver_task: marks a solver test that signals completion",
     "compare_optimisers: marks compare_optimisers tests",

@@ -29,6 +29,7 @@ from scripts.script_generate_with_new_architecture import generate_with_new_arch
 # Store pytest config for hooks that need plugin access (xdist reports lack config)
 _PYTEST_CONFIG = None
 _AUTOGEN_RESULTS_FILE = os.path.join(os.path.dirname(__file__), "..", ".pytest_one_rank_results")
+_MISC_RESULTS_FILE = os.path.join(os.path.dirname(__file__), "..", ".pytest_misc_results")
 _SOLVER_RESULTS_FILE = os.path.join(os.path.dirname(__file__), "..", ".pytest_solver_results")
 _SESSION_START = None
 _PARAM_ID_RESULTS_FILE = os.path.join(os.path.dirname(__file__), "..", ".pytest_param_id_results")
@@ -45,9 +46,12 @@ _PARAM_ID_TRIGGERS = ("test_param_id", "compare_optimisers", "test_sensitivity_a
 def _is_autogen_like_nodeid(nodeid: str) -> bool:
     return (
         "test_autogeneration" in nodeid
-        or "test_omex_analysis_pipeline" in nodeid
         or "interactive_tests/test_interactive_tutorial_notebooks" in nodeid
     )
+
+
+def _is_misc_nodeid(nodeid: str) -> bool:
+    return "test_omex_analysis_pipeline" in nodeid
 
 
 def _mpi_rank_size():
@@ -175,6 +179,7 @@ def pytest_configure(config):
     # Ensure pytest-xdist group marker is registered (also in pyproject for strict markers)
     config.addinivalue_line("markers", "xdist_group(name): serialize a group of tests under pytest-xdist")
     config.addinivalue_line("markers", "one_rank_rank(idx): rank assigned to run an autogeneration test")
+    config.addinivalue_line("markers", "misc_task: marks a one-rank miscellaneous integration test")
 
 
 def pytest_sessionstart(session):
@@ -186,6 +191,11 @@ def pytest_sessionstart(session):
     if rank == 0 and os.path.exists(_AUTOGEN_RESULTS_FILE):
         try:
             os.remove(_AUTOGEN_RESULTS_FILE)
+        except OSError:
+            pass
+    if rank == 0 and os.path.exists(_MISC_RESULTS_FILE):
+        try:
+            os.remove(_MISC_RESULTS_FILE)
         except OSError:
             pass
     if rank == 0 and os.path.exists(_SOLVER_RESULTS_FILE):
@@ -269,6 +279,12 @@ def pytest_runtest_logreport(report):
         try:
             if "solver_task" in getattr(report, "keywords", {}):
                 with open(_SOLVER_RESULTS_FILE, "a") as f:
+                    if msg:
+                        f.write(f"{report.nodeid}|{report.outcome}|{assigned_rank}|call|{msg}\n")
+                    else:
+                        f.write(f"{report.nodeid}|{report.outcome}|{assigned_rank}\n")
+            elif "misc_task" in getattr(report, "keywords", {}):
+                with open(_MISC_RESULTS_FILE, "a") as f:
                     if msg:
                         f.write(f"{report.nodeid}|{report.outcome}|{assigned_rank}|call|{msg}\n")
                     else:
@@ -543,10 +559,14 @@ def pytest_collection_modifyitems(items):
     """
     import os
     autogen_items = [item for item in items if _is_autogen_like_nodeid(item.nodeid)]
+    misc_items = [item for item in items if _is_misc_nodeid(item.nodeid)]
     solver_items = [item for item in items if "test_solvers" in item.nodeid]
-    one_rank_items = autogen_items + solver_items
+    one_rank_items = autogen_items + solver_items + misc_items
     
-    os.environ["ONE_RANK_TOTAL"] = str(len(one_rank_items))
+    os.environ["ONE_RANK_TOTAL"] = str(len(autogen_items) + len(solver_items))
+    os.environ["AUTOGEN_SUMMARY_TOTAL"] = str(len(autogen_items))
+    os.environ["MISC_SUMMARY_TOTAL"] = str(len(misc_items))
+    os.environ["SOLVER_SUMMARY_TOTAL"] = str(len(solver_items))
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
     size = comm.Get_size()
@@ -567,6 +587,8 @@ def pytest_collection_modifyitems(items):
         nodeid = item.nodeid
         # Highest priority: autogeneration tests
         if _is_autogen_like_nodeid(nodeid):
+            return (0, nodeid)
+        if _is_misc_nodeid(nodeid):
             return (0, nodeid)
         if "test_solvers" in nodeid:
             return (1, nodeid)
@@ -603,7 +625,13 @@ def pytest_collection_modifyitems(items):
     for idx, item in enumerate(one_rank_items):
         assigned_rank = idx % max(size, 1)
         assigned_counts[assigned_rank] = assigned_counts.get(assigned_rank, 0) + 1
-        item.add_marker(pytest.mark.autogen_task)
+        if "test_solvers" in item.nodeid:
+            item.add_marker(pytest.mark.solver_task)
+            item.add_marker(pytest.mark.autogen_task)
+        elif _is_misc_nodeid(item.nodeid):
+            item.add_marker(pytest.mark.misc_task)
+        else:
+            item.add_marker(pytest.mark.autogen_task)
         item.add_marker(pytest.mark.one_rank_task)
         item.add_marker(pytest.mark.one_rank_rank(assigned_rank))
         # Store for runtime lookup
@@ -696,6 +724,9 @@ def one_rank_rank_gate(request):
     if 'solver_task' in request.node.keywords:
         task_message_caps = "SOLVER"
         task_message_low = "solver"
+    elif 'misc_task' in request.node.keywords:
+        task_message_caps = "MISC"
+        task_message_low = "misc"
     else:
         task_message_caps = "AUTOGEN"
         task_message_low = "autogen"
@@ -732,6 +763,9 @@ def one_rank_output_buffer(request):
     if 'solver_task' in request.node.keywords:
         task_message_caps = "SOLVER"
         task_message_low = "solver"
+    elif 'misc_task' in request.node.keywords:
+        task_message_caps = "MISC"
+        task_message_low = "misc"
     else:
         task_message_caps = "AUTOGEN"
         task_message_low = "autogen"
@@ -766,6 +800,18 @@ def pytest_report_teststatus(report, config):
     Suppress the verbose word for autogen passes on rank 0 so pytest only shows
     the progress percent (no extra 'PASSED' from the root rank).
     """
+    if report.when == "call" and "misc_task" in getattr(report, "keywords", {}):
+        try:
+            rank = MPI.COMM_WORLD.Get_rank()
+        except Exception:
+            rank = 0
+        if rank == 0:
+            nodeid = getattr(report, "nodeid", "")
+            if report.outcome == "passed":
+                return report.outcome, "P", f"PASSED[MISC] {nodeid} PASSED on rank {rank}"
+            if report.outcome == "skipped":
+                return report.outcome, "S", f"SKIPPED[MISC] {nodeid} SKIPPED on rank {rank}"
+            return report.outcome, "F", f"FAILED[MISC] {nodeid} FAILED on rank {rank}"
     if report.when == "call" and "autogen_task" in getattr(report, "keywords", {}):
         try:
             rank = MPI.COMM_WORLD.Get_rank()
@@ -826,6 +872,16 @@ def _read_results(path):
     return results
 
 
+def _wait_for_expected_result_count(path, expected_count, timeout_seconds=1800.0):
+    if expected_count <= 0:
+        return
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        if len(_read_results(path)) >= expected_count:
+            return
+        time.sleep(0.1)
+
+
 def _augment_terminal_stats(terminalreporter):
     class _DummyPassReport:
         def __init__(self, nodeid):
@@ -854,6 +910,15 @@ def _augment_terminal_stats(terminalreporter):
             msg = self.longrepr or self.nodeid
             tw.line(str(msg))
 
+    class _DummySkipReport:
+        def __init__(self, nodeid):
+            self.nodeid = nodeid
+            self.when = "call"
+            self.outcome = "skipped"
+            self.passed = False
+            self.failed = False
+            self.skipped = True
+
     existing = set()
     for key in ("passed", "failed", "skipped", "error", "xfailed", "xpassed"):
         for rep in terminalreporter.stats.get(key, []):
@@ -863,6 +928,7 @@ def _augment_terminal_stats(terminalreporter):
 
     aggregated = []
     aggregated += _read_results(_AUTOGEN_RESULTS_FILE)
+    aggregated += _read_results(_MISC_RESULTS_FILE)
     aggregated += _read_results(_SOLVER_RESULTS_FILE)
     aggregated += _read_results(_PARAM_ID_RESULTS_FILE)
 
@@ -871,6 +937,8 @@ def _augment_terminal_stats(terminalreporter):
             continue
         if status == "passed":
             terminalreporter.stats.setdefault("passed", []).append(_DummyPassReport(nodeid))
+        elif status == "skipped":
+            terminalreporter.stats.setdefault("skipped", []).append(_DummySkipReport(nodeid))
         else:
             terminalreporter.stats.setdefault("failed", []).append(_DummyFailReport(nodeid))
         existing.add(nodeid)
@@ -891,6 +959,19 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
 
     if rank != 0:
         return
+
+    _wait_for_expected_result_count(
+        _AUTOGEN_RESULTS_FILE,
+        int(os.environ.get("AUTOGEN_SUMMARY_TOTAL", "0")),
+    )
+    _wait_for_expected_result_count(
+        _MISC_RESULTS_FILE,
+        int(os.environ.get("MISC_SUMMARY_TOTAL", "0")),
+    )
+    _wait_for_expected_result_count(
+        _SOLVER_RESULTS_FILE,
+        int(os.environ.get("SOLVER_SUMMARY_TOTAL", "0")),
+    )
 
     duration = time.time() - (_SESSION_START or time.time())
 
@@ -914,7 +995,8 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     if autogen_results:
         autogen_results.sort(key=lambda r: r["nodeid"])
         passed = sum(1 for r in autogen_results if r["status"] == "passed")
-        failed = [r for r in autogen_results if r["status"] != "passed"]
+        skipped = sum(1 for r in autogen_results if r["status"] == "skipped")
+        failed = [r for r in autogen_results if r["status"] not in {"passed", "skipped"}]
         total = len(autogen_results)
 
         terminalreporter.write_line("")
@@ -927,9 +1009,47 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
                 terminalreporter.write_line(f"[AUTOGEN OUTPUT] {res['message']}")
 
         terminalreporter.write_line(
-            f"[AUTOGEN] Summary: {passed}/{total} passed, {len(failed)} failed in {duration:.2f}s"
+            f"[AUTOGEN] Summary: {passed}/{total} passed, {skipped} skipped, {len(failed)} failed in {duration:.2f}s"
         )
-        footer_line = f"{passed} passed, {len(failed)} failed in {duration:.2f}s across ranks"
+        footer_line = f"{passed} passed, {skipped} skipped, {len(failed)} failed in {duration:.2f}s across ranks"
+        terminalreporter.write_sep("=", footer_line)
+
+    # --- MISC summary ---
+    misc_results = []
+    if os.path.exists(_MISC_RESULTS_FILE):
+        try:
+            with open(_MISC_RESULTS_FILE, "r") as f:
+                for line in f:
+                    parts = line.strip().split("|")
+                    if len(parts) == 3:
+                        nodeid, status, r = parts
+                        misc_results.append({"nodeid": nodeid, "status": status, "rank": int(r)})
+                    elif len(parts) >= 5:
+                        nodeid, status, r, phase, msg = parts[0], parts[1], parts[2], parts[3], "|".join(parts[4:])
+                        misc_results.append({"nodeid": nodeid, "status": status, "rank": int(r), "phase": phase, "message": msg})
+        except OSError:
+            pass
+
+    if misc_results:
+        misc_results.sort(key=lambda r: r["nodeid"])
+        passed = sum(1 for r in misc_results if r["status"] == "passed")
+        skipped = sum(1 for r in misc_results if r["status"] == "skipped")
+        failed = [r for r in misc_results if r["status"] not in {"passed", "skipped"}]
+        total = len(misc_results)
+
+        terminalreporter.write_line("")
+        for res in misc_results:
+            line = f"[MISC] {res['nodeid']} {res['status'].upper()} on rank {res['rank']}"
+            if "phase" in res:
+                line += f" ({res['phase']})"
+            terminalreporter.write_line(line)
+            if res.get("message"):
+                terminalreporter.write_line(f"[MISC OUTPUT] {res['message']}")
+
+        terminalreporter.write_line(
+            f"[MISC] Summary: {passed}/{total} passed, {skipped} skipped, {len(failed)} failed in {duration:.2f}s"
+        )
+        footer_line = f"{passed} passed, {skipped} skipped, {len(failed)} failed in {duration:.2f}s across ranks"
         terminalreporter.write_sep("=", footer_line)
 
     # --- SOLVER summary ---
@@ -951,7 +1071,8 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     if solver_results:
         solver_results.sort(key=lambda r: r["nodeid"])
         passed = sum(1 for r in solver_results if r["status"] == "passed")
-        failed = [r for r in solver_results if r["status"] != "passed"]
+        skipped = sum(1 for r in solver_results if r["status"] == "skipped")
+        failed = [r for r in solver_results if r["status"] not in {"passed", "skipped"}]
         total = len(solver_results)
 
         terminalreporter.write_line("")
@@ -964,9 +1085,9 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
                 terminalreporter.write_line(f"[SOLVER OUTPUT] {res['message']}")
 
         terminalreporter.write_line(
-            f"[SOLVER] Summary: {passed}/{total} passed, {len(failed)} failed in {duration:.2f}s"
+            f"[SOLVER] Summary: {passed}/{total} passed, {skipped} skipped, {len(failed)} failed in {duration:.2f}s"
         )
-        footer_line = f"{passed} passed, {len(failed)} failed in {duration:.2f}s across ranks"
+        footer_line = f"{passed} passed, {skipped} skipped, {len(failed)} failed in {duration:.2f}s across ranks"
         terminalreporter.write_sep("=", footer_line)
 
     # --- PARAM_ID summary ---
@@ -988,7 +1109,8 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     if param_results:
         param_results.sort(key=lambda r: r["nodeid"])
         passed = sum(1 for r in param_results if r["status"] == "passed")
-        failed = [r for r in param_results if r["status"] != "passed"]
+        skipped = sum(1 for r in param_results if r["status"] == "skipped")
+        failed = [r for r in param_results if r["status"] not in {"passed", "skipped"}]
         total = len(param_results)
 
         terminalreporter.write_line("")
@@ -1003,9 +1125,9 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
                 terminalreporter.write_line(f"[PARAM_ID OUTPUT] {first_line[:300]}")
 
         terminalreporter.write_line(
-            f"[PARAM_ID] Summary: {passed}/{total} passed, {len(failed)} failed in {duration:.2f}s"
+            f"[PARAM_ID] Summary: {passed}/{total} passed, {skipped} skipped, {len(failed)} failed in {duration:.2f}s"
         )
-        footer_line = f"{passed} passed, {len(failed)} failed in {duration:.2f}s (param_id/comparison/SA)"
+        footer_line = f"{passed} passed, {skipped} skipped, {len(failed)} failed in {duration:.2f}s (param_id/comparison/SA)"
         terminalreporter.write_sep("=", footer_line)
 
 
