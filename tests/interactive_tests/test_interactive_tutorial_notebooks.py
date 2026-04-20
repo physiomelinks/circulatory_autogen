@@ -451,8 +451,17 @@ def test_generation_and_calibration_notebook_executes_as_script(project_root, op
     assert (temp_root / "generated_models" / "3compartment" / "3compartment.cellml").exists()
     assert (temp_root / "param_id_output" / "quicklooks" / "uncalibrated_outputs.png").exists()
     assert any((temp_root / "param_id_output").rglob("best_param_vals.npy"))
-    assert any((temp_root / "param_id_output").rglob("*.png"))
-    assert any((temp_root / "param_id_output" / "sensitivity").rglob("*.csv"))
+    param_id_output_dir = temp_root / "param_id_output"
+    sensitivity_dir = param_id_output_dir / "sensitivity"
+
+    assert any(param_id_output_dir.rglob("reconstruct_*.png"))
+    assert any(param_id_output_dir.rglob("error_bars_*.png"))
+    assert any(param_id_output_dir.rglob("std_error_bars_*.png"))
+    assert any(sensitivity_dir.rglob("*First_Order*Sobol_Heatmap.png"))
+    assert any(sensitivity_dir.rglob("*Total_Order*Sobol_Heatmap.png"))
+    assert any(sensitivity_dir.rglob("*First_order_idx.png"))
+    assert any(sensitivity_dir.rglob("*2nd_order_idx.png"))
+    assert any(sensitivity_dir.rglob("*.csv"))
 
 
 @pytest.mark.integration
