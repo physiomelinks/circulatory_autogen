@@ -42,6 +42,14 @@ _LOCK_FILE = os.path.realpath(os.path.join(_TEST_ROOT, ".pytest_param_id_lock"))
 _PARAM_ID_TRIGGERS = ("test_param_id", "compare_optimisers", "test_sensitivity_analysis")
 
 
+def _is_autogen_like_nodeid(nodeid: str) -> bool:
+    return (
+        "test_autogeneration" in nodeid
+        or "test_omex_analysis_pipeline" in nodeid
+        or "interactive_tests/test_interactive_tutorial_notebooks" in nodeid
+    )
+
+
 def _mpi_rank_size():
     """Safely return (rank, size) even if MPI misbehaves."""
     try:
@@ -534,7 +542,7 @@ def pytest_collection_modifyitems(items):
     parameter ID tests execute.
     """
     import os
-    autogen_items = [item for item in items if "test_autogeneration" in item.nodeid]
+    autogen_items = [item for item in items if _is_autogen_like_nodeid(item.nodeid)]
     solver_items = [item for item in items if "test_solvers" in item.nodeid]
     one_rank_items = autogen_items + solver_items
     
@@ -558,7 +566,7 @@ def pytest_collection_modifyitems(items):
     def sort_key(item):
         nodeid = item.nodeid
         # Highest priority: autogeneration tests
-        if "test_autogeneration" in nodeid:
+        if _is_autogen_like_nodeid(nodeid):
             return (0, nodeid)
         if "test_solvers" in nodeid:
             return (1, nodeid)

@@ -16,10 +16,7 @@ try:
 except:
     opencor_available = False
     pass
-if opencor_available:
-    from solver_wrappers.opencor_helper import SimulationHelper as OpenCORSimulationHelper
-else:
-    from solver_wrappers.python_solver_helper import SimulationHelper as PythonSimulationHelper
+from solver_wrappers import get_simulation_helper
 from SALib.sample import saltelli
 import pandas as pd
 from SALib.analyze import sobol
@@ -221,12 +218,18 @@ class sobol_SA():
 
 
     def initialise_sim_helper(self):
-        if opencor_available:
-            return OpenCORSimulationHelper(self.model_path, self.dt, self.sim_time,
-                                solver_info=self.solver_info, pre_time=self.pre_time)
-        else:
-            return PythonSimulationHelper(self.model_path, self.dt, self.sim_time,
-                                solver_info=self.solver_info, pre_time=self.pre_time)
+        solver = None
+        if isinstance(self.solver_info, dict):
+            solver = self.solver_info.get("solver")
+        return get_simulation_helper(
+            model_path=self.model_path,
+            solver=solver,
+            model_type="python" if str(self.model_path).endswith(".py") else "cellml_only",
+            dt=self.dt,
+            sim_time=self.sim_time,
+            solver_info=self.solver_info,
+            pre_time=self.pre_time,
+        )
 
     def set_output_dir(self, path):
         

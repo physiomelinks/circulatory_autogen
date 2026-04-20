@@ -17,7 +17,6 @@ user_inputs_dir= os.path.join(root_dir, 'user_run_files')
 
 from parsers.ModelParsers import CSV0DModelParser
 from generators.CVSCellMLGenerator import CVS0DCellMLGenerator
-from generators.CVSCppGenerator import CVS0DCppGenerator, CVS1DPythonGenerator
 from generators.PythonGenerator import PythonGenerator
 from parsers.PrimitiveParsers import YamlFileParser
 from utilities.utility_funcs import change_parameter_values_and_save
@@ -123,6 +122,7 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
             py_gen.generate()
             success = True
     elif inp_data_dict['model_type'] == 'cpp':
+        from generators.CVSCppGenerator import CVS0DCppGenerator, CVS1DPythonGenerator
         solver_info = inp_data_dict['solver_info']
         solver_cpp = solver_info.get('solver', 'CVODE')
         print(f"Using Cpp solver: {solver_cpp}")

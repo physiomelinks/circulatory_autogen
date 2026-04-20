@@ -77,6 +77,8 @@ Dependencies are listed in `pyproject.toml`. Installing the package in editable 
     python -m pip install -e .
     ```
 
+    When you choose `solver: CVODE` for CellML models, the project defaults that to the `CVODE_myokit` backend. Use `CVODE_opencor` explicitly only when you want the OpenCOR backend.
+
 - **With development tools** (pytest, formatters, linters):
 
     ```

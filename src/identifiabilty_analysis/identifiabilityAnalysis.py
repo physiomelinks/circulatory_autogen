@@ -7,7 +7,10 @@ import os
 import sys
 from sys import exit
 from matplotlib.ticker import FuncFormatter
-import corner
+try:
+    import corner
+except ImportError:
+    corner = None
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '../utilities'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '../solver_wrappers'))
@@ -128,6 +131,8 @@ class IdentifiabilityAnalysis():
           parameter_names: List of parameter names corresponding to the best_param_vals.
           output_dir: Directory to save the plots.
         """
+        if corner is None:
+            raise ImportError("corner is required to plot Laplace results.")
           
 
         if self.covariance_matrix_Laplace is None or self.mean_Lapalace is None:

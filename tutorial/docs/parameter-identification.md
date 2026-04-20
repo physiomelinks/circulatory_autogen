@@ -149,7 +149,7 @@ Note:
 Before doing calibration, a solver for the model needs to be chosen
 
 - **solver** defines the solver family. Options depend on `model_type`:
-    - CellML (`model_type: cellml_only`): `CVODE` (OpenCOR) or `CVODE_myokit` (Myokit).
+    - CellML (`model_type: cellml_only`): `CVODE` defaults to `CVODE_myokit` (Myokit). Use `CVODE_opencor` explicitly if you want the OpenCOR backend instead.
     - Python (`model_type: python`): `solve_ivp` with `solver_info.method` set to `RK45`, `BDF`, etc.
     - C++ (`model_type: cpp`): `CVODE`, `RK4`, or `PETSC`.
 - **solver_info** defines settings for the chosen solver:
