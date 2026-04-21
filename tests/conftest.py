@@ -563,10 +563,7 @@ def pytest_collection_modifyitems(items):
     solver_items = [item for item in items if "test_solvers" in item.nodeid]
     one_rank_items = autogen_items + solver_items + misc_items
     
-    os.environ["ONE_RANK_TOTAL"] = str(len(autogen_items) + len(solver_items))
-    os.environ["AUTOGEN_SUMMARY_TOTAL"] = str(len(autogen_items))
-    os.environ["MISC_SUMMARY_TOTAL"] = str(len(misc_items))
-    os.environ["SOLVER_SUMMARY_TOTAL"] = str(len(solver_items))
+    _set_expected_summary_totals(len(autogen_items), len(misc_items), len(solver_items))
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
     size = comm.Get_size()
@@ -649,6 +646,25 @@ def pytest_collection_modifyitems(items):
             for r in range(size)
         )
         print(f"[AUTOGEN] Distribution -> {summary}")
+
+
+def pytest_deselected(items):
+    """
+    Keep summary wait totals aligned with pytest deselection (for example -k/-m
+    filtering). Without this, rank 0 can wait for result-file entries from tests
+    that never actually ran.
+    """
+    if not items:
+        return
+
+    autogen_deselected = sum(1 for item in items if _is_autogen_like_nodeid(item.nodeid))
+    misc_deselected = sum(1 for item in items if _is_misc_nodeid(item.nodeid))
+    solver_deselected = sum(1 for item in items if "test_solvers" in item.nodeid)
+
+    autogen_total = max(0, int(os.environ.get("AUTOGEN_SUMMARY_TOTAL", "0")) - autogen_deselected)
+    misc_total = max(0, int(os.environ.get("MISC_SUMMARY_TOTAL", "0")) - misc_deselected)
+    solver_total = max(0, int(os.environ.get("SOLVER_SUMMARY_TOTAL", "0")) - solver_deselected)
+    _set_expected_summary_totals(autogen_total, misc_total, solver_total)
 
 
 @pytest.fixture(scope="session")
@@ -882,6 +898,24 @@ def _wait_for_expected_result_count(path, expected_count, timeout_seconds=1800.0
         time.sleep(0.1)
 
 
+def _set_expected_summary_totals(autogen_count: int, misc_count: int, solver_count: int):
+    os.environ["ONE_RANK_TOTAL"] = str(autogen_count + solver_count)
+    os.environ["AUTOGEN_SUMMARY_TOTAL"] = str(autogen_count)
+    os.environ["MISC_SUMMARY_TOTAL"] = str(misc_count)
+    os.environ["SOLVER_SUMMARY_TOTAL"] = str(solver_count)
+
+
+def _should_wait_for_result_files(exitstatus, terminalreporter) -> bool:
+    """
+    Only wait for one-rank result files when pytest completed normal test
+    execution. Collection/import/internal errors never produce those files and
+    would otherwise stall the summary for the full timeout.
+    """
+    if terminalreporter.stats.get("error"):
+        return False
+    return exitstatus in (0, 1)
+
+
 def _augment_terminal_stats(terminalreporter):
     class _DummyPassReport:
         def __init__(self, nodeid):
@@ -960,18 +994,19 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     if rank != 0:
         return
 
-    _wait_for_expected_result_count(
-        _AUTOGEN_RESULTS_FILE,
-        int(os.environ.get("AUTOGEN_SUMMARY_TOTAL", "0")),
-    )
-    _wait_for_expected_result_count(
-        _MISC_RESULTS_FILE,
-        int(os.environ.get("MISC_SUMMARY_TOTAL", "0")),
-    )
-    _wait_for_expected_result_count(
-        _SOLVER_RESULTS_FILE,
-        int(os.environ.get("SOLVER_SUMMARY_TOTAL", "0")),
-    )
+    if _should_wait_for_result_files(exitstatus, terminalreporter):
+        _wait_for_expected_result_count(
+            _AUTOGEN_RESULTS_FILE,
+            int(os.environ.get("AUTOGEN_SUMMARY_TOTAL", "0")),
+        )
+        _wait_for_expected_result_count(
+            _MISC_RESULTS_FILE,
+            int(os.environ.get("MISC_SUMMARY_TOTAL", "0")),
+        )
+        _wait_for_expected_result_count(
+            _SOLVER_RESULTS_FILE,
+            int(os.environ.get("SOLVER_SUMMARY_TOTAL", "0")),
+        )
 
     duration = time.time() - (_SESSION_START or time.time())
 
