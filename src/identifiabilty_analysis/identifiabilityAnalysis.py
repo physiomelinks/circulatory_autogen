@@ -70,6 +70,23 @@ class IdentifiabilityAnalysis():
         self.comm = MPI.COMM_WORLD
         self.rank = self.comm.Get_rank()
 
+    @classmethod
+    def init_from_dict(cls, inp_data_dict, param_id):
+        """
+        Build IdentifiabilityAnalysis from an inp_data_dict (e.g. user_inputs) plus
+        the inner param_id object from CVS0DParamID.param_id.
+        """
+        arg_options = [
+            "model_path", "model_type", "DEBUG", "param_id_output_dir", "resources_dir",
+        ]
+        kwargs = {key: inp_data_dict[key] for key in arg_options if key in inp_data_dict}
+        if "file_name_prefix" not in kwargs and "file_prefix" in inp_data_dict:
+            kwargs["file_name_prefix"] = inp_data_dict["file_prefix"]
+        if "file_name_prefix" not in kwargs:
+            kwargs["file_name_prefix"] = "no_name"
+        kwargs["param_id"] = param_id
+        return cls(**kwargs)
+
     def set_best_param_vals(self, best_param_vals):
         self.param_id.set_best_param_vals(best_param_vals)
         self.best_param_vals = best_param_vals

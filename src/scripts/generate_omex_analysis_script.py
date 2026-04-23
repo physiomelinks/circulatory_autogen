@@ -243,14 +243,7 @@ def run_pipeline():
         param_id.plot_outputs()
 
     best_param_vals = param_id.get_best_param_vals()
-    id_analysis = IdentifiabilityAnalysis(
-        inp_data_dict["model_path"],
-        inp_data_dict["model_type"],
-        inp_data_dict["file_prefix"],
-        param_id_output_dir=inp_data_dict["param_id_output_dir"],
-        resources_dir=inp_data_dict["resources_dir"],
-        param_id=param_id.param_id,
-    )
+    id_analysis = IdentifiabilityAnalysis.init_from_dict(inp_data_dict, param_id.param_id)
     id_analysis.set_best_param_vals(best_param_vals)
     id_analysis.run(inp_data_dict["ia_options"])
 
