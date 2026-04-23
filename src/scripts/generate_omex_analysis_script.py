@@ -233,24 +233,7 @@ def run_pipeline():
         if f'{{entry["vessel_name"]}}/{{entry["param_name"]}}' in selected_param_names
     ]
 
-    param_id = CVS0DParamID(
-        inp_data_dict["model_path"],
-        inp_data_dict["model_type"],
-        inp_data_dict["param_id_method"],
-        False,
-        inp_data_dict["file_prefix"],
-        params_for_id_path=None,
-        param_id_obs_path=None,
-        sim_time=inp_data_dict["sim_time"],
-        pre_time=inp_data_dict["pre_time"],
-        dt=inp_data_dict["dt"],
-        solver_info=inp_data_dict["solver_info"],
-        optimiser_options=inp_data_dict["optimiser_options"],
-        DEBUG=inp_data_dict["DEBUG"],
-        param_id_output_dir=inp_data_dict["param_id_output_dir"],
-        resources_dir=inp_data_dict["resources_dir"],
-        one_rank=inp_data_dict["one_rank"],
-    )
+    param_id = CVS0DParamID.init_from_dict(inp_data_dict)
     param_id.set_ground_truth_data(calibration_obs_data_dict)
     # add features here if you want to change to calibrating to features rather than the series
     # param_id.set_ground_truth_data(build_sensitivity_obs_data_dict(obs_data_dict))
