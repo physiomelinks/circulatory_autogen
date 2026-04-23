@@ -133,9 +133,9 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y libopenmpi-dev openmpi-bin libsundials-dev build-essential
 
-    - name: Run param_id tests with MPI
+    - name: Run param_id and sensitivity analysis tests with MPI
       run: |
-        mpiexec -n 2 python -m pytest tests/test_param_id.py -v --with-mpi --tb=short --junitxml=junit-param-id.xml
+        mpiexec -n 2 python -m pytest tests/test_param_id.py tests/test_sensitivity_analysis.py -v --with-mpi --tb=short --junitxml=junit-param-id.xml
 
   test-param-id-serial:
     runs-on: ubuntu-latest
@@ -157,9 +157,9 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y libopenmpi-dev openmpi-bin libsundials-dev build-essential
 
-    - name: Run param_id tests in serial mode
+    - name: Run param_id and sensitivity analysis tests in serial mode
       run: |
-        python -m pytest tests/test_param_id.py -v --with-mpi --tb=short --junitxml=junit-param-id-serial.xml
+        python -m pytest tests/test_param_id.py tests/test_sensitivity_analysis.py -v --with-mpi --tb=short --junitxml=junit-param-id-serial.xml
 
   # Job to run full test suite if OpenCOR is available (optional)
   # This can be enabled if OpenCOR is set up in CI environment
