@@ -4910,8 +4910,7 @@
             </apply>
         </math>
     </component>
-
-    <!-- ═══ SN_soma_Argus2026 (drug-modulated copy of SN_soma) ══════════ -->
+    <!-- ═══ SN_soma_Argus2026 (drug-modulated extesnion of SN_soma) ══════════ -->
     <component name="SN_soma_Argus2026">
         <variable name="t" public_interface="in" units="second"/>
         <!-- global constants-->
@@ -5080,26 +5079,44 @@
                             <minus/>
                             <cn cellml:units="milliV_per_kiloV" type="e-notation">1<sep/>6</cn>
                         </apply>
-                        <apply>
-                            <plus/>
-                            <ci>i_Na</ci>
-                            <ci>i_Na1_6</ci>
-                            <ci>i_Ca_L</ci>
-                            <ci>i_Kv2</ci>
-                            <ci>i_Kv1_5</ci>
-                            <ci>i_Kv4_2</ci>
-                            <ci>i_KCa_BK</ci>
-                            <ci>i_KCa_SK</ci>
-                            <ci>i_M</ci>
-                            <ci>i_NaCa</ci>
-                            <ci>i_NaK</ci>
-                            <ci>i_leak_Na</ci>
-                            <ci>i_leak_K</ci>
-                            <ci>I_in_delayed</ci>
-                            <ci>I_out</ci>
-                        </apply>
+                        <ci>I_tot</ci>
                     </apply>
                     <ci>Cm</ci>
+                </apply>
+            </apply>
+        </math>
+        <variable name="I_tot" public_interface="out" units="nanoA"/>
+        <variable name="I_tot_pA" public_interface="out" units="picoA"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <ci>I_tot</ci>
+                <apply>
+                    <plus/>
+                    <ci>i_Na</ci>
+                    <ci>i_Na1_6</ci>
+                    <ci>i_Ca_L</ci>
+                    <ci>i_Kv2</ci>
+                    <ci>i_Kv1_5</ci>
+                    <ci>i_Kv4_2</ci>
+                    <ci>i_KCa_BK</ci>
+                    <ci>i_KCa_SK</ci>
+                    <ci>i_M</ci>
+                    <ci>i_NaCa</ci>
+                    <ci>i_NaK</ci>
+                    <ci>i_leak_Na</ci>
+                    <ci>i_leak_K</ci>
+                    <ci>I_in_delayed</ci>
+                    <ci>I_out</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>I_tot_pA</ci>
+                <apply>
+                    <times/>
+                    <cn cellml:units="picoA_per_nanoA" type="e-notation">1<sep/>3</cn>
+                    <ci>I_tot</ci>
                 </apply>
             </apply>
         </math>
@@ -6122,12 +6139,12 @@
              alpha_Rilu      : riluzole             -> Nav1.1 (g_Na) + Nav1.6 (g_Na1_6)
              alpha_PTX3      : PTX3 / apamin-like   -> SK Ca-activated K (g_KCa_SK)
              alpha_Anhydro   : anhydroecgonine/Anhydro -> Nav1.1 + Nav1.6 -->
-        <variable name="alpha_4AP"       public_interface="in" units="dimensionless"/>
+        <variable name="alpha_4AP" public_interface="in" units="dimensionless"/>
         <variable name="alpha_Verapamil" public_interface="in" units="dimensionless"/>
-        <variable name="alpha_CaV"       public_interface="in" units="dimensionless"/>
-        <variable name="alpha_Rilu"      public_interface="in" units="dimensionless"/>
-        <variable name="alpha_PTX3"      public_interface="in" units="dimensionless"/>
-        <variable name="alpha_Anhydro"   public_interface="in" units="dimensionless"/>
+        <variable name="alpha_CaV" public_interface="in" units="dimensionless"/>
+        <variable name="alpha_Rilu" public_interface="in" units="dimensionless"/>
+        <variable name="alpha_PTX3" public_interface="in" units="dimensionless"/>
+        <variable name="alpha_Anhydro" public_interface="in" units="dimensionless"/>
         <!-- I_Kv2 This is the delayed rectifier in the SN (See Davis2021 section 1.4.2.2)-->
         <variable name="i_Kv2" public_interface="out" units="nanoA"/>
         <variable name="g_Kv2" public_interface="in" units="microS"/>
@@ -8821,7 +8838,6 @@
             </apply>
         </math>
     </component>
-
     <component name="SN_varicosity">
         <variable name="t" public_interface="in" units="second"/>
         <!-- global constants-->

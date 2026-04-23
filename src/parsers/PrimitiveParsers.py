@@ -949,6 +949,9 @@ class ObsAndParamDataParser(object):
                 "obs_dt": {"types": (int, float, np.integer, np.floating), "default": None},
                 "dt": {"types": (int, float, np.integer, np.floating), "default": None},
                 "sample_rate": {"types": (int, float, np.integer, np.floating), "default": None},
+                "species": {"types": (str,), "default": None},
+                "location": {"types": (str,), "default": None},
+                "source": {"types": (str,), "default": None},
             }
 
             unknown_cols = sorted(set(gt_df.columns) - set(schema.keys()))
