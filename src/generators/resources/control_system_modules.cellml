@@ -1,0 +1,114 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<model name="modules" xmlns="http://www.cellml.org/cellml/1.1#" xmlns:cellml="http://www.cellml.org/cellml/1.1#">
+    <!-- PID controller that maps arterial pressure to a stimulation frequency -->
+    <component name="pid_control_type">
+        <variable name="t" public_interface="in" units="second"/>
+        <variable name="P_a" public_interface="in" units="J_per_m3"/>
+        <variable name="dP_a_dt" public_interface="in" units="J_per_m3s"/>
+        <variable name="P_target" public_interface="in" units="J_per_m3"/>
+        <variable name="P_scale" public_interface="in" units="J_per_m3"/>
+        <variable name="K_p" public_interface="in" units="per_s"/>
+        <variable name="K_i" public_interface="in" units="per_s2"/>
+        <variable name="K_d" public_interface="in" units="dimensionless"/>
+        <variable name="f_stim_min" public_interface="in" units="per_s"/>
+        <variable name="f_stim_max" public_interface="in" units="per_s"/>
+        <variable name="f_stim_HF" public_interface="in" units="per_s"/>
+        <variable name="e_int_init" public_interface="in" units="second"/>
+        <variable initial_value="e_int_init" name="e_int" public_interface="out" units="second"/>
+        <variable name="e_norm" public_interface="out" units="dimensionless"/>
+        <variable name="d_e_dt" public_interface="out" units="per_s"/>
+        <variable name="f_stim_raw" public_interface="out" units="per_s"/>
+        <variable name="f_stim" public_interface="out" units="per_s"/>
+        <!-- Normalised error: positive when pressure below target -->
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <ci>e_norm</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <minus/>
+                        <ci>P_target</ci>
+                        <ci>P_a</ci>
+                    </apply>
+                    <ci>P_scale</ci>
+                </apply>
+            </apply>
+            <!-- Normalised error derivative using supplied pressure derivative -->
+            <apply>
+                <eq/>
+                <ci>d_e_dt</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <minus/>
+                        <cn cellml:units="J_per_m3s">0</cn>
+                        <ci>dP_a_dt</ci>
+                    </apply>
+                    <ci>P_scale</ci>
+                </apply>
+            </apply>
+            <!-- Integral of the normalised error -->
+            <apply>
+                <eq/>
+                <apply>
+                    <diff/>
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>e_int</ci>
+                </apply>
+                <ci>e_norm</ci>
+            </apply>
+            <!-- Raw PID output -->
+            <apply>
+                <eq/>
+                <ci>f_stim_raw</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <ci>K_p</ci>
+                        <ci>e_norm</ci>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>K_i</ci>
+                        <ci>e_int</ci>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>K_d</ci>
+                        <ci>d_e_dt</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <!-- Clamp stimulation frequency -->
+            <apply>
+                <eq/>
+                <ci>f_stim</ci>
+                <piecewise>
+                    <piece>
+                        <ci>f_stim_HF</ci>
+                        <apply>
+                            <lt/>
+                            <ci>f_stim_raw</ci>
+                            <ci>f_stim_min</ci>
+                        </apply>
+                    </piece>
+                    <piece>
+                        <ci>f_stim_max</ci>
+                        <apply>
+                            <gt/>
+                            <ci>f_stim_raw</ci>
+                            <ci>f_stim_max</ci>
+                        </apply>
+                    </piece>
+                    <otherwise>
+                        <ci>f_stim_raw</ci>
+                    </otherwise>
+                </piecewise>
+            </apply>
+        </math>
+    </component>
+</model>

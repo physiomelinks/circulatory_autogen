@@ -1,4 +1,4 @@
 vessel_name,                  param_name,       min,        max,    name_for_plotting
 soma_SN,                      g_Na,             1,          6,     g_{Na}
 soma_SN,                      g_M,              0.001,      0.004, g_{M}
-soma_SN,                      g_Kv,             0.03,       0.1,   g_{kv}
+soma_SN,                      g_Kv1_5,             0.03,       0.1,   g_{kv}

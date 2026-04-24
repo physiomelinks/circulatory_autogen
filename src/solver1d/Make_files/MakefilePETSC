@@ -1,0 +1,59 @@
+# PETSc configuration
+# Adjust PETSC_DIR and PETSC_ARCH as needed
+# PETSC_DIR=/home/bghi639/petsc-install
+# Updated for Docker container environment
+PETSC_DIR=/opt/petsc-install
+PETSC_ARCH=
+# PETSC_ARCH=""
+# PETSC_ARCH = arch-linux-c-opt
+
+# Verify that the directory actually exists
+ifeq ($(wildcard $(PETSC_DIR)),)
+  $(error PETSC_DIR=$(PETSC_DIR) does not exist)
+endif
+
+ifeq ($(wildcard $(PETSC_DIR)/include/petsc.h),)
+  $(error PETSC_DIR=$(PETSC_DIR) does not contain petsc.h)
+endif
+
+include $(PETSC_DIR)/lib/petsc/conf/variables
+
+# General compiler settings
+CXX      := mpicxx # PETSc is built with MPI
+CXXFLAGS := -std=c++17 -Wall -Wextra
+CXXFLAGS += -I$(PETSC_DIR)/include
+CXXFLAGS += -Iinclude
+LDFLAGS  += $(PETSC_LIB)
+
+# Debug / Release
+ifeq ($(DEBUG),1)
+  CXXFLAGS += -O0 -g -DDEBUG
+else
+  CXXFLAGS += -O3 -DNDEBUG
+endif
+TARGET   := cvs_model_with_arm_0d
+
+# Source / include layout
+SRCDIR   := .
+SRC_CC   := $(wildcard $(SRCDIR)/*.cc)
+SRC_CPP  := $(wildcard $(SRCDIR)/*.cpp)
+SRC      := $(SRC_CC) $(SRC_CPP)
+
+OBJ      := $(SRC:.cc=.o)
+OBJ      := $(OBJ:.cpp=.o)
+
+# Build rules
+.PHONY: all clean
+
+all: $(TARGET)
+
+$(TARGET): $(OBJ)
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+
+%.o: %.cc
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+%.o: %.cpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+clean:
+	$(RM) $(OBJ) $(TARGET)

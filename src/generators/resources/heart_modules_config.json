@@ -30,6 +30,10 @@
           {
             "port_type":"period_delta_port",
             "variables":["Delta_T"]
+          },
+          {
+            "port_type":"external_pressure_port",
+            "variables":["u_intraThor"]
           }
         ],
         "exit_ports":
@@ -47,7 +51,8 @@
             "variables":["q_heart"]
           }
         ],
-        "general_ports":[],
+        "general_ports":[
+        ],
         "variables_and_units":
         [
           ["rho", "Js2_per_m5", "access", "global_constant"],
@@ -60,6 +65,7 @@
           ["u_rv", "J_per_m3", "access", "variable"],
           ["u_la", "J_per_m3", "access", "variable"],
           ["u_lv", "J_per_m3", "access", "variable"],
+          ["u_intraThor", "J_per_m3", "access", "boundary_condition"],
           ["u_root", "J_per_m3", "access", "boundary_condition"],
           ["u_par", "J_per_m3", "access", "boundary_condition"],
           ["q_ra", "m3", "access", "variable"],

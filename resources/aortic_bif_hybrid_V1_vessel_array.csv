@@ -1,0 +1,7 @@
+name,BC_type,vessel_type,inp_vessels,out_vessels
+input_flow_aorticroot,nn_aorticbif,inlet_flow, ,parent
+parent,nn,FV1D_vessel,input_flow_aorticroot,daughter_1 daughter_2
+daughter_1,nn,FV1D_vessel,parent,terminal_1
+daughter_2,nn,FV1D_vessel,parent,terminal_2
+terminal_1,pp,terminal,daughter_1,                             
+terminal_2,pp,terminal,daughter_2,                             

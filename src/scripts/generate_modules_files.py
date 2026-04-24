@@ -368,7 +368,9 @@ def main():
     analyser.analyseModel(flat_model)
     analysed_model = analyser.model()
 
-    libcellml_utils.print_issues(analyser)
+    # TODO this commented out temporarily
+    # libcellml_utils.print_issues(analyser)
+    pass
     print(analysed_model.type())
     if analysed_model.type() != lc.AnalyserModel.Type.ODE:
         print("WARNING model is has some issues, see above. "

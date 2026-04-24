@@ -1276,89 +1276,109 @@
                     <ci>Delta_E_lv</ci>
                 </apply>
             </apply>
-            <!-- Constitutive Relations-->
+        </math>
+        <!-- Intrathoracic pressure boundary condition-->
+        <variable name="u_intraThor" public_interface="in" units="J_per_m3"/>
+        <!-- Constitutive Relations-->
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
             <apply>
                 <eq/>
                 <ci>u_ra</ci>
                 <apply>
-                    <times/>
+                    <plus/>
                     <apply>
-                        <plus/>
+                        <times/>
                         <apply>
-                            <times/>
-                            <ci>e_a</ci>
-                            <ci>E_ra_A</ci>
+                            <plus/>
+                            <apply>
+                                <times/>
+                                <ci>e_a</ci>
+                                <ci>E_ra_A</ci>
+                            </apply>
+                            <ci>E_ra_B</ci>
                         </apply>
-                        <ci>E_ra_B</ci>
+                        <apply>
+                            <minus/>
+                            <ci>q_ra</ci>
+                            <ci>q_ra_us</ci>
+                        </apply>
                     </apply>
-                    <apply>
-                        <minus/>
-                        <ci>q_ra</ci>
-                        <ci>q_ra_us</ci>
-                    </apply>
+                    <ci>u_intraThor</ci>
                 </apply>
             </apply>
             <apply>
                 <eq/>
                 <ci>u_rv</ci>
                 <apply>
-                    <times/>
+                    <plus/>
                     <apply>
-                        <plus/>
+                        <times/>
                         <apply>
-                            <times/>
-                            <ci>e_v</ci>
-                            <ci>E_rv_A_wCont</ci>
+                            <plus/>
+                            <apply>
+                                <times/>
+                                <ci>e_v</ci>
+                                <ci>E_rv_A_wCont</ci>
+                            </apply>
+                            <ci>E_rv_B</ci>
                         </apply>
-                        <ci>E_rv_B</ci>
+                        <apply>
+                            <minus/>
+                            <ci>q_rv</ci>
+                            <ci>q_rv_us</ci>
+                        </apply>
                     </apply>
-                    <apply>
-                        <minus/>
-                        <ci>q_rv</ci>
-                        <ci>q_rv_us</ci>
-                    </apply>
+                    <ci>u_intraThor</ci>
                 </apply>
             </apply>
             <apply>
                 <eq/>
                 <ci>u_la</ci>
                 <apply>
-                    <times/>
+                    <plus/>
                     <apply>
-                        <plus/>
+                        <times/>
                         <apply>
-                            <times/>
-                            <ci>e_a</ci>
-                            <ci>E_la_A</ci>
+                            <plus/>
+                            <apply>
+                                <times/>
+                                <ci>e_a</ci>
+                                <ci>E_la_A</ci>
+                            </apply>
+                            <ci>E_la_B</ci>
                         </apply>
-                        <ci>E_la_B</ci>
+                        <apply>
+                            <minus/>
+                            <ci>q_la</ci>
+                            <ci>q_la_us</ci>
+                        </apply>
                     </apply>
-                    <apply>
-                        <minus/>
-                        <ci>q_la</ci>
-                        <ci>q_la_us</ci>
-                    </apply>
+                    <ci>u_intraThor</ci>
                 </apply>
             </apply>
             <apply>
                 <eq/>
                 <ci>u_lv</ci>
                 <apply>
-                    <times/>
+                    <plus/>
                     <apply>
-                        <plus/>
+                        <times/>
                         <apply>
-                            <times/>
-                            <ci>e_v</ci>
-                            <ci>E_lv_A_wCont</ci>
+                            <plus/>
+                            <apply>
+                                <times/>
+                                <ci>e_v</ci>
+                                <ci>E_lv_A_wCont</ci>
+                            </apply>
+                            <ci>E_lv_B</ci>
                         </apply>
-                        <ci>E_lv_B</ci>
+                        <apply>
+                            <minus/>
+                            <ci>q_lv</ci>
+                            <ci>q_lv_us</ci>
+                        </apply>
                     </apply>
-                    <apply>
-                        <minus/>
-                        <ci>q_lv</ci>
-                        <ci>q_lv_us</ci>
-                    </apply>
+                    <ci>u_intraThor</ci>
                 </apply>
             </apply>
             <!-- Conservation Laws-->

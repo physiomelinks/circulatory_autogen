@@ -961,7 +961,7 @@
         {
           "port_type":"volume_port",
           "variables":["q_sum"],
-          "multi_port":"True"
+          "multi_port":"sum"
         }
       ],
       "exit_ports":
@@ -989,7 +989,7 @@
         {
           "port_type":"volume_port",
           "variables":["q_sum"],
-          "multi_port":"True"
+          "multi_port":"sum"
         }
       ],
       "exit_ports":

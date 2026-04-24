@@ -1,0 +1,13 @@
+{
+    "inputFold": "/hpc/bghi639/Software/1D-0D-coupler-cpp-example/CA_files/generated_models/aortic_bif_hybrid_new_cpp/",
+    "networkName": "aortic_bif_hybrid_new",
+    "ODEsolver": "CVODE",
+    "T0": 1.1,
+    "nCC": 5,
+    "tmp_pipe_path": "/home/bghi639/Software/tmp/",
+    "solver0d_path": "./solver0D/main0d",
+    "python_path": "/home/bghi639/anaconda3/bin/python",
+    "solver1d_path": "./solver1D/main1D.py",
+    "initFile_sim1d_path": "./../Python1D_files/aortic_bif_hybrid_new/run000/input.ini",
+    "initStatePath": "None"
+}

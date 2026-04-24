@@ -16,6 +16,8 @@ nav:
   - Model Generation and Simulation: model-generation-simulation.md
   - Designing a model: design-model.md
   - Parameter Identification: parameter-identification.md
+  - Sensitivity Analysis: sensitivity-analysis.md
+  - Identifiability Analysis: identifiability-analysis.md
   - "Example: 3Compartment Model": example-3compartment-model.md
   - Running on the HPC: running-on-hpc.md
   - Other Useful Features: other-features.md

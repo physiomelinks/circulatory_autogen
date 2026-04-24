@@ -1,0 +1,418 @@
+[
+      {
+        "vessel_type":"P_inlet",
+        "BC_type":"nn",
+        "module_format":"cellml",
+        "module_file":"phlynx_test_modules.cellml",
+        "module_type":"constant_pressure_BC_type_dale",
+        "entrance_ports":
+        [
+        ],
+        "exit_ports":
+        [
+          {
+            "port_type":"vessel_port",
+            "variables":["v", "P"]
+          }
+        ],
+        "general_ports":[],
+        "variables_and_units":
+        [
+          ["v", "m3_per_s", "access", "boundary_condition"],
+          ["P", "J_per_m3", "access", "constant"] 
+        ]
+      },
+
+      {
+        "vessel_type":"Q_inlet",
+        "BC_type":"nn",
+        "module_format":"cellml",
+        "module_file":"phlynx_test_modules.cellml",
+        "module_type":"constant_flow_BC_type_dale",
+        "entrance_ports":
+        [
+        ],
+        "exit_ports":
+        [
+          {
+            "port_type":"vessel_port",
+            "variables":["v", "P"]
+          }
+        ],
+        "general_ports":[],
+        "variables_and_units":
+        [
+          ["v", "m3_per_s", "access", "constant"] 
+        ]
+      },
+  
+      {
+        "vessel_type":"artery_Minlet",
+        "BC_type":"pv",
+        "module_format":"cellml",
+        "module_file":"phlynx_test_modules.cellml",
+        "module_type":"pv_Minlet_type_dale",
+        "entrance_ports":
+        [
+          {
+            "port_type":"vessel_port",
+            "variables":["v","u_in"]
+          }
+        ],
+        "exit_ports":
+        [
+          {
+            "port_type":"vessel_port",
+            "variables":["v_out_sum","u"],
+            "multi_port":"True"
+          },
+          {
+            "port_type":"pressure_and_deriv_port",
+            "variables":["u_C","du_C_dt"]
+          }
+        ],
+        "variables_and_units":
+        [
+          ["u", "J_per_m3", "access", "variable"],
+          ["v", "m3_per_s", "access", "variable"],
+          ["u_in", "J_per_m3", "access", "boundary_condition"],
+          ["v_out_sum", "m3_per_s", "access", "boundary_condition"],
+          ["u_ext", "J_per_m3", "access", "constant"],
+          ["u_0", "J_per_m3", "access", "constant"],
+          ["u_C", "J_per_m3", "access", "variable"],
+          ["du_C_dt", "J_per_m3s", "access", "variable"],
+          ["q_C", "m3", "access", "variable"],
+          ["q_0", "m3", "access", "variable"],
+          ["q", "m3", "access", "variable"],
+          ["mu", "Js_per_m3", "no_access", "global_constant"],
+          ["rho", "Js2_per_m5", "no_access", "global_constant"],
+          ["g", "m_per_s2", "no_access", "global_constant"],
+          ["beta_g", "dimensionless", "access", "global_constant"],
+          ["theta", "dimensionless", "access", "constant"],
+          ["E", "J_per_m3", "access", "constant"],
+          ["l", "metre", "access", "constant"],
+          ["r_0", "metre", "access", "constant"],
+          ["a_vessel", "dimensionless", "no_access", "global_constant"],
+          ["b_vessel", "per_m", "no_access", "global_constant"],
+          ["c_vessel", "dimensionless", "no_access", "global_constant"],
+          ["d_vessel", "per_m", "no_access", "global_constant"]
+        ]
+      },
+
+      {
+        "vessel_type":"arteriole_Nout",
+        "BC_type":"pv",
+        "module_format":"cellml",
+        "module_file":"phlynx_test_modules.cellml",
+        "module_type":"pv_Nout_type_dale",
+        "entrance_ports":
+        [
+          {
+            "port_type":"vessel_port",
+            "variables":["v","u_in"]
+          }
+        ],
+        "exit_ports":
+        [
+          {
+            "port_type":"vessel_port",
+            "variables":["v_out_sum","u"],
+            "multi_port":"True"
+          },
+          {
+            "port_type":"pressure_and_deriv_port",
+            "variables":["u_C","du_C_dt"]
+          }
+        ],
+        "variables_and_units":
+        [
+          ["u", "J_per_m3", "access", "variable"],
+          ["v", "m3_per_s", "access", "variable"],
+          ["u_in", "J_per_m3", "access", "boundary_condition"],
+          ["v_out_sum", "m3_per_s", "access", "boundary_condition"],
+          ["u_ext", "J_per_m3", "access", "constant"],
+          ["u_0", "J_per_m3", "access", "constant"],
+          ["u_C", "J_per_m3", "access", "variable"],
+          ["du_C_dt", "J_per_m3s", "access", "variable"],
+          ["q_C", "m3", "access", "variable"],
+          ["q_0", "m3", "access", "variable"],
+          ["q", "m3", "access", "variable"],
+          ["mu", "Js_per_m3", "no_access", "global_constant"],
+          ["rho", "Js2_per_m5", "no_access", "global_constant"],
+          ["g", "m_per_s2", "no_access", "global_constant"],
+          ["beta_g", "dimensionless", "access", "global_constant"],
+          ["theta", "dimensionless", "access", "constant"],
+          ["E", "J_per_m3", "access", "constant"],
+          ["l", "metre", "access", "constant"],
+          ["r_0", "metre", "access", "constant"],
+          ["a_vessel", "dimensionless", "no_access", "global_constant"],
+          ["b_vessel", "per_m", "no_access", "global_constant"],
+          ["c_vessel", "dimensionless", "no_access", "global_constant"],
+          ["d_vessel", "per_m", "no_access", "global_constant"]
+        ]
+      },
+
+      {
+        "vessel_type":"capillary",
+        "BC_type":"pp_test",
+        "module_format":"cellml",
+        "module_file":"phlynx_test_modules.cellml",
+        "module_type":"pp_capillary_type_dale",
+        "entrance_ports":
+        [
+          {
+            "port_type":"vessel_port",
+            "variables":["v","u_in"]
+          }
+        ],
+        "exit_ports":
+        [
+          {
+            "port_type":"vessel_port",
+            "variables":["v_d","u_out"]
+          },
+          {
+            "port_type":"length_and_radius_port",
+            "variables":["l", "r"]
+          },
+          {
+            "port_type":"volume_port",
+            "variables":["q"]
+          },
+          {
+            "port_type":"flow_in_out_port",
+            "variables":["v", "v_d"]
+          }
+        ],
+        "general_ports":
+        [
+        ],
+        "variables_and_units":
+        [
+          ["u", "J_per_m3", "access", "variable"],
+          ["v", "m3_per_s", "access", "variable"],
+          ["q_C", "m3", "access", "variable"],
+          ["q_C_init", "m3", "access", "constant"],
+          ["q", "m3", "access", "variable"],
+          ["q_us", "m3", "access", "variable"],
+          ["v_d", "m3_per_s", "access", "variable"],
+          ["E", "J_per_m3", "access", "constant"],
+          ["l", "metre", "no_access", "constant"],
+          ["r", "metre", "no_access", "constant"],
+          ["u_ext", "J_per_m3", "access", "constant"],
+          ["rho", "Js2_per_m5", "no_access", "global_constant"],
+          ["mu", "Js_per_m3", "no_access", "global_constant"],
+          ["a_vessel", "dimensionless", "no_access", "global_constant"],
+          ["b_vessel", "per_m", "no_access", "global_constant"],
+          ["c_vessel", "dimensionless", "no_access", "global_constant"],
+          ["d_vessel", "per_m", "no_access", "global_constant"],
+          ["R", "Js_per_m6", "access", "variable"],
+          ["C", "m6_per_J", "access", "variable"],
+          ["u_in", "J_per_m3", "access", "boundary_condition"],
+          ["u_out", "J_per_m3", "access", "boundary_condition"]
+        ]
+      },
+
+      {
+        "vessel_type":"capillary",
+        "BC_type":"vp_test",
+        "module_format":"cellml",
+        "module_file":"phlynx_test_modules.cellml",
+        "module_type":"vp_capillary_type_dale",
+        "entrance_ports":
+        [
+          {
+            "port_type":"vessel_port",
+            "variables":["v_in","u"]
+          }
+        ],
+        "exit_ports":
+        [
+          {
+            "port_type":"vessel_port",
+            "variables":["v","u_out"]
+          },
+          {
+            "port_type":"length_and_radius_port",
+            "variables":["l", "r"]
+          },
+          {
+            "port_type":"volume_port",
+            "variables":["q"]
+          },
+          {
+            "port_type":"flow_in_out_port",
+            "variables":["v_in", "v"]
+          }
+        ],
+        "general_ports":
+        [
+        ],
+        "variables_and_units":
+        [
+          ["u", "J_per_m3", "access", "variable"],
+          ["v", "m3_per_s", "access", "variable"],
+          ["q_C", "m3", "access", "variable"],
+          ["q_C_init", "m3", "access", "constant"],
+          ["q", "m3", "access", "variable"],
+          ["q_us", "m3", "access", "variable"],
+          ["E", "J_per_m3", "access", "constant"],
+          ["l", "metre", "no_access", "constant"],
+          ["r", "metre", "no_access", "constant"],
+          ["u_ext", "J_per_m3", "access", "constant"],
+          ["rho", "Js2_per_m5", "no_access", "global_constant"],
+          ["mu", "Js_per_m3", "no_access", "global_constant"],
+          ["a_vessel", "dimensionless", "no_access", "global_constant"],
+          ["b_vessel", "per_m", "no_access", "global_constant"],
+          ["c_vessel", "dimensionless", "no_access", "global_constant"],
+          ["d_vessel", "per_m", "no_access", "global_constant"],
+          ["R", "Js_per_m6", "access", "variable"],
+          ["C", "m6_per_J", "access", "variable"],
+          ["v_in", "m3_per_s", "access", "boundary_condition"],
+          ["u_out", "J_per_m3", "access", "boundary_condition"]
+        ]
+      },
+
+      {
+        "vessel_type":"venule_Min",
+        "BC_type":"vp",
+        "module_format":"cellml",
+        "module_file":"phlynx_test_modules.cellml",
+        "module_type":"vp_Min_type_dale",
+        "entrance_ports":
+        [
+          {
+            "port_type":"vessel_port",
+            "variables":["v_in_sum","u"],
+            "multi_port":"True"
+          }
+        ],
+        "exit_ports":
+        [
+          {
+            "port_type":"vessel_port",
+            "variables":["v","u_out"]
+          }
+        ],
+        "variables_and_units":
+        [
+          ["u", "J_per_m3", "access", "variable"],
+          ["v", "m3_per_s", "access", "variable"],
+          ["v_in_sum", "m3_per_s", "access", "boundary_condition"],
+          ["u_out", "J_per_m3", "access", "boundary_condition"],
+          ["u_ext", "J_per_m3", "access", "constant"],
+          ["u_0", "J_per_m3", "access", "constant"],
+          ["u_C", "J_per_m3", "access", "variable"],
+          ["q_C", "m3", "access", "variable"],
+          ["q", "m3", "access", "variable"],
+          ["q_0", "m3", "access", "variable"],
+          ["mu", "Js_per_m3", "no_access", "global_constant"],
+          ["rho", "Js2_per_m5", "no_access", "global_constant"],
+          ["g", "m_per_s2", "no_access", "global_constant"],
+          ["beta_g", "dimensionless", "access", "global_constant"],
+          ["theta", "dimensionless", "access", "constant"],
+          ["E", "J_per_m3", "access", "constant"],
+          ["l", "metre", "access", "constant"],
+          ["r_0", "metre", "access", "constant"],
+          ["a_vessel", "dimensionless", "no_access", "global_constant"],
+          ["b_vessel", "per_m", "no_access", "global_constant"],
+          ["c_vessel", "dimensionless", "no_access", "global_constant"],
+          ["d_vessel", "per_m", "no_access", "global_constant"]
+        ]
+      },
+      
+      {
+        "vessel_type":"vein_Noutlet",
+        "BC_type":"vp",
+        "module_format":"cellml",
+        "module_file":"phlynx_test_modules.cellml",
+        "module_type":"vp_Noutlet_type_dale",
+        "entrance_ports":
+        [
+          {
+            "port_type":"vessel_port",
+            "variables":["v_in_sum","u"],
+            "multi_port":"True"
+          }
+        ],
+        "exit_ports":
+        [
+          {
+            "port_type":"vessel_port",
+            "variables":["v","u_out"]
+          }
+        ],
+        "variables_and_units":
+        [
+          ["u", "J_per_m3", "access", "variable"],
+          ["v", "m3_per_s", "access", "variable"],
+          ["v_in_sum", "m3_per_s", "access", "boundary_condition"],
+          ["u_out", "J_per_m3", "access", "boundary_condition"],
+          ["u_ext", "J_per_m3", "access", "constant"],
+          ["u_0", "J_per_m3", "access", "constant"],
+          ["u_C", "J_per_m3", "access", "variable"],
+          ["q_C", "m3", "access", "variable"],
+          ["q", "m3", "access", "variable"],
+          ["q_0", "m3", "access", "variable"],
+          ["mu", "Js_per_m3", "no_access", "global_constant"],
+          ["rho", "Js2_per_m5", "no_access", "global_constant"],
+          ["g", "m_per_s2", "no_access", "global_constant"],
+          ["beta_g", "dimensionless", "access", "global_constant"],
+          ["theta", "dimensionless", "access", "constant"],
+          ["E", "J_per_m3", "access", "constant"],
+          ["l", "metre", "access", "constant"],
+          ["r_0", "metre", "access", "constant"],
+          ["a_vessel", "dimensionless", "no_access", "global_constant"],
+          ["b_vessel", "per_m", "no_access", "global_constant"],
+          ["c_vessel", "dimensionless", "no_access", "global_constant"],
+          ["d_vessel", "per_m", "no_access", "global_constant"]
+        ]
+      },
+
+      {
+        "vessel_type":"P_outlet",
+        "BC_type":"nn",
+        "module_format":"cellml",
+        "module_file":"phlynx_test_modules.cellml",
+        "module_type":"constant_pressure_BC_type_dale",
+        "entrance_ports":
+        [
+          {
+            "port_type":"vessel_port",
+            "variables":["v", "P"]
+          }
+        ],
+        "exit_ports":
+        [
+        ],
+        "general_ports":[],
+        "variables_and_units":
+        [
+          ["v", "m3_per_s", "access", "boundary_condition"],
+          ["P", "J_per_m3", "access", "constant"] 
+        ]
+      },
+
+      {
+        "vessel_type":"Q_outlet",
+        "BC_type":"nn",
+        "module_format":"cellml",
+        "module_file":"boundary_condition_modules.cellml",
+        "module_type":"constant_flow_BC_type_dale",
+        "entrance_ports":
+        [
+          {
+            "port_type":"vessel_port",
+            "variables":["v", "P"]
+          }
+        ],
+        "exit_ports":
+        [
+        ],
+        "general_ports":[],
+        "variables_and_units":
+        [
+          ["v", "m3_per_s", "access", "constant"] 
+        ]
+      }
+]

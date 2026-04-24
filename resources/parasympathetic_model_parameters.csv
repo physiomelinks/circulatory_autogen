@@ -1,36 +1,37 @@
 variable_name,units,value,data_reference
 tau_lung_lung_stretch,second,2.0,Gee2023
-G_al_lung_stretch,per_ml_s,23.291,Gee2023
+q_str_lung_stretch,m3,0.0,0.0
+G_al_lung_stretch,per_m3_s,23.291e6,Gee2023
+q_A_lung_stretch,m3,4e-3,user_defined_BC
+q_b_lung_stretch,m3,0.3e-3,user_defined_BC
+P_baro_init_baroreceptor,J_per_m3,39990,Gee2023
 P_nom_baroreceptor,J_per_m3,12263.6,Gee2023
 tau_zb_baroreceptor,second,6.37,Gee2023
 tau_pb_baroreceptor,second,2.076,Gee2023
 f_ab_min_baroreceptor,per_s,2.52,Gee2023
 f_ab_max_baroreceptor,per_s,47.78,Gee2023
 k_ab_baroreceptor,J_per_m3,1567.3414,Gee2023
-P_baro_init_baroreceptor,J_per_m3,39990,Gee2023
 P_sys_baroreceptor,J_per_m3,16662,TEMPORARY_BC
 dP_sys_dt_baroreceptor,J_per_m3s,26.66,TEMPORARY_BC
 tau_cp_cardiopulm_receptor,second,2,Gee2023
-P_l_init_cardiopulm_receptor,mmHg,0.0,Gee2023
+P_l_init_cardiopulm_receptor,J_per_m3,0.0,Gee2023
 f_maxl_cardiopulm_receptor,Hz,20,Gee2023
-P_tn_cardiopulm_receptor,mmHg,10.8,Gee2023
-k_l_cardiopulm_receptor,mmHg,1.4286,Gee2023
-G_abh_sympathetic_afferent, dimensionless, 1.0, Gee2023
-G_alh_sympathetic_afferent, dimensionless, 1.541, Gee2023
-G_ach_sympathetic_afferent, dimensionless, 2.0, Gee2023
-G_abp_sympathetic_afferent, dimensionless, 1.0, Gee2023
-G_alp_sympathetic_afferent, dimensionless, 0.33, Gee2023
-G_acp_sympathetic_afferent, dimensionless, 2.5, Gee2023
-G_abv_sympathetic_afferent, dimensionless, 1.0, Gee2023
-G_alv_sympathetic_afferent, dimensionless, 0.0, Gee2023
-G_acv_sympathetic_afferent, dimensionless, 0.0, Gee2023
-f_esinf_sympathetic_efferent, Hz, 2.1, Gee2023
-f_es0_sympathetic_efferent, Hz, 16.11, Gee2023
-k_es_sympathetic_efferent, second, 0.0675, Gee2023
-tau_Rsp_peripheral_effector_arms,second,2.0,Gee2023
-G_Rsp_peripheral_effector_arms,Js_per_m6,92.6574e6,Gee2023
-tau_Vusv_venous_volume_effector_lb,second,5.0,Gee2023
-G_Vusv_venous_volume_effector_lb,m3,-265.4e-6,Gee2023
+P_tn_cardiopulm_receptor,J_per_m3,1440,Gee2023
+k_l_cardiopulm_receptor,J_per_m3,190.47809,Gee2023
+P_pvn_cardiopulm_receptor,J_per_m3,500,user_defined_BC
+P_mus_cardiopulm_receptor,J_per_m3,500,TO_BE_SET_THIS_IS_WRONG
+G_abh_sympathetic_afferent,dimensionless,1.0,Gee2023
+G_alh_sympathetic_afferent,dimensionless,1.541,Gee2023
+G_ach_sympathetic_afferent,dimensionless,2.0,Gee2023
+G_abp_sympathetic_afferent,dimensionless,1.0,Gee2023
+G_alp_sympathetic_afferent,dimensionless,0.33,Gee2023
+G_acp_sympathetic_afferent,dimensionless,2.5,Gee2023
+G_abv_sympathetic_afferent,dimensionless,1.0,Gee2023
+G_alv_sympathetic_afferent,dimensionless,0.0,Gee2023
+G_acv_sympathetic_afferent,dimensionless,0.0,Gee2023
+f_esinf_sympathetic_efferent,Hz,2.1,Gee2023
+f_es0_sympathetic_efferent,Hz,16.11,Gee2023
+k_es_sympathetic_efferent,second,0.0675,Gee2023
 f_min_br_NTS,Hz,0.304,Gee2023
 f_max_br_NTS,Hz,21.499,Gee2023
 f_mid_br_NTS,Hz,44.125,Gee2023
@@ -40,19 +41,24 @@ f_mid_ls_NTS,Hz,11.126,Gee2023
 f_min_cp_NTS,Hz,0.451,Gee2023
 f_max_cp_NTS,Hz,28.327,Gee2023
 f_mid_cp_NTS,Hz,10.2,Gee2023
+f_min_ch_NTS,Hz,2.2343941,identified-11-6-24
+f_max_ch_NTS,Hz,25,Hand tuned
+f_mid_ch_NTS,Hz,0.05,Hand tuned
 k_NTS_br_NTS,dimensionless,21,Gee2023
 k_NTS_ls_NTS,dimensionless,2,Gee2023
 k_NTS_cp_NTS,dimensionless,7,Gee2023
+k_NTS_ch_NTS,dimensionless,1.0,hand_tuned
+f_apc_NTS,Hz,3.7,Magosso2001_changed_from_3.7
 f_min_DMV_DMV,Hz,2.59,Gee2023
 f_max_DMV_DMV,Hz,6.66,Gee2023
 f_mid_DMV_DMV,Hz,42.91,Gee2023
 k_DMV_DMV,dimensionless,33.5,Gee2023
-s_NA, dimensionless, 0.2, TEMP_BC
 f_min_NA_NA,Hz,4.88,Gee2023
 f_max_NA_NA,Hz,15.78,Gee2023
 f_mid_NA_NA,Hz,59.83,Gee2023
 k_RSA_NA,dimensionless,0.5,Gee2023
 k_NA_NA,dimensionless,23,Gee2023
+s_NA,dimensionless,0.2,TEMP_BC
 f_min_NActr_NActr,Hz,0.61,Gee2023
 f_max_NActr_NActr,Hz,11,Gee2023
 f_mid_NActr_NActr,Hz,12.81,Gee2023
@@ -75,18 +81,23 @@ f_mid_PNDMV_PNDMV,Hz,14.1838,Gee2023
 k_PNDMV_PNDMV,dimensionless,13.3561,Gee2023
 tau_PNDMV_PNDMV,second,3.333,Gee2023
 G_Ts_heart_effector_T,second,-0.13,Gee2023
-G_Tv_heart_effector_T,second,0.09,Gee2023
+G_Tv_heart_effector_T,s2,0.09,Gee2023
 tau_Ts_heart_effector_T,second,2,Gee2023
 tau_Tv_heart_effector_T,second,1.5,Gee2023
 f_es_min,per_s,2.66,Gee2023
-inv_G_Es_heart_effector_Elv,m6_per_J,7.72577e-10,Gee2023
+G_Es_heart_effector_Elv,J_per_m6,1.0e7,
 tau_Es_heart_effector_Elv,second,2,Gee2023
-inv_G_Ev_heart_effector_Elv,m6s_per_J,1.5399e-9,Gee2023
+G_Ev_heart_effector_Elv,Js_per_m6,-0.5e7,
 tau_Ev_heart_effector_Elv,second,0.2,Gee2023
-inv_G_Es_heart_effector_Erv,m6_per_J,7.72577e-10,Gee2023
-tau_Es_heart_effector_Erv,second,2,Gee2023
-inv_G_Ev_heart_effector_Erv,m6s_per_J,1.5399e-9,Gee2023
-tau_Ev_heart_effector_Erv,second,0.2,Gee2023
-scale, dimensionless, , Gee2023
 scale_heart_effector_Elv,dimensionless,1.0,Keep_as_1
+G_Es_heart_effector_Erv,J_per_m6,0.5e7,
+tau_Es_heart_effector_Erv,second,2,Gee2023
+G_Ev_heart_effector_Erv,Js_per_m6,-0.5e7,
+tau_Ev_heart_effector_Erv,second,0.2,Gee2023
 scale_heart_effector_Erv,dimensionless,0.5903,Gee2023
+tau_Rsp_peripheral_effector_arms,second,2.0,Gee2023
+G_Rsp_peripheral_effector_arms,Js_per_m6,92.6574e6,Gee2023
+tau_Vusv_venous_volume_effector_lb,second,5.0,Gee2023
+G_Vusv_venous_volume_effector_lb,m3,-265.4e-6,Gee2023
+s_floor_NA,dimensionless,0.0,NEEDS_TO_BE_COUPLED_TO_LUNG
+f_vagal_stim_PNNA,Hz,0.0,NEEDS_TO_BE_COUPLED

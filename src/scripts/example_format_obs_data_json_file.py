@@ -9,7 +9,7 @@ example_data_dir = os.path.join(scripts_dir, 'example_data')
 sys.path.append(os.path.join(root_dir, 'src/utilities'))
 from obs_data_helpers import ObsDataCreator
 
-def example_format_obs_data_json_file():
+def example_format_obs_data_json_file(output_path=None):
     """
     Example function to demonstrate how to use the ObsDataCreator class
     to create a JSON file for observation data.
@@ -24,7 +24,8 @@ def example_format_obs_data_json_file():
 
     # output path for the JSON file
     # change this to the desired output path
-    output_path = os.path.join(root_dir, 'resources', 'NKE_pump_obs_data.json')
+    if output_path is None:
+        output_path = os.path.join(root_dir, 'resources', 'NKE_pump_obs_data.json')
     data = pd.read_csv(data_file)
 
     # access the data in the way you want it
@@ -96,6 +97,5 @@ def example_format_obs_data_json_file():
 
 if __name__ == "__main__":
     example_format_obs_data_json_file()
-    print(f"Observation data JSON file created at: {os.path.join(root_dir, 'resources',
-          'NKE_pump_obs_data.json')}")
+    print(f"Observation data JSON file created at: {os.path.join(root_dir, 'resources', 'NKE_pump_obs_data.json')}")
     # This script demonstrates how to create a JSON file for observation data

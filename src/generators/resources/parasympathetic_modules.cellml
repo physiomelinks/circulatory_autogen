@@ -6,21 +6,8 @@
     <!-- lung stretch receptor ////////////////////////////////////////////////////////////////////////-->
     <!-- step fxn for testing, replace w/ valid data  ********************************************-->
     <component name="lung_stretch_receptor_Gee2023">
-        <variable name="q_A" public_interface="in" units="m3"/>
-        <variable name="q_b" public_interface="in" units="m3"/>
-        <variable name="V_lung" public_interface="out" units="m3"/>
+        <variable name="q_str" public_interface="in" units="m3"/>
         <variable name="t" public_interface="in" units="second"/>
-        <math xmlns="http://www.w3.org/1998/Math/MathML">
-            <apply>
-                <eq/>
-                <ci>V_lung</ci>
-                <apply>
-                    <plus/>
-                    <ci>q_A</ci>
-                    <ci>q_b</ci>
-                </apply>
-            </apply>
-        </math>
         <!--V_lung = sel
     case t > 50{second}:
         0.6{m3};
@@ -31,9 +18,11 @@ endsel;-->
         <variable initial_value="0" name="f_ls" public_interface="out" units="Hz"/>
         <!-- change to 2 from 0.5 as I changed tau to correct unit of second-->
         <variable name="tau_lung" public_interface="in" units="second"/>
-        <variable name="G_al" public_interface="in" units="per_ml_s"/>
+        <variable name="G_al" public_interface="in" units="per_m3_s"/>
         <!-- ode(f_ls, t) = tau_lung*(-f_ls+G_al*V_lung);
- changed so that tau has correct units of seconds. tau should be a time constant-->
+ changed so that tau has correct units of seconds. tau should be a time constant
+ Finbar has modified this to measure bronchiole stressed volume, and only increase frequency when this 
+ stressed volume is above zero.-->
         <math xmlns="http://www.w3.org/1998/Math/MathML">
             <apply>
                 <eq/>
@@ -55,7 +44,7 @@ endsel;-->
                         <apply>
                             <times/>
                             <ci>G_al</ci>
-                            <ci>V_lung</ci>
+                            <ci>q_str</ci>
                         </apply>
                     </apply>
                     <ci>tau_lung</ci>
@@ -90,7 +79,7 @@ endsel;-->
         <variable initial_value="0" name="f_ls" public_interface="out" units="Hz"/>
         <!-- change to 2 from 0.5 as I changed tau to correct unit of second-->
         <variable name="tau_lung" public_interface="in" units="second"/>
-        <variable name="G_al" public_interface="in" units="per_ml_s"/>
+        <variable name="G_al" public_interface="in" units="per_m3_s"/>
         <!-- ode(f_ls, t) = tau_lung*(-f_ls+G_al*V_lung);
  changed so that tau has correct units of seconds. tau should be a time constant-->
         <math xmlns="http://www.w3.org/1998/Math/MathML">
@@ -453,13 +442,17 @@ endsel;-->
                             <apply>
                                 <ln/>
                                 <apply>
-                                    <plus/>
+                                    <times/>
+                                    <cn cellml:units="second">1</cn>
                                     <apply>
-                                        <minus/>
-                                        <ci>f_esp</ci>
-                                        <ci>f_es_min</ci>
+                                        <plus/>
+                                        <apply>
+                                            <minus/>
+                                            <ci>f_esp</ci>
+                                            <ci>f_es_min</ci>
+                                        </apply>
+                                        <cn cellml:units="Hz">1</cn>
                                     </apply>
-                                    <cn cellml:units="Hz">1</cn>
                                 </apply>
                             </apply>
                         </apply>
@@ -470,7 +463,7 @@ endsel;-->
                         </apply>
                     </piece>
                     <otherwise>
-                        <cn cellml:units="dimensionless">0</cn>
+                        <cn cellml:units="Js_per_m6">0</cn>
                     </otherwise>
                 </piecewise>
             </apply>
@@ -527,13 +520,17 @@ endsel;-->
                             <apply>
                                 <ln/>
                                 <apply>
-                                    <plus/>
+                                    <times/>
+                                    <cn cellml:units="second">1</cn>
                                     <apply>
-                                        <minus/>
-                                        <ci>f_esv</ci>
-                                        <ci>f_es_min</ci>
+                                        <plus/>
+                                        <apply>
+                                            <minus/>
+                                            <ci>f_esv</ci>
+                                            <ci>f_es_min</ci>
+                                        </apply>
+                                        <cn cellml:units="Hz">1</cn>
                                     </apply>
-                                    <cn cellml:units="Hz">1</cn>
                                 </apply>
                             </apply>
                         </apply>
@@ -544,7 +541,7 @@ endsel;-->
                         </apply>
                     </piece>
                     <otherwise>
-                        <cn cellml:units="dimensionless">0</cn>
+                        <cn cellml:units="m3">0</cn>
                     </otherwise>
                 </piecewise>
             </apply>
@@ -796,7 +793,7 @@ endsel;-->
         <variable name="f_NTS_output" public_interface="out" units="Hz"/>
         <variable name="f_NA_input" public_interface="out" units="Hz"/>
         <variable name="k_RSA" public_interface="in" units="dimensionless"/>
-        <variable name="s" public_interface="in" units="dimensionless"/>
+        <variable name="s_floor" public_interface="in" units="dimensionless"/>
         <math xmlns="http://www.w3.org/1998/Math/MathML">
             <apply>
                 <eq/>
@@ -817,7 +814,7 @@ endsel;-->
                         <ci>f_NTS_output</ci>
                         <apply>
                             <gt/>
-                            <ci>s</ci>
+                            <ci>s_floor</ci>
                             <cn cellml:units="dimensionless">0.4</cn>
                         </apply>
                     </piece>
@@ -976,11 +973,11 @@ var G_mid_NActr: dimensionless {init: 0.62};-->
                         <apply>
                             <geq/>
                             <ci>f_input_LCN_sum</ci>
-                            <cn cellml:units="dimensionless">0</cn>
+                            <cn cellml:units="Hz">0</cn>
                         </apply>
                     </piece>
                     <otherwise>
-                        <cn cellml:units="dimensionless">0</cn>
+                        <cn cellml:units="Hz">0</cn>
                     </otherwise>
                 </piecewise>
             </apply>
@@ -1025,6 +1022,7 @@ var G_mid_NActr: dimensionless {init: 0.62};-->
     <!--PN-NA &#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;&#45;-->
     <component name="PNNA_Gee2023">
         <variable name="t" public_interface="in" units="second"/>
+        <variable name="f_PNNA_natural" public_interface="out" units="Hz"/>
         <variable name="f_PNNA" public_interface="out" units="Hz"/>
         <variable name="f_NA" public_interface="in" units="Hz"/>
         <variable name="f_LCN" public_interface="in" units="Hz"/>
@@ -1032,10 +1030,11 @@ var G_mid_NActr: dimensionless {init: 0.62};-->
         <variable name="f_min_PNNA" public_interface="in" units="Hz"/>
         <variable name="f_max_PNNA" public_interface="in" units="Hz"/>
         <variable name="k_PNNA" public_interface="in" units="dimensionless"/>
+        <variable name="f_vagal_stim" public_interface="in" units="Hz"/>
         <math xmlns="http://www.w3.org/1998/Math/MathML">
             <apply>
                 <eq/>
-                <ci>f_PNNA</ci>
+                <ci>f_PNNA_natural</ci>
                 <apply>
                     <plus/>
                     <apply>
@@ -1064,6 +1063,15 @@ var G_mid_NActr: dimensionless {init: 0.62};-->
                         </apply>
                     </apply>
                     <ci>f_max_PNNA</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>f_PNNA</ci>
+                <apply>
+                    <plus/>
+                    <ci>f_PNNA_natural</ci>
+                    <ci>f_vagal_stim</ci>
                 </apply>
             </apply>
         </math>

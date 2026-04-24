@@ -1,25 +1,26 @@
 # Developer documentation for tutorial
 
-## Before Submitting a Pull Request!!
+## Local preview before a PR
 
-For developers adapting the tutorial in local machine,
-check that the tutorial formatting is correct by doing the following
+For developers adapting the tutorial locally, check that the formatting renders correctly:
 
-1. Install `Material for MkDocs` using:
+1. Install `Material for MkDocs`:
 
     ```
     pip install mkdocs-material
     ```
 
-2. Navigate to the `/tutorial` directory and start the live preview server using:
+2. Navigate to the `/tutorial` directory and start the live preview server:
 
     ```
     mkdocs serve
     ```
 
-    The site will be accessible at http://localhost:8000/. 
-    
-    The server will automatically rebuild the site upon saving, so you can preview your changes as you write.
+    The site will be accessible at http://localhost:8000/.
+    The server automatically rebuilds on save so you can preview changes as you write.
 
+## Expected outcome
 
-Note: When the changes to the `tutorial` directory are merged into the master branch (after a pull request), it will get automatically deployed to the website.
+You should be able to browse the tutorial locally and verify links, images, and formatting.
+
+Note: When changes to the `tutorial` directory are merged into the master branch (after a pull request), they are automatically deployed to the website.

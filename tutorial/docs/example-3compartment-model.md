@@ -1,5 +1,10 @@
 # Example: 3Compartment Model
 
+## Prerequisites
+
+- A working OpenCOR Python environment (see [Getting Started](getting-started.md)).
+- The example resource files in `resources/`.
+
 ![Simple Model of Cardiovascular System](images/cardiovascular-system.png)
 
 A schematic view of this model is shown above with details of boundary conditions, parts' names, vein connection, and direction of blood flow through. The heart is modeled as a simple valve module in this example. According to this schematic, the vessel and parameters files are designed as shown in below figures.
@@ -17,9 +22,9 @@ In the `vessel_array` file, there are five columns: **name**, **BC_type**, **ves
 !!! info
     A vessel with "output flow" BC must be connected to a vessel with "input pressure" BC and vice versa. E.g. a "vp" can only have either a "vv" or "vp" vessel as ouputs. This is checked in the software, and will throw an error if there are incorrect BC connections.
 
-The **vessel_type** and **BC_type** must match a module with the same vessel_type and BC_type in the modules_config.json defined at `[CA_dir]/src/generators/resources/`. 
+The **vessel_type** and **BC_type** must match a module with the same vessel_type and BC_type in the modules config JSON files defined at `[CA_dir]/src/generators/resources/`. 
 
-This file is the config file which defines the variables of a module and the connection ports that allows linking between modules, each module links to a cellml module. For more information, refer [Creating a new model](design-model.md#creating-a-new-model) section.
+These files define the variables of each module and the connection ports that allow linking between modules; each module links to a CellML module. For more information, refer to [Designing a model](design-model.md#creating-a-new-model).
 
 **inp_vessels** and **out_vessels** are the inputs and outputs of each module, respectively. Some modules have multiple inputs and outputs, like split_type vessels that split from one to two vessels.
 
@@ -49,3 +54,7 @@ In the below figure, three different variables are plotted versus time. The step
 This is the model before doing model calibration. See section [Parameter Identification](parameter-identification.md) for info on the parameter identification.
 
 ![Output results of 3compartment model](images/3compartment-results.png)
+
+## Expected outcome
+
+You should be able to generate and simulate the 3-compartment model and reproduce the example outputs.

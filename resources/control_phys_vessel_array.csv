@@ -84,10 +84,10 @@ femoral_L200,            pv, arterial,           external_iliac_L198   ,        
 femoral_R222,            pv, arterial,           external_iliac_R220   ,             leg_R_T              
 leg_L_T,                 pp_wCont, terminal,           femoral_L200 arm_leg_resistance_effector leg_L_LC,             venous_lb leg_L_GE
 leg_R_T,                 pp_wCont, terminal,           femoral_R222 arm_leg_resistance_effector leg_R_LC,             venous_lb leg_R_GE
-venous_lb,               vp_wCont, venous,             leg_L_T leg_R_T trunk_C_T venous_us_volume_effector,          venous_ivc
-venous_ub,               vp_wCont, venous,             arm_L_T arm_R_T external_carotid_L_T external_carotid_R_T posterior_cerebral_L_T posterior_cerebral_R_T middle_cerebral_L_T middle_cerebral_R_T anterior_cerebral_L_T anterior_cerebral_R_T venous_us_volume_effector,           venous_svc
-venous_ivc,              vp_wCont, venous,             venous_lb venous_us_volume_effector ,  heart                 
-venous_svc,              vp_wCont, venous,             venous_ub venous_us_volume_effector ,  heart                
+venous_lb,               vp_wCont, venous,             leg_L_T leg_R_T trunk_C_T venous_constriction_effector,          venous_ivc
+venous_ub,               vp_wCont, venous,             arm_L_T arm_R_T external_carotid_L_T external_carotid_R_T posterior_cerebral_L_T posterior_cerebral_R_T middle_cerebral_L_T middle_cerebral_R_T anterior_cerebral_L_T anterior_cerebral_R_T venous_constriction_effector,           venous_svc
+venous_ivc,              vp_wCont, venous,             venous_lb venous_constriction_effector ,  heart                 
+venous_svc,              vp_wCont, venous,             venous_ub venous_constriction_effector ,  heart                
 middle_cerebral_L_GE,    nn, tissue_GE_simple,   middle_cerebral_L_T arterial_gas_transport , venous_gas_transport middle_cerebral_L_LC   
 middle_cerebral_R_GE,    nn, tissue_GE_simple,   middle_cerebral_R_T arterial_gas_transport , venous_gas_transport middle_cerebral_R_LC       
 anterior_cerebral_L_GE,  nn, tissue_GE_simple,   anterior_cerebral_L_T arterial_gas_transport , venous_gas_transport anterior_cerebral_L_LC       
@@ -106,13 +106,13 @@ venous_gas_transport,    nn, gas_transport_simple, middle_cerebral_L_GE middle_c
 common_carotid_L_baro,   nn, baroreceptor,       common_carotid_L48_D, vagal_efferent sympathetic_efferent
 arterial_chemoreceptor,  nn, chemoreceptor,         arterial_gas_transport, vagal_efferent sympathetic_efferent 
 vagal_efferent,          nn, afferent_to_vagal_efferent, arterial_chemoreceptor common_carotid_L_baro, heart_period_effector
-sympathetic_efferent, nn,afferent_to_sympathetic_efferent, arterial_chemoreceptor common_carotid_L_baro, trunk_resistance_effector arm_leg_resistance_effector rv_elastance_effector lv_elastance_effector heart_period_effector venous_us_volume_effector
+sympathetic_efferent, nn,afferent_to_sympathetic_efferent, arterial_chemoreceptor common_carotid_L_baro, trunk_resistance_effector arm_leg_resistance_effector rv_elastance_effector lv_elastance_effector heart_period_effector venous_constriction_effector
 trunk_resistance_effector,      nn,efferent_resistance_effector,     sympathetic_efferent, trunk_C_T
 arm_leg_resistance_effector,    nn,efferent_resistance_effector,     sympathetic_efferent, arm_L_T arm_R_T leg_L_T leg_R_T
 lv_elastance_effector,  nn_lv,efferent_heart_elastance_effector,     sympathetic_efferent, heart
 rv_elastance_effector,  nn_rv,efferent_heart_elastance_effector,     sympathetic_efferent, heart
 heart_period_effector,  nn,efferent_heart_period_effector,     sympathetic_efferent vagal_efferent, heart
-venous_us_volume_effector, nn, efferent_venous_us_volume_effector, sympathetic_efferent, venous_lb venous_ub venous_ivc venous_svc
+venous_constriction_effector, nn, efferent_venous_us_volume_and_compliance_effector, sympathetic_efferent, venous_lb venous_ub venous_ivc venous_svc
 arm_L_LC,               nn,local_flow_control_muscle, arm_L_GE arterial_gas_transport, arm_L_T
 arm_R_LC,               nn,local_flow_control_muscle, arm_R_GE arterial_gas_transport, arm_R_T
 leg_L_LC,               nn,local_flow_control_muscle, leg_L_GE arterial_gas_transport, leg_L_T

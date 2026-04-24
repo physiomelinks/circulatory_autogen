@@ -70,17 +70,5 @@
     "std": 1050,
     "cost_type":"gaussian_MLE",
     "plot_type":"horizontal"
-  },
-  { "variable": "mitral valve flow",
-    "name_for_plotting": "v_{miv}",
-    "data_type": "constant",
-    "operation": "E_A_ratio",
-    "operands":["time", "heart/v_miv", "global/T"],
-    "unit": "m3_per_s",
-    "weight": 2.0,
-    "value": 1.25,
-    "std": 0.125,
-    "cost_type":"gaussian_MLE",
-    "plot_type":"None"
   }
 ]

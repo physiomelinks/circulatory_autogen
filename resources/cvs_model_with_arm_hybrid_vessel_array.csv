@@ -1,0 +1,46 @@
+name,BC_type,vessel_type,inp_vessels,out_vessels
+heart,vp,heart,venous_ivc venous_svc,A_aorta_ascending_1    
+A_aorta_ascending_1,nn,FV1D_vessel,heart,A_aorta_ascending_2
+A_aorta_ascending_2,nn,FV1D_vessel,A_aorta_ascending_1,A_aorta_ascending_3
+A_aorta_ascending_3,nn,FV1D_vessel,A_aorta_ascending_2     ,A_aorta_ascending_4
+A_aorta_ascending_4,nn,FV1D_vessel,A_aorta_ascending_3     ,A_aortic_arch_1
+A_aortic_arch_1,nn,FV1D_vessel,A_aorta_ascending_4     ,A_aortic_arch_2 A_brachiocephalic_trunk
+A_aortic_arch_2,nn,FV1D_vessel,A_aortic_arch_1        ,A_aortic_arch_3 A_common_carotid_L
+A_aortic_arch_3,nn,FV1D_vessel,A_aortic_arch_2       ,A_aortic_arch_4 A_subclavian_L
+A_brachiocephalic_trunk,nn,FV1D_vessel,A_aortic_arch_1        ,A_common_carotid_R A_subclavian_R
+A_common_carotid_L,nn,FV1D_vessel,A_aortic_arch_2       ,head_L_T
+A_common_carotid_R,nn,FV1D_vessel,A_brachiocephalic_trunk  ,head_R_T
+A_subclavian_L,nn,FV1D_vessel,A_aortic_arch_3       ,A_brachial_L
+A_brachial_L,nn,FV1D_vessel,A_subclavian_L,arm_L_T
+A_subclavian_R,nn,FV1D_vessel,A_brachiocephalic_trunk  ,arm_R_T
+head_L_T,vp_ZCIR_wCont,single_terminal,A_common_carotid_L  ,venous_head_L_T
+head_R_T,vp_ZCIR_wCont,single_terminal,A_common_carotid_R   ,venous_head_R_T
+arm_L_T,vp_ZCIR_wCont,single_terminal,A_brachial_L      ,venous_arm_L_T
+arm_R_T,vp_ZCIR_wCont,single_terminal,A_subclavian_R        ,venous_arm_R_T
+A_aortic_arch_4,nn,FV1D_vessel,A_aortic_arch_3       ,A_aorta_thoracic_1
+A_aorta_thoracic_1,nn,FV1D_vessel,A_aortic_arch_4       ,A_aorta_thoracic_2
+A_aorta_thoracic_2,nn,FV1D_vessel,A_aorta_thoracic_1    ,A_aorta_thoracic_3
+A_aorta_thoracic_3,nn,FV1D_vessel,A_aorta_thoracic_2   ,A_aorta_thoracic_4
+A_aorta_thoracic_4,nn,FV1D_vessel,A_aorta_thoracic_3   ,A_aorta_thoracic_5
+A_aorta_thoracic_5,nn,FV1D_vessel,A_aorta_thoracic_4   ,A_aorta_abdominal_1
+A_aorta_abdominal_1,nn,FV1D_vessel,A_aorta_thoracic_5   ,A_aorta_abdominal_2 A_celiac_trunk
+A_celiac_trunk,nn,FV1D_vessel,A_aorta_abdominal_1,trunk_C_T
+trunk_C_T,vp_ZCIR_wCont,single_terminal,A_celiac_trunk,venous_trunk_C_T
+A_aorta_abdominal_2,nn,FV1D_vessel,A_aorta_abdominal_1  ,A_aorta_abdominal_3
+A_aorta_abdominal_3,nn,FV1D_vessel,A_aorta_abdominal_2  ,A_aorta_abdominal_4
+A_aorta_abdominal_4,nn,FV1D_vessel,A_aorta_abdominal_3  ,A_aorta_abdominal_5
+A_aorta_abdominal_5,nn,FV1D_vessel,A_aorta_abdominal_4  ,A_aorta_abdominal_6
+A_aorta_abdominal_6,nn,FV1D_vessel,A_aorta_abdominal_5  ,A_common_iliac_L A_common_iliac_R
+A_common_iliac_L,nn,FV1D_vessel,A_aorta_abdominal_6  ,leg_L_T
+A_common_iliac_R,nn,FV1D_vessel,A_aorta_abdominal_6  ,leg_R_T
+leg_L_T,vp_ZCIR_wCont,single_terminal,A_common_iliac_L     ,venous_leg_L_T
+leg_R_T,vp_ZCIR_wCont,single_terminal,A_common_iliac_R,venous_leg_R_T
+venous_head_L_T,vp,venous_novisco,head_L_T,venous_svc
+venous_head_R_T,vp,venous_novisco,head_R_T,venous_svc
+venous_arm_L_T,vp,venous_novisco,arm_L_T,venous_svc
+venous_arm_R_T,vp,venous_novisco,arm_R_T,venous_svc
+venous_trunk_C_T,vp,venous_novisco,trunk_C_T,venous_ivc           
+venous_leg_L_T,vp,venous_novisco,leg_L_T,venous_ivc           
+venous_leg_R_T,vp,venous_novisco,leg_R_T,venous_ivc           
+venous_ivc,vp_simple_novisco,Min_junction,venous_trunk_C_T venous_leg_L_T venous_leg_R_T,heart                
+venous_svc,vp_simple_novisco,Min_junction,venous_head_L_T venous_head_R_T venous_arm_L_T venous_arm_R_T,heart                

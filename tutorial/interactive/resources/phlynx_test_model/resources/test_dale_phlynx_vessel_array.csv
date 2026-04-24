@@ -1,0 +1,17 @@
+name,BC_type,vessel_type,inp_vessels,out_vessels,x,y,z
+A_0,pv,artery_Minlet,A_0_PI,a_0 a_1,1,0,0
+a_0,pv,arteriole_Nout,A_0,c_0 c_1,2,1,0
+a_1,pv,arteriole_Nout,A_0,c_2 c_3,2,-1,0
+c_0,pp_test,capillary,a_0,c_4,3,2,0
+c_1,pp_test,capillary,a_0,c_6,3,1,0
+c_2,pp_test,capillary,a_1,c_5,3,-1,0
+c_3,pp_test,capillary,a_1,c_7,3,-2,0
+c_4,vp_test,capillary,c_0,v_0,4,2,0
+c_5,vp_test,capillary,c_2,v_0,4,1,0
+c_6,vp_test,capillary,c_1,v_1,4,-1,0
+c_7,vp_test,capillary,c_3,v_1,4,-2,0
+v_0,vp,venule_Min,c_4 c_5,V_0,5,1,0
+v_1,vp,venule_Min,c_6 c_7,V_0,5,-1,0
+V_0,vp,vein_Noutlet,v_0 v_1,V_0_PO,6,0,0
+A_0_PI,nn,P_inlet,,A_0,0,0,0
+V_0_PO,nn,P_outlet,V_0,,7,0,0

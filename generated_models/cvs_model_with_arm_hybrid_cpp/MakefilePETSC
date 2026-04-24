@@ -1,0 +1,81 @@
+# PETSc configuration
+# Adjust PETSC_DIR and PETSC_ARCH as needed
+# PETSC_DIR=/home/bghi639/petsc-install
+# Updated for Docker container environment
+PETSC_DIR=/opt/petsc-install
+PETSC_ARCH=
+# PETSC_ARCH=""
+# PETSC_ARCH = arch-linux-c-opt
+
+# Verify that the directory actually exists
+ifeq ($(wildcard $(PETSC_DIR)),)
+  $(error PETSC_DIR=$(PETSC_DIR) does not exist)
+endif
+# ifeq ($(wildcard $(PETSC_DIR)/include/petsc.h),)
+#   $(error PETSC_DIR=$(PETSC_DIR) does not contain petsc.h)
+# endif
+
+include $(PETSC_DIR)/lib/petsc/conf/variables
+
+# General compiler settings
+CXX      := mpicxx # PETSc is built with MPI
+# Compiler flags (add -g for debug, or -O2/-O3 for optimization, or -Wall for enabling warning messages)
+CXXFLAGS := -std=c++17 -Wall -Wextra
+CXXFLAGS += -I$(PETSC_DIR)/include
+CXXFLAGS += -Iinclude
+LDFLAGS  += $(PETSC_LIB)
+
+
+# # SUNDIALS paths from Spack
+# SUNDIALS_PREFIX := $(shell spack location -i sundials)
+# INC_DIR = -I$(SUNDIALS_PREFIX)/include
+# LIB_DIR = -L$(SUNDIALS_PREFIX)/lib
+
+# # Linker flags
+# LDFLAGS  = $(LIB_DIR)
+# # Linker libraries
+# LDLIBS = -lsundials_cvodes \
+# 	 -lsundials_sunmatrixdense \
+#          -lsundials_sunlinsoldense \
+#          -lsundials_nvecserial \
+#          -lsundials_core \
+#          -lm
+
+
+# Debug / Release
+ifeq ($(DEBUG),1)
+  CXXFLAGS += -O0 -g -DDEBUG
+else
+  CXXFLAGS += -O3 -DNDEBUG
+endif
+
+# Source / include layout
+SRCDIR   := .
+SRC_CC   := $(wildcard $(SRCDIR)/*.cc)
+SRC_CPP  := $(wildcard $(SRCDIR)/*.cpp)
+SRC      := $(SRC_CC) $(SRC_CPP)
+# SRC = main0d.cpp model0d.cc
+
+# Object files (auto-generated from SRCS)
+OBJ      := $(SRC:.cc=.o)
+OBJ      := $(OBJ:.cpp=.o)
+
+# Output/target binary
+TARGET   := main0d
+
+# Build rules
+.PHONY: all clean
+
+all: $(TARGET)
+
+$(TARGET): $(OBJ)
+	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+
+%.o: %.cc
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+%.o: %.cpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+# Clean
+clean:
+	$(RM) $(OBJ) $(TARGET)

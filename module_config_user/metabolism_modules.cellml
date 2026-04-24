@@ -1,0 +1,764 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<model name="modules" xmlns="http://www.cellml.org/cellml/1.1#" xmlns:cellml="http://www.cellml.org/cellml/1.1#">
+    <units name="per_s">
+        <unit exponent="-1" units="second"/>
+    </units>
+    <component name="ICING">
+        <variable name="t" public_interface="in" units="second"/>
+        <!-- Constants-->
+        <variable name="a_G" public_interface="in" units="l_per_mmol"/>
+        <variable name="p_G" public_interface="in" units="per_s"/>
+        <variable name="V_G" public_interface="in" units="litre"/>
+        <!-- var EGP: dimensionless {init: 1.16};-->
+        <variable name="CNS" public_interface="in" units="mmol_per_s"/>
+        <variable name="x_L" public_interface="in" units="dimensionless"/>
+        <variable name="n_L" public_interface="in" units="per_s"/>
+        <variable name="a_I" public_interface="in" units="l_per_mmol"/>
+        <variable name="n_K" public_interface="in" units="per_s"/>
+        <variable name="n_C" public_interface="in" units="per_s"/>
+        <variable name="n_I" public_interface="in" units="l_per_s"/>
+        <variable name="V_I" public_interface="in" units="litre"/>
+        <!--var u_ex: mmol_per_s {pub: in};-->
+        <variable name="k_p" public_interface="in" units="l_per_s"/>
+        <variable name="G_Fast" public_interface="in" units="mmol_per_l"/>
+        <variable name="V_Q" public_interface="in" units="litre"/>
+        <variable name="u_en" public_interface="out" units="mmol_per_s"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <ci>u_en</ci>
+                <piecewise>
+                    <piece>
+                        <apply>
+                            <times/>
+                            <ci>k_p</ci>
+                            <apply>
+                                <minus/>
+                                <ci>G</ci>
+                                <ci>G_Fast</ci>
+                            </apply>
+                        </apply>
+                        <apply>
+                            <gt/>
+                            <apply>
+                                <minus/>
+                                <ci>G</ci>
+                                <ci>G_Fast</ci>
+                            </apply>
+                            <cn cellml:units="mmol_per_l">0</cn>
+                        </apply>
+                    </piece>
+                    <otherwise>
+                        <cn cellml:units="mmol_per_l">0.0</cn>
+                    </otherwise>
+                </piecewise>
+            </apply>
+        </math>
+        <!-- To identify constant-->
+        <variable name="EGP" public_interface="in" units="mmol_per_s"/>
+        <variable name="SI" public_interface="in" units="l_per_mmol_per_s"/>
+        <!-- State variables -->
+        <variable name="G_init" public_interface="in" units="mmol_per_l"/>
+        <variable name="I_init" public_interface="in" units="mmol_per_l"/>
+        <variable name="Q_init" public_interface="in" units="mmol_per_l"/>
+        <variable initial_value="G_init" name="G" public_interface="out" units="mmol_per_l"/>
+        <variable initial_value="I_init" name="I" public_interface="out" units="mmol_per_l"/>
+        <variable initial_value="Q_init" name="Q" public_interface="out" units="mmol_per_l"/>
+        <variable name="I_original" public_interface="out" units="mmol_per_l"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <ci>I_original</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <ci>I</ci>
+                        <cn cellml:units="dimensionless">1000000000</cn>
+                    </apply>
+                    <cn cellml:units="dimensionless">6</cn>
+                </apply>
+            </apply>
+        </math>
+        <variable name="Q_original" public_interface="out" units="mmol_per_l"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <ci>Q_original</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <ci>Q</ci>
+                        <cn cellml:units="dimensionless">1000000000</cn>
+                    </apply>
+                    <cn cellml:units="dimensionless">6</cn>
+                </apply>
+            </apply>
+        </math>
+        <!--        var u_ex: mmol_per_s {pub: in};-->
+        <!-- SC model-->
+        <variable name="kdi" public_interface="in" units="per_s"/>
+        <variable name="ks2" public_interface="in" units="per_s"/>
+        <variable name="ks3" public_interface="in" units="per_s"/>
+        <variable name="Usc" public_interface="in" units="mmol_per_s"/>
+        <variable name="Isc_init" public_interface="in" units="mmol"/>
+        <variable name="QLocal_init" public_interface="in" units="mmol"/>
+        <variable initial_value="Isc_init" name="Isc" public_interface="out" units="mmol"/>
+        <variable initial_value="QLocal_init" name="QLocal" public_interface="out" units="mmol"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <apply>
+                    <diff/>
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>Isc</ci>
+                </apply>
+                <apply>
+                    <minus/>
+                    <ci>Usc</ci>
+                    <apply>
+                        <times/>
+                        <ci>ks2</ci>
+                        <ci>Isc</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <apply>
+                    <diff/>
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>QLocal</ci>
+                </apply>
+                <apply>
+                    <minus/>
+                    <apply>
+                        <times/>
+                        <ci>ks2</ci>
+                        <ci>Isc</ci>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <plus/>
+                            <ci>ks3</ci>
+                            <ci>kdi</ci>
+                        </apply>
+                        <ci>QLocal</ci>
+                    </apply>
+                </apply>
+            </apply>
+        </math>
+        <variable name="u_ex" public_interface="out" units="mmol_per_s"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <ci>u_ex</ci>
+                <apply>
+                    <times/>
+                    <ci>ks3</ci>
+                    <ci>QLocal</ci>
+                </apply>
+            </apply>
+        </math>
+        <!-- GI model-->
+        <!-- Carbohydrates-->
+        <variable name="v_C" public_interface="in" units="mmol_per_s"/>
+        <variable name="d_G_1" public_interface="in" units="per_s"/>
+        <variable name="d_G_2" public_interface="in" units="per_s"/>
+        <variable name="q_G_S_init" public_interface="in" units="mmol"/>
+        <variable name="q_G_I_init" public_interface="in" units="mmol"/>
+        <variable initial_value="q_G_S_init" name="q_G_S" public_interface="out" units="mmol"/>
+        <variable initial_value="q_G_I_init" name="q_G_I" public_interface="out" units="mmol"/>
+        <variable name="v_G_1" public_interface="out" units="mmol_per_s"/>
+        <variable name="v_G_2" public_interface="out" units="mmol_per_s"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <ci>v_G_1</ci>
+                <apply>
+                    <times/>
+                    <ci>d_G_1</ci>
+                    <ci>q_G_S</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>v_G_2</ci>
+                <apply>
+                    <times/>
+                    <ci>d_G_2</ci>
+                    <ci>q_G_I</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <apply>
+                    <diff/>
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>q_G_S</ci>
+                </apply>
+                <apply>
+                    <minus/>
+                    <ci>v_C</ci>
+                    <ci>v_G_1</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <apply>
+                    <diff/>
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>q_G_I</ci>
+                </apply>
+                <apply>
+                    <minus/>
+                    <ci>v_G_1</ci>
+                    <ci>v_G_2</ci>
+                </apply>
+            </apply>
+        </math>
+        <!-- Fats-->
+        <variable name="v_TG" public_interface="in" units="mmol_per_s"/>
+        <!--        var v_TG: mmol_per_s {pub: out};-->
+        <variable name="v_F" public_interface="in" units="mmol_per_s"/>
+        <variable name="q_TG_init" public_interface="in" units="mmol"/>
+        <variable initial_value="q_TG_init" name="q_TG" public_interface="out" units="mmol"/>
+        <!--                v_TG = k_Re*(k_TG*q_TG-k_FA*q_FA*k_Glyc*q_Glyc);-->
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <apply>
+                    <diff/>
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>q_TG</ci>
+                </apply>
+                <apply>
+                    <minus/>
+                    <ci>v_F</ci>
+                    <ci>v_TG</ci>
+                </apply>
+            </apply>
+        </math>
+        <variable name="d_Glyc" public_interface="in" units="per_s"/>
+        <variable name="v_Glyc" public_interface="out" units="mmol_per_s"/>
+        <variable name="q_Glyc_init" public_interface="in" units="mmol"/>
+        <variable initial_value="q_Glyc_init" name="q_Glyc" public_interface="out" units="mmol"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <ci>v_Glyc</ci>
+                <apply>
+                    <times/>
+                    <ci>d_Glyc</ci>
+                    <ci>q_Glyc</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <apply>
+                    <diff/>
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>q_Glyc</ci>
+                </apply>
+                <apply>
+                    <minus/>
+                    <ci>v_TG</ci>
+                    <ci>v_Glyc</ci>
+                </apply>
+            </apply>
+        </math>
+        <variable name="v_TG_FA" public_interface="out" units="mmol_per_s"/>
+        <variable name="q_FA_init" public_interface="in" units="mmol"/>
+        <variable initial_value="q_FA_init" name="q_FA" public_interface="out" units="mmol"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <ci>v_TG_FA</ci>
+                <apply>
+                    <times/>
+                    <cn cellml:units="dimensionless">3</cn>
+                    <ci>v_TG</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <apply>
+                    <diff/>
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>q_FA</ci>
+                </apply>
+                <ci>v_TG_FA</ci>
+            </apply>
+        </math>
+        <!-- Proteins-->
+        <variable name="v_AA_1" public_interface="in" units="mmol_per_s"/>
+        <variable name="v_AA_2" public_interface="in" units="mmol_per_s"/>
+        <variable name="v_P" public_interface="in" units="mmol_per_s"/>
+        <variable name="q_AA_init" public_interface="in" units="mmol"/>
+        <variable initial_value="q_AA_init" name="q_AA" public_interface="out" units="mmol"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <apply>
+                    <diff/>
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>q_AA</ci>
+                </apply>
+                <apply>
+                    <minus/>
+                    <apply>
+                        <minus/>
+                        <ci>v_P</ci>
+                        <ci>v_AA_1</ci>
+                    </apply>
+                    <ci>v_AA_2</ci>
+                </apply>
+            </apply>
+        </math>
+        <variable name="k_Al" public_interface="in" units="l2_per_mmol_per_s"/>
+        <variable name="v_Al" public_interface="out" units="mmol_per_s"/>
+        <variable name="q_Al_init" public_interface="in" units="mmol"/>
+        <variable initial_value="q_Al_init" name="q_Al" public_interface="out" units="mmol"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <ci>v_Al</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <times/>
+                                <ci>k_Al</ci>
+                                <ci>q_Al</ci>
+                            </apply>
+                            <ci>V_G</ci>
+                        </apply>
+                        <ci>q_FA</ci>
+                    </apply>
+                    <ci>V_G</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <apply>
+                    <diff/>
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>q_Al</ci>
+                </apply>
+                <apply>
+                    <minus/>
+                    <ci>v_AA_2</ci>
+                    <ci>v_Al</ci>
+                </apply>
+            </apply>
+        </math>
+        <variable name="G_ex" public_interface="out" units="mmol_per_s"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <ci>G_ex</ci>
+                <apply>
+                    <plus/>
+                    <ci>v_G_2</ci>
+                    <ci>v_Glyc</ci>
+                    <ci>v_Al</ci>
+                </apply>
+            </apply>
+        </math>
+        <!-- u_en model-->
+        <variable name="p_G_term" public_interface="out" units="mmol_per_l_per_s"/>
+        <variable name="SI_term" public_interface="out" units="mmol_per_l_per_s"/>
+        <variable name="G_ex_term" public_interface="out" units="mmol_per_l_per_s"/>
+        <variable name="EGP_term" public_interface="out" units="mmol_per_l_per_s"/>
+        <variable name="CNS_term" public_interface="out" units="mmol_per_l_per_s"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <ci>p_G_term</ci>
+                <apply>
+                    <times/>
+                    <apply>
+                        <minus/>
+                        <ci>p_G</ci>
+                    </apply>
+                    <apply>
+                        <minus/>
+                        <ci>G</ci>
+                        <ci>G_Fast</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>SI_term</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <minus/>
+                            <ci>SI</ci>
+                        </apply>
+                        <apply>
+                            <minus/>
+                            <apply>
+                                <times/>
+                                <ci>G</ci>
+                                <ci>Q</ci>
+                            </apply>
+                            <apply>
+                                <times/>
+                                <ci>G_Fast</ci>
+                                <ci>Q_init</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                    <apply>
+                        <plus/>
+                        <cn cellml:units="dimensionless">1</cn>
+                        <apply>
+                            <times/>
+                            <ci>a_G</ci>
+                            <ci>Q</ci>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>G_ex_term</ci>
+                <apply>
+                    <divide/>
+                    <ci>G_ex</ci>
+                    <ci>V_G</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>EGP_term</ci>
+                <apply>
+                    <divide/>
+                    <ci>EGP</ci>
+                    <ci>V_G</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>CNS_term</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <minus/>
+                        <ci>CNS</ci>
+                    </apply>
+                    <ci>V_G</ci>
+                </apply>
+            </apply>
+        </math>
+        <variable name="n_K_term" public_interface="out" units="mmol_per_l_per_s"/>
+        <variable name="n_L_term" public_interface="out" units="mmol_per_l_per_s"/>
+        <variable name="n_I_term" public_interface="out" units="mmol_per_l_per_s"/>
+        <variable name="u_ex_term" public_interface="out" units="mmol_per_l_per_s"/>
+        <variable name="u_en_term" public_interface="out" units="mmol_per_l_per_s"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <ci>n_K_term</ci>
+                <apply>
+                    <times/>
+                    <apply>
+                        <minus/>
+                        <ci>n_K</ci>
+                    </apply>
+                    <ci>I</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>n_L_term</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <minus/>
+                            <ci>n_L</ci>
+                        </apply>
+                        <ci>I</ci>
+                    </apply>
+                    <apply>
+                        <plus/>
+                        <cn cellml:units="dimensionless">1</cn>
+                        <apply>
+                            <times/>
+                            <ci>a_I</ci>
+                            <ci>I</ci>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>n_I_term</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <minus/>
+                            <ci>n_I</ci>
+                        </apply>
+                        <apply>
+                            <minus/>
+                            <ci>I</ci>
+                            <ci>Q</ci>
+                        </apply>
+                    </apply>
+                    <ci>V_I</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>u_ex_term</ci>
+                <apply>
+                    <divide/>
+                    <ci>u_ex</ci>
+                    <ci>V_I</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>u_en_term</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <minus/>
+                            <cn cellml:units="dimensionless">1</cn>
+                            <ci>x_L</ci>
+                        </apply>
+                        <ci>u_en</ci>
+                    </apply>
+                    <ci>V_I</ci>
+                </apply>
+            </apply>
+            <!--        var G_dot: mmol_per_l_per_s {pub: out};-->
+            <!--        G_dot     = -p_G*(G-G_Fast)-SI*(G*Q-G_Fast*Q_init)/(1{dimensionless}+a_G*Q)+(G_ex+EGP-CNS)/V_G;-->
+            <apply>
+                <eq/>
+                <apply>
+                    <diff/>
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>G</ci>
+                </apply>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <minus/>
+                        <apply>
+                            <times/>
+                            <apply>
+                                <minus/>
+                                <ci>p_G</ci>
+                            </apply>
+                            <apply>
+                                <minus/>
+                                <ci>G</ci>
+                                <ci>G_Fast</ci>
+                            </apply>
+                        </apply>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <times/>
+                                <ci>SI</ci>
+                                <apply>
+                                    <minus/>
+                                    <apply>
+                                        <times/>
+                                        <ci>G</ci>
+                                        <ci>Q</ci>
+                                    </apply>
+                                    <apply>
+                                        <times/>
+                                        <ci>G_Fast</ci>
+                                        <ci>Q_init</ci>
+                                    </apply>
+                                </apply>
+                            </apply>
+                            <apply>
+                                <plus/>
+                                <cn cellml:units="dimensionless">1</cn>
+                                <apply>
+                                    <times/>
+                                    <ci>a_G</ci>
+                                    <ci>Q</ci>
+                                </apply>
+                            </apply>
+                        </apply>
+                    </apply>
+                    <apply>
+                        <divide/>
+                        <apply>
+                            <minus/>
+                            <apply>
+                                <plus/>
+                                <ci>G_ex</ci>
+                                <ci>EGP</ci>
+                            </apply>
+                            <ci>CNS</ci>
+                        </apply>
+                        <ci>V_G</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <apply>
+                    <diff/>
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>I</ci>
+                </apply>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <minus/>
+                        <apply>
+                            <minus/>
+                            <apply>
+                                <times/>
+                                <apply>
+                                    <minus/>
+                                    <ci>n_K</ci>
+                                </apply>
+                                <ci>I</ci>
+                            </apply>
+                            <apply>
+                                <divide/>
+                                <apply>
+                                    <times/>
+                                    <ci>n_L</ci>
+                                    <ci>I</ci>
+                                </apply>
+                                <apply>
+                                    <plus/>
+                                    <cn cellml:units="dimensionless">1</cn>
+                                    <apply>
+                                        <times/>
+                                        <ci>a_I</ci>
+                                        <ci>I</ci>
+                                    </apply>
+                                </apply>
+                            </apply>
+                        </apply>
+                        <apply>
+                            <divide/>
+                            <apply>
+                                <times/>
+                                <ci>n_I</ci>
+                                <apply>
+                                    <minus/>
+                                    <ci>I</ci>
+                                    <ci>Q</ci>
+                                </apply>
+                            </apply>
+                            <ci>V_I</ci>
+                        </apply>
+                    </apply>
+                    <apply>
+                        <divide/>
+                        <ci>u_ex</ci>
+                        <ci>V_I</ci>
+                    </apply>
+                    <apply>
+                        <divide/>
+                        <apply>
+                            <times/>
+                            <apply>
+                                <minus/>
+                                <cn cellml:units="dimensionless">1</cn>
+                                <ci>x_L</ci>
+                            </apply>
+                            <ci>u_en</ci>
+                        </apply>
+                        <ci>V_I</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <apply>
+                    <diff/>
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>Q</ci>
+                </apply>
+                <apply>
+                    <minus/>
+                    <apply>
+                        <divide/>
+                        <apply>
+                            <times/>
+                            <ci>n_I</ci>
+                            <apply>
+                                <minus/>
+                                <ci>I</ci>
+                                <ci>Q</ci>
+                            </apply>
+                        </apply>
+                        <ci>V_Q</ci>
+                    </apply>
+                    <apply>
+                        <divide/>
+                        <apply>
+                            <times/>
+                            <ci>n_C</ci>
+                            <ci>Q</ci>
+                        </apply>
+                        <apply>
+                            <plus/>
+                            <cn cellml:units="dimensionless">1</cn>
+                            <apply>
+                                <times/>
+                                <ci>a_G</ci>
+                                <ci>Q</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+        </math>
+        <!--ode(G, t) = 0{dimensionless};
+ode(I, t) = 0{dimensionless};
+ode(Q, t) = 0{dimensionless};-->
+    </component>
+</model>

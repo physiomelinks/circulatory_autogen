@@ -132,6 +132,10 @@
         <unit exponent="-1" prefix="milli" units="litre"/>
         <unit exponent="-1" units="second"/>
     </units>
+    <units name="per_m3_s">
+        <unit exponent="-3" units="metre"/>
+        <unit exponent="-1" units="second"/>
+    </units>
     <!--//////////////////////
  rate-->
     <!--////////////////////////
@@ -314,6 +318,9 @@
     <!-- reaction rate (order1)-->
     <units name="per_s">
         <unit exponent="-1" units="second"/>
+    </units>
+    <units name="per_s2">
+        <unit exponent="-2" units="second"/>
     </units>
     <!-- reaction rate (order2)-->
     <units name="per_mM_s">

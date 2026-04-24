@@ -8,8 +8,15 @@ import sys
 from sys import exit
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '../utilities'))
+# Ensure solver_wrappers is importable for SimulationHelper/opencor_helper
+sys.path.append(os.path.join(os.path.dirname(__file__), '../solver_wrappers'))
 import math as math
-import opencor as oc
+try:
+    import opencor as oc
+    opencor_available = True
+except:
+    opencor_available = False
+    pass
 import time
 import matplotlib
 matplotlib.use('Agg')
@@ -22,7 +29,7 @@ import utility_funcs
 import traceback
 from utility_funcs import Normalise_class
 paperPlotSetup.Setup_Plot(3)
-from opencor_helper import SimulationHelper
+from solver_wrappers import get_simulation_helper
 from parsers.PrimitiveParsers import scriptFunctionParser
 from mpi4py import MPI
 import re
@@ -31,16 +38,26 @@ from importlib import import_module
 # import tqdm # TODO this needs to be installed for corner plot but doesnt need an import here
 mcmc_lib = 'emcee' # TODO make this a user variable
 if mcmc_lib == 'emcee':
-    import emcee
+    try:
+        import emcee
+    except ImportError:
+        emcee = None
 elif mcmc_lib == 'zeus':
-    import zeus
+    try:
+        import zeus
+    except ImportError:
+        zeus = None
 else:
     print(f'unknown mcmc lib : {mcmc_lib}')
-import corner
+try:
+    import corner
+except ImportError:
+    corner = None
 import csv
 from datetime import date
 # from skopt import gp_minimize, Optimizer
-from parsers.PrimitiveParsers import CSVFileParser
+from parsers.PrimitiveParsers import CSVFileParser, ObsAndParamDataParser
+from param_id.optimisers import GeneticAlgorithmOptimiser, BayesianOptimiser, CMAESOptimiser
 import pandas as pd
 import json
 import math
@@ -67,11 +84,11 @@ class CVS0DParamID():
     """
     Class for doing parameter identification on a 0D cvs model
     """
-    def __init__(self, model_path, model_type, param_id_method, mcmc_instead, file_name_prefix,
+    def __init__(self, model_path, model_type, param_id_method, mcmc_instead=False, file_name_prefix='no_name',
                  params_for_id_path=None,
                  param_id_obs_path=None, sim_time=2.0, pre_time=20.0, dt=0.01,
-                 solver_info=None, mcmc_options=None, ga_options=None, DEBUG=False,
-                 param_id_output_dir=None, resources_dir=None):
+                 solver_info=None, mcmc_options=None, optimiser_options=None, DEBUG=False,
+                 param_id_output_dir=None, resources_dir=None, one_rank=False):
         self.model_path = model_path
         self.param_id_method = param_id_method
         self.mcmc_instead = mcmc_instead
@@ -82,12 +99,20 @@ class CVS0DParamID():
         self.rank = self.comm.Get_rank()
         self.num_procs = self.comm.Get_size()
 
-        self.ga_options = ga_options
         self.mcmc_options = mcmc_options
-        self.solver_info = solver_info
+        if solver_info is None:
+            self.solver_info = {"solver": "CVODE_myokit"}
+        else:
+            self.solver_info = solver_info
         self.dt = dt
+        self.sim_time = sim_time
+        self.pre_time = pre_time
 
-        self.param_id_obs_file_prefix = re.sub('.json', '', os.path.split(param_id_obs_path)[1])
+        if param_id_obs_path is None:
+            date_str = date.today().strftime("%Y%m%d")
+            self.param_id_obs_file_prefix = f"obs_{date_str}"
+        else:
+            self.param_id_obs_file_prefix = re.sub('.json', '', os.path.split(param_id_obs_path)[1])
         case_type = f'{param_id_method}_{file_name_prefix}_{self.param_id_obs_file_prefix}'
         if self.rank == 0:
             if param_id_output_dir is None:
@@ -103,13 +128,16 @@ class CVS0DParamID():
             self.plot_dir = os.path.join(self.output_dir, 'plots_param_id')
             if not os.path.exists(self.plot_dir):
                 os.mkdir(self.plot_dir)
+        else:
+            self.output_dir = None
         
         if resources_dir is None:
             self.resources_dir = os.path.join(os.path.dirname(__file__), '../../resources')
         else:
             self.resources_dir = resources_dir
 
-        self.comm.Barrier()
+        if one_rank is False:
+            self.comm.Barrier()
 
         self.DEBUG = DEBUG
         # if self.DEBUG:
@@ -122,18 +150,40 @@ class CVS0DParamID():
         self.gt_df = None
         self.protocol_info = None
         self.obs_info = None
+        self.prediction_info = None
         self.params_for_id_path = params_for_id_path
+        self.optimiser_options = optimiser_options
+        self.obs_and_param_parser = ObsAndParamDataParser()
         if param_id_obs_path:
-            self.__set_obs_names_and_df(param_id_obs_path, sim_time=sim_time, pre_time=pre_time)
+            # self.__set_obs_names_and_df(param_id_obs_path, sim_time=sim_time, pre_time=pre_time)
+            parsed_data = self.obs_and_param_parser.parse_obs_data_json(
+                param_id_obs_path=param_id_obs_path,
+                pre_time=pre_time,
+                sim_time=sim_time
+            )
+            self.gt_df = parsed_data["gt_df"]
+            self.protocol_info = parsed_data["protocol_info"]
+            self.prediction_info = parsed_data["prediction_info"]
+
+            self.obs_info = self.obs_and_param_parser.process_obs_info(gt_df=self.gt_df, output_dir=self.output_dir, dt=self.dt)
+            self.protocol_info = self.obs_and_param_parser.process_protocol_and_weights(
+                gt_df=self.gt_df,
+                protocol_info=self.protocol_info,
+                dt=self.dt
+            )
+
         if self.params_for_id_path:
-            self.__set_and_save_param_names()
+            self.param_id_info = self.obs_and_param_parser.get_param_id_info(self.params_for_id_path)
+            self.obs_and_param_parser.save_param_names(self.param_id_info, self.output_dir)
 
-        # ground truth values
-        self.__get_ground_truth_values()
-
-        # get prediction variables
-        self.__set_prediction_var() # To be made obsolete, as prediction_info gets 
-                                    # parsed in __set_obs_names_and_df
+        if self.optimiser_options is None:
+            print("No optimiser options provided, using default options")
+            self.optimiser_options = {
+                'cost_convergence': 0.0001,
+                'max_patience': 10,
+                'num_calls_to_function': 10000
+            }
+            print(f'Default optimiser options: {self.optimiser_options}')
 
         if self.mcmc_instead:
             # This mcmc_object will be an instance of the OpencorParamID class
@@ -143,17 +193,17 @@ class CVS0DParamID():
             global mcmc_object 
             mcmc_object = OpencorMCMC(self.model_path,
                                            self.obs_info, self.param_id_info,
-                                           self.protocol_info, self.prediction_info, dt=self.dt,
-                                           solver_info=self.solver_info, mcmc_options=mcmc_options,
-                                           DEBUG=self.DEBUG)
+                                           self.protocol_info, self.prediction_info, self.solver_info, dt=self.dt,
+                                           mcmc_options=mcmc_options,
+                                           DEBUG=self.DEBUG, model_type=self.model_type)
             self.n_steps = mcmc_object.n_steps
         else:
-            if model_type == 'cellml_only':
+            if model_type in ['cellml_only', 'python']:
                 self.param_id = OpencorParamID(self.model_path, self.param_id_method,
                                                self.obs_info, self.param_id_info, self.protocol_info,
-                                               self.prediction_info, dt=self.dt,
-                                               solver_info=self.solver_info, ga_options=ga_options,
-                                               DEBUG=self.DEBUG)
+                                               self.prediction_info, self.solver_info, dt=self.dt,
+                                               optimiser_options=self.optimiser_options, DEBUG=self.DEBUG, 
+                                               model_type=self.model_type)
                 self.n_steps = self.param_id.n_steps
         if self.rank == 0:
             self.set_output_dir(self.output_dir)
@@ -161,23 +211,62 @@ class CVS0DParamID():
         self.best_output_calculated = False
         self.sensitivity_calculated = False
 
+    @classmethod
+    def init_from_dict(cls, inp_data_dict):
+        # Only pass kwargs that exist in inp_data_dict
+        arg_options = [
+            'model_path', 'model_type', 'param_id_method', 'mcmc_instead',
+            'file_name_prefix', 'params_for_id_path', 'param_id_obs_path',
+            'sim_time', 'pre_time', 'dt', 'solver_info', 'mcmc_options',
+            'optimiser_options', 'DEBUG', 'param_id_output_dir', 'resources_dir',
+            'one_rank',
+        ]
+        kwargs = {key: inp_data_dict[key] for key in arg_options if key in inp_data_dict}
+
+        # Support common naming used elsewhere
+        if 'file_name_prefix' not in kwargs and 'file_prefix' in inp_data_dict:
+            kwargs['file_name_prefix'] = inp_data_dict['file_prefix']
+
+        return cls(**kwargs)
+
+    @classmethod
+    def init_from_all_dicts(cls, inp_data_dict, obs_data_dict, params_for_id_dict):
+        new_object = cls.init_from_dict(inp_data_dict)
+        new_object.set_ground_truth_data(obs_data_dict)
+        new_object.set_params_for_id(params_for_id_dict)
+        return new_object
+
     def temp_test(self):
         self.param_id.temp_test()
     def temp_test2(self):
         self.param_id.temp_test2()
 
     def run(self):
+        self._check_info_available()
         self.param_id.run()
 
     def run_mcmc(self):
         mcmc_object.run()
+    
+    def _check_info_available(self):
+        if self.gt_df is None:
+            raise ValueError('Ground truth data not set')
+        if self.protocol_info is None:
+            raise ValueError('Protocol info not set')
+        if self.obs_info is None:
+            raise ValueError('Obs info not set')
+        if self.param_id_info is None:
+            raise ValueError('Param id info not set')
 
-    def run_single_sensitivity(self,sensitivity_output_path):
-        self.param_id.run_single_sensitivity(sensitivity_output_path)
-
-    def simulate_with_best_param_vals(self, reset=True, only_one_exp=-1):
-        self.param_id.simulate_once(reset=reset, only_one_exp=only_one_exp)
-        self.best_output_calculated = True
+    def simulate_with_best_param_vals(self, reset=True, only_one_exp=-1, return_series=False):
+        if return_series:
+            obs_dicts, obs_arrays = self.param_id.simulate_once(reset=reset, only_one_exp=only_one_exp, return_series=return_series)
+            self.best_output_calculated = True
+            return obs_dicts, obs_arrays
+        else:
+            obs_dict, _ = self.param_id.simulate_once(reset=reset, only_one_exp=only_one_exp)
+            self.best_output_calculated = True
+            return obs_dict
 
     def update_param_range(self, params_to_update_list_of_lists, mins, maxs):
         for params_to_update_list, min, max in zip(params_to_update_list_of_lists, mins, maxs):
@@ -197,14 +286,59 @@ class CVS0DParamID():
         else:
             self.param_id.set_output_dir(self.output_dir)
     
+
+    def add_user_operation_func(self, func):
+        self.param_id.add_user_operation_func(func)
+    
+    def add_user_cost_func(self, func):
+        self.param_id.add_user_cost_func(func)
+    
     def set_param_names(self, param_names):
         if self.mcmc_instead:
             mcmc_object.set_param_names(param_names)
         else:
             self.param_id.set_param_names(param_names)
-        
+    
+    def set_optimiser_options(self, optimiser_options):
+        self.optimiser_options = optimiser_options
+        self.param_id.set_optimiser_options(optimiser_options)
 
-        # TODO have to save param names as in __set_and_save_param_names!!
+    def set_param_id_method(self, param_id_method):
+        self.param_id_method = param_id_method
+        self.param_id.set_param_id_method(param_id_method)
+
+    def set_ground_truth_data(self, obs_data_dict):
+        if self.rank == 0:
+            print(f'Setting ground truth data: {obs_data_dict}')
+        parsed_data = self.obs_and_param_parser.parse_obs_data_json(
+            obs_data_dict=obs_data_dict,
+            pre_time=self.pre_time,
+            sim_time=self.sim_time
+        )
+        self.gt_df = parsed_data["gt_df"]
+        self.protocol_info = parsed_data["protocol_info"]
+        self.prediction_info = parsed_data["prediction_info"]
+
+        self.obs_info = self.obs_and_param_parser.process_obs_info(gt_df=self.gt_df, output_dir=self.output_dir, dt=self.dt)
+        self.protocol_info = self.obs_and_param_parser.process_protocol_and_weights(
+            gt_df=self.gt_df,
+            protocol_info=self.protocol_info,
+            dt=self.dt
+        )
+        self.param_id.set_obs_info(self.obs_info)
+        self.param_id.set_protocol_info(self.protocol_info)
+        self.param_id.set_prediction_info(self.prediction_info)
+        if self.rank == 0:
+            print(f'Ground truth data set: {self.obs_info}')
+    
+    def set_params_for_id(self, params_for_id_dict):
+        if self.rank == 0:
+            print(f'Setting params for id: {params_for_id_dict}')
+        self.param_id_info = self.obs_and_param_parser.get_param_id_info_from_entries(params_for_id_dict)
+        self.obs_and_param_parser.save_param_names(self.param_id_info, self.output_dir)
+        self.param_id.set_param_id_info(self.param_id_info)
+        if self.rank == 0:
+            print(f'Params for id set: {self.param_id_info["param_names"]}')
 
     def set_best_param_vals(self, best_param_vals):
         if self.mcmc_instead:
@@ -408,6 +542,16 @@ class CVS0DParamID():
                                                     color=self.obs_info['plot_colors'][II], linestyle='-', 
                                                     label=f'{self.obs_info["operations"][II]} output')
                         elif self.obs_info['plot_type'][II] == 'vertical':
+                            # plot a vertical line at the t (x) value of the constant
+                            axs.axvline(x=self.obs_info["ground_truth_const"][const_idx] - 
+                                        self.protocol_info['pre_times'][exp_idx],
+                                        color=self.obs_info['plot_colors'][II],
+                                        linestyle='--', label=f'{self.obs_info["operations"][II]} desired')
+                            axs.axvline(x=best_fit_obs_const[const_idx] - 
+                                        self.protocol_info['pre_times'][exp_idx],
+                                        color=self.obs_info['plot_colors'][II],
+                                        label=f'{self.obs_info["operations"][II]} output')
+                        elif self.obs_info['plot_type'][II] == 'vertical_from_subexp_start':
                             # calculate the t value, t values should be set as from the start of the subexperiment
                             t_gt = self.obs_info["ground_truth_const"][const_idx] + \
                                     tSim_per_sub_count[subexp_count][0] 
@@ -421,12 +565,11 @@ class CVS0DParamID():
                             axs.axvline(x=t_bf,
                                         color=self.obs_info['plot_colors'][II],
                                         label=f'{self.obs_info["operations"][II]} output')
-
-                        elif self.obs_info['plot_type'][II] == None:
+                        elif self.obs_info['plot_type'][II] in [None, "None", "none", "NULL", "null", "Null", np.nan, "nan"]:
                             pass
                         else:
                             print(f'plot_type for {self.obs_info["obs_names"][II]} ',
-                                    f'of {self.obs_info["plot_constant_with_series_type"][II]} is not recognised',
+                                    f'of {self.obs_info["plot_type"][II]} is not recognised',
                                     'for constants it must be in [None, horizontal, veritical, horizontal_from_min], exiting')
                             exit()
                     elif self.obs_info["data_types"][II] == 'series':
@@ -593,17 +736,39 @@ class CVS0DParamID():
             obs_names_for_plot_list.append(name_str)
         obs_names_for_plot = np.array(obs_names_for_plot_list)
 
-        num_plots = len(obs_names_for_plot)// 10 + 1
+        do_plots_per_exp = True
+        if do_plots_per_exp:
+            num_plots = len(self.protocol_info["pre_times"])
+        else:
+            num_plots = len(obs_names_for_plot)// 10 + 1
+
+        y_min_percent = 1.05 * np.min(percent_error_vec)
+        y_max_percent = 1.05 * np.max(percent_error_vec)
 
         for plot_idx in range(num_plots):
             fig, axs = plt.subplots()
-            if plot_idx == num_plots - 1:
-                bar_list = axs.bar(obs_names_for_plot[plot_idx*10:], percent_error_vec[plot_idx*10:], label='% error', width=1.0, color='b', edgecolor='black')
+
+            if do_plots_per_exp:
+                obs_idx_for_plot = [
+                    II for II in range(self.obs_info["num_obs"])
+                    if self.obs_info["experiment_idxs"][II] == plot_idx
+                ]
+                if len(obs_idx_for_plot) == 0:
+                    plt.close(fig)
+                    continue
             else:
-                bar_list = axs.bar(obs_names_for_plot[plot_idx*10:plot_idx*10+10], percent_error_vec[plot_idx*10:plot_idx*10+10], label='% error', width=1.0, color='b', edgecolor='black')
+                start_idx = plot_idx * 10
+                end_idx = min(start_idx + 10, len(obs_names_for_plot))
+                obs_idx_for_plot = list(range(start_idx, end_idx))
+
+            bar_list = axs.bar(obs_names_for_plot[obs_idx_for_plot],
+                               percent_error_vec[obs_idx_for_plot],
+                               label='% error', width=1.0, color='b',
+                               edgecolor='black')
 
             # axs.set_ylim(ymin=0.0)
             # axs.set_yticks(np.arange(0, 21, 10))
+            axs.set_ylim(y_min_percent, y_max_percent)
             axs.axhline(y=0.0,linewidth= 3, color='k', linestyle= 'dotted')
 
             # bar_list[0].set_facecolor('r')
@@ -626,10 +791,19 @@ class CVS0DParamID():
 
             #plot error as number of standard deviations of
             fig, axs = plt.subplots()
-            if plot_idx == num_plots - 1:
-                bar_list = axs.bar(obs_names_for_plot[plot_idx*10:], std_error_vec[plot_idx*10:], label='% error', width=1.0, color='b', edgecolor='black')
+            if do_plots_per_exp:
+                if len(obs_idx_for_plot) == 0:
+                    plt.close(fig)
+                    continue
+                bar_list = axs.bar(obs_names_for_plot[obs_idx_for_plot],
+                                   std_error_vec[obs_idx_for_plot],
+                                   label='% error', width=1.0, color='b',
+                                   edgecolor='black')
             else:
-                bar_list = axs.bar(obs_names_for_plot[plot_idx*10:plot_idx*10+10], std_error_vec[plot_idx*10:plot_idx*10+10], label='% error', width=1.0, color='b', edgecolor='black')
+                if plot_idx == num_plots - 1:
+                    bar_list = axs.bar(obs_names_for_plot[plot_idx*10:], std_error_vec[plot_idx*10:], label='% error', width=1.0, color='b', edgecolor='black')
+                else:
+                    bar_list = axs.bar(obs_names_for_plot[plot_idx*10:plot_idx*10+10], std_error_vec[plot_idx*10:plot_idx*10+10], label='% error', width=1.0, color='b', edgecolor='black')
             axs.axhline(y=0.0,linewidth=3, color='k', linestyle= 'dotted')
 
             
@@ -855,234 +1029,6 @@ class CVS0DParamID():
     def run_single_sensitivity(self, do_triples_and_quads):
         self.param_id.run_single_sensitivity(self.output_dir, do_triples_and_quads)
 
-    def run_sensitivity(self, param_id_output_paths):
-        # TODO change this function to plot_sensitivity
-        if self.rank !=0:
-            return
-
-        print('running sensitivity analysis')
-        if param_id_output_paths == None:
-            sample_path_list = [self.output_dir]
-        else:
-            sample_path_list = []
-            sample_paths = pd.read_csv(param_id_output_paths)
-            for i in range(len(sample_paths)):
-                sample_path_list.append(sample_paths.iat[i,0])
-            if len(sample_path_list) < 1:
-                sample_path_list = [self.output_dir]
-
-        do_triples_and_quads = False
-
-        for i in range(len(sample_path_list)):
-            self.param_id.run_single_sensitivity(sample_path_list[i], do_triples_and_quads)
-
-
-        # FA: Eventually we will automate the multiple runs of param_id and store the outputs in idxed
-        # FA: directories that can all be accessed automatically by this function without defining input paths.
-        m3_to_cm3 = 1e6
-        Pa_to_kPa = 1e-3
-        number_samples = len(sample_path_list)
-        x_values = []
-        for i in range(len(self.param_id_info["param_names"])):
-            x_values.append(self.param_id_info["param_names"][i][0])
-
-        for i in range(number_samples):
-            sample_path = sample_path_list[i]
-            normalised_jacobian = np.load(os.path.join(sample_path, 'normalised_jacobian_matrix.npy'))
-            parameter_importance = np.load(os.path.join(sample_path, 'parameter_importance.npy'))
-            collinearity_idx_i = np.load(os.path.join(sample_path, 'collinearity_idx.npy'))
-            if i == 0:
-                normalised_jacobian_average = np.zeros(normalised_jacobian.shape)
-                parameter_importance_average = np.zeros(parameter_importance.shape)
-                collinearity_idx_average = np.zeros(collinearity_idx_i.shape)
-            normalised_jacobian_average = normalised_jacobian_average + normalised_jacobian/number_samples
-            parameter_importance_average = parameter_importance_average + parameter_importance/number_samples
-            collinearity_idx_average = collinearity_idx_average + collinearity_idx_i/number_samples
-            self.collinearity_idx = collinearity_idx_average
-
-        collinearity_max = collinearity_idx_average.max()
-
-        if do_triples_and_quads:
-            #find maximum average value of collinearity triples
-            for i in range(len(x_values)):
-                for j in range(number_samples):
-                    sample_path = sample_path_list[j]
-                    collinearity_idx_triple = np.load(os.path.join(sample_path, 'collinearity_triples' + str(i) + '.npy'))
-                    if j==0:
-                        collinearity_idx_triple_average = np.zeros(collinearity_idx_triple.shape)
-                    collinearity_idx_triple_average = collinearity_idx_triple_average + collinearity_idx_triple/number_samples
-                if collinearity_idx_triple_average.max() > collinearity_max:
-                    collinearity_max = collinearity_idx_triple_average.max()
-
-            #find maximum value of collinearity quads
-            for i in range(len(x_values)):
-                for j in range(len(x_values)):
-                    for k in range(number_samples):
-                        sample_path = sample_path_list[k]
-                        collinearity_idx_quad = np.load(
-                            os.path.join(sample_path, 'collinearity_quads' + str(i) + '_' + str(j) + '.npy'))
-                        if k==0:
-                            collinearity_idx_quad_average = np.zeros(collinearity_idx_quad.shape)
-                        collinearity_idx_quad_average = collinearity_idx_quad_average + collinearity_idx_quad / number_samples
-                    if collinearity_idx_quad_average.max() > collinearity_max:
-                        collinearity_max = collinearity_idx_quad_average.max()
-
-        #find maximum average value and average values for collinearity idx
-        for i in range(number_samples):
-            sample_path = sample_path_list[i]
-            collinearity_idx_pairs_i = np.load(
-                os.path.join(sample_path, 'collinearity_pairs.npy'))
-            if i==0:
-                collinearity_idx_pairs_average = np.zeros(collinearity_idx_pairs_i.shape)
-            collinearity_idx_pairs_average = collinearity_idx_pairs_average + collinearity_idx_pairs_i/number_samples
-            self.collinearity_idx_pairs = collinearity_idx_pairs_average
-
-        if collinearity_idx_pairs_average.max() > collinearity_max:
-            collinearity_max = collinearity_idx_pairs_average.max()
-
-        number_Params = len(normalised_jacobian_average)
-        #plot jacobian
-        subplot_height = 1
-        subplot_width = 1
-        plt.rc('xtick', labelsize=3)
-        fig, axs = plt.subplots(subplot_height, subplot_width)
-
-        x_labels = []
-        subset = []
-        x_idx = 0
-        for obs_idx in range(len(self.obs_info["obs_names"])):
-            # if self.obs_info["data_types"][obs_idx] != "series":
-            x_labels.append(self.obs_info["obs_names"][obs_idx] + " " + self.obs_info["operations"][obs_idx])
-            subset.append(x_idx)
-            x_idx = x_idx + 1
-
-        for param_idx in range(len(self.param_id_info["param_names"])):
-            y_values = []
-            for obs_idx in range(len(x_labels)):
-                y_values.append(abs((normalised_jacobian_average[param_idx][subset[obs_idx]])))
-            axs.plot(x_labels, y_values, label=f'${self.param_id_info["param_names_for_plotting"][param_idx][0]}$')
-        axs.set_yscale('log')
-        axs.legend(loc='lower left', fontsize=6)
-        plt.savefig(os.path.join(self.plot_dir,
-                                     f'reconstruct_{self.file_name_prefix}_'
-                                     f'{self.param_id_obs_file_prefix}_sensitivity_average.eps'))
-        plt.savefig(os.path.join(self.plot_dir,
-                                     f'reconstruct_{self.file_name_prefix}_'
-                                     f'{self.param_id_obs_file_prefix}_sensitivity_average.pdf'))
-        plt.close()
-        #plot parameter importance
-        plt.rc('xtick', labelsize=6)
-        plt.rc('ytick', labelsize=12)
-        figB, axsB = plt.subplots(1, 1)
-
-
-        axsB.bar(x_values, parameter_importance_average)
-        axsB.set_ylabel("Parameter Importance", fontsize=12)
-        plt.savefig(os.path.join(self.plot_dir,
-                                     f'reconstruct_{self.file_name_prefix}_'
-                                     f'{self.param_id_obs_file_prefix}_parameter_importance_average.eps'))
-        plt.savefig(os.path.join(self.plot_dir,
-                                     f'reconstruct_{self.file_name_prefix}_'
-                                     f'{self.param_id_obs_file_prefix}_parameter_importance_average.pdf'))
-        plt.close()
-        #plot collinearity idx average
-        plt.rc('xtick', labelsize=12)
-        plt.rc('ytick', labelsize=4)
-        figC, axsC = plt.subplots(1, 1)
-        x_values_cumulative = []
-        x_values_temp = x_values[0]
-        for i in range(len(x_values)):
-            x_values_cumulative.append(x_values_temp)
-            if (i + 1) < len(x_values):
-                x_values_temp = x_values[i + 1] + "\n" + x_values_temp
-        axsC.barh(x_values_cumulative, collinearity_idx_average)
-        plt.savefig(os.path.join(self.plot_dir,
-                                     f'reconstruct_{self.file_name_prefix}_'
-                                     f'{self.param_id_obs_file_prefix}_collinearity_index_average.eps'))
-        plt.savefig(os.path.join(self.plot_dir,
-                                     f'reconstruct_{self.file_name_prefix}_'
-                                     f'{self.param_id_obs_file_prefix}_collinearity_index_average.pdf'))
-        plt.close()
-
-        plt.rc('xtick', labelsize=4)
-        plt.rc('ytick', labelsize=4)
-        figD, axsD = plt.subplots(1, 1)
-
-        X, Y = np.meshgrid(range(len(x_values)), range(len(x_values)))
-        if do_triples_and_quads:
-            collinearity_levels = np.linspace(0, collinearity_max, 20)
-            co = axsD.contourf(X, Y, collinearity_idx_pairs_average, levels=collinearity_levels)
-        else:
-            co = axsD.contourf(X, Y, collinearity_idx_pairs_average)
-        co = fig.colorbar(co, ax=axsD)
-        axsD.set_xticks(range(len(x_values)))
-        axsD.set_yticks(range(len(x_values)))
-        axsD.set_xticklabels(x_values)
-        axsD.set_yticklabels(x_values)
-
-        plt.savefig(os.path.join(self.plot_dir,
-                                     f'reconstruct_{self.file_name_prefix}_'
-                                     f'{self.param_id_obs_file_prefix}_collinearity_pairs_average.eps'))
-        plt.savefig(os.path.join(self.plot_dir,
-                                     f'reconstruct_{self.file_name_prefix}_'
-                                     f'{self.param_id_obs_file_prefix}_collinearity_pairs_average.pdf'))
-
-        if do_triples_and_quads:
-            #plot collinearity triples average
-            for i in range(len(x_values)):
-                for j in range(number_samples):
-                    sample_path = sample_path_list[j]
-                    collinearity_idx_triple = np.load(os.path.join(sample_path, 'collinearity_triples' + str(i) + '.npy'))
-                    if j == 0:
-                        collinearity_idx_triple_average = np.zeros(collinearity_idx_triple.shape)
-                    collinearity_idx_triple_average = collinearity_idx_triple_average + collinearity_idx_triple/number_samples
-
-                figE, axsE = plt.subplots(1, 1)
-                co = axsE.contourf(X, Y, collinearity_idx_triple_average, levels=collinearity_levels)
-                co = fig.colorbar(co, ax=axsE)
-                axsE.set_xticks(range(len(x_values)))
-                axsE.set_yticks(range(len(x_values)))
-                axsE.set_xticklabels(x_values)
-                axsE.set_yticklabels(x_values)
-
-                plt.savefig(os.path.join(self.plot_dir,
-                                             f'reconstruct_{self.file_name_prefix}_'
-                                             f'{self.param_id_obs_file_prefix}_collinearity_triples_average' + str(i) + '.eps'))
-                plt.savefig(os.path.join(self.plot_dir,
-                                             f'reconstruct_{self.file_name_prefix}_'
-                                             f'{self.param_id_obs_file_prefix}_collinearity_triples_average' + str(i) + '.pdf'))
-                plt.close()
-            #plot collinearity quads average
-            for i in range(len(x_values)):
-                for j in range(len(x_values)):
-                    for k in range(number_samples):
-                        sample_path = sample_path_list[k]
-                        collinearity_idx_quad = np.load(
-                            os.path.join(sample_path, 'collinearity_quads' + str(i) + '_' + str(j) + '.npy'))
-                        if k==0:
-                            collinearity_idx_quad_average = np.zeros(collinearity_idx_quad.shape)
-                        collinearity_idx_quad_average = collinearity_idx_quad_average + collinearity_idx_quad / number_samples
-                    figE, axsE = plt.subplots(1, 1)
-                    co = axsE.contourf(X, Y, collinearity_idx_quad_average, levels=collinearity_levels)
-                    co = fig.colorbar(co, ax=axsE)
-                    axsE.set_xticks(range(len(x_values)))
-                    axsE.set_yticks(range(len(x_values)))
-                    axsE.set_xticklabels(x_values)
-                    axsE.set_yticklabels(x_values)
-
-                    plt.savefig(os.path.join(self.plot_dir,
-                                                 f'reconstruct_{self.file_name_prefix}_'
-                                                 f'{self.param_id_obs_file_prefix}collinearity_quads_average' + str(i) + '_' + str(
-                                                     j) + '.eps'))
-                    plt.savefig(os.path.join(self.plot_dir,
-                                                 f'reconstruct_{self.file_name_prefix}_'
-                                                 f'{self.param_id_obs_file_prefix}collinearity_quads_average' + str(i) + '_' + str(
-                                                     j) + '.pdf'))
-                    plt.close()
-
-        self.sensitivity_calculated = True
-        print('sensitivity analysis complete')
-
     def __get_prediction_data(self):
         # Currently this function saves all prediction variables for all experiments
         # only for the best_param_vals
@@ -1128,9 +1074,6 @@ class CVS0DParamID():
 
         return
 
-    def set_genetic_algorithm_parameters(self, n_calls):
-        self.param_id.set_genetic_algorithm_parameters(n_calls)
-
     def set_bayesian_parameters(self, n_calls, n_initial_points, acq_func, random_state, acq_func_kwargs={}):
         self.param_id.set_bayesian_parameters(n_calls, n_initial_points, acq_func, random_state,
                                               acq_func_kwargs=acq_func_kwargs)
@@ -1141,565 +1084,7 @@ class CVS0DParamID():
         else:
             self.param_id.close_simulation()
 
-    def __set_obs_names_and_df(self, param_id_obs_path, pre_time=None, sim_time=None):
-        # TODO this function should be in the parsing section. as it parses the 
-        # ground truth data.
-        # TODO it should also be cleaned up substantially.
-        """_summary_
-
-        Args:
-            param_id_obs_path (_type_): _description_
-            pre_time (_type_): _description_
-            sim_time (_type_): _description_
-        """
-        with open(param_id_obs_path, encoding='utf-8-sig') as rf:
-            json_obj = json.load(rf)
-        if type(json_obj) == list:
-            self.gt_df = pd.DataFrame(json_obj)
-            self.protocol_info = {"pre_times": [pre_time], 
-                                    "sim_times": [[sim_time]],
-                                    "params_to_change": [[None]]}
-            self.prediction_info = {'names': [],
-                                    'units': [],
-                                    'names_for_plotting': [],
-                                    'experiment_idxs': []}
-        elif type(json_obj) == dict:
-            if 'data_items' in json_obj.keys():
-                self.gt_df = pd.DataFrame(json_obj['data_items'])
-            elif 'data_item' in json_obj.keys():
-                self.gt_df = pd.DataFrame(json_obj['data_item']) # should be data_items but accept this
-            else:
-                print("data_items not found in json object. ",
-                      "Please check that data_items is the key for the list of data items")
-            if 'protocol_info' in json_obj.keys():
-                self.protocol_info = json_obj['protocol_info']
-                if "sim_times" not in self.protocol_info.keys():
-                    self.protocol_info["sim_times"] = [[sim_time]]
-                if "pre_times" not in self.protocol_info.keys():
-                    self.protocol_info["pre_times"] = [pre_time]
-            else:
-                if pre_time is None or sim_time is None:
-                    print("protocol_info not found in json object. ",
-                          "If this is the case sim_time and pre_time must be set",
-                          "in the user_inputs.yaml file")
-                    exit()
-
-                self.protocol_info = {"pre_times": [pre_time], 
-                                      "sim_times": [[sim_time]],
-                                      "params_to_change": [[None]]}
-            if 'prediction_items' in json_obj.keys():
-                self.prediction_info = {'names': [],
-                                        'units': [],
-                                        'names_for_plotting': [],
-                                        'experiment_idxs': []}
-
-                for entry in json_obj['prediction_items']:
-                    if 'variable' in entry.keys():
-                        self.prediction_info['names'].append(entry['variable'])
-                    else:
-                        print('"variable" not found in prediction item in obs_data.json file, ',
-                              'exitiing') 
-                        exit()
-                    if 'unit' in entry.keys():
-                        self.prediction_info['units'].append(entry['unit'])
-                    else:
-                        print('"unit" not found in prediction item in obs_data.json file, ',
-                              'exitiing') 
-                        exit()
-                    if 'name_for_plotting' in entry.keys():
-                        self.prediction_info['names_for_plotting'].append(entry['name_for_plotting'])
-                    else:
-                        self.prediction_info['names_for_plotting'].append(entry['variable'])
-                    if 'experiment_idx' in entry.keys():
-                        self.prediction_info['experiment_idxs'].append(entry['experiment_idx'])
-                    else:
-                        self.prediction_info['experiment_idxs'].append(0)
-            else:
-                self.prediction_info = None
-        else:
-            print(f"unknown data type for imported json object of {type(json_obj)}")
-        
-        self.obs_info = {}
-        self.obs_info["obs_names"] = [self.gt_df.iloc[II]["variable"] for II in range(self.gt_df.shape[0])]
-
-        # OBSOLETE self.obs_types = [self.gt_df.iloc[II]["obs_type"] for II in range(self.gt_df.shape[0])]
-        self.obs_info["data_types"] = [self.gt_df.iloc[II]["data_type"] for II in range(self.gt_df.shape[0])]
-        self.obs_info["units"] = [self.gt_df.iloc[II]["unit"] for II in range(self.gt_df.shape[0])]
-        self.obs_info["experiment_idxs"] = [self.gt_df.iloc[II]["experiment_idx"] if "experiment_idx" in 
-                                            self.gt_df.iloc[II].keys() else 0 for II in range(self.gt_df.shape[0])]
-        self.obs_info["subexperiment_idxs"] = [self.gt_df.iloc[II]["subexperiment_idx"] if "subexperiment_idx" in
-                                               self.gt_df.iloc[II].keys() else 0 for II in range(self.gt_df.shape[0])]
-
-        # get plotting color, asign to randomish color if not defined
-        # list of all possible colors
-        possible_colors = ['b', 'g', 'c', 'm', 'y', 
-                           'tab:brown', 'tab:pink', 'tab:olive', 'tab:orange'] # don't include red or black, 
-                                                    # because they are used for plotting the series
-        self.obs_info["plot_colors"] = [self.gt_df.iloc[II]["plot_color"] if "plot_color" in 
-                                        self.gt_df.iloc[II].keys() else possible_colors[II%len(possible_colors)] 
-                                        for II in range(self.gt_df.shape[0])]
-        self.obs_info["plot_type"] = []
-
-        # get plotting type
-        # TODO make the plot_types operation_funcs so the user can defined how they are plotted.
-        warning_printed = False
-        for II in range(self.gt_df.shape[0]):
-            if "plot_type" not in self.gt_df.iloc[II].keys():
-                if self.gt_df.iloc[II]["data_type"] == "constant":
-                    if not warning_printed:
-                        print('constant data types plot type defaults to horizontal lines',
-                            'change "plot_type" in obs_data.json to change this')
-                        warning_printed = True
-                    self.obs_info["plot_type"].append("horizontal")
-                elif self.gt_df.iloc[II]["data_type"] == "prob_dist":
-                    if not warning_printed:
-                        print('prob_dist data types plot type defaults to horizontal lines',
-                            'change "plot_type" in obs_data.json to change this')
-                        warning_printed = True
-                    self.obs_info["plot_type"].append("horizontal")
-                elif self.gt_df.iloc[II]["data_type"] == "series":
-                    self.obs_info["plot_type"].append("series")
-                elif self.gt_df.iloc[II]["data_type"] == "frequency":
-                    self.obs_info["plot_type"].append("frequency")
-                elif self.gt_df.iloc[II]["data_type"] == "plot_dist":
-                    self.obs_info["plot_type"].append("horizontal")
-                else:
-                    print(f'data type {self.gt_df.iloc[II]["data_type"]} not recognised')
-            else:
-                self.obs_info["plot_type"].append(self.gt_df.iloc[II]["plot_type"])
-                if self.obs_info["plot_type"][II] in ["None", "null", "Null", "none", "NONE"]:
-                    self.obs_info["plot_type"][II] = None
-
-        self.obs_info["operations"] = []
-        self.obs_info["names_for_plotting"] = []
-        self.obs_info["operands"] = []
-        self.obs_info["freqs"] = []
-        self.obs_info["operation_kwargs"] = []
-        # below we remove the need for obs_types, but keep it backwards compatible so 
-        # previous specifications of obs_type = mean etc should still work
-        for II in range(self.gt_df.shape[0]):
-            if "operation" not in self.gt_df.iloc[II].keys() or \
-                    self.gt_df.iloc[II]["operation"] in ["Null", "None", "null", "none", "", "nan", np.nan]:
-                if "obs_type" in self.gt_df.iloc[II].keys():
-                    if self.gt_df.iloc[II]["obs_type"] == "series":
-                        self.obs_info["operations"].append(None)
-                        if "operands" in self.gt_df.iloc[II].keys():
-                            self.obs_info["operands"].append(self.gt_df.iloc[II]["operands"])
-                        else:
-                            self.obs_info["operands"].append(None)
-                    elif self.gt_df.iloc[II]["obs_type"] == "frequency":
-                        self.obs_info["operations"].append(None)
-                        if "operands" in self.gt_df.iloc[II].keys():
-                            self.obs_info["operands"].append(self.gt_df.iloc[II]["operands"])
-                        else:
-                            self.obs_info["operands"].append(None)
-                    # TODO remove these eventually when I get rid of obs_type
-                    elif self.gt_df.iloc[II]["obs_type"] == "min":
-                        self.obs_info["operations"].append("min")
-                        self.obs_info["operands"].append([self.gt_df.iloc[II]["variable"]])
-                    elif self.gt_df.iloc[II]["obs_type"] == "max":
-                        self.obs_info["operations"].append("max")
-                        self.obs_info["operands"].append([self.gt_df.iloc[II]["variable"]])
-                    elif self.gt_df.iloc[II]["obs_type"] == "mean":
-                        self.obs_info["operations"].append("mean")
-                        self.obs_info["operands"].append([self.gt_df.iloc[II]["variable"]])
-                else:
-                    self.obs_info["operations"].append(None)
-                    if "operands" in self.gt_df.iloc[II].keys():
-                        self.obs_info["operands"].append(self.gt_df.iloc[II]["operands"])
-                    else:
-                        self.obs_info["operands"].append(None)
-            elif self.gt_df.iloc[II]["operation"] in ["Null", "None", "null", "none", ""]:
-                self.obs_info["operations"].append(None)
-                self.obs_info["operands"].append(None)
-            else:
-                self.obs_info["operations"].append(self.gt_df.iloc[II]["operation"])
-                self.obs_info["operands"].append(self.gt_df.iloc[II]["operands"])
-
-            if "frequencies" not in self.gt_df.iloc[II].keys():
-                self.obs_info["freqs"].append(None)
-            else:
-                self.obs_info["freqs"].append(self.gt_df.iloc[II]["frequencies"])
-
-            if "name_for_plotting" in self.gt_df.iloc[II].keys():
-                self.obs_info['names_for_plotting'].append(self.gt_df.iloc[II]["name_for_plotting"])
-            else:
-                self.obs_info['names_for_plotting'].append(self.obs_info["obs_names"][II])
-
-            if "operation_kwargs" in self.gt_df.iloc[II].keys() and self.gt_df.iloc[II]["operation_kwargs"] \
-                    not in ["Null", "None", "null", "none", "", np.nan]:
-                self.obs_info["operation_kwargs"].append(self.gt_df.iloc[II]["operation_kwargs"])
-            else:
-                self.obs_info["operation_kwargs"].append({})
-
-            if self.gt_df.iloc[II]["data_type"] == "series":
-                if 'sample_rate' in self.gt_df.iloc[II].keys():
-                    print(f'WARNING sample_rate found in obs_data.json for observable {self.obs_info["obs_names"][II]}, ',
-                        'this is deprecated, please use obs_dt instead. Setting obs_dt = (1 / sample_rate)')
-                    self.gt_df.iloc[II]["obs_dt"] = 1 / self.gt_df.iloc[II]["sample_rate"]
-                if 'dt' in self.gt_df.iloc[II].keys():
-                    print(f'WARNING dt found in obs_data.json for observable {self.obs_info["obs_names"][II]}, ',
-                        'this is deprecated, please use obs_dt instead. Setting obs_dt = dt')
-                    self.gt_df.iloc[II]["obs_dt"] = self.gt_df.iloc[II]["dt"]
-            else: 
-                if 'obs_dt' in self.gt_df.iloc[II].keys():
-                    print(f'obs_dt found in obs_data.json for observable {self.obs_info["obs_names"][II]}, ',
-                            f'with data type {self.gt_df.iloc[II]['data_type']}. obs_dt should only be used for series data. Exiting')
-                    exit()
-                if 'dt' in self.gt_df.iloc[II].keys():
-                    print(f'WARNING dt found in obs_data.json for observable {self.obs_info["obs_names"][II]}, ',
-                            f'with data type {self.gt_df.iloc[II]['data_type']}. dt is deprecated for obs_dt ',
-                            'and obs_dt should only be used for series data. Exiting')
-                    exit()
-                if 'sample_rate' in self.gt_df.iloc[II].keys():
-                    print(f'WARNING sample_rate found in obs_data.json for observable {self.obs_info["obs_names"][II]}, ',
-                            f'with data type {self.gt_df.iloc[II]['data_type']}. sample_rate is deprecated for obs_dt ',
-                            'and obs_dt should only be used for series data. Exiting')
-                    exit()
-
-
-        self.obs_info["num_obs"] = len(self.obs_info["obs_names"])
-
-        # how much to weight the different observable errors by
-        self.obs_info["weight_const_vec"] = np.array([self.gt_df.iloc[II]["weight"] for II in range(self.gt_df.shape[0])
-                                          if self.gt_df.iloc[II]["data_type"] == "constant"])
-
-        self.obs_info["weight_series_vec"] = np.array([self.gt_df.iloc[II]["weight"] for II in range(self.gt_df.shape[0])
-                                           if self.gt_df.iloc[II]["data_type"] == "series"])
-
-        self.obs_info["weight_amp_vec"] = np.array([self.gt_df.iloc[II]["weight"] for II in range(self.gt_df.shape[0])
-                                           if self.gt_df.iloc[II]["data_type"] == "frequency"])
-        
-        self.obs_info["weight_prob_dist_vec"] = np.array([self.gt_df.iloc[II]["weight"] for II in range(self.gt_df.shape[0])
-                                          if self.gt_df.iloc[II]["data_type"] == "prob_dist"])
-
-        weight_phase_list = [] 
-        for II in range(self.gt_df.shape[0]):
-            if self.gt_df.iloc[II]["data_type"] == "frequency":
-                if "phase_weight" not in self.gt_df.iloc[II].keys():
-                    weight_phase_list.append(1)
-                else:
-                    weight_phase_list.append(self.gt_df.iloc[II]["phase_weight"])
-        self.obs_info["weight_phase_vec"] = np.array(weight_phase_list)
-
-        # set the cost type for each observable
-        self.obs_info["cost_type"] = []
-        for II in range(self.gt_df.shape[0]):
-            if "cost_type" in self.gt_df.iloc[II].keys() and self.gt_df.iloc[II]["cost_type"] not in [np.nan, None, "None", ""]:
-                self.obs_info["cost_type"].append(self.gt_df.iloc[II]["cost_type"])
-            else:
-                if self.ga_options is not None:
-                    if "cost_type" in self.ga_options.keys():
-                        self.obs_info["cost_type"].append(self.ga_options["cost_type"]) # default to cost type in ga_options
-                    else:
-                        self.obs_info["cost_type"].append("MSE") # default to mean squared error
-                elif self.mcmc_options is not None:
-                    if "cost_type" in self.mcmc_options.keys():
-                        self.obs_info["cost_type"].append(self.mcmc_options["cost_type"]) # default to cost type in mcmc_options
-                    else:
-                        self.obs_info["cost_type"].append("MSE") # default to mean squared error
-                else:
-                    print("cost_type not found in obs_data.json, ga_options, or mcmc_options, exiting")
-                    exit()
-
-
-
-        # preprocess information in the protocol_info dataframe
-        self.protocol_info['num_experiments'] = len(self.protocol_info["sim_times"])
-        self.protocol_info['num_sub_per_exp'] = [len(self.protocol_info["sim_times"][II]) for II in range(self.protocol_info["num_experiments"])]
-        self.protocol_info['num_sub_total'] = sum(self.protocol_info['num_sub_per_exp'])
-
-        # calculate total experiment sim times
-        self.protocol_info["total_sim_times_per_exp"] = []
-        self.protocol_info["tSims_per_exp"] = []
-        self.protocol_info["num_steps_total_per_exp"] = []
-        for exp_idx in range(self.protocol_info['num_experiments']):
-            total_sim_time = np.sum([self.protocol_info["sim_times"][exp_idx][II] for
-                            II in range(self.protocol_info["num_sub_per_exp"][exp_idx])])
-            num_steps_total = int(total_sim_time/self.dt)
-            tSim_per_exp = np.linspace(0.0, total_sim_time, num_steps_total + 1)
-            self.protocol_info["total_sim_times_per_exp"].append(total_sim_time)
-            self.protocol_info["tSims_per_exp"].append(tSim_per_exp)
-            self.protocol_info["num_steps_total_per_exp"].append(num_steps_total)
-            
-
-        if "experiment_colors" not in self.protocol_info.keys():
-            self.protocol_info["experiment_colors"] = ['r']
-            if self.protocol_info['num_experiments'] > 1:
-                self.protocol_info["experiment_colors"] = ['r']*self.protocol_info['num_experiments']
-        else:
-            if len(self.protocol_info["experiment_colors"]) != self.protocol_info['num_experiments']:
-                print('experiment_colors in obs_data.json not the same length as num_experiments, exiting')
-                exit()
-
-        if "experiment_labels" in self.protocol_info.keys():
-            if len(self.protocol_info["experiment_labels"]) != self.protocol_info['num_experiments']:
-                print('experiment_labels in obs_data.json not the same length as num_experiments, exiting')
-                exit()
-        else:
-            self.protocol_info["experiment_labels"] = [None]
-            if self.protocol_info['num_experiments'] > 1:
-                self.protocol_info["experiment_labels"] = [None]*self.protocol_info['num_experiments']
-        
-        # set experiment and subexperiment idxs to 0 if they are not defined. print warning if multiple subexperiments
-        for II in range(self.gt_df.shape[0]):
-            if "experiment_idx" not in self.gt_df.iloc[II].keys():
-                self.gt_df["experiment_idx"] = 0
-                if self.protocol_info['num_sub_total'] > 1:
-                    print(f'experiment_idx not found in obs_data.json entry {self.gt_df.iloc[II]["variable"]}, '
-                          'but multiple experiments are defined.',
-                          'Setting experiment_idx to 0 for all data points')
-            if "subexperiment_idx" not in self.gt_df.iloc[II].keys():
-                self.gt_df["subexperiment_idx"] = 0
-                if self.protocol_info['num_sub_total'] > 1:
-                    print(f'subexperiment_idx not found in obs_data.json entry {self.gt_df.iloc[II]["variable"]}, '
-                          'but multiple subexperiments are defined.',
-                          'Setting subexperiment_idx to 0 for all data points')
-        
-        # calculate the mapping from sub and experiment idx to the weight of the observable for that subexperiment
-        const_map = [[[] for sub_idx in range(self.protocol_info['num_sub_per_exp'][exp_idx])]
-                     for exp_idx in range(self.protocol_info['num_experiments'])]
-        series_map = [[[] for sub_idx in range(self.protocol_info['num_sub_per_exp'][exp_idx])]
-                     for exp_idx in range(self.protocol_info['num_experiments'])]
-        amp_map = [[[] for sub_idx in range(self.protocol_info['num_sub_per_exp'][exp_idx])]
-                     for exp_idx in range(self.protocol_info['num_experiments'])]
-        phase_map = [[[] for sub_idx in range(self.protocol_info['num_sub_per_exp'][exp_idx])]
-                     for exp_idx in range(self.protocol_info['num_experiments'])]
-        prob_dist_map = [[[] for sub_idx in range(self.protocol_info['num_sub_per_exp'][exp_idx])]
-                     for exp_idx in range(self.protocol_info['num_experiments'])]
-
-        for exp_idx in range(self.protocol_info['num_experiments']):
-            for this_sub_idx in range(self.protocol_info['num_sub_per_exp'][exp_idx]):
-
-                for II in range(self.gt_df.shape[0]):
-                    if self.gt_df.iloc[II]["data_type"] == "constant":
-                        if self.gt_df.iloc[II]["experiment_idx"] == exp_idx and \
-                            self.gt_df.iloc[II]["subexperiment_idx"] == this_sub_idx:
-                            const_map[exp_idx][this_sub_idx].append(self.gt_df.iloc[II]["weight"])
-                        else:
-                            # if the data point is not in assigned to this experiment/subexperiment, 
-                            # set the weight mapping to 0, so it doesn't influence the cost in this 
-                            # subexperiment
-                            const_map[exp_idx][this_sub_idx].append(0.0)
-                    if self.gt_df.iloc[II]["data_type"] == "series":
-                        if self.gt_df.iloc[II]["experiment_idx"] == exp_idx and \
-                            self.gt_df.iloc[II]["subexperiment_idx"] == this_sub_idx:
-                            series_map[exp_idx][this_sub_idx].append(self.gt_df.iloc[II]["weight"])
-                        else:
-                            series_map[exp_idx][this_sub_idx].append(0.0)
-
-                    if self.gt_df.iloc[II]["data_type"] == "frequency":
-                        if self.gt_df.iloc[II]["experiment_idx"] == exp_idx and \
-                            self.gt_df.iloc[II]["subexperiment_idx"] == this_sub_idx:
-                            amp_map[exp_idx][this_sub_idx].append(self.gt_df.iloc[II]["weight"])
-                            if "phase_weight" not in self.gt_df.iloc[II].keys():
-                                # if there is no phase weight, weight it the same as the amplitude
-                                phase_map[exp_idx][this_sub_idx].append(self.gt_df.iloc[II]["weight"])
-                            else:
-                                phase_map[exp_idx][this_sub_idx].append(self.gt_df.iloc[II]["phase_weight"])
-                        else:
-                            amp_map[exp_idx][this_sub_idx].append(0.0)
-                            phase_map[exp_idx][this_sub_idx].append(0.0)
-
-                    if self.gt_df.iloc[II]["data_type"] == "prob_dist":
-                        if self.gt_df.iloc[II]["experiment_idx"] == exp_idx and \
-                            self.gt_df.iloc[II]["subexperiment_idx"] == this_sub_idx:
-                            prob_dist_map[exp_idx][this_sub_idx].append(self.gt_df.iloc[II]["weight"])
-                        else:
-                            prob_dist_map[exp_idx][this_sub_idx].append(0.0)
-
-                # make each weight vector a numpy array
-                const_map[exp_idx][this_sub_idx] = np.array(const_map[exp_idx][this_sub_idx])
-                series_map[exp_idx][this_sub_idx] = np.array(series_map[exp_idx][this_sub_idx])
-                amp_map[exp_idx][this_sub_idx] = np.array(amp_map[exp_idx][this_sub_idx])
-                phase_map[exp_idx][this_sub_idx] = np.array(phase_map[exp_idx][this_sub_idx])
-                prob_dist_map[exp_idx][this_sub_idx] = np.array(prob_dist_map[exp_idx][this_sub_idx])
-
-        self.protocol_info["scaled_weight_const_from_exp_sub"] = const_map
-        self.protocol_info["scaled_weight_series_from_exp_sub"] = series_map
-        self.protocol_info["scaled_weight_amp_from_exp_sub"] = amp_map
-        self.protocol_info["scaled_weight_phase_from_exp_sub"] = phase_map
-        self.protocol_info["scaled_weight_prob_dist_from_exp_sub"] = prob_dist_map
-        return
-
-    def __set_and_save_param_names(self, idxs_to_ignore=None):
-        # This should also be a function under parsers.
-
-        # Each entry in param_names is a name or list of names that gets modified by one parameter
-        self.param_id_info = {}
-        if self.params_for_id_path:
-            csv_parser = CSVFileParser()
-            input_params = csv_parser.get_data_as_dataframe_multistrings(self.params_for_id_path)
-            self.param_id_info["param_names"] = []
-            param_names_for_gen = []
-            for II in range(input_params.shape[0]):
-                if idxs_to_ignore is not None:
-                    if II in idxs_to_ignore:
-                        continue
-                self.param_id_info["param_names"].append([input_params["vessel_name"][II][JJ] + '/' +
-                                               input_params["param_name"][II]for JJ in
-                                               range(len(input_params["vessel_name"][II]))])
-
-                if input_params["vessel_name"][II][0] == 'global':
-                    param_names_for_gen.append([input_params["param_name"][II]])
-
-                else:
-                    param_names_for_gen.append([input_params["param_name"][II] + '_' +
-                                                input_params["vessel_name"][II][JJ] # re.sub('_T$', '', input_params["vessel_name"][II][JJ])
-                                                for JJ in range(len(input_params["vessel_name"][II]))])
-
-            # set param ranges from file and strings for plotting parameter names
-            if idxs_to_ignore is not None:
-                self.param_id_info["param_mins"] = np.array([float(input_params["min"][JJ]) for JJ in range(input_params.shape[0])
-                                            if JJ not in idxs_to_ignore])
-                self.param_id_info["param_maxs"] = np.array([float(input_params["max"][JJ]) for JJ in range(input_params.shape[0])
-                                            if JJ not in idxs_to_ignore])
-                if "name_for_plotting" in input_params.columns:
-                    self.param_id_info["param_names_for_plotting"] = np.array([input_params["name_for_plotting"][JJ]
-                                                            for JJ in range(input_params.shape[0])
-                                                            if JJ not in idxs_to_ignore])
-                else:
-                    self.param_id_info["param_names_for_plotting"] = np.array([self.param_id_info["param_names"][JJ][0]
-                                                            for JJ in range(len(self.param_id_info["param_names"]))
-                                                            if JJ not in idxs_to_ignore])
-            else:
-                self.param_id_info["param_mins"] = np.array([float(input_params["min"][JJ]) for JJ in range(input_params.shape[0])])
-                self.param_id_info["param_maxs"] = np.array([float(input_params["max"][JJ]) for JJ in range(input_params.shape[0])])
-                if "name_for_plotting" in input_params.columns:
-                    self.param_id_info["param_names_for_plotting"] = np.array([input_params["name_for_plotting"][JJ]
-                                                            for JJ in range(input_params.shape[0])])
-                else:
-                    self.param_id_info["param_names_for_plotting"] = np.array([param_name[0] for param_name in self.param_id_info["param_names"]])
-
-            # set param_priors
-            if "prior" in input_params.columns:
-                self.param_id_info["param_prior_types"] = np.array([input_params["prior"][JJ] for JJ in range(input_params.shape[0])])
-            else:
-                self.param_id_info["param_prior_types"] = np.array(["uniform" for JJ in range(input_params.shape[0])])
-
-
-        else:
-            print(f'params_for_id_path cannot be None, exiting')
-
-        if self.rank == 0:
-            with open(os.path.join(self.output_dir, 'param_names.csv'), 'w') as f:
-                wr = csv.writer(f)
-                wr.writerows(self.param_id_info["param_names"])
-            with open(os.path.join(self.output_dir, 'param_names_for_gen.csv'), 'w') as f:
-                wr = csv.writer(f)
-                wr.writerows(param_names_for_gen)
-        return
-
-    def __get_ground_truth_values(self):
-
-        # _______ First we access data for constant values
-
-        # TODO make all of the below lists instead of arrays? So we can have different sized entries.
-
-        ground_truth_const = np.array([self.gt_df.iloc[II]["value"] for II in range(self.gt_df.shape[0])
-                                        if self.gt_df.iloc[II]["data_type"] == "constant"])
-
-        # _______ Then for time series
-        ground_truth_series = [np.array(self.gt_df.iloc[II]["value"]) for II in range(self.gt_df.shape[0])
-                                        if self.gt_df.iloc[II]["data_type"] == "series"]
-
-        # _______ Then for frequency series
-        ground_truth_amp = np.array([self.gt_df.iloc[II]["value"] for II in range(self.gt_df.shape[0])
-                                        if self.gt_df.iloc[II]["data_type"] == "frequency"])
-
-        # then for ground truth probability distributions
-        ground_truth_prob_dist_params = np.array([self.gt_df.iloc[II]["prob_dist_params"] for II in range(self.gt_df.shape[0])
-                                            if self.gt_df.iloc[II]["data_type"] == "prob_dist"])
-
-
-        # _______ and the phase of the freq data
-        ground_truth_phase_list = []
-        for II in range(self.gt_df.shape[0]):
-            if self.gt_df.iloc[II]["data_type"] == "frequency":
-                if "phase" not in self.gt_df.iloc[II].keys():
-                    ground_truth_phase_list.append(None)
-                else:
-                    ground_truth_phase_list.append(self.gt_df.iloc[II]["phase"])
-        ground_truth_phase = np.array(ground_truth_phase_list)
-
-        # get the dt for the series data
-        dt_list = []
-        for II in range(self.gt_df.shape[0]):
-            if self.gt_df.iloc[II]["data_type"] == "series":
-                if "obs_dt" not in self.gt_df.iloc[II].keys():
-                    print("dt not found in obs_data.json for series data, exiting")
-                    exit()
-                dt_list.append(self.gt_df.iloc[II]["obs_dt"])
-        
-        self.obs_info["obs_dt"] = np.array(dt_list)
-        
-        if len(self.obs_info["obs_dt"]) > 0:
-            if min(self.obs_info["obs_dt"]) < self.dt:
-                print("one of the dt in obs_data.json is less than the dt in user_inputs.yaml, the output timestep"
-                    "defined in user_inputs.yaml must be less than the smallest dt for your data. Exiting")
-                exit()
-
-        # The std for the different observables
-        self.obs_info["std_const_vec"] = np.array([self.gt_df.iloc[II]["std"] for II in range(self.gt_df.shape[0])
-                                       if self.gt_df.iloc[II]["data_type"] == "constant"])
-
-        self.obs_info["std_series_vec"] = [np.array(self.gt_df.iloc[II]["std"]) for II in range(self.gt_df.shape[0])
-                                        if self.gt_df.iloc[II]["data_type"] == "series"]
-
-        self.obs_info["std_amp_vec"] = np.array([self.gt_df.iloc[II]["std"] for II in range(self.gt_df.shape[0])
-                                        if self.gt_df.iloc[II]["data_type"] == "frequency"])
-
-        # if len(ground_truth_series) > 0:
-            # TODO what if we have ground truths of different size or sample rate?
-            # ground_truth_series = np.stack(ground_truth_series)
-            # removed because we have data of different sizes
-
-        if len(ground_truth_amp) > 0:
-            ground_truth_amp = np.stack(ground_truth_amp)
-
-        if len(ground_truth_phase) > 0:
-            ground_truth_phase = np.stack(ground_truth_phase)
-
-        if self.rank == 0:
-            np.save(os.path.join(self.output_dir, 'ground_truth_const.npy'), ground_truth_const)
-            if len(ground_truth_series) > 0:
-                np.save(os.path.join(self.output_dir, 'ground_truth_series.npy'), 
-                        np.array(ground_truth_series, dtype=object), allow_pickle=True)
-            if len(ground_truth_amp) > 0:
-                np.save(os.path.join(self.output_dir, 'ground_truth_amp.npy'), ground_truth_amp)
-            if len(ground_truth_phase) > 0:
-                np.save(os.path.join(self.output_dir, 'ground_truth_phase.npy'), ground_truth_phase)
-
-        self.obs_info["ground_truth_const"] = ground_truth_const
-        self.obs_info["ground_truth_prob_dist_params"] = ground_truth_prob_dist_params
-        self.obs_info["ground_truth_series"] = ground_truth_series
-        self.obs_info["ground_truth_amp"] = ground_truth_amp
-        self.obs_info["ground_truth_phase"] = ground_truth_phase
-
-        # create a mapping between const_idx and the obs_idx
-        const_count = 0
-        series_count = 0
-        freq_count = 0
-        prob_dist_count = 0
-        self.obs_info["const_idx_to_obs_idx"] = []
-        self.obs_info["series_idx_to_obs_idx"] = []
-        self.obs_info["freq_idx_to_obs_idx"] = []
-        self.obs_info["prob_dist_idx_to_obs_idx"] = []
-        for obs_idx in range(self.obs_info["num_obs"]):
-            if self.obs_info["data_types"][obs_idx] == "constant":
-                self.obs_info["const_idx_to_obs_idx"].append(obs_idx)
-                const_count += 1
-            elif self.obs_info["data_types"][obs_idx] == "series":
-                self.obs_info["series_idx_to_obs_idx"].append(obs_idx)
-                series_count += 1
-            elif self.obs_info["data_types"][obs_idx] == "frequency":
-                self.obs_info["freq_idx_to_obs_idx"].append(obs_idx)
-                freq_count += 1
-            elif self.obs_info["data_types"][obs_idx] == "prob_dist":
-                self.obs_info["prob_dist_idx_to_obs_idx"].append(obs_idx)
-                prob_dist_count += 1
-
-        return 
+   
     
     def get_best_param_vals(self):
         if self.mcmc_instead:
@@ -1747,34 +1132,6 @@ class CVS0DParamID():
                 param_idxs_to_remove.append(II)
 
         self.remove_params_by_idx(param_idxs_to_remove)
-
-    def __set_prediction_var(self):
-        # TODO make the prediction_variables csv obsolete. Should be in obs_data.json
-        # TODO when done this function will also be obsolete
-
-        if self.prediction_info is not None:
-            # prediction_info has already been parsed from obs_data.json file
-            pass
-        else:
-            self.prediction_info = {}
-            pred_var_path = os.path.join(self.resources_dir, f'{self.file_name_prefix}_prediction_variables.csv')
-            if os.path.exists(pred_var_path):
-                # TODO change this to loading with parser
-                csv_parser = CSVFileParser()
-                pred_var_df = csv_parser.get_data_as_dataframe_multistrings(pred_var_path)
-                self.prediction_info['names'] = [pred_var_df["name"][II].strip()
-                                                for II in range(pred_var_df.shape[0])]
-                self.prediction_info['units'] = [pred_var_df["unit"][II].strip()
-                                                for II in range(pred_var_df.shape[0])]
-                self.prediction_info['names_for_plotting'] = np.array([pred_var_df["name_for_plotting"][II].strip()
-                                                for II in range(pred_var_df.shape[0])])
-            else:
-                self.prediction_info['names'] = None
-                self.prediction_info['units'] = None
-                self.prediction_info['names_for_plotting'] = None
-
-            self.prediction_info['experiment_idxs'] = [0] # only functionality for first experiment 
-                                                          # when using (to be obsolete) csv file
 
     def postprocess_predictions(self):
         # TODO redo this for new prediction_info in obs_data.json 
@@ -1902,44 +1259,65 @@ class OpencorParamID():
     """
     def __init__(self, model_path, param_id_method,
                  obs_info, param_id_info, protocol_info, prediction_info,
-                 dt=0.01, solver_info=None, 
-                 ga_options=None, DEBUG=False):
+                 solver_info, dt=0.01, 
+                 optimiser_options=None, DEBUG=False, model_type=None):
 
         self.model_path = model_path
         self.param_id_method = param_id_method
         self.output_dir = None
+        self.model_type = model_type
 
         self.solver_info = solver_info
         self.obs_info = obs_info
         self.param_id_info = param_id_info
         self.prediction_info = prediction_info # currently not used
-        self.num_params = len(self.param_id_info["param_names"])
+        self.optimiser_options = optimiser_options
+        if self.param_id_info is not None:
+            self.num_params = len(self.param_id_info["param_names"])
+            self.param_norm_obj = Normalise_class(self.param_id_info["param_mins"], self.param_id_info["param_maxs"])
 
         self.protocol_info = protocol_info
-        self.param_norm_obj = Normalise_class(self.param_id_info["param_mins"], self.param_id_info["param_maxs"])
 
-        sfp = scriptFunctionParser()
-        self.operation_funcs_dict = sfp.get_operation_funcs_dict()
-        self.cost_funcs_dict = sfp.get_cost_funcs_dict()
+        self.sfp = scriptFunctionParser()
+        self.operation_funcs_dict = self.sfp.get_operation_funcs_dict()
+        self.cost_funcs_dict = self.sfp.get_cost_funcs_dict()
 
         # set up opencor simulation
         self.dt = dt
-        if self.protocol_info['sim_times'][0][0] is not None:
-            self.sim_time = self.protocol_info['sim_times'][0][0]
+        if self.protocol_info is not None:
+            if self.protocol_info['sim_times'][0][0] is not None:
+                self.sim_time = self.protocol_info['sim_times'][0][0]
+            else:
+                self.sim_time = None
+            if self.protocol_info['pre_times'][0] is not None:
+                self.pre_time = self.protocol_info['pre_times'][0]
+            else:
+                self.pre_time = None
         else:
-            # set temporary sim time, just to initialise the sim_helper
-            self.sim_time = 0.001
-        if self.protocol_info['pre_times'][0] is not None:
-            self.pre_time = self.protocol_info['pre_times'][0]
-        else:
-            # set temporary pre time, just to initialise the sim_helper
-            self.pre_time = 0.001
+            self.sim_time = None
+            self.pre_time = None
+
+        if self.sim_time is None:
+            if 'sim_time' in self.solver_info:
+                self.sim_time = self.solver_info['sim_time']
+            else:
+                self.sim_time = None
+        if self.pre_time is None:
+            if 'pre_time' in self.solver_info:
+                self.pre_time = self.solver_info['pre_time']
+            else:
+                self.pre_time = None
 
         self.sim_helper = self.initialise_sim_helper()
 
-        self.sim_helper.update_times(self.dt, 0.0, self.sim_time, self.pre_time)
+        if self.sim_time is not None and self.pre_time is not None:
+            self.sim_helper.update_times(self.dt, 0.0, self.sim_time, self.pre_time)
+            self.n_steps = int(self.sim_time/self.dt)
+        else:
+            self.n_steps = None
 
-        self.n_steps = int(self.sim_time/self.dt)
+        if self.protocol_info is not None:
+            self.sim_helper.set_protocol_info(self.protocol_info)
 
         # initialise
         self.param_init = None
@@ -1960,30 +1338,26 @@ class OpencorParamID():
         self.pred_param_importance = None
         self.pred_collinearity_idx_pairs = None
 
-        if ga_options is not None:
-            self.ga_options = ga_options
-            # if 'cost_type' not in self.ga_options.keys():
-            #     self.ga_options['cost_type'] = 'MSE'
-            if 'cost_convergence' not in self.ga_options.keys():
-                self.ga_options['cost_convergence'] = 0.0001
-            if 'max_patience' not in self.ga_options.keys():
-                self.ga_options['max_patience'] = 10
-            if 'num_calls_to_function' not in self.ga_options.keys():
-                self.ga_options['num_calls_to_function'] = 10000
+        
+        if self.obs_info is not None:
+            self.cost_type = self.obs_info["cost_type"]
         else:
-            self.ga_options = {}
-            # self.ga_options['cost_type'] = 'MSE'
-            self.ga_options['cost_convergence'] = 0.0001
-            self.ga_options['max_patience'] = 10
-            self.ga_options['num_calls_to_function'] = 10000
-        # self.cost_type = self.ga_options['cost_type']
-        self.cost_type = self.obs_info["cost_type"]
-
+            self.cost_type = None
         self.DEBUG = DEBUG
 
     def initialise_sim_helper(self):
-        return SimulationHelper(self.model_path, self.dt, self.sim_time,
-                                solver_info=self.solver_info, pre_time=self.pre_time)
+        # Get method from solver_info (check both 'solver' and 'method' for backward compatibility)
+        solver = self.solver_info.get('solver')
+        helper_cls = get_simulation_helper(solver=solver, model_type=self.model_type,
+                                           model_path=self.model_path, dt=self.dt, sim_time=self.sim_time,
+                                           solver_info=self.solver_info, pre_time=self.pre_time)
+        return helper_cls
+    
+    def add_user_operation_func(self, func):
+        self.operation_funcs_dict = self.sfp.add_user_operation_func(self.operation_funcs_dict, func)
+    
+    def add_user_cost_func(self, func):
+        self.cost_funcs_dict = self.sfp.add_user_cost_func(self.cost_funcs_dict, func)
     
     def set_best_param_vals(self, best_param_vals):
         self.best_param_vals = best_param_vals
@@ -1991,7 +1365,30 @@ class OpencorParamID():
     def set_param_names(self, param_names):
         self.param_id_info["param_names"] = param_names
         self.num_params = len(self.param_id_info["param_names"])
+    
+    def set_param_id_info(self, param_id_info):
+        self.param_id_info = param_id_info
+        self.num_params = len(self.param_id_info["param_names"])
+        self.param_norm_obj = Normalise_class(self.param_id_info["param_mins"], self.param_id_info["param_maxs"])
+    
+    def set_protocol_info(self, protocol_info):
+        self.protocol_info = protocol_info
+        # set the protocol_info in the sim_helper so that the protocol traces can be accessed.
+        self.sim_helper.set_protocol_info(self.protocol_info)
 
+    def set_prediction_info(self, prediction_info):
+        self.prediction_info = prediction_info
+    
+    def set_obs_info(self, obs_info):
+        self.obs_info = obs_info
+        self.cost_type = self.obs_info["cost_type"]
+
+    def set_optimiser_options(self, optimiser_options):
+        self.optimiser_options = optimiser_options
+
+    def set_param_id_method(self, param_id_method):
+        self.param_id_method = param_id_method
+    
     def remove_params_by_idx(self, param_idxs_to_remove):
         if len(param_idxs_to_remove) > 0:
             self.param_id_info["param_names"] = [self.param_id_info["param_names"][II] for II in range(self.num_params) if II not in param_idxs_to_remove]
@@ -2009,10 +1406,10 @@ class OpencorParamID():
         rank = comm.Get_rank()
         num_procs = comm.Get_size()
         
-        if num_procs == 1:
-            print('WARNING Running in serial, are you sure you want to be a snail?')
-
         if rank == 0:
+            print(f'Running parameter identification across {num_procs} MPI rank(s)')
+            if num_procs == 1:
+                print('WARNING Running in serial, are you sure you want to be a snail?')
             # save date as identifier for the param_id
             np.save(os.path.join(self.output_dir, 'date'), date.today().strftime("%d_%m_%Y"))
 
@@ -2030,7 +1427,8 @@ class OpencorParamID():
                                     for list_of_names in self.param_id_info["param_names"]]), '/', ' ')
                 wr.writerows(new_array_names.reshape(1, -1))
 
-        print('starting param id run for rank = {} process'.format(rank))
+        if rank == 0:
+            print('Starting param id run (rank 0 coordinating)')
 
         # ________ Do parameter identification ________
 
@@ -2039,395 +1437,46 @@ class OpencorParamID():
 
         # C_T min and max was 1e-9 and 1e-5 before
 
+        # Use optimiser classes for all methods
         if self.param_id_method == 'bayesian':
-            print('WARNING bayesian will be deprecated and is untested')
-            if rank == 0:
-                print('Running bayesian optimisation')
-            param_ranges = [a for a in zip(self.param_id_info["param_mins"], self.param_id_info["param_maxs"])]
-            updated_version = True # TODO remove this and remove the gp_minimize version
-            if not updated_version:
-                res = gp_minimize(self.get_cost_from_params,  # the function to minimize
-                                  param_ranges,  # the bounds on each dimension of x
-                                  acq_func=self.acq_func,  # the acquisition function
-                                  n_calls=self.ga_options['num_calls_to_function'],  # the number of evaluations of f
-                                  n_initial_points=self.n_initial_points,  # the number of random initialization points
-                                  random_state=self.random_state, # random seed
-                                  **self.acq_func_kwargs,
-                                  callback=[ProgressBar(self.ga_options['num_calls_to_function'])])
-                              # noise=0.1**2,  # the noise level (optional)
-            else:
-                # using Optimizer is more flexible and may be needed to implement a parallel usage
-                # gp_minimizer is a higher level call that uses Optimizer
-                if rank == 0:
-                    opt = Optimizer(param_ranges,  # the bounds on each dimension of x
-                                    base_estimator='GP', # gaussian process
-                                    acq_func=self.acq_func,  # the acquisition function
-                                    n_initial_points=self.n_initial_points,  # the number of random initialization points
-                                    random_state=self.random_state, # random seed
-                                    acq_func_kwargs=self.acq_func_kwargs,
-                                    n_jobs=num_procs)
-
-
-                progress_bar = ProgressBar(self.ga_options['num_calls_to_function'], n_jobs=num_procs)
-                call_num = 0
-                iter_num = 0
-                cost = np.zeros(num_procs)
-                while call_num < self.ga_options['num_calls_to_function']:
-                    if rank == 0:
-                        if self.DEBUG:
-                            zero_time = time.time()
-                        if num_procs > 1:
-                            # points = [opt.ask() for II in range(num_procs)]
-                            # TODO figure out why the below call slows down so much as the number of calls increases
-                            #  and whether it can give improvements
-                            points = opt.ask(n_points=num_procs)
-                            print(points)
-                            points_np = np.array(points)
-                        else:
-                            points = opt.ask()
-                        if self.DEBUG:
-                            ask_time = time.time() - zero_time
-                            print(f'Time to calculate new param values = {ask_time}')
-                    else:
-                        points_np = np.zeros((num_procs, self.num_params))
-
-                    if num_procs > 1:
-                        # broadcast points so every processor has all of the points. TODO This could be optimized for memory
-                        comm.Bcast(points_np, root=0)
-                        cost_proc = self.get_cost_from_params(points_np[rank, :])
-                        # print(f'cost for rank = {rank} is {cost_proc}')
-
-                        recv_buf_cost = np.zeros(num_procs)
-                        send_buf_cost = cost_proc
-                        # gather results from simulation
-                        comm.Gatherv(send_buf_cost, [recv_buf_cost, 1,
-                                                      None, MPI.DOUBLE], root=0)
-                        cost_np = recv_buf_cost
-                        cost = cost_np.tolist()
-                    else:
-                        cost = self.get_cost_from_params(points)
-
-
-                    if rank == 0:
-                        if self.DEBUG:
-                            zero_time = time.time()
-                        opt.tell(points, cost)
-                        if self.DEBUG:
-                            tell_time = time.time() - zero_time
-                            print(f'Time to set the calculated cost and param values '
-                                  f'and fit the gaussian = {tell_time}')
-                        res = opt.get_result()
-                        progress_bar.call(res)
-
-                        if res.fun < self.best_cost:
-                            # save if cost improves
-                            self.best_cost = res.fun
-                            self.best_param_vals = res.x
-                            print('parameters improved! SAVING COST AND PARAM VALUES')
-                            np.save(os.path.join(self.output_dir, 'best_cost'), self.best_cost)
-                            np.save(os.path.join(self.output_dir, 'best_param_vals'), self.best_param_vals)
-
-                    call_num += num_procs
-                    iter_num += 1
-
-                    # TODO save results here every few iterations
-
-
-            if rank == 0:
-                print(res)
-                self.best_cost = res.fun
-                self.best_param_vals = res.x
-                np.save(os.path.join(self.output_dir, 'best_cost'), self.best_cost)
-                np.save(os.path.join(self.output_dir, 'best_param_vals'), self.best_param_vals)
+            # Use BayesianOptimiser class
+            optimiser = BayesianOptimiser(
+                self, self.param_id_info, self.param_norm_obj,
+                self.num_params, self.output_dir,
+                optimiser_options=self.optimiser_options,
+                DEBUG=self.DEBUG,
+                acq_func=self.acq_func,
+                n_initial_points=self.n_initial_points,
+                random_state=self.random_state,
+                acq_func_kwargs=self.acq_func_kwargs
+            )
+            optimiser.run()
+            self.best_param_vals = optimiser.best_param_vals
+            self.best_cost = optimiser.best_cost
 
         elif self.param_id_method == 'genetic_algorithm':
-            if self.DEBUG:
-                num_elite = 1 # 1
-                num_survivors = 2 # 2
-                num_mutations_per_survivor = 2 # 2
-                num_cross_breed = 0
-            else:
-                num_elite = 12
-                num_survivors = 48
-                num_mutations_per_survivor = 12
-                num_cross_breed = 120
-            num_pop = num_survivors + num_survivors*num_mutations_per_survivor + \
-                   num_cross_breed
-            if self.ga_options['num_calls_to_function'] < num_pop:
-                print(f'Number of calls (n_calls={self.ga_options["num_calls_to_function"]}) must be greater than the '
-                      f'gen alg population (num_pop={num_pop}), exiting')
-                exit()
-            if num_procs > num_pop:
-                print(f'Number of processors must be less than number of population, exiting')
-                exit()
-            self.max_generations = math.floor(self.ga_options['num_calls_to_function']/num_pop)
-            if rank == 0:
-                print(f'Running genetic algorithm with a population size of {num_pop},\n'
-                      f'and a maximum number of generations of {self.max_generations}')
-            simulated_bools = [False]*num_pop
-            gen_count = 0
+            # Use GeneticAlgorithmOptimiser class
+            optimiser = GeneticAlgorithmOptimiser(
+                self, self.param_id_info, self.param_norm_obj,
+                self.num_params, self.output_dir,
+                optimiser_options=self.optimiser_options,
+                DEBUG=self.DEBUG
+            )
+            optimiser.run()
+            self.best_param_vals = optimiser.best_param_vals
+            self.best_cost = optimiser.best_cost
 
-            if rank == 0:
-                param_vals_norm = np.random.rand(self.num_params, num_pop)
-                param_vals = self.param_norm_obj.unnormalise(param_vals_norm)
-            else:
-                param_vals = None
-
-            finished_ga = np.empty(1, dtype=bool)
-            finished_ga[0] = False
-            cost = np.zeros(num_pop)
-            cost[0] = np.inf
-            
-            last_loss = None
-            loss_repeat_counter = 0
-
-            while cost[0] > self.ga_options["cost_convergence"] and gen_count < self.max_generations and loss_repeat_counter<self.ga_options["max_patience"]:
-                mutation_weight = 0.1
-                # TODO make the default just a mutation weight of 0.1
-                # if gen_count > 30:
-                #    mutation_weight = 0.04
-                # elif gen_count > 60 :
-                #    mutation_weight = 0.02
-                # else:
-                #    mutation_weight = 0.08
-                # TODO make these modifiable to the user
-                # TODO make this more general for the automated approach
-                # if gen_count > 100:
-                #    mutation_weight = 0.01
-                # elif gen_count > 160:
-                #    mutation_weight = 0.005
-                # elif gen_count > 220:
-                #    mutation_weight = 0.002
-                # elif gen_count > 300:
-                #    mutation_weight = 0.001
-                # else:
-                #    mutation_weight = 0.02
-                #
-                # elif gen_count > 280:
-                #     mutation_weight = 0.0003
-
-                gen_count += 1
-                if rank == 0:
-                    print('generation num: {}'.format(gen_count))
-                    # check param_vals are within bounds and if not set them to the bound
-                    # TODO this is not a good way to set values close to bounds
-                    # TODO do a squeezing approach like gonzalo recommended.
-                    for II in range(self.num_params):
-                        for JJ in range(num_pop):
-                            if param_vals[II, JJ] < self.param_id_info["param_mins"][II]:
-                                param_vals[II, JJ] = self.param_id_info["param_mins"][II]
-                            elif param_vals[II, JJ] > self.param_id_info["param_maxs"][II]:
-                                param_vals[II, JJ] = self.param_id_info["param_maxs"][II]
-
-                    send_buf = param_vals.T.copy()
-                    send_buf_cost = cost
-                    send_buf_bools = np.array(simulated_bools)
-                    # count number of columns for each proc
-                    # count: the size of each sub-task
-                    ave, res = divmod(param_vals.shape[1], num_procs)
-                    # pop_per_proc = np.array([ave + 1 if p < res else ave for p in range(num_procs)])
-                    # IMPORTANT: the above type of list comprehension breaks opencor if the opencor object
-                    # has already been called in another function
-                    pop_per_proc = np.zeros(num_procs, dtype=int)
-                    for II in range(num_procs):
-                        if II < res:
-                            pop_per_proc[II] = ave + 1
-                        else:
-                            pop_per_proc[II] = ave
-                    
-                else:
-                    pop_per_proc = np.empty(num_procs, dtype=int)
-                    send_buf = None
-                    send_buf_bools = None
-                    send_buf_cost = None
-
-                comm.Bcast(pop_per_proc, root=0)
-                # initialise receive buffer for each proc
-                recv_buf = np.zeros((pop_per_proc[rank], self.num_params))
-                recv_buf_bools = np.empty(pop_per_proc[rank], dtype=bool)
-                recv_buf_cost = np.zeros(pop_per_proc[rank])
-                # scatter arrays to each proc
-                comm.Scatterv([send_buf, pop_per_proc*self.num_params, None, MPI.DOUBLE],
-                              recv_buf, root=0)
-                param_vals_proc = recv_buf.T.copy()
-                comm.Scatterv([send_buf_bools, pop_per_proc, None, MPI.BOOL],
-                              recv_buf_bools, root=0)
-                bools_proc = recv_buf_bools
-                comm.Scatterv([send_buf_cost, pop_per_proc, None, MPI.DOUBLE],
-                              recv_buf_cost, root=0)
-                cost_proc = recv_buf_cost
-
-                if rank == 0 and gen_count == 1:
-                    print('population per processor is')
-                    print(pop_per_proc)
-
-                # each processor runs until all param_val_proc sets have been simulated succesfully
-                for II in range(pop_per_proc[rank]):
-                    success = False
-                    while not success:
-                        if bools_proc[II]:
-                            # TODO CURRENTLY THE FIRST COUPLE OF RANKS ONLY HAVE 
-                            # TODO INDIVIDUALS THAT DONT NEED TO BE SIMULATED
-                            # TODO BECAUSE THEY ARE THE ELITE POPULATION, FIX THIS!!
-                            # TODO ATM A COULPLE OF RANKS ARE BEING WASTED!!
-                            # this individual has already been simulated
-                            success = True
-                            break
-
-                        cost_proc[II] = self.get_cost_from_params(param_vals_proc[:, II])
-
-                        if cost_proc[II] == np.inf:
-                            print('... choosing a new random point')
-                            param_vals_proc[:, II:II + 1] = self.param_norm_obj.unnormalise(np.random.rand(self.num_params, 1))
-                            cost_proc[II] = np.inf
-                            success = False
-                            break
-                        else:
-                            bools_proc[II] = True # this point has now been simulated
-
-                        simulated_bools[II] = True # simulated bools gets sent, bools_proc
-                                                   # gets received. They are effectively the same
-                                                   # TODO check if I can simplify this
-                        success = True
-                        if num_procs == 1:
-                            if II%5 == 0 and II > num_survivors:
-                                print(' this generation is {:.0f}% done'.format(100.0*(II + 1)/pop_per_proc[0]))
-                        else:
-                            if rank == num_procs - 1:
-                                # if II%4 == 0 and II != 0:
-                                print(' this generation is {:.0f}% done'.format(100.0*(II + 1)/pop_per_proc[0]))
-
-                recv_buf = np.zeros((num_pop, self.num_params))
-                recv_buf_cost = np.zeros(num_pop)
-                send_buf = param_vals_proc.T.copy()
-                send_buf_cost = cost_proc
-                # gather results from simulation
-                comm.Gatherv(send_buf, [recv_buf, pop_per_proc*self.num_params,
-                                         None, MPI.DOUBLE], root=0)
-                comm.Gatherv(send_buf_cost, [recv_buf_cost, pop_per_proc,
-                                              None, MPI.DOUBLE], root=0)
-
-                if rank == 0:
-                    param_vals = recv_buf.T.copy()
-                    cost = recv_buf_cost
-
-                    # order the vertices in order of cost
-                    order_indices = np.argsort(cost)
-                    cost = cost[order_indices]
-                    param_vals = param_vals[:, order_indices]
-                    print('Cost of first 10 of population : {}'.format(cost[:10]))
-                    param_vals_norm = self.param_norm_obj.normalise(param_vals)
-                    print('worst survivor params normed : {}'.format(param_vals_norm[:, num_survivors - 1]))
-                    print('best params normed : {}'.format(param_vals_norm[:, 0]))
-                    np.save(os.path.join(self.output_dir, 'best_cost'), cost[0])
-                    np.save(os.path.join(self.output_dir, 'best_param_vals'), param_vals[:, 0])
-                    # Use np.savetxt to append the array to the text file
-                    with open(os.path.join(self.output_dir, 'best_cost_history.csv'), 'a') as file:
-                        np.savetxt(file, cost[:10].reshape(1,-1), fmt='%1.9f', delimiter=', ')
-                    
-                    with open(os.path.join(self.output_dir, 'best_param_vals_history.csv'), 'a') as file:
-                        np.savetxt(file, param_vals_norm[:, 0].reshape(1,-1), fmt='%.5e', delimiter=', ')
-                    #count the repeat number
-                    if last_loss is not None:
-                        if abs(cost[0]-last_loss) <1e-7:
-                            loss_repeat_counter += 1
-                        else:
-                            loss_repeat_counter = 0
-                            last_loss = cost[0]
-                    else:
-                        last_loss = cost[0]
-                    
-                    # if cost is small enough then exit
-                    if cost[0] < self.ga_options["cost_convergence"]:
-                        print(f'Cost is less than cost_convergence={self.ga_options["cost_convergence"]}', 
-                                'Exiting calibration with calibration converged to below cost tolerance')
-                        finished_ga[0] = True
-                    elif loss_repeat_counter >= self.ga_options["max_patience"]:
-                        print(f'loss has been unchanged for max_patience={self.ga_options["max_patience"]} generations.',
-                                'Exiting calibration with converged optimisation.')
-                        finished_ga[0] = True
-                    else:
-
-                        # At this stage all of the population has been simulated
-                        simulated_bools = [True]*num_pop
-                        # keep the num_survivors best param_vals, replace these with mutations
-                        param_idx = num_elite
-
-                        # for idx in range(num_elite, num_survivors):
-                        #     survive_prob = cost[num_elite:num_pop]**-1/sum(cost[num_elite:num_pop]**-1)
-                        #     rand_survivor_idx = np.random.choice(np.arange(num_elite, num_pop), p=survive_prob)
-                        #     param_vals_norm[:, param_idx] = param_vals_norm[:, rand_survivor_idx]
-                        #
-
-                        # set the cases with nan cost to have a very large but not nan cost
-                        for idx in range(num_pop):
-                            if np.isnan(cost[idx]):
-                                cost[idx] = 1e25
-                            if cost[idx] > 1e25:
-                                cost[idx] = 1e25
-                        survive_prob = cost[num_elite:num_pop]**-1/sum(cost[num_elite:num_pop]**-1)
-                        rand_survivor_idxs = np.random.choice(np.arange(num_elite, num_pop),
-                                                            size=num_survivors-num_elite, p=survive_prob)
-                        param_vals_norm[:, num_elite:num_survivors] = param_vals_norm[:, rand_survivor_idxs]
-
-                        param_idx = num_survivors
-
-                        for survivor_idx in range(num_survivors):
-                            for JJ in range(num_mutations_per_survivor):
-                                simulated_bools[param_idx] = False
-                                fifty_fifty = np.random.rand()
-                                if fifty_fifty < 0.5:
-                                    ## This accounts for smaller changes when the value is smaller
-                                    param_vals_norm[:, param_idx] = param_vals_norm[:, survivor_idx]* \
-                                                                (1.0 + mutation_weight*np.random.randn(self.num_params))
-                                else:
-                                    ## This doesn't account for smaller changes when the value is smaller
-                                    param_vals_norm[:, param_idx] = param_vals_norm[:, survivor_idx] + \
-                                                                mutation_weight*np.random.randn(self.num_params)
-                                param_idx += 1
-
-                        # now do cross breeding
-                        cross_breed_indices = np.random.randint(0, num_survivors, (num_cross_breed, 2))
-                        for couple in cross_breed_indices:
-                            if couple[0] == couple[1]:
-                                couple[1] += 1  # this allows crossbreeding out of the survivors but that's ok
-                            simulated_bools[param_idx] = False
-
-                            fifty_fifty = np.random.rand()
-                            if fifty_fifty < 0.5:
-                                ## This accounts for smaller changes when the value is smaller
-                                param_vals_norm[:, param_idx] = (param_vals_norm[:, couple[0]] +
-                                                            param_vals_norm[:, couple[1]])/2* \
-                                                            (1 + mutation_weight*np.random.randn(self.num_params))
-                            else:
-                                ## This doesn't account for smaller changes when the value is smaller,
-                                ## which is needed to make sure values dont get stuck when they are small
-                                param_vals_norm[:, param_idx] = (param_vals_norm[:, couple[0]] +
-                                                                param_vals_norm[:, couple[1]])/2 + \
-                                                                mutation_weight*np.random.randn(self.num_params)
-                            param_idx += 1
-
-                        param_vals = self.param_norm_obj.unnormalise(param_vals_norm)
-
-                else:
-                    # non zero ranks don't do any of the ordering or mutations
-                    pass
-                
-                comm.Bcast(finished_ga, root=0)
-                if finished_ga[0]:
-                    break
-
-            if rank == 0:
-                self.best_cost = cost[0]
-                best_cost_in_array = np.array([self.best_cost])
-                self.best_param_vals = param_vals[:, 0]
-            else:
-                best_cost_in_array = np.empty(1, dtype=float)
-                self.best_param_vals = np.empty(self.num_params, dtype=float)
-
-            comm.Bcast(best_cost_in_array, root=0)
-            self.best_cost = best_cost_in_array[0]
-            comm.Bcast(self.best_param_vals, root=0)
+        elif self.param_id_method in ['CMA-ES', 'CMAES', 'cmaes']:
+            # Use CMAESOptimiser for CMA-ES optimization
+            optimiser = CMAESOptimiser(
+                self, self.param_id_info, self.param_norm_obj,
+                self.num_params, self.output_dir,
+                optimiser_options=self.optimiser_options,
+                DEBUG=self.DEBUG
+            )
+            optimiser.run()
+            self.best_param_vals = optimiser.best_param_vals
+            self.best_cost = optimiser.best_cost
 
 
 
@@ -2443,351 +1492,98 @@ class OpencorParamID():
             print('best fit params : {}'.format(self.best_param_vals))
             print('best cost       : {}'.format(self.best_cost))
 
+            # running with best_param and saving outputs
+            for exp_idx in range(self.protocol_info["num_experiments"]):
+                self.simulate_once(self.best_param_vals, reset=True, only_one_exp=exp_idx)
+                all_outputs_dict = self.sim_helper.get_all_results_dict()
+                # save as npz
+                np.savez(os.path.join(self.output_dir, f'all_outputs_with_best_param_vals_exp_{exp_idx}.npz'), **all_outputs_dict)
         return
-
-    def run_single_sensitivity(self, sensitivity_output_path, do_triples_and_quads):
-        # TODO this may need to be cleaned up or removed
-        #  Doesn't work with frequency based obs
-        print('sensitivity analysis needs to be updated to new version. Exiting')
-        exit()
-        if sensitivity_output_path == None:
-            output_path = self.output_dir
-        else:
-            output_path = sensitivity_output_path
-
-        self.best_param_vals = np.load(os.path.join(output_path, 'best_param_vals.npy'))
-
-        gt_scalefactor = []
-        const_idx = 0
-        series_idx = 0
-
-        for obs_idx in range(self.obs_info["num_obs"]):
-            if self.obs_info["data_types"][obs_idx] != "series":
-                #part of scale factor for normalising jacobain
-                gt_scalefactor.append(self.obs_info["weight_const_vec"][const_idx]/self.obs_info["std_const_vec"][const_idx])
-                # gt_scalefactor.append(1/self.obs_info["ground_truth_const"][x_idx])
-                const_idx = const_idx + 1
-            else: 
-                #part of scale factor for normalising jacobain
-                gt_scalefactor.append(self.obs_info["weight_series_vec"][series_idx]/self.obs_info["std_const_vec"][series_idx])
-                # gt_scalefactor.append(1/self.obs_info["ground_truth_const"][x_idx])
-                series_idx = series_idx + 1
-
-
-        jacobian_sensitivity = np.zeros((self.num_params,self.obs_info["num_obs"]))
-        if self.prediction_info['names'] == None:
-            num_preds = 0
-        else:
-            num_preds = len(self.prediction_info['names'])*3 # *3 for the min max and mean of the pred trace
-            pred_jacobian_sensitivity = np.zeros((self.num_params, num_preds))
-
-        for i in range(self.num_params):
-            #central difference calculation of derivative
-            param_vec_up = self.best_param_vals.copy()
-            param_vec_down = self.best_param_vals.copy()
-            param_vec_up[i] = param_vec_up[i]*1.1
-            param_vec_down[i] = param_vec_down[i]*0.9
-            
-            self.sim_helper.set_param_vals(self.param_id_info["param_names"], param_vec_up)
-            success = self.sim_helper.run()
-            if success:
-                up_operands_outputs = self.sim_helper.get_results(self.obs_info["operands"])
-                up_obs = self.get_obs_output_dict(up_operands_outputs)
-                if num_preds > 0:
-                    up_preds = self.sim_helper.get_results(self.prediction_info['names'])
-                self.sim_helper.reset_and_clear()
-            else:
-                print('sim failed on sensitivity run, reseting to new param_vec_up')
-                while not success:
-                    # keep slightly increasing param_vec_up until simulation runs
-                    param_vec_up[i] = param_vec_up[i]*1.01
-                    self.sim_helper.set_param_vals(self.param_id_info["param_names"], param_vec_up)
-                    success = self.sim_helper.run()
-                up_operands_outputs = self.sim_helper.get_results(self.obs_info["operands"])
-                up_obs = self.get_obs_output_dict(up_operands_outputs)
-                if num_preds > 0:
-                    up_preds = self.sim_helper.get_results(self.prediction_info['names'])
-                self.sim_helper.reset_and_clear()
-
-            self.sim_helper.set_param_vals(self.param_id_info["param_names"], param_vec_down)
-            success = self.sim_helper.run()
-            if success:
-                down_obs = self.sim_helper.get_results(self.obs_info["obs_names"])
-                if num_preds > 0:
-                    down_preds = self.sim_helper.get_results(self.prediction_info['names'])
-                self.sim_helper.reset_and_clear()
-            else:
-                print('sim failed on sensitivity run, reseting to new param_vec_down')
-                while not success:
-                    # keep slightly decreasing param_vec_down until simulation runs
-                    param_vec_up[i] = param_vec_down[i]*0.99
-                    self.sim_helper.set_param_vals(self.param_id_info["param_names"], param_vec_down)
-                    success = self.sim_helper.run()
-                down_obs = self.sim_helper.get_results(self.obs_info["obs_names"])
-                if num_preds > 0:
-                    down_preds = self.sim_helper.get_results(self.prediction_info['names'])
-                self.sim_helper.reset_and_clear()
-
-            up_obs_const_vec, up_obs_series_array = self.get_obs_output_dict(up_obs)
-            down_obs_const_vec, down_obs_series_array = self.get_obs_output_dict(down_obs)
-            for j in range(len(up_obs_const_vec)+len(up_obs_series_array)):
-                dObs_param = 0
-                #normalise derivative
-                if j < len(up_obs_const_vec):
-                    dObs_param = (up_obs_const_vec[j]-down_obs_const_vec[j])/(param_vec_up[i]-param_vec_down[i])
-                    dObs_param = dObs_param*self.best_param_vals[i]*gt_scalefactor[j]
-                else:
-                    dObs_param = 0
-                jacobian_sensitivity[i, j] = dObs_param
-
-            if num_preds > 0:
-                up_preds_const_vec = self.get_preds_min_max_mean(up_preds)
-                down_preds_const_vec = self.get_preds_min_max_mean(down_preds)
-                for j in range(num_preds):
-                    dPreds_param = 0
-                    #normalise derivative
-                    dPreds_param = (up_preds_const_vec[j]-down_preds_const_vec[j])/(param_vec_up[i]-param_vec_down[i])
-                    # TODO could I normalise the below better? an estimated std maybe?
-                    dPreds_param = dPreds_param*self.best_param_vals[i]/up_preds_const_vec[j]
-                    if dPreds_param == 0:
-                        # avoid nan errors if the param has no effect on the prediction
-                        dPreds_param = 1e-14
-                    pred_jacobian_sensitivity[i, j] = dPreds_param
-
-        np.save(os.path.join(output_path, 'normalised_jacobian_matrix.npy'), jacobian_sensitivity)
-        if num_preds > 0:
-            np.save(os.path.join(output_path, 'normalised_prediction_jacobian_matrix.npy'), pred_jacobian_sensitivity)
-
-        #calculate parameter importance
-        self.param_importance = np.zeros(self.num_params)
-        if num_preds > 0:
-            self.pred_param_importance = np.zeros(self.num_params)
-        else:
-            self.pred_param_importance = None
-        for param_idx in range(self.num_params):
-            sensitivity = 0
-            pred_sensitivity = 0
-            for obj_idx in range(self.obs_info["num_obs"]):
-                sensitivity += jacobian_sensitivity[param_idx][obj_idx] \
-                              * jacobian_sensitivity[param_idx][obj_idx]
-            sensitivity = math.sqrt(sensitivity / self.obs_info["num_obs"])
-            self.param_importance[param_idx] = sensitivity
-
-            if num_preds > 0:
-                for pred_idx in range(num_preds):
-                    pred_sensitivity += pred_jacobian_sensitivity[param_idx][pred_idx] \
-                                       * pred_jacobian_sensitivity[param_idx][pred_idx]
-                pred_sensitivity = math.sqrt(pred_sensitivity / num_preds)
-                self.pred_param_importance[param_idx] = pred_sensitivity
-
-        np.save(os.path.join(output_path, 'parameter_importance.npy'), self.param_importance)
-        if num_preds > 0:
-            np.save(os.path.join(output_path, 'parameter_importance_for_prediction.npy'),
-                self.pred_param_importance)
-
-        #calculate S-norm
-        S_norm = np.zeros((self.num_params,self.obs_info["num_obs"]))
-        pred_S_norm = np.zeros((self.num_params, num_preds))
-        for param_idx in range(self.num_params):
-            for objs_idx in range(self.obs_info["num_obs"]):
-                S_norm[param_idx][objs_idx] = jacobian_sensitivity[param_idx][objs_idx]/\
-                                             (self.param_importance[param_idx]*math.sqrt(self.obs_info["num_obs"]))
-            if num_preds > 0:
-                for preds_idx in range(num_preds):
-                    pred_S_norm[param_idx][preds_idx] = pred_jacobian_sensitivity[param_idx][preds_idx]/ \
-                                                  (self.pred_param_importance[param_idx]*math.sqrt(num_preds))
-
-
-        collinearity_eigvals = []
-        pred_collinearity_eigvals = []
-        for i in range(self.num_params):
-            Sl = S_norm[:(i+1),:]
-            Sll = Sl@Sl.T
-            eigvals, eigvecs = la.eig(Sll)
-            real_eigvals = eigvals.real
-            collinearity_eigvals.append(min(real_eigvals))
-
-        #calculate collinearity
-        self.collinearity_idx = np.zeros(len(collinearity_eigvals))
-        for i in range(len(collinearity_eigvals)):
-            if collinearity_eigvals[i] < 1e-12:
-                self.collinearity_idx[i] = 1e6
-            else:
-                self.collinearity_idx[i] = 1/math.sqrt(collinearity_eigvals[i])
-
-        np.save(os.path.join(output_path, 'collinearity_idx.npy'), self.collinearity_idx)
-
-
-        self.collinearity_idx_pairs = np.zeros((self.num_params,self.num_params))
-        if num_preds > 0:
-            self.pred_collinearity_idx_pairs = np.zeros((self.num_params,self.num_params))
-        else:
-            self.pred_collinearity_idx_pairs = None
-        for i in range(self.num_params):
-            for j in range(self.num_params):
-                if i!=j:
-                    Sl = S_norm[[i,j],:]
-                    Sll = Sl@Sl.T
-                    eigvals_pairs, eigvecs_pairs = la.eig(Sll)
-                    real_eigvals_pairs = eigvals_pairs.real
-                    self.collinearity_idx_pairs[i][j] = 1/math.sqrt(max(min(real_eigvals_pairs), 1e-12))
-
-                    if num_preds > 0:
-                        pred_Sl = pred_S_norm[[i,j],:]
-                        pred_Sll = pred_Sl@pred_Sl.T
-                        pred_eigvals_pairs, pred_eigvecs_pairs = la.eig(pred_Sll)
-                        pred_real_eigvals_pairs = pred_eigvals_pairs.real
-                        self.pred_collinearity_idx_pairs[i][j] = 1/math.sqrt(max(min(pred_real_eigvals_pairs), 1e-12))
-                else:
-                    self.collinearity_idx_pairs[i][j] = 0
-                    if num_preds > 0:
-                        self.pred_collinearity_idx_pairs[i][j] = 0
-
-        np.save(os.path.join(output_path, 'collinearity_pairs.npy'), self.collinearity_idx_pairs)
-        if num_preds > 0:
-            np.save(os.path.join(output_path, 'pred_collinearity_pairs.npy'), self.pred_collinearity_idx_pairs)
-
-        if do_triples_and_quads:
-            collinearity_idx_triple = np.zeros((self.num_params, self.num_params))
-            for i in range(self.num_params):
-                for j in range(self.num_params):
-                    for k in range(self.num_params):
-                        if ((i!=j) and (i!=k) and (j!=k)):
-                            Sl = S_norm[[i,j,k],:]
-                            Sll = Sl@Sl.T
-                            eigvals_pairs, eigvecs_pairs = la.eig(Sll)
-                            real_eigvals_pairs = eigvals_pairs.real
-                            collinearity_idx_triple[j][k] = 1/math.sqrt(max(min(real_eigvals_pairs), 1e-12))
-                        else:
-                            collinearity_idx_triple[j][k] = 0
-                np.save(os.path.join(output_path, 'collinearity_triples'+str(i)+'.npy'), collinearity_idx_triple)
-
-            collinearity_idx_quad = np.zeros((self.num_params, self.num_params))
-            for i in range(self.num_params):
-                for j in range(self.num_params):
-                    for k in range(self.num_params):
-                        for l in range(self.num_params):
-                            if ((i!=j) and (i!=k) and (i!=l) and (j!=k) and (j!=l) and (k!=l)):
-                                Sl = S_norm[[i,j,k,l],:]
-                                Sll = Sl@Sl.T
-                                eigvals_pairs, eigvecs_pairs = la.eig(Sll)
-                                real_eigvals_pairs = eigvals_pairs.real
-                                collinearity_idx_quad[k][l] = 1/math.sqrt(max(min(real_eigvals_pairs), 1e-12))
-                        else:
-                            collinearity_idx_quad[k][l] = 0
-                    np.save(os.path.join(output_path, 'collinearity_quads'+str(i)+'_'+str(j)+'.npy'), collinearity_idx_quad)
-
-        return
-
-
+    
     def get_cost_obs_and_pred_from_params(self, param_vals, reset=True, 
                                           only_one_exp=-1, pred_names=None):
 
         pred_outputs_list = []
-        if self.protocol_info["num_sub_total"] == 1:
-            # do normal cost calculation
-            # TODO technically this if chunk isn't needed, as the below works for general experiment numbers
-            # TODO but I have left it because it is much simpler and easier to understand
+        # loop through subexperiments
+        if only_one_exp == -1:
+            # unless the user wants to just to one experiment, reset must be true
+            reset = True
+            exp_idxs_to_run = range(self.protocol_info["num_experiments"])
+        else:
+            exp_idxs_to_run = [only_one_exp]
+            
+        operands_outputs_list = []
+        for exp_idx in range(self.protocol_info["num_experiments"]):
+            if exp_idx not in exp_idxs_to_run:
+                # Preserve indexing expected by downstream subexp_count lookups.
+                for _ in range(self.protocol_info["num_sub_per_exp"][exp_idx]):
+                    operands_outputs_list.append(None)
+                continue
+
+            # set param vals for this iteration of param_id
             self.sim_helper.set_param_vals(self.param_id_info["param_names"], param_vals)
             self.sim_helper.reset_states() # this needs to be done to make sure states defined by a constant are set
-            success = self.sim_helper.run()
-            if success:
-                operands_outputs = self.sim_helper.get_results(self.obs_info["operands"])
+            current_time = 0
+            for this_sub_idx in range(self.protocol_info["num_sub_per_exp"][exp_idx]):
+                subexp_count = int(np.sum([num_sub for num_sub in 
+                                            self.protocol_info["num_sub_per_exp"][:exp_idx]]) + this_sub_idx)
+        
+                self.sim_time = self.protocol_info["sim_times"][exp_idx][this_sub_idx]
+                self.pre_time = self.protocol_info["pre_times"][exp_idx]
+                # resize the experiment and change parameters for this subexperiment
+                if this_sub_idx == 0:
+                    # we need a presim here 
+                    self.sim_helper.update_times(self.dt, 0.0, self.sim_time, self.pre_time)
+                    current_time += self.pre_time
+                else:
+                    self.sim_helper.update_times(self.dt, current_time, 
+                                                self.sim_time, 0.0)
+                # change parameters
+                self.sim_helper.set_param_vals(list(self.protocol_info["params_to_change"].keys()), 
+                                        [self.protocol_info["params_to_change"][param_name][exp_idx][this_sub_idx] for \
+                                            param_name in self.protocol_info["params_to_change"].keys()])
 
-                cost = self.get_cost_from_operands(operands_outputs)
+                success = self.sim_helper.run()
+                current_time += self.sim_time
+                if success:
+                    # TODO currently we calculate the outputs for all subexperiments, which is inefficient
+                    # TODO we could calculate the outputs for each subexperiment only when needed for the cost
+                    # TODO Fine for now, simulation time is much greater than cost calculation, so no big issue yet.
+                    operands_outputs = self.sim_helper.get_results(self.obs_info["operands"])
 
-                operands_outputs_list = [operands_outputs]
-                if pred_names is not None:
-                    pred_outputs = self.sim_helper.get_results(pred_names)
-                    pred_outputs_list.append(pred_outputs)
-                # reset params
-                if reset:
-                    self.sim_helper.reset_and_clear()
+                    operands_outputs_list.append(operands_outputs)
 
-            else:
-                # simulation set cost to large,
-                print('simulation failed with params...')
-                print(param_vals)
-                return np.inf, [], []
-        else:
-            # loop through subexperiments
-            if only_one_exp == -1:
-                # unless the user wants to just to one experiment, reset must be true
-                reset = True
-                exp_idxs_to_run = range(self.protocol_info["num_experiments"])
-            else:
-                exp_idxs_to_run = [only_one_exp]
-                
-            operands_outputs_list = []
-            for exp_idx in range(self.protocol_info["num_experiments"]):
-                # set param vals for this iteration of param_id
-                self.sim_helper.set_param_vals(self.param_id_info["param_names"], param_vals)
-                self.sim_helper.reset_states() # this needs to be done to make sure states defined by a constant are set
-                current_time = 0
-                for this_sub_idx in range(self.protocol_info["num_sub_per_exp"][exp_idx]):
-                    if exp_idx not in exp_idxs_to_run:
-                        operands_outputs_list.append(None)
-                        continue
-                    subexp_count = int(np.sum([num_sub for num_sub in 
-                                               self.protocol_info["num_sub_per_exp"][:exp_idx]]) + this_sub_idx)
-            
-                    self.sim_time = self.protocol_info["sim_times"][exp_idx][this_sub_idx]
-                    self.pre_time = self.protocol_info["pre_times"][exp_idx]
-                    if self.protocol_info["num_sub_total"] > 1:
-                        # resize the experiment and change parameters for this subexperiment
-                        if this_sub_idx == 0:
-                            # we need a presim here 
-                            self.sim_helper.update_times(self.dt, 0.0, self.sim_time, self.pre_time)
-                            current_time += self.pre_time
-                        else:
-                            self.sim_helper.update_times(self.dt, current_time, 
-                                                        self.sim_time, 0.0)
-                    # change parameters
-                    self.sim_helper.set_param_vals(list(self.protocol_info["params_to_change"].keys()), 
-                                            [self.protocol_info["params_to_change"][param_name][exp_idx][this_sub_idx] for \
-                                                param_name in self.protocol_info["params_to_change"].keys()])
+                    if pred_names is not None:
+                        pred_outputs = self.sim_helper.get_results(pred_names)
+                        pred_outputs_list.append(pred_outputs)
+                    
+                    # reset params
+                    if reset and this_sub_idx == self.protocol_info["num_sub_per_exp"][exp_idx] - 1:
+                        # reset if we are at the end of this experiment
+                        self.sim_helper.reset_and_clear()
 
-                    success = self.sim_helper.run()
-                    current_time += self.sim_time
-                    if success:
-                        # TODO currently we calculate the outputs for all subexperiments, which is inefficient
-                        # TODO we could calculate the outputs for each subexperiment only when needed for the cost
-                        # TODO Fine for now, simulation time is much greater than cost calculation, so no big issue yet.
-                        operands_outputs = self.sim_helper.get_results(self.obs_info["operands"])
-
-                        operands_outputs_list.append(operands_outputs)
-
-                        if pred_names is not None:
-                            pred_outputs = self.sim_helper.get_results(pred_names)
-                            pred_outputs_list.append(pred_outputs)
-                        
-                        # reset params
-                        if reset and this_sub_idx == self.protocol_info["num_sub_per_exp"][exp_idx] - 1:
-                            # reset if we are at the end of this experiment
-                            self.sim_helper.reset_and_clear()
-
-                    else:
-                        # simulation set cost to large,
-                        print('simulation failed with params...')
-                        print(param_vals)
-                        print('failed on experiment idx = {} subexperiment idx = {}'.format(exp_idx, this_sub_idx))
-                        return np.inf, [], []
+                else:
+                    # simulation set cost to large,
+                    print('simulation failed with params...')
+                    print(param_vals)
+                    print('failed on experiment idx = {} subexperiment idx = {}'.format(exp_idx, this_sub_idx))
+                    return np.inf, [], []
 
 
-            cost = 0
-            for exp_idx in exp_idxs_to_run:
-                if exp_idx not in exp_idxs_to_run:
-                    continue
-                for this_sub_idx in range(self.protocol_info["num_sub_per_exp"][exp_idx]):
-                    subexp_count = int(np.sum([num_sub for num_sub in 
-                                               self.protocol_info["num_sub_per_exp"][:exp_idx]]) + this_sub_idx)
+        cost = 0
+        for exp_idx in exp_idxs_to_run:
+            if exp_idx not in exp_idxs_to_run:
+                continue
+            for this_sub_idx in range(self.protocol_info["num_sub_per_exp"][exp_idx]):
+                subexp_count = int(np.sum([num_sub for num_sub in 
+                                            self.protocol_info["num_sub_per_exp"][:exp_idx]]) + this_sub_idx)
 
-                    sub_cost = self.get_cost_from_operands(operands_outputs_list[subexp_count], 
-                                                               exp_idx=exp_idx, sub_idx=this_sub_idx)   
-                    cost += sub_cost
-            
-            # average cost over all subexperiments so that it is comparable between diff number of subexperiments
-            cost = cost/self.protocol_info["num_sub_total"] 
+                sub_cost = self.get_cost_from_operands(operands_outputs_list[subexp_count], 
+                                                            exp_idx=exp_idx, sub_idx=this_sub_idx)   
+                cost += sub_cost
+        
+        # average cost over all subexperiments so that it is comparable between diff number of subexperiments
+        cost = cost/self.protocol_info["num_sub_total"] 
 
         return cost, operands_outputs_list, pred_outputs_list
 
@@ -2798,6 +1594,58 @@ class OpencorParamID():
     def get_cost_from_params(self, param_vals, reset=True):
         cost = self.get_cost_and_obs_from_params(param_vals, reset=reset)[0]
         return cost
+    
+    def get_lnprior_from_params(self, param_vals):
+        lnprior = 0
+        for idx, param_val in enumerate(param_vals):
+            if self.param_id_info["param_prior_types"] is not None:
+                prior_dist = self.param_id_info["param_prior_types"][idx]
+            else:
+                prior_dist = None
+
+            if not prior_dist or prior_dist == 'uniform':
+                if param_val < self.param_id_info["param_mins"][idx] or param_val > self.param_id_info["param_maxs"][idx]:
+                    return -np.inf
+                else:
+                    #prior += 0
+                    pass
+            
+            elif prior_dist == 'exponential':
+                lamb = 1.0 # TODO make this user modifiable
+                if param_val < self.param_id_info["param_mins"][idx] or param_val > self.param_id_info["param_maxs"][idx]:
+                    return -np.inf
+                else:
+                    # the normalisation isnt needed here but might be nice to
+                    # make sure prior for each param is between 0 and 1
+                    lnprior += -lamb*param_val/self.param_id_info["param_maxs"][idx]
+
+            elif prior_dist == 'normal':
+                if param_val < self.param_id_info["param_mins"][idx] or param_val > self.param_id_info["param_maxs"][idx]:
+                    return -np.inf
+                else:
+                    # temporarily make the std 1/6 of the user defined range and the mean the centre of the range
+                    std = 1/6*(self.param_id_info["param_maxs"][idx] - self.param_id_info["param_mins"][idx])
+                    mean = 0.5*(self.param_id_info["param_maxs"][idx] + self.param_id_info["param_mins"][idx])
+                    lnprior += -0.5*((param_val - mean)/std)**2
+
+
+        return lnprior
+
+    def get_lnlikelihood_lnprior_from_params(self, param_vals, reset=True):
+        lnprior = self.get_lnprior_from_params(param_vals)
+
+        if not np.isfinite(lnprior):
+            return -np.inf
+
+        lnlikelihood = self.get_lnlikelihood_from_params(param_vals)
+
+        return lnprior + lnlikelihood
+
+    def get_lnlikelihood_from_params(self, param_vals):
+        cost = self.get_cost_from_params(param_vals)
+        lnlikelihood = -0.5*cost # TODO check this is correct for all multimodal distributions
+
+        return lnlikelihood
     
     def get_pred_from_params(self, param_vals, reset=True, 
                                           only_one_exp=-1, pred_names=None):
@@ -2997,11 +1845,16 @@ class OpencorParamID():
 
         cost = (cost + series_cost + amp_cost + phase_cost + prob_dist_cost) / num_weighted_obs
 
+        
+
         return cost
 
     def get_obs_output_dict(self, operands_outputs, get_all_series=False):
         if operands_outputs == None:
-            return None
+            if get_all_series:
+                return None, None
+            else:
+                return None
         obs_const_vec = np.zeros((len(self.obs_info["ground_truth_const"]), ))
         obs_series_list_of_arrays = [None]*len(self.obs_info["ground_truth_series"])
         obs_amp_list_of_arrays = [None]*len(self.obs_info["ground_truth_amp"])
@@ -3167,7 +2020,7 @@ class OpencorParamID():
             preds_const_vec[JJ + 2] = np.mean(preds[JJ, :])
         return preds_const_vec
 
-    def simulate_once(self, param_vals=None, reset=True, only_one_exp=-1):
+    def simulate_once(self, param_vals=None, reset=True, only_one_exp=-1, return_series=False):
         """
 
         Setting reset to False and only_one_exp to the experiment number you want to use 
@@ -3206,7 +2059,19 @@ class OpencorParamID():
 
         cost_check, obs = self.get_cost_and_obs_from_params(param_vals=param_vals, 
                                                             reset=reset, only_one_exp=only_one_exp)
-        obs_dicts = [self.get_obs_output_dict(obs_item) for obs_item in obs]
+
+
+        obs_dicts = []
+        obs_arrays = []
+        for obs_item in obs:                                                    
+            # if return_series:
+            obs_dict, obs_array = self.get_obs_output_dict(obs_item, get_all_series=True)
+            obs_dicts.append(obs_dict)
+            obs_arrays.append(obs_array)
+            # else:
+            #     obs_dict = self.get_obs_output_dict(obs_item)
+            #     obs_dicts.append(obs_dict)
+            #     obs_arrays.append(None)
 
         if only_one_exp != -1:
             # only print out results if doing all experiments, otherwise cost will be strange
@@ -3216,24 +2081,40 @@ class OpencorParamID():
         print(f'cost should be {best_cost}')
         print('cost check after single simulation is {}'.format(cost_check))
 
+        if abs(best_cost - cost_check) > 1e-3:
+            print(f'WARNING: best cost {best_cost} is not close to cost check {cost_check}')
+            print('calculating some debug metrics for this issue')
+
+            for exp_idx in range(self.protocol_info["num_experiments"]):
+                print(f'running simulation for experiment {exp_idx} to compare best fit and this run outputs')
+                best_fit_outputs = np.load(os.path.join(self.output_dir, f'all_outputs_with_best_param_vals_exp_{exp_idx}.npz'))
+                _, _ = self.get_cost_and_obs_from_params(self.best_param_vals, reset=True, only_one_exp=exp_idx)
+                this_run_outputs = self.sim_helper.get_all_results_dict()
+
+                for obs_idx in range(len(obs)):
+                    for key in best_fit_outputs.keys():
+                        print(f'parameter {key}')
+                        best_fit_output = best_fit_outputs[key]
+                        this_run_output = this_run_outputs[key]
+                        print('printing for the first `10 timepoints of the output difference')
+                        print(f'best fit output: {best_fit_output[:10]}')
+                        print(f'this run output: {this_run_output[:10]}')
+                        print(f'difference: {best_fit_output[:10] - this_run_output[:10]}')
+                        print(f'relative difference: {np.abs(best_fit_output[:10] - this_run_output[:10]) / (np.abs(best_fit_output[:10]) + 1e-10)}')
+        
+            
         print(f'final obs values :')
         for idx, obs_dict in enumerate(obs_dicts):
             print(f'subexperiment {idx+1}:')
             # TODO make the printing of the obs_dict more informative
             print(obs_dict['const'])
-
-    def set_genetic_algorithm_parameters(self, n_calls):
-        if not self.param_id_method == 'genetic_algorithm':
-            print('param_id is not set up as a genetic algorithm')
-            exit()
-        self.ga_options['num_calls_to_function']= n_calls
-        # TODO add more of the gen alg constants here so they can be changed by user.
+        return obs_dicts, obs_arrays
 
     def set_bayesian_parameters(self, n_calls, n_initial_points, acq_func, random_state, acq_func_kwargs={}):
         if not self.param_id_method == 'bayesian':
             print('param_id is not set up as a bayesian optimization process')
             exit()
-        self.ga_options['num_calls_to_function'] = n_calls
+        self.optimiser_options['num_calls_to_function'] = n_calls
         self.n_initial_points = n_initial_points
         self.acq_func = acq_func  # the acquisition function
         self.random_state = random_state  # random seed
@@ -3253,7 +2134,7 @@ def calculate_lnlikelihood(param_vals):
     It allows the emcee algorithm to only pickle the param_vals
     and not all the attributes of the class instance.
     """
-    return mcmc_object.get_lnlikelihood_from_params(param_vals)
+    return mcmc_object.get_lnlikelihood_lnprior_from_params(param_vals)
 
 class OpencorMCMC(OpencorParamID): 
     """
@@ -3263,11 +2144,11 @@ class OpencorMCMC(OpencorParamID):
     """
 
     def __init__(self, model_path,
-                 obs_info, param_id_info, protocol_info, prediction_info,
-                 dt=0.01, solver_info=None, mcmc_options=None, DEBUG=False):
+                 obs_info, param_id_info, protocol_info, prediction_info, solver_info,
+                 dt=0.01, mcmc_options=None, DEBUG=False, model_type=None):
         super().__init__(model_path, "MCMC",
-                obs_info, param_id_info, protocol_info, prediction_info,
-                dt=dt, solver_info=solver_info, DEBUG=DEBUG)
+                obs_info, param_id_info, protocol_info, prediction_info, solver_info,
+                dt=dt, DEBUG=DEBUG, model_type=model_type)
 
         # mcmc init stuff
         self.sampler = None
@@ -3296,6 +2177,7 @@ class OpencorMCMC(OpencorParamID):
         if rank == 0:
             print('Running mcmc')
 
+
         if num_procs > 1:
             # from pathos import multiprocessing
             # from pathos.multiprocessing import ProcessPool
@@ -3315,22 +2197,24 @@ class OpencorMCMC(OpencorParamID):
 
             try:
                 pool = MPIPool() # workers dont get past this line in this try, they wait for work to do
-                if mcmc_lib == 'emcee':
-                    self.sampler = emcee.EnsembleSampler(self.mcmc_options['num_walkers'], self.num_params, calculate_lnlikelihood,
-                                                pool=pool)
-                elif mcmc_lib == 'zeus':
-                    self.sampler = zeus.EnsembleSampler(self.mcmc_options['num_walkers'], self.num_params, calculate_lnlikelihood,
-                                                         pool=pool)
-
-                start_time = time.time()
-                self.sampler.run_mcmc(init_param_vals.T, self.mcmc_options['num_steps'], progress=True, tune=True)
-                print(f'mcmc time = {time.time() - start_time}')
             except:
-                if rank == 0:
-                    sys.exit()
-                else:
-                    # workers pass to here
-                    pass
+                return
+
+            if not pool.is_master():
+                pool.wait()
+                return
+
+            if mcmc_lib == 'emcee':
+                self.sampler = emcee.EnsembleSampler(self.mcmc_options['num_walkers'], self.num_params, calculate_lnlikelihood,
+                                            pool=pool)
+            elif mcmc_lib == 'zeus':
+                self.sampler = zeus.EnsembleSampler(self.mcmc_options['num_walkers'], self.num_params, calculate_lnlikelihood,
+                                                        pool=pool)
+
+            start_time = time.time()
+            self.sampler.run_mcmc(init_param_vals.T, self.mcmc_options['num_steps'], progress=True, tune=True)
+            print(f'mcmc time = {time.time() - start_time}')
+            pool.close()
 
         else:
             if self.best_param_vals is not None:
@@ -3401,59 +2285,6 @@ class OpencorMCMC(OpencorParamID):
                     print('cost from mcmc median param vals is {}'.format(mcmc_best_cost))
                     print('Keeping the genetic algorithm best fit as it is lower, ({})'.format(self.best_cost))
 
-    def get_lnprior_from_params(self, param_vals):
-        lnprior = 0
-        for idx, param_val in enumerate(param_vals):
-            if self.param_id_info["param_prior_types"] is not None:
-                prior_dist = self.param_id_info["param_prior_types"][idx]
-            else:
-                prior_dist = None
-
-            if not prior_dist or prior_dist == 'uniform':
-                if param_val < self.param_id_info["param_mins"][idx] or param_val > self.param_id_info["param_maxs"][idx]:
-                    return -np.inf
-                else:
-                    #prior += 0
-                    pass
-            
-            elif prior_dist == 'exponential':
-                lamb = 1.0 # TODO make this user modifiable
-                if param_val < self.param_id_info["param_mins"][idx] or param_val > self.param_id_info["param_maxs"][idx]:
-                    return -np.inf
-                else:
-                    # the normalisation isnt needed here but might be nice to
-                    # make sure prior for each param is between 0 and 1
-                    lnprior += -lamb*param_val/self.param_id_info["param_maxs"][idx]
-
-            elif prior_dist == 'normal':
-                if param_val < self.param_id_info["param_mins"][idx] or param_val > self.param_id_info["param_maxs"][idx]:
-                    return -np.inf
-                else:
-                    # temporarily make the std 1/6 of the user defined range and the mean the centre of the range
-                    std = 1/6*(self.param_id_info["param_maxs"][idx] - self.param_id_info["param_mins"][idx])
-                    mean = 0.5*(self.param_id_info["param_maxs"][idx] + self.param_id_info["param_mins"][idx])
-                    lnprior += -0.5*((param_val - mean)/std)**2
-
-
-        return lnprior
-
-    def get_lnlikelihood_from_params(self, param_vals, reset=True):
-        lnprior = self.get_lnprior_from_params(param_vals)
-
-        if not np.isfinite(lnprior):
-            return -np.inf
-
-        lnlikelihood = self.get_lnlikelihood_from_params(param_vals)
-
-        return lnprior + lnlikelihood
-
-
-    def get_lnlikelihood_from_params(self, param_vals):
-        cost = self.get_cost_from_params(param_vals)
-        lnlikelihood = -0.5*cost # TODO check this is correct for all multimodal distributions
-
-        return lnlikelihood
-
     def calculate_pred_from_posterior_samples(self, flat_samples, n_sims=100):
         # idxs of output are [exp_idx][sim_idx, pred_idx, time_idx]
         
@@ -3477,6 +2308,107 @@ class OpencorMCMC(OpencorParamID):
         # idxs of output are [exp_idx][sim_idx, pred_idx, time_idx]
         return pred_arrays_per_exp_list
 
+class MCMC_plotter:
+    """
+    This class contains plotting wrapper for mcmc
+    """
+
+    def __init__(self, model_path, model_type, param_id_method, file_name_prefix,
+                 params_for_id_path=None, num_calls_to_function=1000,
+                 param_id_obs_path=None, sim_time=2.0, pre_time=20.0, 
+                 solver_info=None, 
+                 dt=0.01, mcmc_options=None, 
+                 param_id_output_dir=None, resources_dir=None,
+                 DEBUG=False):
+
+        self.model_path = model_path
+        self.model_type = model_type
+        self.param_id_method = param_id_method
+        self.file_name_prefix = file_name_prefix
+        self.params_for_id_path = params_for_id_path
+        self.num_calls_to_function = num_calls_to_function
+        self.param_id_obs_path = param_id_obs_path
+        self.sim_time = sim_time
+        self.pre_time = pre_time
+        self.solver_info = solver_info
+        self.dt = dt
+        self.DEBUG =DEBUG
+        
+        self.comm = MPI.COMM_WORLD
+        self.rank = self.comm.Get_rank()
+        
+        self.param_id_obs_file_prefix = re.sub(r"\.json", "", os.path.split(param_id_obs_path)[1])
+        case_type = f'{param_id_method}_{file_name_prefix}_{self.param_id_obs_file_prefix}'
+        if self.rank == 0:
+            if param_id_output_dir is None:
+                self.param_id_output_dir = os.path.join(os.path.dirname(__file__), '../../param_id_output')
+            else:
+                self.param_id_output_dir = param_id_output_dir
+            
+            if not os.path.exists(self.param_id_output_dir):
+                os.mkdir(self.param_id_output_dir)
+            self.output_dir = os.path.join(self.param_id_output_dir, f'{case_type}')
+            if not os.path.exists(self.output_dir):
+                os.mkdir(self.output_dir)
+            self.plot_dir = os.path.join(self.output_dir, 'plots_param_id')
+            if not os.path.exists(self.plot_dir):
+                os.mkdir(self.plot_dir)
+        
+        if resources_dir is None:
+            self.resources_dir = os.path.join(os.path.dirname(__file__), '../../resources')
+        else:
+            self.resources_dir = resources_dir
+
+
+        self.best_param_vals = None
+        self.best_param_names = None
+
+        self.mcmc_options = mcmc_options
+
+        # thresholds for identifiability TODO optimise these
+        self.threshold_param_importance = 0.1
+        self.keep_threshold_param_importance = 0.8
+        self.threshold_collinearity = 20
+        self.threshold_collinearity_pairs = 10
+        self.second_deriv_threshold = -1000
+
+        self.comm = MPI.COMM_WORLD
+        self.rank = self.comm.Get_rank()
+        self.num_procs = self.comm.Get_size()
+
+    def plot_mcmc_and_predictions(self, mcmc=None):
+        if self.rank != 0:
+            return
+        if mcmc == None:
+            print('creating mcmc object')
+            if self.rank == 0:
+                mcmc = CVS0DParamID(self.model_path, self.model_type, self.param_id_method, True,
+                                    self.file_name_prefix,
+                                    params_for_id_path=self.params_for_id_path,
+                                    param_id_obs_path=self.param_id_obs_path,
+                                    sim_time=self.sim_time, pre_time=self.pre_time, dt=self.dt,
+                                    param_id_output_dir=self.param_id_output_dir, resources_dir=self.resources_dir,
+                                    solver_info=self.solver_info, mcmc_options=self.mcmc_options,
+                                    DEBUG=self.DEBUG, one_rank=True)
+                if os.path.exists(os.path.join(mcmc.output_dir, 'param_names_to_remove.csv')):
+                    with open(os.path.join(mcmc.output_dir, 'param_names_to_remove.csv'), 'r') as r:
+                        param_names_to_remove = []
+                        for row in r:
+                            name_list = row.split(',')
+                            name_list = [name.strip() for name in name_list]
+                            param_names_to_remove.append(name_list)
+                    mcmc.remove_params_by_name(param_names_to_remove)
+
+        if self.best_param_vals is not None:
+            self.best_param_vals = np.load(os.path.join(mcmc.output_dir, 'best_param_vals.npy'))
+
+        mcmc.set_best_param_vals(self.best_param_vals)
+
+        print('Plotting mcmc parameter distributions')
+        mcmc.plot_mcmc()
+        print('Plotting core predictions distribution to check uncertainty on predictions')
+        mcmc.postprocess_predictions()
+        print('Plotting complete')
 
 class ProgressBar(object):
     """

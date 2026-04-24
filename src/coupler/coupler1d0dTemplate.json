@@ -1,0 +1,15 @@
+{
+    "1": {
+        "vess1d_idx": 0,
+        "vess1d_bc_in0_or_out1": 0,
+        "vess0d_idx": 2,
+        "cellml_idx": 14,
+        "cellml_bc_in0_or_out1": 1,
+        "cellml_bc_flow0_or_press1": 0,
+        "port_idx": 14,
+        "port_flow0_or_press1": 1,
+        "port_state0_or_var1": 1,
+        "R_T_variable_idx": -1,
+        "port_volume_sum": -1
+    }
+}

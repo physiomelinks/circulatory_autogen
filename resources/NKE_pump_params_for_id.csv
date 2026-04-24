@@ -1,8 +1,8 @@
 vessel_name,                  param_name,       min,        max,     name_for_plotting
-NKE_pump,K_1,0,1.00E+03,K_1
-NKE_pump,K_2,0,1.00E+03,K_2
-NKE_pump,K_3,0,1.00E+03,K_3
-NKE_pump,K_4,0,1.00E+03,K_4
-NKE_pump,kappa_2,0,1.00E+02,kappa_2
+NKE_pump,K_1,0,1.00e+03,K_1
+NKE_pump,K_2,0,1.00e+03,K_2
+NKE_pump,K_3,0,1.00e+03,K_3
+NKE_pump,K_4,0,1.00e+03,K_4
+NKE_pump,kappa_2,0,1.00e+02,kappa_2
 NKE_pump,kappa_4,0,1.00,kappa_4
 NKE_pump,z_1,-1.0,0.0,z_1

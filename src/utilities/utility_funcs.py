@@ -1,6 +1,10 @@
 import numpy as np
 import math
-import sys
+import os,sys
+import libcellml
+import utilities.libcellml_helper_funcs as cellml
+import utilities.libcellml_utilities as libcellml_utils
+from parsers.PrimitiveParsers import YamlFileParser
 import re
 import pint
 
@@ -181,6 +185,162 @@ class UnitConverter:
         except Exception as e:
             raise ValueError(f"Failed to parse or convert units: {e}")
 
+def change_parameter_values_and_save(cellml_file, parameter_names, parameter_values, output_file):
+    """
+    Load a CellML model, change initial values of specified variables,
+    then serialize and save the updated model.
+
+    Args:
+      cellml_file: Path to the .cellml file to modify.
+      parameter_names: List of variable names to change.
+      parameter_values: Corresponding list of new initial values.
+      output_file: Optional; where to write the new model. Overwrites original if None.
+    """
+
+    if len(parameter_names) != len(parameter_values):
+        raise ValueError("Names and values lists must have equal length.")
+
+    # Parse the model
+    # parse the model in non-strict mode to allow non CellML 2.0 models
+    model = cellml.parse_model(os.path.join(cellml_file), False)
+    # resolve imports, in non-strict mode
+    importer = cellml.resolve_imports(model, os.path.dirname(cellml_file), False)
+    # need a flattened model for analysing
+    flat_model = cellml.flatten_model(model, importer)
+    model_string = cellml.print_model(flat_model)
+
+    # Update variables
+    for name, new_val in zip(parameter_names, parameter_values):
+        module, name = os.path.split(name)
+        found = False
+        for comp_index in range(flat_model.componentCount()):
+            comp = flat_model.component(comp_index)
+            if comp.name() == 'parameters':
+                name_mod = name + '_' + module
+            elif comp.name() == 'parameters_global':
+                name_mod = name
+                pass
+            elif comp.name() == module:
+                name_mod = name
+                pass
+            else:
+                continue
+
+            if comp.hasVariable(name_mod):
+                var = comp.variable(name_mod)
+                if var.initialValue() == '':
+                    # print(f"Variable '{name_mod}' does not have an initial value in this module, probably defined in another module, such as parameters.")
+                    pass
+                else:
+                    var.setInitialValue(str(new_val))
+                    found = True
+            # print(comp.variableCount())
+            # print([comp.variable(i).name() for i in range(comp.variableCount())])
+        if not found:
+            print(f"Parameter '{name}' not found in any component.")
+
+    # Serialize updated model
+    printer = libcellml.Printer()
+    new_content = printer.printModel(flat_model)
+
+    # Save to file
+    target = output_file 
+    with open(target, 'w', encoding='utf-8') as f:
+        f.write(new_content)
+
+def calculate_hessian(param_id, AD=False):    
+    """
+    Calculate the Hessian matrix of the cost function at the best parameter values.
+
+    Args:
+      param_id: An instance of the parameter identification class with a get_cost_from_params method and best_param_vals attribute.
+
+    Returns:
+      Hessian matrix as a 2D numpy array.
+    """
+    if param_id.best_param_vals is None:
+        raise ValueError("Best parameter values must be set in param_id before calculating Hessian.")
+    
+    # TODO The below is not correct yet. Finbar to fix.
+
+    best_params = param_id.best_param_vals
+    n_params = len(best_params)
+    hessian = np.zeros((n_params, n_params))
+    epsilon = 1e-7  # Small perturbation for finite difference
+
+    if AD:
+        # If using automatic differentiation, implement accordingly
+        raise NotImplementedError("Automatic differentiation not implemented yet.")
+
+    else:
+        # calculate hessian of the lnlikelihood with finite differences
+        hessian = hessian_fd(param_id.get_lnlikelihood_lnprior_from_params, best_params, eps=epsilon)
+    return hessian
+
+        
+def hessian_fd(f, theta, eps=1e-6):
+    theta = np.asarray(theta, dtype=float)
+    n = len(theta)
+    H = np.zeros((n, n))
+    
+    # Relative step sizes
+    h = eps * np.minimum(np.abs(theta), 1.0)
+    
+    for i in range(n):
+        for j in range(i, n):
+            ei = np.zeros(n); ej = np.zeros(n)
+            ei[i] = h[i]; ej[j] = h[j]
+            
+            fpp = f(theta + ei + ej)
+            fpm = f(theta + ei - ej)
+            fmp = f(theta - ei + ej)
+            fmm = f(theta - ei - ej)
+            
+            H[i, j] = (fpp - fpm - fmp + fmm) / (4 * h[i] * h[j])
+            H[j, i] = H[i, j]
+    print(h)
+    return H
+
+def hessian_gauss_newton(residual, theta, eps=1e-6):
+    """
+    Calculate the Gauss-Newton approximation of the Hessian matrix.
+
+    Args:
+      residuals: Function that returns residuals given parameters.
+      theta: Parameter values at which to compute the Hessian.
+      eps: Small perturbation for finite difference.
+    Returns:
+      Hessian matrix as a 2D numpy array.
+    """
+    theta = np.asarray(theta, dtype=float)
+    n = len(theta)
+    m = len(residual(theta))
+    J = np.zeros((m, n))
+    
+    # Relative step sizes
+    h = eps * np.maximum(np.abs(theta), 1.0)
+    
+    for j in range(n):
+        ej = np.zeros(n)
+        ej[j] = h[j]
+        
+        r_plus = residual(theta + ej)
+        r_minus = residual(theta - ej)
+        
+        J[:, j] = (r_plus - r_minus) / (2 * h[j])
+    
+    H_gn = J.T @ J
+    return H_gn
+
+def get_default_inp_data_dict(file_prefix, input_param_file, resources_dir):
+    inp_data_dict = {}
+    inp_data_dict['file_prefix'] = file_prefix
+    inp_data_dict['input_param_file'] = input_param_file
+    inp_data_dict['resources_dir'] = str(resources_dir)
+    
+    yaml_parser = YamlFileParser()
+    inp_data_dict = yaml_parser.parse_user_inputs_file(inp_data_dict, obs_path_needed=False, do_generation_with_fit_parameters=False)
+    return inp_data_dict
 
 
 

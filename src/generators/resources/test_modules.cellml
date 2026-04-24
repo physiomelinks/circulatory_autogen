@@ -81,4 +81,63 @@
             </apply>
         </math>
     </component>
+
+    <!-- Minimal module to test Myokit handling of computed-constant initial values.
+         The state x has initial_value="x0" where x0 is computed from constant a. -->
+    <component name="init_states_test_type">
+        <variable name="t" public_interface="in" units="second"/>
+        <variable name="a" public_interface="in" units="dimensionless"/>
+
+        <!-- Computed constant -->
+        <variable name="x0" public_interface="out" units="dimensionless"/>
+
+        <!-- Two state variables -->
+        <variable initial_value="x0" name="x" public_interface="out" units="dimensionless"/>
+        <variable initial_value="1" name="y" public_interface="out" units="dimensionless"/>
+
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <!-- x0 = 2 * a -->
+            <apply>
+                <eq/>
+                <ci>x0</ci>
+                <apply>
+                    <times/>
+                    <cn cellml:units="dimensionless">2</cn>
+                    <ci>a</ci>
+                </apply>
+            </apply>
+
+            <!-- dot(x) = -x -->
+            <apply>
+                <eq/>
+                <apply>
+                    <diff/>
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>x</ci>
+                </apply>
+                <apply>
+                    <minus/>
+                    <ci>x</ci>
+                </apply>
+            </apply>
+
+            <!-- dot(y) = -y -->
+            <apply>
+                <eq/>
+                <apply>
+                    <diff/>
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>y</ci>
+                </apply>
+                <apply>
+                    <minus/>
+                    <ci>y</ci>
+                </apply>
+            </apply>
+        </math>
+    </component>
 </model>

@@ -9,7 +9,7 @@
         [
           {
             "port_type":"volume_stretch_port",
-            "variables":["q_A","q_b"]
+            "variables":["q_str"]
           }
         ],
         "exit_ports":
@@ -25,14 +25,12 @@
         [
           ["f_ls", "Hz", "access", "variable"],
           ["tau_lung", "second", "access", "constant"],
-          ["G_al", "per_ml_s", "access", "constant"],
-          ["q_A", "m3", "access", "boundary_condition"],
-          ["q_b", "m3", "access", "boundary_condition"],
-          ["V_lung", "m3", "access", "variable"]
+          ["G_al", "per_m3_s", "access", "constant"],
+          ["q_str", "m3", "access", "boundary_condition"]
         ]
       },
       {
-        "vessel_type":"lung_stretch_receptor_with_threshold",
+        "vessel_type":"lung_stretch_receptor_with_threshold_OLD",
         "BC_type":"nn",
         "module_format":"cellml",
         "module_file":"parasympathetic_modules.cellml",
@@ -57,7 +55,7 @@
         [
           ["f_ls", "Hz", "access", "variable"],
           ["tau_lung", "second", "access", "constant"],
-          ["G_al", "per_ml_s", "access", "constant"],
+          ["G_al", "per_m3_s", "access", "constant"],
           ["q_A", "m3", "access", "boundary_condition"],
           ["q_b", "m3", "access", "boundary_condition"],
           ["V_lung_stretch_thresh", "m3", "access", "constant"],
@@ -242,7 +240,7 @@
         [
           ["Delta_Rsp", "Js_per_m6", "access", "variable"],
           ["tau_Rsp", "second", "access", "constant"],
-          ["sigma_Rsp", "Hz", "access", "variable"],
+          ["sigma_Rsp", "Js_per_m6", "access", "variable"],
           ["f_esp", "Hz", "access", "boundary_condition"],
           ["f_es_min", "per_s", "access", "global_constant"],
           ["G_Rsp", "Js_per_m6", "access", "constant"]
@@ -274,7 +272,7 @@
         [
           ["Delta_Vusv", "m3", "access", "variable"],
           ["tau_Vusv", "second", "access", "constant"],
-          ["sigma_Vusv", "Hz", "access", "variable"],
+          ["sigma_Vusv", "m3", "access", "variable"],
           ["f_esv", "Hz", "access", "boundary_condition"],
           ["f_es_min", "per_s", "access", "global_constant"],
           ["G_Vusv", "m3", "access", "constant"]
@@ -420,7 +418,7 @@
           },
           {
             "port_type":"s_gating",
-            "variables":["s"]
+            "variables":["s_floor"]
           }
         ],
         "exit_ports":
@@ -434,7 +432,7 @@
         "general_ports":[],
         "variables_and_units":
         [
-          ["s", "dimensionless", "access", "boundary_condition"],
+          ["s_floor", "dimensionless", "access", "boundary_condition"],
           ["f_NA", "Hz", "access", "variable"],
           ["f_NTS_output", "Hz", "access", "variable"],
           ["f_NA_input", "Hz", "access", "variable"],
@@ -568,11 +566,13 @@
         "variables_and_units":
         [
           ["f_PNNA", "Hz", "access", "variable"],
+          ["f_PNNA_natural", "Hz", "access", "variable"],
           ["f_NA", "Hz", "access", "boundary_condition"],
           ["f_LCN", "Hz", "access", "boundary_condition"],
           ["f_min_PNNA", "Hz", "access", "constant"],
           ["f_max_PNNA", "Hz", "access", "constant"],
           ["f_mid_PNNA", "Hz", "access", "constant"],
+          ["f_vagal_stim", "Hz", "access", "constant"],
           ["k_PNNA", "dimensionless", "access", "constant"]
         ]
       },

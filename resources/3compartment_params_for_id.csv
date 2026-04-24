@@ -1,5 +1,5 @@
 vessel_name,                  param_name,       param_type,  min,        max,     name_for_plotting
 global,                        q_lv_init,        const,       200e-6,     1500e-6,  q_{sbv} 
-aortic_root,                  C,                const,       1e-9,       5e-8,     C_{ao}
+aortic_root,                   C,                const,       1e-9,       5e-8,     C_{ao}
 global,                        E_lv_A,           const,       1e8,        5e8,      E_{lvA}
 global,                        E_lv_B,           const,       1e6,        5e7,      E_{lvB}

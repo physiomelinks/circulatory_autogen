@@ -84,4 +84,20 @@
         <variable name="t" public_interface="in" units="second"/>
         <variable name="q" public_interface="in" units="m3"/>
     </component>
+    <component name="volume_sum_2">
+        <variable name="t" public_interface="in" units="second"/>
+        <variable name="q" public_interface="in" units="m3"/>
+        <variable name="q_sum" public_interface="out" units="m3"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <ci>q_sum</ci>
+                <ci>q</ci>
+            </apply>
+        </math>
+    </component>
+    <component name="volume_sum_1D">
+        <variable name="t" public_interface="in" units="second"/>
+        <variable name="q_sum" public_interface="in" units="m3"/>
+    </component>
 </model>

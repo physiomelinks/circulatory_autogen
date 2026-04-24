@@ -208,6 +208,11 @@
                             <ci>s_1</ci>
                         </apply>
                     </apply>
+                    <apply>
+                        <times/>
+                        <ci>overcap_solubility</ci>
+                        <ci>C_O2_p_extra_ub</ci>
+                    </apply>
                 </apply>
             </apply>
             <apply>
@@ -263,6 +268,7 @@
                 </apply>
             </apply>
             <!-- calculate arterial gas concentration due to pulmonary shunt-->
+            <!-- the 0 should be dimensionless (m3_per_s -> dim)-->
             <apply>
                 <eq/>
                 <ci>C_O2_a</ci>
@@ -285,7 +291,7 @@
                         </apply>
                         <ci>v</ci>
                     </apply>
-                    <cn cellml:units="m3_per_s">0</cn>
+                    <cn cellml:units="dimensionless">0</cn>
                 </apply>
             </apply>
             <apply>
@@ -310,7 +316,7 @@
                         </apply>
                         <ci>v</ci>
                     </apply>
-                    <cn cellml:units="m3_per_s">0</cn>
+                    <cn cellml:units="dimensionless">0</cn>
                 </apply>
             </apply>
         </math>
@@ -331,7 +337,57 @@
         <variable name="beta_2" public_interface="in" units="m3_per_J"/>
         <variable name="C_O2_sat" public_interface="in" units="dimensionless"/>
         <variable name="C_CO2_sat" public_interface="in" units="dimensionless"/>
+        <!-- including the below to avoid divide by zero problems. This probably isn't needed.-->
+        <variable name="C_O2_p_capped" public_interface="out" units="dimensionless"/>
+        <variable name="C_CO2_p_capped" public_interface="out" units="dimensionless"/>
+        <variable name="C_O2_p_extra_ub" public_interface="out" units="dimensionless"/>
+        <variable name="overcap_solubility" public_interface="in" units="J_per_m3"/>
+        <variable name="saturation_cap" public_interface="in" units="dimensionless"/>
         <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <ci>C_O2_p_capped</ci>
+                <apply>
+                    <min/>
+                    <apply>
+                        <times/>
+                        <ci>C_O2_sat</ci>
+                        <ci>saturation_cap</ci>
+                    </apply>
+                    <ci>C_O2_p</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>C_CO2_p_capped</ci>
+                <apply>
+                    <min/>
+                    <apply>
+                        <times/>
+                        <ci>C_CO2_sat</ci>
+                        <ci>saturation_cap</ci>
+                    </apply>
+                    <ci>C_CO2_p</ci>
+                </apply>
+            </apply>
+            <!-- This is the amount that is extra in the plasma due to capping the amount that can be saturated.-->
+            <apply>
+                <eq/>
+                <ci>C_O2_p_extra_ub</ci>
+                <apply>
+                    <max/>
+                    <apply>
+                        <minus/>
+                        <ci>C_O2_p</ci>
+                        <apply>
+                            <times/>
+                            <ci>C_O2_sat</ci>
+                            <ci>saturation_cap</ci>
+                        </apply>
+                    </apply>
+                    <cn cellml:units="dimensionless">0</cn>
+                </apply>
+            </apply>
             <apply>
                 <eq/>
                 <ci>d_1</ci>
@@ -344,11 +400,11 @@
                             <power/>
                             <apply>
                                 <divide/>
-                                <ci>C_O2_p</ci>
+                                <ci>C_O2_p_capped</ci>
                                 <apply>
                                     <minus/>
                                     <ci>C_O2_sat</ci>
-                                    <ci>C_O2_p</ci>
+                                    <ci>C_O2_p_capped</ci>
                                 </apply>
                             </apply>
                             <ci>h_1</ci>
@@ -369,11 +425,11 @@
                             <power/>
                             <apply>
                                 <divide/>
-                                <ci>C_CO2_p</ci>
+                                <ci>C_CO2_p_capped</ci>
                                 <apply>
                                     <minus/>
                                     <ci>C_CO2_sat</ci>
-                                    <ci>C_CO2_p</ci>
+                                    <ci>C_CO2_p_capped</ci>
                                 </apply>
                             </apply>
                             <ci>h_2</ci>
@@ -821,7 +877,37 @@
         <variable name="beta_2" public_interface="in" units="m3_per_J"/>
         <variable name="C_O2_sat" public_interface="in" units="dimensionless"/>
         <variable name="C_CO2_sat" public_interface="in" units="dimensionless"/>
+        <!-- including the below to avoid divide by zero problems.
+ TODO this is a temporary fix, we should switch to using the DASH equations-->
+        <variable name="C_O2_p_capped" public_interface="out" units="dimensionless"/>
+        <variable name="C_CO2_p_capped" public_interface="out" units="dimensionless"/>
         <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <ci>C_O2_p_capped</ci>
+                <apply>
+                    <min/>
+                    <apply>
+                        <times/>
+                        <ci>C_O2_sat</ci>
+                        <ci>saturation_cap</ci>
+                    </apply>
+                    <ci>C_O2_p</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>C_CO2_p_capped</ci>
+                <apply>
+                    <min/>
+                    <apply>
+                        <times/>
+                        <ci>C_CO2_sat</ci>
+                        <ci>saturation_cap</ci>
+                    </apply>
+                    <ci>C_CO2_p</ci>
+                </apply>
+            </apply>
             <apply>
                 <eq/>
                 <ci>d_1</ci>
@@ -834,11 +920,11 @@
                             <power/>
                             <apply>
                                 <divide/>
-                                <ci>C_O2_p</ci>
+                                <ci>C_O2_p_capped</ci>
                                 <apply>
                                     <minus/>
                                     <ci>C_O2_sat</ci>
-                                    <ci>C_O2_p</ci>
+                                    <ci>C_O2_p_capped</ci>
                                 </apply>
                             </apply>
                             <ci>h_1</ci>
@@ -859,11 +945,11 @@
                             <power/>
                             <apply>
                                 <divide/>
-                                <ci>C_CO2_p</ci>
+                                <ci>C_CO2_p_capped</ci>
                                 <apply>
                                     <minus/>
                                     <ci>C_CO2_sat</ci>
-                                    <ci>C_CO2_p</ci>
+                                    <ci>C_CO2_p_capped</ci>
                                 </apply>
                             </apply>
                             <ci>h_2</ci>
@@ -1130,6 +1216,11 @@
                             <ci>s_1</ci>
                         </apply>
                     </apply>
+                    <apply>
+                        <times/>
+                        <ci>overcap_solubility</ci>
+                        <ci>C_O2_out_extra_ub</ci>
+                    </apply>
                 </apply>
             </apply>
             <apply>
@@ -1178,7 +1269,57 @@
         <variable name="beta_2" public_interface="in" units="m3_per_J"/>
         <variable name="C_O2_sat" public_interface="in" units="dimensionless"/>
         <variable name="C_CO2_sat" public_interface="in" units="dimensionless"/>
+        <!-- including the below to avoid divide by zero problems.-->
+        <variable name="C_O2_out_capped" public_interface="out" units="dimensionless"/>
+        <variable name="C_CO2_out_capped" public_interface="out" units="dimensionless"/>
+        <variable name="C_O2_out_extra_ub" public_interface="out" units="dimensionless"/>
+        <variable name="overcap_solubility" public_interface="in" units="J_per_m3"/>
+        <variable name="saturation_cap" public_interface="in" units="dimensionless"/>
         <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <ci>C_O2_out_capped</ci>
+                <apply>
+                    <min/>
+                    <apply>
+                        <times/>
+                        <ci>C_O2_sat</ci>
+                        <ci>saturation_cap</ci>
+                    </apply>
+                    <ci>C_O2_out</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>C_CO2_out_capped</ci>
+                <apply>
+                    <min/>
+                    <apply>
+                        <times/>
+                        <ci>C_CO2_sat</ci>
+                        <ci>saturation_cap</ci>
+                    </apply>
+                    <ci>C_CO2_out</ci>
+                </apply>
+            </apply>
+            <!-- This is the amount that is extra in the plasma due to capping the amount that can be saturated.-->
+            <apply>
+                <eq/>
+                <ci>C_O2_out_extra_ub</ci>
+                <apply>
+                    <max/>
+                    <apply>
+                        <minus/>
+                        <ci>C_O2_out</ci>
+                        <apply>
+                            <times/>
+                            <ci>C_O2_sat</ci>
+                            <ci>saturation_cap</ci>
+                        </apply>
+                    </apply>
+                    <cn cellml:units="dimensionless">0</cn>
+                </apply>
+            </apply>
             <apply>
                 <eq/>
                 <ci>d_1</ci>
@@ -1191,11 +1332,11 @@
                             <power/>
                             <apply>
                                 <divide/>
-                                <ci>C_O2_out</ci>
+                                <ci>C_O2_out_capped</ci>
                                 <apply>
                                     <minus/>
                                     <ci>C_O2_sat</ci>
-                                    <ci>C_O2_out</ci>
+                                    <ci>C_O2_out_capped</ci>
                                 </apply>
                             </apply>
                             <ci>h_1</ci>
@@ -1216,11 +1357,11 @@
                             <power/>
                             <apply>
                                 <divide/>
-                                <ci>C_CO2_out</ci>
+                                <ci>C_CO2_out_capped</ci>
                                 <apply>
                                     <minus/>
                                     <ci>C_CO2_sat</ci>
-                                    <ci>C_CO2_out</ci>
+                                    <ci>C_CO2_out_capped</ci>
                                 </apply>
                             </apply>
                             <ci>h_2</ci>
@@ -1981,8 +2122,36 @@
         <variable name="beta_2" public_interface="in" units="per_mmHg"/>
         <variable name="C_O2_sat" public_interface="in" units="mol_per_m3"/>
         <variable name="C_CO2_sat" public_interface="in" units="mol_per_m3"/>
-        <!-- curve equations-->
+        <variable name="C_O2_c_capped" public_interface="out" units="dimensionless"/>
+        <variable name="C_CO2_c_capped" public_interface="out" units="dimensionless"/>
         <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <ci>C_O2_c_capped</ci>
+                <apply>
+                    <min/>
+                    <apply>
+                        <times/>
+                        <ci>C_O2_sat</ci>
+                        <ci>saturation_cap</ci>
+                    </apply>
+                    <ci>C_O2_c</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>C_CO2_c_capped</ci>
+                <apply>
+                    <min/>
+                    <apply>
+                        <times/>
+                        <ci>C_CO2_sat</ci>
+                        <ci>saturation_cap</ci>
+                    </apply>
+                    <ci>C_CO2_c</ci>
+                </apply>
+            </apply>
+            <!-- curve equations-->
             <apply>
                 <eq/>
                 <ci>d_1</ci>
@@ -1995,11 +2164,11 @@
                             <power/>
                             <apply>
                                 <divide/>
-                                <ci>C_O2_c</ci>
+                                <ci>C_O2_c_capped</ci>
                                 <apply>
                                     <minus/>
                                     <ci>C_O2_sat</ci>
-                                    <ci>C_O2_c</ci>
+                                    <ci>C_O2_c_capped</ci>
                                 </apply>
                             </apply>
                             <ci>a_1</ci>
@@ -2020,11 +2189,11 @@
                             <power/>
                             <apply>
                                 <divide/>
-                                <ci>C_CO2_c</ci>
+                                <ci>C_CO2_c_capped</ci>
                                 <apply>
                                     <minus/>
                                     <ci>C_CO2_sat</ci>
-                                    <ci>C_CO2_c</ci>
+                                    <ci>C_CO2_c_capped</ci>
                                 </apply>
                             </apply>
                             <ci>a_2</ci>
@@ -2276,7 +2445,35 @@
         <variable name="ub_CO2_a" public_interface="out" units="mM"/>
         <variable name="P_O2_a" public_interface="out" units="mmHg"/>
         <variable name="P_CO2_a" public_interface="out" units="mmHg"/>
+        <variable name="C_O2_a_capped" public_interface="out" units="dimensionless"/>
+        <variable name="C_CO2_a_capped" public_interface="out" units="dimensionless"/>
         <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <ci>C_O2_a_capped</ci>
+                <apply>
+                    <min/>
+                    <apply>
+                        <times/>
+                        <ci>C_O2_sat</ci>
+                        <ci>saturation_cap</ci>
+                    </apply>
+                    <ci>C_O2_a</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>C_CO2_a_capped</ci>
+                <apply>
+                    <min/>
+                    <apply>
+                        <times/>
+                        <ci>C_CO2_sat</ci>
+                        <ci>saturation_cap</ci>
+                    </apply>
+                    <ci>C_CO2_a</ci>
+                </apply>
+            </apply>
             <apply>
                 <eq/>
                 <ci>d_1_a</ci>
@@ -2289,11 +2486,11 @@
                             <power/>
                             <apply>
                                 <divide/>
-                                <ci>C_O2_a</ci>
+                                <ci>C_O2_a_capped</ci>
                                 <apply>
                                     <minus/>
                                     <ci>C_O2_sat</ci>
-                                    <ci>C_O2_a</ci>
+                                    <ci>C_O2_a_capped</ci>
                                 </apply>
                             </apply>
                             <ci>a_1</ci>
@@ -2314,11 +2511,11 @@
                             <power/>
                             <apply>
                                 <divide/>
-                                <ci>C_CO2_a</ci>
+                                <ci>C_CO2_a_capped</ci>
                                 <apply>
                                     <minus/>
                                     <ci>C_CO2_sat</ci>
-                                    <ci>C_CO2_a</ci>
+                                    <ci>C_CO2_a_capped</ci>
                                 </apply>
                             </apply>
                             <ci>a_2</ci>
@@ -3060,8 +3257,36 @@
         <variable name="beta_2" public_interface="in" units="per_mmHg"/>
         <variable name="C_O2_sat" public_interface="in" units="mol_per_m3"/>
         <variable name="C_CO2_sat" public_interface="in" units="mol_per_m3"/>
-        <!-- curve equations-->
+        <variable name="C_O2_c_capped" public_interface="out" units="dimensionless"/>
+        <variable name="C_CO2_c_capped" public_interface="out" units="dimensionless"/>
         <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <ci>C_O2_c_capped</ci>
+                <apply>
+                    <min/>
+                    <apply>
+                        <times/>
+                        <ci>C_O2_sat</ci>
+                        <ci>saturation_cap</ci>
+                    </apply>
+                    <ci>C_O2_c</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>C_CO2_c_capped</ci>
+                <apply>
+                    <min/>
+                    <apply>
+                        <times/>
+                        <ci>C_CO2_sat</ci>
+                        <ci>saturation_cap</ci>
+                    </apply>
+                    <ci>C_CO2_c</ci>
+                </apply>
+            </apply>
+            <!-- curve equations-->
             <apply>
                 <eq/>
                 <ci>d_1</ci>
@@ -3074,11 +3299,11 @@
                             <power/>
                             <apply>
                                 <divide/>
-                                <ci>C_O2_c</ci>
+                                <ci>C_O2_c_capped</ci>
                                 <apply>
                                     <minus/>
                                     <ci>C_O2_sat</ci>
-                                    <ci>C_O2_c</ci>
+                                    <ci>C_O2_c_capped</ci>
                                 </apply>
                             </apply>
                             <ci>a_1</ci>
@@ -3099,11 +3324,11 @@
                             <power/>
                             <apply>
                                 <divide/>
-                                <ci>C_CO2_c</ci>
+                                <ci>C_CO2_c_capped</ci>
                                 <apply>
                                     <minus/>
                                     <ci>C_CO2_sat</ci>
-                                    <ci>C_CO2_c</ci>
+                                    <ci>C_CO2_c_capped</ci>
                                 </apply>
                             </apply>
                             <ci>a_2</ci>
@@ -3355,6 +3580,10 @@
         <variable name="ub_CO2_a" public_interface="out" units="mM"/>
         <variable name="P_O2_a" public_interface="out" units="mmHg"/>
         <variable name="P_CO2_a" public_interface="out" units="mmHg"/>
+        <!--var C_O2_a_capped: dimensionless {pub: out};
+var C_CO2_a_capped: dimensionless {pub: out};
+C_O2_a_capped = min(C_O2_sat*saturation_cap, C_O2_a);
+C_CO2_a_capped = min(C_CO2_sat*saturation_cap, C_CO2_a);-->
         <math xmlns="http://www.w3.org/1998/Math/MathML">
             <apply>
                 <eq/>
@@ -3372,7 +3601,7 @@
                                 <apply>
                                     <minus/>
                                     <ci>C_O2_sat</ci>
-                                    <ci>C_O2_a</ci>
+                                    <ci>C_O2_a_capped</ci>
                                 </apply>
                             </apply>
                             <ci>a_1</ci>
@@ -3397,7 +3626,7 @@
                                 <apply>
                                     <minus/>
                                     <ci>C_CO2_sat</ci>
-                                    <ci>C_CO2_a</ci>
+                                    <ci>C_CO2_a_capped</ci>
                                 </apply>
                             </apply>
                             <ci>a_2</ci>

@@ -1,0 +1,13 @@
+variable_name,units,value,data_reference
+l_A_subclavian_L,metre,0.0906065,ADAN
+r_0_A_subclavian_L,metre,0.003598315,ADAN
+u_ext_A_brachial_L,J_per_m3,0,user_defined
+theta_A_brachial_L,dimensionless,0,user_defined
+l_A_brachial_L,metre,0.3431402,ADAN
+r_0_A_brachial_L,metre,0.0020708175,ADAN
+u_0_A_brachial_L,J_per_m3,10600,assumedRefOf80mmHg
+m_tube_A_brachial_L,dimensionless,0.5,known
+n_tube_A_brachial_L,dimensionless,0,known
+I_scale_A_brachial_L,dimensionless,1,defined_by_user
+E_K_tube_A_brachial_L,J_per_m3,400000,ADAN_86
+K_m_K_tube_A_brachial_L,Js_per_m3,30000,Toro_2021

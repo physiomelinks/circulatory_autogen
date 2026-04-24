@@ -1,5 +1,9 @@
 <?xml version='1.0' encoding='UTF-8'?>
+<<<<<<< HEAD
 <model xmlns="http://www.cellml.org/cellml/1.1#" name="Units">
+=======
+<model name="Units" xmlns="http://www.cellml.org/cellml/1.0#" xmlns:cellml="http://www.cellml.org/cellml/1.0#">
+>>>>>>> 3fa9f54018404ddbdaa1c5dfedce51dff73b6b69
     <units name="Hz2">
         <unit exponent="-2" units="second" />
     </units>
@@ -147,6 +151,10 @@
     <units name="picoA">
         <unit prefix="pico" units="ampere" />
     </units>
+    <units name="picoA_per_nanoA">
+        <unit prefix="pico" units="ampere"/>
+        <unit exponent="-1" prefix="nano" units="ampere"/>
+    </units>
     <units name="picoA_per_picoFarad">
         <unit units="picoA" />
         <unit exponent="-1" units="picoFarad" />
@@ -204,43 +212,96 @@
         <unit exponent="-1" units="volt" />
         <unit units="nanoV" />
     </units>
-    
     <units name="kPa">
         <unit prefix="kilo" units="pascal" />
     </units>
     <units name="L_per_s">
-        
-        <unit exponent="3" prefix="deci" units="meter" />
-        <unit exponent="-1" units="second" />
+        <unit exponent="3" prefix="deci" units="meter"/>
+        <unit exponent="-1" units="second"/>
     </units>
     <units name="L_per_s_per_kPa">
-        
-        <unit exponent="3" prefix="deci" units="meter" />
-        <unit exponent="-1" units="second" />
-        <unit exponent="-1" prefix="kilo" units="pascal" />
+        <unit exponent="3" prefix="deci" units="meter"/>
+        <unit exponent="-1" units="second"/>
+        <unit exponent="-1" prefix="kilo" units="pascal"/>
     </units>
     <units name="kPa_per_L">
-        <unit prefix="kilo" units="pascal" />
-        
-        <unit exponent="-3" prefix="deci" units="meter" />
+        <unit prefix="kilo" units="pascal"/>
+        <unit exponent="-3" prefix="deci" units="meter"/>
     </units>
     <units name="L_per_kPa">
-        
-        <unit exponent="3" prefix="deci" units="meter" />
-        <unit exponent="-1" prefix="kilo" units="pascal" />
+        <unit exponent="3" prefix="deci" units="meter"/>
+        <unit exponent="-1" prefix="kilo" units="pascal"/>
     </units>
     <units name="kPa_s_per_L">
-        <unit prefix="kilo" units="pascal" />
-        <unit units="second" />
-        
-        <unit exponent="-3" prefix="deci" units="meter" />
+        <unit prefix="kilo" units="pascal"/>
+        <unit units="second"/>
+        <unit exponent="-3" prefix="deci" units="meter"/>
     </units>
-<units name="mol_per_L">
-        <unit units="mole" />
-        <unit exponent="-1" units="litre" />
+    <units name="mol_per_L">
+        <unit units="mole"/>
+        <unit exponent="-1" units="litre"/>
     </units>
     <units name="L_per_mol">
-        <unit units="litre" />
-        <unit exponent="-1" units="mole" />
+        <unit units="litre"/>
+        <unit exponent="-1" units="mole"/>
     </units>
-    </model>
+    <units name="minute">
+        <unit multiplier="60.0" units="second"/>
+    </units>
+    <units name="umol">
+        <unit prefix="micro" units="mole"/>
+    </units>
+    <units name="per_umol">
+        <unit exponent="-1" units="umol"/>
+    </units>
+    <units name="umol_per_minute">
+        <unit units="umol"/>
+        <unit exponent="-1" units="minute"/>
+    </units>
+    <units name="J_per_umol">
+        <unit units="joule"/>
+        <unit exponent="-1" units="umol"/>
+    </units>
+    <units name="per_minute">
+        <unit exponent="-1" units="minute"/>
+    </units>
+    <units name="per_minute_umol">
+        <unit exponent="-1" units="minute"/>
+        <unit exponent="-1" units="umol"/>
+    </units>
+    <units name="umolar">
+        <unit prefix="micro" units="mole"/>
+        <unit exponent="-1" units="litre"/>
+    </units>
+    <units name="per_umolar">
+        <unit exponent="-1" units="umolar"/>
+    </units>
+    <units name="umolar_per_minute">
+        <unit units="umolar"/>
+        <unit exponent="-1" units="minute"/>
+    </units>
+    <units name="J_per_umolar">
+        <unit units="joule"/>
+        <unit exponent="-1" units="umolar"/>
+    </units>
+    <units name="per_minute_umolar">
+        <unit exponent="-1" units="minute"/>
+        <unit exponent="-1" units="umolar"/>
+    </units>
+    <units name="L_per_m3">
+        <unit units="litre"/>
+        <unit exponent="-3" units="metre"/>
+    </units>
+    <units name="pH">
+        <unit units="dimensionless"/>
+    </units>
+    <units name="Celsius">
+        <unit offset="273.15" units="kelvin"/>
+    </units>
+    <units name="Celsius_1">
+        <unit exponent="-1" units="Celsius"/>
+    </units>
+    <units name="Celsius_2">
+        <unit exponent="-2" units="Celsius"/>
+    </units>
+</model>

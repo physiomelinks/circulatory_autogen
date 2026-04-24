@@ -1,7 +1,7 @@
 variable_name,units,value,data_reference
 R_T1_terminal_1,Js_per_m6,68123000,user_defined
 R_T2_terminal_1,Js_per_m6,3101300000,user_defined
-C_T_terminal_1,m6_per_J,3.6664E-10,user_defined
+C_T_terminal_1,m6_per_J,3.6664e-10,user_defined
 u_ext_terminal_1,J_per_m3,0,user_defined
 q_init_terminal_1,m3,0,user_defined
 q_us_terminal_1,m3,0,user_defined
@@ -14,7 +14,7 @@ Delta_R_terminal_1,Js_per_m6,0,user_defined
 R_local_multiplier_terminal_1,dimensionless,1,user_defined
 R_T1_terminal_2,Js_per_m6,68123000,user_defined
 R_T2_terminal_2,Js_per_m6,3101300000,user_defined
-C_T_terminal_2,m6_per_J,3.6664E-10,user_defined
+C_T_terminal_2,m6_per_J,3.6664e-10,user_defined
 u_ext_terminal_2,J_per_m3,0,user_defined
 q_init_terminal_2,m3,0,user_defined
 q_us_terminal_2,m3,0,user_defined

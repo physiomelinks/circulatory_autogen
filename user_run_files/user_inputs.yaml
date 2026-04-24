@@ -5,25 +5,24 @@ file_prefix: 3compartment
 # input_param_file must be stored in resources. If first creating a parameters file 
 # set this to parameters_orig.csv and a 
 # parameters file will be generated with spaces for the required parameters
+
+# input_param_file: SN_simple_parameters.csv
 input_param_file: 3compartment_parameters.csv
 
 # cpp generation inputs
-# solver options are: RK4, forward_euler, CVODE
-# TODO make this also change the solver in the opencor sims when not generating cpp.
-# solver: RK4
-solver: CVODE
-# model_type can be cellml_only or cpp atm 
+# model_type can be cellml_only, cpp, or python atm 
 # model_type: cpp
 model_type: cellml_only
 
 #__________ parameter identification inputs __________
 # param_id_method can be any of [genetic_algorithm]
 param_id_method: genetic_algorithm
+# param_id_method: CMA-ES
 
 # pre_time is the amount of time simulated to get to steady state
 # TODO this is not important if it is specified in the obs_data.json file
 # TODO I should remove it here and only specify in the obs_data.json file?
-pre_time: 20   
+pre_time: 20
 # sim_time is the amount of simulation time where the outputs are compared to ground truth
 # NOTE: If doing freq domain fitting make sure the simulation is periodic and the sim time is the period.
 sim_time: 2
@@ -32,46 +31,61 @@ sim_time: 2
 # and set the pre_time and sim_time accordingly.
 
 # it is recommended that users create their own CA_user directory to store input resources and output generated model files. e.g.
-# resources_dir: /home/farg967/Documents/git_projects/CA_user/3compartment/resources
-# generated_models_dir: /home/farg967/Documents/git_projects/CA_user/3compartment/generated_models
+# resources_dir: /home/farg967/Documents/temp/test_for_phlynx_cvs/resources
+# generated_models_dir: /home/farg967/Documents/temp/CA_temp/generated_models
 # param_id_output_dir: /home/farg967/Documents/git_projects/CA_user/3compartment/param_id_output
+# external_modules_dir: /home/farg967/Documents/temp/test_for_phlynx_cvs/module_config
+
 
 # This is for cpp generation
 # cpp_generated_models_dir: /home/farg967/software/venous_system/lucas_model/fvm
-cpp_generated_models_dir: /home/farg967/Documents/git_projects/circulatory_autogen/generated_models/3compartment/
+cpp_generated_models_dir: 
+  /home/farg967/Documents/git_projects/circulatory_autogen/generated_models/3compartment/
 # This is for cpp_coupling
 couple_to_1d: false
 cpp_1d_model_config_path: 
   /home/farg967/software/venous_system/lucas_model/aortic_bif_coupling/run_dir/input1d.dat
 
 # Output time step (sampling) 
-dt: 0.01 # This should be smaller than all of the dt in your obs_data.json file. 
+dt: 0.01 # This should be smaller than all of the dt in your obs_data.json file.
+
+# solver options are: CVODE_myokit (uses Myokit, default), CVODE_opencor (uses OpenCOR), RK4_cpp (RK4 in cpp), or for Python models: solve_ivp
+solver: CVODE_myokit
 # These are inputs to solver_properties of the solver
 solver_info:
   # Maximum time step for solver
   MaximumStep: 0.0001
   MaximumNumberOfSteps: 5000
+  # method: RK45 # any method for solve_ivp
 
+# param_id_obs_path needs to be an absolute path.
 # This for 3compartment
 param_id_obs_path: /home/farg967/Documents/git_projects/circulatory_autogen/resources/3compartment_obs_data.json
+# param_id_obs_path: /home/farg967/Documents/git_projects/circulatory_autogen/resources/3compartment_obs_data.json
+# param_id_obs_path: 
+#   /home/farg967/Documents/git_projects/circulatory_autogen/resources/SN_simple_obs_data.json
 # param_id_obs_path: /hpc/bghi639/Software/circulatory_autogen/resources/simple_physiological_nonlinear_visco_obs_data.json
 
 #_______ sensitivity analysis inputs __________
 do_sensitivity: false
 
-#______ genetic algorithm inputs ___________
-ga_options:
-  cost_type: MSE # This should be defined for each entry in the
-                 # obs_data.json file instead. Currently if there is no cost_type entry in the
-                 # obs_data.json entry, it will be set to this entry
-  # maximum number of calls to the forward function during one run of the param_id_method
-  num_calls_to_function: 50000
-  cost_convergence: 0.001
+#______ optimiser options (for all optimisers) ___________
+optimiser_options:
+  # Common options (shared across optimisers):
+  num_calls_to_function: 2000  # maximum function evaluations (default: 10000)
+  cost_convergence: 0.001        # convergence tolerance (default: 0.0001)
+  max_patience: 10              # max patience for convergence (default: 10)
+  cost_type: MSE                # cost function type
+  # CMA-ES specific options:
+  # sigma0: 0.1    # optional, initial standard deviation (default: 0.2 * mean(param_range))
+  # Note: Initial parameter values (x0) are automatically loaded from {file_prefix}_parameters.csv
 
-debug_ga_options:
-  cost_type: MSE
+#______ debug optimiser options (used when DEBUG is True) ___________
+debug_optimiser_options:
   num_calls_to_function: 30 # TODO change back to 30 for tests
   cost_convergence: 0.001
+  cost_type: MSE
+  # Note: When DEBUG is True, debug_optimiser_options overrides optimiser_options
 
 #______ mcmc inputs ___________
 do_mcmc: false
@@ -87,5 +101,16 @@ debug_mcmc_options:
   num_walkers: 40
   cost_type: MSE
   cost_convergence: 0.001
+
+sa_options:
+  method: sobol
+  sample_type: saltelli
+  num_samples: 256 # this is multiplied by (2M + 2) to get the actual number of samples (M is the number of parameters).
+    # output_dir: /non/default/path
+
+# identifiability analysis
+do_ia: false
+ia_options:
+  method: Laplace # profile_likelihood
 
 plot_predictions: true

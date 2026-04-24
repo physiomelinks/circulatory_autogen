@@ -15,6 +15,10 @@
         <variable name="v" public_interface="in" units="m3_per_s"/>
         <variable name="P" private_interface="in" public_interface="out" units="J_per_m3"/>
     </component>
+    <component name="constant_pressure_generator_type">
+        <variable name="t" public_interface="in" units="second"/>
+        <variable name="P" private_interface="in" public_interface="out" units="J_per_m3"/>
+    </component>
     <component name="fourier_flow_8_BC_type">
         <variable name="t" public_interface="in" units="second"/>
         <variable name="P" public_interface="in" units="J_per_m3"/>
@@ -378,6 +382,210 @@
                     <ci>v_7</ci>
                     <ci>v_8</ci>
                 </apply>
+            </apply>
+        </math>
+    </component>
+    <component name="lung_Vol_generator_type">
+        <variable name="t" public_interface="in" units="second"/>
+        <variable name="phi_lung" public_interface="in" units="radian"/>
+        <variable name="T_lung_0" public_interface="in" units="second"/>
+        <variable name="T_lung" units="second"/>
+        <variable name="q_lung_max" public_interface="in" units="m3"/>
+        <variable name="q_lung_amp" units="m3"/>
+        <variable name="q_lung_baseline" public_interface="in" units="m3"/>
+        <variable name="t_start_T_lung" public_interface="in" units="second"/>
+        <variable name="t_end_T_lung" public_interface="in" units="second"/>
+        <variable name="T_lung_multiplier" public_interface="in" units="dim"/>
+        <variable name="q_lung_max_multiplier" public_interface="in" units="dim"/>
+        <variable name="t_start_q_lung_amp" public_interface="in" units="second"/>
+        <variable name="t_end_q_lung_amp" public_interface="in" units="second"/>
+        <!-- input: must be coupled or use a sin input-->
+        <variable name="q_lung_V" public_interface="out" units="m3"/>
+        <variable name="q_b" public_interface="out" units="m3"/>
+        <!-- outputs-->
+        <variable name="omega_lung" units="per_s"/>
+        <!-- equations-->
+        <!--==================        Simulation protocol         ==============-->
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <ci>T_lung</ci>
+                <piecewise>
+                    <piece>
+                        <ci>T_lung_0</ci>
+                        <apply>
+                            <or/>
+                            <apply>
+                                <lt/>
+                                <ci>t</ci>
+                                <ci>t_start_T_lung</ci>
+                            </apply>
+                            <apply>
+                                <gt/>
+                                <ci>t</ci>
+                                <ci>t_end_T_lung</ci>
+                            </apply>
+                        </apply>
+                    </piece>
+                    <otherwise>
+                        <apply>
+                            <times/>
+                            <ci>T_lung_0</ci>
+                            <ci>T_lung_multiplier</ci>
+                        </apply>
+                    </otherwise>
+                </piecewise>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>q_lung_amp</ci>
+                <piecewise>
+                    <piece>
+                        <ci>q_lung_max</ci>
+                        <apply>
+                            <or/>
+                            <apply>
+                                <lt/>
+                                <ci>t</ci>
+                                <ci>t_start_q_lung_amp</ci>
+                            </apply>
+                            <apply>
+                                <gt/>
+                                <ci>t</ci>
+                                <ci>t_end_q_lung_amp</ci>
+                            </apply>
+                        </apply>
+                    </piece>
+                    <otherwise>
+                        <apply>
+                            <times/>
+                            <ci>q_lung_max</ci>
+                            <ci>q_lung_max_multiplier</ci>
+                        </apply>
+                    </otherwise>
+                </piecewise>
+            </apply>
+            <!--====================================================================-->
+            <apply>
+                <eq/>
+                <ci>omega_lung</ci>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <cn cellml:units="dim">2</cn>
+                        <pi/>
+                    </apply>
+                    <ci>T_lung</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>q_lung_V</ci>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <ci>q_lung_amp</ci>
+                        <apply>
+                            <sin/>
+                            <apply>
+                                <plus/>
+                                <apply>
+                                    <times/>
+                                    <ci>omega_lung</ci>
+                                    <ci>t</ci>
+                                </apply>
+                                <ci>phi_lung</ci>
+                            </apply>
+                        </apply>
+                    </apply>
+                    <ci>q_lung_baseline</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>q_b</ci>
+                <ci>q_lung_baseline</ci>
+            </apply>
+        </math>
+    </component>
+    <component name="CO2_O2_generator_type">
+        <variable name="t" public_interface="in" units="second"/>
+        <variable name="C_CO2_multiplier" public_interface="in" units="dim"/>
+        <variable name="t_start_C_CO2" public_interface="in" units="second"/>
+        <variable name="t_end_C_CO2" public_interface="in" units="second"/>
+        <variable name="C_O2_multiplier" public_interface="in" units="dim"/>
+        <variable name="t_start_C_O2" public_interface="in" units="second"/>
+        <variable name="t_end_C_O2" public_interface="in" units="second"/>
+        <variable name="C_CO2_a0" public_interface="in" units="dimensionless"/>
+        <variable name="C_O2_a0" public_interface="in" units="dimensionless"/>
+        <variable name="C_O2_a" public_interface="out" units="dimensionless"/>
+        <variable name="C_CO2_a" public_interface="out" units="dimensionless"/>
+        <variable name="dot_C_CO2_a" public_interface="out" units="per_s"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <ci>C_O2_a</ci>
+                <piecewise>
+                    <piece>
+                        <ci>C_O2_a0</ci>
+                        <apply>
+                            <or/>
+                            <apply>
+                                <lt/>
+                                <ci>t</ci>
+                                <ci>t_start_C_O2</ci>
+                            </apply>
+                            <apply>
+                                <gt/>
+                                <ci>t</ci>
+                                <ci>t_end_C_O2</ci>
+                            </apply>
+                        </apply>
+                    </piece>
+                    <otherwise>
+                        <apply>
+                            <times/>
+                            <ci>C_O2_a0</ci>
+                            <ci>C_O2_multiplier</ci>
+                        </apply>
+                    </otherwise>
+                </piecewise>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>C_CO2_a</ci>
+                <piecewise>
+                    <piece>
+                        <ci>C_CO2_a0</ci>
+                        <apply>
+                            <or/>
+                            <apply>
+                                <lt/>
+                                <ci>t</ci>
+                                <ci>t_start_C_CO2</ci>
+                            </apply>
+                            <apply>
+                                <gt/>
+                                <ci>t</ci>
+                                <ci>t_end_C_CO2</ci>
+                            </apply>
+                        </apply>
+                    </piece>
+                    <otherwise>
+                        <apply>
+                            <times/>
+                            <ci>C_CO2_a0</ci>
+                            <ci>C_CO2_multiplier</ci>
+                        </apply>
+                    </otherwise>
+                </piecewise>
+            </apply>
+            <apply>
+                <eq/>
+                <ci>dot_C_CO2_a</ci>
+                <cn cellml:units="per_s">0</cn>
             </apply>
         </math>
     </component>
