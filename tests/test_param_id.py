@@ -629,96 +629,6 @@ def test_param_id_simple_physiological_succeeds(base_user_inputs, resources_dir,
     mpi_comm.Barrier()
 
 
-@pytest.mark.skipif(
-    os.environ.get("GITHUB_ACTIONS") == "true",
-    reason="compare_optimisers is heavy; run locally only (skipped on GitHub Actions)",
-)
-@pytest.mark.integration
-@pytest.mark.slow
-@pytest.mark.mpi
-@pytest.mark.compare_optimisers
-def test_compare_optimisers(base_user_inputs, resources_dir, temp_output_dir, mpi_comm, request):
-    """
-    Test comparison of different optimization methods (GA vs CMA-ES).
-    
-    This test runs both genetic_algorithm and CMA-ES optimizers and compares
-    their results to ensure they produce similar parameter values.
-    
-    Args:
-        base_user_inputs: Base user inputs configuration fixture
-        resources_dir: Resources directory fixture
-        temp_output_dir: Temporary output directory fixture
-        mpi_comm: MPI communicator fixture
-    """
-    rank = mpi_comm.Get_rank()
-    
-    # Import here to avoid issues if nevergrad is not available
-    from tests.compare_optimisers import OptimiserComparison
-    
-    # Setup configuration
-    config = base_user_inputs.copy()
-    config.update({
-        'file_prefix': '3compartment',
-        'input_param_file': '3compartment_parameters.csv',
-        'model_type': 'cellml_only',
-        'solver': 'CVODE',
-        'pre_time': 20,
-        'sim_time': 2,
-        'dt': 0.01,
-        'DEBUG': True,
-        'do_mcmc': False,
-        'plot_predictions': False,
-        'do_ia': False,
-        'solver_info': {
-            'MaximumStep': 0.001,
-            'MaximumNumberOfSteps': 5000,
-        },
-        'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
-        'param_id_output_dir': temp_output_dir,
-        'debug_optimiser_options': {'num_calls_to_function': 10000, 'max_patience': 500},
-    })
-
-    _ensure_cellml_model_generated(config, mpi_comm)
-
-    # Create comparison object with full number of calls for testing
-    comparison = OptimiserComparison(config, methods=['genetic_algorithm', 'CMA-ES'], num_calls=10000)
-    
-    # Run both methods
-    ga_success = comparison.run_method('genetic_algorithm')
-    cmaes_success = comparison.run_method('CMA-ES')
-    
-    # Verify both completed successfully
-    if rank == 0:
-        assert ga_success, "Genetic algorithm optimization should succeed"
-        assert cmaes_success, "CMA-ES optimization should succeed"
-        
-        # Verify results are loaded
-        assert 'genetic_algorithm' in comparison.results, "GA results should be available"
-        assert 'CMA-ES' in comparison.results, "CMA-ES results should be available"
-        
-        # Verify costs are finite and reasonable
-        ga_cost = comparison.results['genetic_algorithm']['cost']
-        cmaes_cost = comparison.results['CMA-ES']['cost']
-        
-        assert np.isfinite(ga_cost), f"GA cost should be finite, got {ga_cost}"
-        assert np.isfinite(cmaes_cost), f"CMA-ES cost should be finite, got {cmaes_cost}"
-        assert ga_cost >= 0, f"GA cost should be non-negative, got {ga_cost}"
-        assert cmaes_cost >= 0, f"CMA-ES cost should be non-negative, got {cmaes_cost}"
-        
-        # Compare results (costs should be within reasonable range)
-        cost_diff = abs(cmaes_cost - ga_cost)
-        max_cost = max(abs(ga_cost), abs(cmaes_cost), 1e-10)
-        cost_rel_diff = cost_diff / max_cost * 100
-        
-        # For test purposes, we just verify both methods complete
-        # Actual similarity depends on convergence, which may vary
-        print(f"\nGA cost: {ga_cost:.6e}")
-        print(f"CMA-ES cost: {cmaes_cost:.6e}")
-        print(f"Cost difference: {cost_diff:.6e} ({cost_rel_diff:.2f}%)")
-    
-    mpi_comm.Barrier()
-
-
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.mpi
@@ -1356,3 +1266,93 @@ def test_param_id_lotka_volterra_sp_minimize_numpy_only_operation(base_user_inpu
         f"Expected error message to mention {undefined_operation}, or 'KeyError'. "
         f"Got: {error_msg}"
     )
+
+
+@pytest.mark.skipif(
+    os.environ.get("GITHUB_ACTIONS") == "true",
+    reason="compare_optimisers is heavy; run locally only (skipped on GitHub Actions)",
+)
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.mpi
+@pytest.mark.compare_optimisers
+def test_compare_optimisers(base_user_inputs, resources_dir, temp_output_dir, mpi_comm, request):
+    """
+    Test comparison of different optimization methods (GA vs CMA-ES).
+    
+    This test runs both genetic_algorithm and CMA-ES optimizers and compares
+    their results to ensure they produce similar parameter values.
+    
+    Args:
+        base_user_inputs: Base user inputs configuration fixture
+        resources_dir: Resources directory fixture
+        temp_output_dir: Temporary output directory fixture
+        mpi_comm: MPI communicator fixture
+    """
+    rank = mpi_comm.Get_rank()
+    
+    # Import here to avoid issues if nevergrad is not available
+    from tests.compare_optimisers import OptimiserComparison
+    
+    # Setup configuration
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': '3compartment',
+        'input_param_file': '3compartment_parameters.csv',
+        'model_type': 'cellml_only',
+        'solver': 'CVODE',
+        'pre_time': 20,
+        'sim_time': 2,
+        'dt': 0.01,
+        'DEBUG': True,
+        'do_mcmc': False,
+        'plot_predictions': False,
+        'do_ia': False,
+        'solver_info': {
+            'MaximumStep': 0.001,
+            'MaximumNumberOfSteps': 5000,
+        },
+        'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
+        'param_id_output_dir': temp_output_dir,
+        'debug_optimiser_options': {'num_calls_to_function': 10000, 'max_patience': 500},
+    })
+
+    _ensure_cellml_model_generated(config, mpi_comm)
+
+    # Create comparison object with full number of calls for testing
+    comparison = OptimiserComparison(config, methods=['genetic_algorithm', 'CMA-ES'], num_calls=10000)
+    
+    # Run both methods
+    ga_success = comparison.run_method('genetic_algorithm')
+    cmaes_success = comparison.run_method('CMA-ES')
+    
+    # Verify both completed successfully
+    if rank == 0:
+        assert ga_success, "Genetic algorithm optimization should succeed"
+        assert cmaes_success, "CMA-ES optimization should succeed"
+        
+        # Verify results are loaded
+        assert 'genetic_algorithm' in comparison.results, "GA results should be available"
+        assert 'CMA-ES' in comparison.results, "CMA-ES results should be available"
+        
+        # Verify costs are finite and reasonable
+        ga_cost = comparison.results['genetic_algorithm']['cost']
+        cmaes_cost = comparison.results['CMA-ES']['cost']
+        
+        assert np.isfinite(ga_cost), f"GA cost should be finite, got {ga_cost}"
+        assert np.isfinite(cmaes_cost), f"CMA-ES cost should be finite, got {cmaes_cost}"
+        assert ga_cost >= 0, f"GA cost should be non-negative, got {ga_cost}"
+        assert cmaes_cost >= 0, f"CMA-ES cost should be non-negative, got {cmaes_cost}"
+        
+        # Compare results (costs should be within reasonable range)
+        cost_diff = abs(cmaes_cost - ga_cost)
+        max_cost = max(abs(ga_cost), abs(cmaes_cost), 1e-10)
+        cost_rel_diff = cost_diff / max_cost * 100
+        
+        # For test purposes, we just verify both methods complete
+        # Actual similarity depends on convergence, which may vary
+        print(f"\nGA cost: {ga_cost:.6e}")
+        print(f"CMA-ES cost: {cmaes_cost:.6e}")
+        print(f"Cost difference: {cost_diff:.6e} ({cost_rel_diff:.2f}%)")
+    
+    mpi_comm.Barrier()

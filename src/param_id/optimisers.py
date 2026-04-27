@@ -794,61 +794,83 @@ class SciPyMinimizeOptimiser(Optimiser):
         comm = self.comm
         rank = self.rank
 
+        best_param_vals = np.empty(self.num_params, dtype=float)
+        best_gradient_vals = np.empty(self.num_params, dtype=float)
+        best_cost_array = np.empty(1, dtype=float)
+        init_gradient = np.empty(self.num_params, dtype=float)
+
+        error_flag = False
+        exc_info = None
+        
         if rank == 0:
-            init_param_vals = np.asarray(self.param_id_obj.param_init)
+            try:
+                init_param_vals = np.asarray(self.param_id_obj.param_init)
 
-            param_mins_norm = self.param_norm_obj.normalise(self.param_mins)
-            param_maxs_norm = self.param_norm_obj.normalise(self.param_maxs)
-            param_ranges_norm = list(zip(param_mins_norm, param_maxs_norm))
+                param_mins_norm = self.param_norm_obj.normalise(self.param_mins)
+                param_maxs_norm = self.param_norm_obj.normalise(self.param_maxs)
+                param_ranges_norm = list(zip(param_mins_norm, param_maxs_norm))
 
-            cost_fun = lambda p: float(self.param_id_obj.get_cost_ca(self.param_norm_obj.unnormalise(p)))
-            
-            init_cost = self.param_id_obj.get_cost_ca(init_param_vals)
-            print(f'Cost before gradient-based optimisation: {init_cost}')
-            init_gradient = self.param_id_obj.get_jac_cost_ca(init_param_vals)
-
-            if (self.do_ad):
-                def gradient_func(q):
-                    p = self.param_norm_obj.unnormalise(q)
-                    dJ_dp = self.param_id_obj.get_jac_cost_ca(p)
-                    return dJ_dp * self.param_ranges
-            else:
-                gradient_func = lambda q: approx_fprime(q, cost_fun, epsilon=1e-4)
-
-            def stop_if_converge(x):
-                best_cost = self.param_id_obj.get_cost_ca(self.param_norm_obj.unnormalise(x))
-                if best_cost <= self.optimiser_options['cost_convergence']:
-                    raise StopIteration(f"Cost converged: {best_cost}")
+                cost_fun = lambda p: float(self.param_id_obj.get_cost_ca(self.param_norm_obj.unnormalise(p)))
                 
-            try: 
-                res = minimize(cost_fun, self.param_norm_obj.normalise(init_param_vals), method='L-BFGS-B', 
-                        bounds=param_ranges_norm, jac=gradient_func, callback=stop_if_converge)
-            except StopIteration as e:
-                print(str(e))
+                init_cost = self.param_id_obj.get_cost_ca(init_param_vals)
+                print(f'Cost before gradient-based optimisation: {init_cost}')
+                init_gradient = self.param_id_obj.get_jac_cost_ca(init_param_vals)
 
-            best_param_vals = self.param_norm_obj.unnormalise(res.x)
-            best_gradient_vals = res.jac/self.param_ranges
-            best_cost_new = res.fun
-        else:
-            init_gradient = None
-            best_param_vals = None
-            best_gradient_vals = None
-            best_cost_new = None
+                if (self.do_ad):
+                    def gradient_func(q):
+                        p = self.param_norm_obj.unnormalise(q)
+                        dJ_dp = self.param_id_obj.get_jac_cost_ca(p)
+                        return dJ_dp * self.param_ranges
+                else:
+                    gradient_func = lambda q: approx_fprime(q, cost_fun, epsilon=1e-4)
 
-        best_param_vals = comm.bcast(best_param_vals, root=0)
-        best_gradient_vals = comm.bcast(best_gradient_vals, root=0)
-        best_cost_new = comm.bcast(best_cost_new, root=0)
-        init_gradient = comm.bcast(init_gradient, root=0)
+                def stop_if_converge(x):
+                    best_cost = self.param_id_obj.get_cost_ca(self.param_norm_obj.unnormalise(x))
+                    if best_cost <= self.optimiser_options['cost_convergence']:
+                        raise StopIteration(f"Cost converged: {best_cost}")
+                    
+                try: 
+                    res = minimize(cost_fun, self.param_norm_obj.normalise(init_param_vals), method='L-BFGS-B', 
+                            bounds=param_ranges_norm, jac=gradient_func, callback=stop_if_converge)
+                except StopIteration as e:
+                    print(str(e))
+
+                best_param_vals = self.param_norm_obj.unnormalise(res.x)
+                best_gradient_vals = res.jac/self.param_ranges
+                best_cost_array = np.array([res.fun])
+
+            except (Exception) as e:
+                error_flag = True
+                exc_info = {
+                    "type": type(e).__name__,
+                    "message": str(e)
+                }
+
+        # Broadcast error flag to all ranks
+        error_flag_buf = np.array([error_flag], dtype=bool)
+        comm.Bcast(error_flag_buf, root=0)
+        exc_info = comm.bcast(exc_info, root=0)
+        
+        if error_flag_buf[0]:
+            raise RuntimeError(
+                f"Exception occurred!\n"
+                f"{exc_info['type']}: {exc_info['message']}"
+            )
+
+        comm.Bcast(best_param_vals, root=0)
+        comm.Bcast(best_gradient_vals, root=0)
+        comm.Bcast(best_cost_array, root=0)
+        comm.Bcast(init_gradient, root=0)
 
         self.param_id_obj.set_best_param_vals(best_param_vals)
 
-        self.best_cost = best_cost_new
+        self.best_cost = best_cost_array[0]
         self.best_param_vals = best_param_vals
         self.init_gradient = init_gradient
         self.best_gradient = best_gradient_vals
 
         if rank == 0:
-            costs = np.array([float(init_cost), float(best_cost_new)])
+            costs = np.array([float(init_cost), float(best_cost_array[0])])
             with open(os.path.join(self.output_dir, 'best_cost_history.csv'), 'a') as file:
                 np.savetxt(file, costs.reshape(-1, 1), fmt='%1.9f', delimiter=',')
 
