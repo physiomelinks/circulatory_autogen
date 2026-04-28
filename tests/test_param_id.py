@@ -726,3 +726,84 @@ def test_compare_optimisers(base_user_inputs, resources_dir, temp_output_dir, te
     
     mpi_comm.Barrier()
 
+
+@pytest.mark.integration  
+@pytest.mark.slow  
+@pytest.mark.mpi  
+def test_laplace_approximation_hessian_validation(base_user_inputs, resources_dir, temp_output_dir, mpi_comm):  
+    """  
+    Test Laplace approximation Hessian against analytical solution for simple ODE model.  
+      
+    Args:  
+        base_user_inputs: Base user inputs configuration fixture  
+        resources_dir: Resources directory fixture  
+        temp_output_dir: Temporary output directory fixture  
+        mpi_comm: MPI communicator fixture  
+    """  
+    rank = mpi_comm.Get_rank()  
+      
+    # Setup configuration for your simple ODE model  
+    config = base_user_inputs.copy()  
+    config.update({  
+        'file_prefix': 'Simple_ODE_Benchmark',  # Replace with your model name  
+        'input_param_file': 'Simple_ODE_Benchmark_parameters.csv',  # Replace with your CSV  
+        'model_type': 'cellml_only',  
+        'solver': 'CVODE_myokit',  
+        'param_id_method': 'genetic_algorithm',  
+        'pre_time': 0.5,  
+        'sim_time': 10.0,  
+        'dt': 0.1,  
+        'DEBUG': False,  
+        'do_mcmc': False,  
+        'plot_predictions': False,  
+        'do_ia': True,  
+        'ia_options': {'method': 'Laplace', 'sub_method': 'numdifftools_finite_diff'},  # Options: numdifftools_finite_diff, AD, parabola_fit
+        "params_for_id_file": "Simple_ODE_Benchmark_params_for_id.csv",  # Specify which params to identify
+        'param_id_obs_path': os.path.join(resources_dir, 'Simple_ODE_Benchmark_obs_data.json'),  
+        'param_id_output_dir': temp_output_dir,  
+        'debug_optimiser_options': {'num_calls_to_function': 20},  
+    })  
+      
+    # Generate model and run parameter identification (rank 0 only for setup)  
+    if rank == 0:  
+        generate_with_new_architecture(False, config)  
+    mpi_comm.Barrier()  
+      
+    run_param_id(config)  
+      
+    # Validate Hessian (rank 0 only)  
+    if rank == 0:  
+        # Load the saved covariance matrix  
+        parent_dir = os.path.dirname(temp_output_dir)  
+        covariance_file = os.path.join(parent_dir, f'{config["file_prefix"]}_laplace_covariance.npy')  
+        mean_file = os.path.join(parent_dir, f'{config["file_prefix"]}_laplace_mean.npy')  
+        
+        assert os.path.exists(covariance_file), f"Covariance file should exist: {covariance_file}"  
+        assert os.path.exists(mean_file), f"Mean file should exist: {mean_file}"  
+        
+        # Load numerical results  
+        numerical_covariance = np.load(covariance_file)  
+        numerical_mean = np.load(mean_file)
+
+        # check if covariance matrix is positive definite (all eigenvalues > 0)
+        eigenvalues = np.linalg.eigvals(numerical_covariance)
+        assert np.all(eigenvalues > 0), f"Covariance matrix should be positive definite, but has eigenvalues: {eigenvalues}"
+        
+        # Load your analytical solution  
+        analytical_covariance = np.array([[0.01, 0], [0, 0.09]])  # Your function here  
+        
+        # Compare covariance matrices  
+        assert numerical_covariance.shape == analytical_covariance.shape, \
+            f"Covariance shapes mismatch: numerical {numerical_covariance.shape} vs analytical {analytical_covariance.shape}"  
+        
+        np.testing.assert_allclose(  
+            numerical_covariance, analytical_covariance,  
+            rtol=1e-2, atol=1e-3,  
+            err_msg="Numerical and analytical covariance matrices should be close"  
+        )  
+        
+        print("Covariance matrix validation passed!")  
+      
+    mpi_comm.Barrier()
+
+
