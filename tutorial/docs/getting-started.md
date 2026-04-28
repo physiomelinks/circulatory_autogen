@@ -88,8 +88,8 @@ Dependencies are listed in `pyproject.toml`. Installing the package in editable 
 
 The authoritative lists are `[project.dependencies]` and `[project.optional-dependencies]` in `pyproject.toml`. Highlights:
 
-- Autogeneration: `pandas`, `pyyaml`, `rdflib`, `libcellml`, etc.
-- Parameter identification: `mpi4py`, `nevergrad` (CMA-ES), `emcee`, and related scientific stack.
+- Autogeneration: `pandas`, `pyyaml`, `rdflib`, `libcellml`, `pint`, etc.
+- Parameter identification: `mpi4py`, `nevergrad` (CMA-ES), `emcee`, `numdifftools`, and related scientific stack.
 - Sensitivity analysis: `SALib`, `seaborn`.
 - **Development**: the `dev` extra (e.g. `pytest`, `pytest-mpi`).
 

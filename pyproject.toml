@@ -46,6 +46,8 @@ dependencies = [
     "schwimmbad>=0.3.0",
     "myokit>=1.39.1",
     "nevergrad>=1.0.12",
+    "numdifftools>=0.9.0",
+    "pint>=0.18",
 ]
 
 [project.optional-dependencies]
