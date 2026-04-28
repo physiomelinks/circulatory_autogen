@@ -2402,7 +2402,6 @@ class CVS0DCellMLGenerator(object):
         """
         # Remove '_module' suffix if present
         if component_name.endswith('_module'):
-            print(f">>>>>>> {component_name}")
             component_name = component_name[:-7]
         # Try to find the row in vessels_df
         df = self.model.vessels_df
