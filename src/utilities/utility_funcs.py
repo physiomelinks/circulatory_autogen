@@ -7,6 +7,11 @@ import utilities.libcellml_utilities as libcellml_utils
 from parsers.PrimitiveParsers import YamlFileParser
 import re
 import pint
+import numdifftools as nd
+import scipy.stats.qmc as qmc
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.linear_model import LinearRegression
+import pandas as pd
 
 class Normalise_class:
     def __init__(self, param_mins, param_maxs, mod_first_variables=0, modVal = 1.0):
@@ -248,12 +253,14 @@ def change_parameter_values_and_save(cellml_file, parameter_names, parameter_val
     with open(target, 'w', encoding='utf-8') as f:
         f.write(new_content)
 
-def calculate_hessian(param_id, AD=False):    
+def calculate_hessian(param_id, AD=False, method="parabola_fit"):    
     """
     Calculate the Hessian matrix of the cost function at the best parameter values.
 
     Args:
       param_id: An instance of the parameter identification class with a get_cost_from_params method and best_param_vals attribute.
+      AD: If True, use automatic differentiation to compute the Hessian.
+      method: The method to use for computing the Hessian if AD is False. Options are "numdofftools", "parabola_fit", or "finite_difference".
 
     Returns:
       Hessian matrix as a 2D numpy array.
@@ -274,7 +281,14 @@ def calculate_hessian(param_id, AD=False):
 
     else:
         # calculate hessian of the lnlikelihood with finite differences
-        hessian = hessian_fd(param_id.get_lnlikelihood_lnprior_from_params, best_params, eps=epsilon)
+        if method == 'numdofftools':
+            hessian = nd.Hessian(param_id.get_lnlikelihood_lnprior_from_params)(best_params)
+        elif method == 'parabola_fit':
+            samples, losses = latin_hypercube_sample_and_evaluate(param_id.get_lnlikelihood_lnprior_from_params, 
+                                                              best_params, radius=0.001, n_samples=30)
+            hessian = extract_hessian_from_samples(samples, losses, param_id.output_dir)
+        else:
+            hessian = hessian_fd(param_id.get_lnlikelihood_lnprior_from_params, best_params, eps=epsilon)
     return hessian
 
         
@@ -342,8 +356,93 @@ def get_default_inp_data_dict(file_prefix, input_param_file, resources_dir):
     inp_data_dict = yaml_parser.parse_user_inputs_file(inp_data_dict, obs_path_needed=False, do_generation_with_fit_parameters=False)
     return inp_data_dict
 
+def latin_hypercube_sample_and_evaluate(fun, center, radius, n_samples, param_norm_obj=None):
+    """
+        Generate Latin Hypercube samples around a center point, run the function, and return samples and results.
+        The range for each parameter is set as:
+            scan_min = center[i] - radius * center[i]
+            scan_max = center[i] + radius * center[i]
+        Args:
+            fun: Callable that takes a parameter vector and returns a scalar result.
+            center (np.ndarray): Center point for sampling.
+            radius (float): Fractional range for each parameter (param_range_factor).
+            n_samples (int): Number of samples.
+            param_norm_obj (optional): If provided, used to clip samples to parameter bounds.
+        Returns:
+            samples (np.ndarray), results (np.ndarray)
+    """
+    center = np.asarray(center)
+    n_params = center.shape[0]
+    scan_mins = center - radius * center
+    scan_maxs = center + radius * center
 
+    sampler = qmc.LatinHypercube(d=n_params)
+    lhs_unit = sampler.random(n=n_samples)
+    samples = scan_mins + lhs_unit * (scan_maxs - scan_mins)
 
+    # Optionally clip to parameter bounds if param_norm_obj is present
+    if param_norm_obj is not None:
+        param_mins = np.asarray(param_norm_obj.unnormalise(np.zeros(n_params)))
+        param_maxs = np.asarray(param_norm_obj.unnormalise(np.ones(n_params)))
+        samples = np.clip(samples, param_mins, param_maxs)
+    results = []
+    for i, p in enumerate(samples):
+        res = fun(p)
+        print(f"Sample {i+1}/{n_samples}: params={p}, result={res}")
+        results.append(res)
+    results = np.array(results)
+    
+    return samples, results
+
+def extract_hessian_from_samples(samples, losses, plot_dir=None):
+    """
+    Fits a 2nd degree polynomial to (samples, losses) 
+    and returns the reconstructed Hessian matrix.
+    """
+
+    # # Save samples and losses to CSV
+    # df = pd.DataFrame(samples, columns=[f"x{i}" for i in range(samples.shape[1])])
+    # df["loss"] = losses
+    # if plot_dir is not None:
+    #     os.makedirs(plot_dir, exist_ok=True)
+    #     csv_path = os.path.join(plot_dir, "samples_and_losses.csv")
+    # else:
+    #     csv_path = "samples_and_losses.csv"
+    # df.to_csv(csv_path, index=False)
+
+    # 1. Prepare Polynomial Features (degree=2)
+    # This generates [1, x1, x2, x1^2, x1*x2, x2^2]
+    poly = PolynomialFeatures(degree=2)
+    X_poly = poly.fit_transform(samples)
+    
+    # 2. Fit the linear regression: Loss = Coefs * X_poly
+    model = LinearRegression(fit_intercept=False)
+    model.fit(X_poly, losses)
+    coeffs = model.coef_
+    
+    # 3. Map coefficients back to a Hessian Matrix
+    n_params = samples.shape[1]
+    hessian = np.zeros((n_params, n_params))
+    
+    # Get the feature names to map coefficients correctly
+    feature_names = poly.get_feature_names_out()
+    
+    # Map the coefficients back to the Hessian matrix
+    for val, name in zip(coeffs, feature_names):
+        # Quadratic terms (e.g., 'x0^2')
+        if '^2' in name:
+            idx = int(name.split('x')[1].split('^')[0])
+            hessian[idx, idx] = val * 2  # Factor of 2 from Taylor Expansion
+        
+        # Interaction terms (e.g., 'x0 x1')
+        elif ' ' in name:
+            parts = name.split(' ')
+            idx1 = int(parts[0].replace('x', ''))
+            idx2 = int(parts[1].replace('x', ''))
+            hessian[idx1, idx2] = val
+            hessian[idx2, idx1] = val # Maintain symmetry
+            
+    return hessian
 
 
 
