@@ -1,6 +1,8 @@
 import numpy as np
 import math
 import os,sys
+
+from yaml import warnings
 import libcellml
 import utilities.libcellml_helper_funcs as cellml
 import utilities.libcellml_utilities as libcellml_utils
@@ -275,20 +277,20 @@ def calculate_hessian(param_id, AD=False, method="parabola_fit"):
     hessian = np.zeros((n_params, n_params))
     epsilon = 1e-7  # Small perturbation for finite difference
 
-    if AD:
-        # If using automatic differentiation, implement accordingly
-        raise NotImplementedError("Automatic differentiation not implemented yet.")
-
-    else:
-        # calculate hessian of the lnlikelihood with finite differences
-        if method == 'numdofftools':
-            hessian = nd.Hessian(param_id.get_lnlikelihood_lnprior_from_params)(best_params)
-        elif method == 'parabola_fit':
-            samples, losses = latin_hypercube_sample_and_evaluate(param_id.get_lnlikelihood_lnprior_from_params, 
+    # calculate hessian of the lnlikelihood with finite differences
+    if method == 'numdifftools_finite_diff':
+        hessian = nd.Hessian(param_id.get_lnlikelihood_lnprior_from_params)(best_params)
+    elif method == 'parabola_fit':
+        samples, losses = latin_hypercube_sample_and_evaluate(param_id.get_lnlikelihood_lnprior_from_params, 
                                                               best_params, radius=0.001, n_samples=30)
-            hessian = extract_hessian_from_samples(samples, losses, param_id.output_dir)
-        else:
-            hessian = hessian_fd(param_id.get_lnlikelihood_lnprior_from_params, best_params, eps=epsilon)
+        hessian = extract_hessian_from_samples(samples, losses, param_id.output_dir)
+    elif method == 'AD':
+        raise NotImplementedError("Automatic differentiation not implemented yet.")
+    else:
+
+        print(f"Unknown method '{method}' for Hessian calculation. Defaulting to finite difference.")
+        hessian = hessian_fd(param_id.get_lnlikelihood_lnprior_from_params, best_params, eps=epsilon)
+    
     return hessian
 
         

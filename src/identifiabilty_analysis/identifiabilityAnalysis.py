@@ -112,12 +112,12 @@ class IdentifiabilityAnalysis():
     def run_laplace_approximation(self, ia_options):
 
         # TODO fix hessian calculation now that it uses lnlikelihood + lnprior
-        Hessian = calculate_hessian(self.param_id)
+        Hessian = calculate_hessian(self.param_id, method=ia_options.get('sub_method', 'parabola_fit'))
         
         # Handle singular or near-singular matrices by using pseudo-inverse
         # and adding small regularization if needed
         try:
-            covariance_matrix = np.linalg.inv(Hessian)
+            covariance_matrix = np.linalg.inv(-1 * Hessian)
         except np.linalg.LinAlgError:
             # If matrix is singular, try pseudo-inverse with regularization
             print("Warning: Hessian is singular or near-singular. Using pseudo-inverse with regularization.")
