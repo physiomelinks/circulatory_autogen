@@ -1077,7 +1077,7 @@ class CVS0DCellMLGenerator(object):
 
         # Flush all accumulated variable pairs — one <connection> block per component pair.
         for (comp1, comp2), (vars_1, vars_2) in pending_mappings.items():
-            self.__write_mapping(wf, comp1, comp2, vars_1, vars_2)
+            self.__write_mapping(wf, comp1, comp2, vars_1, vars_2, check_unit=True)
 
         return entrance_general_ports_connected
 
@@ -2240,12 +2240,10 @@ class CVS0DCellMLGenerator(object):
         # print(input(f"mapping {inp_name} to {out_name}"))
 
         if check_unit:
-            print(input(f'Checking units for mapping {inp_name} -> {out_name}'))
             for inp_var, out_var in zip(inp_vars_list, out_vars_list):
                 if inp_var and out_var:
                     inp_unit = self.get_variable_unit_from_component(inp_name, inp_var)
                     out_unit = self.get_variable_unit_from_component(out_name, out_var)
-                    # print(input(f'Checking units for mapping {inp_name} -> {out_name}: {inp_var} ({inp_unit}) -> {out_var} ({out_unit})'))
                     if inp_unit != out_unit:
                         try:
                             scale = self.unit_converter.get_scale_factor(inp_unit, out_unit)
@@ -2366,6 +2364,7 @@ class CVS0DCellMLGenerator(object):
 
     def __write_unit_converter(self, wf):
         for comp_str in self.unit_converter_components:
+            print(f"Writing unit converter component:\n{comp_str}\n")
             wf.write(comp_str + "\n")
 
     def create_unit_converter_component(self, name, input_var, output_var, scale_factor, units_in, units_out):
@@ -2376,14 +2375,14 @@ class CVS0DCellMLGenerator(object):
         return f"""
         <component name="{name}">
             <variable name="{input_var}" units="{units_in}" public_interface="in"/>
-            <variable name="{output_var}" units="{out_unit}" public_interface="out"/>
+            <variable name="{output_var}" units="{units_out}" public_interface="out"/>
             <math xmlns="http://www.w3.org/1998/Math/MathML">
                 <apply>
                     <eq/>
                     <ci>{output_var}</ci>
                     <apply>
                         <times/>
-                        <cn>{scale_factor}</cn>
+                        <cn cellml:units="dimensionless">{scale_factor}</cn>
                         <ci>{input_var}</ci>
                     </apply>
                 </apply>
