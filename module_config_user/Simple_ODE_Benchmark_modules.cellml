@@ -1,0 +1,56 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<model xmlns="http://www.cellml.org/cellml/1.1#" xmlns:math="http://www.w3.org/1998/Math/MathML" name="Benchmark" xmlns:cellml="http://www.cellml.org/cellml/1.1#">
+    <component name="Simple_ODE_Benchmark_main_type">
+        <variable name="t" units="dimensionless" public_interface="in" />
+        <variable name="x_init" units="dimensionless" public_interface="in" />
+        <variable name="y_init" units="dimensionless" public_interface="in" />
+        <variable name="p" units="dimensionless" public_interface="in" />
+        <variable name="q" units="dimensionless" public_interface="in" />
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq />
+                <apply>
+                    <diff />
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>x</ci>
+                </apply>
+                <apply>
+                    <plus />
+                    <apply>
+                        <times />
+                        <apply>
+                            <minus />
+                            <cn cellml:units="dimensionless">1</cn>
+                        </apply>
+                        <ci>x</ci>
+                    </apply>
+                    <ci>p</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq />
+                <apply>
+                    <diff />
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>y</ci>
+                </apply>
+                <apply>
+                    <plus />
+                    <apply>
+                        <times />
+                        <apply>
+                            <minus />
+                            <cn cellml:units="dimensionless">3</cn>
+                        </apply>
+                        <ci>y</ci>
+                    </apply>
+                    <ci>q</ci>
+                </apply>
+            </apply>
+        </math>
+    <variable name="x" units="dimensionless" public_interface="out" initial_value="x_init" /><variable name="y" units="dimensionless" public_interface="out" initial_value="y_init" /></component>
+</model>
