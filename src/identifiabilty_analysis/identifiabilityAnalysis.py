@@ -7,7 +7,10 @@ import os
 import sys
 from sys import exit
 from matplotlib.ticker import FuncFormatter
-import corner
+try:
+    import corner
+except ImportError:
+    corner = None
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '../utilities'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '../solver_wrappers'))
@@ -67,6 +70,23 @@ class IdentifiabilityAnalysis():
         self.comm = MPI.COMM_WORLD
         self.rank = self.comm.Get_rank()
 
+    @classmethod
+    def init_from_dict(cls, inp_data_dict, param_id):
+        """
+        Build IdentifiabilityAnalysis from an inp_data_dict (e.g. user_inputs) plus
+        the inner param_id object from CVS0DParamID.param_id.
+        """
+        arg_options = [
+            "model_path", "model_type", "DEBUG", "param_id_output_dir", "resources_dir",
+        ]
+        kwargs = {key: inp_data_dict[key] for key in arg_options if key in inp_data_dict}
+        if "file_name_prefix" not in kwargs and "file_prefix" in inp_data_dict:
+            kwargs["file_name_prefix"] = inp_data_dict["file_prefix"]
+        if "file_name_prefix" not in kwargs:
+            kwargs["file_name_prefix"] = "no_name"
+        kwargs["param_id"] = param_id
+        return cls(**kwargs)
+
     def set_best_param_vals(self, best_param_vals):
         self.param_id.set_best_param_vals(best_param_vals)
         self.best_param_vals = best_param_vals
@@ -92,12 +112,12 @@ class IdentifiabilityAnalysis():
     def run_laplace_approximation(self, ia_options):
 
         # TODO fix hessian calculation now that it uses lnlikelihood + lnprior
-        Hessian = calculate_hessian(self.param_id)
+        Hessian = calculate_hessian(self.param_id, method=ia_options.get('sub_method', 'parabola_fit'))
         
         # Handle singular or near-singular matrices by using pseudo-inverse
         # and adding small regularization if needed
         try:
-            covariance_matrix = np.linalg.inv(Hessian)
+            covariance_matrix = np.linalg.inv(-1 * Hessian)
         except np.linalg.LinAlgError:
             # If matrix is singular, try pseudo-inverse with regularization
             print("Warning: Hessian is singular or near-singular. Using pseudo-inverse with regularization.")
@@ -128,6 +148,8 @@ class IdentifiabilityAnalysis():
           parameter_names: List of parameter names corresponding to the best_param_vals.
           output_dir: Directory to save the plots.
         """
+        if corner is None:
+            raise ImportError("corner is required to plot Laplace results.")
           
 
         if self.covariance_matrix_Laplace is None or self.mean_Lapalace is None:

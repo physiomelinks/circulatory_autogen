@@ -32,20 +32,33 @@ user_inputs_yaml = os.path.join(user_inputs_dir, 'user_inputs.yaml')
 # Define file_prefix, vessel_name and data_reference for the model
 # Specify the time variable and component for which you want to generate files
 
-file_prefix = "smc_hernandez"
-vessel_name = "smc_hernandez"
-data_reference = "hernandezhernandez2024"
-time_variable = "t"
-component_name = "smc_hernandez"
-input_model = "/home/farg967/Documents/git_projects/cellml_models/Gonzalo_H_SMC/smc_hernandez_one_module.cellml"
-output_dir = "/home/farg967/Documents/git_projects/CA_user/smc_hernandez"
-
-# Parse arguments
 def _parse_args():
     parser = argparse.ArgumentParser(prog="convert_cellml_for_ca")
-    parser.add_argument("-i", "--input-model", help="import CellML model to convert.", required=True)
-    parser.add_argument("-o", "--output-dir", help="output directory for converted model data.", required=True)
+    parser.add_argument("-i", "--input-model", help="import CellML model to convert.",
+                        default="/home/farg967/Documents/git_projects/cellml_models/Gonzalo_H_SMC/smc_hernandez_one_module.cellml")
+    parser.add_argument("-o", "--output-dir", help="output directory for converted model data.",
+                        default="/home/farg967/Documents/git_projects/CA_user/smc_hernandez")
+    parser.add_argument("--file-prefix", help="file prefix for generated files.",
+                        default="smc_hernandez")
+    parser.add_argument("--vessel-name", help="vessel name.",
+                        default="smc_hernandez")
+    parser.add_argument("--data-reference", help="data reference string.",
+                        default="hernandezhernandez2024")
+    parser.add_argument("--time-variable", help="name of the time variable.",
+                        default="t")
+    parser.add_argument("--component-name", help="component name to use.",
+                        default="smc_hernandez")
     return parser.parse_args()
+
+# Set variables from args or defaults
+args = _parse_args()
+file_prefix = args.file_prefix
+vessel_name = args.vessel_name
+data_reference = args.data_reference
+time_variable = args.time_variable
+component_name = args.component_name
+input_model = args.input_model
+output_dir = args.output_dir
 
 # Print errors
 def _print_errors(l):

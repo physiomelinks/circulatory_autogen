@@ -11,7 +11,7 @@ Run all tests using the provided script:
 ```
 
 This script automatically:
-1. Sources the OpenCOR Python shell path from `user_run_files/opencor_pythonshell_path.sh`
+1. Sources the OpenCOR Python shell path from `user_run_files/python_path.sh`
 2. Installs pytest and related packages if needed
 3. Runs pytest with the OpenCOR Python interpreter
 
@@ -57,17 +57,17 @@ If you prefer to run pytest manually, you can:
 
 1. Source the OpenCOR Python path:
    ```bash
-   source user_run_files/opencor_pythonshell_path.sh
+   source user_run_files/python_path.sh
    ```
 
 2. Install pytest in the OpenCOR Python environment:
    ```bash
-   ${opencor_pythonshell_path} -m pip install pytest pytest-cov pytest-mpi pytest-xdist
+   ${python_path} -m pip install pytest pytest-cov pytest-mpi pytest-xdist
    ```
 
 3. Run pytest:
    ```bash
-   ${opencor_pythonshell_path} -m pytest
+   ${python_path} -m pytest
    ```
 
 ## Test Structure

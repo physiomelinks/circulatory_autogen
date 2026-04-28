@@ -55,6 +55,11 @@ def run_param_id(inp_data_dict=None):
                             optimiser_options=optimiser_options, DEBUG=DEBUG,
                             param_id_output_dir=param_id_output_dir, resources_dir=resources_dir)
 
+    if inp_data_dict.get('obs_data_dict') is not None:
+        param_id.set_ground_truth_data(inp_data_dict['obs_data_dict'])
+    if inp_data_dict.get('params_for_id') is not None:
+        param_id.set_params_for_id(inp_data_dict['params_for_id'])
+
     if rank == 0:
         if os.path.exists(os.path.join(param_id.output_dir, 'param_names_to_remove.csv')):
             os.remove(os.path.join(param_id.output_dir, 'param_names_to_remove.csv'))

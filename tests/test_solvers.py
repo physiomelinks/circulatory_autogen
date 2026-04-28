@@ -6,10 +6,10 @@ work correctly for various models.
 
 """
 import os
+import re
 import sys
 import pytest
 import numpy as np
-import tempfile
 import shutil
 
 # Ensure src is on sys.path
@@ -22,6 +22,51 @@ from solver_wrappers import get_simulation_helper
 from generators.PythonGenerator import PythonGenerator
 from scripts.script_generate_with_new_architecture import generate_with_new_architecture
 import xml.etree.ElementTree as ET
+
+_MODEL_INPUT_FILES = {
+    "3compartment": "3compartment_parameters.csv",
+    "SN_simple": "SN_simple_parameters.csv",
+    "test_init_states": "test_init_states_parameters.csv",
+}
+
+
+@pytest.fixture(scope="function")
+def generated_cellml_model_factory(base_user_inputs, resources_dir, temp_generated_models_dir):
+    """Generate a CellML model into an isolated per-test directory."""
+
+    def _generate(file_prefix, input_param_file=None, solver="CVODE"):
+        source_dir = os.path.join(_TEST_ROOT, "generated_models", file_prefix)
+        target_dir = os.path.join(temp_generated_models_dir, file_prefix)
+        source_cellml = os.path.join(source_dir, f"{file_prefix}.cellml")
+        target_cellml = os.path.join(target_dir, f"{file_prefix}.cellml")
+
+        if os.path.exists(source_cellml):
+            shutil.copytree(source_dir, target_dir, dirs_exist_ok=True)
+            return target_cellml
+
+        input_param_file = input_param_file or _MODEL_INPUT_FILES[file_prefix]
+        config = base_user_inputs.copy()
+        config.update({
+            "DEBUG": True,
+            "file_prefix": file_prefix,
+            "input_param_file": input_param_file,
+            "model_type": "cellml_only",
+            "solver": solver,
+            "pre_time": 0.0,
+            "sim_time": 0.1,
+            "dt": 0.01,
+            "plot_predictions": False,
+            "do_mcmc": False,
+            "resources_dir": resources_dir,
+            "generated_models_dir": temp_generated_models_dir,
+            "solver_info": {"MaximumStep": 0.001, "MaximumNumberOfSteps": 5000},
+        })
+        ok = generate_with_new_architecture(False, config)
+        assert ok, f"Autogeneration failed for {file_prefix}"
+        assert os.path.exists(target_cellml), f"Generated model not found: {target_cellml}"
+        return target_cellml
+
+    return _generate
 
 
 def _normalize_variable_name(var_name, solver_type):
@@ -342,7 +387,7 @@ def _compare_solver_results(ref_helper, ref_name, other_helper, other_name, tole
     }
 
 
-def test_init_states_myokit(base_user_inputs, resources_dir):
+def test_init_states_myokit(generated_cellml_model_factory):
     """
     Repro for computed-constant initial state values via Myokit wrapper.
 
@@ -351,28 +396,11 @@ def test_init_states_myokit(base_user_inputs, resources_dir):
     - Module defines x0 = 2 * a and x has initial_value=\"x0\"
     - Expect x(0) == 6 and y(0) == 1
     """
-    # Prefer using the autogeneration step output; only generate here if missing.
-    cellml_path = os.path.join(_TEST_ROOT, "generated_models", "test_init_states", "test_init_states.cellml")
-    if not os.path.exists(cellml_path):
-        cfg = base_user_inputs.copy()
-        cfg.update({
-            "DEBUG": True,
-            "file_prefix": "test_init_states",
-            "input_param_file": "test_init_states_parameters.csv",
-            "model_type": "cellml_only",
-            "solver": "CVODE_myokit",
-            "pre_time": 0.0,
-            "sim_time": 0.1,
-            "dt": 0.01,
-            "plot_predictions": False,
-            "do_mcmc": False,
-            "solver_info": {"MaximumStep": 0.001, "MaximumNumberOfSteps": 5000},
-            # Make sure generation uses the repo resources dir (contains our vessel array)
-            "resources_dir": resources_dir,
-        })
-        ok = generate_with_new_architecture(False, cfg)
-        assert ok, "Autogeneration failed for test_init_states"
-        assert os.path.exists(cellml_path), f"Generated model not found after generation: {cellml_path}"
+    cellml_path = generated_cellml_model_factory(
+        "test_init_states",
+        input_param_file="test_init_states_parameters.csv",
+        solver="CVODE_myokit",
+    )
 
     dt = 0.01
     sim_time = 0.1
@@ -422,15 +450,12 @@ def _run_and_get_initial_state(helper, state_name):
         marks=pytest.mark.need_opencor,
     ),
 ])
-def test_set_param_vals_updates_state_init_for_cellml_solvers(solver, model_type, solver_info):
+def test_set_param_vals_updates_state_init_for_cellml_solvers(solver, model_type, solver_info, generated_cellml_model_factory):
     """
     For 3compartment, q_lv initial state is controlled by q_lv_init.
     Verify set_param_vals + reset_states updates state initialization consistently.
     """
-    model_path = "generated_models/3compartment/3compartment.cellml"
-    full_model_path = os.path.join(_TEST_ROOT, model_path)
-    if not os.path.exists(full_model_path):
-        pytest.fail(f"Model file not found: {full_model_path}")
+    model_path = generated_cellml_model_factory("3compartment", "3compartment_parameters.csv", solver=solver)
 
     dt = 0.01
     sim_time = 0.1
@@ -483,13 +508,11 @@ def test_set_param_vals_updates_state_init_for_cellml_solvers(solver, model_type
 
 @pytest.mark.integration
 @pytest.mark.solver
-def test_set_param_vals_updates_state_init_for_python_solver(temp_model_dir):
+def test_set_param_vals_updates_state_init_for_python_solver(temp_model_dir, generated_cellml_model_factory):
     """
     Same state-init parameter update check for Python solver helper.
     """
-    cellml_path = os.path.join(_TEST_ROOT, "generated_models/3compartment/3compartment.cellml")
-    if not os.path.exists(cellml_path):
-        pytest.fail(f"Model file not found: {cellml_path}")
+    cellml_path = generated_cellml_model_factory("3compartment", "3compartment_parameters.csv")
 
     py_generator = PythonGenerator(
         cellml_path,
@@ -538,17 +561,19 @@ def test_set_param_vals_updates_state_init_for_python_solver(temp_model_dir):
 
 
 @pytest.fixture(scope="function")
-def temp_model_dir():
-    """Create a temporary directory for generated Python models."""
-    os.makedirs(os.path.join(os.path.dirname(__file__), 'tmp'), exist_ok=True)
-    temp_dir = tempfile.mkdtemp(dir=os.path.join(os.path.dirname(__file__), 'tmp'))
-    yield temp_dir
-    shutil.rmtree(temp_dir, ignore_errors=True)
+def temp_model_dir(request):
+    """Create a persistent per-test directory for generated Python models."""
+    output_root = os.path.join(os.path.dirname(__file__), "test_outputs")
+    safe_nodeid = re.sub(r"[^A-Za-z0-9_.-]+", "_", request.node.nodeid).strip("._") or "unnamed_test"
+    model_dir = os.path.join(output_root, safe_nodeid, "python_models")
+    shutil.rmtree(model_dir, ignore_errors=True)
+    os.makedirs(model_dir, exist_ok=True)
+    return model_dir
 
 
-@pytest.mark.parametrize("model_name,model_path", [
-    ("3compartment", "generated_models/3compartment/3compartment.cellml"),
-    ("SN_simple", "generated_models/SN_simple/SN_simple.cellml"),
+@pytest.mark.parametrize("model_name,input_param_file", [
+    ("3compartment", "3compartment_parameters.csv"),
+    ("SN_simple", "SN_simple_parameters.csv"),
 ])
 @pytest.mark.parametrize("solver,solver_info", [
     pytest.param(
@@ -558,7 +583,7 @@ def temp_model_dir():
     ),  # OpenCOR
     ("CVODE_myokit", {"MaximumStep": 0.0001}),  # Myokit
 ])
-def test_cellml_solvers(model_name, model_path, solver, solver_info):
+def test_cellml_solvers(model_name, input_param_file, solver, solver_info, generated_cellml_model_factory):
     """
     Test CellML solvers (OpenCOR CVODE_opencor and Myokit CVODE).
     
@@ -570,9 +595,7 @@ def test_cellml_solvers(model_name, model_path, solver, solver_info):
     """
     # Skip OpenCOR tests if OpenCOR is not available
     # Check if model file exists
-    full_model_path = os.path.join(_TEST_ROOT, model_path)
-    if not os.path.exists(full_model_path):
-        pytest.fail(f"Model file not found: {full_model_path}")
+    full_model_path = generated_cellml_model_factory(model_name, input_param_file, solver=solver)
     
     # Simulation parameters
     dt = 0.01
@@ -581,7 +604,7 @@ def test_cellml_solvers(model_name, model_path, solver, solver_info):
 
     try:
         helper = get_simulation_helper(
-            model_path=model_path,
+            model_path=full_model_path,
             model_type="cellml_only",
             solver=solver,
             dt=dt,
@@ -615,11 +638,11 @@ def test_cellml_solvers(model_name, model_path, solver, solver_info):
             assert len(var_result) > 0, f"Empty result for variable {var_name}"
 
 
-@pytest.mark.parametrize("model_name,model_path", [
-    ("3compartment", "generated_models/3compartment/3compartment.cellml"),
-    ("SN_simple", "generated_models/SN_simple/SN_simple.cellml"),
+@pytest.mark.parametrize("model_name,input_param_file", [
+    ("3compartment", "3compartment_parameters.csv"),
+    ("SN_simple", "SN_simple_parameters.csv"),
 ])
-def test_python_BDF_solver(model_name, model_path, temp_model_dir):
+def test_python_BDF_solver(model_name, input_param_file, temp_model_dir, generated_cellml_model_factory):
     """
     Test Python BDF solver on Python models generated from CellML.
     
@@ -629,9 +652,7 @@ def test_python_BDF_solver(model_name, model_path, temp_model_dir):
         temp_model_dir: Temporary directory for generated Python models
     """
     # Check if model file exists
-    full_model_path = os.path.join(_TEST_ROOT, model_path)
-    if not os.path.exists(full_model_path):
-        pytest.fail(f"Model file not found: {full_model_path}")
+    full_model_path = generated_cellml_model_factory(model_name, input_param_file)
     
     # Generate Python model from CellML
     try:
@@ -678,7 +699,7 @@ def test_python_BDF_solver(model_name, model_path, temp_model_dir):
             assert len(var_result) > 0, f"Empty result for variable {var_name}"
 
 
-def _run_all_solvers_and_compare(model_name, model_path, temp_model_dir, dt=0.01, sim_time=1.0, 
+def _run_all_solvers_and_compare(model_name, full_model_path_cellml, temp_model_dir, dt=0.01, sim_time=1.0, 
                                   pre_time=0.0, tolerance=0.01):
     """
     Helper function to run all solvers on a model and compare outputs.
@@ -695,11 +716,6 @@ def _run_all_solvers_and_compare(model_name, model_path, temp_model_dir, dt=0.01
     Returns:
         Tuple of (results dict, comparison_results dict, helpers dict)
     """
-    full_model_path_cellml = os.path.join(_TEST_ROOT, model_path)
-    
-    if not os.path.exists(full_model_path_cellml):
-        pytest.fail(f"Model file not found: {full_model_path_cellml}")
-    
     solver_info = {"MaximumStep": 0.0001}
     helpers = {}
     results = {}
@@ -793,11 +809,11 @@ def _run_all_solvers_and_compare(model_name, model_path, temp_model_dir, dt=0.01
 @pytest.mark.integration
 @pytest.mark.slow
 # .cellml gets converted to .py for python solvers
-@pytest.mark.parametrize("model_name,model_path,sim_time", [
-    ("3compartment", "generated_models/3compartment/3compartment.cellml", 0.1),
-    ("SN_simple", "generated_models/SN_simple/SN_simple.cellml", 1.0),
+@pytest.mark.parametrize("model_name,input_param_file,sim_time", [
+    ("3compartment", "3compartment_parameters.csv", 0.1),
+    ("SN_simple", "SN_simple_parameters.csv", 1.0),
 ])
-def test_all_solvers(model_name, model_path, sim_time, temp_model_dir):
+def test_all_solvers(model_name, input_param_file, sim_time, temp_model_dir, generated_cellml_model_factory):
     """
     Integration test: Run all solvers on a model and compare outputs.
     
@@ -814,8 +830,9 @@ def test_all_solvers(model_name, model_path, sim_time, temp_model_dir):
         sim_time: Simulation time (0.1s for 3compartment, 1.0s for SN_simple)
         temp_model_dir: Temporary directory for generated Python models
     """
+    cellml_path = generated_cellml_model_factory(model_name, input_param_file)
     results, comparison_results, helpers = _run_all_solvers_and_compare(
-        model_name, model_path, temp_model_dir, sim_time=sim_time, tolerance=0.01
+        model_name, cellml_path, temp_model_dir, sim_time=sim_time, tolerance=0.01
     )
     
     # Check initial states for 3compartment model

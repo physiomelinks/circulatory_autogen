@@ -1,0 +1,5 @@
+variable_name,units,value,data_reference
+x_init_benchmark,dimensionless,0,None
+y_init_benchmark,dimensionless,0,None
+p_benchmark,dimensionless,1,None
+q_benchmark,dimensionless,1,None
