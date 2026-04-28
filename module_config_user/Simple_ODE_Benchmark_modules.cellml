@@ -1,27 +1,27 @@
 <?xml version='1.0' encoding='UTF-8'?>
-<model xmlns="http://www.cellml.org/cellml/1.1#" xmlns:math="http://www.w3.org/1998/Math/MathML" name="Benchmark" xmlns:cellml="http://www.cellml.org/cellml/1.1#">
+<model name="Benchmark" xmlns="http://www.cellml.org/cellml/1.1#" xmlns:cellml="http://www.cellml.org/cellml/1.1#">
     <component name="Simple_ODE_Benchmark_main_type">
-        <variable name="t" units="dimensionless" public_interface="in" />
-        <variable name="x_init" units="dimensionless" public_interface="in" />
-        <variable name="y_init" units="dimensionless" public_interface="in" />
-        <variable name="p" units="dimensionless" public_interface="in" />
-        <variable name="q" units="dimensionless" public_interface="in" />
+        <variable name="t" public_interface="in" units="second"/>
+        <variable name="x_init" public_interface="in" units="dimensionless"/>
+        <variable name="y_init" public_interface="in" units="dimensionless"/>
+        <variable name="p" public_interface="in" units="dimensionless"/>
+        <variable name="q" public_interface="in" units="dimensionless"/>
         <math xmlns="http://www.w3.org/1998/Math/MathML">
             <apply>
-                <eq />
+                <eq/>
                 <apply>
-                    <diff />
+                    <diff/>
                     <bvar>
                         <ci>t</ci>
                     </bvar>
                     <ci>x</ci>
                 </apply>
                 <apply>
-                    <plus />
+                    <plus/>
                     <apply>
-                        <times />
+                        <times/>
                         <apply>
-                            <minus />
+                            <minus/>
                             <cn cellml:units="dimensionless">1</cn>
                         </apply>
                         <ci>x</ci>
@@ -30,20 +30,20 @@
                 </apply>
             </apply>
             <apply>
-                <eq />
+                <eq/>
                 <apply>
-                    <diff />
+                    <diff/>
                     <bvar>
                         <ci>t</ci>
                     </bvar>
                     <ci>y</ci>
                 </apply>
                 <apply>
-                    <plus />
+                    <plus/>
                     <apply>
-                        <times />
+                        <times/>
                         <apply>
-                            <minus />
+                            <minus/>
                             <cn cellml:units="dimensionless">3</cn>
                         </apply>
                         <ci>y</ci>
@@ -52,5 +52,7 @@
                 </apply>
             </apply>
         </math>
-    <variable name="x" units="dimensionless" public_interface="out" initial_value="x_init" /><variable name="y" units="dimensionless" public_interface="out" initial_value="y_init" /></component>
+        <variable initial_value="x_init" name="x" public_interface="out" units="dimensionless"/>
+        <variable initial_value="y_init" name="y" public_interface="out" units="dimensionless"/>
+    </component>
 </model>
