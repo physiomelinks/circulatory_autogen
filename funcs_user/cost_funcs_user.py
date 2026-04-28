@@ -27,7 +27,7 @@ def gaussian_MLE(output, desired_mean, std, weight):
     cost = np.power((output - desired_mean)/std, 2)*weight
     if hasattr(output, '__len__'):
         # if entry is a vector then turn the vector of costs for each data point into a average cost
-        cost = np.sum(cost)/len(output)
+        cost = 0.5 * np.sum(cost)/len(output)
     
     return cost
 

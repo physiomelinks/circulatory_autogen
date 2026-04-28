@@ -1643,7 +1643,8 @@ class OpencorParamID():
 
     def get_lnlikelihood_from_params(self, param_vals):
         cost = self.get_cost_from_params(param_vals)
-        lnlikelihood = -0.5*cost # TODO check this is correct for all multimodal distributions
+        # lnlikelihood = -0.5*cost # TODO check this is correct for all multimodal distributions
+        lnlikelihood = -cost # TODO check this is correct for all multimodal distributions
 
         return lnlikelihood
     
