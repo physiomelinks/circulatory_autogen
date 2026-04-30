@@ -1,4 +1,5 @@
 import numpy as np
+import casadi as ca
 import os
 import sys
 import sympy
@@ -10,10 +11,27 @@ use it as the cost.
 When making your own cost function make sure it works for scalars and vectors. Otherwise put an error message so that if it is used
 for the wrong data type it gets called out and stopped.
 """
+
+COST_FUNCS = {
+    "numpy": {},
+    "casadi": {}
+}
+
+def operation(mode="numpy"):
+    def wrapper(func):
+        if mode == "both":
+            COST_FUNCS["numpy"][func.__name__] = func
+            COST_FUNCS["casadi"][func.__name__] = func
+        else:
+            COST_FUNCS[mode][func.__name__] = func
+        return func
+    return wrapper
+
 def is_MLE(func):
     func.is_MLE = True
     return func
 
+@operation(mode="numpy")
 @is_MLE
 def gaussian_MLE(output, desired_mean, std, weight):
     # cost = np.sum(np.power(updated_weight_const_vec*(const -
@@ -31,12 +49,24 @@ def gaussian_MLE(output, desired_mean, std, weight):
     
     return cost
 
+@operation(mode="casadi")
+@is_MLE
+def gaussian_MLE(output, desired_mean, std, weight):
+    cost = ca.power((output - desired_mean)/std, 2)*weight
+    if hasattr(output, '__len__'):
+        # if entry is a vector then turn the vector of costs for each data point into a average cost
+        cost = ca.sum(cost)/len(output)
+    
+    return cost
+
 # TODO we need to create derivative functions for each cost with respect to the outputs so that we can pass 
 
+@operation(mode="both")
 def MSE(*args, **kwargs):
     # The mean squared error cost is the same as the 
     return gaussian_MLE(*args, **kwargs)
 
+@operation(mode="numpy")
 @is_MLE
 def multimodal_gaussian(output, prob_dist_params, weight):
     if hasattr(output, '__len__'):
@@ -96,6 +126,7 @@ def multimodal_gaussian(output, prob_dist_params, weight):
 
     return cost
 
+@operation(mode="numpy")
 def AE(output, desired_mean, std, weight):
     cost = np.abs((output - desired_mean)/std)*weight
     if hasattr(output, '__len__'):
@@ -103,25 +134,22 @@ def AE(output, desired_mean, std, weight):
         cost = np.sum(cost)/len(output)
 
 # decorator for cost combiners
+@operation(mode="numpy")
 def cost_combiner(func):
     func.cost_combiner = True
     return func
 
+@operation(mode="numpy")
 @is_MLE
 @cost_combiner
 def additive(costs):
     cost = np.sum(costs)
     return cost
 
+@operation(mode="numpy")
 @cost_combiner
 def norm_additive(costs):
     cost = np.sum(costs)/len(costs)
     return cost
 
-
-
-
-
-
-
-
+# TODO: Add other cost funcs for CasADi

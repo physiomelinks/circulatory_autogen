@@ -1,0 +1,22 @@
+[
+  {
+    "vessel_type": "Lotka_Volterra",
+    "BC_type": "nn",
+    "module_format": "cellml",
+    "module_file": "Lotka_Volterra_modules.cellml",
+    "module_type": "Lotka_Volterra",
+    "entrance_ports": [],
+    "exit_ports": [],
+    "general_ports": [],
+    "variables_and_units": [
+      ["x_init", "dimensionless", "access", "constant"],
+      ["y_init", "dimensionless", "access", "constant"],
+      ["alpha", "dimensionless", "access", "constant"],
+      ["beta", "dimensionless", "access", "constant"],
+      ["delta", "dimensionless", "access", "constant"],
+      ["gamma", "dimensionless", "access", "constant"],
+      ["x", "dimensionless", "access", "variable"],
+      ["y", "dimensionless", "access", "variable"]
+    ]
+  }
+]

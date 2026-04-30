@@ -67,6 +67,7 @@ def test_generate_cellml_model_succeeds(file_prefix, input_param_file, model_typ
         ('3compartment', '3compartment_parameters.csv', 'python', 'solve_ivp'),
         ('SN_simple', 'SN_simple_parameters.csv', 'python', 'solve_ivp'),
         ('pid_control', 'pid_control_parameters.csv', 'python', 'solve_ivp'),
+        ('Lotka_Volterra', 'Lotka_Volterra_parameters.csv', 'casadi_python', 'casadi_integrator'),
     ],
 )
 def test_generate_python_model_succeeds(file_prefix, input_param_file, model_type, solver, base_user_inputs, resources_dir):

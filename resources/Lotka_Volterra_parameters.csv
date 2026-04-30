@@ -1,0 +1,7 @@
+variable_name,units,value,data_reference
+x_init_Lotka_Volterra,dimensionless,20,None
+y_init_Lotka_Volterra,dimensionless,10,None
+alpha_Lotka_Volterra,dimensionless,5,None
+beta_Lotka_Volterra,dimensionless,0.2,None
+delta_Lotka_Volterra,dimensionless,0.2,None
+gamma_Lotka_Volterra,dimensionless,3,None

@@ -629,6 +629,645 @@ def test_param_id_simple_physiological_succeeds(base_user_inputs, resources_dir,
     mpi_comm.Barrier()
 
 
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.mpi
+def test_param_id_lotka_volterra_sp_minimize_succeeds(base_user_inputs, resources_dir, temp_output_dir, mpi_comm):
+    """
+    Test that parameter identification succeeds for Lotka-Volterra model
+    using CasADi Python model type with casadi_integrator solver.
+    
+    The Lotka-Volterra model is a simple predator-prey model with two states (x, y).
+    This test verifies that:
+    1. CasADi Python model can be generated successfully
+    2. Parameter identification runs without errors
+    3. Output files are created and contain valid values
+    
+    Args:
+        base_user_inputs: Base user inputs configuration fixture
+        resources_dir: Resources directory fixture
+        temp_output_dir: Temporary output directory fixture
+        mpi_comm: MPI communicator fixture
+    """
+    rank = mpi_comm.Get_rank()
+
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': 'Lotka_Volterra',
+        'input_param_file': 'Lotka_Volterra_parameters.csv',
+        'model_type': 'casadi_python',
+        'solver': 'casadi_integrator',
+        'param_id_method': 'sp_minimize',
+        'do_ad': True,
+        'pre_time': 0.0,
+        'sim_time': 0.3,
+        'dt': 0.01,
+        'DEBUG': True,
+        'do_mcmc': False,
+        'plot_predictions': False,
+        'do_ia': False,
+        'solver_info': {
+            'MaximumStep': 0.001,
+            'MaximumNumberOfSteps': 5000,
+            'method': 'cvodes',
+        },
+        'param_id_obs_path': os.path.join(resources_dir, 'Lotka_Volterra_obs_data.json'),
+        'param_id_output_dir': temp_output_dir,
+        'optimiser_options': {
+            'num_calls_to_function': 40,
+            'cost_convergence': 1e-3,
+        },
+    })
+
+    # Ensure CasADi Python model is generated on rank 0
+    if rank == 0:
+        success = generate_with_new_architecture(False, config)
+        assert success, "CasADi Python model generation should succeed for Lotka-Volterra"
+    
+    mpi_comm.Barrier()
+
+    # Run parameter identification
+    run_param_id(config)
+
+    # Verify output on rank 0
+    if rank == 0:
+        output_dir = os.path.join(
+            temp_output_dir,
+            f"{config['param_id_method']}_Lotka_Volterra_Lotka_Volterra_obs_data"
+        )
+        assert os.path.exists(output_dir), f"Output directory should exist: {output_dir}"
+    
+        # Verify cost file exists and contains valid value
+        cost_file = os.path.join(output_dir, 'best_cost.npy')
+        assert os.path.exists(cost_file), f"Cost file should exist: {cost_file}"
+        
+        cost = np.load(cost_file)
+        assert np.isfinite(cost), f"Cost should be finite, got {cost}"
+        assert cost >= 0, f"Cost should be non-negative, got {cost}"
+        
+        # Verify parameters file exists and contains valid values
+        params_file = os.path.join(output_dir, 'best_param_vals.npy')
+        assert os.path.exists(params_file), f"Parameters file should exist: {params_file}"
+        
+        params = np.load(params_file)
+        assert params.shape[0] > 0, "Should have at least one parameter"
+        assert np.all(np.isfinite(params)), "All parameter values should be finite"
+    
+    mpi_comm.Barrier()
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.mpi
+def test_param_id_lotka_volterra_sp_minimize_ad_vs_fd(base_user_inputs, resources_dir, temp_output_dir, mpi_comm):
+    """
+    Test parameter identification with sp_minimize comparing automatic differentiation (AD)
+    vs finite difference (FD) gradient approximation for the Lotka-Volterra model.
+    
+    This test verifies that:
+    1. Parameter ID runs successfully with both AD (do_ad=True) and FD (do_ad=False) gradient methods
+    2. The resulting costs are within 0.001 tolerance of each other
+    
+    Args:
+        base_user_inputs: Base user inputs configuration fixture
+        resources_dir: Resources directory fixture
+        temp_output_dir: Temporary output directory fixture
+        mpi_comm: MPI communicator fixture
+    """
+    rank = mpi_comm.Get_rank()
+    
+    # Configuration shared between AD and FD runs
+    base_config = base_user_inputs.copy()
+    base_config.update({
+        'file_prefix': 'Lotka_Volterra',
+        'input_param_file': 'Lotka_Volterra_parameters.csv',
+        'model_type': 'casadi_python',
+        'solver': 'casadi_integrator',
+        'param_id_method': 'sp_minimize',
+        'pre_time': 0.0,
+        'sim_time': 5.0,
+        'dt': 0.01,
+        'DEBUG': True,
+        'do_mcmc': False,
+        'plot_predictions': False,
+        'do_ia': False,
+        'solver_info': {
+            'MaximumStep': 0.001,
+            'MaximumNumberOfSteps': 5000,
+            'method': 'cvodes',
+        },
+        'param_id_obs_path': os.path.join(resources_dir, 'Lotka_Volterra_obs_data.json'),
+        'optimiser_options': {
+            'num_calls_to_function': 40,
+            'cost_convergence': 1e-3,
+        },
+    })
+    
+    # Generate model on rank 0 (needed for both runs)
+    if rank == 0:
+        success = generate_with_new_architecture(False, base_config)
+        assert success, "CasADi Python model generation should succeed"
+    
+    mpi_comm.Barrier()
+
+    # Run 1: sp_minimize with Automatic Differentiation (AD)
+    config_ad = base_config.copy()
+    config_ad.update({
+        'do_ad': True,
+        'param_id_output_dir': os.path.join(temp_output_dir, 'ad_run'),
+    })
+    
+    run_param_id(config_ad)
+    mpi_comm.Barrier()
+    
+    # Run 2: sp_minimize with Finite Difference (FD)
+    config_fd = base_config.copy()
+    config_fd.update({
+        'do_ad': False,
+        'param_id_output_dir': os.path.join(temp_output_dir, 'fd_run'),
+    })
+    
+    run_param_id(config_fd)
+    mpi_comm.Barrier()
+
+    # Compare results on rank 0
+    if rank == 0:
+        output_dir_ad = os.path.join(
+            config_ad['param_id_output_dir'],
+            'sp_minimize_Lotka_Volterra_Lotka_Volterra_obs_data'
+        )
+        output_dir_fd = os.path.join(
+            config_fd['param_id_output_dir'],
+            'sp_minimize_Lotka_Volterra_Lotka_Volterra_obs_data'
+        )
+        
+        # Verify both output directories exist
+        assert os.path.exists(output_dir_ad), f"AD output directory should exist: {output_dir_ad}"
+        assert os.path.exists(output_dir_fd), f"FD output directory should exist: {output_dir_fd}"
+        
+        # Load costs from both runs
+        cost_file_ad = os.path.join(output_dir_ad, 'best_cost.npy')
+        cost_file_fd = os.path.join(output_dir_fd, 'best_cost.npy')
+        
+        assert os.path.exists(cost_file_ad), f"AD cost file should exist: {cost_file_ad}"
+        assert os.path.exists(cost_file_fd), f"FD cost file should exist: {cost_file_fd}"
+        
+        cost_ad = float(np.load(cost_file_ad))
+        cost_fd = float(np.load(cost_file_fd))
+        
+        # Assert costs are finite
+        assert np.isfinite(cost_ad), f"AD cost should be finite, got {cost_ad}"
+        assert np.isfinite(cost_fd), f"FD cost should be finite, got {cost_fd}"
+        assert cost_ad >= 0, f"AD cost should be non-negative, got {cost_ad}"
+        assert cost_fd >= 0, f"FD cost should be non-negative, got {cost_fd}"
+        
+        # ASSERTION: Cost difference between AD and FD should be below tolerance
+        cost_diff = abs(cost_ad - cost_fd)
+        cost_tolerance = 0.001
+        assert cost_diff < cost_tolerance, (
+            f"Cost difference between AD and FD should be < {cost_tolerance}, "
+            f"but got difference of {cost_diff:.6e} (AD: {cost_ad:.6e}, FD: {cost_fd:.6e})"
+        )
+        
+        # Load parameters from both runs
+        params_file_ad = os.path.join(output_dir_ad, 'best_param_vals.npy')
+        params_file_fd = os.path.join(output_dir_fd, 'best_param_vals.npy')
+        
+        assert os.path.exists(params_file_ad), f"AD params file should exist: {params_file_ad}"
+        assert os.path.exists(params_file_fd), f"FD params file should exist: {params_file_fd}"
+        
+        params_ad = np.load(params_file_ad)
+        params_fd = np.load(params_file_fd)
+        
+        # Verify parameter counts match
+        assert len(params_ad) == len(params_fd), (
+            f"Parameter count mismatch: AD has {len(params_ad)}, FD has {len(params_fd)}"
+        )
+        
+        # Assert all parameters are finite
+        assert np.all(np.isfinite(params_ad)), "All AD parameter values should be finite"
+        assert np.all(np.isfinite(params_fd)), "All FD parameter values should be finite"
+        
+        print(f"\n=== Lotka-Volterra AD vs FD Comparison ===")
+        print(f"AD cost: {cost_ad:.6e}")
+        print(f"FD cost: {cost_fd:.6e}")
+        print(f"Cost difference: {cost_diff:.6e} (tolerance: {cost_tolerance})")
+        print(f"AD parameters: {params_ad}")
+        print(f"FD parameters: {params_fd}")
+    
+    mpi_comm.Barrier()
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.mpi
+def test_param_id_lotka_volterra_sp_minimize_gt_vs_calculated_params(base_user_inputs, resources_dir, temp_output_dir, mpi_comm):
+    """
+    Test parameter identification with sp_minimize comparing ground trith and calculated param values for 
+    the Lotka-Volterra mdoel.
+    
+    This test verifies that parameter identification can recover ground truth parameters
+    from noisy synthetic observations:
+    1. Simulates Lotka-Volterra model with known ground truth parameters
+    2. Adds Gaussian noise to simulated states
+    3. Creates synthetic observational data from noisy states
+    4. Runs parameter identification using sp_minimize with casadi_integrator
+    5. Verifies calibrated parameters match ground truth within a tolerance
+    
+    This is a parameter identification test that validates the parameter identification
+    algorithm can find the true parameters when given noisy observations of a trajectory
+    generated with those parameters.
+    
+    Args:
+        base_user_inputs: Base user inputs configuration fixture
+        resources_dir: Resources directory fixture
+        temp_output_dir: Temporary output directory fixture
+        mpi_comm: MPI communicator fixture
+    """
+    import json
+    from solver_wrappers import get_simulation_helper
+    
+    rank = mpi_comm.Get_rank()
+    
+    # Ground truth parameters for Lotka-Volterra model
+    # These parameters are used to generate synthetic data
+    gt_alpha = 5
+    gt_beta = 0.2
+    gt_delta = 0.2
+    gt_gamma = 3
+        
+    # Noise parameters
+    noise_std_dev = 0.5  # standard deviation of measurement noise
+    random_seed = 42
+    np.random.seed(random_seed)
+    
+    # Setup base configuration
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': 'Lotka_Volterra',
+        'input_param_file': 'Lotka_Volterra_parameters.csv',
+        'model_type': 'casadi_python',
+        'solver': 'casadi_integrator',
+        'param_id_method': 'sp_minimize',
+        'do_ad': True,
+        'pre_time': 0.0,
+        'sim_time': 5.0,
+        'dt': 1.0,
+        'DEBUG': True,
+        'do_mcmc': False,
+        'plot_predictions': False,
+        'do_ia': False,
+        'solver_info': {
+            'MaximumStep': 0.001,
+            'MaximumNumberOfSteps': 5000,
+            'method': 'cvodes',
+        },
+        'optimiser_options': {
+            'num_calls_to_function': 40,
+            'cost_convergence': 1e-3,
+        },
+    })
+
+    obs_data_path = None
+    
+    if rank == 0:
+        
+        # Generate CasADi Python model if it doesn't exist
+        model_output_dir = os.path.join(
+            os.path.dirname(__file__), 
+            '../generated_models/Lotka_Volterra'
+        )
+        model_path = os.path.join(model_output_dir, 'Lotka_Volterra.py')
+        
+        print("Generating CasADi Python model...")
+        success = generate_with_new_architecture(False, config)
+        assert success, "CasADi Python model generation should succeed for Lotka-Volterra"
+        
+        # ---- Step 1: Simulate with ground truth parameters ----
+        print("\nStep 1: Simulating with ground truth parameters...")
+        sim_helper = get_simulation_helper(
+            solver='casadi_integrator',
+            model_path=model_path,
+            model_type='casadi_python',
+            dt=config['dt'],
+            sim_time=config['sim_time'],
+            pre_time=config['pre_time'],
+            solver_info=config['solver_info'],
+        )
+        
+        # Set ground truth parameters
+        param_names = ['Lotka_Volterra/alpha', 'Lotka_Volterra/beta', 
+                      'Lotka_Volterra/delta', 'Lotka_Volterra/gamma']
+        param_vals = [gt_alpha, gt_beta, gt_delta, gt_gamma]
+        sim_helper.set_param_vals(param_names, param_vals)
+        
+        # Run simulation
+        success = sim_helper.run()
+        assert success, "Simulation with ground truth parameters should succeed"
+
+        gt_results = sim_helper.get_all_results_dict()
+
+        gt_x = np.array(gt_results['x']).flatten()
+        gt_y = np.array(gt_results['y']).flatten()
+        times = sim_helper.tSim.flatten()
+        
+        print(f"  x range: [{gt_x.min():.2f}, {gt_x.max():.2f}]")
+        print(f"  y range: [{gt_y.min():.2f}, {gt_y.max():.2f}]")
+        
+        # ---- Step 2: Add Gaussian noise to simulate measurement uncertainty ----
+        print(f"\nStep 2: Adding Gaussian noise (std={noise_std_dev})...")
+        np.random.seed(random_seed)
+        noisy_x = gt_x + np.random.normal(0, noise_std_dev, gt_x.shape)
+        noisy_y = gt_y + np.random.normal(0, noise_std_dev, gt_y.shape)
+        
+        print(f"  Noisy x range: [{noisy_x.min():.2f}, {noisy_x.max():.2f}]")
+        print(f"  Noisy y range: [{noisy_y.min():.2f}, {noisy_y.max():.2f}]")
+        
+        # ---- Step 3: Create synthetic observation data JSON ----
+        print("\nStep 3: Creating synthetic observation data...")
+
+        file_path = os.path.join(resources_dir, 'Lotka_Volterra_obs_data.json')
+
+        with open(file_path, 'r') as f:
+            obs_data = json.load(f)
+
+        for item in obs_data["data_items"]:
+            if item["variable"] == "Lotka_Volterra/x":
+                item["value"] = round(float(noisy_x.max()), 2) 
+            elif item["variable"] == "Lotka_Volterra/y":
+                item["value"] = round(float(noisy_y.max()), 2)
+
+        obs_data_path = os.path.join(temp_output_dir, 'Lotka_Volterra_obs_data.json')
+        with open(obs_data_path, 'w') as f:
+            json.dump(obs_data, f, indent=2)
+        
+        print(f"Created observational data and saved to {obs_data_path}")
+
+    obs_data_path = mpi_comm.bcast(obs_data_path, root=0)
+
+    mpi_comm.Barrier()
+    
+    # Update config with synthetic observational data path
+    config['param_id_obs_path'] = obs_data_path
+    config['param_id_output_dir'] = temp_output_dir
+    
+    # ---- Step 4: Run parameter identification ----
+    if rank == 0:
+        print("\nStep 4: Running parameter identification with sp_minimize...")
+
+    run_param_id(config)
+    mpi_comm.Barrier()
+    
+    # ---- Step 5: Compare ground truth and calibrated parameters ----
+    if rank == 0:
+        print("\nStep 5: Comparing ground truth and calibrated parameters...")
+        
+        output_dir = os.path.join(
+            temp_output_dir,
+            f"sp_minimize_Lotka_Volterra_Lotka_Volterra_obs_data"
+        )
+        
+        assert os.path.exists(output_dir), f"Output directory should exist: {output_dir}"
+        
+        # Load calibrated parameters
+        params_file = os.path.join(output_dir, 'best_param_vals.npy')
+        cost_file = os.path.join(output_dir, 'best_cost.npy')
+        
+        assert os.path.exists(params_file), f"Parameters file should exist: {params_file}"
+        assert os.path.exists(cost_file), f"Cost file should exist: {cost_file}"
+        
+        calibrated_params = np.load(params_file)
+        best_cost = float(np.load(cost_file))
+        
+        assert len(calibrated_params) >= 4, "Should have at least 4 parameters"
+        
+        cal_alpha = calibrated_params[0]
+        cal_beta = calibrated_params[1]
+        cal_delta = calibrated_params[2]
+        cal_gamma = calibrated_params[3]
+        
+        # Calculate relative errors
+        alpha_error = abs(cal_alpha - gt_alpha) / abs(gt_alpha) * 100
+        beta_error = abs(cal_beta - gt_beta) / abs(gt_beta) * 100
+        delta_error = abs(cal_delta - gt_delta) / abs(gt_delta) * 100
+        gamma_error = abs(cal_gamma - gt_gamma) / abs(gt_gamma) * 100
+        
+        print(f"{'Parameter':<15} {'Ground Truth':<20} {'Calibrated':<20} {'Relative Error (%)':<15}")
+        print("-" * 70)
+        print(f"{'alpha':<15} {gt_alpha:<20.6f} {cal_alpha:<20.6f} {alpha_error:<15.2f}")
+        print(f"{'beta':<15} {gt_beta:<20.6f} {cal_beta:<20.6f} {beta_error:<15.2f}")
+        print(f"{'delta':<15} {gt_delta:<20.6f} {cal_delta:<20.6f} {delta_error:<15.2f}")
+        print(f"{'gamma':<15} {gt_gamma:<20.6f} {cal_gamma:<20.6f} {gamma_error:<15.2f}")
+        
+        # Define threshold for parameter identification
+        param_recovery_threshold = 10.0  # percent
+        
+        # Assertions: calibrated parameters should be close to ground truth
+        assert alpha_error < param_recovery_threshold, (
+            f"Alpha parameter recovery error ({alpha_error:.2f}%) exceeds threshold ({param_recovery_threshold}%). "
+            f"Ground truth: {gt_alpha}, Calibrated: {cal_alpha}"
+        )
+        assert beta_error < param_recovery_threshold, (
+            f"Beta parameter recovery error ({beta_error:.2f}%) exceeds threshold ({param_recovery_threshold}%). "
+            f"Ground truth: {gt_beta}, Calibrated: {cal_beta}"
+        )
+        assert delta_error < param_recovery_threshold, (
+            f"Delta parameter recovery error ({delta_error:.2f}%) exceeds threshold ({param_recovery_threshold}%). "
+            f"Ground truth: {gt_delta}, Calibrated: {cal_delta}"
+        )
+        assert gamma_error < param_recovery_threshold, (
+            f"Gamma parameter recovery error ({gamma_error:.2f}%) exceeds threshold ({param_recovery_threshold}%). "
+            f"Ground truth: {gt_gamma}, Calibrated: {cal_gamma}"
+        )
+        
+        # Verify cost is finite and reasonable
+        assert np.isfinite(best_cost), f"Cost should be finite, got {best_cost}"
+        assert best_cost >= 0, f"Cost should be non-negative, got {best_cost}"
+        
+        print("\nAll parameter identification assertions passed!")
+    
+    mpi_comm.Barrier()
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.mpi
+def test_param_id_3compartment_sp_minimize_fails_with_conditionals(base_user_inputs, resources_dir, temp_output_dir, mpi_comm):
+    """
+    Test that parameter identification with sp_minimize using automatic differentiation (AD)
+    fails for 3compartment model due to conditional statements in the generated Python code.
+
+    The 3compartment model contains conditional statements (if-else blocks) that CasADi
+    cannot handle when computing symbolic derivatives. This test verifies that attempting
+    parameter identification with AD results in a clear, informative error message.
+
+    Expected behavior:
+    - Parameter ID should fail during optimization when CasADi tries to evaluate conditionals
+    - Error message should contain: "Cannot compute the truth value of a CasADi SXElem symbolic expression"
+    - This demonstrates the known limitation: CasADi AD works best with smooth, differentiable functions
+
+    Args:
+        base_user_inputs: Base user inputs configuration fixture
+        resources_dir: Resources directory fixture
+        temp_output_dir: Temporary output directory fixture
+        mpi_comm: MPI communicator fixture
+    """
+    rank = mpi_comm.Get_rank()
+
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': '3compartment',
+        'input_param_file': '3compartment_parameters.csv',
+        'model_type': 'casadi_python',
+        'solver': 'casadi_integrator',
+        'param_id_method': 'sp_minimize',
+        'do_ad': True,
+        'pre_time': 0.5,
+        'sim_time': 0.3,
+        'dt': 0.01,
+        'DEBUG': True,
+        'do_mcmc': False,
+        'plot_predictions': False,
+        'do_ia': False,
+        'solver_info': {
+            'MaximumStep': 0.001,
+            'MaximumNumberOfSteps': 5000,
+            'method': 'cvodes',
+        },
+        'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
+        'param_id_output_dir': temp_output_dir,
+        'optimiser_options': {
+            'num_calls_to_function': 40,
+            'cost_convergence': 1e-3,
+        },
+    })
+
+    # Generate CasADi Python model
+    if rank == 0:
+        success = generate_with_new_architecture(False, config)
+        assert success, "CasADi Python model generation should succeed"
+    mpi_comm.Barrier()
+
+    # Attempt parameter identification - this should fail due to conditionals
+    with pytest.raises(RuntimeError) as excinfo:
+        run_param_id(config)
+
+    # Verify the specific CasADi error message
+    error_msg = str(excinfo.value)
+    expected_error = "Cannot compute the truth value of a CasADi SXElem symbolic expression"
+
+    assert expected_error in error_msg, (
+        f"Expected CasADi error about truth value of symbolic expression. "
+        f"Got: {error_msg}"
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.mpi
+def test_param_id_lotka_volterra_sp_minimize_numpy_only_operation(base_user_inputs, resources_dir, temp_output_dir, mpi_comm):
+    """
+    Test that parameter identification fails gracefully when obs_data contains
+    numpy-only operations (not available in CasADi mode) with sp_minimize and casadi_integrator.
+
+    This test verifies proper error handling for a common limitation:
+    - Some custom operations are only defined for numpy mode
+    - When using casadi_python model type with sp_minimize, the system switches to
+      casadi mode where these operations are unavailable
+    - The test expects a KeyError indicating the missing operation
+
+    This demonstrates the known limitation that custom user-defined operations must have
+    both numpy and casadi implementations to work with casadi_integrator-based param ID.
+
+    Args:
+        base_user_inputs: Base user inputs configuration fixture
+        resources_dir: Resources directory fixture
+        temp_output_dir: Temporary output directory fixture
+        mpi_comm: MPI communicator fixture
+    """
+    import json
+    
+    rank = mpi_comm.Get_rank()
+
+    undefined_operation = "max_first_half"  # This operation is only defined in numpy mode
+    
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': 'Lotka_Volterra',
+        'input_param_file': 'Lotka_Volterra_parameters.csv',
+        'model_type': 'casadi_python',
+        'solver': 'casadi_integrator',
+        'param_id_method': 'sp_minimize',
+        'do_ad': True,
+        'pre_time': 0.0,
+        'sim_time': 0.5,
+        'dt': 0.01,
+        'DEBUG': True,
+        'do_mcmc': False,
+        'plot_predictions': False,
+        'do_ia': False,
+        'solver_info': {
+            'MaximumStep': 0.001,
+            'MaximumNumberOfSteps': 5000,
+            'method': 'cvodes',
+        },
+        'optimiser_options': {
+            'num_calls_to_function': 50,
+            'cost_convergence': 1e-3,
+        },
+    })
+
+    obs_data_path = None
+    
+    if rank == 0:
+        success = generate_with_new_architecture(False, config)
+        assert success, "CasADi Python model generation should succeed for Lotka-Volterra"
+        
+        # Create observational data with numpy-only operation (max_first_half)
+        # This operation is only defined in operation_funcs_user.py with @operation(mode="numpy")
+        # and will not be available when casadi_python model type switches to casadi mode
+        file_path = os.path.join(resources_dir, 'Lotka_Volterra_obs_data.json')
+
+        with open(file_path, 'r') as f:
+            obs_data = json.load(f)
+
+        for item in obs_data["data_items"]:
+            if item["variable"] == "Lotka_Volterra/x":
+                item["operation"] = undefined_operation
+
+        obs_data_path = os.path.join(temp_output_dir, 'Lotka_Volterra_synthetic_obs_data.json')
+        with open(obs_data_path, 'w') as f:
+            json.dump(obs_data, f, indent=2)
+        
+    obs_data_path = mpi_comm.bcast(obs_data_path, root=0)
+
+    mpi_comm.Barrier()
+
+    # Update config with this observational data path
+    config['param_id_obs_path'] = obs_data_path
+    config['param_id_output_dir'] = temp_output_dir
+
+    # Attempt parameter identification - this should fail due to numpy-only operation
+    # not being available in casadi mode 
+    with pytest.raises((RuntimeError, KeyError, ValueError)) as excinfo:
+        run_param_id(config)
+    
+    # Verify the error indicates missing operation or incompatibility
+    error_msg = str(excinfo.value)
+    possible_errors = [
+        undefined_operation,
+        "KeyError",
+    ]
+    
+    error_found = any(err_str.lower() in error_msg.lower() for err_str in possible_errors)
+    
+    # Assert that error message relates to the missing operation or casadi limitation
+    assert error_found, (
+        f"Expected error message to mention {undefined_operation}, or 'KeyError'. "
+        f"Got: {error_msg}"
+    )
+
+
 @pytest.mark.skipif(
     os.environ.get("GITHUB_ACTIONS") == "true",
     reason="compare_optimisers is heavy; run locally only (skipped on GitHub Actions)",
@@ -717,4 +1356,3 @@ def test_compare_optimisers(base_user_inputs, resources_dir, temp_output_dir, mp
         print(f"Cost difference: {cost_diff:.6e} ({cost_rel_diff:.2f}%)")
     
     mpi_comm.Barrier()
-

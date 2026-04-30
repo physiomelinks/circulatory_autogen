@@ -151,12 +151,13 @@ Before doing calibration, a solver for the model needs to be chosen
 - **solver** defines the solver family. Options depend on `model_type`:
     - CellML (`model_type: cellml_only`): `CVODE` (OpenCOR) or `CVODE_myokit` (Myokit).
     - Python (`model_type: python`): `solve_ivp` with `solver_info.method` set to `RK45`, `BDF`, etc.
+    - CasADi Python (`model_type: casadi_python`): `casadi_integrator` with `solver_info.method` set to `cvodes`, `idas`, `collocation`, or `rk`.
     - C++ (`model_type: cpp`): `CVODE`, `RK4`, or `PETSC`.
 - **solver_info** defines settings for the chosen solver:
     - **dt_solver**: solver time step (for CVODE this sets `MaximumStep` when provided)
     - **MaximumStep**: maximum step size for adaptive solvers
     - **MaximumNumberOfSteps**: maximum number of substeps before stepping
-    - **method**: any method for `solve_ivp`, e.g. `RK45`, `BDF`, etc.
+    - **method**: any method for `solve_ivp` or `casadi_integrator`, e.g. `RK45`, `BDF`, `cvodes`, etc.
 
 
 ## Parameter Identification Settings
@@ -196,7 +197,7 @@ To run the parameter identification we need to set a few entries in the `[CA_dir
     
     sp_minimize specific options:
 
-    - **automatic_differentiation**: Boolean value to determine whether to use automatic differentiation for gradient calculation. If it's set to *False*, gradients will be estimated using finite difference approximation.
+    - **do_ad**: Boolean value to determine whether to use automatic differentiation for gradient calculation. If it's set to *False*, gradients will be estimated using finite difference approximation.
 
 - **ga_options**: Legacy dictionary for optimization options. For backwards compatibility, entries in `ga_options` are automatically merged into `optimiser_options` if not already present. It is recommended to use `optimiser_options` instead.
 

@@ -1,6 +1,7 @@
 import numpy as np
 import os
 import sys
+from param_id.operation_funcs import operation
 try:
     import sympy
 except ImportError:  # optional dependency
@@ -84,6 +85,7 @@ def RICRI_get_zero_freq_3_Hz(C_T, I_1, I_2, R_T, frac_R_T_1_of_R_T):
 
 # TODO we should find a way to only find_peaks once per subexperiment
 # ATM if multiple of the below functions are called, it does find_peaks multiple times
+@operation(mode="numpy")
 @series_to_constant
 def calc_spike_period(t, V, series_output=False):
     if series_output:
@@ -99,6 +101,7 @@ def calc_spike_period(t, V, series_output=False):
         period = np.sum([t[peak_idxs[II+1]] - t[peak_idxs[II]] for II in range(len(peak_idxs)-1)])/(len(peak_idxs) - 1)
     return period
 
+@operation(mode="numpy")
 @series_to_constant
 def calc_spike_frequency_windowed(t, V, series_output=False, spike_min_thresh=-10, start_frac=0.0, end_frac=1.0):
     """
@@ -119,6 +122,7 @@ def calc_spike_frequency_windowed(t, V, series_output=False, spike_min_thresh=-1
     spikes_per_s = len(peak_idxs)/(t[end_idx] - t[start_idx])
     return spikes_per_s
 
+@operation(mode="numpy")
 @series_to_constant
 def first_peak_time(t, V, series_output=False, spike_min_thresh=None):
     """ 
@@ -138,6 +142,7 @@ def first_peak_time(t, V, series_output=False, spike_min_thresh=None):
     t_first_peak = t[peak_idxs[0]] # this is from the start of the pre_time, not the start of experiment.
     return t_first_peak
 
+@operation(mode="numpy")
 @series_to_constant
 def first_peak_time_from_subexp_start(t, V, series_output=False, spike_min_thresh=None):
     """ 
@@ -155,6 +160,7 @@ def first_peak_time_from_subexp_start(t, V, series_output=False, spike_min_thres
     t_first_peak = t[peak_idxs[0]] - t[0] # this calcs from start of subexperiment but there are plotting issues
     return t_first_peak
 
+@operation(mode="numpy")
 @series_to_constant
 def steady_state_min(x, series_output=False):
     """
@@ -167,6 +173,7 @@ def steady_state_min(x, series_output=False):
     else:
         return np.min(x[len(x)//2:])
     
+@operation(mode="numpy")
 @series_to_constant
 def steady_state_avg(x, series_output=False):
     """
@@ -179,6 +186,7 @@ def steady_state_avg(x, series_output=False):
     else:
         return np.mean(x[len(x)//2:])
 
+@operation(mode="numpy")
 @series_to_constant
 def calc_min_to_max_period_diff(t, V, series_output=False, spike_min_thresh=None):
     if series_output:
@@ -197,6 +205,7 @@ def calc_min_to_max_period_diff(t, V, series_output=False, spike_min_thresh=None
 
     return period_diff
 
+@operation(mode="numpy")
 @series_to_constant
 def calc_min_peak(t, V, series_output=False, spike_min_thresh=None):
     if series_output:
@@ -211,6 +220,7 @@ def calc_min_peak(t, V, series_output=False, spike_min_thresh=None):
 
     return min_peak
 
+@operation(mode="numpy")
 @series_to_constant
 def min_period(t, V, series_output=False, spike_min_thresh=None, distance=None):
     if series_output:
@@ -230,6 +240,7 @@ def min_period(t, V, series_output=False, spike_min_thresh=None, distance=None):
 
     return period_min
 
+@operation(mode="numpy")
 @series_to_constant
 def first_period(t, V, series_output=False, spike_min_thresh=None, distance=None):
     if series_output:
@@ -261,6 +272,7 @@ def first_period(t, V, series_output=False, spike_min_thresh=None, distance=None
 
     return first_period
 
+@operation(mode="numpy")
 @series_to_constant
 def second_period(t, V, series_output=False, spike_min_thresh=None, distance=None):
     if series_output:
@@ -288,6 +300,7 @@ def second_period(t, V, series_output=False, spike_min_thresh=None, distance=Non
 
     return second_period
 
+@operation(mode="numpy")
 @series_to_constant
 def E_A_ratio(t, x, T, series_output=False):
     if series_output:
@@ -315,6 +328,7 @@ def E_A_ratio(t, x, T, series_output=False):
     return E_A_ratio
 
 # included by David Shaw
+@operation(mode="numpy")
 @series_to_constant
 def peak_times(t, V, series_output=False):
     """
@@ -329,6 +343,7 @@ def peak_times(t, V, series_output=False):
     peaks = t[peak_idxs]
     return peaks
 
+@operation(mode="numpy")
 @series_to_constant
 def mean_in_range(x, start_frac=0.0,end_frac=1.0, series_output=False):
     if series_output:
@@ -339,6 +354,7 @@ def mean_in_range(x, start_frac=0.0,end_frac=1.0, series_output=False):
         range_values = x[start_idx:end_idx]
         return np.mean(range_values)
 
+@operation(mode="numpy")
 @series_to_constant
 def max_in_range(x, start_frac=0.0,end_frac=1.0,series_output=False):
     if series_output:
@@ -349,7 +365,7 @@ def max_in_range(x, start_frac=0.0,end_frac=1.0,series_output=False):
         range_values = x[start_idx:end_idx]
         return np.max(range_values)
 
-
+@operation(mode="numpy")
 @series_to_constant
 def max_first_half(x, series_output=False):
     print('max_first_half called')
@@ -361,6 +377,7 @@ def max_first_half(x, series_output=False):
         range_values = x[start_idx:end_idx]
         return np.min(range_values)
 
+@operation(mode="numpy")
 @series_to_constant
 def mean_AP_threshold(t, V, series_output=False, spike_min_thresh=None, distance=None, dV_dt_thresh=10e3):
     """
@@ -410,6 +427,7 @@ def mean_AP_threshold(t, V, series_output=False, spike_min_thresh=None, distance
 
     return threshold
 
+@operation(mode="numpy")
 @series_to_constant
 def mean_peak_to_trough_time(t, V, series_output=False, spike_min_thresh=None, distance=None):
     """
@@ -438,6 +456,7 @@ def mean_peak_to_trough_time(t, V, series_output=False, spike_min_thresh=None, d
 
     return t_diff
 
+@operation(mode="numpy")
 @series_to_constant
 def max_minus_min_divided_by_mean_in_range(x, start_frac=0.0, end_frac=1.0, series_output=False):
     # calculate the max minus min for the first max and min in a range.
@@ -455,6 +474,7 @@ def max_minus_min_divided_by_mean_in_range(x, start_frac=0.0, end_frac=1.0, seri
     else:
         return max_minus_min_divided_by_mean
 
+@operation(mode="numpy")
 @series_to_constant
 def max_minus_min_over_mean_in_range(x, start_frac=0.0, end_frac=1.0, series_output=False):
     return max_minus_min_divided_by_mean_in_range(
@@ -464,11 +484,13 @@ def max_minus_min_over_mean_in_range(x, start_frac=0.0, end_frac=1.0, series_out
         series_output=series_output,
     )
 
+@operation(mode="numpy")
 def first_minus_second_over_third_in_range(first, second, third):
     if np.isscalar(first) and np.isscalar(second) and np.isscalar(third):
         return (first - second) / third
     return (np.asarray(first) - np.asarray(second)) / np.asarray(third)
 
+@operation(mode="numpy")
 @series_to_constant
 def max_minus_min_in_range(x, start_frac=0.0, end_frac=1.0, series_output=False):
     # calculate the max minus min for the first max and min in a range.
@@ -485,6 +507,7 @@ def max_minus_min_in_range(x, start_frac=0.0, end_frac=1.0, series_output=False)
     else:
         return max_minus_min
 
+@operation(mode="numpy")
 @series_to_constant
 def max_minus_mean_in_range(x, start_frac=0.0, end_frac=1.0, series_output=False):
     # calculate the max minus min for the first max and min in a range.
@@ -501,6 +524,7 @@ def max_minus_mean_in_range(x, start_frac=0.0, end_frac=1.0, series_output=False
     else:
         return max_minus_mean
 
+@operation(mode="numpy")
 @series_to_constant
 def mean_in_range_minus_initial(x, start_frac=0.8, end_frac=1.0, series_output=False):
     # calculate the mean in a range (normally at the end converged stated) minus the initial value in 
@@ -517,6 +541,7 @@ def mean_in_range_minus_initial(x, start_frac=0.8, end_frac=1.0, series_output=F
     else:
         return mean_minus_init
 
+@operation(mode="numpy")
 @series_to_constant
 def mean_in_range_fraction_change_from_initial(x, start_frac=0.8, end_frac=1.0, series_output=False):
     # calculate the mean in a range (normally at the end converged stated) minus the initial value in 
@@ -535,6 +560,7 @@ def mean_in_range_fraction_change_from_initial(x, start_frac=0.8, end_frac=1.0, 
     else:
         return percentage_change
 
+@operation(mode="numpy")
 @series_to_constant
 def mean_in_range_fraction_change_from_initial_range(x, start_frac=0.8, end_frac=1.0, series_output=False, init_range_end_frac=0.1):
     # calculate the mean in a range (normally at the end converged stated) minus the initial value in 
@@ -555,7 +581,7 @@ def mean_in_range_fraction_change_from_initial_range(x, start_frac=0.8, end_frac
     else:
         return percentage_change
 
-
+@operation(mode="numpy")
 @series_to_constant
 def min_in_range(x, start_frac=0.0, end_frac=1.0, series_output=False):
     """
@@ -571,6 +597,7 @@ def min_in_range(x, start_frac=0.0, end_frac=1.0, series_output=False):
     
     return np.min(range_values)
 
+@operation(mode="numpy")
 @series_to_constant
 def calc_AHP_duration(t, V, baseline_voltage=None, series_output=False):
     """
@@ -619,6 +646,7 @@ def calc_AHP_duration(t, V, baseline_voltage=None, series_output=False):
     else:
         return np.nanmean(ahp_durations)
 
+@operation(mode="numpy")
 @series_to_constant
 def abs_diff_start_to_last_quarter(x, series_output=False):
     # TODO change to abs_diff_start to fraction

@@ -1,0 +1,5 @@
+vessel_name, param_name, min, max, name_for_plotting, prior
+Lotka_Volterra, alpha, 0.1, 7, \alpha , uniform
+Lotka_Volterra, beta, 0.01, 2, \beta, uniform
+Lotka_Volterra, delta, 0.01, 2, \delta, uniform
+Lotka_Volterra, gamma, 0.1, 10, \gamma, uniform

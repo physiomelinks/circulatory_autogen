@@ -1,0 +1,49 @@
+{
+  "protocol_info": {
+    "pre_times": [
+      0.0
+    ],
+    "sim_times": [
+      [
+        5
+      ]
+    ],
+    "params_to_change": {
+    }
+  },
+  "prediction_items": [],
+  "data_items": [
+    {
+      "variable": "Lotka_Volterra/x",
+      "name_for_plotting": "x_{max}",
+      "data_type": "constant",
+      "operation": "max",
+      "operands": [
+        "Lotka_Volterra/x"
+      ],
+      "unit": "dimensionless",
+      "weight": 1.0,
+      "value": 30,
+      "std": 3,
+      "experiment_idx": 0,
+      "subexperiment_idx": 0,
+      "plot_type": "horizontal"
+    },
+    {
+      "variable": "Lotka_Volterra/y",
+      "name_for_plotting": "y_{max}",
+      "data_type": "constant",
+      "operation": "max",
+      "operands": [
+        "Lotka_Volterra/y"
+      ],
+      "unit": "dimensionless",
+      "weight": 1.0,
+      "value": 35.1,
+      "std": 2,
+      "experiment_idx": 0,
+      "subexperiment_idx": 0,
+      "plot_type": "horizontal"
+    }
+  ]
+}

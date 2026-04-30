@@ -14,14 +14,19 @@ file_prefix: 3compartment
 input_param_file: 3compartment_parameters.csv
 
 # cpp generation inputs
-# model_type can be cellml_only, cpp, or python atm 
+# model_type can be cellml_only, cpp, or python, casadi_python atm 
 # model_type: cpp
 model_type: cellml_only
+# model_type: casadi_python
 
 #__________ parameter identification inputs __________
-# param_id_method can be any of [genetic_algorithm]
+# param_id_method can be any of [genetic_algorithm, CMA-ES, bayesian, sp_minimize]
 param_id_method: genetic_algorithm
 # param_id_method: CMA-ES
+# param_id_method: sp_minimize
+
+#_______ Automatic Differentiation __________
+do_ad: false
 
 # pre_time is the amount of time simulated to get to steady state
 # TODO this is not important if it is specified in the obs_data.json file
@@ -53,7 +58,7 @@ cpp_1d_model_config_path:
 # Output time step (sampling) 
 dt: 0.01 # This should be smaller than all of the dt in your obs_data.json file.
 
-# solver options are: CVODE_myokit (uses Myokit, default), CVODE_opencor (uses OpenCOR), RK4_cpp (RK4 in cpp), or for Python models: solve_ivp
+# solver options are: CVODE_myokit (uses Myokit, default), CVODE_opencor (uses OpenCOR), RK4_cpp (RK4 in cpp), for Python models: solve_ivp, or for CasADi Python models: casadi_integrator
 solver: CVODE_myokit
 # These are inputs to solver_properties of the solver
 solver_info:
@@ -61,6 +66,7 @@ solver_info:
   MaximumStep: 0.0001
   MaximumNumberOfSteps: 5000
   # method: RK45 # any method for solve_ivp
+  # method: cvodes # any method for casadi ('cvodes', 'idas', 'collocation', 'rk')
 
 # param_id_obs_path needs to be an absolute path.
 # This for 3compartment

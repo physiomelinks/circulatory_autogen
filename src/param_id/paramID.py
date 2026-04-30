@@ -48,8 +48,9 @@ import csv
 from datetime import date
 # from skopt import gp_minimize, Optimizer
 from parsers.PrimitiveParsers import CSVFileParser, ObsAndParamDataParser
-from param_id.optimisers import GeneticAlgorithmOptimiser, BayesianOptimiser, CMAESOptimiser
+from param_id.optimisers import GeneticAlgorithmOptimiser, BayesianOptimiser, CMAESOptimiser, SciPyMinimizeOptimiser
 import pandas as pd
+import casadi as ca
 import json
 import math
 import scipy.linalg as la
@@ -78,7 +79,8 @@ class CVS0DParamID():
     def __init__(self, model_path, model_type, param_id_method, mcmc_instead=False, file_name_prefix='no_name',
                  params_for_id_path=None,
                  param_id_obs_path=None, sim_time=2.0, pre_time=20.0, dt=0.01,
-                 solver_info=None, mcmc_options=None, optimiser_options=None, DEBUG=False,
+                 solver_info=None, mcmc_options=None, optimiser_options=None, 
+                 do_ad=False, DEBUG=False,
                  param_id_output_dir=None, resources_dir=None, one_rank=False):
         self.model_path = model_path
         self.param_id_method = param_id_method
@@ -189,11 +191,12 @@ class CVS0DParamID():
                                            DEBUG=self.DEBUG, model_type=self.model_type)
             self.n_steps = mcmc_object.n_steps
         else:
-            if model_type in ['cellml_only', 'python']:
+            if model_type in ['cellml_only', 'python', 'casadi_python']:
                 self.param_id = OpencorParamID(self.model_path, self.param_id_method,
                                                self.obs_info, self.param_id_info, self.protocol_info,
                                                self.prediction_info, self.solver_info, dt=self.dt,
-                                               optimiser_options=self.optimiser_options, DEBUG=self.DEBUG, 
+                                               optimiser_options=self.optimiser_options, 
+                                               do_ad=do_ad, DEBUG=self.DEBUG, 
                                                model_type=self.model_type)
                 self.n_steps = self.param_id.n_steps
         if self.rank == 0:
@@ -349,14 +352,18 @@ class CVS0DParamID():
         else: 
             phase = True
 
-        cost, best_fit_operands_list = self.param_id.get_cost_and_obs_from_params(self.param_id.best_param_vals)
-        list_of_obs_dicts = []
-        list_of_all_series = []
-        for obs in best_fit_operands_list:
-            obs_dict, all_series = self.param_id.get_obs_output_dict(obs, get_all_series=True)
-            list_of_obs_dicts.append(obs_dict)
-            list_of_all_series.append(all_series)
-
+        # TODO: Fix for series, amp, phase, and val_for_prob_dist
+        if self.model_type == 'casadi_python':
+            cost = self.param_id.get_cost_ca(self.param_id.best_param_vals)
+            list_of_obs_dicts, list_of_all_series = self.param_id.get_obs_ca(self.param_id.best_param_vals, get_all_series=True)
+        else:
+            cost, best_fit_operands_list = self.param_id.get_cost_and_obs_from_params(self.param_id.best_param_vals)
+            list_of_obs_dicts = []
+            list_of_all_series = []
+            for obs in best_fit_operands_list:
+                obs_dict, all_series = self.param_id.get_obs_output_dict(obs, get_all_series=True)
+                list_of_obs_dicts.append(obs_dict)
+                list_of_all_series.append(all_series)
 
         # _________ Plot best comparison _____________
         fig, axs = plt.subplots(squeeze=False)
@@ -1251,7 +1258,8 @@ class OpencorParamID():
     def __init__(self, model_path, param_id_method,
                  obs_info, param_id_info, protocol_info, prediction_info,
                  solver_info, dt=0.01, 
-                 optimiser_options=None, DEBUG=False, model_type=None):
+                 optimiser_options=None, do_ad=False, 
+                 DEBUG=False, model_type=None):
 
         self.model_path = model_path
         self.param_id_method = param_id_method
@@ -1270,8 +1278,10 @@ class OpencorParamID():
         self.protocol_info = protocol_info
 
         self.sfp = scriptFunctionParser()
-        self.operation_funcs_dict = self.sfp.get_operation_funcs_dict()
-        self.cost_funcs_dict = self.sfp.get_cost_funcs_dict()
+
+        mode = "casadi" if self.model_type == "casadi_python" else "numpy"
+        self.operation_funcs_dict = self.sfp.get_operation_funcs_dict(mode)
+        self.cost_funcs_dict = self.sfp.get_cost_funcs_dict(mode)
 
         # set up opencor simulation
         self.dt = dt
@@ -1329,6 +1339,7 @@ class OpencorParamID():
         self.pred_param_importance = None
         self.pred_collinearity_idx_pairs = None
 
+        self.do_ad = do_ad
         
         if self.obs_info is not None:
             self.cost_type = self.obs_info["cost_type"]
@@ -1469,7 +1480,19 @@ class OpencorParamID():
             self.best_param_vals = optimiser.best_param_vals
             self.best_cost = optimiser.best_cost
 
-
+        elif self.param_id_method == 'sp_minimize':
+            # Use SciPyMinimizeOptimiser for gradient-based optimization
+            optimiser = SciPyMinimizeOptimiser(
+                self, self.param_id_info, self.param_norm_obj,
+                self.num_params, self.output_dir,
+                optimiser_options=self.optimiser_options,
+                do_ad=self.do_ad, DEBUG=self.DEBUG
+            )
+            optimiser.run()
+            self.best_param_vals = optimiser.best_param_vals
+            self.best_cost = optimiser.best_cost
+            self.init_gradient = optimiser.init_gradient
+            self.best_gradient = optimiser.best_gradient
 
         else:
             print(f'param_id_method {self.param_id_method} hasn\'t been implemented')
@@ -1489,10 +1512,15 @@ class OpencorParamID():
                 all_outputs_dict = self.sim_helper.get_all_results_dict()
                 # save as npz
                 np.savez(os.path.join(self.output_dir, f'all_outputs_with_best_param_vals_exp_{exp_idx}.npz'), **all_outputs_dict)
+
+            if self.param_id_method == 'sp_minimize':
+                print('init gradients  : {}'.format(self.init_gradient))
+                print('best gradients  : {}'.format(self.best_gradient))
+
         return
     
     def get_cost_obs_and_pred_from_params(self, param_vals, reset=True, 
-                                          only_one_exp=-1, pred_names=None):
+                                          only_one_exp=-1, pred_names=None, do_ad=False):
 
         pred_outputs_list = []
         # loop through subexperiments
@@ -1502,6 +1530,10 @@ class OpencorParamID():
             exp_idxs_to_run = range(self.protocol_info["num_experiments"])
         else:
             exp_idxs_to_run = [only_one_exp]
+
+        # TODO: Test AD with multiple subexperiments
+        if do_ad:
+            reset = False 
             
         operands_outputs_list = []
         for exp_idx in range(self.protocol_info["num_experiments"]):
@@ -1578,8 +1610,8 @@ class OpencorParamID():
 
         return cost, operands_outputs_list, pred_outputs_list
 
-    def get_cost_and_obs_from_params(self, param_vals, reset=True, only_one_exp=-1):
-        cost, obs, _ = self.get_cost_obs_and_pred_from_params(param_vals, reset=reset, only_one_exp=only_one_exp)
+    def get_cost_and_obs_from_params(self, param_vals, reset=True, only_one_exp=-1, do_ad=False):
+        cost, obs, _ = self.get_cost_obs_and_pred_from_params(param_vals, reset=reset, only_one_exp=only_one_exp, do_ad=do_ad)
         return cost, obs
 
     def get_cost_from_params(self, param_vals, reset=True):
@@ -1667,15 +1699,20 @@ class OpencorParamID():
 
     def get_cost_from_operands(self, operands_outputs, exp_idx = 0, sub_idx = 0):
 
-        obs_dict = self.get_obs_output_dict(operands_outputs)
+        if self.model_type == 'casadi_python':
+            is_symbolic = True
+        else:
+            is_symbolic = False
+
+        obs_dict = self.get_obs_output_dict(operands_outputs, is_symbolic=is_symbolic)
         # calculate error between the observables of this set of parameters
         # and the ground truth
         
-        cost = self.cost_calc(obs_dict, exp_idx=exp_idx, sub_idx=sub_idx)
+        cost = self.cost_calc(obs_dict, exp_idx=exp_idx, sub_idx=sub_idx, is_symbolic=is_symbolic)
 
         return cost
 
-    def cost_calc(self, obs_dict, exp_idx=0, sub_idx=0):
+    def cost_calc(self, obs_dict, exp_idx=0, sub_idx=0, is_symbolic=False):
         
 
         const = obs_dict['const']
@@ -1706,6 +1743,18 @@ class OpencorParamID():
             phase = None
         if self.obs_info["ground_truth_phase"].all() == None:
             phase = None
+
+        # TODO: Fix for series, amp, phase, and val_for_prob_dist
+        if is_symbolic:
+            cost = ca.SX(0)
+            if const is not None:
+                for const_idx in range(const.size1()):
+                    obs_idx = self.obs_info['const_idx_to_obs_idx'][const_idx]
+                    if updated_weight_const_vec[const_idx] != 0:
+                        cost += self.cost_funcs_dict[self.cost_type[obs_idx]](const[const_idx], self.obs_info["ground_truth_const"][const_idx],
+                                                        self.obs_info["std_const_vec"][const_idx], updated_weight_const_vec[const_idx])
+            cost = cost / num_weighted_obs
+            return cost
         
         # # TODO change functionality so the cost type is defined in the obs_data.json not the user_inputs.yaml
         # if self.cost_type == 'MSE':
@@ -1840,17 +1889,26 @@ class OpencorParamID():
 
         return cost
 
-    def get_obs_output_dict(self, operands_outputs, get_all_series=False):
+    def get_obs_output_dict(self, operands_outputs, get_all_series=False, is_symbolic=False):
         if operands_outputs == None:
             if get_all_series:
                 return None, None
             else:
                 return None
-        obs_const_vec = np.zeros((len(self.obs_info["ground_truth_const"]), ))
-        obs_series_list_of_arrays = [None]*len(self.obs_info["ground_truth_series"])
-        obs_amp_list_of_arrays = [None]*len(self.obs_info["ground_truth_amp"])
-        obs_phase_list_of_arrays = [None]*len(self.obs_info["ground_truth_phase"])
-        obs_val_for_prob_dist_vec = np.zeros((len(self.obs_info["ground_truth_prob_dist_params"]), ))
+
+        if is_symbolic:
+            # TODO: Test series, amp, phase and prob_dist_vec
+            obs_const_vec = ca.SX.zeros(len(self.obs_info["ground_truth_const"]), 1)
+            obs_series_list_of_arrays = [None]*len(self.obs_info["ground_truth_series"])
+            obs_amp_list_of_arrays = [None]*len(self.obs_info["ground_truth_amp"])
+            obs_phase_list_of_arrays = [None]*len(self.obs_info["ground_truth_phase"])
+            obs_val_for_prob_dist_vec = ca.SX.zeros(len(self.obs_info["ground_truth_prob_dist_params"]), 1)
+        else:     
+            obs_const_vec = np.zeros((len(self.obs_info["ground_truth_const"]), ))
+            obs_series_list_of_arrays = [None]*len(self.obs_info["ground_truth_series"])
+            obs_amp_list_of_arrays = [None]*len(self.obs_info["ground_truth_amp"])
+            obs_phase_list_of_arrays = [None]*len(self.obs_info["ground_truth_phase"])
+            obs_val_for_prob_dist_vec = np.zeros((len(self.obs_info["ground_truth_prob_dist_params"]), ))
 
         if get_all_series:
             obs_series_array_all = [None]*len(operands_outputs)
@@ -2010,6 +2068,99 @@ class OpencorParamID():
             preds_const_vec[JJ + 1] = np.max(preds[JJ, :])
             preds_const_vec[JJ + 2] = np.mean(preds[JJ, :])
         return preds_const_vec
+    
+    def build_casadi_functions(self, param_names, param_vals = None, get_all_series=False):
+        self.sim_helper._create_param_subset(param_names, param_vals)
+
+        self.cost_symb, self.obs_dict_symb = self.get_cost_and_obs_from_params(param_vals, do_ad=True)
+
+        obs_outputs = []
+        obs_meta = []
+
+        for i, obs_item in enumerate(self.obs_dict_symb):
+            output_dict = self.get_obs_output_dict(obs_item, get_all_series, is_symbolic=True)
+            if get_all_series: 
+                obs_dict_item, obs_series_array_all = output_dict
+                self.obs_series_array_all_vec = ca.vertcat(*obs_series_array_all)
+            else:
+                obs_dict_item = output_dict
+
+            for key in ['const', 'series', 'amp', 'phase', 'val_for_prob_dist']:
+                val = obs_dict_item[key]
+
+                if val is not None:
+                    obs_outputs.append(val)
+                    obs_meta.append((key, i, val.size1()))
+
+        self.obs_vec = ca.vertcat(*obs_outputs)
+        self.obs_meta = obs_meta
+
+        self.jac_cost_symb = ca.gradient(self.cost_symb, self.sim_helper.variables_symb_subset)
+
+        self.cost_func = ca.Function('cost_func', [self.sim_helper.states_symb, self.sim_helper.variables_symb], [self.cost_symb])
+        
+        if get_all_series:
+            self.obs_func = ca.Function('obs_func', [self.sim_helper.states_symb, self.sim_helper.variables_symb], [self.obs_vec, self.obs_series_array_all_vec])
+        else:
+            self.obs_func = ca.Function('obs_func', [self.sim_helper.states_symb, self.sim_helper.variables_symb], [self.obs_vec])
+
+        self.jac_cost_func = ca.Function('jac_cost_func', [self.sim_helper.states_symb, self.sim_helper.variables_symb], [self.jac_cost_symb])
+    
+    def get_jac_cost_ca(self, param_vals):
+        param_names = self.param_id_info["param_names"]
+        self.build_casadi_functions(param_names, param_vals)
+        jac_cost = np.array(self.jac_cost_func(self.sim_helper.states, self.sim_helper.variables)).flatten()
+        return jac_cost
+    
+    def get_cost_ca(self, param_vals):
+        param_names = self.param_id_info["param_names"]
+        self.build_casadi_functions(param_names, param_vals)
+        cost= self.cost_func(self.sim_helper.states, self.sim_helper.variables)
+        return cost
+    
+    def get_obs_ca(self, param_vals, get_all_series=False):
+        param_names = self.param_id_info["param_names"]
+        self.build_casadi_functions(param_names, param_vals, get_all_series)
+        obs_val = self.obs_func(self.sim_helper.states, self.sim_helper.variables)
+
+        if get_all_series:
+            obs_dict, obs_series_array_all = obs_val
+            series_np = np.array(obs_series_array_all)
+
+            obs_series_array_all_formatted = [
+                [series_np[i, :] for i in range(series_np.shape[0])]
+            ]
+        else:
+            obs_dict = obs_val
+        obs_dict = np.array(obs_dict).flatten()
+
+        obs = []
+
+        num_items = len(self.obs_dict_symb)
+        for _ in range(num_items):
+            obs.append({
+                'const': None,
+                'series': None,
+                'amp': None,
+                'phase': None,
+                'val_for_prob_dist': None
+            })
+
+        idx = 0
+        for key, i, size in self.obs_meta:
+            values = obs_dict[idx:idx+size]
+
+            if size == 1:
+                values = values[0]
+
+            obs[i][key] = values
+
+            idx += size
+
+        if get_all_series:
+            return obs, obs_series_array_all_formatted
+        else:
+            return obs
 
     def simulate_once(self, param_vals=None, reset=True, only_one_exp=-1, return_series=False):
         """
@@ -2050,8 +2201,7 @@ class OpencorParamID():
 
         cost_check, obs = self.get_cost_and_obs_from_params(param_vals=param_vals, 
                                                             reset=reset, only_one_exp=only_one_exp)
-
-
+        
         obs_dicts = []
         obs_arrays = []
         for obs_item in obs:                                                    
@@ -2063,6 +2213,10 @@ class OpencorParamID():
             #     obs_dict = self.get_obs_output_dict(obs_item)
             #     obs_dicts.append(obs_dict)
             #     obs_arrays.append(None)
+
+        if self.model_type == 'casadi_python':
+            cost_check = self.get_cost_ca(param_vals)
+            obs_dicts = self.get_obs_ca(param_vals)
 
         if only_one_exp != -1:
             # only print out results if doing all experiments, otherwise cost will be strange

@@ -1,0 +1,64 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<model name="Benchmark" xmlns="http://www.cellml.org/cellml/1.1#" xmlns:cellml="http://www.cellml.org/cellml/1.1#">
+    <component name="Lotka_Volterra">
+        <variable name="t" public_interface="in" units="second"/>
+        <variable name="x_init" public_interface="in" units="dimensionless"/>
+        <variable name="y_init" public_interface="in" units="dimensionless"/>
+        <variable name="alpha" public_interface="in" units="dimensionless"/>
+        <variable name="beta" public_interface="in" units="dimensionless"/>
+        <variable name="delta" public_interface="in" units="dimensionless"/>
+        <variable name="gamma" public_interface="in" units="dimensionless"/>
+        <variable initial_value="x_init" name="x" public_interface="out" units="dimensionless"/>
+        <variable initial_value="y_init" name="y" public_interface="out" units="dimensionless"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <apply>
+                    <diff/>
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>x</ci>
+                </apply>
+                <apply>
+                    <minus/>
+                    <apply>
+                        <times/>
+                        <ci>alpha</ci>
+                        <ci>x</ci>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>beta</ci>
+                        <ci>x</ci>
+                        <ci>y</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <apply>
+                    <diff/>
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>y</ci>
+                </apply>
+                <apply>
+                    <minus/>
+                    <apply>
+                        <times/>
+                        <ci>delta</ci>
+                        <ci>x</ci>
+                        <ci>y</ci>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <ci>gamma</ci>
+                        <ci>y</ci>
+                    </apply>
+                </apply>
+            </apply>
+        </math>
+    </component>
+</model>
