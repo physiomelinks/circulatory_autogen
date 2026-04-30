@@ -157,11 +157,8 @@ class YamlFileParser(object):
         else:
             inp_data_dict['generated_models_subdir'] = os.path.join(inp_data_dict['generated_models_dir'], file_prefix)
         
-        if not os.path.exists(inp_data_dict['generated_models_dir']):
-            os.mkdir(inp_data_dict['generated_models_dir'])
-
-        if not os.path.exists(inp_data_dict['generated_models_subdir']):
-            os.mkdir(inp_data_dict['generated_models_subdir'])
+        os.makedirs(inp_data_dict['generated_models_dir'], exist_ok=True)
+        os.makedirs(inp_data_dict['generated_models_subdir'], exist_ok=True)
             
         if 'model_type' not in inp_data_dict.keys():
             inp_data_dict['model_type'] = 'cellml_only'
@@ -960,6 +957,9 @@ class ObsAndParamDataParser(object):
                 "obs_dt": {"types": (int, float, np.integer, np.floating), "default": None},
                 "dt": {"types": (int, float, np.integer, np.floating), "default": None},
                 "sample_rate": {"types": (int, float, np.integer, np.floating), "default": None},
+                "species": {"types": (str,), "default": None},
+                "location": {"types": (str,), "default": None},
+                "source": {"types": (str,), "default": None},
             }
 
             unknown_cols = sorted(set(gt_df.columns) - set(schema.keys()))

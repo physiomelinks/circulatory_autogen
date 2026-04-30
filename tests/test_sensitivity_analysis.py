@@ -7,6 +7,7 @@ import os
 import pytest
 from mpi4py import MPI
 
+from scripts.script_generate_with_new_architecture import generate_with_new_architecture
 from scripts.sensitivity_analysis_run_script import run_SA
 
 
@@ -20,10 +21,26 @@ def mpi_comm():
     return comm
 
 
+def _ensure_cellml_model_generated(config, mpi_comm):
+    """
+    Ensure generated CellML exists before run_SA.
+
+    CI checkouts omit gitignored generated_models/; local runs may already have artifacts.
+    """
+    if config.get("model_type") != "cellml_only":
+        return
+    rank = mpi_comm.Get_rank()
+    if rank == 0:
+        success = generate_with_new_architecture(False, config)
+        prefix = config.get("file_prefix", "<unknown>")
+        assert success, f"CellML autogeneration failed for {prefix}"
+    mpi_comm.Barrier()
+
+
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.mpi
-def test_sensitivity_analysis_3compartment_succeeds(base_user_inputs, resources_dir, temp_output_dir, mpi_comm):
+def test_sensitivity_analysis_3compartment_succeeds(base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
     """
     Test that sensitivity analysis succeeds for 3compartment model.
     
@@ -56,6 +73,7 @@ def test_sensitivity_analysis_3compartment_succeeds(base_user_inputs, resources_
         },
         'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
         'param_id_output_dir': temp_output_dir,
+        'generated_models_dir': temp_generated_models_dir,
         'debug_optimiser_options': {'num_calls_to_function': 60},
         'sa_options': {
             'method': 'sobol',
@@ -64,7 +82,9 @@ def test_sensitivity_analysis_3compartment_succeeds(base_user_inputs, resources_
             'output_dir': os.path.join(temp_output_dir, '3compartment_SA_results'),
         },
     })
-    
+
+    _ensure_cellml_model_generated(config, mpi_comm)
+
     # Run sensitivity analysis
     run_SA(config)
     

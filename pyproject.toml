@@ -64,7 +64,7 @@ dev = [
 # Pytest configuration
 # NOTE: Tests should be run using the OpenCOR Python shell.
 # Use ./run_pytest.sh to run tests, which automatically uses the Python
-# from opencor_pythonshell_path.sh
+# from python_path.sh
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
@@ -84,6 +84,7 @@ markers = [
     "solver: marks solver-focused tests",
     "one_rank_task: marks an autogeneration test that signals completion",
     "autogen_task: marks an autogeneration test that signals completion",
+    "misc_task: marks a one-rank miscellaneous integration test",
     "autogen_rank(idx): autogeneration test assigned rank index",
     "solver_task: marks a solver test that signals completion",
     "compare_optimisers: marks compare_optimisers tests",

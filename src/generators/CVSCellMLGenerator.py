@@ -104,8 +104,10 @@ class CVS0DCellMLGenerator(object):
             model_string = cellml.print_model(flat_model)
             
             # this if we want to create the flat model, for debugging
-            with open(os.path.join(self.output_dir, self.file_prefix + '_flat.cellml'), 'w') as f:
-                f.write(model_string)
+            self._write_text_file_atomic(
+                os.path.join(self.output_dir, self.file_prefix + '_flat.cellml'),
+                lambda wf: wf.write(model_string),
+            )
 
             # analyse the model
             a = Analyser()
@@ -256,6 +258,28 @@ class CVS0DCellMLGenerator(object):
         except Exception as e:
             return False, str(e)
 
+    def _write_text_file_atomic(self, output_path, write_func):
+        output_dir = os.path.dirname(output_path) or '.'
+        os.makedirs(output_dir, exist_ok=True)
+        fd, temp_path = tempfile.mkstemp(
+            prefix=f'.{os.path.basename(output_path)}.',
+            suffix='.tmp',
+            dir=output_dir,
+            text=True,
+        )
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as wf:
+                write_func(wf)
+                wf.flush()
+                os.fsync(wf.fileno())
+            os.replace(temp_path, output_path)
+        except Exception:
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+            raise
+
     def __adjust_units_import_line(self, line):
         if 'import xlink:href="units.cellml"' in line:
             line = re.sub('units', f'{self.file_prefix}_units', line)
@@ -263,8 +287,10 @@ class CVS0DCellMLGenerator(object):
 
     def __generate_CellML_file(self):
         print("Generating CellML file {}.cellml".format(self.file_prefix))
-        with open(self.base_script, 'r') as rf:
-            with open(os.path.join(self.output_dir, f'{self.file_prefix}.cellml'), 'w') as wf:
+        output_path = os.path.join(self.output_dir, f'{self.file_prefix}.cellml')
+
+        def _write_cellml(wf):
+            with open(self.base_script, 'r') as rf:
                 for line in rf:
                     line = self.__adjust_units_import_line(line)
                     if 'import xlink:href="parameters_autogen.cellml"' in line:
@@ -354,13 +380,17 @@ class CVS0DCellMLGenerator(object):
                 # Finalise the file
                 wf.write('</model>\n')
 
+        self._write_text_file_atomic(output_path, _write_cellml)
+
     def __generate_parameters_file(self):
         print("Generating CellML file {}_parameters.cellml".format(self.file_prefix))
         """
         Takes in a data frame of the params and generates the parameter_cellml file
         """
 
-        with open(os.path.join(self.output_dir, f'{self.file_prefix}_parameters.cellml'), 'w') as wf:
+        output_path = os.path.join(self.output_dir, f'{self.file_prefix}_parameters.cellml')
+
+        def _write_parameters(wf):
             wf.write('<?xml version=\'1.0\' encoding=\'UTF-8\'?>\n')
             wf.write('<model name="Parameters" xmlns="http://www.cellml.org/cellml/1.1#'
                      '" xmlns:cellml="http://www.cellml.org/cellml/1.1#" xmlns:xlink="http://www.w3.org/1999/xlink">\n')
@@ -384,6 +414,8 @@ class CVS0DCellMLGenerator(object):
                                                module_params_array["value"])
             wf.write('</component>\n')
             wf.write('</model>\n')
+
+        self._write_text_file_atomic(output_path, _write_parameters)
 
     def __modify_parameters_array_from_param_id(self):
         # first modify param_const names easily by modifying them in the array
@@ -410,13 +442,19 @@ class CVS0DCellMLGenerator(object):
                   f'with the new parameters file as input.\n')
         df = pd.DataFrame(self.model.parameters_array)
         df = df.drop(columns=["const_type"])
-        df.to_csv(file_to_create, index=None, header=True)
+        self._write_text_file_atomic(
+            file_to_create,
+            lambda wf: df.to_csv(wf, index=None, header=True),
+        )
 
     def __generate_units_file(self):
         # TODO allow a specific units file to be generated
         #  This function simply copies the units file
         print(f'Generating CellML file {self.file_prefix}_units.cellml')
-        with open(os.path.join(self.output_dir, f'{self.file_prefix}_units.cellml'), 'w') as wf:
+
+        output_path = os.path.join(self.output_dir, f'{self.file_prefix}_units.cellml')
+
+        def _write_units_file(wf):
             for file_idx, units_script in enumerate(self.units_scripts):
                 with open(units_script, 'r') as rf:
                     for line_idx, line in enumerate(rf):
@@ -441,6 +479,8 @@ class CVS0DCellMLGenerator(object):
                         if "units name" in line:
                             self.all_units.append(re.search('units name="(.*?)"', line).group(1))
 
+        self._write_text_file_atomic(output_path, _write_units_file)
+
     def __is_units_line(self, line):
         result = self._units_line_re.search(line)
         if result:
@@ -450,7 +490,10 @@ class CVS0DCellMLGenerator(object):
 
     def __generate_modules_file(self):
         print(f'Generating modules file {self.file_prefix}_modules.cellml')
-        with open(os.path.join(self.output_dir, f'{self.file_prefix}_modules.cellml'), 'w') as wf:
+
+        output_path = os.path.join(self.output_dir, f'{self.file_prefix}_modules.cellml')
+
+        def _write_modules(wf):
             # write first two lines
             wf.write("<?xml version='1.0' encoding='UTF-8'?>\n")
             wf.write(
@@ -488,6 +531,8 @@ class CVS0DCellMLGenerator(object):
                         if module_type in self.model.vessels_df.module_type.values or module_type == 'zero_flow':
                             wf.write(line)
             wf.write('</model>\n')
+
+        self._write_text_file_atomic(output_path, _write_modules)
                 
 
     def __write_section_break(self, wf, text):

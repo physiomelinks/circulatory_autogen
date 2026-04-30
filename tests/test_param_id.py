@@ -126,7 +126,7 @@ def _ensure_cellml_model_generated(config, mpi_comm):
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.mpi
-def test_param_id_nke_pump_succeeds(base_user_inputs, resources_dir, temp_output_dir, mpi_comm):
+def test_param_id_nke_pump_succeeds(base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
     """
     Test that parameter identification succeeds for NKE pump model.
     
@@ -157,8 +157,9 @@ def test_param_id_nke_pump_succeeds(base_user_inputs, resources_dir, temp_output
             'MaximumStep': 0.001,
             'MaximumNumberOfSteps': 5000,
         },
-        'param_id_obs_path': os.path.join(resources_dir, 'NKE_pump_obs_data.json'),
+        'param_id_obs_path': os.path.join(temp_output_dir, 'NKE_pump_obs_data.json'),
         'param_id_output_dir': temp_output_dir,
+        'generated_models_dir': temp_generated_models_dir,
         'optimiser_options': {
             'num_calls_to_function': 40,
             'max_patience': 10,
@@ -173,7 +174,7 @@ def test_param_id_nke_pump_succeeds(base_user_inputs, resources_dir, temp_output
             os.remove(obs_data_path)
         
         # Generate obs file and model
-        example_format_obs_data_json_file()
+        example_format_obs_data_json_file(config['param_id_obs_path'])
         generate_with_new_architecture(False, config)
     
     mpi_comm.Barrier()
@@ -189,7 +190,7 @@ def test_param_id_nke_pump_succeeds(base_user_inputs, resources_dir, temp_output
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.mpi
-def test_param_id_3compartment_succeeds(base_user_inputs, resources_dir, temp_output_dir, mpi_comm):
+def test_param_id_3compartment_succeeds(base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
     """
     Test that parameter identification succeeds for 3compartment model.
     
@@ -223,6 +224,7 @@ def test_param_id_3compartment_succeeds(base_user_inputs, resources_dir, temp_ou
         },
         'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
         'param_id_output_dir': temp_output_dir,
+        'generated_models_dir': temp_generated_models_dir,
         'debug_optimiser_options': {'num_calls_to_function': 60, 'max_patience': 500},
     })
 
@@ -245,7 +247,7 @@ def test_param_id_3compartment_succeeds(base_user_inputs, resources_dir, temp_ou
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.mpi
-def test_param_id_3compartment_cmaes_succeeds(base_user_inputs, resources_dir, temp_output_dir, mpi_comm):
+def test_param_id_3compartment_cmaes_succeeds(base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
     """
     Test that parameter identification succeeds for 3compartment model using CMA-ES.
     
@@ -278,6 +280,7 @@ def test_param_id_3compartment_cmaes_succeeds(base_user_inputs, resources_dir, t
         },
         'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
         'param_id_output_dir': temp_output_dir,
+        'generated_models_dir': temp_generated_models_dir,
         'debug_optimiser_options': {'num_calls_to_function': 20, 'max_patience': 20},
     })
 
@@ -315,7 +318,7 @@ def test_param_id_3compartment_cmaes_succeeds(base_user_inputs, resources_dir, t
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.mpi
-def test_param_id_3compartment_python_succeeds(base_user_inputs, resources_dir, temp_output_dir, mpi_comm):
+def test_param_id_3compartment_python_succeeds(base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
     """
     Test parameter identification for 3compartment using the Python solver path.
     """
@@ -343,6 +346,7 @@ def test_param_id_3compartment_python_succeeds(base_user_inputs, resources_dir, 
         },
         'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
         'param_id_output_dir': temp_output_dir,
+        'generated_models_dir': temp_generated_models_dir,
         'optimiser_options': {'num_calls_to_function': 40, 'max_patience': 10, 'cost_convergence': 1e-3},
     })
 
@@ -369,7 +373,7 @@ def test_param_id_3compartment_python_succeeds(base_user_inputs, resources_dir, 
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.mpi
-def test_param_id_test_fft_cost_is_zero(base_user_inputs, resources_dir, temp_output_dir, mpi_comm):
+def test_param_id_test_fft_cost_is_zero(base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
     """
     Test that parameter identification for test_fft results in zero cost.
     
@@ -405,6 +409,7 @@ def test_param_id_test_fft_cost_is_zero(base_user_inputs, resources_dir, temp_ou
         },
         'param_id_obs_path': os.path.join(resources_dir, 'test_fft_obs_data.json'),
         'param_id_output_dir': temp_output_dir,
+        'generated_models_dir': temp_generated_models_dir,
         'debug_optimiser_options': {'num_calls_to_function': 2000, 'max_patience': 500},  
     })
 
@@ -458,7 +463,7 @@ def test_param_id_test_fft_cost_is_zero(base_user_inputs, resources_dir, temp_ou
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.mpi
-def test_param_id_calibration_outputs_match_rerun(base_user_inputs, resources_dir, temp_output_dir, mpi_comm):
+def test_param_id_calibration_outputs_match_rerun(base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
     """
     Regression test:
     - Run short GA calibration on a simple model with state-init dependent constants.
@@ -488,6 +493,7 @@ def test_param_id_calibration_outputs_match_rerun(base_user_inputs, resources_di
         },
         "param_id_obs_path": os.path.join(resources_dir, "3compartment_obs_data.json"),
         "param_id_output_dir": temp_output_dir,
+        "generated_models_dir": temp_generated_models_dir,
         "optimiser_options": {
             "num_calls_to_function": 56,
             "max_patience": 8,
@@ -576,7 +582,7 @@ def test_param_id_calibration_outputs_match_rerun(base_user_inputs, resources_di
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.mpi
-def test_param_id_simple_physiological_succeeds(base_user_inputs, resources_dir, temp_output_dir, mpi_comm):
+def test_param_id_simple_physiological_succeeds(base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
     """
     Test that parameter identification succeeds for simple_physiological model.
     
@@ -610,6 +616,7 @@ def test_param_id_simple_physiological_succeeds(base_user_inputs, resources_dir,
         },
         'param_id_obs_path': os.path.join(resources_dir, 'simple_physiological_obs_data.json'),
         'param_id_output_dir': temp_output_dir,
+        'generated_models_dir': temp_generated_models_dir,
         'debug_optimiser_options': {'num_calls_to_function': 60, 'max_patience': 50},
     })
 
@@ -1276,7 +1283,7 @@ def test_param_id_lotka_volterra_sp_minimize_numpy_only_operation(base_user_inpu
 @pytest.mark.slow
 @pytest.mark.mpi
 @pytest.mark.compare_optimisers
-def test_compare_optimisers(base_user_inputs, resources_dir, temp_output_dir, mpi_comm, request):
+def test_compare_optimisers(base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm, request):
     """
     Test comparison of different optimization methods (GA vs CMA-ES).
     
@@ -1314,6 +1321,7 @@ def test_compare_optimisers(base_user_inputs, resources_dir, temp_output_dir, mp
         },
         'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
         'param_id_output_dir': temp_output_dir,
+        'generated_models_dir': temp_generated_models_dir,
         'debug_optimiser_options': {'num_calls_to_function': 10000, 'max_patience': 500},
     })
 

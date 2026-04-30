@@ -5,7 +5,7 @@ if [[ $# -eq 0 ]] ; then
 fi
 
 # Source the path
-source opencor_pythonshell_path.sh
+source python_path.sh
 
 echo "Running sensitivity analysis with $1 processors"
 
@@ -17,7 +17,7 @@ if [ $? -eq 0 ]; then
   echo "Autogeneration completed successfully."
   
   # If successful, proceed with the mpirun command
-  mpiexec -n "$1" "${opencor_pythonshell_path}" ../src/scripts/sensitivity_analysis_run_script.py
+  mpiexec -n "$1" "${python_path}" ../src/scripts/sensitivity_analysis_run_script.py
   
 else
   echo "Error: Autogeneration failed. Aborting."

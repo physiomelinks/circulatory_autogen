@@ -7,18 +7,18 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR"
 
 # Source the OpenCOR Python shell path
-source user_run_files/opencor_pythonshell_path.sh
+source user_run_files/python_path.sh
 
 # Check if pytest is installed in the OpenCOR Python environment
-if ! ${opencor_pythonshell_path} -m pytest --version > /dev/null 2>&1; then
+if ! ${python_path} -m pytest --version > /dev/null 2>&1; then
     echo "pytest is not installed in the OpenCOR Python environment."
     echo "Installing pytest and related packages from pyproject.toml..."
     # Try to install from pyproject.toml dev dependencies first
     if [ -f "pyproject.toml" ]; then
-        ${opencor_pythonshell_path} -m pip install -e ".[dev]"
+        ${python_path} -m pip install -e ".[dev]"
     else
         # Fallback to direct installation
-        ${opencor_pythonshell_path} -m pip install pytest pytest-cov pytest-mpi pytest-xdist
+        ${python_path} -m pip install pytest pytest-cov pytest-mpi pytest-xdist
     fi
 fi
 
@@ -75,6 +75,6 @@ LOG_FILE="${SCRIPT_DIR}/log_test.log"
 touch "$LOG_FILE"
 echo "===== pytest run $(date -Iseconds) =====" | tee -a "$LOG_FILE"
 echo "Running pytest with ${NUM_PROCS} MPI rank(s) via ${MPIEXEC_BIN}" | tee -a "$LOG_FILE"
-"${MPIEXEC_BIN}" "${MPIEXEC_ARGS[@]}" -n "${NUM_PROCS}" "${opencor_pythonshell_path}" -m pytest "${PYTEST_ARGS[@]}" 2>&1 | tee -a "$LOG_FILE"
+"${MPIEXEC_BIN}" "${MPIEXEC_ARGS[@]}" -n "${NUM_PROCS}" "${python_path}" -m pytest "${PYTEST_ARGS[@]}" 2>&1 | tee -a "$LOG_FILE"
 exit "${PIPESTATUS[0]}"
 

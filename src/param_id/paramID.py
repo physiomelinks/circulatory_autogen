@@ -38,12 +38,21 @@ from importlib import import_module
 # import tqdm # TODO this needs to be installed for corner plot but doesnt need an import here
 mcmc_lib = 'emcee' # TODO make this a user variable
 if mcmc_lib == 'emcee':
-    import emcee
+    try:
+        import emcee
+    except ImportError:
+        emcee = None
 elif mcmc_lib == 'zeus':
-    import zeus
+    try:
+        import zeus
+    except ImportError:
+        zeus = None
 else:
     print(f'unknown mcmc lib : {mcmc_lib}')
-import corner
+try:
+    import corner
+except ImportError:
+    corner = None
 import csv
 from datetime import date
 # from skopt import gp_minimize, Optimizer
