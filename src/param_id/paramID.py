@@ -1187,8 +1187,7 @@ class OpencorParamID():
 
     def get_lnlikelihood_from_params(self, param_vals):
         cost = self.get_cost_from_params(param_vals)
-        # lnlikelihood = -0.5*cost # TODO check this is correct for all multimodal distributions
-        lnlikelihood = -cost # TODO check this is correct for all multimodal distributions
+        lnlikelihood = cost
 
         return lnlikelihood
     
@@ -1845,6 +1844,129 @@ class OpencorMCMC(OpencorParamID):
                   'choosing defaults of 5000 and 2*num_params')
 
         self.DEBUG = DEBUG
+
+    def cost_calc(self, obs_dict, exp_idx=0, sub_idx=0):
+        """  
+        Override cost calculation for MCMC to normalize non-zero weights to 1.0  
+        """  
+
+        const = obs_dict['const']
+        series = obs_dict['series']
+        amp = obs_dict['amp']
+        phase = obs_dict['phase']
+        val_for_prob_dist = obs_dict['val_for_prob_dist']
+
+        # Get the original weights  
+        updated_weight_const_vec = self.protocol_info["scaled_weight_const_from_exp_sub"][exp_idx][sub_idx]  
+        updated_weight_series_vec = self.protocol_info["scaled_weight_series_from_exp_sub"][exp_idx][sub_idx]  
+        updated_weight_amp_vec = self.protocol_info["scaled_weight_amp_from_exp_sub"][exp_idx][sub_idx]  
+        updated_weight_phase_vec = self.protocol_info["scaled_weight_phase_from_exp_sub"][exp_idx][sub_idx]  
+        updated_weight_prob_dist_vec = self.protocol_info["scaled_weight_prob_dist_from_exp_sub"][exp_idx][sub_idx]  
+          
+        # Normalize non-zero weights to 1.0 for MCMC  
+        updated_weight_const_vec = np.where(updated_weight_const_vec != 0, 1.0, 0.0)  
+        updated_weight_series_vec = np.where(updated_weight_series_vec != 0, 1.0, 0.0)  
+        updated_weight_amp_vec = np.where(updated_weight_amp_vec != 0, 1.0, 0.0)  
+        updated_weight_phase_vec = np.where(updated_weight_phase_vec != 0, 1.0, 0.0)  
+        updated_weight_prob_dist_vec = np.where(updated_weight_prob_dist_vec != 0, 1.0, 0.0)  
+
+
+        # get number of obs that don't have zero weights
+        num_weighted_obs = np.sum(updated_weight_const_vec != 0) + \
+                            np.sum(updated_weight_series_vec != 0) + \
+                            np.sum(updated_weight_amp_vec != 0) + \
+                            np.sum(updated_weight_phase_vec != 0) + \
+                            np.sum(updated_weight_prob_dist_vec != 0)
+        
+        # this subexperiment doesn't have any weighted observables, so no cost
+        if num_weighted_obs == 0.0:
+            return 0.0
+        
+        if len(self.obs_info["ground_truth_phase"]) == 0:
+            phase = None
+        if self.obs_info["ground_truth_phase"].all() == None:
+            phase = None
+        
+        cost = 0.0
+        if const is not None:
+            for const_idx in range(len(const)):
+                obs_idx = self.obs_info['const_idx_to_obs_idx'][const_idx]
+                if updated_weight_const_vec[const_idx] != 0:
+                    cost += self.cost_funcs_dict[self.cost_type[obs_idx]](const[const_idx], self.obs_info["ground_truth_const"][const_idx],
+                                                    self.obs_info["std_const_vec"][const_idx], updated_weight_const_vec[const_idx])
+        
+        assert isinstance(cost, float), 'cost is not a float'
+
+        series_cost = 0
+        if series is not None:
+        
+            for series_idx in range(len(series)):
+                if self.obs_info["obs_dt"][series_idx] != self.dt:
+                    # interpolate the series to the dt of the ground truth series
+                    time_series = np.linspace(0, series[series_idx].shape[0]*self.dt, series[series_idx].shape[0])
+                    obs_time_series = np.linspace(0, self.obs_info["ground_truth_series"][series_idx].shape[0]*self.obs_info["obs_dt"][series_idx],
+                                                    self.obs_info["ground_truth_series"][series_idx].shape[0])
+
+                    series_entry = np.interp(obs_time_series, time_series, series[series_idx])
+                    obs_entry = self.obs_info["ground_truth_series"][series_idx]
+                    std_entry = self.obs_info["std_series_vec"][series_idx]
+                else:
+                    min_len_series = min(self.obs_info["ground_truth_series"][series_idx].shape[0], len(series[series_idx]))
+                    series_entry = series[series_idx][:min_len_series]
+                    obs_entry = self.obs_info["ground_truth_series"][series_idx][:min_len_series]
+                    # TODO make sure the std entries are the same shape as the obs entries
+                    std_entry = self.obs_info["std_series_vec"][series_idx][:min_len_series]
+                    
+                
+                weight_entry = updated_weight_series_vec[series_idx]
+                
+                obs_idx = self.obs_info['series_idx_to_obs_idx'][series_idx]
+                if weight_entry != 0:
+                    series_cost += self.cost_funcs_dict[self.cost_type[obs_idx]](series_entry, obs_entry, std_entry, weight_entry)
+
+
+        amp_cost = 0
+        if amp is not None:
+            for amp_idx in range(len(amp)):
+                obs_idx = self.obs_info['freq_idx_to_obs_idx'][amp_idx]
+                amp_entry = amp[amp_idx]
+                obs_entry = self.obs_info["ground_truth_amp"][amp_idx]
+                weight_entry = updated_weight_amp_vec[amp_idx]
+                std_entry = self.obs_info["std_amp_vec"][amp_idx]
+                if hasattr(weight_entry, '__len__'):
+                    if not all(val==0 for val in weight_entry):
+                        amp_cost += self.cost_funcs_dict[self.cost_type[obs_idx]](amp_entry, obs_entry, std_entry, weight_entry)
+                else:
+                    if weight_entry != 0:
+                        amp_cost += self.cost_funcs_dict[self.cost_type[obs_idx]](amp_entry, obs_entry, std_entry, weight_entry)
+
+        phase_cost = 0
+        if phase is not None:
+            for phase_idx in range(len(phase)):
+                obs_idx = self.obs_info['freq_idx_to_obs_idx'][phase_idx]
+                phase_entry = phase[phase_idx]
+                std_entry = np.ones(len(phase_entry))
+                obs_entry = self.obs_info["ground_truth_phase"][phase_idx]
+                weight_entry = updated_weight_phase_vec[phase_idx]
+                if hasattr(weight_entry, '__len__'):
+                    if not all(val==0 for val in weight_entry):
+                        phase_cost += self.cost_funcs_dict[self.cost_type[obs_idx]](phase_entry, obs_entry, std_entry, weight_entry)
+                else:
+                    if weight_entry != 0:
+                        phase_cost += self.cost_funcs_dict[self.cost_type[obs_idx]](phase_entry, obs_entry, std_entry, weight_entry)
+
+        prob_dist_cost = 0
+        if val_for_prob_dist is not None:
+            for prob_dist_idx in range(len(val_for_prob_dist)):
+                obs_idx = self.obs_info['prob_dist_idx_to_obs_idx'][prob_dist_idx]
+                if updated_weight_prob_dist_vec[prob_dist_idx] != 0:
+                    prob_dist_cost += self.cost_funcs_dict[self.cost_type[obs_idx]](val_for_prob_dist[prob_dist_idx], 
+                                                                    self.obs_info["ground_truth_prob_dist_params"][prob_dist_idx],
+                                                                    updated_weight_prob_dist_vec[prob_dist_idx])
+            
+        cost = (cost + series_cost + amp_cost + phase_cost + prob_dist_cost) / num_weighted_obs
+
+        return cost
 
     def run(self):
         comm = MPI.COMM_WORLD

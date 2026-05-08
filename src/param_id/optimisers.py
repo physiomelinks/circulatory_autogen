@@ -73,6 +73,15 @@ class Optimiser(ABC):
             self.optimiser_options['cost_convergence'] = 0.0001
         if 'max_patience' not in self.optimiser_options:
             self.optimiser_options['max_patience'] = 10
+
+        self.objective_function = self.optimiser_options.get('objective_function', 'cost')  
+        if self.objective_function == 'cost':  
+            self.objective_method = lambda params: -1*self.param_id_obj.get_cost_from_params(params)
+        elif self.objective_function == 'likelihood':  
+            self.objective_method = lambda params: -1*self.param_id_obj.get_lnlikelihood_lnprior_from_params(params)
+        else:  
+            raise ValueError(f"Invalid objective_function: {self.objective_function}. "  
+                           f"Must be 'cost' or 'likelihood'")
     
     @abstractmethod
     def run(self):
@@ -210,7 +219,7 @@ class GeneticAlgorithmOptimiser(Optimiser):
                         success = True
                         break
                     
-                    cost_proc[II] = self.param_id_obj.get_cost_from_params(param_vals_proc[:, II])
+                    cost_proc[II] = self.objective_method(param_vals_proc[:, II])
                     
                     if cost_proc[II] == np.inf:
                         print('... choosing a new random point')
@@ -420,7 +429,7 @@ class BayesianOptimiser(Optimiser):
             
             if num_procs > 1:
                 comm.Bcast(points_np, root=0)
-                cost_proc = self.param_id_obj.get_cost_from_params(points_np[rank, :])
+                cost_proc = self.objective_method(points_np[rank, :])
                 
                 recv_buf_cost = np.zeros(num_procs)
                 send_buf_cost = cost_proc
@@ -429,7 +438,7 @@ class BayesianOptimiser(Optimiser):
                 cost_np = recv_buf_cost
                 cost = cost_np.tolist()
             else:
-                cost[0] = self.param_id_obj.get_cost_from_params(points)
+                cost[0] = self.objective_method(points)
             
             if rank == 0:
                 if num_procs > 1:
@@ -674,7 +683,7 @@ class CMAESOptimiser(Optimiser):
                 print(f'[CMA-ES] Evaluating {num_candidates} candidates across {num_procs} rank(s); per-rank load={eval_counts}')
             for i in range(num_candidates):
                 if i % num_procs == rank:
-                    cost = self.param_id_obj.get_cost_from_params(candidate_array[i, :])
+                    cost = self.objective_method(candidate_array[i, :])
                     costs_local[i] = cost
             
             # Gather all costs using Allreduce with MIN to combine results
@@ -734,7 +743,7 @@ class CMAESOptimiser(Optimiser):
             try:
                 recommendation = optimizer.provide_recommendation()
                 final_params = recommendation.value
-                final_cost = self.param_id_obj.get_cost_from_params(final_params)
+                final_cost = self.objective_method(final_params)
                 
                 # Use recommendation if it's better
                 if final_cost < best_cost:
