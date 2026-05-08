@@ -58,7 +58,7 @@ def gaussian_MLE(output, desired_mean, std, weight):
     cost = ca.power((output - desired_mean)/std, 2)*weight
     if hasattr(output, '__len__'):
         # if entry is a vector then turn the vector of costs for each data point into a average cost
-        cost = ca.sum(cost)/len(output)
+        cost = 0.5 * ca.sum(cost)/len(output)
     
     return cost
 
@@ -126,6 +126,57 @@ def multimodal_gaussian(output, prob_dist_params, weight):
 
     # print(cost)
     # print(cost_check)
+
+    return cost
+
+@operation(mode="numpy")
+@is_MLE
+def kernel_density_estimation(output, prob_dist_params, weight, **kwargs):
+    """
+    KDE-based log-likelihood cost.
+    """
+
+    if hasattr(output, '__len__'):
+        raise ValueError("KDE cost not implemented for series data")
+
+    # Validate input
+    if not isinstance(prob_dist_params, dict) or "data_points" not in prob_dist_params:
+        raise ValueError("prob_dist_params must be {'data_points': [...]}")
+
+    bandwidth = kwargs.get('bandwidth', 'scott')  # default to Scott's rule if not provided
+    data_points = np.asarray(prob_dist_params["data_points"])
+
+    if data_points.size == 0:
+        raise ValueError("data_points cannot be empty")
+
+    from scipy.stats import gaussian_kde
+    
+    kde = gaussian_kde(prob_dist_params["data_points"], bw_method=bandwidth)
+    
+    log_density = kde.logpdf(output)
+    cost = log_density * weight
+
+    return cost
+
+@operation(mode="numpy")
+@is_MLE
+def poisson_MLE(output, prob_dist_params, weight):
+    """
+    output: model prediction (rate or lambda)
+    desired_mean: observed count (k)
+    weight: scaling factor (like your Gaussian case)
+    """
+    eps = 1e-12
+
+    # lambda (expected count)
+    lam = np.clip(output, eps, None)
+    k = prob_dist_params['k']
+
+    # log-likelihood (dropping log(k!) since it's constant)
+    cost = (k * np.log(lam) - lam) * weight
+
+    if hasattr(output, '__len__'):
+        cost = np.sum(cost) / len(output)
 
     return cost
 
