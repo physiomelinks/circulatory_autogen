@@ -45,29 +45,20 @@ def gaussian_MLE(output, desired_mean, std, weight):
     #                                            :min_len_series]) * updated_weight_series_vec.reshape(-1, 1) /
     #                                           self.obs_info["std_series_vec"].reshape(-1, 1), 2)) / min_len_series
 
-    cost = np.power((output - desired_mean)/std, 2)*weight
+    cost = -np.power((output - desired_mean)/std, 2)*weight
     if hasattr(output, '__len__'):
         # if entry is a vector then turn the vector of costs for each data point into a average cost
         cost = -0.5 * np.sum(cost)/len(output)
     
     return cost
 
-@operation(mode="casadi")
-@is_MLE
-def gaussian_MLE(output, desired_mean, std, weight):
-    cost = ca.power((output - desired_mean)/std, 2)*weight
-    if hasattr(output, '__len__'):
-        # if entry is a vector then turn the vector of costs for each data point into a average cost
-        cost = -0.5 * ca.sum(cost)/len(output)
-    
-    return cost
 
 # TODO we need to create derivative functions for each cost with respect to the outputs so that we can pass 
 
 @operation(mode="both")
 def MSE(*args, **kwargs):
     # The mean squared error cost is the same as the 
-    return gaussian_MLE(*args, **kwargs)
+    return 2*gaussian_MLE(*args, **kwargs)
 
 @operation(mode="numpy")
 @is_MLE
@@ -131,7 +122,7 @@ def multimodal_gaussian(output, prob_dist_params, weight):
 
 @operation(mode="numpy")
 @is_MLE
-def kernel_density_estimation(output, prob_dist_params, weight, **kwargs):
+def kernel_density_estimation(output, prob_dist_params, weight):
     """
     KDE-based log-likelihood cost.
     """
@@ -143,7 +134,7 @@ def kernel_density_estimation(output, prob_dist_params, weight, **kwargs):
     if not isinstance(prob_dist_params, dict) or "data_points" not in prob_dist_params:
         raise ValueError("prob_dist_params must be {'data_points': [...]}")
 
-    bandwidth = kwargs.get('bandwidth', 'scott')  # default to Scott's rule if not provided
+    bandwidth = prob_dist_params.get('bandwidth', 'scott')  # default to Scott's rule if not provided
     data_points = np.asarray(prob_dist_params["data_points"])
 
     if data_points.size == 0:
