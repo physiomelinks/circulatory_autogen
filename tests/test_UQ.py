@@ -145,16 +145,16 @@ def test_mcmc_unimodal_with_validation_KDE_likelihood(base_user_inputs, resource
         'param_id_obs_path': os.path.join(tests_dir, "test_inputs", 'Simple_ODE_Benchmark_KDE_obs_data.json'),  
         'param_id_output_dir': temp_output_dir,
         'mcmc_options': {
-            'mcmc_lib': 'pymc',  # 'emcee' or 'zeus' or 'pymc'
+            'mcmc_lib': 'emcee',  # 'emcee' or 'zeus' or 'pymc'
             'num_steps': 100,
-            'num_walkers': 32,  # 2*num_params is a common choice
+            'num_walkers': 64,  # 2*num_params is a common choice
             'burn_in_percentage': 0.5,
-            'method': 'smc'  # or 'smc' if using SMC
+            'method': 'mcmc'  # or 'smc' if using SMC
         },
         'optimiser_options': {
             "num_calls_to_function": 10000,  
             "cost_convergence": -100,        # Convergence tolerance  
-            "max_patience": 5,              # Max generations without improvement  
+            "max_patience": 1,              # Max generations without improvement  
             "cost_type": 'gaussian_MLE',
             "relative_tolerance": 0.01,
             "use_relative_tolerance": True
@@ -248,7 +248,7 @@ def test_mcmc_bimodal_with_validation(base_user_inputs, resources_dir, temp_outp
         'param_id_output_dir': temp_output_dir,
         'mcmc_options': {
             'mcmc_lib': 'pymc',  # 'emcee' or 'zeus' or 'pymc'
-            'num_steps': 100,
+            'num_steps': 200,
             'num_walkers': 64,  # 2*num_params is a common choice
             'burn_in_percentage': 0.0,
             'method': 'mcmc'  # or 'smc' if using SMC
@@ -256,7 +256,7 @@ def test_mcmc_bimodal_with_validation(base_user_inputs, resources_dir, temp_outp
         'optimiser_options': {
             "num_calls_to_function": 10000,  
             "cost_convergence": -100,        # Convergence tolerance  
-            "max_patience": 2,              # Max generations without improvement  
+            "max_patience": 1,              # Max generations without improvement  
             "cost_type": 'gaussian_MLE',
             "relative_tolerance": 0.01,
             "use_relative_tolerance": True
@@ -374,5 +374,3 @@ def test_mcmc_bimodal_with_validation(base_user_inputs, resources_dir, temp_outp
             # assert p_value > 0.05, f"Distributions for {feature} are significantly different (p={p_value:.4f})"
 
     mpi_comm.Barrier()
-
-#TODO: Include a test for comparing predictions from inferred samples with calibration data
