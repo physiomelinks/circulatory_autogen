@@ -11,7 +11,7 @@
     "params_to_change": {
     },
     "experiment_labels": [
-      "TWorld_v2_Virual_cohort"
+      "benchmark"
     ]
   },
   "prediction_items": [],

@@ -1,0 +1,67 @@
+{
+  "protocol_info": {
+    "pre_times": [
+      0.0
+    ],
+    "sim_times": [
+      [
+        8.0
+      ]
+    ],
+    "params_to_change": {
+    },
+    "experiment_labels": [
+      "TWorld_v2_Virual_cohort"
+    ]
+  },
+  "prediction_items": [],
+  "data_items": [
+	{  
+	  "variable": "benchmark/x",  
+	  "name_for_plotting": "x_{SS}",  
+	  "data_type": "prob_dist",  
+	  "operation": "steady_state_avg",  
+	  "operands": ["benchmark/x"],  
+	  "unit": "dimensionless",  
+	  "weight": 1.0,  
+	  "value": 1,  
+	  "std": 0.1,  
+	  "experiment_idx": 0,  
+	  "subexperiment_idx": 0,  
+	  "plot_type": "None",
+          "prob_dist_params": {  
+	        "data_points": [1.050, 0.986, 1.065, 1.152, 0.977, 0.977, 1.158, 1.077, 0.953, 1.054],
+			"bandwidth": 0.1
+	  },
+      "cost_type": "kernel_density_estimation"
+	},
+	{  
+	  "variable": "benchmark/y",  
+	  "name_for_plotting": "y_{SS}",  
+	  "data_type": "prob_dist",  
+	  "operation": "steady_state_avg",  
+	  "operands": ["benchmark/y"],  
+	  "unit": "dimensionless",  
+	  "weight": 1.0,  
+	  "value": 0.33,  
+	  "std": 0.1,  
+	  "experiment_idx": 0,  
+	  "subexperiment_idx": 0,  
+	  "plot_type": "None",
+	      "prob_dist_params": {  
+		    "data_points": [4.3616256380e-1,
+							3.4851763020e-1,
+							3.0416979900e-1,
+							3.2567541060e-1,
+							3.0277230150e-1,
+							3.9074290780e-1,
+							2.3822858120e-1,
+							4.0581900250e-1,
+							3.4042696990e-1,
+							1.9834831290e-1],
+			"bandwidth": 0.1
+		  },
+	  "cost_type": "kernel_density_estimation"
+	}
+  ]
+}
