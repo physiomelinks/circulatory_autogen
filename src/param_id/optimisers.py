@@ -273,22 +273,34 @@ class GeneticAlgorithmOptimiser(Optimiser):
                 
                 #count the repeat number
                 if last_loss is not None:
-                    if abs(cost[0]-last_loss) < self.optimiser_options["cost_convergence"]:
+                    diff = abs(cost[0] - last_loss)
+                    
+                    # Check absolute OR relative convergence criteria
+                    is_converged_abs = diff < self.optimiser_options["cost_convergence"]
+                    
+                    is_converged_rel = False
+                    if self.optimiser_options.get('use_relative_tolerance', False):
+                        relative_change = diff / max(abs(last_loss), 1e-10)
+                        is_converged_rel = relative_change < self.optimiser_options["relative_tolerance"]
+
+                    # If either criteria is met, increment counter
+                    if is_converged_abs or is_converged_rel:
                         loss_repeat_counter += 1
                     else:
                         loss_repeat_counter = 0
-                        last_loss = cost[0]
+                        # Only update last_loss when we have a significant change 
+                        # (or update it every time at the end)
                 else:
-                    last_loss = cost[0]
+                    # First generation initialization
+                    diff = None
+                    loss_repeat_counter = 0
                 
                 # if cost is small enough then exit
                 if cost[0] < self.optimiser_options["cost_convergence"]:
-                    print(f'Cost is less than cost_convergence={self.optimiser_options["cost_convergence"]}', 
-                            'Exiting calibration with calibration converged to below cost tolerance')
+                    print(f'Cost {cost[0]} is below absolute threshold. Exiting.')
                     finished_ga[0] = True
                 elif loss_repeat_counter >= self.optimiser_options["max_patience"]:
-                    print(f'loss has been unchanged for max_patience={self.optimiser_options["max_patience"]} generations.',
-                            'Exiting calibration with converged optimisation.')
+                    print(f'Convergence reached (Abs or Rel) for {self.optimiser_options["max_patience"]} generations. Exiting.')
                     finished_ga[0] = True
                 else:
                     # At this stage all of the population has been simulated
@@ -303,7 +315,11 @@ class GeneticAlgorithmOptimiser(Optimiser):
                         if cost[idx] > 1e25:
                             cost[idx] = 1e25
                     
-                    survive_prob = cost[num_elite:num_pop]**-1/sum(cost[num_elite:num_pop]**-1)
+                    cost_subset = cost[num_elite:num_pop]  
+                    # Use exp(-cost) which works for any real cost value  
+                    survival_weights = np.exp(-cost_subset)  
+                    survive_prob = survival_weights / sum(survival_weights)
+
                     rand_survivor_idxs = np.random.choice(np.arange(num_elite, num_pop),
                                                         size=num_survivors-num_elite, p=survive_prob)
                     param_vals_norm[:, num_elite:num_survivors] = param_vals_norm[:, rand_survivor_idxs]
@@ -342,6 +358,8 @@ class GeneticAlgorithmOptimiser(Optimiser):
                     
                     param_vals = self.param_norm_obj.unnormalise(param_vals_norm)
             
+                last_loss = cost[0]
+
             comm.Bcast(finished_ga, root=0)
             if finished_ga[0]:
                 break
