@@ -110,6 +110,13 @@ class IdentifiabilityAnalysis():
         pass
 
     def run_laplace_approximation(self, ia_options):
+        from param_id.differentiable import assert_mle_cost_for_bayesian
+
+        assert_mle_cost_for_bayesian(
+            self.param_id.cost_type,
+            self.param_id.cost_funcs_dict,
+            "Laplace approximation",
+        )
 
         # TODO fix hessian calculation now that it uses lnlikelihood + lnprior
         Hessian = calculate_hessian(self.param_id, method=ia_options.get('sub_method', 'parabola_fit'))

@@ -85,10 +85,7 @@ class sobol_SA():
         mode = "casadi" if self.model_type == "casadi_python" else "numpy"
         # set up observables functions
         self.sfp = scriptFunctionParser()
-        self.operation_funcs_dict = self.sfp.get_operation_funcs_dict()
-        default_user_operation_funcs = self.sfp.get_default_user_operation_funcs(mode)
-        for func_name, func in default_user_operation_funcs.items():
-            self.add_user_operation_func(func)
+        self.operation_funcs_dict = self.sfp.get_operation_funcs_dict(mode)
 
         self.obs_and_param_parser = None
         self.gt_df = None

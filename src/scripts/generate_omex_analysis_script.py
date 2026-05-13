@@ -127,7 +127,7 @@ INP_DATA_DICT = {{
         "num_calls_to_function": 2000,
         "max_patience": 10,
         "cost_convergence": 0.1,
-        "cost_type": "MSE",
+        "cost_type": "gaussian_MLE",
     }},
     "sa_options": {{
         "method": "sobol",

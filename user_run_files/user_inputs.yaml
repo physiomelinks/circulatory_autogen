@@ -81,7 +81,7 @@ optimiser_options:
   num_calls_to_function: 2000  # maximum function evaluations (default: 10000)
   cost_convergence: 0.001        # convergence tolerance (default: 0.0001)
   max_patience: 10              # max patience for convergence (default: 10)
-  cost_type: MSE                # cost function type
+  cost_type: gaussian_MLE  # use @is_MLE costs for MCMC / Laplace (see cost_funcs_user)
   # CMA-ES specific options:
   # sigma0: 0.1    # optional, initial standard deviation (default: 0.2 * mean(param_range))
   # Note: Initial parameter values (x0) are automatically loaded from {file_prefix}_parameters.csv
@@ -90,7 +90,7 @@ optimiser_options:
 debug_optimiser_options:
   num_calls_to_function: 30 # TODO change back to 30 for tests
   cost_convergence: 0.001
-  cost_type: MSE
+  cost_type: gaussian_MLE
   # Note: When DEBUG is True, debug_optimiser_options overrides optimiser_options
 
 #______ mcmc inputs ___________
@@ -99,13 +99,13 @@ mcmc_options:
   num_steps: 1000
   num_walkers: 64
   # TODO As above for cost_type
-  cost_type: MSE
+  cost_type: gaussian_MLE
   cost_convergence: 0.001
 
 debug_mcmc_options:
   num_steps: 5
   num_walkers: 40
-  cost_type: MSE
+  cost_type: gaussian_MLE
   cost_convergence: 0.001
 
 sa_options:

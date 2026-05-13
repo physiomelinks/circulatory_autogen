@@ -9,7 +9,7 @@ import os
 from mpi4py import MPI
 root_dir = os.path.join(os.path.dirname(__file__), '../..')
 sys.path.append(os.path.join(root_dir, 'src'))
-from param_id.paramID import CVS0DParamID
+from param_id.paramID import CVS0DParamID, ensure_mle_cost_type_for_bayesian_inner
 import traceback
 import yaml
 import numpy as np
@@ -69,7 +69,9 @@ def run_identifiability_analysis(inp_data_dict=None):
     param_id_name_and_vals, param_id_date = csv_parser.get_param_id_params_as_lists_of_tuples(inp_data_dict['param_id_output_dir_abs_path'])
     best_param_vals = np.array([val for name, val in param_id_name_and_vals])
     
-    id_analysis.set_best_param_vals(best_param_vals)    
+    id_analysis.set_best_param_vals(best_param_vals)
+    if inp_data_dict.get("ia_options", {}).get("method") == "Laplace":
+        ensure_mle_cost_type_for_bayesian_inner(param_id.param_id, inp_data_dict)
     #id_analysis.run_identifiability_analysis(inp_data_dict['identifiability_analysis_options'])
     id_analysis.run(inp_data_dict['ia_options'])
     

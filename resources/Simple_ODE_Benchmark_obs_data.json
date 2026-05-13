@@ -25,6 +25,7 @@
         "benchmark/x"
       ],
       "unit": "dimensionless",
+      "cost_type": "gaussian_MLE",
       "weight": 1.0,
       "value": 1.0,
       "std": 0.1,
@@ -41,6 +42,7 @@
         "benchmark/y"
       ],
       "unit": "dimensionless",
+      "cost_type": "gaussian_MLE",
       "weight": 1.0,
       "value": 0.333,
       "std": 0.1,

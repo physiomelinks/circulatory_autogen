@@ -1,106 +1,122 @@
-import numpy as np
-try:
-    import casadi as ca
-except ImportError:
-    ca = None
+"""Built-in observable operations; dicts are built per mode via build_operation_funcs_dict."""
 
-OPERATION_FUNCS = {
-    "numpy": {},
-    "casadi": {}
-}
+import os
+import sys
 
-def operation(mode="numpy"):
-    def wrapper(func):
-        if mode == "both":
-            OPERATION_FUNCS["numpy"][func.__name__] = func
-            OPERATION_FUNCS["casadi"][func.__name__] = func
-        else:
-            OPERATION_FUNCS[mode][func.__name__] = func
-        return func
-    return wrapper
+_opp_dir = os.path.dirname(os.path.abspath(__file__))
+if _opp_dir not in sys.path:
+    sys.path.insert(0, _opp_dir)
+
+from differentiable import differentiable
+from math_backend import make_math_backend
+
 
 def series_to_constant(func):
     func.series_to_constant = True
     return func
 
-@operation(mode="numpy")
+
+mb = make_math_backend("numpy")
+
+
+@differentiable
 @series_to_constant
 def max(x, series_output=False):
     if series_output:
         return x
-    else:
-        return np.max(x)
+    return mb.max(x)
 
-@operation(mode="numpy")
+
+@differentiable
 @series_to_constant
 def min(x, series_output=False):
     if series_output:
         return x
-    else:
-        return np.min(x)
+    return mb.min(x)
 
-@operation(mode="numpy")
+
+@differentiable
 @series_to_constant
 def mean(x, series_output=False):
     if series_output:
         return x
-    else:
-        return np.mean(x)
+    return mb.mean(x)
 
-@operation(mode="numpy")
+
+@differentiable
 @series_to_constant
 def max_minus_min(x, series_output=False):
     if series_output:
         return x
-    else:
-        return np.max(x) - np.min(x)
-    
-
-@operation(mode="casadi")
-@series_to_constant
-def max(x, series_output=False):
-    if series_output:
-        return x
-    else:
-        return ca.mmax(x)
-
-@operation(mode="casadi")
-@series_to_constant
-def min(x, series_output=False):
-    if series_output:
-        return x
-    else:
-        return ca.mmin(x)
-
-@operation(mode="casadi")
-@series_to_constant
-def mean(x, series_output=False):
-    if series_output:
-        return x
-    else:
-        return ca.mmean(x)
-
-@operation(mode="casadi")
-@series_to_constant
-def max_minus_min(x, series_output=False):
-    if series_output:
-        return x
-    else:
-        return ca.max(x) - ca.min(x)
+    return mb.max_minus_min(x)
 
 
-@operation(mode="both")
+@differentiable
 def addition(x1, x2):
     return x1 + x2
 
-@operation(mode="both")
+
+@differentiable
 def subtraction(x1, x2):
     return x1 - x2
 
-@operation(mode="both")
+
+@differentiable
 def multiplication(x1, x2):
     return x1 * x2
 
-@operation(mode="both")
+
+@differentiable
 def division(x1, x2):
     return x1 / x2
+
+
+##
+## Below here are the organisational functions for building the operation functions dictionary
+## They are not part of the public API
+##
+
+def register_core_operations(registry, backend):
+    """
+    Bind ``mb`` to ``backend`` and register every operation callable defined in this module.
+
+    Skips private names (``_`` prefix), ``series_to_constant``, and the dict builders.
+    Imported callables are skipped via ``__module__`` checks.
+    """
+    global mb
+    mb = backend
+    g = globals()
+    mod = __name__
+    exclude = frozenset(
+        {
+            "series_to_constant",
+            "register_core_operations",
+            "build_operation_funcs_dict",
+            "get_operation_funcs_dict_for_mode",
+        }
+    )
+    for name, obj in g.items():
+        if name.startswith("_") or name in exclude:
+            continue
+        if not callable(obj) or isinstance(obj, type):
+            continue
+        if getattr(obj, "__module__", None) != mod:
+            continue
+        registry[name] = obj
+
+
+def build_operation_funcs_dict(backend):
+    registry = {}
+    register_core_operations(registry, backend)
+    try:
+        import operation_funcs_user as ofu
+    except ImportError:
+        pass
+    else:
+        ofu.register_user_operations(registry, backend)
+    return registry
+
+
+def get_operation_funcs_dict_for_mode(mode="numpy"):
+    """Convenience for callers that only have a mode string."""
+    return build_operation_funcs_dict(make_math_backend(mode))

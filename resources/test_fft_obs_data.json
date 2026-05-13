@@ -4,6 +4,7 @@
     "data_type": "frequency",
     "unit": "m3_per_s",
     "operation": "None",
+    "cost_type": "gaussian_MLE",
     "operands": ["inlet/v"],
     "weight": [
       1.0,

@@ -49,12 +49,11 @@ class scriptFunctionParser(object):
     def get_operation_funcs_dict(self, mode="numpy"):
         import operation_funcs
 
-        return operation_funcs.OPERATION_FUNCS[mode]
-    
-    def get_default_user_operation_funcs(self, mode="numpy"):
-        import operation_funcs_user
+        return operation_funcs.get_operation_funcs_dict_for_mode(mode)
 
-        return operation_funcs_user.OPERATION_FUNCS[mode]
+    def get_default_user_operation_funcs(self, mode="numpy"):
+        """User operations are merged in ``get_operation_funcs_dict``; this is kept for API compatibility."""
+        return {}
 
     def add_user_operation_func(self, operation_funcs_dict, func):
         operation_funcs_dict[func.__name__] = func
@@ -67,7 +66,7 @@ class scriptFunctionParser(object):
     def get_cost_funcs_dict(self, mode="numpy"):
         import cost_funcs_user
 
-        return cost_funcs_user.COST_FUNCS[mode]
+        return cost_funcs_user.get_cost_funcs_dict_for_mode(mode)
 
 class YamlFileParser(object):
     '''

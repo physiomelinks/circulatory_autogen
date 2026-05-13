@@ -9,7 +9,7 @@ import os
 from mpi4py import MPI
 root_dir = os.path.join(os.path.dirname(__file__), '../..')
 sys.path.append(os.path.join(root_dir, 'src'))
-from param_id.paramID import CVS0DParamID
+from param_id.paramID import CVS0DParamID, ensure_mle_cost_type_for_bayesian_inner, mcmc_object
 import traceback
 import yaml
 import numpy as np
@@ -94,7 +94,11 @@ def run_param_id(inp_data_dict=None):
     param_id.run()
     # param_id.param_id.set_best_param_vals(np.asarray([0.59779409, 0.32321317, 0.05664833, 0.35665839]))
     best_param_vals = param_id.get_best_param_vals()
-    
+
+    override_ia = inp_data_dict.get("override_best_param_vals_for_ia")
+    if override_ia is not None:
+        best_param_vals = np.asarray(override_ia, dtype=float)
+
     if rank == 0:
         print('param id complete with method:', param_id_method)
 
@@ -118,12 +122,16 @@ def run_param_id(inp_data_dict=None):
                                 solver_info=solver_info, dt=dt, mcmc_options=mcmc_options, DEBUG=DEBUG,
                                 param_id_output_dir=param_id_output_dir, resources_dir=resources_dir)
         mcmc.set_best_param_vals(best_param_vals)
+        ensure_mle_cost_type_for_bayesian_inner(mcmc_object, inp_data_dict)
         # mcmc.set_mcmc_parameters() TODO
         mcmc.run_mcmc()
 
         if rank == 0:
             print('mcmc complete')
     
+
+    if inp_data_dict.get("do_ia") and inp_data_dict.get("ia_options", {}).get("method") == "Laplace":
+        ensure_mle_cost_type_for_bayesian_inner(param_id.param_id, inp_data_dict)
 
     if inp_data_dict['do_ia']:
         # id_analysis = IdentifiabilityAnalysis(model_path, model_type, param_id_method, False, file_prefix,

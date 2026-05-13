@@ -10,6 +10,12 @@ Run all tests using the provided script:
 ./run_pytest.sh
 ```
 
+Run in parallel and verbose without the slow compare_optimisers (this is the fast way to test nearly everything)
+
+```bash
+./run_pytest.sh -n NUM_RANKS -v -s -m "not compare_optimisers"
+```
+
 This script automatically:
 1. Sources the OpenCOR Python shell path from `user_run_files/python_path.sh`
 2. Installs pytest and related packages if needed
@@ -47,10 +53,6 @@ You can pass any pytest arguments to the script:
 # Run in parallel and verbose (this is the standard way to test everything)
 
 ./run_pytest.sh -n NUM_RANKS -v -s
-
-# Run in parallel and verbose without the slow compare_optimisers (this is the fast way to test nearly everything)
-
-./run_pytest.sh -n NUM_RANKS -v -s -m "not compare_optimisers"
 
 # Run only the optimiser method comparisons
 ./run_pytest.sh -n 8 tests/test_param_id.py::test_compare_optimisers -v -s

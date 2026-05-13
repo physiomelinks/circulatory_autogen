@@ -68,6 +68,10 @@ class ObservableSpec:
 class OMEXArchiveParser:
     """Minimal OMEX parser for archives with a CellML model and JSON output data."""
 
+    # Used for ``data_items`` from ``build_obs_data_dict`` so Laplace / MCMC paths get
+    # log-likelihood costs (see ``ensure_mle_cost_type_for_bayesian_inner`` and cost_funcs_user).
+    DEFAULT_COST_TYPE = "gaussian_MLE"
+
     def __init__(self, archive_path: str):
         self.archive_path = os.path.abspath(archive_path)
         self.archive_name = os.path.basename(self.archive_path)
@@ -389,6 +393,7 @@ class OMEXArchiveParser:
                 "operation": spec.operation_name,
                 "value": spec.values,
                 "std": _constant_std(spec.values),
+                "cost_type": self.DEFAULT_COST_TYPE,
                 "obs_dt": obs_dt,
                 "experiment_idx": 0,
                 "subexperiment_idx": 0,

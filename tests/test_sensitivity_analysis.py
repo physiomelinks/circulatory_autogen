@@ -74,7 +74,7 @@ def test_sensitivity_analysis_3compartment_succeeds(base_user_inputs, resources_
         'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
         'param_id_output_dir': temp_output_dir,
         'generated_models_dir': temp_generated_models_dir,
-        'debug_optimiser_options': {'num_calls_to_function': 60},
+        'debug_optimiser_options': {'num_calls_to_function': 60, 'cost_type': 'gaussian_MLE'},
         'sa_options': {
             'method': 'sobol',
             'num_samples': 16,

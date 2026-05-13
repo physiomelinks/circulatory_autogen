@@ -13,6 +13,7 @@
       "operands": ["leg_L_T/v"],
       "unit": "m3_per_s",
       "weight": 1.0,
+      "cost_type": "gaussian_MLE",
       "obs_type": "mean",
       "value": 7.327e-6,
       "std": 7.327e-7
@@ -23,6 +24,7 @@
       "operands": ["leg_R_T/v"],
       "unit": "m3_per_s",
       "weight": 1.0,
+      "cost_type": "gaussian_MLE",
       "obs_type": "mean",
       "value": 7.291e-6,
       "std": 7.291e-7
@@ -33,6 +35,7 @@
       "operands": ["arm_L_T/v"],
       "unit": "m3_per_s",
       "weight": 1.0,
+      "cost_type": "gaussian_MLE",
       "obs_type": "mean",
       "value": 1.565e-6,
       "std": 1.565e-7
@@ -43,6 +46,7 @@
       "operands": ["arm_R_T/v"],
       "unit": "m3_per_s",
       "weight": 1.0,
+      "cost_type": "gaussian_MLE",
       "obs_type": "mean",
       "value": 1.548e-6,
       "std": 1.548e-7
@@ -53,6 +57,7 @@
       "operands": ["head_L_T/v"],
       "unit": "m3_per_s",
       "weight": 1.0,
+      "cost_type": "gaussian_MLE",
       "obs_type": "mean",
       "value": 7.34e-6,
       "std": 7.34e-7
@@ -63,6 +68,7 @@
       "operands": ["head_R_T/v"],
       "unit": "m3_per_s",
       "weight": 1.0,
+      "cost_type": "gaussian_MLE",
       "obs_type": "mean",
       "value": 7.31e-6,
       "std": 7.31e-7
@@ -73,6 +79,7 @@
       "data_type": "constant",
       "operands": ["trunk_C_T/v"],
       "weight": 1.0,
+      "cost_type": "gaussian_MLE",
       "obs_type": "mean",
       "value": 37.28e-6,
       "std": 37.28e-7
@@ -83,6 +90,7 @@
       "operands": ["aortic_arch_C46/u"],
       "unit": "J_per_m3",
       "weight": 5.0,
+      "cost_type": "gaussian_MLE",
       "obs_type": "mean",
       "value": 12000,
       "std": 1200

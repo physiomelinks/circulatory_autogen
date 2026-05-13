@@ -1,12 +1,28 @@
 {
   "protocol_info": {
-    "pre_times": [0.1],
-    "sim_times": [[0.35, 0.85]],
+    "pre_times": [
+      0.1
+    ],
+    "sim_times": [
+      [
+        0.35,
+        0.85
+      ]
+    ],
     "params_to_change": {
-      "soma_SN/I_in": [[0.0, -0.12]]
+      "soma_SN/I_in": [
+        [
+          0.0,
+          -0.12
+        ]
+      ]
     },
-    "experiment_colors": ["r"],
-    "experiment_labels": ["param_id_fast_SN_user_ops"],
+    "experiment_colors": [
+      "r"
+    ],
+    "experiment_labels": [
+      "param_id_fast_SN_user_ops"
+    ],
     "protocol_traces": {}
   },
   "prediction_items": [
@@ -29,112 +45,141 @@
       "name_for_plotting": "V_{max}",
       "data_type": "constant",
       "operation": "max",
-      "operands": ["soma_SN/V"],
+      "operands": [
+        "soma_SN/V"
+      ],
       "unit": "milliV",
       "weight": 1.0,
       "value": 15.0,
       "std": 80.0,
       "experiment_idx": 0,
       "subexperiment_idx": 1,
-      "plot_type": "horizontal"
+      "plot_type": "horizontal",
+      "cost_type": "gaussian_MLE"
     },
     {
       "variable": "soma_SN/V",
       "name_for_plotting": "f_{win,pre}",
       "data_type": "constant",
       "operation": "calc_spike_frequency_windowed",
-      "operands": ["time", "soma_SN/V"],
+      "operands": [
+        "time",
+        "soma_SN/V"
+      ],
       "unit": "per_s",
       "weight": 0.25,
       "value": 0.0,
       "std": 2.0,
       "experiment_idx": 0,
       "subexperiment_idx": 0,
-      "plot_type": "None"
+      "plot_type": "None",
+      "cost_type": "gaussian_MLE"
     },
     {
       "variable": "soma_SN/V",
       "name_for_plotting": "f_{win,stim}",
       "data_type": "constant",
       "operation": "calc_spike_frequency_windowed",
-      "operands": ["time", "soma_SN/V"],
+      "operands": [
+        "time",
+        "soma_SN/V"
+      ],
       "unit": "per_s",
       "weight": 0.25,
       "value": 2.0,
       "std": 10.0,
       "experiment_idx": 0,
       "subexperiment_idx": 1,
-      "plot_type": "None"
+      "plot_type": "None",
+      "cost_type": "gaussian_MLE"
     },
     {
       "variable": "soma_SN/V",
       "name_for_plotting": "t_{peak}",
       "data_type": "constant",
       "operation": "first_peak_time",
-      "operands": ["time", "soma_SN/V"],
+      "operands": [
+        "time",
+        "soma_SN/V"
+      ],
       "unit": "s",
       "weight": 0.25,
       "value": 0.35,
       "std": 1.5,
       "experiment_idx": 0,
       "subexperiment_idx": 1,
-      "plot_type": "vertical"
+      "plot_type": "vertical",
+      "cost_type": "gaussian_MLE"
     },
     {
       "variable": "soma_SN/V",
       "name_for_plotting": "V_{SS,avg}",
       "data_type": "constant",
       "operation": "steady_state_avg",
-      "operands": ["soma_SN/V"],
+      "operands": [
+        "soma_SN/V"
+      ],
       "unit": "milliV",
       "weight": 0.15,
       "value": -62.0,
       "std": 40.0,
       "experiment_idx": 0,
       "subexperiment_idx": 1,
-      "plot_type": "horizontal"
+      "plot_type": "horizontal",
+      "cost_type": "gaussian_MLE"
     },
     {
       "variable": "soma_SN/V",
       "name_for_plotting": "V_{SS,min}",
       "data_type": "constant",
       "operation": "steady_state_min",
-      "operands": ["soma_SN/V"],
+      "operands": [
+        "soma_SN/V"
+      ],
       "unit": "milliV",
       "weight": 0.15,
       "value": -75.0,
       "std": 40.0,
       "experiment_idx": 0,
       "subexperiment_idx": 1,
-      "plot_type": "horizontal"
+      "plot_type": "horizontal",
+      "cost_type": "gaussian_MLE"
     },
     {
       "variable": "soma_SN/V",
       "name_for_plotting": "T_{spike}",
       "data_type": "constant",
       "operation": "calc_spike_period",
-      "operands": ["time", "soma_SN/V"],
+      "operands": [
+        "time",
+        "soma_SN/V"
+      ],
       "unit": "s",
       "weight": 0.1,
       "value": 0.05,
       "std": 0.5,
       "experiment_idx": 0,
       "subexperiment_idx": 1,
-      "plot_type": "horizontal"
+      "plot_type": "horizontal",
+      "cost_type": "gaussian_MLE"
     },
     {
       "variable": "soma_SN/V",
       "name_for_plotting": "V_{min,peak}",
       "data_type": "constant",
       "operation": "calc_min_peak",
-      "operands": ["time", "soma_SN/V"],
+      "operands": [
+        "time",
+        "soma_SN/V"
+      ],
       "unit": "milliV",
       "weight": 0.1,
       "value": -30.0,
       "std": 50.0,
       "experiment_idx": 0,
       "subexperiment_idx": 1,
-      "plot_type": "horizontal"
+      "plot_type": "horizontal",
+      "cost_type": "gaussian_MLE"
     }
   ]
 }
