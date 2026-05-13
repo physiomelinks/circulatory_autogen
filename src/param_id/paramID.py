@@ -32,6 +32,7 @@ paperPlotSetup.Setup_Plot(3)
 from solver_wrappers import get_simulation_helper
 from parsers.PrimitiveParsers import scriptFunctionParser
 from mpi4py import MPI
+import emcee
 import re
 from numpy import genfromtxt
 from importlib import import_module
@@ -53,6 +54,7 @@ except ImportError:
     ca = None
 import json
 import math
+import seaborn as sns
 import arviz as az
 import scipy.linalg as la
 # from scipy.optimize import curve_fit
@@ -72,6 +74,19 @@ warnings.filterwarnings( "ignore", module = "matplotlib/..*" )
 global mcmc_object
 mcmc_object = None
 
+import pytensor.tensor as pt
+from pytensor.compile.ops import as_op
+@as_op(itypes=[pt.dvector], otypes=[pt.dscalar])
+def logp_op(theta):
+        # 1. Get the original log-likelihood/prior value
+        logp_val = mcmc_object.get_lnlikelihood_lnprior_from_params(theta)
+                
+        logp_val = np.asarray(logp_val)
+
+        if logp_val.shape != ():
+            logp_val = np.sum(logp_val)
+
+        return np.array(float(logp_val))
 
 def _require_casadi():
     if ca is None:
@@ -106,13 +121,7 @@ class CVS0DParamID():
         self.mcmc_lib = self.mcmc_options.get('mcmc_lib', 'emcee') if self.mcmc_options else 'emcee'
         
         # Import MCMC libraries based on mcmc_lib
-        if self.mcmc_lib == 'emcee':
-            try:
-                import emcee
-                self.emcee = emcee
-            except ImportError:
-                self.emcee = None
-        elif self.mcmc_lib == 'zeus':
+        if self.mcmc_lib == 'zeus':
             try:
                 import zeus
                 self.zeus = zeus
@@ -497,6 +506,14 @@ class CVS0DParamID():
                                 truths=self.param_id.best_param_vals[overwrite_params_to_plot_idxs],
                                 fontsize=20, hist_kwargs={"density": True}, show_titles=True)
         
+        fig.text(
+            0.95, 0.8, 
+            "Titles show: Median\nErrors show: 5% & 95% Quantiles", 
+            ha='right', va='top', 
+            fontsize=8, 
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.5)
+        )
+
         # overlay analytical prior PDF
         axes = fig.get_axes()  
         num_params = len(overwrite_params_to_plot_idxs)  
@@ -538,6 +555,22 @@ class CVS0DParamID():
                 ax.yaxis.set_major_formatter(formattery)
                 ax.ticklabel_format(axis="y", style="sci", scilimits=(0, 0))
 
+        for i in range(num_params):  
+            for j in range(num_params):  
+                if i != j and i > j:  # Off-diagonal plots
+                    
+                    ax_idx = i * num_params + j  
+                    ax = axes[ax_idx]
+                    
+                    # Set axis ranges to match parameter bounds  
+                    x_param_idx = overwrite_params_to_plot_idxs[j]  
+                    y_param_idx = overwrite_params_to_plot_idxs[i] 
+
+                    ax.set_xlim(self.param_id_info["param_mins"][x_param_idx],   
+                            self.param_id_info["param_maxs"][x_param_idx])  
+                    ax.set_ylim(self.param_id_info["param_mins"][y_param_idx],   
+                            self.param_id_info["param_maxs"][y_param_idx])
+
         plt.subplots_adjust(hspace=0.12, wspace=0.1)
 
         plt.savefig(os.path.join(self.plot_dir, f'mcmc_cornerplot_{self.file_name_prefix}_'
@@ -556,7 +589,15 @@ class CVS0DParamID():
                                 labels=[label_list[II] for II in overwrite_params_to_plot_idxs],
                                 truths=self.param_id.best_param_vals[overwrite_params_to_plot_idxs],
                                 fontsize=20, hist_kwargs={"density": True}, show_titles=True)
-        
+
+        fig.text(
+            0.95, 0.8, 
+            "Titles show: Median\nErrors show: 5% & 95% Quantiles", 
+            ha='right', va='top', 
+            fontsize=8, 
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.5)
+        )
+
         # overlay analytical prior PDF
         axes = fig.get_axes()  
         num_params = len(overwrite_params_to_plot_idxs)  
@@ -598,6 +639,22 @@ class CVS0DParamID():
                 ax.yaxis.set_major_formatter(formattery)
                 ax.ticklabel_format(axis="y", style="sci", scilimits=(0, 0))
 
+        for i in range(num_params):  
+            for j in range(num_params):  
+                if i != j and i > j:  # Off-diagonal plots
+                    
+                    ax_idx = i * num_params + j  
+                    ax = axes[ax_idx]  
+
+                    # Set axis ranges to match parameter bounds  
+                    x_param_idx = overwrite_params_to_plot_idxs[j]  
+                    y_param_idx = overwrite_params_to_plot_idxs[i] 
+                    
+                    ax.set_xlim(self.param_id_info["param_mins"][x_param_idx],   
+                            self.param_id_info["param_maxs"][x_param_idx])  
+                    ax.set_ylim(self.param_id_info["param_mins"][y_param_idx],   
+                            self.param_id_info["param_maxs"][y_param_idx])
+
         plt.subplots_adjust(hspace=0.12, wspace=0.1)
 
         plt.savefig(os.path.join(self.plot_dir, f'mcmc_cornerplot_subset_{self.file_name_prefix}_'
@@ -605,9 +662,10 @@ class CVS0DParamID():
         plt.close()
 
         # Also check autocorrelation times for mcmc chain
-        tau = self.calculate_autocorrelation_time(samples)
+        if self.mcmc_lib == 'emcee':
+            tau = self.calculate_autocorrelation_time(samples)
+            print(f"Auto-correlation time: {tau}")
 
-        
         swapped_samples = np.swapaxes(samples, 0, 1)
         param_names = self.param_id_info["param_names_for_plotting"]
         dataset = az.convert_to_dataset(
@@ -636,7 +694,7 @@ class CVS0DParamID():
             print("DEBUG mode, skipping geweke diagnostic becuase chain is too short in DEBUG")
 
     def calculate_autocorrelation_time(self, samples):
-        tau = self.emcee.autocorr.integrated_time(samples, quiet=True)
+        tau = emcee.autocorr.integrated_time(samples, quiet=True)
         return tau
 
     def calculate_geweke_convergence(self, samples):
@@ -647,7 +705,7 @@ class CVS0DParamID():
     def plot_autocorrelation(self, samples, num_params):  
         """Create autocorrelation plots for each parameter"""  
         fig, axes = plt.subplots(num_params, figsize=(10, 2*num_params), sharex=True)  
-        
+        all_bounded = True
         for i in range(num_params):  
             if hasattr(axes, '__len__'):  
                 ax = axes[i]  
@@ -656,8 +714,13 @@ class CVS0DParamID():
                 
             # Calculate autocorrelation for each walker  
             for walker in range(samples.shape[1]):  
-                autocorr = self.emcee.autocorr.function_1d(samples[:, walker, i])  
+                autocorr = emcee.autocorr.function_1d(samples[:, walker, i])  
                 ax.plot(autocorr, alpha=0.3)  
+
+                # Check if autocorrelation exceeds bounds (skip lag=0 which is always 1.0)  
+                window_size = int(0.2 * len(autocorr))  # You can adjust this based on your total step count
+                if np.any(np.abs(autocorr[-window_size:]) > 0.1):  
+                    all_bounded = False
             
             ax.axhline(y=0, color='k', linestyle='--', alpha=0.7)
             ax.axhline(y=0.1, color='r', linestyle='--', alpha=0.7, linewidth=1.5)
@@ -672,6 +735,8 @@ class CVS0DParamID():
         plt.savefig(os.path.join(self.plot_dir, f'autocorrelation_plot_{self.file_name_prefix}_'  
                                 f'{self.param_id_obs_file_prefix}.pdf'))  
         plt.close()
+
+        return all_bounded
 
     def plot_chain_avg(self):
 
@@ -688,7 +753,6 @@ class CVS0DParamID():
         fig, axes = plt.subplots(num_params, figsize=(10, 2*num_params), sharex=True)  
 
         num_steps, num_chains, num_params = samples.shape
-        num_chains = 2
         window_size = 10  # Adjust based on your total step count
 
         for i in range(num_params):
@@ -720,6 +784,58 @@ class CVS0DParamID():
         plt.close()  
         
         print(f"Chain averages plot saved to {self.plot_dir}")
+
+    def get_posterior_stats(self, samples):
+
+        swapped_samples = np.swapaxes(samples, 0, 1)
+        param_names = self.param_id_info["param_names_for_plotting"]
+        breakpoint()
+        dataset = az.convert_to_dataset(
+                {"params": swapped_samples},
+                coords={"param_dim": param_names},
+                dims={"params": ["chain", "draw", "param_dim"]}
+        )
+
+        stats = az.summary(dataset)
+
+        return stats
+
+    def calc_effective_sample_size(self, samples):
+
+        swapped_samples = np.swapaxes(samples, 0, 1)
+        param_names = self.param_id_info["param_names_for_plotting"]
+        breakpoint()
+        dataset = az.convert_to_dataset(
+                {"params": swapped_samples},
+                coords={"param_dim": param_names},
+                dims={"params": ["chain", "draw", "param_dim"]}
+        )
+
+        summary = az.summary(dataset)
+
+        # Extract ess_bulk and ess_tail for each parameter  
+        ess_dict = {  
+            'ess_bulk': summary['ess_bulk'].to_dict(),  
+            'ess_tail': summary['ess_tail'].to_dict()  
+        }
+
+        return ess_dict
+    
+    def calc_rhat(self, samples):
+
+        swapped_samples = np.swapaxes(samples, 0, 1)
+        param_names = self.param_id_info["param_names_for_plotting"]
+        dataset = az.convert_to_dataset(
+                {"params": swapped_samples},
+                coords={"param_dim": param_names},
+                dims={"params": ["chain", "draw", "param_dim"]}
+        )
+
+        summary = az.summary(dataset)
+
+        rhat_dict = summary['r_hat'].to_dict()
+
+        return rhat_dict
 
     def run_single_sensitivity(self, do_triples_and_quads):
         self.param_id.run_single_sensitivity(self.output_dir, do_triples_and_quads)
@@ -778,8 +894,6 @@ class CVS0DParamID():
             mcmc_object.close_simulation()
         else:
             self.param_id.close_simulation()
-
-   
     
     def get_best_param_vals(self):
         if self.mcmc_instead:
@@ -1015,6 +1129,27 @@ class CVS0DParamID():
             elif d_type == "prob_dist":
                 exp_list.extend(self.obs_info["ground_truth_prob_dist_params"][i]["data_points"])
 
+                # 3.5 Save all outputs to CSV for testing  
+        csv_rows = []  
+        for feature, exp_dict in data_item_exp_values.items():  
+            for key, values in exp_dict.items():  
+                if key == "exp_data":  
+                    data_type = "experimental"  
+                else:  
+                    data_type = "simulated"  
+                for val in values:  
+                    csv_rows.append({  
+                        "feature": feature,  
+                        "experiment_idx": key,  
+                        "value": val,  
+                        "data_type": data_type  
+                    })  
+          
+        csv_df = pd.DataFrame(csv_rows)  
+        csv_path = os.path.join(self.output_dir, "posterior_predictions.csv")  
+        csv_df.to_csv(csv_path, index=False)  
+        print(f"Saved posterior predictions to {csv_path}")
+
         # 4. Plotting Loop
         for feature, exp_dict in data_item_exp_values.items():
             # Prepare lists for plotting, keeping 'exp_data' at the end for consistency
@@ -1110,6 +1245,7 @@ class CVS0DParamID():
                 
                 # KDE calculation
                 try:
+                    from scipy.stats import gaussian_kde
                     kde = gaussian_kde(data, bw_method=0.1)
                     x_grid = np.linspace(min(data)-0.5*np.std(data), max(data)+0.5*np.std(data), 100)
                     ax.plot(x_grid, kde(x_grid), color=color, lw=2, label=label)
@@ -2241,13 +2377,13 @@ class OpencorMCMC(OpencorParamID):
                 obs_info, param_id_info, protocol_info, prediction_info, solver_info,
                 dt=dt, DEBUG=DEBUG, model_type=model_type)
 
-        # Set mcmc_lib from mcmc_options
-        self.mcmc_lib = self.mcmc_options.get('mcmc_lib', 'emcee')
-
         # mcmc init stuff
         self.sampler = None
         if mcmc_options is not None:
             self.mcmc_options = mcmc_options
+
+            # Set mcmc_lib from mcmc_options
+            self.mcmc_lib = self.mcmc_options.get('mcmc_lib', 'emcee')
             if 'num_steps' not in self.mcmc_options.keys(): 
                 self.mcmc_options['num_steps'] = 5000
                 print('number of mcmc steps is not set, choosing default of 5000')
@@ -2280,13 +2416,7 @@ class OpencorMCMC(OpencorParamID):
                 f'choosing defaults of 5000, 2*num_params, {self.mcmc_options["burn_in_percentage"]}, and {self.mcmc_options["method"]} for {self.mcmc_lib}')
         
         # Import MCMC libraries based on mcmc_lib
-        if self.mcmc_lib == 'emcee':
-            try:
-                import emcee
-                self.emcee = emcee
-            except ImportError:
-                self.emcee = None
-        elif self.mcmc_lib == 'zeus':
+        if self.mcmc_lib == 'zeus':
             try:
                 import zeus
                 self.zeus = zeus
@@ -2321,7 +2451,7 @@ class OpencorMCMC(OpencorParamID):
 
         self.DEBUG = DEBUG
 
-    def cost_calc(self, obs_dict, exp_idx=0, sub_idx=0):
+    def cost_calc(self, obs_dict, exp_idx=0, sub_idx=0, is_symbolic=False):
         """  
         Override cost calculation for MCMC to normalize non-zero weights to 1.0  
         """  
@@ -2362,6 +2492,18 @@ class OpencorMCMC(OpencorParamID):
             phase = None
         if self.obs_info["ground_truth_phase"].all() == None:
             phase = None
+        
+        if is_symbolic:
+            _require_casadi()
+            cost = ca.SX(0)
+            if const is not None:
+                for const_idx in range(const.size1()):
+                    obs_idx = self.obs_info['const_idx_to_obs_idx'][const_idx]
+                    if updated_weight_const_vec[const_idx] != 0:
+                        cost += self.cost_funcs_dict[self.cost_type[obs_idx]](const[const_idx], self.obs_info["ground_truth_const"][const_idx],
+                                                        self.obs_info["std_const_vec"][const_idx], updated_weight_const_vec[const_idx])
+            cost = cost / num_weighted_obs
+            return cost
         
         cost = 0.0
         if const is not None:
@@ -2449,15 +2591,14 @@ class OpencorMCMC(OpencorParamID):
         rank = comm.Get_rank()
         num_procs = comm.Get_size()
         if rank == 0:
-            print('Running mcmc')
-
+            print(f'Running MCMC with {num_procs} processes using {self.mcmc_lib}')
 
         if num_procs > 1:
             # from pathos import multiprocessing
             # from pathos.multiprocessing import ProcessPool
             from schwimmbad import MPIPool
 
-            if rank == 0:
+            if rank == 0 or (self.mcmc_lib == 'pymc'):
                 if self.best_param_vals is not None:
                     best_param_vals_norm = self.param_norm_obj.normalise(self.best_param_vals)
                     # create initial params in gaussian ball around best_param_vals estimate
@@ -2484,18 +2625,17 @@ class OpencorMCMC(OpencorParamID):
 
             if self.mcmc_lib == 'emcee':
                 robust_moves = [
-                    (self.emcee.moves.StretchMove(), 1.0),      # 100% -
+                    (emcee.moves.StretchMove(), 1.0),      # 100% -
                 ]
-                self.sampler = self.emcee.EnsembleSampler(self.mcmc_options['num_walkers'], self.num_params, calculate_lnlikelihood,
+                self.sampler = emcee.EnsembleSampler(self.mcmc_options['num_walkers'], self.num_params, calculate_lnlikelihood,
                                             pool=pool, moves=robust_moves)
             elif self.mcmc_lib == 'zeus':
                 self.sampler = self.zeus.EnsembleSampler(self.mcmc_options['num_walkers'], self.num_params, calculate_lnlikelihood,
                                                         pool=pool)
             elif self.mcmc_lib == 'pymc':  
-                self.sampler = PyMCMPISampler(self.mcmc_options['num_walkers'],   
-                                            self.num_params, calculate_lnlikelihood,  
-                                            pool=True, param_id_info=self.param_id_info)
-                
+                self.sampler = PyMCMPISampler(self.mcmc_options['num_walkers'], self.num_params, calculate_lnlikelihood,  
+                                            pool=True, param_id_info=self.param_id_info)          
+
             start_time = time.time()
 
             if self.mcmc_options['method'] == 'smc' and self.mcmc_lib == 'pymc':
@@ -2521,7 +2661,10 @@ class OpencorMCMC(OpencorParamID):
                 init_param_vals = self.param_norm_obj.unnormalise(init_param_vals_norm)
 
             if self.mcmc_lib == 'emcee':
-                self.sampler = self.emcee.EnsembleSampler(self.mcmc_options['num_walkers'], self.num_params, calculate_lnlikelihood)
+                robust_moves = [
+                    (emcee.moves.StretchMove(), 1.0),      # 100% -
+                ]
+                self.sampler = emcee.EnsembleSampler(self.mcmc_options['num_walkers'], self.num_params, calculate_lnlikelihood, moves=robust_moves)
             elif self.mcmc_lib == 'zeus':
                 self.sampler = self.zeus.EnsembleSampler(self.mcmc_options['num_walkers'], self.num_params, calculate_lnlikelihood)
             elif self.mcmc_lib == 'pymc':  
@@ -2530,9 +2673,9 @@ class OpencorMCMC(OpencorParamID):
             start_time = time.time()
 
             if self.mcmc_options['method'] == 'smc' and self.mcmc_lib == 'pymc':
-                self.sampler.run_mcmc(init_param_vals.T, self.mcmc_options['num_steps'], method='smc') # , progress=True)
+                self.sampler.run_mcmc(init_param_vals.T, self.mcmc_options['num_steps'], method='smc', progress=True)
             else:
-                self.sampler.run_mcmc(init_param_vals.T, self.mcmc_options['num_steps']) # , progress=True)
+                self.sampler.run_mcmc(init_param_vals.T, self.mcmc_options['num_steps'], progress=True)
 
             print(f'mcmc time = {time.time()-start_time}')
 
@@ -2712,7 +2855,7 @@ class MCMC_plotter:
 
 class PyMCMPISampler:  
     """Custom pyMC sampler that works with MPIPool like emcee/zeus"""  
-      
+    
     def __init__(self, num_walkers, num_params, log_prob_fn, pool=None, param_id_info=None):  
         self.num_walkers = num_walkers  
         self.num_params = num_params  
@@ -2721,35 +2864,23 @@ class PyMCMPISampler:
         self.chain = None  
         self.param_id_info = param_id_info
         
+        import pytensor.tensor as pt
+        import pymc as pm
+        from pytensor.compile.ops import as_op
+        
+        self.pm = pm
+        self.pt = pt
+        self.as_op = as_op
+        
         # Import PyMC dependencies
         try:
-            import pytensor.tensor as pt
-            self.pm = pm
-            self.pt = pt
-            self.as_op = as_op
-            
-            @as_op(itypes=[pt.dvector], otypes=[pt.dscalar])
-            def logp_op(theta):
-                # 1. Get the original log-likelihood/prior value
-                logp_val = mcmc_object.get_lnlikelihood_lnprior_from_params(theta)
-                
-                logp_val = np.asarray(logp_val)
-
-                if logp_val.shape != ():
-                    logp_val = np.sum(logp_val)
-
-                return np.array(float(logp_val))
-            
-            self.logp_op = logp_op
+            self.logp_op = as_op(itypes=[pt.dvector], otypes=[pt.dscalar])(logp_op)
         except ImportError as e:
             raise ImportError(f"PyMC is required for PyMCMPISampler but is not installed: {e}")
     
     def run_mcmc(self, initial_state, num_steps, progress=True, tune=True, method='mcmc'):    
         """Main entry point - choose between MCMC and SMC"""  
-        
         if method == 'smc':  
-            global _global_pool_reference
-            _global_pool_reference = self.pool
             return self._run_smc(initial_state, num_steps, progress)  
         else:  
             return self._run_mpi(initial_state, num_steps)
@@ -2785,16 +2916,17 @@ class PyMCMPISampler:
                     stacked_params = self.pm.math.stack(params) 
 
                     # Use the existing likelihood function  
-                    self.pm.Potential('likelihood', self.logp_op(stacked_params))  
+                    self.pm.Potential('likelihood', logp_op(stacked_params))  
                 
                 return model
         
         model = create_pymc_model()  
+        comm.Barrier()
         with model:  
             trace = self.pm.sample_smc(draws=num_steps,
                 chains=1,   
                 cores=1,  
-                progressbar=rank == 0)  
+                progressbar= rank == 0)  
 
         print(f'Rank {rank} finished SMC sampling, waiting for others...')
         print(f'Rank {rank} finished SMC sampling. Trace type: {type(trace)}') 
@@ -2820,36 +2952,43 @@ class PyMCMPISampler:
         num_procs = comm.Get_size()  
 
         with self.pm.Model() as model:
-            param_vars = [
-                self.pm.Uniform(
-                    f'param_{i}',
-                    lower=self.param_id_info["param_mins"][i],
-                    upper=self.param_id_info["param_maxs"][i]
-                )
-                for i in range(self.num_params)
-            ]
+            
+            params = []  
+            for i in range(self.num_params):  
+                param_min = self.param_id_info["param_mins"][i]  
+                param_max = self.param_id_info["param_maxs"][i]  
+                prior_type = self.param_id_info["param_prior_types"][i]  
+                param_name = self.param_id_info["param_names_for_plotting"][i]
 
-            theta = self.pt.stack(param_vars)
-            self.pm.Potential("likelihood", self.logp_op(theta))
+                if prior_type == 'uniform' or not prior_type:  
+                    params.append(self.pm.Uniform(param_name, lower=param_min, upper=param_max))  
+                elif prior_type == 'exponential':  
+                    # Use λ=1.0 as in the original implementation  
+                    lamb = 1.0  
+                    params.append(self.pm.Exponential(param_name, lam=lamb))  
+                elif prior_type == 'normal':  
+                    # Calculate mean and std as in the original implementation  
+                    std = 1/6 * (param_max - param_min)  
+                    mean = 0.5 * (param_max + param_min)  
+                    params.append(self.pm.Normal(param_name, mu=mean, sigma=std))
 
-            if rank == 0:
-                progressbar = "split+stats"
-                map_estimate = self.pm.find_MAP()
-                print(f"Rank {rank} MAP estimate: {map_estimate}")
-            else:
-                progressbar = False
+            stacked_params = self.pm.math.stack(params) 
 
-            comm.Barrier()  # Ensure all ranks have reached this point before sampling
+            # Use the existing likelihood function  
+            self.pm.Potential('likelihood', logp_op(stacked_params))  
+
+            # comm.Barrier()  # Ensure all ranks have reached this point before sampling
 
             trace = self.pm.sample(
-                draws=1000,
-                chains=3,
-                cores=3,
-                step=self.pm.DEMetropolisZ(),
-                progressbar=progressbar
+                draws=num_steps,
+                chains=1,
+                cores=1,
+                step=self.pm.Metropolis(),
+                progressbar= rank == 0
             )
 
-        print(f'Rank {rank} finished MCMC sampling, gathering results...')
+        print(f'Rank {rank} finished pyMC MCMC sampling, waiting for others...')
+        print(f'Rank {rank} finished pyMC MCMC sampling. Trace type: {type(trace)}') 
         # Gather traces
 
         comm.Barrier()  # Ensure all ranks have finished sampling before gathering
