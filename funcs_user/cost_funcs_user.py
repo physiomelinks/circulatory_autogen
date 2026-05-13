@@ -101,7 +101,7 @@ def multimodal_gaussian(output, prob_dist_params, weight):
 @is_MLE
 def kernel_density_estimation(output, prob_dist_params, weight):
     """
-    KDE-based log-likelihood cost.
+    KDE-based negative log-likelihood cost.
     """
 
     if hasattr(output, '__len__'):
@@ -122,7 +122,7 @@ def kernel_density_estimation(output, prob_dist_params, weight):
     kde = gaussian_kde(prob_dist_params["data_points"], bw_method=bandwidth)
     
     log_density = kde.logpdf(output)
-    cost = log_density * weight
+    cost = -1 * log_density * weight
 
     return cost
 

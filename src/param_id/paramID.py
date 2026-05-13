@@ -83,7 +83,8 @@ from pytensor.compile.ops import as_op
 @as_op(itypes=[pt.dvector], otypes=[pt.dscalar])
 def logp_op(theta):
         # 1. Get the original log-likelihood/prior value
-        logp_val = mcmc_object.get_lnlikelihood_lnprior_from_params(theta)
+        # NOTE: pyMC requires log-likelihood (not the negative log-likelihood)
+        logp_val = 1 * mcmc_object.get_lnlikelihood_lnprior_from_params(theta)
                 
         logp_val = np.asarray(logp_val)
 
@@ -1845,12 +1846,8 @@ class OpencorParamID():
 
     def get_lnlikelihood_from_params(self, param_vals):
         cost = self.get_cost_from_params(param_vals)
-<<<<<<< HEAD
-        lnlikelihood = cost
-=======
         # cost = (sum of raw per-sub costs) / total weighted observable count; recover summed NLL.
         lnlikelihood = -cost * self._lnlikelihood_denorm_factor
->>>>>>> 5d83250446f5c8569f0fc29a07b60f53cc03f359
 
         return lnlikelihood
     

@@ -76,9 +76,9 @@ class Optimiser(ABC):
 
         self.objective_function = self.optimiser_options.get('objective_function', 'cost')  
         if self.objective_function == 'cost':  
-            self.objective_method = lambda params: -1*self.param_id_obj.get_cost_from_params(params)
+            self.objective_method = lambda params: self.param_id_obj.get_cost_from_params(params)
         elif self.objective_function == 'likelihood':  
-            self.objective_method = lambda params: -1*self.param_id_obj.get_lnlikelihood_lnprior_from_params(params)
+            self.objective_method = lambda params: self.param_id_obj.get_lnlikelihood_lnprior_from_params(params)
         else:  
             raise ValueError(f"Invalid objective_function: {self.objective_function}. "  
                            f"Must be 'cost' or 'likelihood'")
