@@ -276,6 +276,9 @@ class sobol_SA():
         return operands
     
     def generate_outputs_mpi(self, samples):
+        #need to added an array to save tmp data, each calibration need to updated/re-initial
+        self.temp_results = {}
+        
         # Split samples across ranks
         n_samples = len(samples)
         samples_per_rank = n_samples // self.num_procs
@@ -376,7 +379,19 @@ class sobol_SA():
                     subexp_idx = self.obs_info["subexperiment_idxs"][j]
                     operands_outputs = operands_outputs_dict.get((exp_idx, subexp_idx), None)
                     if operands_outputs is not None and not (isinstance(operands_outputs, dict) and operands_outputs == {"failed": True}):
-                        feature = func(*operands_outputs[j], **self.obs_info["operation_kwargs"][j])
+                        key_idxt = self.obs_info["names_for_plotting"][j]
+                        raw_kwargs = self.obs_info["operation_kwargs"][j]
+                        #every time check it and update to {} when not exist
+                        if isinstance(raw_kwargs, dict):
+                            kwargs = raw_kwargs.copy()
+                        else:
+                            kwargs = {}
+                        for k, v in list(kwargs.items()):
+                            if isinstance(v, str) and v in self.temp_results:
+                                kwargs[k] = self.temp_results[v]
+                        #also need to replace below sentence
+                        feature = func(*operands_outputs[j], **kwargs)
+                        self.temp_results[key_idxt] = feature
                         if feature is None or (isinstance(feature, (float, int)) and np.isnan(feature)):
                             feature = np.nanmean(features) if not np.all(np.isnan(features)) else 0.0
 

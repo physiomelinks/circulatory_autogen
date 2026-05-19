@@ -343,6 +343,25 @@ class CVS0DParamID():
         mcmc_object.run()
     
     def _check_info_available(self):
+        #new check, need ensure 'operands' or 'operation_kwargs' exist
+        def is_nan(x):
+            return isinstance(x, float) and math.isnan(x)
+        obs_info = self.obs_info
+        operands_list = obs_info.get("operands", [])
+        operation_kwargs_list = obs_info.get("operation_kwargs", [])
+        num_obs = len(operands_list)
+        for i in range(num_obs):
+            operands = operands_list[i]
+            kwargs = operation_kwargs_list[i]
+            if not isinstance(operands, (list, tuple)):
+                operands = [operands]
+            is_empty_operand = (len(operands) == 1 and operands[0] == "") or len(operands) == 0
+            if is_empty_operand:
+                # Case 2: operation_kwargs must NOT be nan / None / empty dict
+                if kwargs is None or is_nan(kwargs) or kwargs == {}:
+                    raise ValueError(f"[ERROR] In obs index {i}: operands is empty {operands}, "f"but operation_kwargs is invalid: {kwargs}")
+
+        
         if self.gt_df is None:
             raise ValueError('Ground truth data not set')
         if self.protocol_info is None:
@@ -2075,6 +2094,9 @@ class OpencorParamID():
         return cost + series_cost + amp_cost + phase_cost + prob_dist_cost
 
     def get_obs_output_dict(self, operands_outputs, get_all_series=False, is_symbolic=False):
+        #need to added an array to save tmp data, each calibration need to updated/re-initial
+        self.temp_results = {}
+        
         if operands_outputs == None:
             if get_all_series:
                 return None, None
@@ -2111,8 +2133,17 @@ class OpencorParamID():
                 if self.obs_info["operations"][JJ] is None:
                     obs_series_array_all[JJ] = operands_outputs[JJ][0]
                 elif hasattr(self.operation_funcs_dict[self.obs_info["operations"][JJ]], 'series_to_constant'):
-                    obs_series_array_all[JJ] = self.operation_funcs_dict[
-                            self.obs_info["operations"][JJ]](*operands_outputs[JJ], series_output=True, **self.obs_info["operation_kwargs"][JJ]) 
+                    raw_kwargs = self.obs_info["operation_kwargs"][JJ]
+                    kwargs = raw_kwargs.copy() if isinstance(raw_kwargs, dict) else {}
+
+                    for k, v in list(kwargs.items()):
+                        if isinstance(v, str) and v in self.temp_results:
+                            #kwargs[k] = self.temp_results[v]
+                            if v in self.temp_results:
+                                kwargs[k] = self.temp_results[v]
+                            else:
+                                raise KeyError(f"[ERROR] '{v}' not found in temp_results for key '{k}'")
+                    obs_series_array_all[JJ] = self.operation_funcs_dict[self.obs_info["operations"][JJ]](*operands_outputs[JJ],series_output=True,**kwargs)
                 else:
                     val_or_array = self.operation_funcs_dict[
                             self.obs_info["operations"][JJ]](*operands_outputs[JJ], **self.obs_info["operation_kwargs"][JJ])
@@ -2132,7 +2163,24 @@ class OpencorParamID():
                 obs = operands_outputs[JJ][0]
             else:
                 if self.obs_info["data_types"][JJ] != 'frequency':
-                    obs = self.operation_funcs_dict[self.obs_info["operations"][JJ]](*operands_outputs[JJ], **self.obs_info["operation_kwargs"][JJ]) 
+                    key_idxt = self.obs_info["names_for_plotting"][JJ]
+                    raw_kwargs = self.obs_info["operation_kwargs"][JJ]
+                    #every time check it and update to {} when not exist
+                    if isinstance(raw_kwargs, dict):
+                        kwargs = raw_kwargs.copy()
+                    else:
+                        kwargs = {}
+                    #if exist, extract value, convey it to participate in new cost_function
+                    for k, v in list(kwargs.items()):
+                        if isinstance(v, str) and v in self.temp_results:
+                            if v in self.temp_results:
+                                kwargs[k] = self.temp_results[v]
+                            else:
+                                raise KeyError(f"[ERROR] '{v}' not found in temp_results for key '{k}'")
+                    #need to replace below sentence, otherwise will be print error
+                    obs = self.operation_funcs_dict[self.obs_info["operations"][JJ]](*operands_outputs[JJ], **kwargs)
+                    #each predict result saved into tmp array
+                    self.temp_results[key_idxt] = obs
                 else:
                     obs = None
             
