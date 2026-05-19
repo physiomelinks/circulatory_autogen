@@ -93,3 +93,51 @@ def test_sensitivity_analysis_3compartment_succeeds(base_user_inputs, resources_
         output_dir = config['sa_options']['output_dir']
         assert os.path.exists(output_dir), f"Sensitivity analysis output directory should exist: {output_dir}"
 
+
+def test_sensitivity_analysis_3compartment_extra_ops_succeeds(
+    base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm
+):
+    """
+    Test that sensitivity analysis succeeds for 3compartment_extra_ops model.
+    """
+    rank = mpi_comm.Get_rank()
+
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': '3compartment_extra_ops',
+        'input_param_file': '3compartment_extra_ops_parameters.csv',
+        'model_type': 'cellml_only',
+        'solver': 'CVODE',
+        'param_id_method': 'genetic_algorithm',
+        'pre_time': 20,
+        'sim_time': 2,
+        'dt': 0.01,
+        'DEBUG': True,
+        'do_mcmc': True,
+        'plot_predictions': True,
+        'model_out_names': ['heart/u_lv'],  
+        'solver_info': {
+            'MaximumStep': 0.001,
+            'MaximumNumberOfSteps': 5000,
+        },
+        'param_id_obs_path': os.path.join(resources_dir, '3compartment_extra_ops_obs_data.json'),
+        'param_id_output_dir': temp_output_dir,
+        'generated_models_dir': temp_generated_models_dir,
+        'debug_optimiser_options': {'num_calls_to_function': 60},
+        'sa_options': {
+            'method': 'sobol',
+            'num_samples': 16,
+            'sample_type': 'saltelli',
+            'output_dir': os.path.join(temp_output_dir, '3compartment_extra_ops_SA_results'),
+        },
+    })
+
+    _ensure_cellml_model_generated(config, mpi_comm)
+
+    run_SA(config)
+
+    if rank == 0:
+        output_dir = config['sa_options']['output_dir']
+        assert os.path.exists(output_dir), \
+            f"Sensitivity analysis output directory should exist: {output_dir}"
+

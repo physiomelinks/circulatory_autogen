@@ -281,6 +281,68 @@ def test_param_id_3compartment_succeeds(base_user_inputs, resources_dir, temp_ou
     mpi_comm.Barrier()
 
 
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.mpi
+def test_param_id_3compartment_extra_ops_succeeds(base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
+    """
+    Test that parameter identification succeeds for 3compartment_extra_ops model.
+    
+    Args:
+        base_user_inputs: Base user inputs configuration fixture
+        resources_dir: Resources directory fixture
+        temp_output_dir: Temporary output directory fixture
+        mpi_comm: MPI communicator fixture
+    """
+    rank = mpi_comm.Get_rank()
+    
+    # Setup configuration
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': '3compartment_extra_ops',
+        'input_param_file': '3compartment_extra_ops_parameters.csv',
+        'model_type': 'cellml_only',
+        'solver': 'CVODE',
+        'param_id_method': 'genetic_algorithm',
+        'pre_time': 20,
+        'sim_time': 2,
+        'dt': 0.01,
+        'DEBUG': True,
+        'do_mcmc': True,
+        'plot_predictions': True,
+        'do_ia': True,
+        'ia_options': {'method': 'Laplace'},
+        'solver_info': {
+            'MaximumStep': 0.001,
+            'MaximumNumberOfSteps': 5000,
+        },
+        'param_id_obs_path': os.path.join(resources_dir, '3compartment_extra_ops_obs_data.json'),
+        'param_id_output_dir': temp_output_dir,
+        'generated_models_dir': temp_generated_models_dir,
+        'debug_optimiser_options': {'num_calls_to_function': 60, 'max_patience': 500},
+    })
+
+    _ensure_cellml_model_generated(config, mpi_comm)
+
+    # Run parameter identification
+    run_param_id(config)
+    
+    # Test autogeneration with fit parameters (on rank 0)
+    if rank == 0:
+        success = generate_with_new_architecture(True, config)
+        assert success, "Autogeneration with fit parameters should succeed"
+        
+        # Test plotting
+        plot_param_id(config, generate=False)
+    
+    mpi_comm.Barrier()
+
+
+
+
+
+
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.mpi

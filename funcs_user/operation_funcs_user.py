@@ -694,3 +694,25 @@ def register_user_operations(registry, backend):
         if getattr(obj, "__module__", None) != mod:
             continue
         registry[name] = obj
+        
+
+
+
+@series_to_constant
+def calculate_two_observable_difference(x=None, series_output=False, **kwargs):
+    if "pred1" in kwargs:
+        k_value1 = kwargs["pred1"]
+    else:
+        print("predict 1 results did not found in kwargs, please check corresponding experiment's operands/operation!")
+        raise RuntimeError(f"Invalid predict1 results detected: Aborting...")
+    
+    if "pred2" in kwargs:
+        k_value2 = kwargs["pred2"]
+    else:
+        print("predict 2 results did not found in kwargs, please check corresponding experiment's operands/operation!")
+        raise RuntimeError(f"Invalid predict2 results detected: Aborting...")
+    
+    return (k_value2 - k_value1)
+
+
+

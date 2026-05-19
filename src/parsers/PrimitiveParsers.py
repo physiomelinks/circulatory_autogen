@@ -1083,7 +1083,10 @@ class ObsAndParamDataParser(object):
             op = gt_df.iloc[II].get("operation")
             obs_type = gt_df.iloc[II].get("obs_type")
             operands = gt_df.iloc[II].get("operands")
-
+            # Filter out empty operands, should tolerate empty operands exists
+            if isinstance(operands, (list, tuple, np.ndarray)):
+                operands = [op for op in list(operands) if op]
+                
             if op in ["Null", "None", "null", "none", "", "nan", np.nan, None]:
                 if obs_type in ["series", "frequency"]:
                     obs_info["operations"].append(None)
