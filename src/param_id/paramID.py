@@ -828,7 +828,7 @@ class CVS0DParamID():
 
         swapped_samples = np.swapaxes(samples, 0, 1)
         param_names = self.param_id_info["param_names_for_plotting"]
-        breakpoint()
+        
         dataset = az.convert_to_dataset(
                 {"params": swapped_samples},
                 coords={"param_dim": param_names},
@@ -843,7 +843,7 @@ class CVS0DParamID():
 
         swapped_samples = np.swapaxes(samples, 0, 1)
         param_names = self.param_id_info["param_names_for_plotting"]
-        breakpoint()
+        
         dataset = az.convert_to_dataset(
                 {"params": swapped_samples},
                 coords={"param_dim": param_names},
@@ -2603,7 +2603,8 @@ class OpencorMCMC(OpencorParamID):
             phase = None
         if self.obs_info["ground_truth_phase"].all() == None:
             phase = None
-        
+
+        # TODO: Fix for series, amp, phase, and val_for_prob_dist
         if is_symbolic:
             _require_casadi()
             cost = ca.SX(0)
@@ -2613,9 +2614,18 @@ class OpencorMCMC(OpencorParamID):
                     if updated_weight_const_vec[const_idx] != 0:
                         cost += self.cost_funcs_dict[self.cost_type[obs_idx]](const[const_idx], self.obs_info["ground_truth_const"][const_idx],
                                                         self.obs_info["std_const_vec"][const_idx], updated_weight_const_vec[const_idx])
-            cost = cost / num_weighted_obs
             return cost
         
+        # # TODO change functionality so the cost type is defined in the obs_data.json not the user_inputs.yaml
+        # if self.cost_type == 'MSE':
+        #     cost = np.sum(np.power(updated_weight_const_vec*(const -
+        #                        self.obs_info["ground_truth_const"])/self.obs_info["std_const_vec"], 2))
+        # elif self.cost_type == 'AE':
+        #     cost = np.sum(np.abs(updated_weight_const_vec*(const -
+        #                                                   self.obs_info["ground_truth_const"])/self.obs_info["std_const_vec"]))
+        # else:
+        #     print(f'cost type of {self.cost_type} not implemented')
+        #     exit()
         cost = 0.0
         if const is not None:
             for const_idx in range(len(const)):
@@ -2624,11 +2634,28 @@ class OpencorMCMC(OpencorParamID):
                     cost += self.cost_funcs_dict[self.cost_type[obs_idx]](const[const_idx], self.obs_info["ground_truth_const"][const_idx],
                                                     self.obs_info["std_const_vec"][const_idx], updated_weight_const_vec[const_idx])
         
+        # TODO debugging a strange error that occurs occasionally in GA
+        # assert not np.isnan(cost), 'cost is nan'
         assert isinstance(cost, float), 'cost is not a float'
 
         series_cost = 0
         if series is not None:
-        
+            #print(series)
+            # TODO make the above applicable for different length series? If we have different dt for series data
+
+            # calculate sum of squares cost and divide by number data points in series data
+            # divide by number data points in series data
+            # if self.cost_type == 'MSE':
+            #     series_cost = np.sum(np.power((series[:, :min_len_series] -
+            #                                    self.obs_info["ground_truth_series"][:,
+            #                                    :min_len_series]) * updated_weight_series_vec.reshape(-1, 1) /
+            #                                   self.obs_info["std_series_vec"].reshape(-1, 1), 2)) / min_len_series
+            # elif self.cost_type == 'AE':
+            #     series_cost = np.sum(np.abs((series[:, :min_len_series] -
+            #                                  self.obs_info["ground_truth_series"][:,
+            #                                  :min_len_series]) * updated_weight_series_vec.reshape(-1, 1) /
+            #                                 self.obs_info["std_series_vec"].reshape(-1, 1))) / min_len_series
+
             for series_idx in range(len(series)):
                 if self.obs_info["obs_dt"][series_idx] != self.dt:
                     # interpolate the series to the dt of the ground truth series
@@ -2656,6 +2683,16 @@ class OpencorMCMC(OpencorParamID):
 
         amp_cost = 0
         if amp is not None:
+            # calculate sum of squares cost and divide by number data points in freq data
+            # divide by number data points in series data
+            # if self.cost_type == 'MSE':
+            #     amp_cost = np.sum([np.power((amp[JJ] - self.obs_info["ground_truth_amp"][JJ]) *
+            #                                  updated_weight_amp_vec[JJ] /
+            #                                  self.obs_info["std_amp_vec"][JJ], 2) / len(amp[JJ]) for JJ in range(len(amp))])
+            # elif self.cost_type == 'AE':
+            #     amp_cost = np.sum([np.abs((amp[JJ] - self.obs_info["ground_truth_amp"][JJ]) *
+            #                                  updated_weight_amp_vec[JJ] /
+            #                                  self.obs_info["std_amp_vec"][JJ]) / len(amp[JJ]) for JJ in range(len(amp))])
             for amp_idx in range(len(amp)):
                 obs_idx = self.obs_info['freq_idx_to_obs_idx'][amp_idx]
                 amp_entry = amp[amp_idx]
@@ -2671,6 +2708,18 @@ class OpencorMCMC(OpencorParamID):
 
         phase_cost = 0
         if phase is not None:
+            # calculate sum of squares cost and divide by number data points in freq data
+            # divide by number data points in series data
+            # TODO figure out how to properly weight this compared to the frequency weight.
+            # if self.cost_type == 'MSE':
+            #     phase_cost = np.sum([np.power((phase[JJ] - self.obs_info["ground_truth_phase"][JJ]) *
+            #                                  updated_weight_phase_vec[JJ], 2) / len(phase[JJ]) for JJ in
+            #                         range(len(phase))])
+            # if self.cost_type == 'AE':
+            #     phase_cost = np.sum([np.abs((phase[JJ] - self.obs_info["ground_truth_phase"][JJ]) *
+            #                                   updated_weight_phase_vec[JJ]) / len(phase[JJ]) for JJ in
+            #                          range(len(phase))])
+            # TODO should we be inputting in a proper std for the phase? Probably.
             for phase_idx in range(len(phase)):
                 obs_idx = self.obs_info['freq_idx_to_obs_idx'][phase_idx]
                 phase_entry = phase[phase_idx]
@@ -2693,9 +2742,8 @@ class OpencorMCMC(OpencorParamID):
                                                                     self.obs_info["ground_truth_prob_dist_params"][prob_dist_idx],
                                                                     updated_weight_prob_dist_vec[prob_dist_idx])
             
-        cost = (cost + series_cost + amp_cost + phase_cost + prob_dist_cost) / num_weighted_obs
 
-        return cost
+        return cost + series_cost + amp_cost + phase_cost + prob_dist_cost
 
     def run(self):
         comm = MPI.COMM_WORLD
@@ -2738,6 +2786,13 @@ class OpencorMCMC(OpencorParamID):
                 robust_moves = [
                     (emcee.moves.StretchMove(), 1.0),      # 100% -
                 ]
+                # robust_moves = [
+                #     # 80% weight: Handles strong parameter correlations using walker differences
+                #     (emcee.moves.DEMove(), 0.60),
+                    
+                #     # 20% weight: Adds a scale-invariant jump to escape local minima/modes
+                #     (emcee.moves.DESnookerMove(), 0.40),
+                # ]
                 self.sampler = emcee.EnsembleSampler(self.mcmc_options['num_walkers'], self.num_params, calculate_lnlikelihood,
                                             pool=pool, moves=robust_moves)
             elif self.mcmc_lib == 'zeus':
@@ -3033,14 +3088,14 @@ class PyMCMPISampler:
         
         model = create_pymc_model()  
         comm.Barrier()
+        n_chains = 4 if num_procs == 1 else 1
         with model:  
             trace = self.pm.sample_smc(draws=num_steps,
-                chains=1,   
+                chains=n_chains,   
                 cores=1,  
                 progressbar= rank == 0)  
 
         print(f'Rank {rank} finished SMC sampling, waiting for others...')
-        print(f'Rank {rank} finished SMC sampling. Trace type: {type(trace)}') 
         comm.Barrier()
 
         local_chain = self._convert_trace_to_emcee_format(trace)
@@ -3089,17 +3144,16 @@ class PyMCMPISampler:
             self.pm.Potential('likelihood', logp_op(stacked_params))  
 
             # comm.Barrier()  # Ensure all ranks have reached this point before sampling
-
+            n_chains = 4 if num_procs == 1 else 1
             trace = self.pm.sample(
                 draws=num_steps,
-                chains=1,
+                chains=n_chains,
                 cores=1,
                 step=self.pm.Metropolis(),
                 progressbar= rank == 0
             )
 
         print(f'Rank {rank} finished pyMC MCMC sampling, waiting for others...')
-        print(f'Rank {rank} finished pyMC MCMC sampling. Trace type: {type(trace)}') 
         # Gather traces
 
         comm.Barrier()  # Ensure all ranks have finished sampling before gathering
