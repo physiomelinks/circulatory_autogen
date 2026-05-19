@@ -83,8 +83,7 @@ from pytensor.compile.ops import as_op
 @as_op(itypes=[pt.dvector], otypes=[pt.dscalar])
 def logp_op(theta):
         # 1. Get the original log-likelihood/prior value
-        # NOTE: pyMC requires log-likelihood (not the negative log-likelihood)
-        logp_val = 1 * mcmc_object.get_lnlikelihood_lnprior_from_params(theta)
+        logp_val = mcmc_object.get_lnlikelihood_lnprior_from_params(theta)
                 
         logp_val = np.asarray(logp_val)
 
@@ -344,25 +343,6 @@ class CVS0DParamID():
         mcmc_object.run()
     
     def _check_info_available(self):
-        #new check, need ensure 'operands' or 'operation_kwargs' exist
-        def is_nan(x):
-            return isinstance(x, float) and math.isnan(x)
-        obs_info = self.obs_info
-        operands_list = obs_info.get("operands", [])
-        operation_kwargs_list = obs_info.get("operation_kwargs", [])
-        num_obs = len(operands_list)
-        for i in range(num_obs):
-            operands = operands_list[i]
-            kwargs = operation_kwargs_list[i]
-            if not isinstance(operands, (list, tuple)):
-                operands = [operands]
-            is_empty_operand = (len(operands) == 1 and operands[0] == "") or len(operands) == 0
-            if is_empty_operand:
-                # Case 2: operation_kwargs must NOT be nan / None / empty dict
-                if kwargs is None or is_nan(kwargs) or kwargs == {}:
-                    raise ValueError(f"[ERROR] In obs index {i}: operands is empty {operands}, "f"but operation_kwargs is invalid: {kwargs}")
-
-        
         if self.gt_df is None:
             raise ValueError('Ground truth data not set')
         if self.protocol_info is None:
@@ -2091,9 +2071,6 @@ class OpencorParamID():
         return cost + series_cost + amp_cost + phase_cost + prob_dist_cost
 
     def get_obs_output_dict(self, operands_outputs, get_all_series=False, is_symbolic=False):
-        #need to added an array to save tmp data, each calibration need to updated/re-initial
-        self.temp_results = {}
-        
         if operands_outputs == None:
             if get_all_series:
                 return None, None
@@ -2130,17 +2107,8 @@ class OpencorParamID():
                 if self.obs_info["operations"][JJ] is None:
                     obs_series_array_all[JJ] = operands_outputs[JJ][0]
                 elif hasattr(self.operation_funcs_dict[self.obs_info["operations"][JJ]], 'series_to_constant'):
-                    raw_kwargs = self.obs_info["operation_kwargs"][JJ]
-                    kwargs = raw_kwargs.copy() if isinstance(raw_kwargs, dict) else {}
-
-                    for k, v in list(kwargs.items()):
-                        if isinstance(v, str) and v in self.temp_results:
-                            #kwargs[k] = self.temp_results[v]
-                            if v in self.temp_results:
-                                kwargs[k] = self.temp_results[v]
-                            else:
-                                raise KeyError(f"[ERROR] '{v}' not found in temp_results for key '{k}'")
-                    obs_series_array_all[JJ] = self.operation_funcs_dict[self.obs_info["operations"][JJ]](*operands_outputs[JJ],series_output=True,**kwargs)
+                    obs_series_array_all[JJ] = self.operation_funcs_dict[
+                            self.obs_info["operations"][JJ]](*operands_outputs[JJ], series_output=True, **self.obs_info["operation_kwargs"][JJ]) 
                 else:
                     val_or_array = self.operation_funcs_dict[
                             self.obs_info["operations"][JJ]](*operands_outputs[JJ], **self.obs_info["operation_kwargs"][JJ])
@@ -2160,24 +2128,7 @@ class OpencorParamID():
                 obs = operands_outputs[JJ][0]
             else:
                 if self.obs_info["data_types"][JJ] != 'frequency':
-                    key_idxt = self.obs_info["names_for_plotting"][JJ]
-                    raw_kwargs = self.obs_info["operation_kwargs"][JJ]
-                    #every time check it and update to {} when not exist
-                    if isinstance(raw_kwargs, dict):
-                        kwargs = raw_kwargs.copy()
-                    else:
-                        kwargs = {}
-                    #if exist, extract value, convey it to participate in new cost_function
-                    for k, v in list(kwargs.items()):
-                        if isinstance(v, str) and v in self.temp_results:
-                            if v in self.temp_results:
-                                kwargs[k] = self.temp_results[v]
-                            else:
-                                raise KeyError(f"[ERROR] '{v}' not found in temp_results for key '{k}'")
-                    #need to replace below sentence, otherwise will be print error
-                    obs = self.operation_funcs_dict[self.obs_info["operations"][JJ]](*operands_outputs[JJ], **kwargs)
-                    #each predict result saved into tmp array
-                    self.temp_results[key_idxt] = obs
+                    obs = self.operation_funcs_dict[self.obs_info["operations"][JJ]](*operands_outputs[JJ], **self.obs_info["operation_kwargs"][JJ]) 
                 else:
                     obs = None
             
@@ -2651,8 +2602,7 @@ class OpencorMCMC(OpencorParamID):
             phase = None
         if self.obs_info["ground_truth_phase"].all() == None:
             phase = None
-
-        # TODO: Fix for series, amp, phase, and val_for_prob_dist
+        
         if is_symbolic:
             _require_casadi()
             cost = ca.SX(0)
@@ -2664,16 +2614,6 @@ class OpencorMCMC(OpencorParamID):
                                                         self.obs_info["std_const_vec"][const_idx], updated_weight_const_vec[const_idx])
             return cost
         
-        # # TODO change functionality so the cost type is defined in the obs_data.json not the user_inputs.yaml
-        # if self.cost_type == 'MSE':
-        #     cost = np.sum(np.power(updated_weight_const_vec*(const -
-        #                        self.obs_info["ground_truth_const"])/self.obs_info["std_const_vec"], 2))
-        # elif self.cost_type == 'AE':
-        #     cost = np.sum(np.abs(updated_weight_const_vec*(const -
-        #                                                   self.obs_info["ground_truth_const"])/self.obs_info["std_const_vec"]))
-        # else:
-        #     print(f'cost type of {self.cost_type} not implemented')
-        #     exit()
         cost = 0.0
         if const is not None:
             for const_idx in range(len(const)):
@@ -2682,28 +2622,11 @@ class OpencorMCMC(OpencorParamID):
                     cost += self.cost_funcs_dict[self.cost_type[obs_idx]](const[const_idx], self.obs_info["ground_truth_const"][const_idx],
                                                     self.obs_info["std_const_vec"][const_idx], updated_weight_const_vec[const_idx])
         
-        # TODO debugging a strange error that occurs occasionally in GA
-        # assert not np.isnan(cost), 'cost is nan'
         assert isinstance(cost, float), 'cost is not a float'
 
         series_cost = 0
         if series is not None:
-            #print(series)
-            # TODO make the above applicable for different length series? If we have different dt for series data
-
-            # calculate sum of squares cost and divide by number data points in series data
-            # divide by number data points in series data
-            # if self.cost_type == 'MSE':
-            #     series_cost = np.sum(np.power((series[:, :min_len_series] -
-            #                                    self.obs_info["ground_truth_series"][:,
-            #                                    :min_len_series]) * updated_weight_series_vec.reshape(-1, 1) /
-            #                                   self.obs_info["std_series_vec"].reshape(-1, 1), 2)) / min_len_series
-            # elif self.cost_type == 'AE':
-            #     series_cost = np.sum(np.abs((series[:, :min_len_series] -
-            #                                  self.obs_info["ground_truth_series"][:,
-            #                                  :min_len_series]) * updated_weight_series_vec.reshape(-1, 1) /
-            #                                 self.obs_info["std_series_vec"].reshape(-1, 1))) / min_len_series
-
+        
             for series_idx in range(len(series)):
                 if self.obs_info["obs_dt"][series_idx] != self.dt:
                     # interpolate the series to the dt of the ground truth series
@@ -2731,16 +2654,6 @@ class OpencorMCMC(OpencorParamID):
 
         amp_cost = 0
         if amp is not None:
-            # calculate sum of squares cost and divide by number data points in freq data
-            # divide by number data points in series data
-            # if self.cost_type == 'MSE':
-            #     amp_cost = np.sum([np.power((amp[JJ] - self.obs_info["ground_truth_amp"][JJ]) *
-            #                                  updated_weight_amp_vec[JJ] /
-            #                                  self.obs_info["std_amp_vec"][JJ], 2) / len(amp[JJ]) for JJ in range(len(amp))])
-            # elif self.cost_type == 'AE':
-            #     amp_cost = np.sum([np.abs((amp[JJ] - self.obs_info["ground_truth_amp"][JJ]) *
-            #                                  updated_weight_amp_vec[JJ] /
-            #                                  self.obs_info["std_amp_vec"][JJ]) / len(amp[JJ]) for JJ in range(len(amp))])
             for amp_idx in range(len(amp)):
                 obs_idx = self.obs_info['freq_idx_to_obs_idx'][amp_idx]
                 amp_entry = amp[amp_idx]
@@ -2756,18 +2669,6 @@ class OpencorMCMC(OpencorParamID):
 
         phase_cost = 0
         if phase is not None:
-            # calculate sum of squares cost and divide by number data points in freq data
-            # divide by number data points in series data
-            # TODO figure out how to properly weight this compared to the frequency weight.
-            # if self.cost_type == 'MSE':
-            #     phase_cost = np.sum([np.power((phase[JJ] - self.obs_info["ground_truth_phase"][JJ]) *
-            #                                  updated_weight_phase_vec[JJ], 2) / len(phase[JJ]) for JJ in
-            #                         range(len(phase))])
-            # if self.cost_type == 'AE':
-            #     phase_cost = np.sum([np.abs((phase[JJ] - self.obs_info["ground_truth_phase"][JJ]) *
-            #                                   updated_weight_phase_vec[JJ]) / len(phase[JJ]) for JJ in
-            #                          range(len(phase))])
-            # TODO should we be inputting in a proper std for the phase? Probably.
             for phase_idx in range(len(phase)):
                 obs_idx = self.obs_info['freq_idx_to_obs_idx'][phase_idx]
                 phase_entry = phase[phase_idx]
