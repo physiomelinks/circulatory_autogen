@@ -92,6 +92,7 @@ class SensitivityAnalysis():
 
         return cls(**kwargs)
 
+    @classmethod
     def init_from_all_dicts(cls, inp_data_dict, obs_data_dict, params_for_id_dict, sa_options):
         sa = cls.init_from_dict(inp_data_dict)
         sa.set_ground_truth_data(obs_data_dict)
