@@ -32,7 +32,7 @@ def test_mcmc_unimodal_with_validation(base_user_inputs, resources_dir, temp_out
         'file_prefix': 'Simple_ODE_Benchmark',  # Replace with your model name  
         'input_param_file': 'Simple_ODE_Benchmark_parameters.csv',  # Replace with your CSV  
         'model_type': 'cellml_only',  
-        'solver': 'CVODE',  
+        'solver': 'CVODE_myokit',  
         'param_id_method': 'genetic_algorithm',  
         'pre_time': 0.5,  
         'sim_time': 10.0,  
@@ -135,7 +135,7 @@ def test_mcmc_unimodal_with_validation_KDE_likelihood(base_user_inputs, resource
         'file_prefix': 'Simple_ODE_Benchmark',  # Replace with your model name  
         'input_param_file': 'Simple_ODE_Benchmark_parameters.csv',  # Replace with your CSV  
         'model_type': 'cellml_only',  
-        'solver': 'CVODE',  
+        'solver': 'CVODE_myokit',  
         'param_id_method': 'genetic_algorithm',  
         'pre_time': 0.5,  
         'sim_time': 10.0,  
@@ -240,7 +240,7 @@ def test_mcmc_bimodal_with_validation(base_user_inputs, resources_dir, temp_outp
         'file_prefix': 'Simple_ODE_Benchmark',  # Replace with your model name  
         'input_param_file': 'Simple_ODE_Benchmark_parameters.csv',  # Replace with your CSV  
         'model_type': 'cellml_only',  
-        'solver': 'CVODE',  
+        'solver': 'CVODE_myokit',  
         'param_id_method': 'genetic_algorithm',  
         'pre_time': 0.5,  
         'sim_time': 10.0,  
