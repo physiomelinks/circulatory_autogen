@@ -144,6 +144,20 @@ Note:
 
 - Currently there are no kwargs for user defined cost functions. But there will be: see [issue](https://github.com/FinbarArgus/circulatory_autogen/issues/84)
 
+### Kernel Density Estimation Cost Function  
+  
+For comparing model outputs to empirical data distributions without assuming a parametric form, use the `kernel_density_estimation` cost function:  
+  
+```json  
+{  
+  "prob_dist_params": {  
+    "data_points": [1.050, 0.986, 1.065, 1.152, 0.977, 0.977, 1.158, 1.077, 0.953, 1.054],  
+    "bandwidth": 0.1  // optional, uses Scott's rule if not provided  
+  },  
+  "cost_type": "kernel_density_estimation"  
+}
+```
+
 ## Solver
 
 Before doing calibration, a solver for the model needs to be chosen
