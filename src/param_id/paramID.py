@@ -793,6 +793,10 @@ class CVS0DParamID():
         num_steps, num_chains, num_params = samples.shape
         window_size = 10  # Adjust based on your total step count
 
+        if window_size >= num_steps:
+            print(f"Warning: window_size {window_size} is greater than or equal to num_steps {num_steps}. Skipping chain average plot.")
+            return
+
         for i in range(num_params):
             ax = axes[i] if num_params > 1 else axes
             
