@@ -48,7 +48,8 @@ dependencies = [
     "nevergrad>=1.0.12",
     "numdifftools>=0.9.0",
     "pint>=0.18",
-    "casadi>=3.7.2"
+    "casadi>=3.7.2",
+    "scikit-learn"
 ]
 
 [project.optional-dependencies]

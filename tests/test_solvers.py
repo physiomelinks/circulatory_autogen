@@ -617,6 +617,128 @@ def test_myokit_multi_trace_protocol():
     )
 
 
+@pytest.mark.integration
+@pytest.mark.solver
+def test_myokit_set_constant_preserved_after_rebind():
+    """
+    Regression test for issue #219: cost mismatch when two protocol_traces are active.
+
+    Root cause: _rebind_pace_to creates a new myokit.Simulation(self.model). Myokit clones
+    self.model at construction time, so any set_constant calls made on the *old* simulation
+    (e.g. ID parameters applied at the start of each experiment) were silently discarded.
+    The fix syncs self.model via Variable.set_rhs so the next _recreate_simulation picks
+    them up.
+
+    Protocol: two experiments, each driven by a different trace parameter.
+      - exp0: u_alpha trace  (set_protocol_info pre-binds u_alpha → no rebind here)
+      - exp1: u_gamma trace  (u_gamma ≠ u_alpha → rebind triggered)
+
+    A non-default alpha value (7.0 vs model default 5.0) is applied as an ID param at the
+    start of each experiment.  exp1's results should reflect alpha=7.0; before the fix they
+    reverted to alpha=5.0 (template model default) after the rebind, making them
+    indistinguishable from a run where alpha was never changed.
+    """
+    tests_dir = os.path.dirname(__file__)
+    cellml_path = os.path.join(tests_dir, "test_inputs", "Lotka_Volterra_forced.cellml")
+
+    assert os.path.exists(cellml_path), f"CellML model not found: {cellml_path}"
+
+    dt = 0.01
+    sim_time = 5.0
+    solver_info = {"MaximumStep": 0.05}
+
+    # Minimal two-experiment protocol: exp0 paces u_alpha, exp1 paces u_gamma.
+    # Both traces are identically zero so they don't alter dynamics directly;
+    # only alpha (the ID param) changes dynamics between Run A and Run B.
+    zero_trace = {"t": [0.0, sim_time], "values": [0.0, 0.0]}
+    protocol_info = {
+        "pre_times": [0.0, 0.0],
+        "sim_times": [[sim_time], [sim_time]],
+        "params_to_change": {
+            "Lotka_Volterra_module/u_alpha": [["u_alpha_trace"], [0.0]],
+            "Lotka_Volterra_module/u_gamma": [[0.0], ["u_gamma_trace"]],
+        },
+        "protocol_traces": {
+            "u_alpha_trace": zero_trace,
+            "u_gamma_trace": zero_trace,
+        },
+    }
+
+    def _run_protocol(id_alpha):
+        """Run both experiments applying id_alpha as the ID param for alpha."""
+        try:
+            helper = get_simulation_helper(
+                model_path=cellml_path,
+                model_type="cellml_only",
+                solver="CVODE_myokit",
+                dt=dt,
+                sim_time=sim_time,
+                solver_info=solver_info,
+                pre_time=0.0,
+            )
+        except RuntimeError as exc:
+            pytest.skip(f"Myokit backend not available: {exc}")
+
+        helper.set_protocol_info(protocol_info)
+
+        var_names_out = None
+        results_by_exp = {}
+
+        for exp_idx in range(2):
+            # Step A: apply ID params (the alpha value under test)
+            helper.set_param_vals(
+                ["Lotka_Volterra_module/alpha"],
+                [id_alpha],
+            )
+            helper.reset_states()
+
+            # Step C: update times + run the single sub-experiment
+            helper.update_times(dt, 0.0, sim_time, 0.0)
+
+            ptc_vals = [
+                protocol_info["params_to_change"][k][exp_idx][0]
+                for k in protocol_info["params_to_change"]
+            ]
+            helper.set_param_vals(
+                list(protocol_info["params_to_change"].keys()),
+                ptc_vals,
+            )
+
+            ok = helper.run()
+            assert ok, f"Simulation failed for exp {exp_idx} with alpha={id_alpha}"
+
+            var_names = helper.get_all_variable_names()
+            x_name = next((n for n in var_names if n.endswith(".x")), None)
+            assert x_name, f"x variable not found in {var_names[:6]}"
+            var_names_out = var_names
+
+            results_by_exp[exp_idx] = np.asarray(
+                helper.get_results([x_name], flatten=True)[0], dtype=float
+            )
+            helper.reset_and_clear()
+
+        return results_by_exp
+
+    # Run A: alpha overridden to 7.0 (non-default)
+    results_alpha7 = _run_protocol(id_alpha=7.0)
+    # Run B: alpha left at model default (5.0)
+    results_alpha5 = _run_protocol(id_alpha=5.0)
+
+    # exp0 (u_alpha trace, NO rebind): alpha differs → dynamics differ
+    assert not np.allclose(results_alpha7[0], results_alpha5[0], rtol=1e-3), (
+        "exp0 (no rebind): alpha=7 and alpha=5 should produce different x trajectories."
+    )
+
+    # exp1 (u_gamma trace, REBIND triggered): alpha must still differ.
+    # Before the fix, alpha reverted to 5.0 after rebind in both runs,
+    # making results_alpha7[1] == results_alpha5[1].
+    assert not np.allclose(results_alpha7[1], results_alpha5[1], rtol=1e-3), (
+        "exp1 (rebind triggered): alpha=7.0 should still be active after rebind — "
+        "if this fails, set_constant changes are being lost in _rebind_pace_to "
+        "(issue #219)."
+    )
+
+
 def test_init_states_myokit(generated_cellml_model_factory):
     """
     Repro for computed-constant initial state values via Myokit wrapper.

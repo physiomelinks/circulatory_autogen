@@ -454,6 +454,7 @@ def test_generation_and_calibration_notebook_executes_as_script(project_root, op
     param_id_output_dir = temp_root / "param_id_output"
     sensitivity_dir = param_id_output_dir / "sensitivity"
 
+    assert any(param_id_output_dir.rglob("protocol_runner_calibrated.png"))
     assert any(param_id_output_dir.rglob("reconstruct_*.png"))
     assert any(param_id_output_dir.rglob("error_bars_*.png"))
     assert any(param_id_output_dir.rglob("std_error_bars_*.png"))

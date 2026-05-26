@@ -802,6 +802,16 @@ def test_param_id_SN_simple_CVODE_myokit_ga_smoke(
         )
         plotter.close_simulation()
 
+        num_experiments = plotter.param_id.protocol_info["num_experiments"]
+        for exp_idx in range(num_experiments):
+            plot_npz = os.path.join(
+                out_dir,
+                f"all_outputs_with_best_param_vals_exp_{exp_idx}_plot.npz",
+            )
+            assert os.path.exists(plot_npz), f"Missing plot NPZ for exp {exp_idx}"
+            data = np.load(plot_npz)
+            assert len(data.files) > 0, "Plot NPZ is empty"
+
         assert np.isclose(cost_before, saved_best_cost, rtol=0.0, atol=1e-6)
         assert np.isclose(cost_after, saved_best_cost, rtol=0.0, atol=1e-6)
         assert np.isclose(cost_before, cost_after, rtol=0.0, atol=1e-10)

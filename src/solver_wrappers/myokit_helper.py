@@ -436,7 +436,7 @@ class SimulationHelper:
             log = self._make_log()
             # Use explicit log times so the end-point is included.
             start_time = self.simulation.time()
-            eps = 1e-12 # run for eps after the end time to make sure the final requested log point is emitted.
+            eps = self.dt * 1e-9 # run for eps after the end time to make sure the final requested log point is emitted.
             # Logical output grid on the cumulative protocol timeline
             logical_log_times = np.asarray(self.tSim, dtype=float) - float(self.pre_time)
             if logical_log_times.size == 0:
@@ -659,6 +659,20 @@ class SimulationHelper:
                             self.simulation.set_protocol(protocol, label='pace')
                         else:
                             self.simulation.set_constant(qname, float(val))
+                            # Keep self.model in sync with every set_constant call.
+                            # _rebind_pace_to calls _recreate_simulation(), which clones
+                            # self.model fresh (Myokit docs: "changes to the original model
+                            # object will not affect the simulation"). Without this, any
+                            # set_constant calls made *before* the rebind (e.g. ID params
+                            # set at the start of each experiment) are lost when the second
+                            # trace experiment triggers a rebind, causing the calibration
+                            # and post-regeneration runs to use different constant values
+                            # (template defaults vs. embedded best-fit values) — the root
+                            # cause of the cost mismatch reported in issue #219.
+                            try:
+                                self.qname_to_var[qname].set_rhs(myokit.Number(float(val)))
+                            except Exception:
+                                pass
                 else:
                     raise ValueError(f"parameter {name} not found")
         # Keep state defaults consistent with model-defined initial values.

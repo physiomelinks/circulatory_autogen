@@ -268,6 +268,11 @@ Following a successful parameter id process, the model with updated parameters c
 
     The generated models will be saved in `generated_models/` and plots will be saved in `param_id_output/`.
 
+    Full model time-series dumps (all states and variables) are written as NumPy archives in the param_id output directory:
+
+    - `all_outputs_with_best_param_vals_exp_{i}.npz` — written when calibration completes successfully.
+    - `all_outputs_with_best_param_vals_exp_{i}_plot.npz` — written at the start of every `plot_outputs()` call. Use these to recover trajectories after an interrupted run as long as `best_param_vals.npy` exists in the same output folder.
+
 If you already have a model and do not want to run autogeneration, use:
 
 ```

@@ -49,7 +49,7 @@ def get_simulation_helper(model_path: str = None, solver: str = None,
     is_casadi_python_model = (model_type == 'casadi_python')
 
     # Check for explicit solver specification with validation
-    if solver in ('CVODE_opencor'):
+    if solver == 'CVODE_opencor':
         if is_python_model:
             raise ValueError("CVODE_opencor solver cannot be used with Python models. Use a solve_ivp method instead.")
         if OpenCORSimulationHelper is not None:
