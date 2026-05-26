@@ -123,7 +123,7 @@ def kernel_density_estimation(output, prob_dist_params, weight):
     
     log_density = kde.logpdf(output)
     cost = -1 * log_density * weight
-
+    cost = cost[0]  # Ensure cost is a scalar float, not a 0-d array
     return cost
 
 @is_MLE
