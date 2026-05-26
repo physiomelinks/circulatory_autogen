@@ -161,16 +161,16 @@ if __name__ == '__main__':
             # do_mcmc = inp_data_dict['do_mcmc']
             #
             # if DEBUG:
-            #     mcmc_options = inp_data_dict['debug_mcmc_options']
+            #     UQ_options = inp_data_dict['debug_UQ_options']
             # else:
-            #     mcmc_options = inp_data_dict['mcmc_options']
+            #     UQ_options = inp_data_dict['UQ_options']
             #
             # if do_mcmc:
             #     mcmc = CVS0DParamID(model_path, model_type, param_id_method, True, file_prefix,
             #                             input_params_path=input_params_path,
             #                             param_id_obs_path=param_id_obs_path,
             #                             sim_time=sim_time, pre_time=pre_time,
-            #                             solver_info=solver_info, dt=dt, mcmc_options=mcmc_options, DEBUG=DEBUG)
+            #                             solver_info=solver_info, dt=dt, UQ_options=UQ_options, DEBUG=DEBUG)
             #     mcmc.set_best_param_vals(best_param_vals)
             #     # mcmc.set_mcmc_parameters() TODO
             #     mcmc.run_mcmc()

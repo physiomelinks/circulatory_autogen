@@ -51,7 +51,7 @@ def plot_param_id(inp_data_dict=None, generate=True):
     solver_info = inp_data_dict['solver_info']
     dt = inp_data_dict['dt']
     optimiser_options = inp_data_dict['optimiser_options']
-    mcmc_options = inp_data_dict['mcmc_options']
+    UQ_options = inp_data_dict['UQ_options']
     resources_dir = inp_data_dict['resources_dir']
     param_id_output_dir = inp_data_dict['param_id_output_dir']
     param_id_output_dir_abs_path = inp_data_dict['param_id_output_dir_abs_path']
@@ -138,7 +138,7 @@ def plot_param_id(inp_data_dict=None, generate=True):
                                             num_calls_to_function=1,
                                             sim_time=sim_time, pre_time=pre_time,
                                             solver_info=solver_info, dt=dt, 
-                                            mcmc_options=mcmc_options, DEBUG=DEBUG,
+                                            UQ_options=UQ_options, DEBUG=DEBUG,
                                             param_id_output_dir=param_id_output_dir, resources_dir=resources_dir)
     
         if do_mcmc:

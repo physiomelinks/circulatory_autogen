@@ -108,9 +108,9 @@ def ensure_mle_cost_type_for_bayesian_inner(inner, inp_data_dict):
     option_dicts = []
     if inp_data_dict.get("DEBUG"):
         option_dicts.append(inp_data_dict.get("debug_optimiser_options") or {})
-        option_dicts.append(inp_data_dict.get("debug_mcmc_options") or {})
+        option_dicts.append(inp_data_dict.get("debug_UQ_options") or {})
     option_dicts.append(inp_data_dict.get("optimiser_options") or {})
-    option_dicts.append(inp_data_dict.get("mcmc_options") or {})
+    option_dicts.append(inp_data_dict.get("UQ_options") or {})
     for src in option_dicts:
         if not isinstance(src, dict):
             continue
@@ -141,7 +141,7 @@ class CVS0DParamID():
     def __init__(self, model_path, model_type, param_id_method, mcmc_instead=False, file_name_prefix='no_name',
                  params_for_id_path=None,
                  param_id_obs_path=None, sim_time=2.0, pre_time=20.0, dt=0.01,
-                 solver_info=None, mcmc_options=None, optimiser_options=None, 
+                 solver_info=None, UQ_options=None, optimiser_options=None, 
                  do_ad=False, DEBUG=False,
                  param_id_output_dir=None, resources_dir=None, one_rank=False):
         self.model_path = model_path
@@ -154,18 +154,18 @@ class CVS0DParamID():
         self.rank = self.comm.Get_rank()
         self.num_procs = self.comm.Get_size()
 
-        self.mcmc_options = mcmc_options
-        # Set mcmc_lib from mcmc_options
-        self.mcmc_lib = self.mcmc_options.get('mcmc_lib', 'emcee') if self.mcmc_options else 'emcee'
+        self.UQ_options = UQ_options
+        # Set UQ library from UQ_options
+        self.UQ_library = self.UQ_options.get('library', 'emcee') if self.UQ_options else 'emcee'
         
-        # Import MCMC libraries based on mcmc_lib
-        if self.mcmc_lib == 'zeus':
+        # Import MCMC libraries based on library
+        if self.UQ_library == 'zeus':
             try:
                 import zeus
                 self.zeus = zeus
             except ImportError:
                 self.zeus = None
-        elif self.mcmc_lib == 'pymc':
+        elif self.UQ_library == 'pymc':
             try:
                 import pymc as pm
                 import arviz as az
@@ -191,7 +191,7 @@ class CVS0DParamID():
                 print(f"Failed to import pymc dependencies: {e}")
                 self.pm = None
         else:
-            print(f'unknown mcmc lib : {self.mcmc_lib}')
+            print(f'unknown mcmc lib : {self.UQ_library}')
         
         if solver_info is None:
             self.solver_info = {"solver": "CVODE_myokit"}
@@ -287,7 +287,7 @@ class CVS0DParamID():
             mcmc_object = OpencorMCMC(self.model_path,
                                            self.obs_info, self.param_id_info,
                                            self.protocol_info, self.prediction_info, self.solver_info, dt=self.dt,
-                                           mcmc_options=mcmc_options,
+                                           UQ_options=UQ_options,
                                            DEBUG=self.DEBUG, model_type=self.model_type)
             self.n_steps = mcmc_object.n_steps
         else:
@@ -311,7 +311,7 @@ class CVS0DParamID():
         arg_options = [
             'model_path', 'model_type', 'param_id_method', 'mcmc_instead',
             'file_name_prefix', 'params_for_id_path', 'param_id_obs_path',
-            'sim_time', 'pre_time', 'dt', 'solver_info', 'mcmc_options',
+            'sim_time', 'pre_time', 'dt', 'solver_info', 'UQ_options',
             'optimiser_options', 'DEBUG', 'param_id_output_dir', 'resources_dir',
             'one_rank',
         ]
@@ -500,7 +500,7 @@ class CVS0DParamID():
 
         # discard first num_steps/2 samples
         # TODO include a user defined burn in if we aren't starting from
-        burn_in_idx = int(samples.shape[0] * self.mcmc_options['burn_in_percentage'])  
+        burn_in_idx = int(samples.shape[0] * self.UQ_options['settings']['burn_in'])  
         samples = samples[burn_in_idx:, :, :]
         
         flat_samples = samples.reshape(-1, num_params)
@@ -718,7 +718,7 @@ class CVS0DParamID():
         plt.close()
 
         # Also check autocorrelation times for mcmc chain
-        if self.mcmc_lib == 'emcee':
+        if self.UQ_library == 'emcee':
             tau = self.calculate_autocorrelation_time(samples)
             print(f"Auto-correlation time: {tau}")
 
@@ -1123,7 +1123,7 @@ class CVS0DParamID():
         np.save(os.path.join(self.output_dir, 'params_std.npy'), param_std)
 
         print('Creating boxplots for MCMC samples')  
-        self.plot_boxplots_for_predictions(flat_samples, n_sims=100)
+        self.plot_boxplots_for_predictions(flat_samples, n_sims=n_sims)
 
     def plot_boxplots_for_predictions(self, flat_samples, n_sims=50, show_points=True):
         """
@@ -2530,57 +2530,76 @@ class OpencorMCMC(OpencorParamID):
 
     def __init__(self, model_path,
                  obs_info, param_id_info, protocol_info, prediction_info, solver_info,
-                 dt=0.01, mcmc_options=None, DEBUG=False, model_type=None):
+                 dt=0.01, UQ_options=None, DEBUG=False, model_type=None):
         super().__init__(model_path, "MCMC",
                 obs_info, param_id_info, protocol_info, prediction_info, solver_info,
                 dt=dt, DEBUG=DEBUG, model_type=model_type)
 
         # mcmc init stuff
         self.sampler = None
-        if mcmc_options is not None:
-            self.mcmc_options = mcmc_options
+        if UQ_options is not None:
 
-            # Set mcmc_lib from mcmc_options
-            self.mcmc_lib = self.mcmc_options.get('mcmc_lib', 'emcee')
-            if 'num_steps' not in self.mcmc_options.keys(): 
-                self.mcmc_options['num_steps'] = 5000
-                print('number of mcmc steps is not set, choosing default of 5000')
-            if 'num_walkers' not in self.mcmc_options.keys():
-                self.mcmc_options['num_walkers'] = 2*self.num_params
-                print('number of mcmc walkers is not set, ',
-                    'choosing default of 2*num_params')
-            if 'burn_in_percentage' not in self.mcmc_options.keys():  
-                if self.mcmc_lib == 'pymc':  
-                    self.mcmc_options['burn_in_percentage'] = 0.0  
-                else:  
-                    self.mcmc_options['burn_in_percentage'] = 0.5  
-                print(f'burn_in_percentage is not set, choosing default of {self.mcmc_options["burn_in_percentage"]} for {self.mcmc_lib}')
-            if 'method' not in self.mcmc_options.keys():
-                if self.mcmc_lib == 'pymc':
-                    self.mcmc_options['method'] = 'mcmc'
-                else:
-                    self.mcmc_options['method'] = 'mcmc'
-                print(f'method is not set, choosing default of {self.mcmc_options["method"]} for {self.mcmc_lib}')
+            self._validate_UQ_options(UQ_options)
+
+            self.UQ_options = UQ_options
+
+            # Set library from UQ_options
+            self.library = self.UQ_options.get('library', 'emcee')
+            self.UQ_settings = self.UQ_options.get('settings', {}) 
+
+            if self.library == 'emcee': 
+                if 'num_steps' not in self.UQ_settings: 
+                    self.UQ_settings['num_steps'] = 5000
+                    print('number of mcmc steps is not set, choosing default of 5000')
+                if 'num_walkers' not in self.UQ_settings:
+                    self.UQ_settings['num_walkers'] = 2*self.num_params
+                    print('number of mcmc walkers is not set, ',
+                        'choosing default of 2*num_params')
+                if 'burn_in' not in self.UQ_settings:  
+                    self.UQ_settings['burn_in'] = 0.5  
+                    print(f'burn_in is not set, choosing default of {self.UQ_settings["burn_in"]}')
+                if 'method' not in self.UQ_settings:
+                    self.UQ_settings['method'] = 'mcmc'
+                    print(f'Method should be {self.UQ_settings["method"]} for {self.library}')
+            
+            elif self.library == 'pymc':
+                if 'num_draws' not in self.UQ_settings: 
+                    self.UQ_settings['num_draws'] = 1000
+                    print('number of mcmc draws is not set, choosing default of 1000 for pymc')
+                if 'num_chains' not in self.UQ_settings:
+                    self.UQ_settings['num_chains'] = 4
+                    print('number of mcmc chains is not set, ',
+                        'choosing default of 4 for pymc')
+                if 'burn_in' not in self.UQ_settings:  
+                    self.UQ_settings['burn_in'] = 0.0  
+                    print(f'burn_in is not set, choosing default of {self.UQ_settings["burn_in"]} for pymc')
+                if 'method' not in self.UQ_settings:
+                    self.UQ_settings['method'] = 'mcmc'
+                    print(f'Method should be {self.UQ_settings["method"]} for {self.library}')
+                if 'num_tune' not in self.UQ_settings:
+                    self.UQ_settings['num_tune'] = 1000
+                    print('number of mcmc tuning steps is not set, choosing default of 1000 for pymc')
+
         else:
-            self.mcmc_options = {}
-            self.mcmc_options['num_steps'] = 5000
-            self.mcmc_options['num_walkers'] = 2*self.num_params
-            if self.mcmc_lib == 'pymc':  
-                self.mcmc_options['burn_in_percentage'] = 0.0  
-            else:  
-                self.mcmc_options['burn_in_percentage'] = 0.5  
-            self.mcmc_options['method'] = 'mcmc'
-            print(f'number of mcmc steps, walkers, burn_in_percentage, and method not set, '  
-                f'choosing defaults of 5000, 2*num_params, {self.mcmc_options["burn_in_percentage"]}, and {self.mcmc_options["method"]} for {self.mcmc_lib}')
+            self.UQ_options = {}
+            self.library = 'emcee'  # default to emcee
+            self.UQ_settings['num_steps'] = 5000
+            self.UQ_settings['num_walkers'] = 2*self.num_params
+            self.UQ_settings['burn_in'] = 0.0  
+            self.UQ_settings['method'] = 'mcmc'
+            UQ_options['library'] = self.library
+            UQ_options['settings'] = self.UQ_settings
+            print(f'number of mcmc steps, walkers, burn_in, and method not set, '  
+                f'choosing defaults of 5000, 2*num_params, {self.UQ_options["burn_in"]}, and {self.UQ_options["method"]} for {self.library}')
         
-        # Import MCMC libraries based on mcmc_lib
-        if self.mcmc_lib == 'zeus':
+        # Import MCMC libraries based on library
+        if self.library == 'zeus':
             try:
                 import zeus
                 self.zeus = zeus
             except ImportError:
                 self.zeus = None
-        elif self.mcmc_lib == 'pymc':
+        elif self.library == 'pymc':
             try:
                 import pymc as pm
                 import pytensor.tensor as pt
@@ -2605,13 +2624,64 @@ class OpencorMCMC(OpencorParamID):
                 print(f"Failed to import pymc dependencies: {e}")
                 self.pm = None
         else:
-            print(f'unknown mcmc lib : {self.mcmc_lib}')
+            print(f'unknown mcmc lib : {self.library}')
 
         self.DEBUG = DEBUG
         assert_mle_cost_for_bayesian(
             self.cost_type, self.cost_funcs_dict, "MCMC (log-likelihood uses -cost)"
         )
 
+    def _validate_UQ_options(self, UQ_options):  
+        
+        """Validate UQ_options structure and library-specific settings."""  
+        if UQ_options is None:  
+            return  
+        
+        # Check library is specified  
+        if 'library' not in UQ_options:  
+            raise ValueError("UQ_options must contain 'library' key")  
+        
+        library = UQ_options['library']  
+        valid_libraries = ['emcee', 'zeus', 'pymc']  
+        if library not in valid_libraries:  
+            raise ValueError(f"Invalid library '{library}'. Must be one of: {valid_libraries}")  
+        
+        # Check settings exist  
+        if 'settings' not in UQ_options:  
+            raise ValueError("UQ_options must contain 'settings' key")  
+        
+        settings = UQ_options['settings']  
+        
+        # Define valid settings for each library  
+        valid_settings = {  
+            'emcee': ['num_steps', 'num_walkers', 'burn_in', 'method'],  
+            'zeus': ['num_steps', 'num_walkers', 'burn_in', 'method'],  
+            'pymc': ['num_draws', 'num_chains', 'burn_in', 'num_tune', 'method']  
+        }  
+        
+        # Check for invalid settings  
+        valid_for_library = valid_settings[library]  
+        for key in settings.keys():  
+            if key not in valid_for_library:  
+                raise ValueError(  
+                    f"Invalid setting '{key}' for library '{library}'. "  
+                    f"Valid settings for {library} are: {valid_for_library}"  
+                )  
+        
+        # Check for required settings  
+        required_settings = {  
+            'emcee': ['num_steps', 'num_walkers'],  
+            'zeus': ['num_steps', 'num_walkers'],  
+            'pymc': ['num_draws', 'num_chains']  
+        }  
+        
+        for required in required_settings[library]:  
+            if required not in settings:  
+                raise ValueError(  
+                    f"Missing required setting '{required}' for library '{library}'. "  
+                    f"Required settings for {library} are: {required_settings[library]}"  
+                )
+        
     def cost_calc(self, obs_dict, exp_idx=0, sub_idx=0, is_symbolic=False):
         """  
         Override cost calculation for MCMC to normalize non-zero weights to 1.0  
@@ -2750,26 +2820,30 @@ class OpencorMCMC(OpencorParamID):
         rank = comm.Get_rank()
         num_procs = comm.Get_size()
         if rank == 0:
-            print(f'Running MCMC with {num_procs} processes using {self.mcmc_lib}')
+            print(f'Running MCMC with {num_procs} processes using {self.library}')
 
         if num_procs > 1:
             # from pathos import multiprocessing
             # from pathos.multiprocessing import ProcessPool
             from schwimmbad import MPIPool
 
-            if rank == 0 or (self.mcmc_lib == 'pymc'):
+            if rank == 0 or (self.library == 'pymc'):
+                num_chains_or_walkers = self.UQ_settings.get('num_chains') if self.library == 'pymc' else self.UQ_settings.get('num_walkers')
+                if self.library == 'pymc':
+                    num_chains_or_walkers = num_chains_or_walkers // num_procs if num_procs > 1 else num_chains_or_walkers
+                
                 if self.best_param_vals is not None:
                     best_param_vals_norm = self.param_norm_obj.normalise(self.best_param_vals)
                     # create initial params in gaussian ball around best_param_vals estimate
-                    init_param_vals_norm = (np.ones((self.mcmc_options['num_walkers'], self.num_params))*best_param_vals_norm).T + \
-                                       0.1*np.random.randn(self.num_params, self.mcmc_options['num_walkers'])
+                    init_param_vals_norm = (np.ones((num_chains_or_walkers, self.num_params))*best_param_vals_norm).T + \
+                                       0.1*np.random.randn(self.num_params, num_chains_or_walkers   )
                     init_param_vals_norm = np.clip(init_param_vals_norm, 0.001, 0.999)
                     init_param_vals = self.param_norm_obj.unnormalise(init_param_vals_norm)
                 else:
-                    init_param_vals_norm = np.random.rand(self.num_params, self.mcmc_options['num_walkers'])
+                    init_param_vals_norm = np.random.rand(self.num_params, num_chains_or_walkers)
                     init_param_vals = self.param_norm_obj.unnormalise(init_param_vals_norm)
 
-            if self.mcmc_lib == 'pymc':
+            if self.library == 'pymc':
                 # BYPASS MPIPool: Let every rank reach the sampler
                 print(f"Rank {rank} entering PyMC sampler logic")
             else:
@@ -2782,7 +2856,7 @@ class OpencorMCMC(OpencorParamID):
                     pool.wait()
                     return
 
-            if self.mcmc_lib == 'emcee':
+            if self.library == 'emcee':
                 robust_moves = [
                     (emcee.moves.StretchMove(), 1.0),      # 100% -
                 ]
@@ -2793,61 +2867,65 @@ class OpencorMCMC(OpencorParamID):
                 #     # 20% weight: Adds a scale-invariant jump to escape local minima/modes
                 #     (emcee.moves.DESnookerMove(), 0.40),
                 # ]
-                self.sampler = emcee.EnsembleSampler(self.mcmc_options['num_walkers'], self.num_params, calculate_lnlikelihood,
+                self.sampler = emcee.EnsembleSampler(self.UQ_settings.get('num_walkers'), self.num_params, calculate_lnlikelihood,
                                             pool=pool, moves=robust_moves)
-            elif self.mcmc_lib == 'zeus':
-                self.sampler = self.zeus.EnsembleSampler(self.mcmc_options['num_walkers'], self.num_params, calculate_lnlikelihood,
+            elif self.library == 'zeus':
+                self.sampler = self.zeus.EnsembleSampler(self.UQ_settings.get('num_walkers'), self.num_params, calculate_lnlikelihood,
                                                         pool=pool)
-            elif self.mcmc_lib == 'pymc':  
-                self.sampler = PyMCMPISampler(self.mcmc_options['num_walkers'], self.num_params, calculate_lnlikelihood,  
-                                            pool=True, param_id_info=self.param_id_info)          
+            elif self.library == 'pymc':  
+                self.sampler = PyMCMPISampler(self.UQ_settings.get('num_chains'), self.num_params, calculate_lnlikelihood,  
+                                            pool=True, param_id_info=self.param_id_info, num_tune=self.UQ_settings.get('num_tune'))          
 
             start_time = time.time()
 
-            if self.mcmc_options['method'] == 'smc' and self.mcmc_lib == 'pymc':
-                self.sampler.run_mcmc(init_param_vals.T, self.mcmc_options['num_steps'], method='smc') # , progress=True)
+            if self.UQ_settings['method'] == 'smc' and self.library == 'pymc':
+                self.sampler.run_mcmc(init_param_vals.T, self.UQ_settings.get('num_draws'), method='smc') # , progress=True)
             else:
                 print(f"Rank {rank} entering standard MCMC sampling with sampler {self.sampler}")
-                self.sampler.run_mcmc(init_param_vals.T, self.mcmc_options['num_steps'], progress=True)
-            
+                num_draws_or_steps = self.UQ_settings.get('num_draws') if self.library == 'pymc' else self.UQ_settings.get('num_steps')
+                self.sampler.run_mcmc(init_param_vals.T, num_draws_or_steps, progress=True)
+
             print(f'mcmc time = {time.time() - start_time}')
             
-            if self.mcmc_lib != 'pymc':
+            if self.library != 'pymc':
                 pool.close()
 
         else:
+            num_chains_or_walkers = self.UQ_settings.get('num_chains') if self.library == 'pymc' else self.UQ_settings.get('num_walkers')
             if self.best_param_vals is not None:
                 best_param_vals_norm = self.param_norm_obj.normalise(self.best_param_vals)
-                init_param_vals_norm = (np.ones((self.mcmc_options['num_walkers'], self.num_params))*best_param_vals_norm).T + \
-                                   0.01*np.random.randn(self.num_params, self.mcmc_options['num_walkers'])
+                init_param_vals_norm = (np.ones((num_chains_or_walkers, self.num_params))*best_param_vals_norm).T + \
+                                   0.01*np.random.randn(self.num_params, num_chains_or_walkers)
                 init_param_vals_norm = np.clip(init_param_vals_norm, 0.001, 0.999)
                 init_param_vals = self.param_norm_obj.unnormalise(init_param_vals_norm)
             else:
-                init_param_vals_norm = np.random.rand(self.num_params, self.mcmc_options['num_walkers'])
+                init_param_vals_norm = np.random.rand(self.num_params, num_chains_or_walkers)
                 init_param_vals = self.param_norm_obj.unnormalise(init_param_vals_norm)
 
-            if self.mcmc_lib == 'emcee':
+            if self.library == 'emcee':
                 robust_moves = [
                     (emcee.moves.StretchMove(), 1.0),      # 100% -
                 ]
-                self.sampler = emcee.EnsembleSampler(self.mcmc_options['num_walkers'], self.num_params, calculate_lnlikelihood, moves=robust_moves)
-            elif self.mcmc_lib == 'zeus':
-                self.sampler = self.zeus.EnsembleSampler(self.mcmc_options['num_walkers'], self.num_params, calculate_lnlikelihood)
-            elif self.mcmc_lib == 'pymc':  
-                self.sampler = PyMCMPISampler(self.mcmc_options['num_walkers'], self.num_params, calculate_lnlikelihood, param_id_info=self.param_id_info)
+                self.sampler = emcee.EnsembleSampler(num_chains_or_walkers, self.num_params, calculate_lnlikelihood, moves=robust_moves)
+            elif self.library == 'zeus':
+                self.sampler = self.zeus.EnsembleSampler(num_chains_or_walkers, self.num_params, calculate_lnlikelihood)
+            elif self.library == 'pymc':  
+                self.sampler = PyMCMPISampler(num_chains_or_walkers, self.num_params, calculate_lnlikelihood, 
+                                              param_id_info=self.param_id_info, num_tune=self.UQ_settings.get('num_tune'))
 
             start_time = time.time()
 
-            if self.mcmc_options['method'] == 'smc' and self.mcmc_lib == 'pymc':
-                self.sampler.run_mcmc(init_param_vals.T, self.mcmc_options['num_steps'], method='smc', progress=True)
+            if self.UQ_settings['method'] == 'smc' and self.library == 'pymc':
+                self.sampler.run_mcmc(init_param_vals.T, self.UQ_settings.get('num_draws'), method='smc', progress=True)
             else:
-                self.sampler.run_mcmc(init_param_vals.T, self.mcmc_options['num_steps'], progress=True)
+                num_draws_or_steps = self.UQ_settings.get('num_draws') if self.library == 'pymc' else self.UQ_settings.get('num_steps')
+                self.sampler.run_mcmc(init_param_vals.T, num_draws_or_steps, progress=True)
 
             print(f'mcmc time = {time.time()-start_time}')
 
         if rank == 0:
             # TODO save chains
-            if self.mcmc_lib == 'emcee':
+            if self.library == 'emcee':
                 print(f'acceptance fraction was {self.sampler.acceptance_fraction}')
             samples = self.sampler.get_chain()
             mcmc_chain_path = os.path.join(self.output_dir, 'mcmc_chain.npy')
@@ -2856,7 +2934,7 @@ class OpencorMCMC(OpencorParamID):
             print(f'mcmc chain saved in {mcmc_chain_path}')
 
             # save best param vals and best cost from mcmc mean
-            burn_in_idx = int(samples.shape[0] * self.mcmc_options['burn_in_percentage'])  
+            burn_in_idx = int(samples.shape[0] * self.UQ_settings['burn_in'])  
             samples = samples[burn_in_idx:, :, :]
             
             flat_samples = samples.reshape(-1, self.num_params)
@@ -2926,7 +3004,7 @@ class MCMC_plotter:
                  params_for_id_path=None, num_calls_to_function=1000,
                  param_id_obs_path=None, sim_time=2.0, pre_time=20.0, 
                  solver_info=None, 
-                 dt=0.01, mcmc_options=None, 
+                 dt=0.01, UQ_options=None, 
                  param_id_output_dir=None, resources_dir=None,
                  DEBUG=False):
 
@@ -2972,7 +3050,7 @@ class MCMC_plotter:
         self.best_param_vals = None
         self.best_param_names = None
 
-        self.mcmc_options = mcmc_options
+        self.UQ_options = UQ_options
 
         # thresholds for identifiability TODO optimise these
         self.threshold_param_importance = 0.1
@@ -2997,7 +3075,7 @@ class MCMC_plotter:
                                     param_id_obs_path=self.param_id_obs_path,
                                     sim_time=self.sim_time, pre_time=self.pre_time, dt=self.dt,
                                     param_id_output_dir=self.param_id_output_dir, resources_dir=self.resources_dir,
-                                    solver_info=self.solver_info, mcmc_options=self.mcmc_options,
+                                    solver_info=self.solver_info, UQ_options=self.UQ_options,
                                     DEBUG=self.DEBUG, one_rank=True)
                 if os.path.exists(os.path.join(mcmc.output_dir, 'param_names_to_remove.csv')):
                     with open(os.path.join(mcmc.output_dir, 'param_names_to_remove.csv'), 'r') as r:
@@ -3022,13 +3100,14 @@ class MCMC_plotter:
 class PyMCMPISampler:  
     """Custom pyMC sampler that works with MPIPool like emcee/zeus"""  
     
-    def __init__(self, num_walkers, num_params, log_prob_fn, pool=None, param_id_info=None):  
+    def __init__(self, num_walkers, num_params, log_prob_fn, pool=None, param_id_info=None, num_tune=1000):  
         self.num_walkers = num_walkers  
         self.num_params = num_params  
         self.log_prob_fn = log_prob_fn  
         self.pool = pool
         self.chain = None  
         self.param_id_info = param_id_info
+        self.num_tune = num_tune
         
         import pytensor.tensor as pt
         import pymc as pm
@@ -3044,14 +3123,14 @@ class PyMCMPISampler:
         except ImportError as e:
             raise ImportError(f"PyMC is required for PyMCMPISampler but is not installed: {e}")
     
-    def run_mcmc(self, initial_state, num_steps, progress=True, tune=True, method='mcmc'):    
+    def run_mcmc(self, initial_state, num_draws_or_steps, method='mcmc', progress=False):    
         """Main entry point - choose between MCMC and SMC"""  
         if method == 'smc':  
-            return self._run_smc(initial_state, num_steps, progress)  
+            return self._run_smc(num_draws_or_steps)  
         else:  
-            return self._run_mpi(initial_state, num_steps)
+            return self._run_mcmc(initial_state, num_draws_or_steps, num_tune=self.num_tune)
     
-    def _run_smc(self, initial_state, num_steps, progress=True):  
+    def _run_smc(self, num_draws):  
         # """Run SMC with ABC using MPI parallelization"""  
         comm = MPI.COMM_WORLD    
         rank = comm.Get_rank()    
@@ -3088,9 +3167,9 @@ class PyMCMPISampler:
         
         model = create_pymc_model()  
         comm.Barrier()
-        n_chains = 4 if num_procs == 1 else 1
+        n_chains = self.num_walkers // num_procs if num_procs > 1 else self.num_walkers
         with model:  
-            trace = self.pm.sample_smc(draws=num_steps,
+            trace = self.pm.sample_smc(draws=num_draws,
                 chains=n_chains,   
                 cores=1,  
                 progressbar= rank == 0)  
@@ -3099,19 +3178,17 @@ class PyMCMPISampler:
         comm.Barrier()
 
         local_chain = self._convert_trace_to_emcee_format(trace)
-        print(local_chain.shape)
         gathered_data = comm.gather(local_chain, root=0)
 
         if rank == 0:
             all_chains = np.array(gathered_data) 
-            print(all_chains.shape)
             combined = np.concatenate(all_chains, axis=1)  # combine walkers
             self.chain = combined
             return combined
         else:
             return None
 
-    def _run_mpi(self, initial_state, num_steps):
+    def _run_mcmc(self, initial_state, num_draws, num_tune=1000):
 
         comm = MPI.COMM_WORLD  
         rank = comm.Get_rank()  
@@ -3119,12 +3196,14 @@ class PyMCMPISampler:
 
         with self.pm.Model() as model:
             
-            params = []  
+            params = []
+            self.param_names = []
             for i in range(self.num_params):  
                 param_min = self.param_id_info["param_mins"][i]  
                 param_max = self.param_id_info["param_maxs"][i]  
                 prior_type = self.param_id_info["param_prior_types"][i]  
                 param_name = self.param_id_info["param_names_for_plotting"][i]
+                self.param_names.append(param_name)
 
                 if prior_type == 'uniform' or not prior_type:  
                     params.append(self.pm.Uniform(param_name, lower=param_min, upper=param_max))  
@@ -3144,13 +3223,26 @@ class PyMCMPISampler:
             self.pm.Potential('likelihood', logp_op(stacked_params))  
 
             # comm.Barrier()  # Ensure all ranks have reached this point before sampling
-            n_chains = 4 if num_procs == 1 else 1
+            n_chains = self.num_walkers // num_procs if num_procs > 1 else self.num_walkers
+            print(f"Rank {rank} starting MCMC sampling with {n_chains} chains")
+            
+            initvals_list = []
+            for chain_idx in range(n_chains):
+                # Create a dictionary for this specific chain
+                chain_initvals = {
+                    name: initial_state[chain_idx, param_idx] 
+                    for param_idx, name in enumerate(self.param_names)
+                }
+                initvals_list.append(chain_initvals)
+
             trace = self.pm.sample(
-                draws=num_steps,
+                draws=num_draws,
+                tune=num_tune,
                 chains=n_chains,
                 cores=1,
                 step=self.pm.Metropolis(),
-                progressbar= rank == 0
+                progressbar= rank == 0,
+                initvals=initvals_list
             )
 
         print(f'Rank {rank} finished pyMC MCMC sampling, waiting for others...')

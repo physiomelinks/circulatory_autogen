@@ -95,17 +95,22 @@ debug_optimiser_options:
 
 #______ mcmc inputs ___________
 do_mcmc: false
-mcmc_options:
-  num_steps: 1000
-  num_walkers: 64
-  # TODO As above for cost_type
-  cost_type: gaussian_MLE
+UQ_options:  
+  library: 'emcee'  
+  settings:  
+    num_steps: 1000      # Number of MCMC steps to run  
+    num_walkers: 64      # Number of walkers  
+    burn_in: 0.5         # Burn-in percentage or steps  
+  cost_type: gaussian_MLE  
   cost_convergence: 0.001
 
-debug_mcmc_options:
-  num_steps: 5
-  num_walkers: 40
-  cost_type: gaussian_MLE
+debug_UQ_options:
+  library: 'emcee'  
+  settings:  
+    num_steps: 5      # Number of MCMC steps to run  
+    num_walkers: 40      # Number of walkers  
+    burn_in: 0.5         # Burn-in percentage or steps  
+  cost_type: gaussian_MLE  
   cost_convergence: 0.001
 
 sa_options:

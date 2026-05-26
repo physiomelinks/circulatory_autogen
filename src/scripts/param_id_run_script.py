@@ -106,9 +106,9 @@ def run_param_id(inp_data_dict=None):
     do_mcmc = inp_data_dict['do_mcmc']
 
     if DEBUG:
-        mcmc_options = inp_data_dict['debug_mcmc_options']
+        UQ_options = inp_data_dict['debug_UQ_options']
     else:
-        mcmc_options = inp_data_dict['mcmc_options']
+        UQ_options = inp_data_dict['UQ_options']
 
     if do_mcmc:
 
@@ -119,7 +119,7 @@ def run_param_id(inp_data_dict=None):
                                 params_for_id_path=params_for_id_path,
                                 param_id_obs_path=param_id_obs_path,
                                 sim_time=sim_time, pre_time=pre_time,
-                                solver_info=solver_info, dt=dt, mcmc_options=mcmc_options, DEBUG=DEBUG,
+                                solver_info=solver_info, dt=dt, UQ_options=UQ_options, DEBUG=DEBUG,
                                 param_id_output_dir=param_id_output_dir, resources_dir=resources_dir)
         mcmc.set_best_param_vals(best_param_vals)
         ensure_mle_cost_type_for_bayesian_inner(mcmc_object, inp_data_dict)

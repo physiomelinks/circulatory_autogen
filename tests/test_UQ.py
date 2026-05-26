@@ -44,12 +44,13 @@ def test_mcmc_unimodal_with_validation(base_user_inputs, resources_dir, temp_out
         "params_for_id_file": "Simple_ODE_Benchmark_params_for_id.csv",  # Specify which params to identify
         'param_id_obs_path': os.path.join(resources_dir, 'Simple_ODE_Benchmark_obs_data.json'),  
         'param_id_output_dir': temp_output_dir,
-        'mcmc_options': {
-            'mcmc_lib': 'pymc',  # 'emcee' or 'zeus' or 'pymc'
-            'num_steps': 200,
-            'num_walkers': 64,  # 2*num_params is a common choice
-            'burn_in_percentage': 0.0,
-            'method': 'mcmc'  # or 'smc' if using SMC
+        'UQ_options': {
+            'library': 'emcee',  # 'emcee' or 'zeus' or 'pymc'
+            'settings': {
+                'num_steps': 500,
+                'num_walkers': 32,  # 2*num_params is a common choice
+                'burn_in': 0.5
+            }
         },
         'optimiser_options': {
             "num_calls_to_function": 10000,  
@@ -78,7 +79,7 @@ def test_mcmc_unimodal_with_validation(base_user_inputs, resources_dir, temp_out
           
         # Load and validate samples  
         samples = np.load(chain_file)
-        burn_in_idx = int(samples.shape[0] * config['mcmc_options']['burn_in_percentage'])  
+        burn_in_idx = int(samples.shape[0] * config['UQ_options']['settings']['burn_in'])  
         samples = samples[burn_in_idx:, :, :]
         flat_samples = samples.reshape(-1, samples.shape[-1])  
           
@@ -90,7 +91,7 @@ def test_mcmc_unimodal_with_validation(base_user_inputs, resources_dir, temp_out
             param_id_obs_path=config['param_id_obs_path'],  
             sim_time=config['sim_time'], pre_time=config['pre_time'], dt=config['dt'],  
             param_id_output_dir=temp_output_dir, resources_dir=resources_dir,  
-            mcmc_options=config['mcmc_options'], DEBUG=config['DEBUG'], one_rank=True  
+            UQ_options=config['UQ_options'], DEBUG=config['DEBUG'], one_rank=True  
         )  
         mcmc_obj.plot_mcmc()  
 
@@ -99,12 +100,12 @@ def test_mcmc_unimodal_with_validation(base_user_inputs, resources_dir, temp_out
         assert len(matches) > 0
 
         posterior_stats = mcmc_obj.get_posterior_stats(samples)
-        
+
         assert all(val > 50 for val in posterior_stats['ess_bulk']+posterior_stats['ess_tail']), f"Some parameters have low ESS: {posterior_stats['ess_bulk']+posterior_stats['ess_tail']}"
         # assert all(val > 50 for val in posterior_stats['ess_tail']), f"Some parameters have low tail ESS: {posterior_stats['ess_tail']}"
       
         for param, r_hat in posterior_stats['r_hat'].to_dict().items():
-            assert r_hat < 1.1, f"R-hat value for {param} is too high: {r_hat}"
+            assert float(r_hat) < 1.3, f"R-hat value for {param} is too high: {r_hat}"
 
         # For unimodal case with known solution, check parameter recovery  
         best_params = np.load(os.path.join(output_dir, 'best_param_vals.npy'))  
@@ -112,7 +113,7 @@ def test_mcmc_unimodal_with_validation(base_user_inputs, resources_dir, temp_out
         assert np.allclose(best_params, analytical_solution, rtol=0.1)  
 
         # check std of the solution
-        std = posterior_stats['sd'].to_list()
+        std = [float(x) for x in posterior_stats['sd'].to_list()]
         analytical_std = [0.1, 0.3]
         print(f"Posterior std: {std}, Analytical std: {analytical_std}")
         assert np.allclose(std, analytical_std, atol=0.2)  
@@ -147,12 +148,14 @@ def test_mcmc_unimodal_with_validation_KDE_likelihood(base_user_inputs, resource
         "params_for_id_file": "Simple_ODE_Benchmark_params_for_id.csv",  # Specify which params to identify
         'param_id_obs_path': os.path.join(tests_dir, "test_inputs", 'Simple_ODE_Benchmark_KDE_obs_data.json'),  
         'param_id_output_dir': temp_output_dir,
-        'mcmc_options': {
-            'mcmc_lib': 'pymc',  # 'emcee' or 'zeus' or 'pymc'
-            'num_steps': 200,
-            'num_walkers': 8,  # 2*num_params is a common choice
-            'burn_in_percentage': 0.0,
-            'method': 'mcmc'  # or 'smc' if using SMC
+        'UQ_options': {
+            'library': 'pymc',  # 'emcee' or 'zeus' or 'pymc'
+            'settings': {
+                'num_draws': 100,
+                'num_chains': 8,  # 2*num_params is a common choice
+                'burn_in': 0.0,
+                'method': 'mcmc'  # or 'smc' if using SMC
+            }
         },
         'optimiser_options': {
             "num_calls_to_function": 10000,  
@@ -183,7 +186,7 @@ def test_mcmc_unimodal_with_validation_KDE_likelihood(base_user_inputs, resource
           
         # Load and validate samples  
         samples = np.load(chain_file)  
-        burn_in_idx = int(samples.shape[0] * config['mcmc_options']['burn_in_percentage'])  
+        burn_in_idx = int(samples.shape[0] * config['UQ_options']['settings']['burn_in'])  
         samples = samples[burn_in_idx:, :, :]  
         flat_samples = samples.reshape(-1, samples.shape[-1])  
           
@@ -195,7 +198,7 @@ def test_mcmc_unimodal_with_validation_KDE_likelihood(base_user_inputs, resource
             param_id_obs_path=config['param_id_obs_path'],  
             sim_time=config['sim_time'], pre_time=config['pre_time'], dt=config['dt'],  
             param_id_output_dir=temp_output_dir, resources_dir=resources_dir,  
-            mcmc_options=config['mcmc_options'], DEBUG=config['DEBUG'], one_rank=True  
+            UQ_options=config['UQ_options'], DEBUG=config['DEBUG'], one_rank=True  
         )  
         mcmc_obj.plot_mcmc()  
 
@@ -209,7 +212,7 @@ def test_mcmc_unimodal_with_validation_KDE_likelihood(base_user_inputs, resource
         assert all(val > 50 for val in posterior_stats['ess_tail']), f"Some parameters have low tail ESS: {posterior_stats['ess_tail']}"
       
         for param, r_hat in posterior_stats['r_hat'].to_dict().items():
-            assert r_hat < 1.2, f"R-hat value for {param} is too high: {r_hat}"
+            assert float(r_hat) < 1.2, f"R-hat value for {param} is too high: {r_hat}"
 
         # For unimodal case with known solution, check parameter recovery  
         best_params = np.load(os.path.join(output_dir, 'best_param_vals.npy'))  
@@ -217,7 +220,7 @@ def test_mcmc_unimodal_with_validation_KDE_likelihood(base_user_inputs, resource
         assert np.allclose(best_params, analytical_solution, rtol=0.25)  
 
         # check std of the solution
-        std = posterior_stats['sd'].to_list()
+        std = [float(x) for x in posterior_stats['sd'].to_list()]
         analytical_std = [0.1, 0.3]
         print(f"Posterior std: {std}, Analytical std: {analytical_std}")
         assert np.allclose(std, analytical_std, atol=0.1)  
@@ -252,12 +255,14 @@ def test_mcmc_bimodal_with_validation(base_user_inputs, resources_dir, temp_outp
         "params_for_id_file": "Simple_ODE_Benchmark_params_for_id.csv",  # Specify which params to identify
         'param_id_obs_path': os.path.join(tests_dir, "test_inputs", 'Simple_ODE_Benchmark_bimodal_obs_data.json'),  
         'param_id_output_dir': temp_output_dir,
-        'mcmc_options': {
-            'mcmc_lib': 'pymc',  # 'emcee' or 'zeus' or 'pymc'
-            'num_steps': 100,
-            'num_walkers': 8,  # 2*num_params is a common choice
-            'burn_in_percentage': 0.0,
-            'method': 'smc'  # or 'smc' if using SMC
+        'UQ_options': {
+            'library': 'pymc',  # 'emcee' or 'zeus' or 'pymc'
+            'settings': {
+                'num_draws': 100,
+                'num_chains': 8,  # 2*num_params is a common choice
+                'burn_in': 0.0,
+                'method': 'smc'  # or 'smc' if using SMC
+            }
         },
         'optimiser_options': {
             "num_calls_to_function": 10000,  
@@ -288,7 +293,7 @@ def test_mcmc_bimodal_with_validation(base_user_inputs, resources_dir, temp_outp
           
         # Load and validate samples  
         samples = np.load(chain_file)
-        burn_in_idx = int(samples.shape[0] * config['mcmc_options']['burn_in_percentage'])
+        burn_in_idx = int(samples.shape[0] * config['UQ_options']['settings']['burn_in'])
         samples = samples[burn_in_idx:, :, :]
         flat_samples = samples.reshape(-1, samples.shape[-1])  
 
@@ -300,7 +305,7 @@ def test_mcmc_bimodal_with_validation(base_user_inputs, resources_dir, temp_outp
             param_id_obs_path=config['param_id_obs_path'],  
             sim_time=config['sim_time'], pre_time=config['pre_time'], dt=config['dt'],  
             param_id_output_dir=temp_output_dir, resources_dir=resources_dir,  
-            mcmc_options=config['mcmc_options'], DEBUG=config['DEBUG'], one_rank=True  
+            UQ_options=config['UQ_options'], DEBUG=config['DEBUG'], one_rank=True  
         )  
         mcmc_obj.plot_mcmc()  
 

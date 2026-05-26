@@ -371,8 +371,8 @@ class YamlFileParser(object):
                 # For backwards compatibility, still set ga_options if debug_ga_options exists
                 if 'debug_ga_options' in inp_data_dict.keys():
                     inp_data_dict['ga_options'] = inp_data_dict['debug_ga_options']
-                if 'debug_mcmc_options' in inp_data_dict.keys():
-                    inp_data_dict['mcmc_options'] = inp_data_dict['debug_mcmc_options']
+                if 'debug_UQ_options' in inp_data_dict.keys():
+                    inp_data_dict['UQ_options'] = inp_data_dict['debug_UQ_options']
             else:
                 pass
         else:
