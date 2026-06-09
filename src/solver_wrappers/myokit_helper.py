@@ -793,13 +793,19 @@ class SimulationHelper:
             return times
         kind, qname = self._resolve_name(name)
         if self.last_log and kind in ("state", "var"):
-            data = np.asarray(self.last_log[qname])
-            return data
+            if qname in self.last_log:
+                data = np.asarray(self.last_log[qname])
+                return data
         if kind == "state":
             return np.asarray([self.simulation.state()[self.state_index[qname]]])
         if kind == "var":
-            if qname in self.default_values:
-                return np.asarray([self.default_values[qname]])
+            # Evaluate algebraic variable from current model state  
+            if qname in self.qname_to_var:  
+                try:  
+                    current_value = self.qname_to_var[qname].eval()  
+                    return np.asarray([current_value])  
+                except Exception:  
+                    pass  
         raise ValueError(f"variable {name} not found")
 
     def _resolve_name(self, name):
