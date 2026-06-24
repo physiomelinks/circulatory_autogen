@@ -105,6 +105,50 @@ The shell helpers under `user_run_files/*.sh` may still assume a particular inte
 
 For a notebook-oriented walkthrough, see `tutorial/interactive/generate_and_calibrate.ipynb`.
 
+## Optional dependencies
+
+Some backends are not installed by `pip install -e .` because they are optional and/or
+carry their own licensing terms. Install them only if you need the corresponding feature;
+the rest of the project works without them.
+
+### AADC (alternative automatic-differentiation backend)
+
+[AADC](https://matlogica.com/) (Matlogica) is an optional automatic-differentiation
+backend for gradient-based parameter identification, available alongside the default
+CasADi AD backend. It records the actual model execution on a tape and supports
+conditionals (`if`/`else`) directly, which makes it convenient for piecewise models.
+
+Install it with:
+
+```
+python -m pip install aadc
+```
+
+(Into OpenCOR's Python if you run the test suite that way — see the legacy section below,
+e.g. `[OpenCOR_dir]/pythonshell -m pip install aadc`.)
+
+Once installed, select it in your `user_inputs.yaml`:
+
+```yaml
+model_type: aadc_python
+solver: aadc_semi_implicit
+```
+
+!!! warning "AADC is not open source — academic use only"
+    AADC does **not** ship under an open-source license; its terms restrict it to
+    **academic / non-commercial use**. Review Matlogica's license before using it, and do
+    not depend on it for fully open-source or commercial workflows.
+
+    The automatic-differentiation features are **license-gated at runtime**: forward
+    simulation may run with the bare `pip` install, but recording/evaluating gradients
+    raises `RuntimeError: AADC License check failed` without a valid license. Obtain an
+    (academic) license from Matlogica to use AADC for gradient-based parameter
+    identification.
+
+    **For a fully open-source pipeline, use CasADi for automatic differentiation instead**
+    (`model_type: casadi_python`). CasADi is open source (LGPL) and is the default,
+    supported AD backend; AADC is an optional alternative for academic users.
+
 ## MPI and system libraries
 
 !!! warning

@@ -40,11 +40,16 @@ class SimulationHelper:
         self.protocol_info = protocol_info
 
     def _build_integrator_opts(self):
-        """Build CasADi integrator options from validated solver_info."""
-        integrator_opts = {
-            'reltol': self.solver_info.get('reltol', self.solver_info.get('rtol', 1e-8)),
-            'abstol': self.solver_info.get('abstol', self.solver_info.get('atol', 1e-10)),
-        }
+        """Build CasADi integrator options from validated solver_info.
+
+        ``reltol``/``abstol`` are SUNDIALS (``cvodes``/``idas``) options; the fixed-step
+        plugins (``rk``, ``collocation``) reject them ("Unknown option: abstol"), so only
+        pass them to the adaptive SUNDIALS integrators.
+        """
+        integrator_opts = {}
+        if self.solve_ivp_method in ('cvodes', 'idas'):
+            integrator_opts['reltol'] = self.solver_info.get('reltol', self.solver_info.get('rtol', 1e-8))
+            integrator_opts['abstol'] = self.solver_info.get('abstol', self.solver_info.get('atol', 1e-10))
         for key in ('max_num_steps', 'max_step_size'):
             if key in self.solver_info:
                 integrator_opts[key] = self.solver_info[key]
@@ -291,7 +296,13 @@ class SimulationHelper:
         var_names = list(self.var_name_to_idx.keys())
         var_cols = []
 
-        state_cols = ca.horzsplit(self.state_traj_symb, 1)
+        # state_traj_symb spans the full pre_time+sim_time horizon, but tSim is the
+        # sim-time window (t_eval[pre_steps:]). Align them by dropping the pre_time
+        # warmup columns — otherwise the algebraic-variable trajectory is built from
+        # the initial-transient states (t≈0) instead of the settled sim window, so a
+        # nonzero pre_time returns the wrong (pre-warmup) values. States are already
+        # sliced with [pre_steps:] in _extract; this makes the algebraic vars match.
+        state_cols = ca.horzsplit(self.state_traj_symb, 1)[self.pre_steps:]
 
         for ti, state_vec in zip(self.tSim, state_cols):
             states = state_vec
@@ -339,6 +350,85 @@ class SimulationHelper:
         # Constant integrator params are broadcast across all steps (single column).
         return self.F_map(self.x0_symb, self.variables_symb_integrator)
 
+    def _run_symbolic_bdf(self, total_steps):
+        """Fixed-step implicit BDF (order 2, with a BDF1 startup step), built as a
+        symbolic CasADi graph so it supports automatic differentiation.
+
+        Each step solves its implicit update equation with a CasADi ``rootfinder``
+        (Newton). CasADi differentiates a rootfinder analytically via the implicit-
+        function theorem, so — unlike the former scipy ``solve_ivp`` BDF — the whole
+        trajectory is one differentiable graph: ``state_traj_symb`` is populated and
+        AD works (this method is the AD-capable BDF, returning ``res_xf`` exactly like
+        ``_run_semi_implicit_euler`` so ``run()`` handles it uniformly).
+
+        The implicit BDF is stable for stiff systems where an explicit step would
+        blow up. BDF2 needs two history points, so:
+
+          * BDF1 (backward Euler) first step:  ``x1 - x0 - dt f(x1) = 0``
+          * BDF2 remaining steps:  ``x_{n+1} - 4/3 x_n + 1/3 x_{n-1} - 2/3 dt f(x_{n+1}) = 0``
+
+        with the BDF2 steps chained over the ``[x_n; x_{n-1}]`` history via ``mapaccum``.
+
+        **Sub-stepping for robustness.** Models like 3compartment have non-smooth valve
+        switches (``if_else`` / ``fmax``); when an implicit step is large enough to jump
+        across a switch the residual has no root on the assumed branch and the Newton
+        solve diverges (``rootfinder process failed``) — erratically with the output dt.
+        So the implicit solve is taken on an internal step capped at ``solver_info['max_step']``
+        (default 1e-3) and the trajectory subsampled back onto the output grid. Internal
+        steps are ordinary differentiable rootfinder solves, so AD is unaffected. A good
+        Newton guess (explicit-Euler / linear-extrapolation predictor) further helps
+        convergence.
+        """
+        n = self.STATE_COUNT
+        p_sym = self.variables_symb_integrator
+        f_func = ca.Function('bdf_rhs', [self.states_symb, p_sym], [self.rates_symb])
+
+        if total_steps <= 0:
+            return ca.SX(n, 0)
+
+        # Internal-step cap for the implicit solve. Default 1e-3; a falsy value
+        # (None / 0, e.g. an unset UI field) falls back to the default rather than
+        # disabling sub-stepping.
+        _ms = self.solver_info.get('max_step')
+        max_step = float(_ms) if _ms else 1e-3
+        n_sub = max(1, int(np.ceil(self.dt / max_step)))
+        idt = self.dt / n_sub                 # internal (sub-)step
+        internal_total = total_steps * n_sub  # number of internal steps over the horizon
+
+        # ---- BDF1 startup step (explicit-Euler predictor as the Newton guess) ----
+        x_unk = ca.SX.sym('x_unk', n)
+        xn = ca.SX.sym('xn', n)
+        g1 = x_unk - xn - idt * f_func(x_unk, p_sym)
+        G1 = ca.Function('bdf1_res', [x_unk, ca.vertcat(xn, p_sym)], [g1])
+        # fast_newton converges where plain 'newton' diverges, and is differentiable
+        # (implicit-function theorem), so AD through it matches FD exactly.
+        solve1 = ca.rootfinder('bdf1_solve', 'fast_newton', G1)
+        step1 = ca.Function('bdf1_step', [xn, p_sym],
+                            [solve1(xn + idt * f_func(xn, p_sym), ca.vertcat(xn, p_sym))])
+
+        x1 = step1(self.x0_symb, p_sym)
+        if internal_total == 1:
+            full = ca.horzcat(self.x0_symb, x1)
+        else:
+            # ---- BDF2 over the [x_n; x_{n-1}] history (linear-extrapolation predictor) ----
+            H = ca.SX.sym('H', 2 * n)
+            x_curr, x_prev = H[:n], H[n:]
+            x_unk2 = ca.SX.sym('x_unk2', n)
+            g2 = (x_unk2 - (4.0 / 3.0) * x_curr + (1.0 / 3.0) * x_prev
+                  - (2.0 / 3.0) * idt * f_func(x_unk2, p_sym))
+            G2 = ca.Function('bdf2_res', [x_unk2, ca.vertcat(H, p_sym)], [g2])
+            solve2 = ca.rootfinder('bdf2_solve', 'fast_newton', G2)
+            H_next = ca.vertcat(solve2(2.0 * x_curr - x_prev, ca.vertcat(H, p_sym)), x_curr)
+            step2 = ca.Function('bdf2_step', [H, p_sym], [H_next])
+
+            H0 = ca.vertcat(x1, self.x0_symb)  # history entering the first BDF2 step (produces x2)
+            H_traj = step2.mapaccum(internal_total - 1)(H0, p_sym)
+            full = ca.horzcat(self.x0_symb, x1, H_traj[:n, :])  # internal grid (internal_total+1 cols)
+
+        # Subsample the internal trajectory back onto the output grid (drop x0).
+        out_idx = [k * n_sub for k in range(1, total_steps + 1)]
+        return full[:, out_idx]  # x at output steps 1..total_steps
+
     def run(self):
         # Integrate full pre_time + sim_time horizon so slicing by pre_steps
         # returns the expected sim-time segment.
@@ -346,6 +436,9 @@ class SimulationHelper:
 
         if self.solve_ivp_method == 'semi_implicit_euler':
             res_xf = self._run_semi_implicit_euler(total_steps)
+        elif self.solve_ivp_method in ('bdf', 'BDF'):
+            # Symbolic implicit BDF (rootfinder per step) — supports CasADi AD.
+            res_xf = self._run_symbolic_bdf(total_steps)
         else:
             ode = {
                 "x": self.states_symb,

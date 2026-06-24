@@ -1199,7 +1199,78 @@ def test_param_id_lotka_volterra_sp_minimize_ad_vs_fd(base_user_inputs, resource
         print(f"Cost difference: {cost_diff:.6e} (tolerance: {cost_tolerance})")
         print(f"AD parameters: {params_ad}")
         print(f"FD parameters: {params_fd}")
-    
+
+    mpi_comm.Barrier()
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.mpi
+@pytest.mark.skip(
+    reason="Pending backend-agnostic AD calibration wiring. sp_minimize currently routes "
+           "through the CasADi-only get_cost_ca / get_jac_cost_ca (build_casadi_functions, "
+           "ca.gradient). Once the cost/gradient path is made backend-agnostic so AADC's tape "
+           "gradient (compute_gradient_tape) drives sp_minimize, unskip this test. See PR #251."
+)
+def test_param_id_lotka_volterra_sp_minimize_ad_vs_fd_aadc(base_user_inputs, resources_dir, temp_output_dir, mpi_comm):
+    """AADC analogue of test_param_id_lotka_volterra_sp_minimize_ad_vs_fd.
+
+    Runs sp_minimize with AADC tape-gradient AD (do_ad=True) vs finite differences
+    (do_ad=False) on Lotka-Volterra and asserts the best costs agree within 1e-3.
+    Mirrors the CasADi reference test exactly except for model_type/solver, so when
+    the backend-agnostic AD calibration path lands this becomes a one-line unskip.
+    """
+    pytest.importorskip("aadc")
+    rank = mpi_comm.Get_rank()
+
+    base_config = base_user_inputs.copy()
+    base_config.update({
+        'file_prefix': 'Lotka_Volterra',
+        'input_param_file': 'Lotka_Volterra_parameters.csv',
+        'model_type': 'aadc_python',
+        'solver': 'aadc_semi_implicit',
+        'param_id_method': 'sp_minimize',
+        'pre_time': 0.0,
+        'sim_time': 5.0,
+        'dt': 0.01,
+        'DEBUG': True,
+        'do_mcmc': False,
+        'plot_predictions': False,
+        'do_ia': False,
+        'solver_info': {'method': 'adaptive_rk45', 'tol': 1e-8},
+        'param_id_obs_path': os.path.join(resources_dir, 'Lotka_Volterra_obs_data.json'),
+        'optimiser_options': {'num_calls_to_function': 40, 'cost_convergence': 1e-3},
+    })
+
+    if rank == 0:
+        success = generate_with_new_architecture(False, base_config)
+        assert success, "AADC Python model generation should succeed"
+    mpi_comm.Barrier()
+
+    config_ad = base_config.copy()
+    config_ad.update({'do_ad': True, 'param_id_output_dir': os.path.join(temp_output_dir, 'ad_run')})
+    run_param_id(config_ad)
+    mpi_comm.Barrier()
+
+    config_fd = base_config.copy()
+    config_fd.update({'do_ad': False, 'param_id_output_dir': os.path.join(temp_output_dir, 'fd_run')})
+    run_param_id(config_fd)
+    mpi_comm.Barrier()
+
+    if rank == 0:
+        out_ad = os.path.join(config_ad['param_id_output_dir'],
+                              'sp_minimize_Lotka_Volterra_Lotka_Volterra_obs_data')
+        out_fd = os.path.join(config_fd['param_id_output_dir'],
+                              'sp_minimize_Lotka_Volterra_Lotka_Volterra_obs_data')
+        cost_ad = float(np.load(os.path.join(out_ad, 'best_cost.npy')))
+        cost_fd = float(np.load(os.path.join(out_fd, 'best_cost.npy')))
+        assert np.isfinite(cost_ad), f"AD cost should be finite, got {cost_ad}"
+        assert np.isfinite(cost_fd), f"FD cost should be finite, got {cost_fd}"
+        cost_diff = abs(cost_ad - cost_fd)
+        assert cost_diff < 1e-3, (
+            f"AD vs FD cost mismatch: AD={cost_ad:.6e} FD={cost_fd:.6e} diff={cost_diff:.6e}"
+        )
+
     mpi_comm.Barrier()
 
 

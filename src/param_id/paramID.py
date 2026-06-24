@@ -307,7 +307,7 @@ class CVS0DParamID():
                                            DEBUG=self.DEBUG, model_type=self.model_type)
             self.n_steps = mcmc_object.n_steps
         else:
-            if model_type in ['cellml_only', 'python', 'casadi_python']:
+            if model_type in ['cellml_only', 'python', 'casadi_python', 'aadc_python']:
                 self.param_id = OpencorParamID(self.model_path, self.param_id_method,
                                                self.obs_info, self.param_id_info, self.protocol_info,
                                                self.prediction_info, self.solver_info, dt=self.dt,

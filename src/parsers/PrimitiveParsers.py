@@ -41,12 +41,13 @@ sys.path.append(os.path.join(root_dir, 'src'))
 # settings UI) so they don't hardcode these lists. Keep this in sync with
 # solver_wrappers.get_simulation_helper.
 SOLVER_SCHEMA = {
-    'model_types': ['cellml_only', 'python', 'cpp', 'casadi_python'],
+    'model_types': ['cellml_only', 'python', 'cpp', 'casadi_python', 'aadc_python'],
     'solvers_by_model_type': {
         'cellml_only': ['CVODE_opencor', 'CVODE_myokit'],
         'python': ['solve_ivp'],
         'cpp': ['CVODE', 'RK4', 'PETSC'],
         'casadi_python': ['casadi_integrator'],
+        'aadc_python': ['aadc_semi_implicit'],
     },
     # Methods/plugins valid for each solver.
     'methods_by_solver': {
@@ -59,7 +60,12 @@ SOLVER_SCHEMA = {
         # 'semi_implicit_euler' is a fixed-step damped scheme implemented in the
         # CasADi helper (not a SUNDIALS plugin); used for stiff models whose cvodes
         # adjoint-sensitivity gradient fails (e.g. 3compartment).
-        'casadi_integrator': ['cvodes', 'idas', 'collocation', 'rk', 'semi_implicit_euler'],
+        # 'bdf' is a fixed-step implicit BDF (order 2, BDF1 startup) built as a symbolic
+        # CasADi graph with a rootfinder per step; stable for stiff models and, unlike
+        # cvodes adjoint sensitivity, fully supports CasADi AD (rootfinder is
+        # differentiable via the implicit-function theorem).
+        'casadi_integrator': ['cvodes', 'idas', 'collocation', 'rk', 'semi_implicit_euler', 'bdf'],
+        'aadc_semi_implicit': ['adaptive_rk45', 'semi_implicit', 'bdf', 'implicit_euler_ift'],
     },
     # Default solver for each model_type (used when none is specified).
     'default_solver_by_model_type': {
@@ -67,6 +73,7 @@ SOLVER_SCHEMA = {
         'python': 'solve_ivp',
         'cpp': 'CVODE',
         'casadi_python': 'casadi_integrator',
+        'aadc_python': 'aadc_semi_implicit',
     },
 }
 
@@ -274,6 +281,8 @@ class YamlFileParser(object):
             model_ext = '.cellml'
         elif inp_data_dict.get('model_type') == 'cpp':
             model_ext = '.cpp'
+        elif inp_data_dict.get('model_type') == 'aadc_python':
+            model_ext = '.py'
         else:
             print(f'Invalid model type: {inp_data_dict.get("model_type")}')
             exit()
@@ -321,6 +330,7 @@ class YamlFileParser(object):
         valid_solve_ivp_methods = _methods['solve_ivp']
         valid_casadi_solvers = _solvers['casadi_python']
         valid_casadi_solver_plugins = _methods['casadi_integrator']
+        valid_aadc_solvers = _solvers.get('aadc_python', [])
 
         solver_name = inp_data_dict.get('solver_info', {}).get('solver')
         if solver_name is None:
@@ -339,14 +349,18 @@ class YamlFileParser(object):
                 solver_name = 'CVODE'
             elif inp_data_dict.get('model_type') == 'casadi_python':
                 solver_name = 'cvodes'
+            elif inp_data_dict.get('model_type') == 'aadc_python':
+                solver_name = 'aadc_semi_implicit'
             else:
                 print(f'Invalid model type: {inp_data_dict.get("model_type")}')
                 exit()
         else:
+            valid_aadc_solvers = SOLVER_SCHEMA['solvers_by_model_type'].get('aadc_python', [])
             if (solver_name not in valid_cellml_solvers and
                 solver_name not in valid_cpp_solvers and
                 solver_name not in valid_python_solvers and
-                solver_name not in valid_casadi_solvers):
+                solver_name not in valid_casadi_solvers and
+                solver_name not in valid_aadc_solvers):
                 print(f'Invalid solver: {solver_name}')
                 exit()
         
@@ -366,6 +380,8 @@ class YamlFileParser(object):
             elif inp_data_dict.get('model_type') == 'python':
                 if 'max_step' not in inp_data_dict['solver_info']:
                     inp_data_dict['solver_info']['max_step'] = defaults.get('max_step', 0.001)
+            elif inp_data_dict.get('model_type') == 'aadc_python':
+                pass  # AADC solver handles its own defaults
             elif 'MaximumNumberOfSteps' not in inp_data_dict['solver_info']:
                 inp_data_dict['solver_info']['MaximumNumberOfSteps'] = defaults['MaximumNumberOfSteps']
         if 'solver' not in inp_data_dict['solver_info'].keys():
@@ -432,15 +448,17 @@ class YamlFileParser(object):
                     solver_method = 'RK45'
                     inp_data_dict['solver_info']['method'] = solver_method
 
-        if (solver_name not in valid_cellml_solvers 
+        if (solver_name not in valid_cellml_solvers
             and solver_name not in valid_python_solvers
             and solver_name not in valid_cpp_solvers
-            and solver_name not in valid_casadi_solvers):
+            and solver_name not in valid_casadi_solvers
+            and solver_name not in valid_aadc_solvers):
             print(f'Invalid solver: {solver_name}')
             print(f'Valid CellML solvers: {valid_cellml_solvers}')
             print(f'Valid Python solvers: {valid_python_solvers}')
             print(f'Valid Cpp solvers: {valid_cpp_solvers}')
-            print(f'Valid CasAdi solvers: {valid_casadi_solvers}')
+            print(f'Valid CasADi solvers: {valid_casadi_solvers}')
+            print(f'Valid AADC solvers: {valid_aadc_solvers}')
             exit()
         
         
@@ -476,9 +494,17 @@ class YamlFileParser(object):
                 print(f'Use {valid_casadi_solvers} for CasADi Python models')
                 exit()
 
-        # CasADi solvers can only be used with CasADi Python models
+        # AADC solvers can only be used with AADC Python models
+        if inp_data_dict.get('model_type') == 'aadc_python' and solver_name not in valid_aadc_solvers:
+                print(f'Solver {solver_name} cannot be used with AADC Python models')
+                print(f'Use {valid_aadc_solvers} for AADC Python models')
+                exit()
+
+        # CasADi solvers can only be used with CasADi Python models.
+        # 'bdf' is shared with the AADC backend's method list, so exempt aadc_python
+        # here (its methods are governed by methods_by_solver['aadc_semi_implicit']).
         if solver_method in valid_casadi_solver_plugins:
-            if inp_data_dict.get('model_type') not in ['casadi_python', None]:
+            if inp_data_dict.get('model_type') not in ['casadi_python', 'aadc_python', None]:
                 print(f'CasADi solver {solver_method} requires model_type to be "casadi_python"')
                 print('Use CVODE_opencor (or legacy CVODE) or CVODE_myokit for CellML models')
                 print('Use CVODE or RK4 or PETSC for Cpp models')
@@ -659,6 +685,9 @@ _SOLVER_INTEGRATOR_KEYS = {
     'casadi_integrator': frozenset({
         'reltol', 'abstol', 'rtol', 'atol', 'max_num_steps', 'max_step_size', 'options',
     }),
+    'aadc_semi_implicit': frozenset({
+        'tol', 'threads', 'gradient_method',
+    }),
 }
 
 
@@ -774,6 +803,14 @@ def get_solver_info_default(model_type):
             'max_num_steps': 5000,
             'reltol': 1e-8,
             'abstol': 1e-10,
+        }
+    if model_type == 'aadc_python':
+        return {
+            'solver': 'aadc_semi_implicit',
+            'method': 'adaptive_rk45',
+            'tol': 1e-8,
+            'threads': 4,
+            'gradient_method': 'auto',
         }
     raise ValueError(f'Invalid model type: {model_type}')
 
