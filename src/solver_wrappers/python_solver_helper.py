@@ -3,6 +3,7 @@ import numpy as np
 from scipy.integrate import solve_ivp
 import copy
 import sys
+from enum import Enum
 from .name_resolver import VariableNameResolver
 DEBUG = False
 
@@ -69,11 +70,26 @@ class SimulationHelper:
         self.solve_ivp_method = method 
         
     # ---- setup helpers ----
+    @staticmethod
+    def _is_user_defined_wrapper(module):
+        """A user wrapper exposes rhs/PARAMETERS/STATES instead of the
+        libCellML-generated STATE_COUNT/compute_rates surface."""
+        return (callable(getattr(module, "rhs", None))
+                and hasattr(module, "PARAMETERS")
+                and hasattr(module, "STATES"))
+
     def _load_model(self):
         spec = importlib.util.spec_from_file_location("generated_model", self.model_path)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         self.model = module
+
+        if self._is_user_defined_wrapper(module):
+            # model_type == 'python_user_defined': build a synthetic model from
+            # the user's wrapper so the rest of this class works unchanged.
+            self._load_user_defined_model(module)
+            self._finalise_name_maps()
+            return
 
         if not hasattr(module, 'STATE_COUNT') and not hasattr(module, 'VARIABLE_INFO'):
             raise ValueError(f"Module {self.model_path} Does have any states or variables. Model invalid")
@@ -82,6 +98,11 @@ class SimulationHelper:
         self.VARIABLE_INFO = module.VARIABLE_INFO
         self.STATE_INFO = module.STATE_INFO
 
+        self._finalise_name_maps()
+
+    def _finalise_name_maps(self):
+        """Build the resolver + convenience index maps from STATE_INFO/VARIABLE_INFO.
+        Shared by the libCellML and user-defined load paths."""
         self._resolver = VariableNameResolver(self.STATE_INFO, self.VARIABLE_INFO)
 
         # Convenience maps (derived from resolver, kept for compatibility)
@@ -93,6 +114,120 @@ class SimulationHelper:
         # identify constants and algebraics
         self.constant_indices = [i for i, info in enumerate(self.VARIABLE_INFO) if info["type"].name in ["CONSTANT", "COMPUTED_CONSTANT"]]
         self.algebraic_indices = [i for i, info in enumerate(self.VARIABLE_INFO) if info["type"].name == "ALGEBRAIC"]
+
+    def _load_user_defined_model(self, module):
+        """Adapt a user wrapper (rhs/STATES/PARAMETERS/OUTPUT_NAMES) into the
+        libCellML-style model surface (STATE_COUNT, STATE_INFO, VARIABLE_INFO,
+        create_*_array, initialise_variables, compute_*) that the rest of this
+        class relies on. Integration is still done by this class's run() via
+        scipy solve_ivp on self.model.compute_rates."""
+        parameters = dict(getattr(module, "PARAMETERS"))
+        states = dict(getattr(module, "STATES"))
+        output_names = list(getattr(module, "OUTPUT_NAMES", list(states.keys())))
+        user_rhs = getattr(module, "rhs")
+        user_compute_outputs = getattr(module, "compute_outputs", None)
+
+        if not isinstance(parameters, dict):
+            raise ValueError(f"{self.model_path}: PARAMETERS must be a dict of name->float")
+        if not isinstance(states, dict):
+            raise ValueError(f"{self.model_path}: STATES must be a dict of name->float")
+        if not isinstance(output_names, (list, tuple)):
+            raise ValueError(f"{self.model_path}: OUTPUT_NAMES must be a list of names")
+        if user_compute_outputs is not None and not callable(user_compute_outputs):
+            raise ValueError(f"{self.model_path}: compute_outputs must be callable if defined")
+
+        class VariableType(Enum):
+            STATE = 0
+            CONSTANT = 1
+            COMPUTED_CONSTANT = 2
+            ALGEBRAIC = 3
+
+        def _split(name):
+            comp, _, var = name.rpartition("/")
+            return comp, (var or name)
+
+        state_names = list(states.keys())
+        param_names = list(parameters.keys())
+        # Outputs that are themselves states resolve as states; only the rest
+        # need an algebraic variable slot.
+        state_name_set = set(state_names)
+        algebraic_names = [n for n in output_names if n not in state_name_set]
+
+        self.STATE_COUNT = len(state_names)
+        self.STATE_INFO = []
+        for n in state_names:
+            comp, var = _split(n)
+            self.STATE_INFO.append({"name": var, "units": "dimensionless",
+                                    "component": comp, "type": VariableType.STATE})
+
+        # VARIABLE_INFO: parameters (constants) first, then algebraic outputs.
+        self.VARIABLE_INFO = []
+        for n in param_names:
+            comp, var = _split(n)
+            self.VARIABLE_INFO.append({"name": var, "units": "dimensionless",
+                                       "component": comp, "type": VariableType.CONSTANT})
+        for n in algebraic_names:
+            comp, var = _split(n)
+            self.VARIABLE_INFO.append({"name": var, "units": "dimensionless",
+                                       "component": comp, "type": VariableType.ALGEBRAIC})
+
+        state_idx = {n: i for i, n in enumerate(state_names)}
+        param_var_idx = {n: i for i, n in enumerate(param_names)}
+        algebraic_var_idx = {n: len(param_names) + i for i, n in enumerate(algebraic_names)}
+        variable_count = len(param_names) + len(algebraic_names)
+
+        state_init_vals = [float(states[n]) for n in state_names]
+        param_default_vals = [float(parameters[n]) for n in param_names]
+
+        def _params_from_variables(variables):
+            return {n: variables[param_var_idx[n]] for n in param_names}
+
+        class _UserModelAdapter:
+            STATE_COUNT = self.STATE_COUNT
+            VARIABLE_COUNT = variable_count
+
+            @staticmethod
+            def create_states_array():
+                return np.zeros(len(state_names))
+
+            @staticmethod
+            def create_variables_array():
+                return np.zeros(variable_count)
+
+            @staticmethod
+            def initialise_variables(states_arr, rates_arr, variables_arr):
+                for i, v in enumerate(state_init_vals):
+                    states_arr[i] = v
+                for i, v in enumerate(param_default_vals):
+                    variables_arr[i] = v
+
+            @staticmethod
+            def compute_computed_constants(variables_arr):
+                pass
+
+            @staticmethod
+            def compute_rates(voi, states_arr, rates_arr, variables_arr):
+                params = _params_from_variables(variables_arr)
+                drvs = user_rhs(voi, list(states_arr), params)
+                for i, d in enumerate(drvs):
+                    rates_arr[i] = d
+
+            @staticmethod
+            def compute_variables(voi, states_arr, rates_arr, variables_arr):
+                if user_compute_outputs is None:
+                    return
+                params = _params_from_variables(variables_arr)
+                outs = user_compute_outputs(voi, list(states_arr), params) or {}
+                for name, idx in algebraic_var_idx.items():
+                    if name in outs:
+                        variables_arr[idx] = outs[name]
+
+        self.model = _UserModelAdapter()
+
+        # The wrapper is integrated with solve_ivp; ensure a real method is set
+        # even if the config left it unset or at the 'user_defined' placeholder.
+        if self.solve_ivp_method in (None, 'user_defined'):
+            self.solve_ivp_method = 'RK45'
 
     def _init_state(self):
         self.states = self.model.create_states_array()

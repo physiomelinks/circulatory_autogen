@@ -96,7 +96,7 @@ _TEST_OUTPUT_ROOT = os.path.join(os.path.dirname(__file__), "test_outputs")
 #     {"file_prefix": "test_fft", "input_param_file": "test_fft_parameters.csv", "model_type": "cellml_only", "solver": "CVODE"},
 # ]
 _LOCK_FILE = os.path.realpath(os.path.join(_TEST_ROOT, ".pytest_param_id_lock"))
-_PARAM_ID_TRIGGERS = ("test_param_id", "compare_optimisers", "test_sensitivity_analysis")
+_PARAM_ID_TRIGGERS = ("test_param_id", "compare_optimisers", "test_sensitivity_analysis", "test_python_user_defined")
 
 
 def _is_autogen_like_nodeid(nodeid: str) -> bool:
