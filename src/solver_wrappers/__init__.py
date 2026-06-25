@@ -21,6 +21,11 @@ except Exception:
     CasADiPythonSimulationHelper = None
 
 try:
+    from solver_wrappers.aadc_python_solver_helper import SimulationHelper as AadcPythonSimulationHelper
+except Exception:
+    AadcPythonSimulationHelper = None
+
+try:
     from mpi4py import MPI
     _MPI_AVAILABLE = True
 except Exception:
@@ -65,10 +70,14 @@ def get_simulation_helper(model_path: str = None, solver: str = None,
     python_solvers = ['solve_ivp']
     solve_ivp_methods = ['RK45', 'RK23', 'DOP853', 'Radau', 'BDF', 'LSODA', 'RK4', 'forward_euler']
     casadi_solvers = ['casadi_integrator']
+    aadc_solvers = ['aadc_semi_implicit']
+    user_defined_solvers = ['user_defined']
 
     # Determine if this is a Python model
     is_python_model = (model_type == 'python')
     is_casadi_python_model = (model_type == 'casadi_python')
+    is_aadc_python_model = (model_type == 'aadc_python')
+    is_user_defined_model = (model_type == 'python_user_defined')
 
     # Check for explicit solver specification with validation
     if solver == 'CVODE_opencor':
@@ -98,9 +107,23 @@ def get_simulation_helper(model_path: str = None, solver: str = None,
             return CasADiPythonSimulationHelper(model_path, dt, sim_time, solver_info, pre_time=pre_time)
         else:
             raise RuntimeError("CasADi solver requested but CasADi is not available")
+    elif solver in aadc_solvers:
+        if not is_aadc_python_model:
+            raise ValueError(f"Solver {solver} can only be used for AADC Python models (model_type='aadc_python').")
+        if AadcPythonSimulationHelper is not None:
+            return AadcPythonSimulationHelper(model_path, dt, sim_time, solver_info, pre_time=pre_time)
+        else:
+            raise RuntimeError("AADC solver requested but aadc package is not installed. pip install aadc")
+    elif solver in user_defined_solvers:
+        if not is_user_defined_model:
+            raise ValueError(f"Solver {solver} can only be used for user-defined Python models (model_type='python_user_defined').")
+        if not model_path.endswith('.py'):
+            raise ValueError(f"model_path {model_path} does not end with .py, which is required for python_user_defined models (the wrapper module)")
+        # The user wrapper is integrated by the shared SciPy PythonSimulationHelper.
+        return PythonSimulationHelper(model_path, dt, sim_time, solver_info, pre_time=pre_time)
     elif solver is not None:
         # Unknown solver type
-        raise ValueError(f"Unknown solver {solver}. Valid options are: {cellml_solvers} for CellML models, {python_solvers} for Python models, and {casadi_solvers} for CasADi Python models.")
+        raise ValueError(f"Unknown solver {solver}. Valid options are: {cellml_solvers} for CellML models, {python_solvers} for Python models, {casadi_solvers} for CasADi Python models, and {user_defined_solvers} for user-defined Python models.")
 
     # Backward compatibility logic
     if is_python_model:
