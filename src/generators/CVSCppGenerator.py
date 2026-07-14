@@ -1116,7 +1116,7 @@ class CVS0DCppGenerator(object):
 
         
         a.analyseModel(flat_model)
-        analysed_model = a.model()
+        analysed_model = cellml.get_analysed_model(a)
 
         if self.DEBUG:
             # parse_model seems to print most of the necessary issues, so we don't need to print them here
