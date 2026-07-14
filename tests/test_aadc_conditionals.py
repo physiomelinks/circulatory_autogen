@@ -96,6 +96,10 @@ def test_aadc_python_compute_rates_matches_standard(base_user_inputs, resources_
     """compute_rates should give identical results for standard python and aadc_python at same point."""
     import numpy as np
 
+    # the generated aadc_python module imports aadc at module scope, so this test can only
+    # run where aadc is installed (the sibling idouble test already guards this way)
+    pytest.importorskip("aadc")
+
     # Generate standard python model
     config_py = base_user_inputs.copy()
     config_py.update(_model_config("python", temp_generated_models_dir))
