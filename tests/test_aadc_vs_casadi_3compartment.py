@@ -492,15 +492,23 @@ def test_3compartment_speed_casadi_vs_aadc_bdf(aadc_licensed, models_3compartmen
     Both are timed and printed; the test asserts only that each solve produces finite
     states, so it reports rather than gates.
 
-    Caveat when quoting the ratio: the two ``method='bdf'`` paths are not the same
-    algorithm. CasADi's is a *fixed* sub-stepped symbolic implicit BDF (internal step
-    capped at ``solver_info['max_step']``, default 1e-3), whereas AADC's is scipy's
-    *adaptive* BDF with an AADC-supplied exact Jacobian. The measured gap therefore mixes
-    backend speed with adaptive-vs-fixed step control, and is not a like-for-like
-    source-transformation-vs-operator-overloading benchmark.
+    **Time alone is meaningless here — read it with the accuracy.** The two
+    ``method='bdf'`` paths are not the same algorithm and do not land at the same error:
+
+      * CasADi: *fixed*-step symbolic implicit BDF2 (internal step capped at
+        ``solver_info['max_step']``, default 1e-3) — on 3compartment that is ~0.5%
+        relative-L2 vs the CVODE reference.
+      * AADC: scipy's *adaptive*, variable-order BDF with an AADC-supplied exact
+        Jacobian — ~0.003% vs the same reference.
+
+    So AADC buys roughly two extra digits of accuracy with its extra time. A defensible
+    benchmark must compare at *matched accuracy* (a work-precision comparison), not at
+    matched configuration; quoting this raw ratio in either direction is misleading. The
+    accuracy of each run is therefore printed next to its time.
     """
     ca_paths = models_3compartment["casadi"]
     aadc_paths = models_3compartment["aadc"]
+    ref = _cvode_reference(ca_paths["cellml"])
 
     sim_ca = get_simulation_helper(
         model_path=ca_paths["py"], solver='casadi_integrator', model_type='casadi_python',
@@ -509,7 +517,7 @@ def test_3compartment_speed_casadi_vs_aadc_bdf(aadc_licensed, models_3compartmen
     t0 = time.perf_counter()
     sim_ca.run()
     t_casadi = time.perf_counter() - t0
-    print(f"\nCasADi BDF forward solve: {t_casadi:.3f}s")
+    err_casadi, _, _ = _max_state_rel_l2_vs_cvode(ref, sim_ca)
     assert np.all(np.isfinite(sim_ca.state_traj_dm[:, -1])), "CasADi BDF produced non-finite states"
 
     sim_aadc = get_simulation_helper(
@@ -519,5 +527,57 @@ def test_3compartment_speed_casadi_vs_aadc_bdf(aadc_licensed, models_3compartmen
     t0 = time.perf_counter()
     sim_aadc.run()  # license check happens here
     t_aadc = time.perf_counter() - t0
-    print(f"AADC BDF forward solve: {t_aadc:.3f}s  (CasADi/AADC = {t_casadi / t_aadc:.2f}x)")
+    err_aadc, _, _ = _max_state_rel_l2_vs_cvode(ref, sim_aadc)
     assert np.all(np.isfinite(sim_aadc.state_traj[:, -1])), "AADC BDF produced non-finite states"
+
+    # Always report time WITH the accuracy it bought — the raw ratio is meaningless alone
+    # (fixed-step CasADi and adaptive AADC land at very different errors; see docstring).
+    print(f"\n  CasADi BDF (fixed step) : {t_casadi:6.3f}s  at {err_casadi:.3f}% rel-L2 vs CVODE")
+    print(f"  AADC BDF (adaptive)     : {t_aadc:6.3f}s  at {err_aadc:.3f}% rel-L2 vs CVODE")
+    print("  NOT iso-accuracy — do not quote this ratio without the errors above.")
+
+
+# ---- 4. Algebraic post-processing ----
+
+@pytest.mark.integration
+def test_3compartment_casadi_post_process_matches_per_timestep_reference(models_3compartment):
+    """The vectorised algebraic post-processing must equal the per-timestep computation.
+
+    ``_post_process`` builds the algebraic map ``(t, x, p) -> vars`` once and evaluates it
+    over the whole grid with ``ca.Function.map``. It used to traverse the model equations
+    symbolically once per output step in a Python loop, which produced the same numbers but
+    cost ~9.1s on 3compartment — >99% of ``run()``, against a 0.09s ODE solve — and made
+    CasADi look an order of magnitude slower than it is in the AADC comparison.
+
+    This pins the refactor: recompute the algebraic variables the slow, obvious way and
+    require the mapped result to match exactly.
+    """
+    import copy as _copy
+    import casadi as ca
+
+    paths = models_3compartment["casadi"]
+    sim = get_simulation_helper(
+        model_path=paths["py"], solver='casadi_integrator', model_type='casadi_python',
+        dt=0.01, sim_time=0.2, pre_time=0.1, solver_info={'method': 'bdf'},
+    )
+    sim.run()
+
+    # Reference: evaluate the model once per output time, as the old implementation did.
+    var_names = list(sim.var_name_to_idx.keys())
+    state_cols = ca.horzsplit(sim.state_traj_symb, 1)[sim.pre_steps:]
+    ref_cols = []
+    for ti, state_vec in zip(sim.tSim, state_cols):
+        rates = [0.0] * sim.STATE_COUNT
+        vars_copy = _copy.copy(sim.variables_all_symb)
+        sim.model.compute_rates(ti, state_vec, rates, vars_copy)
+        sim.model.compute_variables(ti, state_vec, rates, vars_copy)
+        ref_cols.append(ca.vertcat(*[vars_copy[sim.var_name_to_idx[n]] for n in var_names]))
+    ref_symb = ca.horzcat(*ref_cols)
+    ref_func = ca.Function('ref', [sim.states_symb, sim.variables_symb], [ref_symb])
+    ref = np.array(ref_func(ca.DM(sim._x0_numeric()), ca.DM(sim.variables)))
+
+    assert sim.var_traj_dm.shape == ref.shape, (
+        f"post-processed algebraic trajectory has shape {sim.var_traj_dm.shape}, "
+        f"per-timestep reference has {ref.shape}"
+    )
+    np.testing.assert_allclose(sim.var_traj_dm, ref, rtol=1e-12, atol=1e-12)
