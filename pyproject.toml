@@ -38,7 +38,14 @@ dependencies = [
     "SALib==1.5.1",
     "seaborn>=0.11.0",
     "rdflib>=5.0.0",
-    "libcellml>=0.6.3",
+    # libCellML 0.7.0 (released 2026-07-09) is a breaking change: it renames
+    # Analyser.model() -> Analyser.analyserModel(), drops Generator.setModel()/setProfile() in
+    # favour of arguments, changes the generated Python code (no VARIABLE_COUNT), and resolves
+    # units differently when flattening (SN_simple then fails to connect a_2 across components).
+    # The first two are handled by the shims in utilities/libcellml_helper_funcs.py; the last
+    # two are a real migration. Pin below 0.7 until that is done -- without an upper bound CI
+    # silently picks up 0.7.0 and every model-generating test fails.
+    "libcellml>=0.6.3,<0.7.0",
     "ruamel.yaml>=0.17.0",
     "sympy>=1.8.0",
     "tqdm>=4.62.0",
