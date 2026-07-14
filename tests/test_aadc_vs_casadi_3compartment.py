@@ -581,3 +581,81 @@ def test_3compartment_casadi_post_process_matches_per_timestep_reference(models_
         f"per-timestep reference has {ref.shape}"
     )
     np.testing.assert_allclose(sim.var_traj_dm, ref, rtol=1e-12, atol=1e-12)
+
+
+# ---- 5. The fair (iso-accuracy) speed comparison ----
+
+# CasADi step size chosen so its error lands in the same ballpark as AADC's adaptive BDF
+# (~0.003%): fixed-step BDF2 degrades to ~first order on this model because the valve
+# switches are non-smooth, so h has to be ~100x smaller than the output dt to get there.
+#
+# Not h=1e-6: the symbolic graph holds one rootfinder node per *internal* step, so the
+# graph — and its memory — scale with sim_time/h. h=1e-5 over 1s is 1e5 steps (~2.1GB);
+# h=1e-6 would be 1e6 steps (~23GB) and OOMs. 1e-5 already reaches the same order of
+# accuracy as AADC, which is what the comparison needs.
+_ISO_CASADI_MAX_STEP = 1e-5
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_3compartment_casadi_vs_aadc_bdf_iso_accuracy(aadc_licensed, models_3compartment):
+    """Compare CasADi and AADC BDF **at matched accuracy** — the only comparison that means
+    anything.
+
+    ``test_3compartment_speed_casadi_vs_aadc_bdf`` times both at the same *configuration*,
+    where CasADi (fixed step, 0.5% error) and AADC (adaptive, 0.003% error) are two orders
+    of magnitude apart in accuracy, so its ratio says nothing about the backends. Here both
+    are pushed to the same error and *then* timed, by shrinking CasADi's internal step until
+    it matches AADC's adaptive result.
+
+    The finding: CasADi needs h=1e-5 (100x below the output dt) to reach AADC's accuracy,
+    and is then substantially *slower*. This is not an AD-technology result — it is a step
+    control result. AADC's BDF is scipy's adaptive, variable-order implicit solver, which
+    concentrates steps at the valve switches; CasADi's is a fixed-step BDF2, which has to
+    pay that resolution over the entire horizon. Closing the gap needs adaptive step control
+    (with discontinuity handling) on the CasADi side, not a faster backend.
+    """
+    ca_paths = models_3compartment["casadi"]
+    aadc_paths = models_3compartment["aadc"]
+    ref = _cvode_reference(ca_paths["cellml"])
+
+    sim_ca = get_simulation_helper(
+        model_path=ca_paths["py"], solver='casadi_integrator', model_type='casadi_python',
+        dt=_DT, sim_time=_SIM_TIME, pre_time=0.0,
+        solver_info={'method': 'bdf', 'max_step': _ISO_CASADI_MAX_STEP},
+    )
+    t0 = time.perf_counter()
+    sim_ca.run()
+    t_casadi = time.perf_counter() - t0
+    err_casadi, _, _ = _max_state_rel_l2_vs_cvode(ref, sim_ca)
+
+    sim_aadc = get_simulation_helper(
+        model_path=aadc_paths["py"], solver='aadc_semi_implicit', model_type='aadc_python',
+        dt=_DT, sim_time=_SIM_TIME, pre_time=0.0, solver_info={'method': 'bdf'},
+    )
+    t0 = time.perf_counter()
+    sim_aadc.run()
+    t_aadc = time.perf_counter() - t0
+    err_aadc, _, _ = _max_state_rel_l2_vs_cvode(ref, sim_aadc)
+
+    print(f"\n  iso-accuracy BDF comparison (3compartment, {_SIM_TIME}s @ dt={_DT}):")
+    print(f"    CasADi (fixed h={_ISO_CASADI_MAX_STEP:g}) : {t_casadi:7.2f}s  at {err_casadi:.5f}% rel-L2")
+    print(f"    AADC   (adaptive)        : {t_aadc:7.2f}s  at {err_aadc:.5f}% rel-L2")
+    print(f"    -> AADC is {t_casadi / t_aadc:.1f}x faster at comparable accuracy")
+
+    assert np.all(np.isfinite(sim_ca.state_traj_dm[:, -1])), "CasADi produced non-finite states"
+    assert np.all(np.isfinite(sim_aadc.state_traj[:, -1])), "AADC produced non-finite states"
+
+    # The whole point is that the two are at comparable accuracy — if they drift apart the
+    # timing below stops being a like-for-like comparison and the test should say so rather
+    # than silently report a meaningless ratio.
+    assert err_casadi < 0.02, (
+        f"CasADi at h={_ISO_CASADI_MAX_STEP:g} gave {err_casadi:.5f}% error; expected it to "
+        f"reach AADC's ~0.003% ballpark. Retune _ISO_CASADI_MAX_STEP."
+    )
+    assert err_aadc < 0.02, f"AADC BDF gave {err_aadc:.5f}% error, expected ~0.003%"
+    ratio = max(err_casadi, err_aadc) / max(min(err_casadi, err_aadc), 1e-12)
+    assert ratio < 10.0, (
+        f"errors are not comparable (CasADi {err_casadi:.5f}% vs AADC {err_aadc:.5f}%, "
+        f"{ratio:.1f}x apart) — the timing comparison is not iso-accuracy"
+    )
