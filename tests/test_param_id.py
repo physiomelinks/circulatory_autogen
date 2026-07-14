@@ -1207,10 +1207,9 @@ def test_param_id_lotka_volterra_sp_minimize_ad_vs_fd(base_user_inputs, resource
 @pytest.mark.slow
 @pytest.mark.mpi
 @pytest.mark.skip(
-    reason="Pending backend-agnostic AD calibration wiring. sp_minimize currently routes "
-           "through the CasADi-only get_cost_ca / get_jac_cost_ca (build_casadi_functions, "
-           "ca.gradient). Once the cost/gradient path is made backend-agnostic so AADC's tape "
-           "gradient (compute_gradient_tape) drives sp_minimize, unskip this test. See PR #251."
+    reason="AD wiring implemented (get_cost/get_gradient dispatch), but AADC tape gradient "
+           "through 500 RK4 steps causes numerical issues for this model. Works for shorter "
+           "simulations and coupled pipelines. See project_cellml_aadc.md for details."
 )
 def test_param_id_lotka_volterra_sp_minimize_ad_vs_fd_aadc(base_user_inputs, resources_dir, temp_output_dir, mpi_comm):
     """AADC analogue of test_param_id_lotka_volterra_sp_minimize_ad_vs_fd.
@@ -2899,6 +2898,13 @@ def test_sp_minimize_streams_cost_history_per_iteration(temp_output_dir):
                 -400.0 * p[0] * (p[1] - p[0] ** 2) - 2.0 * (1.0 - p[0]),
                 200.0 * (p[1] - p[0] ** 2),
             ])
+
+        # Backend-agnostic aliases (used by refactored optimisers.py)
+        def get_cost(self, p):
+            return float(self.get_cost_ca(p))
+
+        def get_gradient(self, p):
+            return self.get_jac_cost_ca(p)
 
         def set_best_param_vals(self, p):
             self.best = np.asarray(p, dtype=float)

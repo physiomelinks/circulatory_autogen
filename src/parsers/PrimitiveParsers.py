@@ -222,8 +222,8 @@ class YamlFileParser(object):
         if 'param_id_method' not in inp_data_dict.keys():
             inp_data_dict['param_id_method'] = 'genetic_algorithm'
 
-        if inp_data_dict.get('param_id_method') == 'sp_minimize' and inp_data_dict.get('model_type') != 'casadi_python':
-            print(f'Parameter identification with sp_minimize requires model_type to be "casadi_python"')
+        if inp_data_dict.get('param_id_method') == 'sp_minimize' and inp_data_dict.get('model_type') not in ('casadi_python', 'aadc_python'):
+            print(f'Parameter identification with sp_minimize requires model_type to be "casadi_python" or "aadc_python"')
             exit()
 
         # overwrite dir paths if set in user_inputs.yaml

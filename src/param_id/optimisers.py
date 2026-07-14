@@ -810,11 +810,11 @@ class SciPyMinimizeOptimiser(Optimiser):
                 param_maxs_norm = self.param_norm_obj.normalise(self.param_maxs)
                 param_ranges_norm = list(zip(param_mins_norm, param_maxs_norm))
 
-                cost_fun = lambda p: float(self.param_id_obj.get_cost_ca(self.param_norm_obj.unnormalise(p)))
+                cost_fun = lambda p: float(self.param_id_obj.get_cost(self.param_norm_obj.unnormalise(p)))
                 
-                init_cost = self.param_id_obj.get_cost_ca(init_param_vals)
+                init_cost = self.param_id_obj.get_cost(init_param_vals)
                 print(f'Cost before gradient-based optimisation: {init_cost}')
-                init_gradient = self.param_id_obj.get_jac_cost_ca(init_param_vals)
+                init_gradient = self.param_id_obj.get_gradient(init_param_vals)
 
                 if self.DEBUG:
                     print('[sp_minimize] initial parameters and gradient:')
@@ -825,7 +825,7 @@ class SciPyMinimizeOptimiser(Optimiser):
                 if (self.do_ad):
                     def gradient_func(q):
                         p = self.param_norm_obj.unnormalise(q)
-                        dJ_dp = self.param_id_obj.get_jac_cost_ca(p)
+                        dJ_dp = self.param_id_obj.get_gradient(p)
                         return dJ_dp * self.param_ranges
                 else:
                     gradient_func = lambda q: approx_fprime(q, cost_fun, epsilon=1e-4)
@@ -856,7 +856,7 @@ class SciPyMinimizeOptimiser(Optimiser):
                     x_norm = np.asarray(x_norm, dtype=float).copy()
                     last_iterate["x_norm"] = x_norm
                     param_vals = self.param_norm_obj.unnormalise(x_norm)
-                    cost_val = float(self.param_id_obj.get_cost_ca(param_vals))
+                    cost_val = float(self.param_id_obj.get_cost(param_vals))
                     last_iterate["cost"] = cost_val
                     # Live progress: one history row per accepted iteration.
                     _append_history(cost_val, x_norm)
@@ -866,7 +866,7 @@ class SciPyMinimizeOptimiser(Optimiser):
                             label = names[0] if isinstance(names, (list, tuple)) else str(names)
                             print(f'    {label:<30} {param_vals[i]:.6g}')
                         if self.do_ad:
-                            grad = np.asarray(self.param_id_obj.get_jac_cost_ca(param_vals)).flatten()
+                            grad = np.asarray(self.param_id_obj.get_gradient(param_vals)).flatten()
                             print(f'    |grad|_inf = {np.max(np.abs(grad)):.6e}')
                     if cost_val <= self.optimiser_options['cost_convergence']:
                         raise StopIteration(f"Cost converged: {cost_val}")
@@ -887,7 +887,7 @@ class SciPyMinimizeOptimiser(Optimiser):
                     best_cost_array = np.array([last_iterate["cost"]])
                     if self.do_ad:
                         best_gradient_vals = np.asarray(
-                            self.param_id_obj.get_jac_cost_ca(best_param_vals), dtype=float
+                            self.param_id_obj.get_gradient(best_param_vals), dtype=float
                         ).flatten()
                     else:
                         best_gradient_vals = approx_fprime(
