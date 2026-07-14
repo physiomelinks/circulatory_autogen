@@ -68,6 +68,29 @@ def get_analysed_model(analyser):
     return analyser.model()
 
 
+def _generator_is_pre_0_7(generator):
+    """libCellML 0.6.x configured the Generator with setModel()/setProfile() and then called
+    implementationCode() with no arguments. 0.7.0 dropped those setters and takes the analysed
+    model and profile as arguments instead."""
+    return hasattr(generator, 'setProfile')
+
+
+def generate_implementation_code(generator, analysed_model, profile):
+    if _generator_is_pre_0_7(generator):
+        generator.setProfile(profile)
+        generator.setModel(analysed_model)
+        return generator.implementationCode()
+    return generator.implementationCode(analysed_model, profile)
+
+
+def generate_interface_code(generator, analysed_model, profile):
+    if _generator_is_pre_0_7(generator):
+        generator.setProfile(profile)
+        generator.setModel(analysed_model)
+        return generator.interfaceCode()
+    return generator.interfaceCode(analysed_model, profile)
+
+
 def analyse_model(model):
     analyser = Analyser()
     a = analyser.analyseModel(model)

@@ -699,10 +699,8 @@ class PythonGenerator:
 
         profile = lc.GeneratorProfile(lc.GeneratorProfile.Profile.PYTHON)
         generator = lc.Generator()
-        generator.setProfile(profile)
-        generator.setModel(analysed_model)
 
-        code = generator.implementationCode()
+        code = cellml_utils.generate_implementation_code(generator, analysed_model, profile)
         utilities_filename = None
         utilities_code = None
         if self.human_readable and code:
