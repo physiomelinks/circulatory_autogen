@@ -65,6 +65,9 @@ from scripts.script_generate_with_new_architecture import generate_with_new_arch
 # Store pytest config for hooks that need plugin access (xdist reports lack config)
 _PYTEST_CONFIG = None
 _AUTOGEN_RESULTS_FILE = os.path.join(os.path.dirname(__file__), "..", ".pytest_one_rank_results")
+# Must match the autogen_status_file fixture: the completion counter that
+# wait_for_autogen_if_needed blocks on.
+_AUTOGEN_STATUS_FILE = os.path.join(os.path.dirname(__file__), "..", ".pytest_autogen_status")
 _MISC_RESULTS_FILE = os.path.join(os.path.dirname(__file__), "..", ".pytest_misc_results")
 _SOLVER_RESULTS_FILE = os.path.join(os.path.dirname(__file__), "..", ".pytest_solver_results")
 _SESSION_START = None
@@ -300,6 +303,18 @@ def pytest_runtest_logreport(report):
         # can never arrive. Record it here instead.
         if not (report.when == "setup" and (report.skipped or report.failed)):
             return
+
+        # The same applies to the autogen completion counter. track_autogen_completion is a
+        # yield fixture, so a test skipped during setup never runs its teardown and never
+        # appends its "done" line -- but it is still counted in ONE_RANK_TOTAL. That leaves
+        # wait_for_autogen_if_needed short by one line, and its loop is unbounded, so the run
+        # hangs forever. Write the line here for tests whose teardown won't.
+        if "autogen_task" in getattr(report, "keywords", {}):
+            try:
+                with open(_AUTOGEN_STATUS_FILE, "a") as f:
+                    f.write("done\n")
+            except OSError:
+                pass
 
     # Collect autogen outcomes for cross-rank aggregation
     if "one_rank_task" in getattr(report, "keywords", {}):
@@ -825,8 +840,14 @@ def wait_for_autogen_if_needed(request, autogen_status_file):
         # No autogen tests collected; nothing to wait for
         return
 
+    # Bounded: this loop used to be `while True`, so a single missing completion line hung the
+    # whole run forever (on CI that means the 6 hour job timeout, with no diagnostic). Time out
+    # loudly instead -- the tests that follow will fail on their own if the models really are
+    # missing, which is far easier to debug than a silent hang.
+    deadline = time.time() + 600.0
+    count = 0
     waited = 0.0
-    while True:
+    while time.time() < deadline:
         if os.path.exists(autogen_status_file):
             try:
                 with open(autogen_status_file, "r") as f:
@@ -843,6 +864,12 @@ def wait_for_autogen_if_needed(request, autogen_status_file):
             continue
         if abs(waited - round(waited, 1)) < 1e-6 and int(waited) % 10 == 0 and waited > 0:
             print(f"Waiting for autogeneration to finish... ({waited:.1f}s)")
+
+    print(
+        f"WARNING: timed out after {waited:.0f}s waiting for autogeneration to finish "
+        f"({count} of {total} completion lines in {autogen_status_file}). Continuing anyway. "
+        f"A one-rank test was counted but never recorded its completion."
+    )
 
 
 @pytest.fixture(scope="function", autouse=True)
