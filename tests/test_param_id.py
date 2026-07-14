@@ -1206,11 +1206,6 @@ def test_param_id_lotka_volterra_sp_minimize_ad_vs_fd(base_user_inputs, resource
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.mpi
-@pytest.mark.skip(
-    reason="AD wiring implemented (get_cost/get_gradient dispatch), but AADC tape gradient "
-           "through 500 RK4 steps causes numerical issues for this model. Works for shorter "
-           "simulations and coupled pipelines. See project_cellml_aadc.md for details."
-)
 def test_param_id_lotka_volterra_sp_minimize_ad_vs_fd_aadc(base_user_inputs, resources_dir, temp_output_dir, mpi_comm):
     """AADC analogue of test_param_id_lotka_volterra_sp_minimize_ad_vs_fd.
 
@@ -1236,7 +1231,10 @@ def test_param_id_lotka_volterra_sp_minimize_ad_vs_fd_aadc(base_user_inputs, res
         'do_mcmc': False,
         'plot_predictions': False,
         'do_ia': False,
-        'solver_info': {'method': 'adaptive_rk45', 'tol': 1e-8},
+        # fixed-step, and exactly what the AADC tape records: with an adaptive integrator the
+        # forward solve and the tape integrate different systems, so the gradient would not be
+        # the gradient of the cost
+        'solver_info': {'method': 'rk4'},
         'param_id_obs_path': os.path.join(resources_dir, 'Lotka_Volterra_obs_data.json'),
         'optimiser_options': {'num_calls_to_function': 40, 'cost_convergence': 1e-3},
     })
@@ -3250,73 +3248,155 @@ def test_multi_start_escapes_fitzhugh_nagumo_local_minimum_that_traps_sp_minimiz
 @pytest.mark.slow
 @pytest.mark.mpi
 @pytest.mark.compare_optimisers
-def test_compare_multi_start_lbfgsb_vs_genetic_algorithm_on_fitzhugh_nagumo(
+def test_compare_optimisers_on_fitzhugh_nagumo(
         base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
-    """Time multi-start L-BFGS-B against the genetic algorithm on the multi-modal
-    FitzHugh-Nagumo benchmark.
+    """Benchmark every optimiser on the multi-modal FitzHugh-Nagumo problem, on accuracy and
+    wall-clock time.
 
-    Both are global searches, but the multi-start exploits the CasADi AD gradient to descend
-    each basin, so it should reach a lower cost. The runtimes of both are reported.
+    Two gradient-free global searches (genetic algorithm, CMA-ES) against the same multi-start
+    L-BFGS-B driven by three different gradient sources:
+
+      * finite differences      -- no AD; costs (n+1) simulations per gradient
+      * CasADi AD               -- symbolic jacobian through the ODE solve
+      * AADC AD                 -- tape reverse pass (skipped without a Matlogica licence)
+
+    Holding the optimiser fixed and varying only the gradient source is what separates "the
+    multi-start beats the population methods" from "AD is worth having": the FD variant gets the
+    same search, so any difference between it and the AD variants is the cost of the gradient.
     """
-    rank = mpi_comm.Get_rank()
-
+    from tests.conftest import AADC_LICENSE_AVAILABLE
     from tests.compare_optimisers import OptimiserComparison
 
+    rank = mpi_comm.Get_rank()
+
+    casadi_models = os.path.join(temp_generated_models_dir, 'casadi')
+    aadc_models = os.path.join(temp_generated_models_dir, 'aadc')
+
     config = _fitzhugh_nagumo_config(base_user_inputs, resources_dir, temp_output_dir,
-                                     temp_generated_models_dir, 'genetic_algorithm')
-    # both methods get these; the genetic algorithm ignores the multi-start specific keys and
-    # the multi-start ignores num_calls_to_function (its budget is num_starts).
+                                     casadi_models, 'genetic_algorithm')
     config['optimiser_options'] = {
-        'cost_convergence': 1e-4, 'max_patience': 100,
+        'cost_convergence': 1e-4,
+        # generous, so CMA-ES spends its whole evaluation budget rather than stopping early on
+        # a stagnation counter -- a benchmark that starves one method proves nothing
+        'max_patience': 500,
         'num_starts': 8, 'start_sampling': 'sobol', 'seed': 0,
     }
 
+    multi_start_casadi = {
+        'param_id_method': 'multi_start_sp_minimize',
+        'model_type': 'casadi_python', 'solver': 'casadi_integrator', 'do_ad': True,
+        'generated_models_dir': casadi_models,
+    }
+    # identical search, gradient by finite differences instead of AD
+    multi_start_fd = dict(multi_start_casadi, do_ad=False)
+    # The AADC tape can only record a fixed-step scheme, and the forward solve must use the same
+    # one or the gradient is not the gradient of the cost. rk4 at dt=0.02 reproduces the
+    # CVODE-generated ground truth to ~1e-10, so the comparison stays honest.
+    multi_start_aadc = {
+        'param_id_method': 'multi_start_sp_minimize',
+        'model_type': 'aadc_python', 'solver': 'aadc_semi_implicit',
+        'solver_info': {'method': 'rk4'}, 'dt': 0.02, 'do_ad': True,
+        'generated_models_dir': aadc_models,
+    }
+
+    extra = {
+        'multi_start (CasADi AD)': multi_start_casadi,
+        'multi_start (FD)': multi_start_fd,
+    }
+    if AADC_LICENSE_AVAILABLE:
+        extra['multi_start (AADC AD)'] = multi_start_aadc
+
+    methods = ['genetic_algorithm', 'CMA-ES', 'multi_start (FD)', 'multi_start (CasADi AD)']
+    if AADC_LICENSE_AVAILABLE:
+        methods.append('multi_start (AADC AD)')
+
     if rank == 0:
-        assert generate_with_new_architecture(False, config), \
+        casadi_cfg = config.copy()
+        casadi_cfg.update(multi_start_casadi)
+        assert generate_with_new_architecture(False, casadi_cfg), \
             'CasADi model generation should succeed for FitzHugh-Nagumo'
+        if AADC_LICENSE_AVAILABLE:
+            aadc_cfg = config.copy()
+            aadc_cfg.update(multi_start_aadc)
+            assert generate_with_new_architecture(False, aadc_cfg), \
+                'AADC model generation should succeed for FitzHugh-Nagumo'
     mpi_comm.Barrier()
 
     num_calls = 2000
-    comparison = OptimiserComparison(
-        config, methods=['genetic_algorithm', 'multi_start_sp_minimize'], num_calls=num_calls)
+    comparison = OptimiserComparison(config, methods=methods, num_calls=num_calls,
+                                     extra_method_configs=extra)
 
-    ga_success = comparison.run_method('genetic_algorithm')
-    multi_success = comparison.run_method('multi_start_sp_minimize')
+    for method in methods:
+        assert comparison.run_method(method) is not False, f'{method} optimisation should succeed'
 
     if rank == 0:
-        assert ga_success, 'genetic algorithm optimisation should succeed'
-        assert multi_success, 'multi-start L-BFGS-B optimisation should succeed'
+        costs = {m: comparison.results[m]['cost'] for m in methods}
+        times = {m: comparison.runtimes[m] for m in methods}
+        params = {m: np.asarray(comparison.results[m]['params'], dtype=float) for m in methods}
 
-        ga_cost = comparison.results['genetic_algorithm']['cost']
-        multi_cost = comparison.results['multi_start_sp_minimize']['cost']
-        ga_time = comparison.runtimes['genetic_algorithm']
-        multi_time = comparison.runtimes['multi_start_sp_minimize']
+        print(f'\n{"=" * 84}')
+        print(f'FitzHugh-Nagumo (multi-modal), {mpi_comm.Get_size()} MPI rank(s); '
+              f'{num_calls} cost evaluations for the population methods, 8 starts for multi-start')
+        print(f'{"method":<26} {"best cost":>13} {"time (s)":>9} {"max param err":>14}   params')
+        for method in methods:
+            err = np.max(np.abs(params[method] - FHN_TRUE_PARAMS))
+            param_str = ' '.join(f'{p:.4f}' for p in params[method])
+            print(f'{method:<26} {costs[method]:>13.4e} {times[method]:>9.1f} '
+                  f'{err:>14.4f}   {param_str}')
+        true_str = ' '.join(f'{p:.4f}' for p in FHN_TRUE_PARAMS)
+        print(f'{"true params":<26} {0.0:>13.4e} {"-":>9} {0.0:>14.4f}   {true_str}')
+        if not AADC_LICENSE_AVAILABLE:
+            print('multi_start (AADC AD) skipped: no Matlogica licence in this environment')
+        print(f'{"=" * 84}')
 
-        print(f'\n{"="*72}')
-        print(f'FitzHugh-Nagumo (multi-modal), {mpi_comm.Get_size()} MPI rank(s)')
-        print(f'{"method":<26} {"cost":>14} {"time (s)":>10}   params')
-        for name, cost, runtime in (
-                ('genetic_algorithm', ga_cost, ga_time),
-                ('multi_start_sp_minimize', multi_cost, multi_time)):
-            params = comparison.results[name]['params']
-            param_str = ' '.join(f'{p:.4f}' for p in params)
-            print(f'{name:<26} {cost:>14.6e} {runtime:>10.1f}   {param_str}')
-        print(f'{"true params":<26} {0.0:>14.6e} {"-":>10}   '
-              f'{" ".join(f"{p:.4f}" for p in FHN_TRUE_PARAMS)}')
-        print(f'genetic algorithm used {num_calls} cost evaluations; '
-              f'multi-start used 8 gradient descents')
-        print(f'{"="*72}')
+        for method in methods:
+            assert np.isfinite(costs[method]) and costs[method] >= 0, \
+                f'{method} produced a non-finite or negative cost: {costs[method]}'
 
-        assert np.isfinite(ga_cost) and ga_cost >= 0
-        assert np.isfinite(multi_cost) and multi_cost >= 0
+        multi_start_methods = [m for m in methods if m.startswith('multi_start')]
 
-        # Both escape the local minimum that traps a single gradient descent, but only the
-        # multi-start refines to the true optimum, because it uses the gradient.
-        assert multi_cost < ga_cost, (
-            f'expected the gradient-based multi-start ({multi_cost:.3e}) to beat the '
-            f'gradient-free genetic algorithm ({ga_cost:.3e})')
-        np.testing.assert_allclose(
-            comparison.results['multi_start_sp_minimize']['params'], FHN_TRUE_PARAMS, atol=0.02)
+        # Every multi-start variant escapes the local minimum the population methods get stuck
+        # in or crawl towards, and recovers the true parameters -- the search is what finds the
+        # global basin, and it does so whatever the gradient comes from.
+        for method in multi_start_methods:
+            assert costs[method] < costs['genetic_algorithm'], (
+                f'expected {method} ({costs[method]:.3e}) to beat the genetic algorithm '
+                f'({costs["genetic_algorithm"]:.3e})')
+            assert costs[method] < costs['CMA-ES'], (
+                f'expected {method} ({costs[method]:.3e}) to beat CMA-ES '
+                f'({costs["CMA-ES"]:.3e})')
+            np.testing.assert_allclose(
+                params[method], FHN_TRUE_PARAMS, atol=0.02,
+                err_msg=f'{method} did not recover the true parameters')
+
+        # The AD variants get the same answer as the FD one, which is the check that the AD
+        # gradients are right: a wrong gradient would land somewhere else.
+        for method in multi_start_methods:
+            if 'AD' in method:
+                np.testing.assert_allclose(
+                    params[method], params['multi_start (FD)'], atol=0.02,
+                    err_msg=f'{method} converged somewhere different from the FD variant, so its '
+                            f'gradient disagrees with the cost it is minimising')
+
+        # Timing. The gradient source is what pays here, not the search: finite differences cost
+        # (n+1) simulations per gradient, so the FD variant is the *slowest* method in the table
+        # -- slower even than the genetic algorithm -- while finding the same optimum. That is
+        # the case for AD, and it is asserted rather than asserted away.
+        ad_methods = [m for m in multi_start_methods if 'AD' in m]
+        for method in ad_methods:
+            assert times[method] < times['multi_start (FD)'], (
+                f'expected {method} ({times[method]:.0f}s) to be faster than the same search on '
+                f'finite differences ({times["multi_start (FD)"]:.0f}s) -- that is the whole '
+                f'point of the AD gradient')
+        # Deliberately NOT asserted: that the multi-start beats the population methods on time.
+        # The methods scale differently with MPI rank count -- the genetic algorithm parallelises
+        # over its population, while the multi-start parallelises over starts and cannot fire its
+        # rank-local early stop once num_starts <= num_procs (every rank owns one start, so no
+        # rank can skip the rest). Measured on this benchmark: the genetic algorithm goes 41s ->
+        # 15s from 1 to 8 ranks, while multi_start (CasADi AD) goes 21s -> 35s. Asserting a
+        # cross-method timing ordering would therefore encode the rank count the test happens to
+        # run at. The AD-vs-FD comparison above is the sound one: same optimiser, same starts,
+        # same rank count, only the gradient source differs.
 
     mpi_comm.Barrier()
 
@@ -3530,3 +3610,148 @@ def test_multi_start_falls_back_to_fd_when_do_ad_is_off(temp_output_dir):
     assert not opt.use_ad_gradient
     opt.run()
     assert param_id_obj.num_jac_calls == 0
+
+
+# ---------------------------------------------------------------------------
+# AADC gradient: the cost and the gradient must be of the SAME function
+# ---------------------------------------------------------------------------
+
+def _aadc_lotka_volterra_config(base_user_inputs, resources_dir, temp_output_dir,
+                                temp_generated_models_dir, param_id_method='sp_minimize',
+                                method='rk4'):
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': 'Lotka_Volterra',
+        'input_param_file': 'Lotka_Volterra_parameters.csv',
+        'params_for_id_file': 'Lotka_Volterra_params_for_id.csv',
+        'model_type': 'aadc_python',
+        'solver': 'aadc_semi_implicit',
+        'param_id_method': param_id_method,
+        'do_ad': True,
+        'pre_time': 0.0,
+        'sim_time': 5.0,
+        'dt': 0.01,
+        'DEBUG': False,
+        'do_mcmc': False,
+        'plot_predictions': False,
+        'do_ia': False,
+        # fixed-step, and exactly what the AADC tape records
+        'solver_info': {'method': method},
+        'param_id_obs_path': os.path.join(resources_dir, 'Lotka_Volterra_obs_data.json'),
+        'param_id_output_dir': temp_output_dir,
+        'generated_models_dir': temp_generated_models_dir,
+        'resources_dir': resources_dir,
+    })
+    return config
+
+
+def _init_aadc_param_id(config, resources_dir):
+    assert generate_with_new_architecture(False, config), 'AADC model generation should succeed'
+    parsed = YamlFileParser().parse_user_inputs_file(
+        config, obs_path_needed=True, do_generation_with_fit_parameters=False)
+    parsed['one_rank'] = True
+    parsed['do_ad'] = True
+    runner = CVS0DParamID.init_from_dict(parsed)
+    inner = runner.param_id
+    inner.param_init = inner.sim_helper.get_init_param_vals(inner.param_id_info['param_names'])
+    return inner
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_aadc_cost_and_gradient_are_of_the_same_function(
+        aadc_licensed, base_user_inputs, resources_dir, temp_output_dir,
+        temp_generated_models_dir):
+    """The AADC tape gradient must be the gradient of the cost that is actually being minimised.
+
+    A gradient that is merely 'close' is not good enough: L-BFGS-B's line search assumes the
+    gradient is exact for the cost it evaluates, so a mismatch does not just slow convergence,
+    it sends the search to the wrong place. Three separate bugs each broke this, and each
+    showed up here as AD/FD != 1:
+
+      * the tape recorded fixed-step RK4 while the forward solve ran adaptive RK45, so the
+        gradient was exact -- for a different discretisation  -> AD/FD = [1.79, 1.96, 1.32, -0.07]
+      * the tape did not divide by the weighted-observable count that the numpy cost divides
+        by, making the tape cost a constant 2x the real one                -> AD/FD = [2, 2, 2, 2]
+      * every parameter's AD index was appended twice, so the index vector was double length
+    """
+    inner = _init_aadc_param_id(
+        _aadc_lotka_volterra_config(base_user_inputs, resources_dir, temp_output_dir,
+                                    temp_generated_models_dir),
+        resources_dir)
+
+    p0 = np.asarray(inner.param_init, dtype=float)
+    assert len(p0) == 4
+
+    # 1. the tape's cost is the forward solve's cost
+    tape_cost = float(inner.get_cost_aadc(p0))
+    forward_cost = float(inner.get_cost_from_params(p0))
+    assert tape_cost == pytest.approx(forward_cost, rel=1e-9), (
+        f'the AADC tape cost ({tape_cost}) is not the cost the forward solve computes '
+        f'({forward_cost}); the optimiser would descend a different function than it evaluates')
+
+    # 2. get_cost routes to the tape when do_ad is on, so cost and gradient are one evaluation
+    assert float(inner.get_cost(p0)) == pytest.approx(tape_cost, rel=1e-9)
+
+    # 3. the AD gradient is the gradient of that cost
+    grad = np.asarray(inner.get_gradient(p0), dtype=float).flatten()
+    assert grad.shape == (4,), f'expected one gradient entry per parameter, got {grad.shape}'
+    assert np.all(np.isfinite(grad))
+
+    step = 1e-6
+    for j in range(4):
+        up, down = p0.copy(), p0.copy()
+        up[j] += step
+        down[j] -= step
+        fd = (float(inner.get_cost(up)) - float(inner.get_cost(down))) / (2 * step)
+        assert grad[j] == pytest.approx(fd, rel=1e-3, abs=1e-6), (
+            f'AADC gradient[{j}] = {grad[j]} disagrees with the finite difference {fd} '
+            f'(AD/FD = {grad[j] / (fd + 1e-30):.4f})')
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_aadc_gradient_rejects_an_untapeable_solver(
+        aadc_licensed, base_user_inputs, resources_dir, temp_output_dir,
+        temp_generated_models_dir):
+    """An adaptive integrator picks its steps from the state, so the tape cannot replay it. Ask
+    for one with do_ad on and the run must stop, not silently differentiate a different (RK4)
+    system than it simulates."""
+    inner = _init_aadc_param_id(
+        _aadc_lotka_volterra_config(base_user_inputs, resources_dir, temp_output_dir,
+                                    temp_generated_models_dir, method='adaptive_rk45'),
+        resources_dir)
+
+    with pytest.raises(ValueError, match='cannot be recorded on an AADC tape'):
+        inner.get_gradient(np.asarray(inner.param_init, dtype=float))
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_multi_start_sp_minimize_calibrates_an_aadc_model(
+        aadc_licensed, base_user_inputs, resources_dir, temp_output_dir,
+        temp_generated_models_dir):
+    """multi_start_sp_minimize must actually calibrate an aadc_python model using the tape
+    gradient -- the merge criterion for the AADC backend."""
+    config = _aadc_lotka_volterra_config(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir,
+        param_id_method='multi_start_sp_minimize')
+    config['optimiser_options'] = {
+        'cost_convergence': 1e-3, 'max_patience': 100,
+        'num_starts': 4, 'start_sampling': 'sobol', 'seed': 0,
+    }
+
+    assert generate_with_new_architecture(False, config), 'AADC model generation should succeed'
+    run_param_id(config)
+
+    output_dir = os.path.join(
+        temp_output_dir, 'multi_start_sp_minimize_Lotka_Volterra_Lotka_Volterra_obs_data')
+    cost = float(np.load(os.path.join(output_dir, 'best_cost.npy')))
+    params = np.load(os.path.join(output_dir, 'best_param_vals.npy'))
+
+    assert np.isfinite(cost)
+    assert np.all(np.isfinite(params))
+    # the observables are two constants the model can match, so a working gradient descent
+    # should drive the cost right down; a wrong gradient leaves it stuck near its start
+    assert cost < 1e-2, \
+        f'multi_start_sp_minimize with the AADC tape gradient failed to calibrate: cost {cost}'

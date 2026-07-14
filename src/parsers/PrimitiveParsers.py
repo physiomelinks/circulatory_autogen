@@ -65,7 +65,9 @@ SOLVER_SCHEMA = {
         # cvodes adjoint sensitivity, fully supports CasADi AD (rootfinder is
         # differentiable via the implicit-function theorem).
         'casadi_integrator': ['cvodes', 'idas', 'collocation', 'rk', 'semi_implicit_euler', 'bdf'],
-        'aadc_semi_implicit': ['adaptive_rk45', 'semi_implicit', 'bdf', 'implicit_euler_ift'],
+        # 'rk4' is fixed-step and is what the AADC tape records, so it is the method for which
+        # the forward cost and the tape gradient are of the same function (see do_ad).
+        'aadc_semi_implicit': ['adaptive_rk45', 'semi_implicit', 'bdf', 'implicit_euler_ift', 'rk4'],
     },
     # Default solver for each model_type (used when none is specified).
     'default_solver_by_model_type': {

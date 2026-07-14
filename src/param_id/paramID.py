@@ -133,6 +133,12 @@ def _require_casadi():
         )
 
 
+# AADC solver methods whose forward integration the tape can record step-for-step. An adaptive
+# integrator picks its step sizes from the state, so the sequence of operations changes with the
+# parameters and cannot be replayed from a tape.
+TAPE_CONSISTENT_AADC_METHODS = ('rk4', 'implicit_euler_ift', 'semi_implicit')
+
+
 def _as_casadi_column(x):
     """Column vector, for either a numeric array or a casadi symbolic."""
     _require_casadi()
@@ -2237,8 +2243,11 @@ class OpencorParamID():
         """Compute cost J(p), dispatching to CasADi or AADC or numpy."""
         if self.model_type == 'casadi_python':
             return float(self.get_cost_ca(param_vals))
-        else:
-            return float(self.get_cost_from_params(param_vals))
+        if self.model_type == 'aadc_python' and self.do_ad:
+            # When the gradient comes off the tape the cost has to as well, or the optimiser
+            # descends a different function than it evaluates. See get_cost_aadc.
+            return float(self.get_cost_aadc(param_vals))
+        return float(self.get_cost_from_params(param_vals))
 
     def get_gradient(self, param_vals):
         """Compute gradient ∇J(p), dispatching to CasADi or AADC."""
@@ -2249,14 +2258,30 @@ class OpencorParamID():
         else:
             raise ValueError(f"Gradient not available for model_type={self.model_type}")
 
-    def get_jac_cost_aadc(self, param_vals):
-        """Compute gradient ∇J(p) via AADC tape: forward solve + cost on tape, reverse pass.
+    def _aadc_cost_and_grad(self, param_vals):
+        """Compute J(p) and ∇J(p) via AADC tape: forward solve + cost on tape, reverse pass.
 
         Uses sim_helper.compute_gradient_tape() which records the entire ODE
         integration + cost function on an AADC tape and gets the gradient via
         one reverse pass. Requires a tape-compatible solver (implicit_euler_ift
         or semi_implicit).
         """
+        # The AADC tape must integrate the same discrete system as the forward solve, or the
+        # gradient is the exact gradient of a *different* function than the cost. The tape has
+        # to replay a fixed sequence of operations, so it can only record fixed-step schemes:
+        # 'rk4' (its default), 'implicit_euler_ift' and 'semi_implicit'. sim_helper.run() with
+        # 'adaptive_rk45' or 'bdf' integrates something else entirely, and the tape then quietly
+        # falls back to RK4 -- measured on Lotka-Volterra, that gave AD/FD = [1.79, 1.96, 1.32,
+        # -0.067], the last with the wrong sign. Refuse instead.
+        method = self.sim_helper.solver_info.get('method', 'adaptive_rk45')
+        if method not in TAPE_CONSISTENT_AADC_METHODS:
+            raise ValueError(
+                f"solver method '{method}' cannot be recorded on an AADC tape, so the forward "
+                f"solve and the gradient would integrate different systems. With do_ad, use one "
+                f"of {list(TAPE_CONSISTENT_AADC_METHODS)} (fixed-step, and what the tape records) "
+                f"-- an adaptive integrator chooses its steps from the state, so its step "
+                f"sequence changes with the parameters and cannot be taped. Or turn off do_ad.")
+
         param_names_raw = self.param_id_info["param_names"]
         # param_names may be lists of strings (e.g. [['alpha_Lotka_Volterra']]) — flatten
         param_names = []
@@ -2281,7 +2306,6 @@ class OpencorParamID():
                                  "AADC gradient currently supports variable parameters only.")
             else:
                 raise ValueError(f"Param '{pname}' not found by name resolver.")
-            ad_indices.append(idx)
         self.sim_helper._ad_param_var_indices = ad_indices
 
         # Build cost function that works with idouble on tape.
@@ -2293,6 +2317,23 @@ class OpencorParamID():
         cost_funcs = self.cost_funcs_dict
         cost_types = self.cost_type
 
+        # The tape records one straight-line integration, so it cannot express a protocol with
+        # several experiments / sub-experiments (each of which resets the state and changes
+        # parameters). Refuse rather than silently differentiate the wrong thing.
+        num_experiments = self.protocol_info["num_experiments"] if self.protocol_info else 1
+        num_sub_per_exp = self.protocol_info["num_sub_per_exp"] if self.protocol_info else [1]
+        if num_experiments > 1 or any(n > 1 for n in num_sub_per_exp):
+            raise NotImplementedError(
+                f'the AADC tape cannot represent a protocol with {num_experiments} experiment(s) '
+                f'and sub-experiment counts {list(num_sub_per_exp)}: it records a single '
+                f'straight-line integration. Use a single-experiment obs_data, or turn off do_ad.')
+
+        weighted_obs_denominator = 0
+        if self._num_weighted_obs_by_exp_sub is not None:
+            for exp_idx in range(num_experiments):
+                for sub_idx in range(num_sub_per_exp[exp_idx]):
+                    weighted_obs_denominator += self._num_weighted_obs_by_exp_sub[exp_idx][sub_idx]
+
         def cost_on_tape(states_idouble, params_idouble, trajectory=None):
             import aadc as _aadc
             from param_id.math_backend import make_math_backend
@@ -2301,6 +2342,26 @@ class OpencorParamID():
             cost = _aadc.idouble(0.0)
             if obs_info is None:
                 return cost
+
+            def _cost_scale(obs_idx):
+                """The constant in front of the normalised squared residual, for the cost type
+                configured on this observable.
+
+                The tape re-implements the cost by hand, so it has to reproduce the *configured*
+                cost function exactly -- if it does not, the gradient is the gradient of some
+                other function than the one being minimised. gaussian_MLE is
+                ``0.5 * mean(((x - mu)/std)^2 * w)`` and MSE is twice that. The hand-rolled form
+                below was missing the 0.5, which made every tape cost exactly 2x the real one.
+                """
+                name = cost_types[obs_idx] if obs_idx < len(cost_types) else 'gaussian_MLE'
+                if name == 'gaussian_MLE':
+                    return 0.5
+                if name == 'MSE':
+                    return 1.0
+                raise NotImplementedError(
+                    f"cost_type '{name}' cannot be recorded on an AADC tape yet; the tape cost "
+                    f"would not match the cost the optimiser minimises. Use gaussian_MLE or MSE, "
+                    f"or turn off do_ad.")
 
             gt_const = obs_info.get("ground_truth_const", [])
             std_const = obs_info.get("std_const_vec", [])
@@ -2326,6 +2387,8 @@ class OpencorParamID():
 
             gt_series = obs_info.get("ground_truth_series", [])
             std_series = obs_info.get("std_series_vec", [])
+            obs_dts = obs_info.get("obs_dt", [])
+            sim_dt = float(sim_helper.dt)
             weights_series = self.protocol_info["scaled_weight_series_from_exp_sub"][0][0] \
                 if self.protocol_info and "scaled_weight_series_from_exp_sub" in self.protocol_info \
                 else np.ones(len(gt_series)) if gt_series else np.array([])
@@ -2358,7 +2421,7 @@ class OpencorParamID():
                     std_val = _aadc.idouble(float(std_const[const_idx]))
                     w = _aadc.idouble(float(weights_const[const_idx]))
                     diff = (obs_val - gt_val) / std_val
-                    cost = cost + diff * diff * w
+                    cost = cost + diff * diff * w * _aadc.idouble(_cost_scale(jj))
                     const_idx += 1
 
                 elif data_types[jj] == 'series':
@@ -2371,22 +2434,78 @@ class OpencorParamID():
                         continue
 
                     gt_s = gt_series[series_idx]
-                    std_s = float(std_series[series_idx]) if series_idx < len(std_series) else 1.0
+                    # std may be one value for the whole series or one per sample
+                    std_raw = np.asarray(std_series[series_idx], dtype=float) \
+                        if series_idx < len(std_series) else np.asarray(1.0)
+                    if std_raw.ndim == 0:
+                        std_raw = np.full(len(gt_s), float(std_raw))
                     w_s = float(weights_series[series_idx]) if series_idx < len(weights_series) else 1.0
 
                     if w_s > 0 and gt_s is not None:
-                        n_pts = min(len(trajectory), len(gt_s))
-                        for t_idx in range(n_pts):
-                            diff = (trajectory[t_idx][si] - _aadc.idouble(float(gt_s[t_idx]))) / _aadc.idouble(std_s)
-                            cost = cost + diff * diff * _aadc.idouble(w_s / n_pts)
+                        # trajectory[k] is the state at time k*dt, and ground-truth sample k is
+                        # at k*obs_dt. Those grids only coincide when dt == obs_dt, so line the
+                        # simulated series up with the observation times by linear interpolation
+                        # -- the weights depend only on the two grids, never on the parameters,
+                        # so this stays on tape and stays differentiable. Indexing
+                        # trajectory[t_idx] directly (as this did) silently compared the
+                        # simulation against the wrong times whenever dt != obs_dt.
+                        obs_dt_s = float(obs_dts[series_idx]) if series_idx < len(obs_dts) \
+                            else sim_dt
+                        n_traj = len(trajectory)
+                        n_pts = 0
+                        terms = []
+                        for k in range(len(gt_s)):
+                            pos = k * obs_dt_s / sim_dt
+                            lower = int(np.floor(pos))
+                            if lower >= n_traj - 1:
+                                if lower == n_traj - 1 and abs(pos - lower) < 1e-9:
+                                    sim_val = trajectory[lower][si]
+                                else:
+                                    break  # past the end of the simulation: no data to compare
+                            else:
+                                frac = pos - lower
+                                sim_val = (trajectory[lower][si] * _aadc.idouble(1.0 - frac)
+                                           + trajectory[lower + 1][si] * _aadc.idouble(frac))
+                            terms.append((sim_val, float(gt_s[k]), float(std_raw[k])))
+                            n_pts += 1
+
+                        for sim_val, gt_val_k, std_k in terms:
+                            diff = (sim_val - _aadc.idouble(gt_val_k)) / _aadc.idouble(std_k)
+                            cost = cost + diff * diff * _aadc.idouble(
+                                _cost_scale(jj) * w_s / n_pts)
 
                     series_idx += 1
 
+            # get_cost_obs_and_pred_from_params divides the summed sub-costs by the total
+            # number of weighted observable slots, so the tape must do the same or its cost is
+            # a constant multiple of the real one -- and a constant multiple of the cost has a
+            # constant multiple of the gradient, which is exactly as wrong for a line search.
+            # (This was the factor of 2 in the measured AD/FD = [2, 2, 2, 2].)
+            if weighted_obs_denominator > 0:
+                cost = cost / _aadc.idouble(float(weighted_obs_denominator))
+
             return cost
 
-        # Run forward + reverse on AADC tape
-        grad = self.sim_helper.compute_gradient_tape(cost_on_tape)
-        return grad
+        # Run forward + reverse on AADC tape. Both the cost and the gradient come out of the
+        # same evaluation, so get_cost_aadc and get_jac_cost_aadc cannot drift apart.
+        return self.sim_helper.compute_cost_and_gradient_tape(cost_on_tape)
+
+    def get_jac_cost_aadc(self, param_vals):
+        return self._aadc_cost_and_grad(param_vals)[1]
+
+    def get_cost_aadc(self, param_vals):
+        """J(p) evaluated on the AADC tape.
+
+        This must be the cost an AADC-gradient optimiser minimises. The forward solver and the
+        tape do not integrate the same way -- the tape has to replay a fixed sequence of
+        operations, so it uses a fixed-step scheme, while sim_helper.run() may use an adaptive
+        one -- and the tape's cost is a separate implementation of the cost function. Taking
+        J(p) from get_cost_from_params and dJ/dp from the tape therefore hands L-BFGS-B the
+        gradient of a *different function* than the one it is minimising, which breaks the line
+        search. Measured on Lotka-Volterra, that mismatch gave AD/FD ratios of
+        [1.79, 1.96, 1.32, -0.067] -- the last one has the wrong sign.
+        """
+        return self._aadc_cost_and_grad(param_vals)[0]
     
     def get_obs_ca(self, param_vals, get_all_series=False):
         param_names = self.param_id_info["param_names"]

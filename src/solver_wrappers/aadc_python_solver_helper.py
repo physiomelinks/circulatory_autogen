@@ -442,6 +442,43 @@ class SimulationHelper:
         # and produce a different output length/origin than the RK45 integrator.
         return traj[self.pre_steps:]
 
+    def _integrate_rk4(self, states, variables_all, total_steps, dt):
+        """Fixed-step RK4.
+
+        Deliberately step-for-step identical to the RK4 loop that compute_cost_and_gradient_tape
+        records, so that a forward solve and the tape integrate the *same* discrete system. The
+        AD gradient is the exact gradient of whatever the tape integrates; if the forward solve
+        integrates something else (the adaptive RK45 in _integrate, say) then the gradient is
+        the gradient of a different function than the cost, and a gradient-based optimiser is
+        being fed inconsistent information. Any change here must be mirrored there.
+        """
+        n = self.STATE_COUNT
+        st = [float(s) for s in states[:n]]
+        vars_all = list(variables_all)
+
+        traj = [list(st)]
+        for step in range(total_steps):
+            t = step * dt
+            k1 = [0.0] * n
+            self.model.compute_rates(t, st, k1, vars_all)
+            st2 = [st[i] + 0.5 * dt * k1[i] for i in range(n)]
+            k2 = [0.0] * n
+            self.model.compute_rates(t + 0.5 * dt, st2, k2, vars_all)
+            st3 = [st[i] + 0.5 * dt * k2[i] for i in range(n)]
+            k3 = [0.0] * n
+            self.model.compute_rates(t + 0.5 * dt, st3, k3, vars_all)
+            st4 = [st[i] + dt * k3[i] for i in range(n)]
+            k4 = [0.0] * n
+            self.model.compute_rates(t + dt, st4, k4, vars_all)
+            for i in range(n):
+                st[i] = st[i] + dt / 6.0 * (k1[i] + 2.0 * k2[i] + 2.0 * k3[i] + k4[i])
+            if step >= self.pre_steps:
+                traj.append(list(st))
+
+        self.states = np.array(st, dtype=float)
+        self._rk_data = None
+        return traj
+
     def _integrate(self, states, variables_all, total_steps, dt):
         """
         Adaptive RK45 (Dormand-Prince) integration.
@@ -584,6 +621,10 @@ class SimulationHelper:
             self._unpatch_math_functions()
         elif method == 'semi_implicit':
             traj = self._integrate_semi_implicit(self.states, variables_all, total_steps, self.dt)
+        elif method == 'rk4':
+            # fixed-step, and identical to what the tape records -- the method to use when the
+            # cost and the AD gradient have to be of the same function
+            traj = self._integrate_rk4(self.states, variables_all, total_steps, self.dt)
         else:
             traj = self._integrate(self.states, variables_all, total_steps, self.dt)
         self.state_traj = np.array(traj).T  # (n_states, n_sim_steps)
@@ -857,8 +898,17 @@ class SimulationHelper:
         self._rhs_workers = aadc.ThreadPool(1)
 
     def compute_gradient_tape(self, cost_func_idouble):
+        """dJ/dp only. See compute_cost_and_gradient_tape, which this delegates to.
+
+        Prefer compute_cost_and_gradient_tape when the cost is also needed: the tape produces
+        J(p) and dJ/dp in the same evaluation, and taking the cost from anywhere else risks
+        differentiating one function while minimising another.
         """
-        Compute dJ/dp by recording the full ODE + cost on AADC tape.
+        return self.compute_cost_and_gradient_tape(cost_func_idouble)[1]
+
+    def compute_cost_and_gradient_tape(self, cost_func_idouble):
+        """
+        Compute J(p) and dJ/dp by recording the full ODE + cost on AADC tape.
 
         This is the fast path (~6ms for 27 states, 2200 steps).
         Records the entire forward integration with idouble, then
@@ -993,9 +1043,12 @@ class SimulationHelper:
 
         res = aadc.evaluate(self._tape_funcs, request, inputs, self._aad_workers)
 
+        # J(p) and dJ/dp come out of the *same* tape evaluation, so they are necessarily the
+        # cost and the gradient of the cost of one and the same function.
+        cost = float(np.asarray(res[0][self._tape_r_cost]).flat[0])
         dJdp = np.array([float(np.asarray(res[1][self._tape_r_cost][self._tape_a_p[j]]).flat[0])
                          for j in range(m)])
-        return dJdp
+        return cost, dJdp
 
     def compute_gradient_batch(self, param_array, cost_func_idouble=None):
         """
