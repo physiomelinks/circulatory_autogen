@@ -57,6 +57,17 @@ def flatten_model(model, importer):
     flat_model = importer.flattenModel(model)
     return flat_model
 
+def get_analysed_model(analyser):
+    """The AnalyserModel produced by analyser.analyseModel(...).
+
+    libCellML renamed this accessor from Analyser.model() to Analyser.analyserModel() in
+    0.7.0, so support both rather than pinning users to one side of that release.
+    """
+    if hasattr(analyser, 'analyserModel'):
+        return analyser.analyserModel()
+    return analyser.model()
+
+
 def analyse_model(model):
     analyser = Analyser()
     a = analyser.analyseModel(model)

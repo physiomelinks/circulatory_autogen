@@ -534,7 +534,7 @@ class PythonGenerator:
         analyser = lc.Analyser()
         analyser.analyseModel(flat_model)
         libcellml_utils.print_issues(analyser)
-        analysed_model = analyser.model()
+        analysed_model = cellml_utils.get_analysed_model(analyser)
         if analysed_model.type() != lc.AnalyserModel.Type.ODE:
             raise ValueError(
                 'Generated model is not a valid ODE model according to'
