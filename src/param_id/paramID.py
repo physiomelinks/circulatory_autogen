@@ -2313,56 +2313,74 @@ class OpencorParamID():
             # Map operand names to state indices
             state_names = [info['name'] for info in sim_helper.model.STATE_INFO]
 
-            const_idx = 0
-            for jj in range(len(operand_names)):
-                if data_types[jj] != 'constant':
-                    continue
-                if const_idx >= len(gt_const):
-                    break
-
-                op_name = operand_names[jj][0] if isinstance(operand_names[jj], (list, tuple)) else operand_names[jj]
-                operation = operations[jj]
-
-                # Find state index: op_name like 'Lotka_Volterra/x', state_name like 'x'
-                # Use sim_helper's name resolver for reliable matching
-                si = None
+            # Helper: resolve operand name to state index
+            def _resolve_state_idx(op_name):
                 kind, resolved_idx = sim_helper._resolve_name(op_name)
                 if kind == "state":
-                    si = resolved_idx
-                else:
-                    # Fallback: check if state name appears at end of operand path
-                    op_leaf = op_name.split('/')[-1].lower()
-                    for k, sn in enumerate(state_names):
-                        if sn.lower() == op_leaf:
-                            si = k
-                            break
+                    return resolved_idx
+                op_leaf = op_name.split('/')[-1].lower()
+                for k, sn in enumerate(state_names):
+                    if sn.lower() == op_leaf:
+                        return k
+                return None
 
-                if si is None:
+            gt_series = obs_info.get("ground_truth_series", [])
+            std_series = obs_info.get("std_series_vec", [])
+            weights_series = self.protocol_info["scaled_weight_series_from_exp_sub"][0][0] \
+                if self.protocol_info and "scaled_weight_series_from_exp_sub" in self.protocol_info \
+                else np.ones(len(gt_series)) if gt_series else np.array([])
+
+            const_idx = 0
+            series_idx = 0
+            for jj in range(len(operand_names)):
+                op_name = operand_names[jj][0] if isinstance(operand_names[jj], (list, tuple)) else operand_names[jj]
+                operation = operations[jj]
+                si = _resolve_state_idx(op_name)
+
+                if data_types[jj] == 'constant':
+                    if const_idx >= len(gt_const) or si is None:
+                        const_idx += 1
+                        continue
+
+                    # Apply operation to trajectory
+                    if trajectory is not None and operation in ('max', 'min', 'mean'):
+                        series_vals = [trajectory[t][si] for t in range(len(trajectory))]
+                        if operation == 'max':
+                            obs_val = mb.max(series_vals)
+                        elif operation == 'min':
+                            obs_val = mb.min(series_vals)
+                        elif operation == 'mean':
+                            obs_val = mb.mean(series_vals)
+                    else:
+                        obs_val = states_idouble[si]
+
+                    gt_val = _aadc.idouble(float(gt_const[const_idx]))
+                    std_val = _aadc.idouble(float(std_const[const_idx]))
+                    w = _aadc.idouble(float(weights_const[const_idx]))
+                    diff = (obs_val - gt_val) / std_val
+                    cost = cost + diff * diff * w
                     const_idx += 1
-                    continue
 
-                # Apply operation to trajectory
-                if trajectory is not None and operation in ('max', 'min', 'mean'):
-                    # Extract state si across all time steps (on tape)
-                    series = [trajectory[t][si] for t in range(len(trajectory))]
-                    if operation == 'max':
-                        obs_val = mb.max(series)
-                    elif operation == 'min':
-                        obs_val = mb.min(series)
-                    elif operation == 'mean':
-                        obs_val = mb.mean(series)
-                else:
-                    # Fallback: use final state
-                    obs_val = states_idouble[si]
+                elif data_types[jj] == 'series':
+                    # Series: compare trajectory at each time point
+                    if trajectory is None or si is None:
+                        series_idx += 1
+                        continue
+                    if series_idx >= len(gt_series):
+                        series_idx += 1
+                        continue
 
-                # Cost: weighted squared error
-                gt_val = _aadc.idouble(float(gt_const[const_idx]))
-                std_val = _aadc.idouble(float(std_const[const_idx]))
-                w = _aadc.idouble(float(weights_const[const_idx]))
-                diff = (obs_val - gt_val) / std_val
-                cost = cost + diff * diff * w
+                    gt_s = gt_series[series_idx]
+                    std_s = float(std_series[series_idx]) if series_idx < len(std_series) else 1.0
+                    w_s = float(weights_series[series_idx]) if series_idx < len(weights_series) else 1.0
 
-                const_idx += 1
+                    if w_s > 0 and gt_s is not None:
+                        n_pts = min(len(trajectory), len(gt_s))
+                        for t_idx in range(n_pts):
+                            diff = (trajectory[t_idx][si] - _aadc.idouble(float(gt_s[t_idx]))) / _aadc.idouble(std_s)
+                            cost = cost + diff * diff * _aadc.idouble(w_s / n_pts)
+
+                    series_idx += 1
 
             return cost
 
