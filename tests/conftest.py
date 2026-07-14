@@ -7,6 +7,42 @@ It provides fixtures for test data, configuration, and deterministic randomness.
 import os
 import re
 import sys
+
+
+def _validate_aadc_license():
+    """Record a throwaway AADC tape to force the licence check, and report whether
+    it succeeded.
+
+    This MUST run before ``mpi4py.MPI`` is imported. AADC validates its licence over
+    the network via LicenseSpring/libcurl, and once MPI is loaded into the process the
+    curl TLS backend can no longer be initialised ("Could not initialize curl TLS
+    backend"), so every subsequent ``start_recording()`` raises ``RuntimeError: AADC
+    License check failed`` — even with a perfectly valid licence. Validating here caches
+    the licence while curl still works, and it stays usable for the rest of the session.
+    """
+    try:
+        import aadc
+        import numpy
+
+        funcs = aadc.Functions()
+        funcs.start_recording()
+        x = aadc.idouble(2.0)
+        x_arg = x.mark_as_input()
+        y = x * x
+        y_res = y.mark_as_output()
+        funcs.stop_recording()
+        aadc.evaluate(funcs, {y_res: [x_arg]}, {x_arg: numpy.array([3.0])},
+                      aadc.ThreadPool(1))
+        return True
+    except Exception:
+        return False
+
+
+# Whether AADC is installed *and* licensed. AADC's forward solves run unlicensed, but
+# anything that records a tape (gradients, and the Jacobian-based 'bdf' solve) does not,
+# so licence-gated tests skip rather than fail. See the `aadc_licensed` fixture.
+AADC_LICENSE_AVAILABLE = _validate_aadc_license()
+
 import yaml
 import shutil
 import pytest
@@ -476,6 +512,25 @@ def user_inputs_dir(project_root):
 def resources_dir(project_root):
     """Fixture that returns the resources directory."""
     return os.path.join(project_root, 'resources')
+
+
+@pytest.fixture(scope="session")
+def aadc_licensed():
+    """Skip a test unless AADC is installed *and* licensed.
+
+    AADC's forward solves run with a bare ``pip install aadc``, but anything that
+    records a tape — the gradients, and the Jacobian-backed ``method='bdf'`` solve —
+    needs a Matlogica licence and otherwise raises ``RuntimeError: AADC License check
+    failed``. Those tests skip rather than fail so an unlicensed environment (including
+    CI) stays green.
+    """
+    pytest.importorskip("aadc")
+    if not AADC_LICENSE_AVAILABLE:
+        pytest.skip(
+            "AADC is installed but not licensed: recording a tape raises 'AADC License "
+            "check failed'. A Matlogica licence is needed to exercise the AADC gradient "
+            "and 'bdf' paths."
+        )
 
 
 @pytest.fixture(scope="function")

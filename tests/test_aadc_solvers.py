@@ -126,7 +126,8 @@ def test_aadc_stiff_model_runs(base_user_inputs, resources_dir, temp_generated_m
 
 @pytest.mark.integration
 @pytest.mark.slow
-def test_aadc_gradient_vs_fd(base_user_inputs, resources_dir, temp_generated_models_dir):
+def test_aadc_gradient_vs_fd(aadc_licensed, base_user_inputs, resources_dir,
+                             temp_generated_models_dir):
     """AD gradient should match finite differences on the same tape."""
     aadc_mod = pytest.importorskip("aadc")
 
@@ -210,7 +211,8 @@ def test_aadc_implicit_euler_ift_nonstiff(base_user_inputs, resources_dir, temp_
 
 @pytest.mark.integration
 @pytest.mark.slow
-def test_aadc_implicit_euler_ift_gradient(base_user_inputs, resources_dir, temp_generated_models_dir):
+def test_aadc_implicit_euler_ift_gradient(aadc_licensed, base_user_inputs, resources_dir,
+                                          temp_generated_models_dir):
     """AD gradient via implicit_euler_ift + IFT should match FD."""
     aadc_mod = pytest.importorskip("aadc")
 
@@ -261,7 +263,8 @@ def test_aadc_implicit_euler_ift_gradient(base_user_inputs, resources_dir, temp_
 
 @pytest.mark.integration
 @pytest.mark.slow
-def test_aadc_implicit_euler_ift_parallel(base_user_inputs, resources_dir, temp_generated_models_dir):
+def test_aadc_implicit_euler_ift_parallel(aadc_licensed, base_user_inputs, resources_dir,
+                                          temp_generated_models_dir):
     """Batch parallel evaluation gives same results as single-thread."""
     aadc_mod = pytest.importorskip("aadc")
 
@@ -316,7 +319,8 @@ def test_aadc_implicit_euler_ift_parallel(base_user_inputs, resources_dir, temp_
 
 @pytest.mark.integration
 @pytest.mark.slow
-def test_aadc_implicit_euler_ift_benchmark(base_user_inputs, resources_dir, temp_generated_models_dir):
+def test_aadc_implicit_euler_ift_benchmark(aadc_licensed, base_user_inputs, resources_dir,
+                                           temp_generated_models_dir):
     """Benchmark: recording, forward eval, gradient eval with threading."""
     aadc_mod = pytest.importorskip("aadc")
 
@@ -378,3 +382,34 @@ def test_aadc_implicit_euler_ift_benchmark(base_user_inputs, resources_dir, temp
 
     # Sanity: benchmark should complete without error
     assert True
+
+
+# ---- Third-party licensing notice ----
+
+@pytest.mark.unit
+def test_aadc_backend_warns_it_is_third_party_proprietary(base_user_inputs, resources_dir,
+                                                          temp_generated_models_dir):
+    """Selecting the AADC backend must warn, at runtime, that AADC is optional third-party
+    proprietary software that is not part of Circulatory Autogen.
+
+    AADC is not open source and is licensed by Matlogica for academic/non-commercial use
+    only, so a user must not be able to end up on this backend without being told.
+    """
+    pytest.importorskip("aadc")
+    import solver_wrappers.aadc_python_solver_helper as aadc_helper
+
+    aadc_dir = os.path.join(temp_generated_models_dir, "aadc_notice")
+    os.makedirs(aadc_dir, exist_ok=True)
+    aadc_path = _generate_aadc_model("3compartment", "3compartment_parameters.csv",
+                                     base_user_inputs, aadc_dir)
+
+    aadc_helper._notice_emitted = False  # the notice is once-per-process
+    with pytest.warns(UserWarning) as record:
+        get_simulation_helper(model_path=aadc_path, solver='aadc_semi_implicit',
+            model_type='aadc_python', dt=0.01, sim_time=0.1, pre_time=0.0,
+            solver_info={'method': 'semi_implicit'})
+
+    notice = "\n".join(str(w.message) for w in record).lower()
+    assert "not part of circulatory autogen" in notice
+    assert "proprietary" in notice
+    assert "casadi_python" in notice, "the notice must point at the open-source alternative"

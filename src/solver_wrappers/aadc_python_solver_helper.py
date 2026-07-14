@@ -21,6 +21,7 @@ Key differences from CasADI backend:
 import importlib.util
 import math
 import copy
+import warnings
 import numpy as np
 
 try:
@@ -34,6 +35,26 @@ try:
 except ImportError:
     # Standalone usage outside circulatory_autogen package
     VariableNameResolver = None
+
+
+_THIRD_PARTY_NOTICE = (
+    "You have selected the AADC backend (model_type='aadc_python'). AADC is THIRD-PARTY "
+    "PROPRIETARY software from Matlogica. It is NOT part of Circulatory Autogen, is not "
+    "covered by Circulatory Autogen's Apache-2.0 licence, and is not open source; its terms "
+    "restrict it to academic / non-commercial use. Use of AADC is governed solely by your "
+    "own licence agreement with Matlogica. No feature of Circulatory Autogen requires it: "
+    "the default, supported, fully open-source AD backend is CasADi "
+    "(model_type='casadi_python')."
+)
+_notice_emitted = False
+
+
+def _emit_third_party_notice():
+    """Warn once per process that AADC is optional third-party proprietary software."""
+    global _notice_emitted
+    if not _notice_emitted:
+        warnings.warn(_THIRD_PARTY_NOTICE, UserWarning, stacklevel=3)
+        _notice_emitted = True
 
 
 class SimulationHelper:
@@ -50,6 +71,7 @@ class SimulationHelper:
     def __init__(self, model_path, dt, sim_time, solver_info=None, pre_time=0.0):
         if aadc is None:
             raise RuntimeError("AADC solver requested but aadc is not installed")
+        _emit_third_party_notice()
         self.model_path = model_path
         self.dt = dt
         self.pre_time = pre_time

@@ -16,10 +16,14 @@ Notes / current status (see PR #251):
     CVODE on this stiff model, and its own gradient matches FD — the BDF graph is fully
     differentiable, so AD works directly on bdf (no fallback to semi_implicit_euler).
     These tests pass.
-  - AADC's ``method='bdf'`` and tape gradient are **license-gated** (Matlogica). Without a
-    license they raise ``RuntimeError: AADC License check failed``, so the AADC-side tests
-    fail here until a license is provisioned (locally and on CI). They are intentionally
-    left failing rather than skipped.
+  - AADC's ``method='bdf'`` matches CVODE closely and its tape gradient matches FD, but
+    both **record a tape and so are license-gated** (Matlogica). Without a license they
+    raise ``RuntimeError: AADC License check failed``; those tests take the
+    ``aadc_licensed`` fixture and skip when no license is present, so an unlicensed
+    environment (including CI) stays green.
+
+Note: the AADC licence check must be performed before ``mpi4py.MPI`` is imported, which
+``tests/conftest.py`` takes care of — see ``_validate_aadc_license`` there.
 """
 import os
 import sys
@@ -248,7 +252,7 @@ def test_3compartment_casadi_rk_no_abstol_option(models_3compartment):
 
 @pytest.mark.integration
 @pytest.mark.slow
-def test_3compartment_forward_aadc_bdf_vs_cvode(models_3compartment):
+def test_3compartment_forward_aadc_bdf_vs_cvode(aadc_licensed, models_3compartment):
     """AADC BDF (scipy BDF + AADC Jacobian) should match the CVODE reference.
 
     License-gated: raises ``AADC License check failed`` without a Matlogica license.
@@ -439,7 +443,7 @@ def test_3compartment_local_sa_ad_bdf_vs_fd(models_3compartment):
 
 @pytest.mark.integration
 @pytest.mark.slow
-def test_3compartment_gradient_vs_fd_aadc(models_3compartment):
+def test_3compartment_gradient_vs_fd_aadc(aadc_licensed, models_3compartment):
     """AADC tape gradient vs FD on the same tape.
 
     License-gated: raises ``AADC License check failed`` without a Matlogica license.
@@ -482,15 +486,19 @@ def test_3compartment_gradient_vs_fd_aadc(models_3compartment):
 # ---- 3. Speed ----
 @pytest.mark.integration
 @pytest.mark.slow
-def test_3compartment_speed_casadi_vs_aadc_bdf(models_3compartment):
+def test_3compartment_speed_casadi_vs_aadc_bdf(aadc_licensed, models_3compartment):
     """Wall-clock comparison of the BDF forward solve: CasADi vs AADC.
 
-    Both are timed and printed. The AADC BDF path is license-gated, so this test fails
-    on the AADC side until a Matlogica license is available; the CasADi timing is still
-    printed first.
-    """
-    pytest.importorskip("aadc")
+    Both are timed and printed; the test asserts only that each solve produces finite
+    states, so it reports rather than gates.
 
+    Caveat when quoting the ratio: the two ``method='bdf'`` paths are not the same
+    algorithm. CasADi's is a *fixed* sub-stepped symbolic implicit BDF (internal step
+    capped at ``solver_info['max_step']``, default 1e-3), whereas AADC's is scipy's
+    *adaptive* BDF with an AADC-supplied exact Jacobian. The measured gap therefore mixes
+    backend speed with adaptive-vs-fixed step control, and is not a like-for-like
+    source-transformation-vs-operator-overloading benchmark.
+    """
     ca_paths = models_3compartment["casadi"]
     aadc_paths = models_3compartment["aadc"]
 

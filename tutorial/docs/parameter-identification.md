@@ -271,6 +271,19 @@ To run the parameter identification we need to set a few entries in the `[CA_dir
 
     - **do_ad**: Boolean value to determine whether to use automatic differentiation for gradient calculation. If it's set to *False*, gradients will be estimated using finite difference approximation.
 
+    !!! note "Automatic differentiation uses CasADi"
+        Gradient-based calibration (`do_ad: true`) is provided by **CasADi**
+        (`model_type: casadi_python`), which is open source (LGPL) and requires no
+        proprietary licence. This is the default and only supported AD backend for
+        parameter identification.
+
+        Circulatory Autogen also ships an *optional* adapter for **AADC (Matlogica)**, which
+        is **third-party proprietary software, not part of Circulatory Autogen**, not
+        bundled with it, and restricted to academic/non-commercial use under Matlogica's own
+        licence. It is not required, and it does not currently drive `sp_minimize`. See
+        [Optional third-party backends](getting-started.md) if you already hold a Matlogica
+        licence.
+
 - **ga_options**: Legacy dictionary for optimization options. For backwards compatibility, entries in `ga_options` are automatically merged into `optimiser_options` if not already present. It is recommended to use `optimiser_options` instead.
 
 

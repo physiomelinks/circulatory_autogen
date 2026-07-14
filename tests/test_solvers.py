@@ -1249,30 +1249,27 @@ def test_all_solvers(model_name, input_param_file, sim_time, include_casadi, tem
 
 @pytest.mark.integration
 @pytest.mark.slow
-def test_aadc_vs_cvode_3compartment(temp_model_dir, generated_cellml_model_factory):
-    """The stiff 3compartment model integrated with the AADC semi-implicit solver
-    should track the CVODE_myokit reference trajectory.
+def test_aadc_vs_cvode_3compartment(aadc_licensed, temp_model_dir,
+                                    generated_cellml_model_factory):
+    """The stiff 3compartment model integrated with the AADC ``bdf`` solver should track
+    the CVODE_myokit reference trajectory.
 
     Why this test: the PR's own AADC stiff test only asserts the 3compartment run
     produces no NaNs — it does not check the values are *correct*. This compares the
     integrated ODE states against CVODE_myokit, which is what "same outputs with
     CVODE and with AADC" requires.
 
-    KNOWN FAILURE (intentional, kept red as a marker — see PR #251 discussion):
-    AADC's only working stiff path here is a first-order semi-implicit Euler scheme
-    with numerical diagonal damping (``y += dt*f/(1+dt*lam)``). That damping suppresses
-    the stiff states, which in this cardiovascular model carry physiologically
-    important fast dynamics — so the result deviates substantially from CVODE
-    (~35% relative-L2 on a peripheral volume at dt=1e-3). The adaptive-RK45 path is
-    not a stiff solver and hangs on this model. Matching CVODE requires a proper
-    implicit forward solve (the AADC CVODES ComputeBlock referenced in the PR but not
-    yet wired into ``run()``). Until that lands, this assertion documents the gap.
+    This deliberately exercises ``method='bdf'`` (scipy's implicit BDF with an exact dense
+    Jacobian supplied by AADC) and not ``method='semi_implicit'``. Semi-implicit Euler is
+    first-order with numerical diagonal damping (``y += dt*f/(1+dt*lam)``); that damping
+    suppresses the stiff states, which in this cardiovascular model carry physiologically
+    important fast dynamics, so it deviates from CVODE by ~35% relative-L2 and cannot meet
+    a meaningful tolerance. ``bdf`` is the accurate stiff path and tracks CVODE closely.
     """
-    pytest.importorskip("aadc")
     cellml_path = generated_cellml_model_factory("3compartment", "3compartment_parameters.csv")
     results, _, helpers = _run_all_solvers_and_compare(
         "3compartment", cellml_path, temp_model_dir, dt=0.001, sim_time=1.0,
-        tolerance=5.0, include_aadc=True, aadc_method="semi_implicit",
+        tolerance=5.0, include_aadc=True, aadc_method="bdf",
     )
 
     aadc_result = results.get("aadc_semi_implicit", {})
@@ -1292,9 +1289,9 @@ def test_aadc_vs_cvode_3compartment(temp_model_dir, generated_cellml_model_facto
           f"{worst_var} ({compared} states compared)")
 
     assert compared > 0, "No ODE states were matched between CVODE and AADC"
-    tol_pct = 5.0
+    tol_pct = 1.0
     assert max_pct < tol_pct, (
-        f"AADC semi-implicit deviates from CVODE by {max_pct:.3f}% (> {tol_pct}%) "
+        f"AADC bdf deviates from CVODE by {max_pct:.3f}% (> {tol_pct}%) "
         f"on state {worst_var}"
     )
 

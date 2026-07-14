@@ -105,20 +105,45 @@ The shell helpers under `user_run_files/*.sh` may still assume a particular inte
 
 For a notebook-oriented walkthrough, see `tutorial/interactive/generate_and_calibrate.ipynb`.
 
-## Optional dependencies
+## Optional third-party backends (not part of Circulatory Autogen)
 
-Some backends are not installed by `pip install -e .` because they are optional and/or
-carry their own licensing terms. Install them only if you need the corresponding feature;
-the rest of the project works without them.
+Circulatory Autogen itself is **fully open source** (Apache License 2.0) and everything
+described in this documentation works without installing anything below.
 
-### AADC (alternative automatic-differentiation backend)
+This section describes **optional, third-party software that is *not* part of Circulatory
+Autogen**. It is not bundled with it, not installed by `pip install -e .`, not required by
+any feature, and not distributed under Circulatory Autogen's license. It is developed and
+licensed by other parties, on their terms. Circulatory Autogen merely provides an optional
+adapter so that users who *already* have a licence for such a product can plug it in. If
+you install one, you are entering a licensing relationship with that third party, not with
+this project.
 
-[AADC](https://matlogica.com/) (Matlogica) is an optional automatic-differentiation
-backend for gradient-based parameter identification, available alongside the default
-CasADi AD backend. It records the actual model execution on a tape and supports
-conditionals (`if`/`else`) directly, which makes it convenient for piecewise models.
+### AADC (Matlogica) — proprietary, optional, not included
 
-Install it with:
+!!! danger "AADC is third-party proprietary software and is NOT part of Circulatory Autogen"
+    - **Not included, not required.** AADC is **not** shipped with Circulatory Autogen and
+      **no** feature of Circulatory Autogen depends on it. The project is fully functional,
+      and fully open source, without it. Nothing installs it for you.
+    - **Not open source.** [AADC](https://matlogica.com/) is a commercial product of
+      **Matlogica**, distributed under **Matlogica's own proprietary licence** — *not* under
+      Circulatory Autogen's Apache-2.0 licence, and not under any open-source licence. Its
+      terms restrict it to **academic / non-commercial use**.
+    - **You must obtain your own licence.** The Circulatory Autogen maintainers do not
+      supply, sublicense, or broker AADC licences, and cannot support licensing issues.
+      **Read and accept Matlogica's licence terms yourself, directly with Matlogica,**
+      before installing or using it.
+    - **Its gradients are licence-gated at runtime.** Forward simulation may run with a bare
+      `pip install aadc`, but anything that records a tape — the automatic-differentiation
+      gradients, and the Jacobian-backed `bdf` solver — raises
+      `RuntimeError: AADC License check failed` without a valid licence.
+    - **Use CasADi if you want a fully open-source pipeline.** CasADi (LGPL) is the
+      **default and supported** AD backend and requires no proprietary licence — see
+      `model_type: casadi_python` in
+      [Parameter Identification](parameter-identification.md). AADC is **only** an optional
+      alternative for licensed academic users; you never need it.
+
+If, and only if, you hold a Matlogica licence and accept their terms, the optional adapter
+is enabled by installing the package:
 
 ```
 python -m pip install aadc
@@ -127,27 +152,20 @@ python -m pip install aadc
 (Into OpenCOR's Python if you run the test suite that way — see the legacy section below,
 e.g. `[OpenCOR_dir]/pythonshell -m pip install aadc`.)
 
-Once installed, select it in your `user_inputs.yaml`:
+and then selecting it in your `user_inputs.yaml`:
 
 ```yaml
 model_type: aadc_python
 solver: aadc_semi_implicit
+solver_info:
+  method: bdf   # accurate stiff solve; 'semi_implicit' is first-order and heavily damped
 ```
 
-!!! warning "AADC is not open source — academic use only"
-    AADC does **not** ship under an open-source license; its terms restrict it to
-    **academic / non-commercial use**. Review Matlogica's license before using it, and do
-    not depend on it for fully open-source or commercial workflows.
-
-    The automatic-differentiation features are **license-gated at runtime**: forward
-    simulation may run with the bare `pip` install, but recording/evaluating gradients
-    raises `RuntimeError: AADC License check failed` without a valid license. Obtain an
-    (academic) license from Matlogica to use AADC for gradient-based parameter
-    identification.
-
-    **For a fully open-source pipeline, use CasADi for automatic differentiation instead**
-    (`model_type: casadi_python`). CasADi is open source (LGPL) and is the default,
-    supported AD backend; AADC is an optional alternative for academic users.
+Available `solver_info.method` values for the AADC adapter are `adaptive_rk45` (non-stiff),
+`bdf` (stiff, accurate — recommended), `implicit_euler_ift` (implicit Euler with exact AD
+via the implicit function theorem), and `semi_implicit` (first-order, damped; fast but
+inaccurate on stiff models — it deviates from the CVODE reference by ~35% on the
+3compartment model, so do not use it for quantitative work).
 
 ## MPI and system libraries
 
