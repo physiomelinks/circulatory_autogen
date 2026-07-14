@@ -30,6 +30,11 @@ try:
 except ImportError:
     NEVERGRAD_AVAILABLE = False
 
+# Model types for which OpencorParamID.get_gradient() has an AD backend: a symbolic jacobian
+# for casadi models, a tape reverse pass for aadc ones. Everything else falls back to finite
+# differences. Keep in sync with OpencorParamID.get_gradient.
+AD_GRADIENT_MODEL_TYPES = ('casadi_python', 'aadc_python')
+
 
 class Optimiser(ABC):
     """
@@ -960,10 +965,10 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
     each rank runs its own descents with no collective communication in between. The
     results are gathered once at the end.
 
-    Gradients come from CasADi automatic differentiation (`get_jac_cost_ca`) for
-    `casadi_python` models. For every other model type there is no AD cost function, so the
-    cost is evaluated with `get_cost_from_params` and the gradient falls back to finite
-    differences.
+    Gradients come from `param_id_obj.get_gradient()`, which has an AD backend for
+    `casadi_python` (symbolic jacobian) and `aadc_python` (tape) models. For every other model
+    type there is no AD gradient, so it falls back to finite differences on the ordinary
+    simulation cost.
 
     Optimiser options:
         num_starts:         number of L-BFGS-B descents (default 10, or 4 when DEBUG).
@@ -989,8 +994,9 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
 
         self.do_ad = do_ad
         self.model_type = model_type
-        # get_cost_ca/get_jac_cost_ca only exist for casadi generated models.
-        self.use_casadi_cost = (model_type == 'casadi_python')
+        # param_id_obj.get_gradient() only has an AD backend for casadi (symbolic) and aadc
+        # (tape) models; for anything else it raises, so those fall back to finite differences.
+        self.use_ad_gradient = do_ad and model_type in AD_GRADIENT_MODEL_TYPES
 
         self.param_mins = self.param_id_info["param_mins"]
         self.param_maxs = self.param_id_info["param_maxs"]
@@ -1054,24 +1060,24 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
 
     def _make_cost_func(self):
         """Cost as a function of normalised parameters."""
-        if self.use_casadi_cost:
-            def cost_fun(q_norm):
-                p = self.param_norm_obj.unnormalise(np.asarray(q_norm, dtype=float))
-                return float(self.param_id_obj.get_cost_ca(p))
-        else:
-            def cost_fun(q_norm):
-                p = self.param_norm_obj.unnormalise(np.asarray(q_norm, dtype=float))
-                cost = float(self.param_id_obj.get_cost_from_params(p))
-                # A failed simulation returns inf, which would poison the FD gradient.
-                return cost if np.isfinite(cost) else self.FAILED_SIM_COST
+        def cost_fun(q_norm):
+            p = self.param_norm_obj.unnormalise(np.asarray(q_norm, dtype=float))
+            # get_cost dispatches on model_type: the symbolic cost for casadi models, the
+            # ordinary simulation cost otherwise.
+            cost = float(self.param_id_obj.get_cost(p))
+            # A failed simulation returns inf, which would poison the finite-difference
+            # gradient and stall L-BFGS-B.
+            return cost if np.isfinite(cost) else self.FAILED_SIM_COST
         return cost_fun
 
     def _make_gradient_func(self, cost_fun):
-        """dJ/dq in normalised parameter space, or None if L-BFGS-B should not be given a jac."""
-        if self.use_casadi_cost and self.do_ad:
+        """dJ/dq in normalised parameter space."""
+        if self.use_ad_gradient:
             def gradient_func(q_norm):
                 p = self.param_norm_obj.unnormalise(np.asarray(q_norm, dtype=float))
-                dJ_dp = np.asarray(self.param_id_obj.get_jac_cost_ca(p), dtype=float).flatten()
+                # get_gradient dispatches on model_type: the CasADi symbolic jacobian, or the
+                # AADC tape gradient.
+                dJ_dp = np.asarray(self.param_id_obj.get_gradient(p), dtype=float).flatten()
                 # chain rule: dJ/dq = dJ/dp * dp/dq = dJ/dp * (max - min)
                 return dJ_dp * self.param_ranges
             return gradient_func
@@ -1151,7 +1157,7 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
             bounds_norm = list(zip(param_mins_norm, param_maxs_norm))
 
             if rank == 0:
-                grad_source = ('CasADi AD' if (self.use_casadi_cost and self.do_ad)
+                grad_source = (f'{self.model_type} AD' if self.use_ad_gradient
                                else 'finite differences')
                 print(f'Running multi-start L-BFGS-B: {num_starts} starts '
                       f'({self.optimiser_options["start_sampling"]} sampling) over '
@@ -1219,12 +1225,12 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
         self.best_cost = best['cost']
         self.param_id_obj.set_best_param_vals(self.best_param_vals)
 
-        if self.use_casadi_cost and self.do_ad:
+        if self.use_ad_gradient:
             self.init_gradient = np.asarray(
-                self.param_id_obj.get_jac_cost_ca(np.asarray(self.param_id_obj.param_init)),
+                self.param_id_obj.get_gradient(np.asarray(self.param_id_obj.param_init)),
                 dtype=float).flatten()
             self.best_gradient = np.asarray(
-                self.param_id_obj.get_jac_cost_ca(self.best_param_vals), dtype=float).flatten()
+                self.param_id_obj.get_gradient(self.best_param_vals), dtype=float).flatten()
 
         self._save_best_params()
 

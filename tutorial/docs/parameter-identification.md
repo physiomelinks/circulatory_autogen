@@ -286,7 +286,7 @@ To run the parameter identification we need to set a few entries in the `[CA_dir
     - **start_sampling**: How the starting points are scattered over the parameter bounds: `sobol` (default), `latin_hypercube` or `random`.
     - **include_init_point**: If true (default), the first start is the initial parameter values from `{file_prefix}_parameters.csv`, so this method can never do worse than a single-start `sp_minimize` run.
     - **seed**: Seed for the start sampler (default: 0), so a run is repeatable.
-    - **fd_step**: Finite-difference step used when automatic differentiation isn't available (default: 1e-4).
+    - **fd_step**: Finite-difference step used when automatic differentiation isn't available, i.e. for any `model_type` other than `casadi_python` or `aadc_python`, or when `do_ad: false` (default: 1e-4).
     - **cost_convergence**: A start reaching this cost stops the remaining starts on that MPI rank.
 
     !!! note "Automatic differentiation uses CasADi"
@@ -342,7 +342,7 @@ L-BFGS-B only ever finds the minimum of the basin it starts in, so on a multi-mo
 - **Cons**: Cost scales with `num_starts`; a very rugged surface may need many starts.
 - **Best for**: Multi-modal cost surfaces — the common case when calibrating oscillatory models, where a wrong rate constant puts the simulation out of phase with the data.
 
-Unlike `sp_minimize`, this works for **any** `model_type`. For `casadi_python` models the gradient comes from CasADi automatic differentiation (`get_jac_cost_ca`); for every other model type there is no AD cost function, so the cost is evaluated with the usual simulation cost and the gradient falls back to finite differences.
+This works for **any** `model_type`. The gradient comes from `get_gradient()`, which has an AD backend for `casadi_python` (symbolic jacobian) and `aadc_python` (tape reverse pass) models. For every other model type there is no AD gradient, so the cost is evaluated with the usual simulation cost and the gradient falls back to finite differences.
 
 Example configuration:
 ```yaml

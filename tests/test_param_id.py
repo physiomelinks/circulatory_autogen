@@ -2951,19 +2951,27 @@ def _two_well_grad(p):
 
 
 class _TwoWellParamId:
-    """Stand-in for OpencorParamID exposing just what the optimisers call."""
+    """Stand-in for OpencorParamID exposing just what the optimisers call.
 
-    def __init__(self, param_init=(1.2, 1.2)):
+    Mirrors the backend-agnostic interface: get_cost() always works, get_gradient() only has an
+    AD backend for casadi_python / aadc_python models and raises otherwise, exactly as
+    OpencorParamID.get_gradient does.
+    """
+
+    def __init__(self, param_init=(1.2, 1.2), model_type='casadi_python'):
         self.param_init = np.array(param_init, dtype=float)
+        self.model_type = model_type
         self.best = None
         self.num_cost_calls = 0
         self.num_jac_calls = 0
 
-    def get_cost_ca(self, p):
+    def get_cost(self, p):
         self.num_cost_calls += 1
         return _two_well_cost(p)
 
-    def get_jac_cost_ca(self, p):
+    def get_gradient(self, p):
+        if self.model_type not in ('casadi_python', 'aadc_python'):
+            raise ValueError(f"Gradient not available for model_type={self.model_type}")
         self.num_jac_calls += 1
         return _two_well_grad(p)
 
@@ -3041,8 +3049,8 @@ def test_multi_start_lbfgsb_escapes_a_local_minimum_that_traps_single_start(temp
 def test_multi_start_finite_difference_fallback_without_casadi(temp_output_dir):
     """For non-casadi models there is no AD cost, so the optimiser must fall back to
     get_cost_from_params with a finite-difference gradient and still escape the local well."""
-    param_id_obj = _TwoWellParamId(param_init=(1.2, 1.2))
-    # model_type None => no get_cost_ca / get_jac_cost_ca
+    # a cellml_only model has no AD gradient, so get_gradient would raise if it were called
+    param_id_obj = _TwoWellParamId(param_init=(1.2, 1.2), model_type='cellml_only')
     opt = _make_multi_start_optimiser(
         temp_output_dir, param_id_obj,
         {'num_starts': 8, 'start_sampling': 'sobol', 'seed': 0, 'cost_convergence': 1e-12},
@@ -3050,7 +3058,7 @@ def test_multi_start_finite_difference_fallback_without_casadi(temp_output_dir):
     opt.run()
 
     assert param_id_obj.num_jac_calls == 0, \
-        'the AD jacobian must not be used for a non-casadi model'
+        'the AD gradient must not be used for a model type that has no AD backend'
     assert param_id_obj.num_cost_calls > 0
     assert np.all(opt.best_param_vals < 0.0), \
         f'finite-difference multi-start should still find the -1 well, got {opt.best_param_vals}'
@@ -3490,3 +3498,35 @@ def test_series_interpolation_does_not_invent_data_past_the_end_of_the_simulatio
     assert len(series_entry) == 9
     assert len(obs_entry) == 9 and len(std_entry) == 9
     np.testing.assert_allclose(series_entry, np.arange(9) * obs_dt, atol=1e-9)
+
+
+@pytest.mark.unit
+def test_multi_start_uses_the_ad_gradient_for_aadc_models(temp_output_dir):
+    """An aadc_python model has a tape gradient, so the multi-start must call get_gradient()
+    rather than quietly falling back to finite differences (which is what it did before the
+    backend-agnostic AD wiring landed)."""
+    param_id_obj = _TwoWellParamId(param_init=(1.2, 1.2), model_type='aadc_python')
+    opt = _make_multi_start_optimiser(
+        temp_output_dir, param_id_obj,
+        {'num_starts': 4, 'start_sampling': 'sobol', 'seed': 0, 'cost_convergence': 1e-12},
+        model_type='aadc_python', do_ad=True)
+    assert opt.use_ad_gradient, 'aadc_python models must use the AD gradient'
+    opt.run()
+
+    assert param_id_obj.num_jac_calls > 0, \
+        'expected the aadc tape gradient to be used, not finite differences'
+    assert np.all(opt.best_param_vals < 0.0), \
+        f'the multi-start should still find the -1 well, got {opt.best_param_vals}'
+
+
+@pytest.mark.unit
+def test_multi_start_falls_back_to_fd_when_do_ad_is_off(temp_output_dir):
+    """do_ad: false must disable the AD gradient even on a model type that has one."""
+    param_id_obj = _TwoWellParamId(param_init=(1.2, 1.2), model_type='casadi_python')
+    opt = _make_multi_start_optimiser(
+        temp_output_dir, param_id_obj,
+        {'num_starts': 4, 'start_sampling': 'sobol', 'seed': 0, 'cost_convergence': 1e-12},
+        model_type='casadi_python', do_ad=False)
+    assert not opt.use_ad_gradient
+    opt.run()
+    assert param_id_obj.num_jac_calls == 0

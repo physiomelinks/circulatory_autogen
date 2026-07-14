@@ -21,8 +21,8 @@ param_id_method: genetic_algorithm
 # param_id_method: CMA-ES
 # param_id_method: sp_minimize
 # multi_start_sp_minimize runs L-BFGS-B from many scattered starts, so it uses the gradient
-# but still escapes local minima. Unlike sp_minimize it works for any model_type (it falls
-# back to finite-difference gradients when the model isn't casadi_python).
+# but still escapes local minima. It works for any model_type: AD gradients for casadi_python
+# and aadc_python models, finite differences otherwise.
 # param_id_method: multi_start_sp_minimize
 
 #_______ Automatic Differentiation __________
