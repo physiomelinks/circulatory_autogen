@@ -122,7 +122,7 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
     if inp_data_dict['model_type'] == 'cellml_only':
         code_generator = CVS0DCellMLGenerator(model, inp_data_dict)
         success = code_generator.generate_files()
-    elif inp_data_dict['model_type'] in ['python', 'casadi_python']:
+    elif inp_data_dict['model_type'] in ['python', 'casadi_python', 'aadc_python']:
         # First generate the CellML model, then emit a Python module in the same directory.
         cellml_generator = CVS0DCellMLGenerator(model, inp_data_dict)
         success = cellml_generator.generate_files()
@@ -134,6 +134,7 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
                 module_name=file_prefix,
                 human_readable=inp_data_dict.get('human_readable', True),
                 casadi_compat=(inp_data_dict['model_type'] == 'casadi_python'),
+                aadc_compat=(inp_data_dict['model_type'] == 'aadc_python'),
             )
             py_gen.generate()
             success = True

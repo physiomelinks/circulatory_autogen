@@ -289,6 +289,19 @@ To run the parameter identification we need to set a few entries in the `[CA_dir
     - **fd_step**: Finite-difference step used when automatic differentiation isn't available (default: 1e-4).
     - **cost_convergence**: A start reaching this cost stops the remaining starts on that MPI rank.
 
+    !!! note "Automatic differentiation uses CasADi"
+        Gradient-based calibration (`do_ad: true`) is provided by **CasADi**
+        (`model_type: casadi_python`), which is open source (LGPL) and requires no
+        proprietary licence. This is the default and only supported AD backend for
+        parameter identification.
+
+        Circulatory Autogen also ships an *optional* adapter for **AADC (Matlogica)**, which
+        is **third-party proprietary software, not part of Circulatory Autogen**, not
+        bundled with it, and restricted to academic/non-commercial use under Matlogica's own
+        licence. It is not required, and it does not currently drive `sp_minimize` or
+        `multi_start_sp_minimize`. See [Optional third-party backends](getting-started.md) if
+        you already hold a Matlogica licence.
+
 - **ga_options**: Legacy dictionary for optimization options. For backwards compatibility, entries in `ga_options` are automatically merged into `optimiser_options` if not already present. It is recommended to use `optimiser_options` instead.
 
 

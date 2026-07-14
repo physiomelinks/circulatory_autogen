@@ -1010,7 +1010,8 @@ def test_python_BDF_solver(model_name, input_param_file, temp_model_dir, generat
 
 
 def _run_all_solvers_and_compare(model_name, full_model_path_cellml, temp_model_dir, dt=0.01, sim_time=1.0,
-                                  pre_time=0.0, tolerance=0.01, include_casadi=False):
+                                  pre_time=0.0, tolerance=0.01, include_casadi=False, include_aadc=False,
+                                  aadc_method="semi_implicit"):
     """
     Run all solvers on a model and compare outputs.
 
@@ -1020,8 +1021,12 @@ def _run_all_solvers_and_compare(model_name, full_model_path_cellml, temp_model_
       - solve_ivp_BDF         (Python model, scipy BDF)
       - casadi_integrator_cvodes (Python model, CasADi cvodes; only when include_casadi=True,
                                   skipped gracefully if CasADi unavailable or symbolic eval fails)
+      - aadc_semi_implicit    (AADC Python model; only when include_aadc=True, skipped
+                                  gracefully if the aadc package is not installed)
 
     The Python model (.py) is generated once and reused by both Python-family backends.
+    The AADC model is generated separately (different codegen — iif/aadc.math etc.) into an
+    ``aadc/`` subdir so it does not clobber the plain Python module.
 
     Returns:
         Tuple of (results dict, comparison_results dict, helpers dict)
@@ -1050,6 +1055,26 @@ def _run_all_solvers_and_compare(model_name, full_model_path_cellml, temp_model_
                 "reason": f"Python model generation failed: {e}",
             }
 
+    # Generate the AADC model (separate codegen) into its own subdir.
+    aadc_model_path = None
+    if include_aadc:
+        try:
+            aadc_dir = os.path.join(temp_model_dir, "aadc")
+            os.makedirs(aadc_dir, exist_ok=True)
+            aadc_generator = PythonGenerator(
+                full_model_path_cellml,
+                output_dir=aadc_dir,
+                module_name=model_name,
+                aadc_compat=True,
+            )
+            aadc_model_path = aadc_generator.generate()
+        except Exception as e:
+            results["aadc_semi_implicit"] = {
+                "success": False,
+                "skipped": True,
+                "reason": f"AADC model generation failed: {e}",
+            }
+
     # (helper_key, solver_arg, model_type, model_path, solver_info)
     backends = [
         # Tight rtol/atol on the CVODE reference too: myokit's CVODE default is rel_tol=1e-4
@@ -1064,9 +1089,13 @@ def _run_all_solvers_and_compare(model_name, full_model_path_cellml, temp_model_
         backends.append(
             ("casadi_integrator_cvodes", "casadi_integrator", "casadi_python", python_model_path, {"method": "cvodes"})
         )
+    if include_aadc and aadc_model_path is not None:
+        backends.append(
+            ("aadc_semi_implicit", "aadc_semi_implicit", "aadc_python", aadc_model_path, {"method": aadc_method})
+        )
 
     # Backends where unavailability is a graceful skip rather than a test failure
-    skip_on_error = {"CVODE_opencor", "casadi_integrator_cvodes"}
+    skip_on_error = {"CVODE_opencor", "casadi_integrator_cvodes", "aadc_semi_implicit"}
 
     for helper_key, solver, model_type, model_path, solver_info in backends:
         # Skip Python-family backends if model generation already failed
@@ -1216,6 +1245,55 @@ def test_all_solvers(model_name, input_param_file, sim_time, include_casadi, tem
             failed_msg = f"{solver_name} has {len(comp_result['failed_vars'])} variables exceeding 0.01% tolerance. "
             failed_msg += f"Maximum error: {comp_result['max_rel_error']:.6f}%"
             pytest.fail(failed_msg)
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_aadc_vs_cvode_3compartment(aadc_licensed, temp_model_dir,
+                                    generated_cellml_model_factory):
+    """The stiff 3compartment model integrated with the AADC ``bdf`` solver should track
+    the CVODE_myokit reference trajectory.
+
+    Why this test: the PR's own AADC stiff test only asserts the 3compartment run
+    produces no NaNs — it does not check the values are *correct*. This compares the
+    integrated ODE states against CVODE_myokit, which is what "same outputs with
+    CVODE and with AADC" requires.
+
+    This deliberately exercises ``method='bdf'`` (scipy's implicit BDF with an exact dense
+    Jacobian supplied by AADC) and not ``method='semi_implicit'``. Semi-implicit Euler is
+    first-order with numerical diagonal damping (``y += dt*f/(1+dt*lam)``); that damping
+    suppresses the stiff states, which in this cardiovascular model carry physiologically
+    important fast dynamics, so it deviates from CVODE by ~35% relative-L2 and cannot meet
+    a meaningful tolerance. ``bdf`` is the accurate stiff path and tracks CVODE closely.
+    """
+    cellml_path = generated_cellml_model_factory("3compartment", "3compartment_parameters.csv")
+    results, _, helpers = _run_all_solvers_and_compare(
+        "3compartment", cellml_path, temp_model_dir, dt=0.001, sim_time=1.0,
+        tolerance=5.0, include_aadc=True, aadc_method="bdf",
+    )
+
+    aadc_result = results.get("aadc_semi_implicit", {})
+    if aadc_result.get("skipped"):
+        pytest.skip(aadc_result.get("reason", "AADC backend unavailable"))
+
+    assert "aadc_semi_implicit" in helpers, "AADC backend did not run"
+    assert "CVODE_myokit" in helpers, "CVODE_myokit reference did not run"
+
+    # Compare the integrated ODE states (state names live on the aadc/"python" side).
+    aadc_state_names = list(helpers["aadc_semi_implicit"].state_name_to_idx.keys())
+    max_pct, worst_var, compared = _max_rel_l2_error(
+        helpers["CVODE_myokit"], helpers["aadc_semi_implicit"],
+        only_other_vars=aadc_state_names,
+    )
+    print(f"3compartment CVODE vs AADC: max rel-L2 error {max_pct:.3f}% on "
+          f"{worst_var} ({compared} states compared)")
+
+    assert compared > 0, "No ODE states were matched between CVODE and AADC"
+    tol_pct = 1.0
+    assert max_pct < tol_pct, (
+        f"AADC bdf deviates from CVODE by {max_pct:.3f}% (> {tol_pct}%) "
+        f"on state {worst_var}"
+    )
 
 
 def _max_rel_l2_error(ref_helper, other_helper, only_other_vars=None):
