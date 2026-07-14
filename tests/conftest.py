@@ -292,7 +292,14 @@ def pytest_runtest_logreport(report):
     Some runners/plugins keep capture enabled; this surfaces the comparison output.
     """
     if report.when != "call":
-        return
+        # A test that is skipped or errors during setup -- by a fixture (e.g. aadc_licensed),
+        # a skipif marker, or a broken fixture -- never reaches the "call" phase, so it would
+        # never be written to the results file. It is still counted in the expected totals set
+        # by pytest_collection_modifyitems, so pytest_terminal_summary would then block on
+        # _wait_for_expected_result_count for its full 1800 s timeout waiting for a line that
+        # can never arrive. Record it here instead.
+        if not (report.when == "setup" and (report.skipped or report.failed)):
+            return
 
     # Collect autogen outcomes for cross-rank aggregation
     if "one_rank_task" in getattr(report, "keywords", {}):
