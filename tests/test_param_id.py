@@ -2852,3 +2852,457 @@ def test_sp_minimize_streams_cost_history_per_iteration(temp_output_dir):
     # Parameter history is written in lockstep with the cost history.
     param_rows = [ln for ln in open(param_path).read().splitlines() if ln.strip()]
     assert len(param_rows) == len(costs)
+
+
+# ---------------------------------------------------------------------------
+# multi_start_sp_minimize (multi-start L-BFGS-B)
+# ---------------------------------------------------------------------------
+
+# A deliberately multi-modal cost with two wells per dimension:
+#   g(t) = (t^2 - 1)^2 + 0.5*t + 0.6
+# g has a shallow local minimum near t = +1 (g ~ 1.1) and the global minimum near
+# t = -1 (g ~ 0.1). Summed over 2 dimensions, a gradient descent started in the
+# right-hand well converges to a local minimum roughly 2.0 above the global one.
+def _two_well_cost(p):
+    p = np.asarray(p, dtype=float)
+    return float(np.sum((p ** 2 - 1.0) ** 2 + 0.5 * p + 0.6))
+
+
+def _two_well_grad(p):
+    p = np.asarray(p, dtype=float)
+    return 4.0 * p * (p ** 2 - 1.0) + 0.5
+
+
+class _TwoWellParamId:
+    """Stand-in for OpencorParamID exposing just what the optimisers call."""
+
+    def __init__(self, param_init=(1.2, 1.2)):
+        self.param_init = np.array(param_init, dtype=float)
+        self.best = None
+        self.num_cost_calls = 0
+        self.num_jac_calls = 0
+
+    def get_cost_ca(self, p):
+        self.num_cost_calls += 1
+        return _two_well_cost(p)
+
+    def get_jac_cost_ca(self, p):
+        self.num_jac_calls += 1
+        return _two_well_grad(p)
+
+    def get_cost_from_params(self, p):
+        self.num_cost_calls += 1
+        return _two_well_cost(p)
+
+    def set_best_param_vals(self, p):
+        self.best = np.asarray(p, dtype=float)
+
+
+class _TwoWellNorm:
+    mins = np.array([-2.0, -2.0])
+    maxs = np.array([2.0, 2.0])
+
+    def normalise(self, p):
+        return (np.asarray(p, dtype=float) - self.mins) / (self.maxs - self.mins)
+
+    def unnormalise(self, q):
+        return self.mins + np.asarray(q, dtype=float) * (self.maxs - self.mins)
+
+
+def _two_well_param_id_info():
+    return {
+        "param_names": [["well/x"], ["well/y"]],
+        "param_mins": _TwoWellNorm.mins,
+        "param_maxs": _TwoWellNorm.maxs,
+    }
+
+
+def _make_multi_start_optimiser(output_dir, param_id_obj, optimiser_options,
+                                model_type='casadi_python', do_ad=True):
+    from param_id.optimisers import MultiStartSciPyMinimizeOptimiser
+
+    return MultiStartSciPyMinimizeOptimiser(
+        param_id_obj=param_id_obj, param_id_info=_two_well_param_id_info(),
+        param_norm_obj=_TwoWellNorm(), num_params=2, output_dir=output_dir,
+        optimiser_options=optimiser_options, do_ad=do_ad, model_type=model_type,
+        DEBUG=False,
+    )
+
+
+@pytest.mark.unit
+def test_multi_start_lbfgsb_escapes_a_local_minimum_that_traps_single_start(temp_output_dir):
+    """The headline behaviour: from an x0 inside a local well, a single L-BFGS-B descent
+    stays in that well, while scattering starts over the bounds finds the global one."""
+    single_dir = os.path.join(temp_output_dir, 'multi_start_single')
+    multi_dir = os.path.join(temp_output_dir, 'multi_start_multi')
+    for d in (single_dir, multi_dir):
+        os.makedirs(d, exist_ok=True)
+
+    # num_starts=1 with include_init_point is exactly a single-start L-BFGS-B from x0.
+    single = _make_multi_start_optimiser(
+        single_dir, _TwoWellParamId(param_init=(1.2, 1.2)),
+        {'num_starts': 1, 'include_init_point': True, 'cost_convergence': 1e-12})
+    single.run()
+
+    multi = _make_multi_start_optimiser(
+        multi_dir, _TwoWellParamId(param_init=(1.2, 1.2)),
+        {'num_starts': 8, 'include_init_point': True, 'start_sampling': 'sobol',
+         'seed': 0, 'cost_convergence': 1e-12})
+    multi.run()
+
+    # the single start is trapped in the right-hand well ...
+    assert np.all(single.best_param_vals > 0.0), \
+        f'expected the single start to stay in the +1 well, got {single.best_param_vals}'
+    # ... while the multi-start escapes into the left-hand (global) well
+    assert np.all(multi.best_param_vals < 0.0), \
+        f'expected the multi-start to find the -1 well, got {multi.best_param_vals}'
+    assert multi.best_cost < single.best_cost - 1.0, \
+        f'multi-start cost {multi.best_cost} should be well below {single.best_cost}'
+
+
+@pytest.mark.unit
+def test_multi_start_finite_difference_fallback_without_casadi(temp_output_dir):
+    """For non-casadi models there is no AD cost, so the optimiser must fall back to
+    get_cost_from_params with a finite-difference gradient and still escape the local well."""
+    param_id_obj = _TwoWellParamId(param_init=(1.2, 1.2))
+    # model_type None => no get_cost_ca / get_jac_cost_ca
+    opt = _make_multi_start_optimiser(
+        temp_output_dir, param_id_obj,
+        {'num_starts': 8, 'start_sampling': 'sobol', 'seed': 0, 'cost_convergence': 1e-12},
+        model_type='cellml_only', do_ad=False)
+    opt.run()
+
+    assert param_id_obj.num_jac_calls == 0, \
+        'the AD jacobian must not be used for a non-casadi model'
+    assert param_id_obj.num_cost_calls > 0
+    assert np.all(opt.best_param_vals < 0.0), \
+        f'finite-difference multi-start should still find the -1 well, got {opt.best_param_vals}'
+
+
+@pytest.mark.unit
+def test_multi_start_generates_deterministic_starts(temp_output_dir):
+    """Every rank must generate an identical set of starts (they are assigned round-robin
+    with no communication), and the initial parameter values must be the first start."""
+    opts = {'num_starts': 6, 'start_sampling': 'sobol', 'seed': 3, 'include_init_point': True}
+    first = _make_multi_start_optimiser(temp_output_dir, _TwoWellParamId(), dict(opts))
+    second = _make_multi_start_optimiser(temp_output_dir, _TwoWellParamId(), dict(opts))
+
+    starts_a = first._generate_starts()
+    starts_b = second._generate_starts()
+
+    assert starts_a.shape == (6, 2)
+    np.testing.assert_allclose(starts_a, starts_b)
+    # start 0 is x0 = (1.2, 1.2) normalised over bounds [-2, 2]
+    np.testing.assert_allclose(starts_a[0], _TwoWellNorm().normalise(np.array([1.2, 1.2])))
+    # everything stays inside the normalised bounds
+    assert np.all(starts_a >= 0.0) and np.all(starts_a <= 1.0)
+
+    without_init = _make_multi_start_optimiser(
+        temp_output_dir, _TwoWellParamId(),
+        {'num_starts': 6, 'start_sampling': 'sobol', 'seed': 3, 'include_init_point': False})
+    starts_c = without_init._generate_starts()
+    assert starts_c.shape == (6, 2)
+    assert not np.allclose(starts_c[0], starts_a[0])
+
+
+@pytest.mark.unit
+def test_multi_start_rejects_bad_options(temp_output_dir):
+    bad_sampling = _make_multi_start_optimiser(
+        temp_output_dir, _TwoWellParamId(), {'num_starts': 4, 'start_sampling': 'banana'})
+    with pytest.raises(ValueError, match='banana'):
+        bad_sampling._generate_starts()
+
+    no_starts = _make_multi_start_optimiser(
+        temp_output_dir, _TwoWellParamId(), {'num_starts': 0})
+    with pytest.raises(ValueError, match='num_starts'):
+        no_starts._generate_starts()
+
+
+@pytest.mark.unit
+def test_multi_start_writes_running_best_history_and_start_summary(temp_output_dir):
+    """The history csvs must stay monotonically improving across the concatenated starts
+    (the plotting reads them as a progress curve), and every start that ran gets a
+    summary row."""
+    out_dir = os.path.join(temp_output_dir, 'multi_start_history')
+    os.makedirs(out_dir, exist_ok=True)
+
+    opt = _make_multi_start_optimiser(
+        out_dir, _TwoWellParamId(param_init=(1.2, 1.2)),
+        {'num_starts': 5, 'start_sampling': 'latin_hypercube', 'seed': 1,
+         'cost_convergence': 1e-12})
+    opt.run()
+
+    if MPI.COMM_WORLD.Get_rank() == 0:
+        cost_path = os.path.join(out_dir, 'best_cost_history.csv')
+        costs = [float(ln.split(',')[0])
+                 for ln in open(cost_path).read().splitlines() if ln.strip()]
+        assert len(costs) > 1
+        # only improvements are written, but the csv rounds to 9 dp so two consecutive
+        # improvements can print as equal; the curve must never go back up.
+        assert all(costs[i + 1] <= costs[i] for i in range(len(costs) - 1)), \
+            f'running-best cost history must never worsen, got {costs}'
+        # abs tolerance matches the 9 dp the history csv is written with
+        assert costs[-1] == pytest.approx(opt.best_cost, abs=1e-8)
+
+        param_rows = [ln for ln in
+                      open(os.path.join(out_dir, 'best_param_vals_history.csv')).read().splitlines()
+                      if ln.strip()]
+        assert len(param_rows) == len(costs)
+
+        import csv as _csv
+        summary = list(_csv.DictReader(open(os.path.join(out_dir, 'multi_start_summary.csv'))))
+        assert len(summary) == 5, f'expected one summary row per start, got {len(summary)}'
+        assert [int(r['start_idx']) for r in summary] == [0, 1, 2, 3, 4]
+        for row in summary:
+            assert float(row['final_cost']) <= float(row['init_cost']) + 1e-9
+
+    MPI.COMM_WORLD.Barrier()
+
+
+# The FitzHugh-Nagumo excitable-cell model is a standard multi-modal parameter-estimation
+# benchmark: its least-squares surface has many local minima, because a wrong recovery rate
+# c puts the simulated spike train out of phase with the data (Ramsay et al. 2007, JRSS-B,
+# "Parameter estimation for differential equations: a generalized smoothing approach").
+# resources/FitzHugh_Nagumo_parameters.csv deliberately starts at (a, b, c) = (0.8, 0.9, 2.0),
+# which is inside a local basin: a single L-BFGS-B descent converges to (1, 1, 2.07) and
+# stops, nowhere near the true (0.2, 0.2, 3.0).
+FHN_TRUE_PARAMS = np.array([0.2, 0.2, 3.0])
+FHN_TRAPPED_COST = 100.0  # the local minimum a single start falls into sits at ~144
+
+
+def _fitzhugh_nagumo_config(base_user_inputs, resources_dir, temp_output_dir,
+                            temp_generated_models_dir, param_id_method):
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': 'FitzHugh_Nagumo',
+        'input_param_file': 'FitzHugh_Nagumo_parameters.csv',
+        'params_for_id_file': 'FitzHugh_Nagumo_params_for_id.csv',
+        'model_type': 'casadi_python',
+        'solver': 'casadi_integrator',
+        'param_id_method': param_id_method,
+        'do_ad': True,
+        'pre_time': 0.0,
+        'sim_time': 60.0,
+        'dt': 0.2,
+        'DEBUG': False,
+        'do_mcmc': False,
+        'plot_predictions': False,
+        'do_ia': False,
+        'solver_info': {
+            'max_step_size': 0.01,
+            'max_num_steps': 20000,
+            'method': 'cvodes',
+        },
+        'param_id_obs_path': os.path.join(resources_dir, 'FitzHugh_Nagumo_obs_data.json'),
+        'param_id_output_dir': temp_output_dir,
+        'generated_models_dir': temp_generated_models_dir,
+    })
+    return config
+
+
+def _load_best(temp_output_dir, param_id_method):
+    output_dir = os.path.join(
+        temp_output_dir, f'{param_id_method}_FitzHugh_Nagumo_FitzHugh_Nagumo_obs_data')
+    cost = float(np.load(os.path.join(output_dir, 'best_cost.npy')))
+    params = np.load(os.path.join(output_dir, 'best_param_vals.npy'))
+    return cost, params
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.mpi
+def test_multi_start_escapes_fitzhugh_nagumo_local_minimum_that_traps_sp_minimize(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
+    """On the multi-modal FitzHugh-Nagumo benchmark, sp_minimize converges to a local
+    minimum while multi_start_sp_minimize recovers the true parameters."""
+    rank = mpi_comm.Get_rank()
+
+    sp_config = _fitzhugh_nagumo_config(base_user_inputs, resources_dir, temp_output_dir,
+                                        temp_generated_models_dir, 'sp_minimize')
+    sp_config['optimiser_options'] = {'cost_convergence': 1e-4, 'max_patience': 100}
+
+    if rank == 0:
+        assert generate_with_new_architecture(False, sp_config), \
+            'CasADi model generation should succeed for FitzHugh-Nagumo'
+    mpi_comm.Barrier()
+
+    run_param_id(sp_config)
+
+    multi_config = _fitzhugh_nagumo_config(base_user_inputs, resources_dir, temp_output_dir,
+                                           temp_generated_models_dir, 'multi_start_sp_minimize')
+    multi_config['optimiser_options'] = {
+        'cost_convergence': 1e-4, 'max_patience': 100,
+        'num_starts': 8, 'start_sampling': 'sobol', 'seed': 0,
+    }
+    run_param_id(multi_config)
+
+    if rank == 0:
+        sp_cost, sp_params = _load_best(temp_output_dir, 'sp_minimize')
+        multi_cost, multi_params = _load_best(temp_output_dir, 'multi_start_sp_minimize')
+
+        # sp_minimize starts inside the local basin and cannot leave it
+        assert sp_cost > FHN_TRAPPED_COST, (
+            f'expected sp_minimize to stay trapped in the local minimum (cost > '
+            f'{FHN_TRAPPED_COST}), got {sp_cost}. The benchmark x0 may no longer be inside '
+            f'the local basin.')
+        assert np.max(np.abs(sp_params - FHN_TRUE_PARAMS)) > 0.5, \
+            f'expected sp_minimize to miss the true params, got {sp_params}'
+
+        # the multi-start finds the global minimum and recovers the true parameters
+        assert multi_cost < 1e-2, \
+            f'expected multi_start_sp_minimize to reach the global minimum, got {multi_cost}'
+        np.testing.assert_allclose(multi_params, FHN_TRUE_PARAMS, atol=0.02)
+        assert multi_cost < sp_cost
+
+    mpi_comm.Barrier()
+
+
+@pytest.mark.skipif(
+    os.environ.get("GITHUB_ACTIONS") == "true",
+    reason="compare_optimisers is heavy; run locally only (skipped on GitHub Actions)",
+)
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.mpi
+@pytest.mark.compare_optimisers
+def test_compare_multi_start_lbfgsb_vs_genetic_algorithm_on_fitzhugh_nagumo(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
+    """Time multi-start L-BFGS-B against the genetic algorithm on the multi-modal
+    FitzHugh-Nagumo benchmark.
+
+    Both are global searches, but the multi-start exploits the CasADi AD gradient to descend
+    each basin, so it should reach a lower cost. The runtimes of both are reported.
+    """
+    rank = mpi_comm.Get_rank()
+
+    from tests.compare_optimisers import OptimiserComparison
+
+    config = _fitzhugh_nagumo_config(base_user_inputs, resources_dir, temp_output_dir,
+                                     temp_generated_models_dir, 'genetic_algorithm')
+    # both methods get these; the genetic algorithm ignores the multi-start specific keys and
+    # the multi-start ignores num_calls_to_function (its budget is num_starts).
+    config['optimiser_options'] = {
+        'cost_convergence': 1e-4, 'max_patience': 100,
+        'num_starts': 8, 'start_sampling': 'sobol', 'seed': 0,
+    }
+
+    if rank == 0:
+        assert generate_with_new_architecture(False, config), \
+            'CasADi model generation should succeed for FitzHugh-Nagumo'
+    mpi_comm.Barrier()
+
+    num_calls = 2000
+    comparison = OptimiserComparison(
+        config, methods=['genetic_algorithm', 'multi_start_sp_minimize'], num_calls=num_calls)
+
+    ga_success = comparison.run_method('genetic_algorithm')
+    multi_success = comparison.run_method('multi_start_sp_minimize')
+
+    if rank == 0:
+        assert ga_success, 'genetic algorithm optimisation should succeed'
+        assert multi_success, 'multi-start L-BFGS-B optimisation should succeed'
+
+        ga_cost = comparison.results['genetic_algorithm']['cost']
+        multi_cost = comparison.results['multi_start_sp_minimize']['cost']
+        ga_time = comparison.runtimes['genetic_algorithm']
+        multi_time = comparison.runtimes['multi_start_sp_minimize']
+
+        print(f'\n{"="*72}')
+        print(f'FitzHugh-Nagumo (multi-modal), {mpi_comm.Get_size()} MPI rank(s)')
+        print(f'{"method":<26} {"cost":>14} {"time (s)":>10}   params')
+        for name, cost, runtime in (
+                ('genetic_algorithm', ga_cost, ga_time),
+                ('multi_start_sp_minimize', multi_cost, multi_time)):
+            params = comparison.results[name]['params']
+            param_str = ' '.join(f'{p:.4f}' for p in params)
+            print(f'{name:<26} {cost:>14.6e} {runtime:>10.1f}   {param_str}')
+        print(f'{"true params":<26} {0.0:>14.6e} {"-":>10}   '
+              f'{" ".join(f"{p:.4f}" for p in FHN_TRUE_PARAMS)}')
+        print(f'genetic algorithm used {num_calls} cost evaluations; '
+              f'multi-start used 8 gradient descents')
+        print(f'{"="*72}')
+
+        assert np.isfinite(ga_cost) and ga_cost >= 0
+        assert np.isfinite(multi_cost) and multi_cost >= 0
+
+        # Both escape the local minimum that traps a single gradient descent, but only the
+        # multi-start refines to the true optimum, because it uses the gradient.
+        assert multi_cost < ga_cost, (
+            f'expected the gradient-based multi-start ({multi_cost:.3e}) to beat the '
+            f'gradient-free genetic algorithm ({ga_cost:.3e})')
+        np.testing.assert_allclose(
+            comparison.results['multi_start_sp_minimize']['params'], FHN_TRUE_PARAMS, atol=0.02)
+
+    mpi_comm.Barrier()
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.mpi
+def test_ad_series_cost_supports_dt_finer_than_obs_dt(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
+    """The symbolic cost cannot resample the (symbolic) simulated series, so it interpolates the
+    ground truth onto the simulation time grid instead. That means dt does not have to equal a
+    series item's obs_dt. Check that a finer dt still gives a sane cost and a correct gradient.
+
+    FitzHugh_Nagumo_obs_data.json has obs_dt = 0.2; here the model is simulated at dt = 0.1.
+    """
+    import json
+
+    rank = mpi_comm.Get_rank()
+    if rank != 0:
+        mpi_comm.Barrier()
+        return
+
+    config = _fitzhugh_nagumo_config(base_user_inputs, resources_dir, temp_output_dir,
+                                     temp_generated_models_dir, 'sp_minimize')
+    config['dt'] = 0.1  # half the obs_dt of 0.2, so the ground truth must be interpolated
+    config['resources_dir'] = resources_dir
+
+    assert generate_with_new_architecture(False, config), \
+        'CasADi model generation should succeed for FitzHugh-Nagumo'
+
+    parsed = YamlFileParser().parse_user_inputs_file(
+        config, obs_path_needed=True, do_generation_with_fit_parameters=False)
+    parsed['one_rank'] = True
+    runner = CVS0DParamID.init_from_dict(parsed)
+
+    with open(os.path.join(resources_dir, 'FitzHugh_Nagumo_obs_data.json')) as f:
+        runner.set_ground_truth_data(json.load(f))
+
+    runner.set_params_for_id([
+        {'vessel_name': 'fhn', 'param_name': 'a', 'param_type': 'const', 'min': 0.0, 'max': 1.0},
+        {'vessel_name': 'fhn', 'param_name': 'b', 'param_type': 'const', 'min': 0.0, 'max': 1.0},
+        {'vessel_name': 'fhn', 'param_name': 'c', 'param_type': 'const', 'min': 0.5, 'max': 6.0},
+    ])
+
+    # At the true parameters the cost must be ~0 even though the data was sampled at obs_dt and
+    # the model is being run at half that step.
+    cost_at_truth = float(runner.param_id.get_cost_ca(FHN_TRUE_PARAMS))
+    assert np.isfinite(cost_at_truth)
+    assert cost_at_truth < 1e-3, \
+        f'cost at the true params should be ~0 with dt < obs_dt, got {cost_at_truth}'
+
+    # Away from the truth the cost is finite and positive, and the AD gradient agrees with a
+    # central finite difference of the same cost function.
+    probe = np.array([0.35, 0.30, 2.6])
+    cost_at_probe = float(runner.param_id.get_cost_ca(probe))
+    assert np.isfinite(cost_at_probe) and cost_at_probe > cost_at_truth
+
+    gradient = np.asarray(runner.param_id.get_jac_cost_ca(probe), dtype=float).ravel()
+    assert gradient.shape == (3,)
+    assert np.all(np.isfinite(gradient))
+
+    step = 1e-5
+    for idx in range(3):
+        p_plus = probe.copy()
+        p_minus = probe.copy()
+        p_plus[idx] += step
+        p_minus[idx] -= step
+        fd = (float(runner.param_id.get_cost_ca(p_plus))
+              - float(runner.param_id.get_cost_ca(p_minus))) / (2 * step)
+        assert fd == pytest.approx(gradient[idx], rel=1e-2, abs=1e-4), (
+            f'AD gradient {gradient[idx]} disagrees with the finite difference {fd} for '
+            f'parameter {idx}, so the interpolated ground truth is breaking differentiability')
+
+    mpi_comm.Barrier()

@@ -74,6 +74,14 @@ class OptimiserComparison:
                 'param_id_method': 'bayesian',
                 'optimiser_options': None,
             },
+            'sp_minimize': {
+                'param_id_method': 'sp_minimize',
+                'optimiser_options': {},
+            },
+            'multi_start_sp_minimize': {
+                'param_id_method': 'multi_start_sp_minimize',
+                'optimiser_options': {},
+            },
         }
         
         # Results storage

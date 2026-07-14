@@ -219,6 +219,14 @@ class YamlFileParser(object):
             print(f'Parameter identification with sp_minimize requires model_type to be "casadi_python"')
             exit()
 
+        # multi_start_sp_minimize runs on any model type: it uses the CasADi AD gradient for
+        # casadi_python models and falls back to finite differences for the others.
+        if inp_data_dict.get('param_id_method') == 'multi_start_sp_minimize' and \
+                inp_data_dict.get('model_type') != 'casadi_python':
+            print('Note: multi_start_sp_minimize with model_type '
+                  f'"{inp_data_dict.get("model_type")}" will use finite-difference gradients. '
+                  'Set model_type to "casadi_python" to use automatic differentiation.')
+
         # overwrite dir paths if set in user_inputs.yaml
         if "resources_dir" in inp_data_dict.keys():
             inp_data_dict['resources_dir'] = os.path.join(user_files_dir, inp_data_dict['resources_dir'])

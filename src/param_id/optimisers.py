@@ -10,10 +10,13 @@ from mpi4py import MPI
 import math
 import os
 import csv
+import warnings
+import traceback
 from datetime import date
 from abc import ABC, abstractmethod
 from scipy.optimize import approx_fprime
 from scipy.optimize import minimize
+from scipy.stats import qmc
 try:
     from skopt import Optimizer
     SKOPT_AVAILABLE = True
@@ -940,3 +943,332 @@ class SciPyMinimizeOptimiser(Optimiser):
                                fmt='%.5e', delimiter=', ')
 
             self._save_best_params()
+
+
+class MultiStartSciPyMinimizeOptimiser(Optimiser):
+    """
+    Multi-start L-BFGS-B optimiser for parameter identification.
+
+    L-BFGS-B on its own only ever finds the minimum of the basin it starts in, so on a
+    multi-modal cost surface it is at the mercy of the initial parameter values. This
+    optimiser scatters `num_starts` starting points over the bounded parameter space and
+    runs a bounded L-BFGS-B descent from each one, keeping the best minimum found. It
+    therefore explores globally (like the population-based optimisers) while still
+    exploiting the gradient for a fast, accurate descent within each basin.
+
+    The starts are independent, so they are distributed round-robin over the MPI ranks and
+    each rank runs its own descents with no collective communication in between. The
+    results are gathered once at the end.
+
+    Gradients come from CasADi automatic differentiation (`get_jac_cost_ca`) for
+    `casadi_python` models. For every other model type there is no AD cost function, so the
+    cost is evaluated with `get_cost_from_params` and the gradient falls back to finite
+    differences.
+
+    Optimiser options:
+        num_starts:         number of L-BFGS-B descents (default 10, or 4 when DEBUG).
+        start_sampling:     'sobol' (default), 'latin_hypercube' or 'random'.
+        include_init_point: if True (default) the first start is the initial parameter
+                            values from the parameters csv, so this can never do worse
+                            than a single-start sp_minimize run.
+        seed:               seed for the start sampler (default 0), so runs are repeatable.
+        cost_convergence:   a start that reaches this cost stops the remaining starts on
+                            that rank.
+        fd_step:            finite-difference step used when AD is unavailable (default 1e-4).
+    """
+
+    # Cost returned to L-BFGS-B when a simulation fails. Must be finite, otherwise the
+    # finite-difference gradient becomes nan and the descent silently stalls.
+    FAILED_SIM_COST = 1e10
+
+    def __init__(self, param_id_obj, param_id_info, param_norm_obj,
+                 num_params, output_dir, optimiser_options=None,
+                 do_ad=True, model_type=None, DEBUG=False):
+        super().__init__(param_id_obj, param_id_info, param_norm_obj,
+                         num_params, output_dir, optimiser_options, DEBUG)
+
+        self.do_ad = do_ad
+        self.model_type = model_type
+        # get_cost_ca/get_jac_cost_ca only exist for casadi generated models.
+        self.use_casadi_cost = (model_type == 'casadi_python')
+
+        self.param_mins = self.param_id_info["param_mins"]
+        self.param_maxs = self.param_id_info["param_maxs"]
+        self.param_ranges = self.param_maxs - self.param_mins
+
+        if 'num_starts' not in self.optimiser_options:
+            self.optimiser_options['num_starts'] = 4 if DEBUG else 10
+        if 'start_sampling' not in self.optimiser_options:
+            self.optimiser_options['start_sampling'] = 'sobol'
+        if 'include_init_point' not in self.optimiser_options:
+            self.optimiser_options['include_init_point'] = True
+        if 'seed' not in self.optimiser_options:
+            self.optimiser_options['seed'] = 0
+        if 'fd_step' not in self.optimiser_options:
+            self.optimiser_options['fd_step'] = 1e-4
+
+        self.init_gradient = None
+        self.best_gradient = None
+
+    def _generate_starts(self):
+        """Starting points in normalised [0, 1] parameter space, shape (num_starts, num_params).
+
+        Deterministic given the seed, so every rank generates the identical set and no
+        broadcast is needed to agree on who runs which start.
+        """
+        num_starts = int(self.optimiser_options['num_starts'])
+        if num_starts < 1:
+            raise ValueError(f'num_starts must be at least 1, got {num_starts}')
+        sampling = self.optimiser_options['start_sampling']
+        seed = self.optimiser_options['seed']
+        include_init = self.optimiser_options['include_init_point']
+
+        num_sampled = num_starts - 1 if include_init else num_starts
+
+        sampled = np.zeros((0, self.num_params))
+        if num_sampled > 0:
+            if sampling == 'sobol':
+                # Sobol warns for sample counts that aren't a power of two; the balance
+                # properties we lose don't matter for scattering a handful of starts.
+                with warnings.catch_warnings():
+                    warnings.simplefilter('ignore')
+                    sampled = qmc.Sobol(d=self.num_params, scramble=True,
+                                        seed=seed).random(num_sampled)
+            elif sampling == 'latin_hypercube':
+                sampled = qmc.LatinHypercube(d=self.num_params, seed=seed).random(num_sampled)
+            elif sampling == 'random':
+                sampled = np.random.default_rng(seed).random((num_sampled, self.num_params))
+            else:
+                raise ValueError(f'unknown start_sampling "{sampling}", expected one of '
+                                 f'sobol, latin_hypercube or random')
+
+        if include_init:
+            init_norm = np.clip(
+                np.asarray(self.param_norm_obj.normalise(np.asarray(self.param_id_obj.param_init)),
+                           dtype=float).flatten(), 0.0, 1.0)
+            starts = np.vstack([init_norm.reshape(1, -1), sampled])
+        else:
+            starts = sampled
+
+        return starts
+
+    def _make_cost_func(self):
+        """Cost as a function of normalised parameters."""
+        if self.use_casadi_cost:
+            def cost_fun(q_norm):
+                p = self.param_norm_obj.unnormalise(np.asarray(q_norm, dtype=float))
+                return float(self.param_id_obj.get_cost_ca(p))
+        else:
+            def cost_fun(q_norm):
+                p = self.param_norm_obj.unnormalise(np.asarray(q_norm, dtype=float))
+                cost = float(self.param_id_obj.get_cost_from_params(p))
+                # A failed simulation returns inf, which would poison the FD gradient.
+                return cost if np.isfinite(cost) else self.FAILED_SIM_COST
+        return cost_fun
+
+    def _make_gradient_func(self, cost_fun):
+        """dJ/dq in normalised parameter space, or None if L-BFGS-B should not be given a jac."""
+        if self.use_casadi_cost and self.do_ad:
+            def gradient_func(q_norm):
+                p = self.param_norm_obj.unnormalise(np.asarray(q_norm, dtype=float))
+                dJ_dp = np.asarray(self.param_id_obj.get_jac_cost_ca(p), dtype=float).flatten()
+                # chain rule: dJ/dq = dJ/dp * dp/dq = dJ/dp * (max - min)
+                return dJ_dp * self.param_ranges
+            return gradient_func
+
+        fd_step = float(self.optimiser_options['fd_step'])
+        return lambda q_norm: approx_fprime(np.asarray(q_norm, dtype=float), cost_fun, epsilon=fd_step)
+
+    def _run_one_start(self, start_idx, x0_norm, cost_fun, gradient_func, bounds_norm):
+        """Run a single bounded L-BFGS-B descent. Returns a result dict (never raises for a
+        cost-converged early stop)."""
+        iterates = []  # (cost, x_norm) per accepted L-BFGS-B iteration, for the history csv
+
+        init_cost = cost_fun(x0_norm)
+        iterates.append((init_cost, np.asarray(x0_norm, dtype=float).copy()))
+
+        last_iterate = {"x_norm": None, "cost": None}
+
+        def callback(x_norm):
+            x_norm = np.asarray(x_norm, dtype=float).copy()
+            cost_val = cost_fun(x_norm)
+            last_iterate["x_norm"] = x_norm
+            last_iterate["cost"] = cost_val
+            iterates.append((cost_val, x_norm))
+            if self.DEBUG:
+                print(f'[multi_start_sp_minimize] rank {self.rank} start {start_idx}: '
+                      f'cost = {cost_val:.6e}')
+            if cost_val <= self.optimiser_options['cost_convergence']:
+                raise StopIteration(f'Cost converged: {cost_val}')
+
+        res = None
+        try:
+            res = minimize(cost_fun, np.asarray(x0_norm, dtype=float), method='L-BFGS-B',
+                           bounds=bounds_norm, jac=gradient_func, callback=callback)
+        except StopIteration:
+            pass
+
+        if res is not None:
+            final_x_norm = np.asarray(res.x, dtype=float)
+            final_cost = float(res.fun)
+        elif last_iterate["x_norm"] is not None:
+            final_x_norm = last_iterate["x_norm"]
+            final_cost = float(last_iterate["cost"])
+        else:
+            # L-BFGS-B stopped before the first accepted iteration; the start itself is the
+            # best we have from this descent.
+            final_x_norm = np.asarray(x0_norm, dtype=float)
+            final_cost = float(init_cost)
+
+        return {
+            'start_idx': start_idx,
+            'init_cost': float(init_cost),
+            'final_cost': final_cost,
+            'final_x_norm': final_x_norm,
+            'num_iterations': max(len(iterates) - 1, 0),
+            'iterates': iterates,
+        }
+
+    def run(self):
+        """Run L-BFGS-B from every start, distributed over the MPI ranks."""
+        comm = self.comm
+        rank = self.rank
+        num_procs = self.num_procs
+
+        cost_fun = self._make_cost_func()
+        gradient_func = self._make_gradient_func(cost_fun)
+
+        # Every rank must take part in the same collectives, so any failure is caught
+        # locally and only turned into an exception after all ranks have agreed on it.
+        local_results = []
+        local_error = None
+        try:
+            starts = self._generate_starts()
+            num_starts = starts.shape[0]
+
+            param_mins_norm = self.param_norm_obj.normalise(self.param_mins)
+            param_maxs_norm = self.param_norm_obj.normalise(self.param_maxs)
+            bounds_norm = list(zip(param_mins_norm, param_maxs_norm))
+
+            if rank == 0:
+                grad_source = ('CasADi AD' if (self.use_casadi_cost and self.do_ad)
+                               else 'finite differences')
+                print(f'Running multi-start L-BFGS-B: {num_starts} starts '
+                      f'({self.optimiser_options["start_sampling"]} sampling) over '
+                      f'{num_procs} rank(s), gradients from {grad_source}')
+
+            # Round-robin so each rank gets a near-equal share without any communication.
+            for start_idx in range(num_starts):
+                if start_idx % num_procs != rank:
+                    continue
+                # A start on this rank already hit the convergence target, so the remaining
+                # starts on this rank can't improve on it. This is deliberately rank-local:
+                # a global early stop would need a collective inside the loop, which would
+                # deadlock as soon as the ranks had different numbers of starts.
+                if local_results and min(r['final_cost'] for r in local_results) <= \
+                        self.optimiser_options['cost_convergence']:
+                    break
+                local_results.append(
+                    self._run_one_start(start_idx, starts[start_idx, :], cost_fun,
+                                        gradient_func, bounds_norm))
+        except Exception as e:
+            local_error = {"rank": rank, "type": type(e).__name__, "message": str(e),
+                           "traceback": traceback.format_exc()}
+
+        # Collective 1: agree on whether any rank failed.
+        all_errors = comm.allgather(local_error)
+        errors = [e for e in all_errors if e is not None]
+        if errors:
+            first = errors[0]
+            raise RuntimeError(
+                f"multi-start L-BFGS-B failed on rank {first['rank']}\n"
+                f"{first['type']}: {first['message']}\n{first['traceback']}"
+            )
+
+        # Collective 2: gather every start's result on rank 0.
+        gathered = comm.gather(local_results, root=0)
+
+        best = None
+        if rank == 0:
+            all_results = sorted([r for rank_results in gathered for r in rank_results],
+                                 key=lambda r: r['start_idx'])
+            if not all_results:
+                raise RuntimeError('multi-start L-BFGS-B produced no results')
+
+            best_result = min(all_results, key=lambda r: r['final_cost'])
+            best_param_vals = self.param_norm_obj.unnormalise(best_result['final_x_norm'])
+
+            self._write_history(all_results)
+            self._write_start_summary(all_results)
+
+            print(f'Multi-start L-BFGS-B ran {len(all_results)} of '
+                  f'{int(self.optimiser_options["num_starts"])} starts '
+                  f'(the rest were skipped after a start converged); '
+                  f'best cost {best_result["final_cost"]:.6e} came from start '
+                  f'{best_result["start_idx"]}')
+
+            best = {
+                'param_vals': np.asarray(best_param_vals, dtype=float).flatten(),
+                'cost': float(best_result['final_cost']),
+            }
+
+        # Collective 3: give every rank the winner.
+        best = comm.bcast(best, root=0)
+
+        self.best_param_vals = best['param_vals']
+        self.best_cost = best['cost']
+        self.param_id_obj.set_best_param_vals(self.best_param_vals)
+
+        if self.use_casadi_cost and self.do_ad:
+            self.init_gradient = np.asarray(
+                self.param_id_obj.get_jac_cost_ca(np.asarray(self.param_id_obj.param_init)),
+                dtype=float).flatten()
+            self.best_gradient = np.asarray(
+                self.param_id_obj.get_jac_cost_ca(self.best_param_vals), dtype=float).flatten()
+
+        self._save_best_params()
+
+    def _write_history(self, all_results):
+        """Write the running-best cost/parameter history over the concatenated starts.
+
+        The history csvs are read as a monotonically improving progress curve by the
+        plotting code, so we record a row only when a start improves on the best cost seen
+        so far, walking the starts in order.
+        """
+        cost_history_path = os.path.join(self.output_dir, 'best_cost_history.csv')
+        param_history_path = os.path.join(self.output_dir, 'best_param_vals_history.csv')
+
+        best_so_far = np.inf
+        rows_cost = []
+        rows_params = []
+        for result in all_results:
+            for cost_val, x_norm in result['iterates']:
+                if cost_val < best_so_far:
+                    best_so_far = cost_val
+                    rows_cost.append([float(cost_val)])
+                    rows_params.append(np.asarray(x_norm, dtype=float).flatten())
+
+        if not rows_cost:
+            return
+
+        with open(cost_history_path, 'a') as file:
+            np.savetxt(file, np.array(rows_cost), fmt='%1.9f', delimiter=', ')
+        with open(param_history_path, 'a') as file:
+            np.savetxt(file, np.array(rows_params), fmt='%.5e', delimiter=', ')
+
+    def _write_start_summary(self, all_results):
+        """One row per start, so the basins the starts fell into can be inspected."""
+        param_labels = [names[0] if isinstance(names, (list, tuple)) else str(names)
+                        for names in self.param_id_info["param_names"]]
+
+        summary_path = os.path.join(self.output_dir, 'multi_start_summary.csv')
+        with open(summary_path, 'w') as file:
+            writer = csv.writer(file)
+            writer.writerow(['start_idx', 'init_cost', 'final_cost', 'num_iterations'] +
+                            [label.replace('/', ' ') for label in param_labels])
+            for result in all_results:
+                param_vals = self.param_norm_obj.unnormalise(result['final_x_norm'])
+                writer.writerow(
+                    [result['start_idx'], f'{result["init_cost"]:.9e}',
+                     f'{result["final_cost"]:.9e}', result['num_iterations']] +
+                    [f'{val:.9e}' for val in np.asarray(param_vals, dtype=float).flatten()])

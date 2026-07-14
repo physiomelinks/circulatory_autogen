@@ -189,6 +189,14 @@ Before doing calibration, a solver for the model needs to be chosen
     - **MaximumNumberOfSteps**: maximum number of substeps before stepping
     - **method**: any method for `solve_ivp` or `casadi_integrator`, e.g. `RK45`, `BDF`, `cvodes`, etc.
 
+!!! note "Automatic differentiation supports `constant` and `series` observables only"
+    With `do_ad: true` the cost is built symbolically. `constant` and `series` data items are
+    both supported, and `dt` does not have to equal a series item's `obs_dt`: the simulated
+    series is linearly interpolated onto the observation times, which is a multiply by a matrix
+    of weights fixed by the two time grids, so it stays differentiable. Frequency (`amp` /
+    `phase`) and `prob_dist` observables cannot be differentiated yet, and raise rather than
+    silently contributing nothing to the cost.
+
 !!! note "CasADi `semi_implicit_euler` — enables automatic differentiation on stiff models (verify with a convergence study)"
     When using gradient-based parameter identification (`param_id_method: sp_minimize` with
     `do_ad: true`) on a **very stiff** model, the adaptive `cvodes` integrator can solve the
@@ -240,7 +248,8 @@ To run the parameter identification we need to set a few entries in the `[CA_dir
     - **genetic_algorithm**: Genetic algorithm optimizer (default, well-tested)
     - **CMA-ES**: Covariance Matrix Adaptation Evolution Strategy using Nevergrad (supports parallel execution)
     - **bayesian**: Bayesian optimization using scikit-optimize (deprecated, untested)
-    - **sp_minimize**: Gradient-based optimizer
+    - **sp_minimize**: Gradient-based optimizer (L-BFGS-B, local only)
+    - **multi_start_sp_minimize**: Multi-start L-BFGS-B — a gradient-based descent from many scattered starting points, so it exploits the gradient but still escapes local minima
 - **pre_time**: this is the amount of time the simulation is run to get to steady state before comparing to the observables from `obs_data.json`. IMPORTANT: THis is overwritten by the pre_times within the obs_data.json file, see the next section.
 - **sim_time**: The amount of time used to compare simulation output and observable data. This should be equal to the length of a series observable entry divided by the "sample_rate". If not, only up to the minimum length of observable data and modelled data will be compared. 
 - **dt**: The output (sample) time step for model outputs
@@ -271,6 +280,15 @@ To run the parameter identification we need to set a few entries in the `[CA_dir
 
     - **do_ad**: Boolean value to determine whether to use automatic differentiation for gradient calculation. If it's set to *False*, gradients will be estimated using finite difference approximation.
 
+    multi_start_sp_minimize specific options:
+
+    - **num_starts**: Number of L-BFGS-B descents to run (default: 10, or 4 when `DEBUG` is true). The starts are spread over the MPI ranks, so `num_starts` being a multiple of the rank count keeps every rank busy.
+    - **start_sampling**: How the starting points are scattered over the parameter bounds: `sobol` (default), `latin_hypercube` or `random`.
+    - **include_init_point**: If true (default), the first start is the initial parameter values from `{file_prefix}_parameters.csv`, so this method can never do worse than a single-start `sp_minimize` run.
+    - **seed**: Seed for the start sampler (default: 0), so a run is repeatable.
+    - **fd_step**: Finite-difference step used when automatic differentiation isn't available (default: 1e-4).
+    - **cost_convergence**: A start reaching this cost stops the remaining starts on that MPI rank.
+
 - **ga_options**: Legacy dictionary for optimization options. For backwards compatibility, entries in `ga_options` are automatically merged into `optimiser_options` if not already present. It is recommended to use `optimiser_options` instead.
 
 
@@ -300,6 +318,52 @@ optimiser_options:
 - **Pros**: Efficient gradient-based optimization, fast convergence
 - **Cons**: Can get stuck in local minima
 - **Best for**: Smooth optimization landscapes, when you want faster convergence
+
+Requires `model_type: casadi_python`, since the gradient comes from CasADi automatic differentiation.
+
+### Multi-start Gradient-based Optimizer (multi_start_sp_minimize)
+
+L-BFGS-B only ever finds the minimum of the basin it starts in, so on a multi-modal cost surface `sp_minimize` is at the mercy of the initial parameter values. This method scatters `num_starts` starting points over the parameter bounds and runs a bounded L-BFGS-B descent from each one, keeping the best minimum found. It explores globally, like the population-based optimisers, while still using the gradient to descend each basin quickly and accurately.
+
+- **Pros**: Escapes local minima while still exploiting the gradient; the starts are independent so they are distributed over the MPI ranks with no communication; typically reaches a far lower cost than a gradient-free global search for the same wall-clock time.
+- **Cons**: Cost scales with `num_starts`; a very rugged surface may need many starts.
+- **Best for**: Multi-modal cost surfaces — the common case when calibrating oscillatory models, where a wrong rate constant puts the simulation out of phase with the data.
+
+Unlike `sp_minimize`, this works for **any** `model_type`. For `casadi_python` models the gradient comes from CasADi automatic differentiation (`get_jac_cost_ca`); for every other model type there is no AD cost function, so the cost is evaluated with the usual simulation cost and the gradient falls back to finite differences.
+
+Example configuration:
+```yaml
+param_id_method: multi_start_sp_minimize
+model_type: casadi_python     # for AD gradients; other model types use finite differences
+solver: casadi_integrator
+do_ad: true
+optimiser_options:
+  cost_convergence: 0.0001
+  num_starts: 10              # number of L-BFGS-B descents
+  start_sampling: sobol       # sobol | latin_hypercube | random
+  include_init_point: true    # first start is the x0 from {file_prefix}_parameters.csv
+  seed: 0
+```
+
+Alongside the usual `best_cost_history.csv` / `best_param_vals_history.csv` (written as a running-best curve over the concatenated starts), this optimiser writes a **`multi_start_summary.csv`** with one row per start — its initial cost, final cost, iteration count and final parameter values. That tells you how many distinct basins your starts fell into, which is the quickest way to see whether `num_starts` is high enough.
+
+#### Benchmark: FitzHugh-Nagumo
+
+`resources/FitzHugh_Nagumo_*` is a deliberately multi-modal benchmark. The FitzHugh-Nagumo excitable-cell model
+
+$$\dot V = c\left(V - \tfrac{V^3}{3} + R\right), \qquad \dot R = -\tfrac{1}{c}\left(V - a + bR\right)$$
+
+is a standard hard case for parameter estimation: its least-squares surface has many local minima, because a wrong recovery rate `c` puts the simulated spike train out of phase with the data (Ramsay et al. 2007, *J. R. Statist. Soc. B* 69(5), "Parameter estimation for differential equations: a generalized smoothing approach"). The supplied `FitzHugh_Nagumo_parameters.csv` starts at `(a, b, c) = (0.8, 0.9, 2.0)`, which sits inside a local basin; the true values are `(0.2, 0.2, 3.0)`.
+
+Fitting the `V` and `R` traces over 60 s (1 MPI rank, `casadi_python` + AD):
+
+| method | best cost | time | recovered `(a, b, c)` |
+|---|---|---|---|
+| `sp_minimize` | 1.4e+02 | 19 s | (1.000, 1.000, 2.074) — trapped |
+| `genetic_algorithm` (2000 evals) | 6.5e-01 | 248 s | (0.192, 0.052, 3.001) |
+| `multi_start_sp_minimize` (8 starts) | **2.2e-05** | **96 s** | (0.200, 0.201, 3.000) |
+
+`sp_minimize` never leaves the basin it starts in. The genetic algorithm escapes it but, being gradient-free, converges slowly and still has `b` badly wrong. The multi-start finds the global basin *and* refines it with the gradient, in well under half the genetic algorithm's runtime.
 
 Note: For backwards compatibility, `ga_options` can still be used and will be automatically merged into `optimiser_options`.
 
