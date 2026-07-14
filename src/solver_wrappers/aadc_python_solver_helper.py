@@ -948,6 +948,8 @@ class SimulationHelper:
                         st[z] = aadc.iif(st[z] <= 1.0, st[z], aadc.idouble(1.0))
             else:
                 # RK4 on tape (for non-stiff models)
+                # Collect trajectory for trajectory-based cost functions (max, min, mean)
+                self._tape_trajectory = [list(st)]  # initial state
                 for step in range(total_steps):
                     t = aadc.idouble(step * dt)
                     k1 = [aadc.idouble(0.0) for _ in range(n)]
@@ -963,9 +965,18 @@ class SimulationHelper:
                     self.model.compute_rates(t + dt, st4, k4, list(vars_rec))
                     for i in range(n):
                         st[i] = st[i] + dt / 6.0 * (k1[i] + 2.0 * k2[i] + 2.0 * k3[i] + k4[i])
+                    # Store post-pre_time trajectory on tape
+                    if step >= self.pre_steps:
+                        self._tape_trajectory.append(list(st))
 
-            # Cost
-            cost = cost_func_idouble(st, id_p)
+            # Cost — pass trajectory if cost function accepts it, else final state only
+            import inspect
+            sig = inspect.signature(cost_func_idouble)
+            if len(sig.parameters) >= 3:
+                # cost_func(final_state, params, trajectory)
+                cost = cost_func_idouble(st, id_p, getattr(self, '_tape_trajectory', None))
+            else:
+                cost = cost_func_idouble(st, id_p)
             r_cost = cost.mark_as_output()
 
             funcs.stop_recording()

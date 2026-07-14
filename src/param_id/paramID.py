@@ -1136,7 +1136,12 @@ class OpencorParamID():
 
         self.sfp = scriptFunctionParser()
 
-        mode = "casadi" if self.model_type == "casadi_python" else "numpy"
+        if self.model_type == "casadi_python":
+            mode = "casadi"
+        elif self.model_type == "aadc_python":
+            mode = "numpy"  # AADC uses numpy for passive (non-tape) cost evaluation
+        else:
+            mode = "numpy"
         self.operation_funcs_dict = self.sfp.get_operation_funcs_dict(mode)
         self.cost_funcs_dict = self.sfp.get_cost_funcs_dict(mode)
 
@@ -2219,12 +2224,169 @@ class OpencorParamID():
         self.build_casadi_functions(param_names, param_vals)
         jac_cost = np.array(self.jac_cost_func(self.sim_helper.states, self.sim_helper.variables)).flatten()
         return jac_cost
-    
+
     def get_cost_ca(self, param_vals):
         param_names = self.param_id_info["param_names"]
         self.build_casadi_functions(param_names, param_vals)
         cost= self.cost_func(self.sim_helper.states, self.sim_helper.variables)
         return cost
+
+    # ---- Backend-agnostic cost/gradient interface ----
+
+    def get_cost(self, param_vals):
+        """Compute cost J(p), dispatching to CasADi or AADC or numpy."""
+        if self.model_type == 'casadi_python':
+            return float(self.get_cost_ca(param_vals))
+        else:
+            return float(self.get_cost_from_params(param_vals))
+
+    def get_gradient(self, param_vals):
+        """Compute gradient ∇J(p), dispatching to CasADi or AADC."""
+        if self.model_type == 'casadi_python':
+            return self.get_jac_cost_ca(param_vals)
+        elif self.model_type == 'aadc_python':
+            return self.get_jac_cost_aadc(param_vals)
+        else:
+            raise ValueError(f"Gradient not available for model_type={self.model_type}")
+
+    def get_jac_cost_aadc(self, param_vals):
+        """Compute gradient ∇J(p) via AADC tape: forward solve + cost on tape, reverse pass.
+
+        Uses sim_helper.compute_gradient_tape() which records the entire ODE
+        integration + cost function on an AADC tape and gets the gradient via
+        one reverse pass. Requires a tape-compatible solver (implicit_euler_ift
+        or semi_implicit).
+        """
+        param_names_raw = self.param_id_info["param_names"]
+        # param_names may be lists of strings (e.g. [['alpha_Lotka_Volterra']]) — flatten
+        param_names = []
+        for pn in param_names_raw:
+            if isinstance(pn, (list, tuple)):
+                param_names.append(pn[0])
+            else:
+                param_names.append(pn)
+
+        # Set up AD parameter tracking on the simulation helper
+        self.sim_helper.set_param_vals(param_names_raw, param_vals)
+        self.sim_helper._ad_param_names = list(param_names)
+
+        # Map param names to variable indices using sim_helper's name resolver
+        ad_indices = []
+        for pname in param_names:
+            kind, idx = self.sim_helper._resolve_name(pname)
+            if kind == "var":
+                ad_indices.append(idx)
+            elif kind == "state":
+                raise ValueError(f"Param '{pname}' resolves to a state, not a variable. "
+                                 "AADC gradient currently supports variable parameters only.")
+            else:
+                raise ValueError(f"Param '{pname}' not found by name resolver.")
+            ad_indices.append(idx)
+        self.sim_helper._ad_param_var_indices = ad_indices
+
+        # Build cost function that works with idouble on tape.
+        # Receives: final state (list of idouble), params (list of idouble),
+        # and optionally the full trajectory (list of lists of idouble).
+        obs_info = self.obs_info
+        sim_helper = self.sim_helper
+        operation_funcs = self.operation_funcs_dict
+        cost_funcs = self.cost_funcs_dict
+        cost_types = self.cost_type
+
+        def cost_on_tape(states_idouble, params_idouble, trajectory=None):
+            import aadc as _aadc
+            from param_id.math_backend import make_math_backend
+            mb = make_math_backend("aadc")
+
+            cost = _aadc.idouble(0.0)
+            if obs_info is None:
+                return cost
+
+            gt_const = obs_info.get("ground_truth_const", [])
+            std_const = obs_info.get("std_const_vec", [])
+            operations = obs_info.get("operations", [])
+            operand_names = obs_info.get("operands", [])
+            data_types = obs_info.get("data_types", [])
+            weights_const = self.protocol_info["scaled_weight_const_from_exp_sub"][0][0] \
+                if self.protocol_info else np.ones(len(gt_const))
+
+            # Map operand names to state indices
+            state_names = [info['name'] for info in sim_helper.model.STATE_INFO]
+
+            # Helper: resolve operand name to state index
+            def _resolve_state_idx(op_name):
+                kind, resolved_idx = sim_helper._resolve_name(op_name)
+                if kind == "state":
+                    return resolved_idx
+                op_leaf = op_name.split('/')[-1].lower()
+                for k, sn in enumerate(state_names):
+                    if sn.lower() == op_leaf:
+                        return k
+                return None
+
+            gt_series = obs_info.get("ground_truth_series", [])
+            std_series = obs_info.get("std_series_vec", [])
+            weights_series = self.protocol_info["scaled_weight_series_from_exp_sub"][0][0] \
+                if self.protocol_info and "scaled_weight_series_from_exp_sub" in self.protocol_info \
+                else np.ones(len(gt_series)) if gt_series else np.array([])
+
+            const_idx = 0
+            series_idx = 0
+            for jj in range(len(operand_names)):
+                op_name = operand_names[jj][0] if isinstance(operand_names[jj], (list, tuple)) else operand_names[jj]
+                operation = operations[jj]
+                si = _resolve_state_idx(op_name)
+
+                if data_types[jj] == 'constant':
+                    if const_idx >= len(gt_const) or si is None:
+                        const_idx += 1
+                        continue
+
+                    # Apply operation to trajectory
+                    if trajectory is not None and operation in ('max', 'min', 'mean'):
+                        series_vals = [trajectory[t][si] for t in range(len(trajectory))]
+                        if operation == 'max':
+                            obs_val = mb.max(series_vals)
+                        elif operation == 'min':
+                            obs_val = mb.min(series_vals)
+                        elif operation == 'mean':
+                            obs_val = mb.mean(series_vals)
+                    else:
+                        obs_val = states_idouble[si]
+
+                    gt_val = _aadc.idouble(float(gt_const[const_idx]))
+                    std_val = _aadc.idouble(float(std_const[const_idx]))
+                    w = _aadc.idouble(float(weights_const[const_idx]))
+                    diff = (obs_val - gt_val) / std_val
+                    cost = cost + diff * diff * w
+                    const_idx += 1
+
+                elif data_types[jj] == 'series':
+                    # Series: compare trajectory at each time point
+                    if trajectory is None or si is None:
+                        series_idx += 1
+                        continue
+                    if series_idx >= len(gt_series):
+                        series_idx += 1
+                        continue
+
+                    gt_s = gt_series[series_idx]
+                    std_s = float(std_series[series_idx]) if series_idx < len(std_series) else 1.0
+                    w_s = float(weights_series[series_idx]) if series_idx < len(weights_series) else 1.0
+
+                    if w_s > 0 and gt_s is not None:
+                        n_pts = min(len(trajectory), len(gt_s))
+                        for t_idx in range(n_pts):
+                            diff = (trajectory[t_idx][si] - _aadc.idouble(float(gt_s[t_idx]))) / _aadc.idouble(std_s)
+                            cost = cost + diff * diff * _aadc.idouble(w_s / n_pts)
+
+                    series_idx += 1
+
+            return cost
+
+        # Run forward + reverse on AADC tape
+        grad = self.sim_helper.compute_gradient_tape(cost_on_tape)
+        return grad
     
     def get_obs_ca(self, param_vals, get_all_series=False):
         param_names = self.param_id_info["param_names"]
