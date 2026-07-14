@@ -1687,32 +1687,36 @@ class OpencorParamID():
 
         return cost
 
-    def _align_series_to_ground_truth(self, series_col, series_idx):
+    def _align_series_to_ground_truth(self, series_obj, series_idx):
         """Put a simulated series and its ground truth on a common time grid.
 
-        `series_col` is a casadi column vector, and is symbolic when differentiating, so it can't
-        be resampled with np.interp the way the numpy path resamples it. It can still be
-        resampled *linearly*, though: interpolating onto the observation times is a multiply by a
-        matrix of weights that depend only on the two time grids, never on the parameters. So we
-        build that weight matrix numerically and apply it, which keeps the series differentiable
-        and lands on exactly the times the data was measured at (interpolating the ground truth
-        up onto the finer simulation grid instead would invent data points between the samples,
-        leaving a non-zero cost at the true parameters).
+        `series_obj` is either a numpy array or a casadi column vector (symbolic when
+        differentiating). When the simulation dt differs from the observation's obs_dt, the
+        simulated series is linearly interpolated onto the observation times, so the residuals
+        are taken at the times the data was actually measured at.
 
-        Returns (series_entry, ground_truth, std) with the series as a casadi column vector and
-        the other two as numpy arrays of the same length.
+        Linear interpolation is a multiply by weights that depend only on the two time grids,
+        never on the parameters, so this works on a symbolic series too and leaves it
+        differentiable. (Interpolating the ground truth up onto the finer simulation grid
+        instead would invent data points between the samples, leaving a non-zero cost at the
+        true parameters.)
+
+        Returns (series_entry, ground_truth, std), all of the same length, with series_entry the
+        same kind of object as `series_obj`.
         """
+        is_casadi = not isinstance(series_obj, np.ndarray)
+
         ground_truth = np.asarray(self.obs_info["ground_truth_series"][series_idx], dtype=float)
         std = np.asarray(self.obs_info["std_series_vec"][series_idx], dtype=float)
         if std.ndim == 0:
             std = np.full(ground_truth.shape, float(std))
 
         obs_dt = self.obs_info["obs_dt"][series_idx]
-        num_sim = series_col.size1()
+        num_sim = series_obj.size1() if is_casadi else series_obj.shape[0]
 
         if obs_dt == self.dt:
             min_len_series = min(ground_truth.shape[0], num_sim)
-            return (series_col[:min_len_series], ground_truth[:min_len_series],
+            return (series_obj[:min_len_series], ground_truth[:min_len_series],
                     std[:min_len_series])
 
         if num_sim < 2:
@@ -1721,8 +1725,8 @@ class OpencorParamID():
                 f'{num_sim} sample(s).')
 
         # Sample k of a series is at time k*dt, so the grids are built with arange. (Note
-        # linspace(0, n*dt, n) has a spacing of n*dt/(n-1), not dt, which would stretch the two
-        # grids by different factors and drift them apart over a long simulation.)
+        # linspace(0, n*dt, n) has a spacing of n*dt/(n-1), not dt, which stretches the two grids
+        # by different factors and drifts them apart over a long simulation.)
         t_sim = np.arange(num_sim) * self.dt
         t_obs = np.arange(ground_truth.shape[0]) * obs_dt
 
@@ -1737,12 +1741,16 @@ class OpencorParamID():
 
         # Each observation time sits between simulation samples lower and lower+1, a fraction
         # `frac` of the way along; interpolated[k] = (1-frac)*sim[lower] + frac*sim[lower+1].
-        # Both gathers keep the entries of series_col intact, so this stays differentiable.
         lower = np.clip(np.floor(t_obs / self.dt).astype(int), 0, num_sim - 2)
-        frac = ca.DM(((t_obs - lower * self.dt) / self.dt).reshape(-1, 1))
+        frac = (t_obs - lower * self.dt) / self.dt
 
-        series_entry = ((1.0 - frac) * series_col[lower.tolist()]
-                        + frac * series_col[(lower + 1).tolist()])
+        if is_casadi:
+            # gathers, so every entry of the symbolic series is preserved and differentiable
+            frac_ca = ca.DM(frac.reshape(-1, 1))
+            series_entry = ((1.0 - frac_ca) * series_obj[lower.tolist()]
+                            + frac_ca * series_obj[(lower + 1).tolist()])
+        else:
+            series_entry = (1.0 - frac) * series_obj[lower] + frac * series_obj[lower + 1]
 
         return series_entry, ground_truth[:num_in_range], std[:num_in_range]
 
@@ -1868,25 +1876,13 @@ class OpencorParamID():
             #                                 self.obs_info["std_series_vec"].reshape(-1, 1))) / min_len_series
 
             for series_idx in range(len(series)):
-                if self.obs_info["obs_dt"][series_idx] != self.dt:
-                    # interpolate the series to the dt of the ground truth series
-                    time_series = np.linspace(0, series[series_idx].shape[0]*self.dt, series[series_idx].shape[0])
-                    obs_time_series = np.linspace(0, self.obs_info["ground_truth_series"][series_idx].shape[0]*self.obs_info["obs_dt"][series_idx],
-                                                    self.obs_info["ground_truth_series"][series_idx].shape[0])
+                # interpolates the simulated series onto the observation times when
+                # dt != obs_dt; shared with the symbolic cost so both agree exactly
+                series_entry, obs_entry, std_entry = self._align_series_to_ground_truth(
+                    np.asarray(series[series_idx], dtype=float).flatten(), series_idx)
 
-                    series_entry = np.interp(obs_time_series, time_series, series[series_idx])
-                    obs_entry = self.obs_info["ground_truth_series"][series_idx]
-                    std_entry = self.obs_info["std_series_vec"][series_idx]
-                else:
-                    min_len_series = min(self.obs_info["ground_truth_series"][series_idx].shape[0], len(series[series_idx]))
-                    series_entry = series[series_idx][:min_len_series]
-                    obs_entry = self.obs_info["ground_truth_series"][series_idx][:min_len_series]
-                    # TODO make sure the std entries are the same shape as the obs entries
-                    std_entry = self.obs_info["std_series_vec"][series_idx][:min_len_series]
-                    
-                
                 weight_entry = updated_weight_series_vec[series_idx]
-                
+
                 obs_idx = self.obs_info['series_idx_to_obs_idx'][series_idx]
                 if weight_entry != 0:
                     series_cost += self.cost_funcs_dict[self.cost_type[obs_idx]](series_entry, obs_entry, std_entry, weight_entry)

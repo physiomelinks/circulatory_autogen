@@ -3306,3 +3306,110 @@ def test_ad_series_cost_supports_dt_finer_than_obs_dt(
             f'parameter {idx}, so the interpolated ground truth is breaking differentiability')
 
     mpi_comm.Barrier()
+
+
+@pytest.mark.unit
+def test_series_interpolation_uses_the_correct_sample_times():
+    """Sample k of a series is at time k*dt, so a simulated series interpolated onto the
+    observation times must land on exactly those times.
+
+    The old code built both time grids with np.linspace(0, n*step, n), whose spacing is
+    n*step/(n-1) rather than step. That stretches the simulation and observation grids by
+    different factors, so they drift apart over a long simulation — about a full observation
+    sample over the 60 s below — and the residuals are taken at the wrong times.
+    """
+    from param_id.paramID import OpencorParamID
+
+    dt = 0.1
+    obs_dt = 0.25
+    num_sim = 601                      # 0 .. 60.0 s at dt
+    ground_truth = np.zeros(241)       # 0 .. 60.0 s at obs_dt
+
+    class _Fake:
+        pass
+
+    fake = _Fake()
+    fake.dt = dt
+    fake.obs_info = {
+        "ground_truth_series": [ground_truth],
+        "std_series_vec": [np.ones_like(ground_truth)],
+        "obs_dt": [obs_dt],
+    }
+
+    # A simulated series whose value *is* the time. Interpolating it onto the observation
+    # times must therefore reproduce those times exactly.
+    t_sim = np.arange(num_sim) * dt
+    series_entry, obs_entry, std_entry = OpencorParamID._align_series_to_ground_truth(
+        fake, t_sim.copy(), 0)
+
+    expected_t_obs = np.arange(ground_truth.shape[0]) * obs_dt
+    np.testing.assert_allclose(series_entry, expected_t_obs, atol=1e-9)
+    assert len(obs_entry) == len(series_entry) == len(std_entry)
+
+
+@pytest.mark.unit
+def test_series_interpolation_matches_between_numpy_and_casadi_paths():
+    """The numeric and symbolic costs must resample a series identically, otherwise the same
+    model calibrated as cellml_only and as casadi_python would have different cost surfaces."""
+    import casadi as ca
+    from param_id.paramID import OpencorParamID
+
+    dt = 0.1
+    obs_dt = 0.25
+    num_sim = 61
+    ground_truth = np.zeros(21)
+
+    class _Fake:
+        pass
+
+    fake = _Fake()
+    fake.dt = dt
+    fake.obs_info = {
+        "ground_truth_series": [ground_truth],
+        "std_series_vec": [np.ones_like(ground_truth)],
+        "obs_dt": [obs_dt],
+    }
+
+    rng = np.random.default_rng(0)
+    sim = rng.normal(size=num_sim)
+
+    from_numpy, _, _ = OpencorParamID._align_series_to_ground_truth(fake, sim.copy(), 0)
+    from_casadi, _, _ = OpencorParamID._align_series_to_ground_truth(
+        fake, ca.DM(sim.reshape(-1, 1)), 0)
+
+    np.testing.assert_allclose(
+        np.asarray(from_numpy, dtype=float).flatten(),
+        np.asarray(ca.DM(from_casadi), dtype=float).flatten(),
+        rtol=1e-12, atol=1e-12)
+
+
+@pytest.mark.unit
+def test_series_interpolation_does_not_invent_data_past_the_end_of_the_simulation():
+    """np.interp clamps to the last value, which would compare a flat fabricated tail against
+    real observations. Observation times past the end of the simulation are dropped instead."""
+    from param_id.paramID import OpencorParamID
+
+    dt = 0.1
+    obs_dt = 0.25
+    num_sim = 21                    # simulation only reaches 2.0 s
+    ground_truth = np.arange(21.0)  # observations run out to 5.0 s
+
+    class _Fake:
+        pass
+
+    fake = _Fake()
+    fake.dt = dt
+    fake.obs_info = {
+        "ground_truth_series": [ground_truth],
+        "std_series_vec": [np.ones_like(ground_truth)],
+        "obs_dt": [obs_dt],
+    }
+
+    t_sim = np.arange(num_sim) * dt
+    series_entry, obs_entry, std_entry = OpencorParamID._align_series_to_ground_truth(
+        fake, t_sim.copy(), 0)
+
+    # only the observation times up to 2.0 s (0, 0.25, ..., 2.0 => 9 of them) are compared
+    assert len(series_entry) == 9
+    assert len(obs_entry) == 9 and len(std_entry) == 9
+    np.testing.assert_allclose(series_entry, np.arange(9) * obs_dt, atol=1e-9)
