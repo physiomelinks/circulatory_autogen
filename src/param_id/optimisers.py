@@ -10,6 +10,7 @@ from mpi4py import MPI
 import math
 import os
 import csv
+import time
 import warnings
 import traceback
 from datetime import date
@@ -977,14 +978,25 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
                             values from the parameters csv, so this can never do worse
                             than a single-start sp_minimize run.
         seed:               seed for the start sampler (default 0), so runs are repeatable.
-        cost_convergence:   a start that reaches this cost stops the remaining starts on
-                            that rank.
+        cost_convergence:   once any start reaches this cost, every rank stops launching new
+                            starts (a non-blocking message tells the others), so no rank keeps
+                            grinding through starts after a good-enough solution has been found.
         fd_step:            finite-difference step used when AD is unavailable (default 1e-4).
+
+    Parallelism: the starts are distributed statically round-robin over the MPI ranks with no
+    per-start communication, so the speedup approaches the rank count only when there are many
+    more starts than ranks (individual descents vary widely in length, and that variance only
+    averages out across ranks when each rank runs many of them). With num_starts <= num_procs
+    each rank runs one long-or-short descent and the wall-clock is bounded by the slowest single
+    one, so there is little to gain. run() records the achieved speedup on rank 0 (self.speedup).
     """
 
     # Cost returned to L-BFGS-B when a simulation fails. Must be finite, otherwise the
     # finite-difference gradient becomes nan and the descent silently stalls.
     FAILED_SIM_COST = 1e10
+
+    # MPI tag for the global early-stop signal.
+    _STOP_TAG = 11711
 
     def __init__(self, param_id_obj, param_id_info, param_norm_obj,
                  num_params, output_dir, optimiser_options=None,
@@ -1015,6 +1027,13 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
 
         self.init_gradient = None
         self.best_gradient = None
+
+        # Scaling bookkeeping, filled in by run() on rank 0.
+        self.num_starts_run = None
+        self.starts_run_per_rank = None
+        self.serial_seconds = None
+        self.wall_seconds = None
+        self.speedup = None
 
     def _generate_starts(self):
         """Starting points in normalised [0, 1] parameter space, shape (num_starts, num_params).
@@ -1090,6 +1109,7 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
         cost-converged early stop)."""
         iterates = []  # (cost, x_norm) per accepted L-BFGS-B iteration, for the history csv
 
+        start_wall = time.perf_counter()
         init_cost = cost_fun(x0_norm)
         iterates.append((init_cost, np.asarray(x0_norm, dtype=float).copy()))
 
@@ -1133,6 +1153,7 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
             'final_x_norm': final_x_norm,
             'num_iterations': max(len(iterates) - 1, 0),
             'iterates': iterates,
+            'duration': time.perf_counter() - start_wall,
         }
 
     def run(self):
@@ -1144,13 +1165,27 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
         cost_fun = self._make_cost_func()
         gradient_func = self._make_gradient_func(cost_fun)
 
+        # Non-blocking global early stop. When a start meets the convergence threshold, that rank
+        # tells every OTHER rank to stop via a point-to-point message; between starts each rank
+        # checks (without ever blocking) whether such a message has arrived. Point-to-point and
+        # non-blocking is what keeps this deadlock-free with uneven start counts -- a blocking
+        # collective inside the loop would hang the instant two ranks had different numbers of
+        # starts left to run.
+        stop_tag = self._STOP_TAG
+        i_signalled = False
+        should_stop = False
+        stop_send_requests = []
+        num_stop_received = 0
+
         # Every rank must take part in the same collectives, so any failure is caught
         # locally and only turned into an exception after all ranks have agreed on it.
         local_results = []
         local_error = None
+        loop_wall = 0.0
         try:
             starts = self._generate_starts()
             num_starts = starts.shape[0]
+            cost_convergence = self.optimiser_options['cost_convergence']
 
             param_mins_norm = self.param_norm_obj.normalise(self.param_mins)
             param_maxs_norm = self.param_norm_obj.normalise(self.param_maxs)
@@ -1163,27 +1198,58 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
                       f'({self.optimiser_options["start_sampling"]} sampling) over '
                       f'{num_procs} rank(s), gradients from {grad_source}')
 
-            # Round-robin so each rank gets a near-equal share without any communication.
-            for start_idx in range(num_starts):
-                if start_idx % num_procs != rank:
-                    continue
-                # A start on this rank already hit the convergence target, so the remaining
-                # starts on this rank can't improve on it. This is deliberately rank-local:
-                # a global early stop would need a collective inside the loop, which would
-                # deadlock as soon as the ranks had different numbers of starts.
-                if local_results and min(r['final_cost'] for r in local_results) <= \
-                        self.optimiser_options['cost_convergence']:
+            # Static round-robin: rank r runs starts r, r+P, r+2P, ... No communication is needed
+            # to agree who runs what. With num_starts >> num_procs the per-rank workloads even out
+            # even though individual starts vary a lot in length -- which is exactly why parallel
+            # multi-start only pays off for many starts (see the docs).
+            my_start_indices = [s for s in range(num_starts) if s % num_procs == rank]
+
+            loop_t0 = time.perf_counter()
+            for start_idx in my_start_indices:
+                # Has any other rank reached the threshold? Drain every pending stop message
+                # without blocking.
+                while comm.iprobe(source=MPI.ANY_SOURCE, tag=stop_tag):
+                    comm.recv(source=MPI.ANY_SOURCE, tag=stop_tag)
+                    num_stop_received += 1
+                    should_stop = True
+                if should_stop:
                     break
-                local_results.append(
-                    self._run_one_start(start_idx, starts[start_idx, :], cost_fun,
-                                        gradient_func, bounds_norm))
+
+                result = self._run_one_start(start_idx, starts[start_idx, :], cost_fun,
+                                             gradient_func, bounds_norm)
+                local_results.append(result)
+
+                # This start met the threshold: tell every other rank to stop, once. isend is
+                # non-blocking; the messages are drained/completed after the loop.
+                if not i_signalled and result['final_cost'] <= cost_convergence:
+                    for other in range(num_procs):
+                        if other != rank:
+                            stop_send_requests.append(comm.isend(1, dest=other, tag=stop_tag))
+                    i_signalled = True
+                    should_stop = True  # stop this rank's own remaining starts too
+            loop_wall = time.perf_counter() - loop_t0
         except Exception as e:
             local_error = {"rank": rank, "type": type(e).__name__, "message": str(e),
                            "traceback": traceback.format_exc()}
 
-        # Collective 1: agree on whether any rank failed.
-        all_errors = comm.allgather(local_error)
-        errors = [e for e in all_errors if e is not None]
+        # Collective 1: agree on failures, and exchange the stop-signal bookkeeping so the
+        # non-blocking messages can be drained without leaking.
+        status = comm.allgather({"error": local_error, "signalled": i_signalled,
+                                 "loop_wall": loop_wall})
+
+        # Drain the stop machinery. Each signalling rank sent one message to every OTHER rank, so
+        # this rank must receive one per other signalling rank; both counts are known here, so
+        # neither the receives nor the waits can block. Done even on the error path so that no MPI
+        # message or request is left dangling.
+        num_signalling_others = sum(1 for i, st in enumerate(status)
+                                    if st["signalled"] and i != rank)
+        while num_stop_received < num_signalling_others:
+            comm.recv(source=MPI.ANY_SOURCE, tag=stop_tag)
+            num_stop_received += 1
+        if stop_send_requests:
+            MPI.Request.Waitall(stop_send_requests)
+
+        errors = [st["error"] for st in status if st["error"] is not None]
         if errors:
             first = errors[0]
             raise RuntimeError(
@@ -1207,11 +1273,23 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
             self._write_history(all_results)
             self._write_start_summary(all_results)
 
+            # Scaling bookkeeping. The serial cost is the sum of every start's own wall time; the
+            # parallel cost is the slowest rank's loop time. Their ratio is the achieved speedup,
+            # which approaches num_procs only when there are many more starts than ranks.
+            durations = [r['duration'] for r in all_results]
+            self.num_starts_run = len(all_results)
+            self.starts_run_per_rank = [len(rank_results) for rank_results in gathered]
+            self.serial_seconds = float(sum(durations))
+            self.wall_seconds = max(st['loop_wall'] for st in status)
+            self.speedup = (self.serial_seconds / self.wall_seconds
+                            if self.wall_seconds > 0 else float('nan'))
+
             print(f'Multi-start L-BFGS-B ran {len(all_results)} of '
                   f'{int(self.optimiser_options["num_starts"])} starts '
                   f'(the rest were skipped after a start converged); '
                   f'best cost {best_result["final_cost"]:.6e} came from start '
-                  f'{best_result["start_idx"]}')
+                  f'{best_result["start_idx"]}; '
+                  f'speedup {self.speedup:.1f}x over {num_procs} rank(s)')
 
             best = {
                 'param_vals': np.asarray(best_param_vals, dtype=float).flatten(),
@@ -1270,11 +1348,13 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
         summary_path = os.path.join(self.output_dir, 'multi_start_summary.csv')
         with open(summary_path, 'w') as file:
             writer = csv.writer(file)
-            writer.writerow(['start_idx', 'init_cost', 'final_cost', 'num_iterations'] +
+            writer.writerow(['start_idx', 'init_cost', 'final_cost', 'num_iterations',
+                             'duration_s'] +
                             [label.replace('/', ' ') for label in param_labels])
             for result in all_results:
                 param_vals = self.param_norm_obj.unnormalise(result['final_x_norm'])
                 writer.writerow(
                     [result['start_idx'], f'{result["init_cost"]:.9e}',
-                     f'{result["final_cost"]:.9e}', result['num_iterations']] +
+                     f'{result["final_cost"]:.9e}', result['num_iterations'],
+                     f'{result.get("duration", float("nan")):.6f}'] +
                     [f'{val:.9e}' for val in np.asarray(param_vals, dtype=float).flatten()])

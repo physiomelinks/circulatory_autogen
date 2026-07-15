@@ -282,12 +282,12 @@ To run the parameter identification we need to set a few entries in the `[CA_dir
 
     multi_start_sp_minimize specific options:
 
-    - **num_starts**: Number of L-BFGS-B descents to run (default: 10, or 4 when `DEBUG` is true). The starts are spread over the MPI ranks, so `num_starts` being a multiple of the rank count keeps every rank busy.
+    - **num_starts**: Number of L-BFGS-B descents to run (default: 10, or 4 when `DEBUG` is true). The starts are spread round-robin over the MPI ranks; make `num_starts` several times the rank count so the work balances (see the note under "Multi-start Gradient-based Optimizer" below).
     - **start_sampling**: How the starting points are scattered over the parameter bounds: `sobol` (default), `latin_hypercube` or `random`.
     - **include_init_point**: If true (default), the first start is the initial parameter values from `{file_prefix}_parameters.csv`, so this method can never do worse than a single-start `sp_minimize` run.
     - **seed**: Seed for the start sampler (default: 0), so a run is repeatable.
     - **fd_step**: Finite-difference step used when automatic differentiation isn't available, i.e. for any `model_type` other than `casadi_python` or `aadc_python`, or when `do_ad: false` (default: 1e-4).
-    - **cost_convergence**: A start reaching this cost stops the remaining starts on that MPI rank.
+    - **cost_convergence**: Once any start reaches this cost, every MPI rank stops launching new starts (signalled between ranks with a non-blocking message), so no rank keeps working after a good-enough solution has been found.
 
     !!! note "Automatic differentiation uses CasADi"
         Gradient-based calibration (`do_ad: true`) is provided by **CasADi**
@@ -341,6 +341,9 @@ L-BFGS-B only ever finds the minimum of the basin it starts in, so on a multi-mo
 - **Pros**: Escapes local minima while still exploiting the gradient; the starts are independent so they are distributed over the MPI ranks with no communication; typically reaches a far lower cost than a gradient-free global search for the same wall-clock time.
 - **Cons**: Cost scales with `num_starts`; a very rugged surface may need many starts.
 - **Best for**: Multi-modal cost surfaces — the common case when calibrating oscillatory models, where a wrong rate constant puts the simulation out of phase with the data.
+
+!!! note "Parallel multi-start pays off only for many starts"
+    The starts are distributed statically round-robin over the MPI ranks (`run_param_id.sh` with `num_processors > 1`). Because individual L-BFGS-B descents vary a lot in length — some converge in a handful of iterations, some take many — the per-rank workloads only even out when **each rank runs many starts**, i.e. when `num_starts` is much larger than the number of ranks. With `num_starts ≤ num_processors` each rank runs a single descent and the wall-clock is bounded by the slowest one, so extra ranks buy little. As a rule of thumb, run with several times as many starts as ranks. Measured on a 20-core host with 100 starts: ~3.8× on 4 ranks, ~4× on 8. Once any start reaches `cost_convergence`, every rank stops launching new starts, so a converged run doesn't keep the other ranks busy needlessly. `run()` reports the achieved speedup in its final log line.
 
 This works for **any** `model_type`. The gradient comes from `get_gradient()`, which has an AD backend for `casadi_python` (symbolic jacobian) and `aadc_python` (tape reverse pass) models. For every other model type there is no AD gradient, so the cost is evaluated with the usual simulation cost and the gradient falls back to finite differences.
 

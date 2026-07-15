@@ -3012,6 +3012,119 @@ def _make_multi_start_optimiser(output_dir, param_id_obj, optimiser_options,
     )
 
 
+class _WorkloadTwoWellParamId(_TwoWellParamId):
+    """Two-well cost with a fixed, non-trivial amount of CPU work per evaluation.
+
+    Real starts vary a lot in length (some descents take 4 L-BFGS-B iterations, some 70), which
+    is precisely the imbalance parallel multi-start has to average out. This fake makes each cost
+    evaluation cost a few tenths of a millisecond of deterministic work, so per-start durations
+    are real and measurable (and imbalanced, through the natural spread of iteration counts) --
+    enough to measure the achieved speedup without needing a physiological model.
+    """
+
+    # small enough to stay in L1 cache: the work is then compute-bound, not memory-bandwidth
+    # bound, so parallel ranks don't contend for memory and the scaling reflects the optimiser
+    # rather than the host's memory bus (a real ODE solve is likewise compute-bound).
+    _WORK = np.linspace(0.0, 1.0, 256)
+
+    def _burn(self):
+        # deterministic, defeats being optimised away by returning a value
+        acc = 0.0
+        for _ in range(600):
+            acc += float(np.sum(np.sqrt(self._WORK) * np.cos(self._WORK)))
+        return acc
+
+    def get_cost(self, p):
+        self._burn()
+        return super().get_cost(p)
+
+    def get_gradient(self, p):
+        self._burn()
+        return super().get_gradient(p)
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.mpi
+def test_multi_start_scales_with_many_starts(temp_output_dir):
+    """With many more starts than ranks, the static round-robin distribution balances out and the
+    multi-start scales close to the rank count. Run under multiple MPI ranks to see the speedup;
+    it still passes (with weaker assertions) on a single rank.
+
+    cost_convergence is set below any achievable cost, so the global early stop never fires and
+    all 100 starts run -- the speedup is then measured on the full, fixed workload, and this also
+    exercises the stop machinery on the path where it must NOT trigger.
+    """
+    comm = MPI.COMM_WORLD
+    num_procs = comm.Get_size()
+
+    opt = _make_multi_start_optimiser(
+        temp_output_dir, _WorkloadTwoWellParamId(param_init=(1.2, 1.2)),
+        {'num_starts': 100, 'start_sampling': 'sobol', 'seed': 0,
+         'include_init_point': False, 'cost_convergence': 1e-300})
+    opt.run()
+
+    if comm.Get_rank() != 0:
+        comm.Barrier()
+        return
+
+    # the global early stop never fired, so every start ran
+    assert opt.num_starts_run == 100, \
+        f'expected all 100 starts to run, got {opt.num_starts_run}'
+
+    # static round-robin spreads the starts to within one of each other
+    counts = opt.starts_run_per_rank
+    assert sum(counts) == 100
+    assert max(counts) - min(counts) <= 1, \
+        f'starts should be evenly distributed over ranks, got {counts}'
+
+    # serial_seconds is the summed per-start work; wall_seconds is the slowest rank. Their ratio
+    # is the achieved speedup.
+    print(f'\n[scaling] {num_procs} rank(s): serial={opt.serial_seconds:.2f}s '
+          f'wall={opt.wall_seconds:.2f}s speedup={opt.speedup:.2f}x '
+          f'starts_per_rank={counts}')
+    if num_procs > 1:
+        # With 100 starts over num_procs ranks the per-rank workloads average out and the
+        # multi-start clearly scales. The floor is deliberately conservative -- ideal speedup is
+        # num_procs, and 0.4x still comfortably fails if the work stopped being distributed --
+        # because the achievable fraction depends on the host (CPU turbo throttles as more cores
+        # get busy, and 100/num_procs starts per rank averages imperfectly for larger rank
+        # counts). Measured on a 20-core host: ~3.8x on 4 ranks, ~4.2x on 8. Requiring near
+        # num_procs would make the test hostage to the machine it runs on.
+        assert opt.speedup >= max(1.5, 0.3 * num_procs), (
+            f'expected the multi-start to scale with {num_procs} ranks '
+            f'(speedup >= {max(1.5, 0.3 * num_procs):.1f}), got {opt.speedup:.2f}')
+    else:
+        # on one rank there is no parallelism, but serial and wall should agree
+        assert opt.speedup == pytest.approx(1.0, abs=0.2)
+
+    comm.Barrier()
+
+
+@pytest.mark.integration
+@pytest.mark.mpi
+def test_multi_start_global_early_stop_halts_all_ranks(temp_output_dir):
+    """When a start meets the threshold, every rank stops launching new starts -- not just the
+    rank that found it. With a threshold that IS met, fewer than all starts run."""
+    comm = MPI.COMM_WORLD
+
+    # the -1 well sits at cost ~0.1 (see _two_well_cost); a threshold of 0.5 is met by any start
+    # that reaches that well, so the search stops well before running all 100 starts
+    opt = _make_multi_start_optimiser(
+        temp_output_dir, _TwoWellParamId(param_init=(-1.0, -1.0)),
+        {'num_starts': 100, 'start_sampling': 'sobol', 'seed': 0,
+         'include_init_point': True, 'cost_convergence': 0.5})
+    opt.run()
+
+    if comm.Get_rank() == 0:
+        assert opt.num_starts_run < 100, \
+            f'the global early stop should have halted the search early, ran {opt.num_starts_run}'
+        assert opt.best_cost <= 0.5, \
+            f'the run should have stopped because the threshold was met, best {opt.best_cost}'
+
+    comm.Barrier()
+
+
 @pytest.mark.unit
 def test_multi_start_lbfgsb_escapes_a_local_minimum_that_traps_single_start(temp_output_dir):
     """The headline behaviour: from an x0 inside a local well, a single L-BFGS-B descent
@@ -3646,7 +3759,12 @@ def _aadc_lotka_volterra_config(base_user_inputs, resources_dir, temp_output_dir
 
 
 def _init_aadc_param_id(config, resources_dir):
-    assert generate_with_new_architecture(False, config), 'AADC model generation should succeed'
+    # rank 0 generates the model into the shared dir; the others wait, then all load it. Letting
+    # every rank generate into the same directory races.
+    comm = MPI.COMM_WORLD
+    if comm.Get_rank() == 0:
+        assert generate_with_new_architecture(False, config), 'AADC model generation should succeed'
+    comm.Barrier()
     parsed = YamlFileParser().parse_user_inputs_file(
         config, obs_path_needed=True, do_generation_with_fit_parameters=False)
     parsed['one_rank'] = True
@@ -3741,17 +3859,26 @@ def test_multi_start_sp_minimize_calibrates_an_aadc_model(
         'num_starts': 4, 'start_sampling': 'sobol', 'seed': 0,
     }
 
-    assert generate_with_new_architecture(False, config), 'AADC model generation should succeed'
+    comm = MPI.COMM_WORLD
+    rank = comm.Get_rank()
+
+    if rank == 0:
+        assert generate_with_new_architecture(False, config), \
+            'AADC model generation should succeed'
+    comm.Barrier()
     run_param_id(config)
 
-    output_dir = os.path.join(
-        temp_output_dir, 'multi_start_sp_minimize_Lotka_Volterra_Lotka_Volterra_obs_data')
-    cost = float(np.load(os.path.join(output_dir, 'best_cost.npy')))
-    params = np.load(os.path.join(output_dir, 'best_param_vals.npy'))
+    # only rank 0 writes the result files
+    if rank == 0:
+        output_dir = os.path.join(
+            temp_output_dir, 'multi_start_sp_minimize_Lotka_Volterra_Lotka_Volterra_obs_data')
+        cost = float(np.load(os.path.join(output_dir, 'best_cost.npy')))
+        params = np.load(os.path.join(output_dir, 'best_param_vals.npy'))
 
-    assert np.isfinite(cost)
-    assert np.all(np.isfinite(params))
-    # the observables are two constants the model can match, so a working gradient descent
-    # should drive the cost right down; a wrong gradient leaves it stuck near its start
-    assert cost < 1e-2, \
-        f'multi_start_sp_minimize with the AADC tape gradient failed to calibrate: cost {cost}'
+        assert np.isfinite(cost)
+        assert np.all(np.isfinite(params))
+        # the observables are two constants the model can match, so a working gradient descent
+        # should drive the cost right down; a wrong gradient leaves it stuck near its start
+        assert cost < 1e-2, \
+            f'multi_start_sp_minimize with the AADC tape gradient failed to calibrate: cost {cost}'
+    comm.Barrier()
