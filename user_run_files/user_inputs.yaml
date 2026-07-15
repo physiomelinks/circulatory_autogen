@@ -94,6 +94,11 @@ optimiser_options:
   # include_init_point: true   # make the first start the x0 from {file_prefix}_parameters.csv
   # seed: 0                    # seed for the start sampler, so runs are repeatable
   # fd_step: 1.0e-4            # finite-difference step, used when AD isn't available
+  # no_new_starts_on_convergence: true  # true: stop launching starts once one converges.
+  #                                     # false: run every start and report how many land in
+  #                                     # each minimum (maps the basins of a multi-modal problem)
+  # convergence_cluster_tol_frac: 0.02  # two converged starts are the same solution if every
+  #                                     # param agrees to within this fraction of its range
   # Note: Initial parameter values (x0) are automatically loaded from {file_prefix}_parameters.csv
 
 #______ debug optimiser options (used when DEBUG is True) ___________

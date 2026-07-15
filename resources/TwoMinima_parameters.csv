@@ -1,0 +1,4 @@
+variable_name,units,value,data_reference
+x_init_twomin,dimensionless,0.0,None
+a_twomin,dimensionless,1.0,initial_guess
+c_twomin,dimensionless,3.0,rate_constant

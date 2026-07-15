@@ -3126,6 +3126,116 @@ def test_multi_start_global_early_stop_halts_all_ranks(temp_output_dir):
 
 
 @pytest.mark.unit
+def test_multi_start_no_new_starts_on_convergence_false_runs_every_start(temp_output_dir):
+    """With no_new_starts_on_convergence off, every start runs even once one has converged, and
+    the run reports the converged starts clustered by which solution they reached.
+
+    The two-well cost has a global minimum at -1 and a shallow local one at +1, so a start that
+    reaches -1 converges (cost ~0.1 <= threshold) but must NOT stop the others -- and the starts
+    that fall into the +1 well don't converge, so they aren't clustered."""
+    opt = _make_multi_start_optimiser(
+        temp_output_dir, _TwoWellParamId(),
+        {'num_starts': 20, 'start_sampling': 'sobol', 'seed': 0, 'include_init_point': False,
+         'cost_convergence': 0.5, 'no_new_starts_on_convergence': False})
+    opt.run()
+
+    if MPI.COMM_WORLD.Get_rank() == 0:
+        # nothing was skipped
+        assert opt.num_starts_run == 20
+        # the converged starts all reached the -1 well, i.e. one cluster with negative params
+        assert opt.num_converged > 0
+        assert len(opt.convergence_clusters) >= 1
+        counts = sum(c['count'] for c in opt.convergence_clusters)
+        assert counts == opt.num_converged
+        for cluster in opt.convergence_clusters:
+            assert np.all(np.asarray(cluster['params']) < 0.0), \
+                f'converged starts should be in the -1 well, got {cluster["params"]}'
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.mpi
+def test_multi_start_reports_both_minima_of_a_two_minimum_model(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
+    """End to end on a CellML model with two equal global minima.
+
+    resources/TwoMinima is dx/dt = c*(a^2 - x), fitting `a` to a steady state of 4. Because the
+    observable depends on a^2, a = +2 and a = -2 both fit perfectly -- two global minima either
+    side of a barrier at a = 0. With no_new_starts_on_convergence off, every start runs and the
+    optimiser reports how many landed in each minimum. The test checks that both minima are
+    found and that the per-minimum counts are reported (they differ, since the starts don't split
+    exactly evenly)."""
+    import csv as _csv
+
+    rank = mpi_comm.Get_rank()
+
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': 'TwoMinima',
+        'input_param_file': 'TwoMinima_parameters.csv',
+        'params_for_id_file': 'TwoMinima_params_for_id.csv',
+        'model_type': 'cellml_only',
+        'solver': 'CVODE_myokit',
+        'param_id_method': 'multi_start_sp_minimize',
+        'do_ad': False,
+        'pre_time': 0.0,
+        'sim_time': 5.0,
+        'dt': 0.05,
+        'DEBUG': False,
+        'do_mcmc': False,
+        'plot_predictions': False,
+        'do_ia': False,
+        'solver_info': {'MaximumStep': 0.01, 'MaximumNumberOfSteps': 5000},
+        'param_id_obs_path': os.path.join(resources_dir, 'TwoMinima_obs_data.json'),
+        'param_id_output_dir': temp_output_dir,
+        'generated_models_dir': temp_generated_models_dir,
+        'optimiser_options': {
+            'cost_convergence': 1e-3,
+            'num_starts': 20,
+            'start_sampling': 'sobol',
+            'seed': 0,
+            'include_init_point': False,
+            # run every start so we can count how many land in each minimum
+            'no_new_starts_on_convergence': False,
+        },
+    })
+
+    if rank == 0:
+        assert generate_with_new_architecture(False, config), \
+            'TwoMinima model generation should succeed'
+    mpi_comm.Barrier()
+
+    run_param_id(config)
+
+    if rank == 0:
+        output_dir = os.path.join(
+            temp_output_dir, 'multi_start_sp_minimize_TwoMinima_TwoMinima_obs_data')
+        clusters = list(_csv.DictReader(
+            open(os.path.join(output_dir, 'multi_start_convergence_clusters.csv'))))
+
+        # exactly the two global minima were found
+        assert len(clusters) == 2, \
+            f'expected two distinct solutions (a = +2 and a = -2), got {len(clusters)}: {clusters}'
+
+        a_vals = sorted(float(c['twomin a']) for c in clusters)
+        np.testing.assert_allclose(a_vals, [-2.0, 2.0], atol=0.02)
+
+        counts = {round(float(c['twomin a'])): int(c['num_starts']) for c in clusters}
+        total_converged = sum(counts.values())
+        print(f'\n[two-minima] of 20 starts, {total_converged} converged: '
+              f'{counts[2]} to a=+2, {counts[-2]} to a=-2')
+
+        # every start converged to one of the two wells, and both wells were reached
+        assert total_converged == 20
+        assert counts[2] > 0 and counts[-2] > 0
+        # the split is reported per minimum; with sobol sampling it is not exactly even
+        assert counts[2] != counts[-2], \
+            'expected the two minima to receive different numbers of starts'
+
+    mpi_comm.Barrier()
+
+
+@pytest.mark.unit
 def test_multi_start_lbfgsb_escapes_a_local_minimum_that_traps_single_start(temp_output_dir):
     """The headline behaviour: from an x0 inside a local well, a single L-BFGS-B descent
     stays in that well, while scattering starts over the bounds finds the global one."""

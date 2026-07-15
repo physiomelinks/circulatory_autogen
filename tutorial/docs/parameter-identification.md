@@ -287,7 +287,9 @@ To run the parameter identification we need to set a few entries in the `[CA_dir
     - **include_init_point**: If true (default), the first start is the initial parameter values from `{file_prefix}_parameters.csv`, so this method can never do worse than a single-start `sp_minimize` run.
     - **seed**: Seed for the start sampler (default: 0), so a run is repeatable.
     - **fd_step**: Finite-difference step used when automatic differentiation isn't available, i.e. for any `model_type` other than `casadi_python` or `aadc_python`, or when `do_ad: false` (default: 1e-4).
-    - **cost_convergence**: Once any start reaches this cost, every MPI rank stops launching new starts (signalled between ranks with a non-blocking message), so no rank keeps working after a good-enough solution has been found.
+    - **cost_convergence**: Once any start reaches this cost, every MPI rank stops launching new starts (signalled between ranks with a non-blocking message), so no rank keeps working after a good-enough solution has been found. (Set `no_new_starts_on_convergence: false` to disable this.)
+    - **no_new_starts_on_convergence**: `true` (default) is the behaviour above — stop launching starts once one converges. Set to `false` to run **every** start regardless, then report how many converged and how many landed in each distinct minimum. That maps the basin structure of a multi-modal problem (which minima exist, and how the starts split between them); the counts are written to `multi_start_convergence_clusters.csv` and printed at the end of the run.
+    - **convergence_cluster_tol_frac**: When counting how many starts reached each minimum, two converged starts are treated as the same solution if every parameter agrees to within this fraction of that parameter's range (default: 0.02, i.e. 2%).
 
     !!! note "Automatic differentiation uses CasADi"
         Gradient-based calibration (`do_ad: true`) is provided by **CasADi**

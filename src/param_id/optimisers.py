@@ -1024,9 +1024,22 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
             self.optimiser_options['seed'] = 0
         if 'fd_step' not in self.optimiser_options:
             self.optimiser_options['fd_step'] = 1e-4
+        if 'no_new_starts_on_convergence' not in self.optimiser_options:
+            # True (default): once any start reaches cost_convergence, no rank launches new
+            # starts. False: run every start to completion regardless -- useful for mapping the
+            # basins of a multi-modal problem (how many starts land in each minimum).
+            self.optimiser_options['no_new_starts_on_convergence'] = True
+        if 'convergence_cluster_tol_frac' not in self.optimiser_options:
+            # Two converged starts are the "same" solution if every parameter agrees to within
+            # this fraction of that parameter's range (max - min).
+            self.optimiser_options['convergence_cluster_tol_frac'] = 0.02
 
         self.init_gradient = None
         self.best_gradient = None
+
+        # Convergence report, filled in by run() on rank 0.
+        self.num_converged = None
+        self.convergence_clusters = None
 
         # Scaling bookkeeping, filled in by run() on rank 0.
         self.num_starts_run = None
@@ -1186,6 +1199,7 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
             starts = self._generate_starts()
             num_starts = starts.shape[0]
             cost_convergence = self.optimiser_options['cost_convergence']
+            stop_on_convergence = self.optimiser_options['no_new_starts_on_convergence']
 
             param_mins_norm = self.param_norm_obj.normalise(self.param_mins)
             param_maxs_norm = self.param_norm_obj.normalise(self.param_maxs)
@@ -1207,21 +1221,25 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
             loop_t0 = time.perf_counter()
             for start_idx in my_start_indices:
                 # Has any other rank reached the threshold? Drain every pending stop message
-                # without blocking.
-                while comm.iprobe(source=MPI.ANY_SOURCE, tag=stop_tag):
-                    comm.recv(source=MPI.ANY_SOURCE, tag=stop_tag)
-                    num_stop_received += 1
-                    should_stop = True
-                if should_stop:
-                    break
+                # without blocking. (Only relevant when stop_on_convergence is on; when it is
+                # off no rank ever signals, so the probe simply always finds nothing.)
+                if stop_on_convergence:
+                    while comm.iprobe(source=MPI.ANY_SOURCE, tag=stop_tag):
+                        comm.recv(source=MPI.ANY_SOURCE, tag=stop_tag)
+                        num_stop_received += 1
+                        should_stop = True
+                    if should_stop:
+                        break
 
                 result = self._run_one_start(start_idx, starts[start_idx, :], cost_fun,
                                              gradient_func, bounds_norm)
                 local_results.append(result)
 
-                # This start met the threshold: tell every other rank to stop, once. isend is
-                # non-blocking; the messages are drained/completed after the loop.
-                if not i_signalled and result['final_cost'] <= cost_convergence:
+                # This start met the threshold. If early stopping is on, tell every other rank to
+                # stop launching new starts (once); isend is non-blocking, drained after the loop.
+                # If it is off, keep going -- every start runs, so the basins can be mapped.
+                if (stop_on_convergence and not i_signalled
+                        and result['final_cost'] <= cost_convergence):
                     for other in range(num_procs):
                         if other != rank:
                             stop_send_requests.append(comm.isend(1, dest=other, tag=stop_tag))
@@ -1272,6 +1290,7 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
 
             self._write_history(all_results)
             self._write_start_summary(all_results)
+            self._cluster_converged_starts(all_results)
 
             # Scaling bookkeeping. The serial cost is the sum of every start's own wall time; the
             # parallel cost is the slowest rank's loop time. Their ratio is the achieved speedup,
@@ -1284,12 +1303,22 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
             self.speedup = (self.serial_seconds / self.wall_seconds
                             if self.wall_seconds > 0 else float('nan'))
 
+            skipped_note = ('the rest were skipped after a start converged'
+                            if self.optimiser_options['no_new_starts_on_convergence']
+                            else 'no_new_starts_on_convergence is off, so all ran')
             print(f'Multi-start L-BFGS-B ran {len(all_results)} of '
                   f'{int(self.optimiser_options["num_starts"])} starts '
-                  f'(the rest were skipped after a start converged); '
+                  f'({skipped_note}); '
                   f'best cost {best_result["final_cost"]:.6e} came from start '
                   f'{best_result["start_idx"]}; '
                   f'speedup {self.speedup:.1f}x over {num_procs} rank(s)')
+            print(f'  {self.num_converged} of {len(all_results)} starts converged '
+                  f'(cost <= {self.optimiser_options["cost_convergence"]:g}), landing in '
+                  f'{len(self.convergence_clusters)} distinct solution(s):')
+            for i, cl in enumerate(self.convergence_clusters):
+                params_str = ' '.join(f'{v:.4g}' for v in cl['params'])
+                print(f'    solution {i}: {cl["count"]} start(s), cost {cl["best_cost"]:.3e}, '
+                      f'params [{params_str}]')
 
             best = {
                 'param_vals': np.asarray(best_param_vals, dtype=float).flatten(),
@@ -1358,3 +1387,51 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
                      f'{result["final_cost"]:.9e}', result['num_iterations'],
                      f'{result.get("duration", float("nan")):.6f}'] +
                     [f'{val:.9e}' for val in np.asarray(param_vals, dtype=float).flatten()])
+
+    def _cluster_converged_starts(self, all_results):
+        """Group the converged starts by which solution they reached, and record how many landed
+        in each.
+
+        A start has "converged" if its final cost is at or below cost_convergence. Two converged
+        starts are the same solution if every parameter agrees to within
+        convergence_cluster_tol_frac of that parameter's range (max - min) -- so on a multi-modal
+        problem the clusters are the distinct minima found, and their sizes say how the starts
+        split between them. Sets self.num_converged and self.convergence_clusters (largest first)
+        and writes multi_start_convergence_clusters.csv.
+        """
+        cost_convergence = self.optimiser_options['cost_convergence']
+        tol = self.optimiser_options['convergence_cluster_tol_frac'] * self.param_ranges
+
+        converged = [r for r in all_results if r['final_cost'] <= cost_convergence]
+        self.num_converged = len(converged)
+
+        clusters = []  # each: {'params', 'best_cost', 'count', 'start_idxs'}
+        for result in converged:
+            params = np.asarray(self.param_norm_obj.unnormalise(result['final_x_norm']),
+                                dtype=float).flatten()
+            for cluster in clusters:
+                if np.all(np.abs(params - cluster['params']) <= tol):
+                    cluster['count'] += 1
+                    cluster['start_idxs'].append(result['start_idx'])
+                    if result['final_cost'] < cluster['best_cost']:
+                        # keep the lowest-cost member as the cluster's representative point
+                        cluster['params'] = params
+                        cluster['best_cost'] = result['final_cost']
+                    break
+            else:
+                clusters.append({'params': params, 'best_cost': result['final_cost'],
+                                 'count': 1, 'start_idxs': [result['start_idx']]})
+
+        clusters.sort(key=lambda c: c['count'], reverse=True)
+        self.convergence_clusters = clusters
+
+        param_labels = [names[0] if isinstance(names, (list, tuple)) else str(names)
+                        for names in self.param_id_info["param_names"]]
+        path = os.path.join(self.output_dir, 'multi_start_convergence_clusters.csv')
+        with open(path, 'w') as file:
+            writer = csv.writer(file)
+            writer.writerow(['solution_idx', 'num_starts', 'best_cost'] +
+                            [label.replace('/', ' ') for label in param_labels])
+            for i, cluster in enumerate(clusters):
+                writer.writerow([i, cluster['count'], f'{cluster["best_cost"]:.9e}'] +
+                                [f'{v:.9e}' for v in cluster['params']])
