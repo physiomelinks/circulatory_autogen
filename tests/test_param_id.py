@@ -3954,6 +3954,77 @@ def test_aadc_gradient_rejects_an_untapeable_solver(
         inner.get_gradient(np.asarray(inner.param_init, dtype=float))
 
 
+def _aadc_fitzhugh_nagumo_config(base_user_inputs, resources_dir, temp_output_dir,
+                                 temp_generated_models_dir, param_id_method='sp_minimize'):
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': 'FitzHugh_Nagumo',
+        'input_param_file': 'FitzHugh_Nagumo_parameters.csv',
+        'params_for_id_file': 'FitzHugh_Nagumo_params_for_id.csv',
+        'model_type': 'aadc_python',
+        'solver': 'aadc_semi_implicit',
+        'param_id_method': param_id_method,
+        'do_ad': True,
+        'pre_time': 0.0,
+        'sim_time': 60.0,
+        # dt differs from the obs_dt of 0.2, so this exercises the tape's series interpolation
+        'dt': 0.02,
+        'DEBUG': False,
+        'do_mcmc': False,
+        'plot_predictions': False,
+        'do_ia': False,
+        'solver_info': {'method': 'rk4'},  # fixed-step, what the AADC tape records
+        'param_id_obs_path': os.path.join(resources_dir, 'FitzHugh_Nagumo_obs_data.json'),
+        'param_id_output_dir': temp_output_dir,
+        'generated_models_dir': temp_generated_models_dir,
+        'resources_dir': resources_dir,
+    })
+    return config
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_aadc_series_cost_and_gradient_are_of_the_same_function(
+        aadc_licensed, base_user_inputs, resources_dir, temp_output_dir,
+        temp_generated_models_dir):
+    """The AADC tape gradient must match the cost for a SERIES observable, not just a constant.
+
+    FitzHugh-Nagumo fits the V and R traces (series data), and its obs_dt (0.2) differs from the
+    simulation dt (0.02), so this exercises the tape's series-observable path and its
+    interpolation of the simulated trace onto the observation times -- code that the
+    constant-observable Lotka-Volterra test does not touch. As there, the check is that the tape
+    cost equals the forward-solve cost and that the tape gradient agrees with a finite difference
+    of that cost (AD/FD == 1), at the initial parameters and at perturbed ones."""
+    inner = _init_aadc_param_id(
+        _aadc_fitzhugh_nagumo_config(base_user_inputs, resources_dir, temp_output_dir,
+                                     temp_generated_models_dir),
+        resources_dir)
+
+    p0 = np.asarray(inner.param_init, dtype=float)
+    assert len(p0) == 3  # a, b, c
+
+    for label, p in (('initial', p0), ('perturbed', p0 * np.array([1.1, 0.9, 1.05]))):
+        tape_cost = float(inner.get_cost_aadc(p))
+        forward_cost = float(inner.get_cost_from_params(p))
+        assert tape_cost == pytest.approx(forward_cost, rel=1e-6), (
+            f'[{label}] the AADC tape cost ({tape_cost}) is not the forward-solve cost '
+            f'({forward_cost}) for a series observable')
+
+        grad = np.asarray(inner.get_gradient(p), dtype=float).flatten()
+        assert grad.shape == (3,)
+        assert np.all(np.isfinite(grad))
+
+        step = 1e-6
+        for j in range(3):
+            up, down = p.copy(), p.copy()
+            up[j] += step
+            down[j] -= step
+            fd = (float(inner.get_cost(up)) - float(inner.get_cost(down))) / (2 * step)
+            assert grad[j] == pytest.approx(fd, rel=2e-3, abs=1e-5), (
+                f'[{label}] AADC series gradient[{j}] = {grad[j]} disagrees with the finite '
+                f'difference {fd} (AD/FD = {grad[j] / (fd + 1e-30):.4f})')
+
+
 @pytest.mark.integration
 @pytest.mark.slow
 def test_multi_start_sp_minimize_calibrates_an_aadc_model(
