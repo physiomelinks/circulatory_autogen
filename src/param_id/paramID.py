@@ -284,6 +284,7 @@ class CVS0DParamID():
                 pre_time=pre_time,
                 sim_time=sim_time,
                 model_type=model_type,
+                method=(solver_info or {}).get('method'),
             )
             self.gt_df = parsed_data["gt_df"]
             self.protocol_info = parsed_data["protocol_info"]
@@ -2173,9 +2174,30 @@ class OpencorParamID():
             preds_const_vec[JJ + 2] = np.mean(preds[JJ, :])
         return preds_const_vec
     
+    def _casadi_functions_cache_key(self, param_names, get_all_series):
+        """Structure signature of the CasADi symbolic graph. It depends on which parameters are
+        free, whether all series are requested, and the solver/protocol config -- but NOT on the
+        numeric parameter values. Two calls with the same key produce identical ca.Function
+        objects (verified: gradients are bit-identical), so the graph can be built once and
+        re-evaluated at new parameter values."""
+        pnames = tuple(n[0] if isinstance(n, (list, tuple)) else n for n in param_names)
+        proto = self.protocol_info or {}
+        return (pnames, bool(get_all_series), float(self.dt),
+                repr(proto.get('sim_times')), repr(proto.get('pre_times')),
+                repr(self.solver_info.get('method') if self.solver_info else None))
+
     def build_casadi_functions(self, param_names, param_vals = None, get_all_series=False):
         _require_casadi()
+        # Always refresh the numeric evaluation point (parameter values + init-seeded states).
         self.sim_helper._create_param_subset(param_names, param_vals)
+
+        # Build the symbolic graph once per structure. On a symbolic BDF / semi_implicit_euler
+        # solve the graph is a mapaccum of thousands of rootfinder steps, and ca.gradient unrolls
+        # sensitivities across all of them -- rebuilding it on every get_cost_ca / get_jac_cost_ca
+        # call (twice per optimiser iteration) is what made long-run stiff multi-start impractical.
+        cache_key = self._casadi_functions_cache_key(param_names, get_all_series)
+        if getattr(self, '_casadi_functions_cache_key_val', None) == cache_key:
+            return
 
         self.cost_symb, self.obs_dict_symb = self.get_cost_and_obs_from_params(param_vals, do_ad=True)
 
@@ -2224,7 +2246,9 @@ class OpencorParamID():
             self.obs_func = ca.Function('obs_func', [self.sim_helper.states_symb, self.sim_helper.variables_symb], [self.obs_vec])
 
         self.jac_cost_func = ca.Function('jac_cost_func', [self.sim_helper.states_symb, self.sim_helper.variables_symb], [self.jac_cost_symb])
-    
+
+        self._casadi_functions_cache_key_val = self._casadi_functions_cache_key(param_names, get_all_series)
+
     def get_jac_cost_ca(self, param_vals):
         param_names = self.param_id_info["param_names"]
         self.build_casadi_functions(param_names, param_vals)

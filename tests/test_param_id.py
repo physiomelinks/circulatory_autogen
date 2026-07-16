@@ -1642,12 +1642,14 @@ def test_3compartment_nonstiff_casadi_forward_and_gradient(
 
 
 def _build_3compartment_casadi_runner(
-    method, base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir
+    method, base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir,
+    pre_time=0.0, sim_time=0.3, obs_file='3compartment_obs_data.json',
 ):
     """Generate the (stiff) 3compartment CasADi model and build a CVS0DParamID at baseline.
 
     Shared by the stiff-3compartment CasADi tests. ``method`` selects the CasADi
-    integrator method ('cvodes' or the damped 'semi_implicit_euler').
+    integrator method ('cvodes', the damped 'semi_implicit_euler', or the symbolic 'bdf').
+    ``pre_time`` > 0 exercises the long-warmup path (supported by the symbolic methods).
     """
     import json
 
@@ -1660,8 +1662,8 @@ def _build_3compartment_casadi_runner(
         'solver': 'casadi_integrator',
         'param_id_method': 'sp_minimize',
         'do_ad': True,
-        'pre_time': 0.0,
-        'sim_time': 0.3,
+        'pre_time': pre_time,
+        'sim_time': sim_time,
         'dt': 0.01,
         'DEBUG': False,
         'do_mcmc': False,
@@ -1672,7 +1674,7 @@ def _build_3compartment_casadi_runner(
             'max_num_steps': 50000,
             'method': method,
         },
-        'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
+        'param_id_obs_path': os.path.join(resources_dir, obs_file),
         'param_id_output_dir': temp_output_dir,
         'generated_models_dir': temp_generated_models_dir,
         'resources_dir': resources_dir,
@@ -1687,7 +1689,7 @@ def _build_3compartment_casadi_runner(
     parsed['one_rank'] = True
 
     runner = CVS0DParamID.init_from_dict(parsed)
-    with open(os.path.join(resources_dir, '3compartment_obs_data.json')) as f:
+    with open(os.path.join(resources_dir, obs_file)) as f:
         obs_data = json.load(f)
     runner.set_ground_truth_data(obs_data)
 
@@ -1808,6 +1810,58 @@ def test_3compartment_stiff_casadi_semi_implicit_forward_and_gradient(
     print(f"\n3compartment (stiff) CasADi semi_implicit_euler forward/gradient check:")
     print(f"  Cost at baseline: {cost:.6g}")
     print(f"  Gradient:         {gradient}")
+
+    runner.close_simulation()
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_3compartment_casadi_bdf_longrun_gradient_and_cache(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir):
+    """The symbolic CasADi 'bdf' method calibrates the STIFF 3compartment model over a LONG run
+    (nonzero pre_time warmup) with a correct gradient, and the symbolic graph is built once and
+    reused across cost/gradient calls.
+
+    bdf differentiates by plain reverse-mode AD (no CVODES adjoint), so it handles pre_time > 0
+    (unlike cvodes, which fails with CV_TOO_MUCH_WORK). The symbolic graph over a long warmup is
+    ~thousands of rootfinder steps, so build_casadi_functions caches it keyed on structure rather
+    than rebuilding on every cost/gradient call."""
+    pytest.importorskip("casadi")
+
+    runner, baseline_vals = _build_3compartment_casadi_runner(
+        'bdf', base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir,
+        pre_time=5.0, sim_time=1.0,
+    )
+    inner = runner.param_id
+    baseline = np.asarray(baseline_vals, dtype=float)
+
+    # count symbolic graph builds
+    orig = inner.get_cost_and_obs_from_params
+    builds = [0]
+    def _counting(*a, **k):
+        builds[0] += 1
+        return orig(*a, **k)
+    inner.get_cost_and_obs_from_params = _counting
+
+    # AD gradient must match central FD of the same cost (the bdf symbolic graph is exact)
+    gradient = np.asarray(inner.get_gradient(baseline), dtype=float).ravel()
+    assert gradient.shape == (4,)
+    assert np.all(np.isfinite(gradient))
+
+    fd = np.zeros(4)
+    for i in range(4):
+        dp = max(abs(baseline[i]) * 1e-5, 1e-14)
+        p_plus, p_minus = baseline.copy(), baseline.copy()
+        p_plus[i] += dp
+        p_minus[i] -= dp
+        fd[i] = (float(inner.get_cost(p_plus)) - float(inner.get_cost(p_minus))) / (2 * dp)
+        if abs(fd[i]) > 1e-6:
+            assert gradient[i] == pytest.approx(fd[i], rel=0.02), (
+                f"bdf AD gradient[{i}]={gradient[i]:.6e} != FD {fd[i]:.6e} "
+                f"(AD/FD={gradient[i]/fd[i]:.4f}) over a nonzero-pre_time run")
+
+    # the cache built the graph exactly once despite 1 gradient + 8 cost evals
+    assert builds[0] == 1, f"symbolic graph should build once (cached), built {builds[0]} times"
 
     runner.close_simulation()
 

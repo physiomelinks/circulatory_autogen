@@ -108,14 +108,25 @@ def save_dated_user_inputs(inp_data_dict):
         pass
 
 
+# CasADi integrator methods that use SUNDIALS adjoint sensitivity for AD, which fails on a long
+# warmup with CV_TOO_MUCH_WORK. The symbolic methods (bdf, semi_implicit_euler) build a plain
+# reverse-mode mapaccum graph instead and handle nonzero pre_time fine, so they must NOT warn.
+_CASADI_ADJOINT_METHODS = ('cvodes', 'idas')
+
+
 def warn_if_casadi_nonzero_pre_time(
     model_type,
     pre_time=None,
     pre_times=None,
     offline_pre_time=None,
+    method=None,
 ):
-    """Warn when CasADi AD is configured with nonzero warmup times (unsupported for adjoint)."""
+    """Warn when CasADi AD with an ADJOINT integrator (cvodes/idas) is configured with nonzero
+    warmup times. The symbolic bdf / semi_implicit_euler methods are differentiated by reverse
+    mode (no adjoint) and support nonzero pre_time, so they are exempt."""
     if model_type != 'casadi_python':
+        return
+    if method is not None and method not in _CASADI_ADJOINT_METHODS:
         return
 
     issues = []
@@ -130,11 +141,11 @@ def warn_if_casadi_nonzero_pre_time(
 
     if issues:
         warnings.warn(
-            'CasADi automatic differentiation (model_type="casadi_python", '
-            'solver="casadi_integrator") does not support nonzero pre_time or pre_times: '
+            f'CasADi automatic differentiation with an adjoint integrator '
+            f'(solver_info method={method!r}) does not support nonzero pre_time or pre_times: '
             'adjoint sensitivity integration typically fails with CV_TOO_MUCH_WORK. '
-            'Set pre_time and protocol pre_times to 0.0 (use offline_pre_time only with '
-            'non-CasADi solvers for warmup). '
+            'Set pre_time/pre_times to 0.0, or use a symbolic method '
+            '(method="bdf" or "semi_implicit_euler") which supports warmup. '
             f'Affected: {", ".join(issues)}.',
             UserWarning,
             stacklevel=3,
@@ -531,6 +542,7 @@ class YamlFileParser(object):
         warn_if_casadi_nonzero_pre_time(
             inp_data_dict.get('model_type'),
             pre_time=inp_data_dict.get('pre_time'),
+            method=(inp_data_dict.get('solver_info') or {}).get('method'),
         )
 
         if 'DEBUG' in inp_data_dict.keys(): 
@@ -1108,6 +1120,7 @@ class ObsAndParamDataParser(object):
         pre_time=None,
         sim_time=None,
         model_type=None,
+        method=None,
     ):
         """
         Loads the ground truth observation data from the JSON file and returns 
@@ -1548,6 +1561,7 @@ class ObsAndParamDataParser(object):
             pre_time=pre_time,
             pre_times=protocol_info.get('pre_times') if protocol_info is not None else None,
             offline_pre_time=protocol_info.get('offline_pre_time') if protocol_info is not None else None,
+            method=method,
         )
 
         return {
