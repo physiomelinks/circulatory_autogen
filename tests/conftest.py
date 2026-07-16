@@ -59,6 +59,13 @@ _TEST_ROOT = os.path.join(os.path.dirname(__file__), '..')
 _SRC_DIR = os.path.join(_TEST_ROOT, 'src')
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
+# Also put the repo root on sys.path so top-level packages (e.g. `benchmarks`, which
+# test_param_id imports for the shared FitzHugh-Nagumo benchmark) are importable regardless of
+# how pytest was invoked. Without this, `pytest tests/` in CI fails to even collect
+# test_param_id with `ModuleNotFoundError: No module named 'benchmarks'`.
+_ROOT_DIR = os.path.abspath(_TEST_ROOT)
+if _ROOT_DIR not in sys.path:
+    sys.path.insert(0, _ROOT_DIR)
 
 from scripts.script_generate_with_new_architecture import generate_with_new_architecture
 
