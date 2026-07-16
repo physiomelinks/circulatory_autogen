@@ -2348,120 +2348,6 @@ def test_param_id_lotka_volterra_sp_minimize_numpy_only_operation(base_user_inpu
     )
 
 
-@pytest.mark.skipif(
-    os.environ.get("GITHUB_ACTIONS") == "true",
-    reason="compare_optimisers is heavy; run locally only (skipped on GitHub Actions)",
-)
-@pytest.mark.integration
-@pytest.mark.slow
-@pytest.mark.mpi
-@pytest.mark.compare_optimisers
-def test_compare_optimisers(base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm, request):
-    """Compare optimisers on the STIFF, long-warmup 3compartment problem.
-
-    Two gradient-free global searches (genetic algorithm, CMA-ES) against multi-start L-BFGS-B
-    driven by the two gradient backends that actually work on a stiff model over a nonzero
-    pre_time: Myokit CVODES forward sensitivity (cellml_only) and the CasADi symbolic bdf.
-    (AADC is deliberately excluded here: its fixed-step tape integrators are inaccurate/unstable
-    on this stiff model -- see test_3compartment_aadc_run_warns_stiff -- so it belongs only in
-    the non-stiff FitzHugh-Nagumo benchmark.)
-    """
-    rank = mpi_comm.Get_rank()
-
-    # Import here to avoid issues if nevergrad is not available
-    from tests.compare_optimisers import OptimiserComparison
-
-    casadi_models = os.path.join(temp_generated_models_dir, 'casadi')
-    fsa_models = os.path.join(temp_generated_models_dir, 'fsa')
-
-    # Base config (GA / CMA-ES run cellml_only + CVODE, as before).
-    config = base_user_inputs.copy()
-    config.update({
-        'file_prefix': '3compartment',
-        'input_param_file': '3compartment_parameters.csv',
-        'model_type': 'cellml_only',
-        'solver': 'CVODE',
-        'pre_time': 20,
-        'sim_time': 2,
-        'dt': 0.01,
-        'DEBUG': True,
-        'do_mcmc': False,
-        'plot_predictions': False,
-        'do_ia': False,
-        'solver_info': {
-            'MaximumStep': 0.001,
-            'MaximumNumberOfSteps': 5000,
-        },
-        'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
-        'param_id_output_dir': temp_output_dir,
-        'generated_models_dir': temp_generated_models_dir,
-        # keep the multi-start count modest so the test is tractable; bump num_starts locally
-        # for a real accuracy/time benchmark.
-        'debug_optimiser_options': {'num_calls_to_function': 10000, 'max_patience': 500,
-                                    'num_starts': 5, 'start_sampling': 'sobol', 'seed': 0},
-    })
-
-    _ensure_cellml_model_generated(config, mpi_comm)
-
-    # multi-start L-BFGS-B driven by the two stiff-capable AD gradient backends.
-    multi_start_fsa = {
-        'param_id_method': 'multi_start_sp_minimize',
-        'model_type': 'cellml_only', 'solver': 'CVODE_myokit', 'do_ad': True,
-        'solver_info': {'MaximumStep': 0.005, 'MaximumNumberOfSteps': 50000,
-                        'rtol': 1e-9, 'atol': 1e-9},
-        'generated_models_dir': fsa_models,
-    }
-    multi_start_casadi = {
-        'param_id_method': 'multi_start_sp_minimize',
-        'model_type': 'casadi_python', 'solver': 'casadi_integrator', 'do_ad': True,
-        'solver_info': {'max_step_size': 0.001, 'max_num_steps': 50000, 'method': 'bdf'},
-        'generated_models_dir': casadi_models,
-    }
-    extra = {
-        'multi_start (Myokit FSA)': multi_start_fsa,
-        'multi_start (CasADi bdf)': multi_start_casadi,
-    }
-
-    if rank == 0:
-        casadi_cfg = config.copy(); casadi_cfg.update(multi_start_casadi)
-        assert generate_with_new_architecture(False, casadi_cfg), \
-            'CasADi bdf model generation should succeed for 3compartment'
-        fsa_cfg = config.copy(); fsa_cfg.update(multi_start_fsa)
-        assert generate_with_new_architecture(False, fsa_cfg), \
-            'FSA (cellml_only) model generation should succeed for 3compartment'
-    mpi_comm.Barrier()
-
-    methods = ['genetic_algorithm', 'CMA-ES',
-               'multi_start (Myokit FSA)', 'multi_start (CasADi bdf)']
-    comparison = OptimiserComparison(config, methods=methods, num_calls=10000,
-                                     extra_method_configs=extra)
-
-    for method in methods:
-        assert comparison.run_method(method) is not False, f'{method} optimisation should succeed'
-
-    if rank == 0:
-        for method in methods:
-            assert method in comparison.results, f"{method} results should be available"
-            cost = comparison.results[method]['cost']
-            assert np.isfinite(cost) and cost >= 0, \
-                f"{method} produced a non-finite or negative cost: {cost}"
-
-        print(f"\n{'method':<28}{'cost':>14}{'runtime_s':>12}")
-        for method in methods:
-            print(f"{method:<28}{comparison.results[method]['cost']:>14.6e}"
-                  f"{comparison.runtimes[method]:>12.1f}")
-
-        # The stiff-capable multi-start variants should at least match the population methods.
-        best_pop = min(comparison.results['genetic_algorithm']['cost'],
-                       comparison.results['CMA-ES']['cost'])
-        for method in ('multi_start (Myokit FSA)', 'multi_start (CasADi bdf)'):
-            assert comparison.results[method]['cost'] <= best_pop * 5.0 + 1e-9, (
-                f"{method} cost {comparison.results[method]['cost']:.3e} is far worse than the "
-                f"best population method {best_pop:.3e}")
-
-    mpi_comm.Barrier()
-
-
 @pytest.mark.integration  
 @pytest.mark.slow  
 @pytest.mark.mpi  
@@ -3563,38 +3449,16 @@ def test_multi_start_writes_running_best_history_and_start_summary(temp_output_d
 # resources/FitzHugh_Nagumo_parameters.csv deliberately starts at (a, b, c) = (0.8, 0.9, 2.0),
 # which is inside a local basin: a single L-BFGS-B descent converges to (1, 1, 2.07) and
 # stops, nowhere near the true (0.2, 0.2, 3.0).
-FHN_TRUE_PARAMS = np.array([0.2, 0.2, 3.0])
+# The FitzHugh-Nagumo benchmark run logic lives in benchmarks/ so it can be driven both by the
+# test below and by the standalone benchmark runner; the config builder is shared with the other
+# FHN tests here.
+from benchmarks.benchmark_specs import (  # noqa: E402
+    FHN_TRUE_PARAMS,
+    fitzhugh_nagumo_config as _fitzhugh_nagumo_config,
+    run_fitzhugh_nagumo,
+    assert_fitzhugh_nagumo,
+)
 FHN_TRAPPED_COST = 100.0  # the local minimum a single start falls into sits at ~144
-
-
-def _fitzhugh_nagumo_config(base_user_inputs, resources_dir, temp_output_dir,
-                            temp_generated_models_dir, param_id_method):
-    config = base_user_inputs.copy()
-    config.update({
-        'file_prefix': 'FitzHugh_Nagumo',
-        'input_param_file': 'FitzHugh_Nagumo_parameters.csv',
-        'params_for_id_file': 'FitzHugh_Nagumo_params_for_id.csv',
-        'model_type': 'casadi_python',
-        'solver': 'casadi_integrator',
-        'param_id_method': param_id_method,
-        'do_ad': True,
-        'pre_time': 0.0,
-        'sim_time': 60.0,
-        'dt': 0.2,
-        'DEBUG': False,
-        'do_mcmc': False,
-        'plot_predictions': False,
-        'do_ia': False,
-        'solver_info': {
-            'max_step_size': 0.01,
-            'max_num_steps': 20000,
-            'method': 'cvodes',
-        },
-        'param_id_obs_path': os.path.join(resources_dir, 'FitzHugh_Nagumo_obs_data.json'),
-        'param_id_output_dir': temp_output_dir,
-        'generated_models_dir': temp_generated_models_dir,
-    })
-    return config
 
 
 def _load_best(temp_output_dir, param_id_method):
@@ -3656,7 +3520,7 @@ def test_multi_start_escapes_fitzhugh_nagumo_local_minimum_that_traps_sp_minimiz
 
 @pytest.mark.skipif(
     os.environ.get("GITHUB_ACTIONS") == "true",
-    reason="compare_optimisers is heavy; run locally only (skipped on GitHub Actions)",
+    reason="compare_optimisers is heavy; run locally / in the benchmarks workflow only",
 )
 @pytest.mark.integration
 @pytest.mark.slow
@@ -3664,170 +3528,18 @@ def test_multi_start_escapes_fitzhugh_nagumo_local_minimum_that_traps_sp_minimiz
 @pytest.mark.compare_optimisers
 def test_compare_optimisers_on_fitzhugh_nagumo(
         base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
-    """Benchmark every optimiser on the multi-modal FitzHugh-Nagumo problem, on accuracy and
-    wall-clock time.
+    """Benchmark every optimiser on the multi-modal FitzHugh-Nagumo problem.
 
-    Two gradient-free global searches (genetic algorithm, CMA-ES) against the same multi-start
-    L-BFGS-B driven by three different gradient sources:
-
-      * finite differences      -- no AD; costs (n+1) simulations per gradient
-      * CasADi AD               -- symbolic jacobian through the ODE solve
-      * AADC AD                 -- tape reverse pass (skipped without a Matlogica licence)
-
-    Holding the optimiser fixed and varying only the gradient source is what separates "the
-    multi-start beats the population methods" from "AD is worth having": the FD variant gets the
-    same search, so any difference between it and the AD variants is the cost of the gradient.
+    Gradient-free global searches (genetic algorithm, CMA-ES) against the same multi-start
+    L-BFGS-B driven by finite differences, CasADi AD, Myokit CVODES FSA, and (when licensed)
+    AADC AD. Holding the optimiser fixed and varying only the gradient source isolates what the
+    gradient buys. The run logic and regression assertions live in
+    ``benchmarks/benchmark_specs.py`` so the standalone benchmark runner exercises exactly the
+    same comparison.
     """
-    from tests.conftest import AADC_LICENSE_AVAILABLE
-    from tests.compare_optimisers import OptimiserComparison
-
-    rank = mpi_comm.Get_rank()
-
-    casadi_models = os.path.join(temp_generated_models_dir, 'casadi')
-    aadc_models = os.path.join(temp_generated_models_dir, 'aadc')
-    fsa_models = os.path.join(temp_generated_models_dir, 'fsa')
-
-    config = _fitzhugh_nagumo_config(base_user_inputs, resources_dir, temp_output_dir,
-                                     casadi_models, 'genetic_algorithm')
-    config['optimiser_options'] = {
-        'cost_convergence': 1e-4,
-        # generous, so CMA-ES spends its whole evaluation budget rather than stopping early on
-        # a stagnation counter -- a benchmark that starves one method proves nothing
-        'max_patience': 500,
-        'num_starts': 8, 'start_sampling': 'sobol', 'seed': 0,
-    }
-
-    multi_start_casadi = {
-        'param_id_method': 'multi_start_sp_minimize',
-        'model_type': 'casadi_python', 'solver': 'casadi_integrator', 'do_ad': True,
-        'generated_models_dir': casadi_models,
-    }
-    # identical search, gradient by finite differences instead of AD
-    multi_start_fd = dict(multi_start_casadi, do_ad=False)
-    # The AADC tape can only record a fixed-step scheme, and the forward solve must use the same
-    # one or the gradient is not the gradient of the cost. rk4 at dt=0.02 reproduces the
-    # CVODE-generated ground truth to ~1e-10, so the comparison stays honest.
-    multi_start_aadc = {
-        'param_id_method': 'multi_start_sp_minimize',
-        'model_type': 'aadc_python', 'solver': 'aadc_semi_implicit',
-        'solver_info': {'method': 'rk4'}, 'dt': 0.02, 'do_ad': True,
-        'generated_models_dir': aadc_models,
-    }
-
-    # Myokit CVODES forward-sensitivity gradient on the same problem (cellml_only backend).
-    multi_start_fsa = {
-        'param_id_method': 'multi_start_sp_minimize',
-        'model_type': 'cellml_only', 'solver': 'CVODE_myokit', 'do_ad': True,
-        'solver_info': {'rtol': 1e-9, 'atol': 1e-9},
-        'generated_models_dir': fsa_models,
-    }
-
-    extra = {
-        'multi_start (CasADi AD)': multi_start_casadi,
-        'multi_start (Myokit FSA)': multi_start_fsa,
-        'multi_start (FD)': multi_start_fd,
-    }
-    if AADC_LICENSE_AVAILABLE:
-        extra['multi_start (AADC AD)'] = multi_start_aadc
-
-    methods = ['genetic_algorithm', 'CMA-ES', 'multi_start (FD)',
-               'multi_start (CasADi AD)', 'multi_start (Myokit FSA)']
-    if AADC_LICENSE_AVAILABLE:
-        methods.append('multi_start (AADC AD)')
-
-    if rank == 0:
-        casadi_cfg = config.copy()
-        casadi_cfg.update(multi_start_casadi)
-        assert generate_with_new_architecture(False, casadi_cfg), \
-            'CasADi model generation should succeed for FitzHugh-Nagumo'
-        fsa_cfg = config.copy()
-        fsa_cfg.update(multi_start_fsa)
-        assert generate_with_new_architecture(False, fsa_cfg), \
-            'FSA (cellml_only) model generation should succeed for FitzHugh-Nagumo'
-        if AADC_LICENSE_AVAILABLE:
-            aadc_cfg = config.copy()
-            aadc_cfg.update(multi_start_aadc)
-            assert generate_with_new_architecture(False, aadc_cfg), \
-                'AADC model generation should succeed for FitzHugh-Nagumo'
-    mpi_comm.Barrier()
-
-    num_calls = 2000
-    comparison = OptimiserComparison(config, methods=methods, num_calls=num_calls,
-                                     extra_method_configs=extra)
-
-    for method in methods:
-        assert comparison.run_method(method) is not False, f'{method} optimisation should succeed'
-
-    if rank == 0:
-        costs = {m: comparison.results[m]['cost'] for m in methods}
-        times = {m: comparison.runtimes[m] for m in methods}
-        params = {m: np.asarray(comparison.results[m]['params'], dtype=float) for m in methods}
-
-        print(f'\n{"=" * 84}')
-        print(f'FitzHugh-Nagumo (multi-modal), {mpi_comm.Get_size()} MPI rank(s); '
-              f'{num_calls} cost evaluations for the population methods, 8 starts for multi-start')
-        print(f'{"method":<26} {"best cost":>13} {"time (s)":>9} {"max param err":>14}   params')
-        for method in methods:
-            err = np.max(np.abs(params[method] - FHN_TRUE_PARAMS))
-            param_str = ' '.join(f'{p:.4f}' for p in params[method])
-            print(f'{method:<26} {costs[method]:>13.4e} {times[method]:>9.1f} '
-                  f'{err:>14.4f}   {param_str}')
-        true_str = ' '.join(f'{p:.4f}' for p in FHN_TRUE_PARAMS)
-        print(f'{"true params":<26} {0.0:>13.4e} {"-":>9} {0.0:>14.4f}   {true_str}')
-        if not AADC_LICENSE_AVAILABLE:
-            print('multi_start (AADC AD) skipped: no Matlogica licence in this environment')
-        print(f'{"=" * 84}')
-
-        for method in methods:
-            assert np.isfinite(costs[method]) and costs[method] >= 0, \
-                f'{method} produced a non-finite or negative cost: {costs[method]}'
-
-        multi_start_methods = [m for m in methods if m.startswith('multi_start')]
-
-        # Every multi-start variant escapes the local minimum the population methods get stuck
-        # in or crawl towards, and recovers the true parameters -- the search is what finds the
-        # global basin, and it does so whatever the gradient comes from.
-        for method in multi_start_methods:
-            assert costs[method] < costs['genetic_algorithm'], (
-                f'expected {method} ({costs[method]:.3e}) to beat the genetic algorithm '
-                f'({costs["genetic_algorithm"]:.3e})')
-            assert costs[method] < costs['CMA-ES'], (
-                f'expected {method} ({costs[method]:.3e}) to beat CMA-ES '
-                f'({costs["CMA-ES"]:.3e})')
-            np.testing.assert_allclose(
-                params[method], FHN_TRUE_PARAMS, atol=0.02,
-                err_msg=f'{method} did not recover the true parameters')
-
-        # The AD variants get the same answer as the FD one, which is the check that the AD
-        # gradients are right: a wrong gradient would land somewhere else.
-        for method in multi_start_methods:
-            if 'AD' in method:
-                np.testing.assert_allclose(
-                    params[method], params['multi_start (FD)'], atol=0.02,
-                    err_msg=f'{method} converged somewhere different from the FD variant, so its '
-                            f'gradient disagrees with the cost it is minimising')
-
-        # Timing. The gradient source is what pays here, not the search: finite differences cost
-        # (n+1) simulations per gradient, so the FD variant is the *slowest* method in the table
-        # -- slower even than the genetic algorithm -- while finding the same optimum. That is
-        # the case for AD, and it is asserted rather than asserted away.
-        ad_methods = [m for m in multi_start_methods if 'AD' in m]
-        for method in ad_methods:
-            assert times[method] < times['multi_start (FD)'], (
-                f'expected {method} ({times[method]:.0f}s) to be faster than the same search on '
-                f'finite differences ({times["multi_start (FD)"]:.0f}s) -- that is the whole '
-                f'point of the AD gradient')
-        # Deliberately NOT asserted: that the multi-start beats the population methods on time.
-        # The methods scale differently with MPI rank count -- the genetic algorithm parallelises
-        # over its population, while the multi-start parallelises over starts and cannot fire its
-        # rank-local early stop once num_starts <= num_procs (every rank owns one start, so no
-        # rank can skip the rest). Measured on this benchmark: the genetic algorithm goes 41s ->
-        # 15s from 1 to 8 ranks, while multi_start (CasADi AD) goes 21s -> 35s. Asserting a
-        # cross-method timing ordering would therefore encode the rank count the test happens to
-        # run at. The AD-vs-FD comparison above is the sound one: same optimiser, same starts,
-        # same rank count, only the gradient source differs.
-
-    mpi_comm.Barrier()
+    result = run_fitzhugh_nagumo(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm)
+    assert_fitzhugh_nagumo(result, mpi_comm)
 
 
 @pytest.mark.integration

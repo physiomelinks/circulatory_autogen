@@ -1,0 +1,59 @@
+name: Benchmarks
+
+# Runs the CI-safe optimiser benchmarks (the ones that do NOT need OpenCOR), refreshes the
+# results table in the parameter-identification docs, and deploys the docs. The stiff
+# 3compartment benchmark needs OpenCOR and is NOT run here — run it locally with
+# ./benchmarks/run_benchmarks.sh (see benchmarks/README.md).
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 4 * * 1'   # weekly, Monday 04:00 UTC
+
+permissions:
+  contents: write
+
+jobs:
+  benchmarks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install system libraries (MPI, SUNDIALS)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libopenmpi-dev openmpi-bin libsundials-dev build-essential
+
+      - name: Install package and docs tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]" "mkdocs-material>=9.0" "mkdocstrings[python]>=0.24"
+
+      - name: Run CI-safe benchmarks (no OpenCOR) and update the docs results
+        run: python benchmarks/run_benchmarks.py --set ci --update-docs
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit refreshed benchmark results
+        run: |
+          if git diff --quiet -- tutorial/docs/parameter-identification.md; then
+            echo "No benchmark result changes to commit."
+          else
+            git add tutorial/docs/parameter-identification.md
+            git commit -m "chore(benchmarks): refresh published benchmark results [skip ci]"
+            # Best-effort: branch protection on the default branch may block this; the docs are
+            # still deployed below regardless.
+            git push || echo "push failed (branch protection?); results deployed but not committed"
+          fi
+
+      - name: Deploy docs
+        run: |
+          cd tutorial
+          mkdocs gh-deploy -b tutorial-gh-pages --force
