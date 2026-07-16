@@ -372,6 +372,54 @@ def test_param_id_3compartment_succeeds(base_user_inputs, resources_dir, temp_ou
 
 
 @pytest.mark.integration
+@pytest.mark.mpi
+def test_param_id_3compartment_genetic_algorithm_myokit_fast(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
+    """Fast smoke: 3compartment parameter identification runs with the genetic algorithm on the
+    Myokit CVODE backend and produces a finite, non-negative best cost.
+
+    Deliberately small -- short pre_time/sim_time, few function calls, no MCMC/IA/plotting/
+    regeneration -- so it stays in the fast (`-m "not slow"`) suite. The heavier 3compartment
+    param-id tests cover accuracy/MCMC/IA, and benchmarks/ covers the full optimiser comparison.
+    """
+    rank = mpi_comm.Get_rank()
+
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': '3compartment',
+        'input_param_file': '3compartment_parameters.csv',
+        'model_type': 'cellml_only',
+        'solver': 'CVODE_myokit',
+        'param_id_method': 'genetic_algorithm',
+        'pre_time': 2,
+        'sim_time': 1,
+        'dt': 0.01,
+        'DEBUG': True,
+        'do_mcmc': False,
+        'plot_predictions': False,
+        'do_ia': False,
+        'solver_info': {'MaximumStep': 0.001, 'MaximumNumberOfSteps': 5000},
+        'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
+        'param_id_output_dir': temp_output_dir,
+        'generated_models_dir': temp_generated_models_dir,
+        # num_calls must exceed the genetic-algorithm population (28 for these 4 params); keep it
+        # just above so the run stays fast (~one generation).
+        'debug_optimiser_options': {'num_calls_to_function': 40, 'max_patience': 500},
+    })
+
+    _ensure_cellml_model_generated(config, mpi_comm)
+    run_param_id(config)
+
+    if rank == 0:
+        out_dir = os.path.join(temp_output_dir,
+                               'genetic_algorithm_3compartment_3compartment_obs_data')
+        best_cost = float(np.load(os.path.join(out_dir, 'best_cost.npy')))
+        assert np.isfinite(best_cost) and best_cost >= 0, \
+            f'expected a finite, non-negative best cost, got {best_cost}'
+    mpi_comm.Barrier()
+
+
+@pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.mpi
 def test_param_id_3compartment_extra_ops_succeeds(base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
