@@ -158,14 +158,24 @@ and then selecting it in your `user_inputs.yaml`:
 model_type: aadc_python
 solver: aadc_semi_implicit
 solver_info:
-  method: bdf   # accurate stiff solve; 'semi_implicit' is first-order and heavily damped
+  method: adaptive_rk45   # non-stiff forward solve; see the gradient caveat below
 ```
 
-Available `solver_info.method` values for the AADC adapter are `adaptive_rk45` (non-stiff),
-`bdf` (stiff, accurate — recommended), `implicit_euler_ift` (implicit Euler with exact AD
-via the implicit function theorem), and `semi_implicit` (first-order, damped; fast but
-inaccurate on stiff models — it deviates from the CVODE reference by ~35% on the
-3compartment model, so do not use it for quantitative work).
+Available `solver_info.method` values for the AADC adapter are `adaptive_rk45` and `bdf`
+(both **adaptive**, so accurate for a *forward* solve but **untapeable** — their step
+sequence depends on the parameters, so they cannot produce an AD gradient), and the
+**fixed-step** `implicit_euler_ift`, `semi_implicit`, and `rk4` (the only methods that can be
+recorded on a tape for an AD gradient).
+
+!!! warning "AADC gradients do not work on stiff models"
+    Only the fixed-step methods can be taped, and fixed-step schemes are inaccurate or unstable
+    on **stiff** models: on the 3compartment cardiovascular model `semi_implicit` deviates from
+    the CVODE reference by ~35% and `implicit_euler_ift` by orders of magnitude. The AADC
+    backend probes the first second of dynamics and warns loudly when it detects a stiff model.
+    **For gradient-based calibration of a stiff model, use CasADi `bdf` or Myokit CVODES forward
+    sensitivity instead** — see [Parameter Identification](parameter-identification.md). AADC's
+    tape gradient is appropriate only for non-stiff, state-observable, single-experiment
+    problems.
 
 ## MPI and system libraries
 
