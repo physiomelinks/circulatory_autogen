@@ -33,6 +33,17 @@ class SimulationHelper:
         self.paced_parameter_qname = None
         self.solver_info = solver_info or {}
 
+        # Forward sensitivity analysis (FSA / CVODES) config. Populated by enable_fsa();
+        # when _fsa_enabled the Simulation is built with sensitivities and run() returns
+        # (log, sensitivities). See enable_fsa/get_sensitivities.
+        self._fsa_enabled = False
+        self._fsa_dependent_qnames = None       # ordered myokit qnames of dependents
+        self._fsa_dependent_specs = None        # myokit dependent spec strings
+        self._fsa_independent_specs = None       # myokit independent spec strings (eligible only)
+        self._fsa_eligible_param_names = None    # framework param names, order matches independents
+        self._fsa_ineligible_param_names = None  # framework param names needing FD fallback
+        self._last_sensitivities = None
+
         self.model = self._load_model(self.cellml_path)
         self.processed_cellml_path = getattr(self, '_last_processed_path', None)
         self._recreate_simulation()
@@ -229,7 +240,18 @@ class SimulationHelper:
         self.tSim = np.linspace(start_time + pre_time, self.stop_time, self.n_steps + 1)
 
     def _recreate_simulation(self):
-        self.simulation = myokit.Simulation(self.model)
+        if self._fsa_enabled:
+            # CVODES forward sensitivity: sensitivities=(dependents, independents) makes
+            # run() return (log, sensitivities), where sensitivities[time][dep][indep] is
+            # d(dependent)/d(independent). Only FSA-eligible params are independents; params
+            # that appear in a state's initial-value expression raise NotImplementedError in
+            # Myokit and are handled by finite differences instead (see enable_fsa).
+            self.simulation = myokit.Simulation(
+                self.model,
+                sensitivities=(self._fsa_dependent_specs, self._fsa_independent_specs),
+            )
+        else:
+            self.simulation = myokit.Simulation(self.model)
         # Store baseline initial state used before any pre-simulation.
         self.original_state = self._get_simulation_model().initial_values(as_floats=True)
 
@@ -241,6 +263,11 @@ class SimulationHelper:
                 pass
         rtol = self.solver_info.get("rtol", None)
         atol = self.solver_info.get("atol", None)
+        if (rtol is None and atol is None) and self._fsa_enabled:
+            # CVODES forward sensitivities are only as accurate as the state integration;
+            # the default tolerance leaves a noise floor that swamps small sensitivities,
+            # so tighten it (unless the user set explicit tolerances) when FSA is active.
+            rtol, atol = 1e-8, 1e-8
         if rtol is not None or atol is not None:
             self.simulation.set_tolerance(
                 rtol if rtol is not None else 1e-8,
@@ -460,11 +487,16 @@ class SimulationHelper:
             self._last_log_times_passed_to_myokit = np.asarray(log_times, dtype=float).copy()
             duration = float(self.sim_time) + eps
             self._last_integration_interval = (run_t0, run_t0 + duration)
-            self.last_log = self.simulation.run(
+            run_out = self.simulation.run(
                 self.sim_time+eps,
                 log=log,
                 log_times=log_times,
             )
+            if self._fsa_enabled:
+                # With sensitivities enabled, run() returns (log, sensitivities).
+                self.last_log, self._last_sensitivities = run_out
+            else:
+                self.last_log = run_out
             self._validate_myokit_state_logs()
             # Restore exact endpoint (without epsilon overshoot) for continued runs.
             end_state = [float(np.asarray(self.last_log[qname])[-1]) for qname in self.state_qnames]
@@ -849,4 +881,109 @@ class SimulationHelper:
             [("state", self.state_index), ("var", self.qname_to_var)],
             separator=".",
         )
+
+    # ------------------------------------------------------------------
+    # Forward sensitivity analysis (FSA / CVODES)
+    # ------------------------------------------------------------------
+
+    def enable_fsa(self, dependent_names, independent_param_names):
+        """Rebuild the Simulation with CVODES forward sensitivities.
+
+        dependent_names       : framework variable names of the observable operands
+                                (e.g. 'aortic_root/u'), i.e. the traces whose gradient
+                                w.r.t. parameters we need.
+        independent_param_names : framework names of the parameters to differentiate.
+
+        A parameter that appears inside a state's initial-value expression cannot be a
+        CVODES independent (Myokit raises NotImplementedError); such parameters are
+        classified as FSA-ineligible and returned so the caller can fall back to finite
+        differences. Returns the list of ineligible parameter names.
+        """
+        dep_specs = []
+        dep_qnames = []
+        for name in dependent_names:
+            _, qname = self._resolve_name(name)
+            dep_specs.append(qname)
+            dep_qnames.append(qname)
+
+        cand_specs = []
+        cand_names = []
+        for name in independent_param_names:
+            kind, qname = self._resolve_name(name)
+            # A directly-overridden state uses its initial value as the independent;
+            # a constant uses the constant itself.
+            spec = f'init({qname})' if kind == 'state' else qname
+            cand_specs.append(spec)
+            cand_names.append(name)
+
+        eligible_specs, eligible_names, ineligible_names = self._classify_fsa_independents(
+            dep_specs, cand_specs, cand_names)
+
+        self._fsa_dependent_specs = dep_specs
+        self._fsa_dependent_qnames = dep_qnames
+        self._fsa_independent_specs = eligible_specs
+        self._fsa_eligible_param_names = eligible_names
+        self._fsa_ineligible_param_names = ineligible_names
+        self._fsa_enabled = True
+
+        # Rebuild the simulation with sensitivities and refresh derived maps/defaults.
+        self._recreate_simulation()
+        self._build_variable_maps()
+        self._init_defaults()
+        return ineligible_names
+
+    def _classify_fsa_independents(self, dep_specs, cand_specs, cand_names):
+        """Split candidate independents into FSA-eligible/ineligible using Myokit itself.
+
+        Tries to build one sensitivity Simulation with all candidates (a single compile
+        when nothing is ineligible); only if that fails does it probe each parameter
+        individually to find the offenders. This defers to Myokit's own rule for what may
+        be a forward-sensitivity independent, rather than re-deriving it structurally.
+        """
+        if not cand_specs:
+            return [], [], []
+        try:
+            myokit.Simulation(self.model, sensitivities=(dep_specs, list(cand_specs)))
+            return list(cand_specs), list(cand_names), []
+        except Exception:
+            pass
+
+        probe_dep = dep_specs[:1] if dep_specs else dep_specs
+        eligible_specs, eligible_names, ineligible_names = [], [], []
+        for spec, name in zip(cand_specs, cand_names):
+            try:
+                myokit.Simulation(self.model, sensitivities=(probe_dep, [spec]))
+                eligible_specs.append(spec)
+                eligible_names.append(name)
+            except Exception:
+                ineligible_names.append(name)
+        return eligible_specs, eligible_names, ineligible_names
+
+    def get_fsa_ineligible_params(self):
+        """Framework names of AD params that fall back to finite differences (or None)."""
+        return self._fsa_ineligible_param_names
+
+    def get_sensitivities(self, dependent_names, param_names):
+        """d(dependent_trace)/d(param) from the last FSA run.
+
+        Returns ``{dependent_name: {param_name: np.ndarray}}`` with each array aligned to
+        the logged output grid (same length as get_results traces). Only FSA-eligible
+        params are present in the inner dicts; ineligible params are omitted (the caller
+        handles them by finite differences).
+        """
+        if self._last_sensitivities is None:
+            raise RuntimeError(
+                "No sensitivities available: FSA is not enabled or run() has not been called.")
+        sens = np.asarray(self._last_sensitivities, dtype=float)  # [n_time, n_dep, n_indep]
+        dep_index = {q: i for i, q in enumerate(self._fsa_dependent_qnames)}
+        indep_index = {n: i for i, n in enumerate(self._fsa_eligible_param_names)}
+        out = {}
+        for dname in dependent_names:
+            _, dqname = self._resolve_name(dname)
+            di = dep_index[dqname]
+            out[dname] = {}
+            for pname in param_names:
+                if pname in indep_index:
+                    out[dname][pname] = sens[:, di, indep_index[pname]].copy()
+        return out
 

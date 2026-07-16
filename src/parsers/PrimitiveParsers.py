@@ -235,19 +235,27 @@ class YamlFileParser(object):
         if 'param_id_method' not in inp_data_dict.keys():
             inp_data_dict['param_id_method'] = 'genetic_algorithm'
 
-        if inp_data_dict.get('param_id_method') == 'sp_minimize' and inp_data_dict.get('model_type') not in ('casadi_python', 'aadc_python'):
-            print(f'Parameter identification with sp_minimize requires model_type to be "casadi_python" or "aadc_python"')
+        # cellml_only models get an AD gradient too, via Myokit CVODES forward sensitivity,
+        # when run through the Myokit solver with do_ad set.
+        _fsa_ad = (inp_data_dict.get('model_type') == 'cellml_only'
+                   and inp_data_dict.get('solver', 'CVODE_myokit') == 'CVODE_myokit'
+                   and inp_data_dict.get('do_ad'))
+        if inp_data_dict.get('param_id_method') == 'sp_minimize' and \
+                inp_data_dict.get('model_type') not in ('casadi_python', 'aadc_python') and not _fsa_ad:
+            print('Parameter identification with sp_minimize requires model_type to be '
+                  '"casadi_python" or "aadc_python", or "cellml_only" with solver '
+                  '"CVODE_myokit" and do_ad: true (Myokit CVODES forward sensitivity).')
             exit()
 
         # multi_start_sp_minimize runs on any model type: it uses the AD gradient for
-        # casadi_python (symbolic) and aadc_python (tape) models, and falls back to finite
-        # differences for the others.
+        # casadi_python (symbolic), aadc_python (tape), and cellml_only + Myokit CVODES FSA
+        # (do_ad), and falls back to finite differences for the others.
         if inp_data_dict.get('param_id_method') == 'multi_start_sp_minimize' and \
-                inp_data_dict.get('model_type') not in ('casadi_python', 'aadc_python'):
+                inp_data_dict.get('model_type') not in ('casadi_python', 'aadc_python') and not _fsa_ad:
             print('Note: multi_start_sp_minimize with model_type '
                   f'"{inp_data_dict.get("model_type")}" will use finite-difference gradients. '
-                  'Set model_type to "casadi_python" or "aadc_python" to use automatic '
-                  'differentiation.')
+                  'Set model_type to "casadi_python"/"aadc_python", or use "cellml_only" with '
+                  'solver "CVODE_myokit" and do_ad: true, to use automatic differentiation.')
 
         # overwrite dir paths if set in user_inputs.yaml
         if "resources_dir" in inp_data_dict.keys():

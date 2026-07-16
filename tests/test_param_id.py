@@ -1866,6 +1866,120 @@ def test_3compartment_casadi_bdf_longrun_gradient_and_cache(
     runner.close_simulation()
 
 
+def _build_3compartment_fsa_runner(
+    base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir,
+    pre_time=20.0, sim_time=2.0, obs_file='3compartment_obs_data.json',
+):
+    """Generate the (stiff) 3compartment cellml_only model, run through Myokit, and build a
+    CVS0DParamID configured for the CVODES forward-sensitivity (FSA) gradient path.
+
+    Tight rtol/atol keep the sensitivities and any finite-difference fallback out of the
+    integrator noise floor. Returns (runner, baseline_vals).
+    """
+    import json
+
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': '3compartment',
+        'input_param_file': '3compartment_parameters.csv',
+        'params_for_id_file': '3compartment_params_for_id.csv',
+        'model_type': 'cellml_only',
+        'solver': 'CVODE_myokit',
+        'param_id_method': 'sp_minimize',
+        'do_ad': True,
+        'pre_time': pre_time,
+        'sim_time': sim_time,
+        'dt': 0.01,
+        'DEBUG': False,
+        'do_mcmc': False,
+        'plot_predictions': False,
+        'do_ia': False,
+        'solver_info': {'MaximumStep': 0.005, 'MaximumNumberOfSteps': 50000,
+                        'rtol': 1e-9, 'atol': 1e-9},
+        'param_id_obs_path': os.path.join(resources_dir, obs_file),
+        'param_id_output_dir': temp_output_dir,
+        'generated_models_dir': temp_generated_models_dir,
+        'resources_dir': resources_dir,
+    })
+
+    success = generate_with_new_architecture(False, config)
+    assert success, "cellml_only model generation should succeed for 3compartment"
+
+    parsed = YamlFileParser().parse_user_inputs_file(
+        config, obs_path_needed=True, do_generation_with_fit_parameters=False
+    )
+    parsed['one_rank'] = True
+
+    runner = CVS0DParamID.init_from_dict(parsed)
+    with open(os.path.join(resources_dir, obs_file)) as f:
+        obs_data = json.load(f)
+    runner.set_ground_truth_data(obs_data)
+
+    params_for_id = [
+        {'vessel_name': 'global',      'param_name': 'q_lv_init', 'param_type': 'const', 'min': 200e-6, 'max': 1500e-6},
+        {'vessel_name': 'aortic_root', 'param_name': 'C',         'param_type': 'const', 'min': 1e-9,   'max': 5e-8},
+        {'vessel_name': 'global',      'param_name': 'E_lv_A',    'param_type': 'const', 'min': 1e8,    'max': 5e8},
+        {'vessel_name': 'global',      'param_name': 'E_lv_B',    'param_type': 'const', 'min': 1e6,    'max': 5e7},
+    ]
+    runner.set_params_for_id(params_for_id)
+    baseline_vals = runner.param_id.sim_helper.get_init_param_vals(
+        runner.param_id.param_id_info['param_names'])
+    assert baseline_vals is not None and len(baseline_vals) == 4
+    return runner, baseline_vals
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.need_opencor
+def test_3compartment_fsa_longrun_gradient(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir):
+    """Myokit CVODES forward-sensitivity gradient for the STIFF 3compartment over a LONG
+    (nonzero pre_time) run matches central finite differences of the same cost.
+
+    This is the gradient path for cellml_only / CVODE_myokit models. FSA gives d(operand)/dp
+    for constant parameters; q_lv_init sets a state initial value so it is FSA-ineligible and
+    falls back to finite differences (verified below). The gradient is checked at an arbitrary
+    interior point (not the optimum, so cost != 0), which is all a correct descent direction
+    needs. The reference FD uses a rel~1e-3 step: a convergence study showed rel 1e-4 sits in
+    the integrator noise floor for this stiff oscillatory model.
+    """
+    runner, _ = _build_3compartment_fsa_runner(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir,
+        pre_time=20.0, sim_time=2.0)
+    inner = runner.param_id
+
+    mins = np.asarray(inner.param_id_info['param_mins'], dtype=float)
+    maxs = np.asarray(inner.param_id_info['param_maxs'], dtype=float)
+    p = mins + 0.4 * (maxs - mins)   # arbitrary interior point
+
+    assert inner.fsa_gradient_available(), "FSA gradient should be advertised for this run"
+    gradient = np.asarray(inner.get_gradient(p), dtype=float).ravel()
+    assert gradient.shape == (4,)
+    assert np.all(np.isfinite(gradient))
+    assert not np.all(gradient == 0)
+
+    # q_lv_init feeds a state initial-value expression -> FSA-ineligible -> FD fallback.
+    assert inner._fsa_ineligible_names == ['global/q_lv_init'], inner._fsa_ineligible_names
+    # its gradient column is still populated (via the finite-difference fallback).
+    assert abs(gradient[0]) > 1e-6
+
+    fd = np.zeros(4)
+    for i in range(4):
+        dp = max(abs(p[i]) * 1e-3, 1e-14)
+        p_plus, p_minus = p.copy(), p.copy()
+        p_plus[i] += dp
+        p_minus[i] -= dp
+        fd[i] = (float(inner.get_cost(p_plus)) - float(inner.get_cost(p_minus))) / (2 * dp)
+
+    for i, label in enumerate(["q_lv_init", "C_aortic", "E_lv_A", "E_lv_B"]):
+        if abs(fd[i]) > 1e-6:
+            assert gradient[i] == pytest.approx(fd[i], rel=0.10), (
+                f"FSA gradient[{i}] ({label}) = {gradient[i]:.6e} != FD {fd[i]:.6e} "
+                f"(AD/FD={gradient[i]/fd[i]:.4f})")
+
+    runner.close_simulation()
+
+
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.mpi

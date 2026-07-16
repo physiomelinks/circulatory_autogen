@@ -1006,9 +1006,15 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
 
         self.do_ad = do_ad
         self.model_type = model_type
-        # param_id_obj.get_gradient() only has an AD backend for casadi (symbolic) and aadc
-        # (tape) models; for anything else it raises, so those fall back to finite differences.
-        self.use_ad_gradient = do_ad and model_type in AD_GRADIENT_MODEL_TYPES
+        # param_id_obj.get_gradient() has an AD backend for casadi (symbolic) and aadc
+        # (tape) models, and for cellml_only models run through Myokit CVODES forward
+        # sensitivity (advertised via fsa_gradient_available); for anything else it raises,
+        # so those fall back to finite differences.
+        fsa_available = getattr(param_id_obj, 'fsa_gradient_available', None)
+        self.use_ad_gradient = do_ad and (
+            model_type in AD_GRADIENT_MODEL_TYPES
+            or (callable(fsa_available) and fsa_available())
+        )
 
         self.param_mins = self.param_id_info["param_mins"]
         self.param_maxs = self.param_id_info["param_maxs"]

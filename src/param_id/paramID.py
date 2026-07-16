@@ -380,7 +380,7 @@ class CVS0DParamID():
             'file_name_prefix', 'params_for_id_path', 'param_id_obs_path',
             'sim_time', 'pre_time', 'dt', 'solver_info', 'mcmc_options',
             'optimiser_options', 'DEBUG', 'param_id_output_dir', 'resources_dir',
-            'one_rank',
+            'one_rank', 'do_ad',
         ]
         kwargs = {key: inp_data_dict[key] for key in arg_options if key in inp_data_dict}
 
@@ -2261,6 +2261,191 @@ class OpencorParamID():
         cost= self.cost_func(self.sim_helper.states, self.sim_helper.variables)
         return cost
 
+    # ---- Myokit CVODES forward-sensitivity (FSA) gradient ----
+
+    def fsa_gradient_available(self):
+        """True when this run can produce an analytic gradient via Myokit CVODES FSA.
+
+        Requires a cellml_only model run through the Myokit backend (whose SimulationHelper
+        exposes enable_fsa) with do_ad requested. This is the gradient path for stiff /
+        long-warmup models that neither CasADi nor AADC covers.
+        """
+        return (self.model_type == 'cellml_only'
+                and getattr(self, 'do_ad', False)
+                and hasattr(self.sim_helper, 'enable_fsa'))
+
+    def _ensure_fsa_setup(self):
+        """Enable CVODES forward sensitivities on the Myokit sim helper (once).
+
+        Dependents are the unique observable-operand variables; independents are the AD
+        parameters. Parameters that appear in a state's initial-value expression are
+        FSA-ineligible (Myokit cannot make them sensitivity independents) and fall back to
+        finite differences; a single warning reports how many and which.
+        """
+        if getattr(self, '_fsa_setup_done', False):
+            return
+        # Flatten param names (a param may be shared across several vessels via a list).
+        self._fsa_param_names_flat = [
+            n[0] if isinstance(n, list) else n for n in self.param_id_info["param_names"]]
+        # Unique operand variables across all observables, order-preserving.
+        dep_names = []
+        for operands in self.obs_info["operands"]:
+            for v in operands:
+                if v not in dep_names:
+                    dep_names.append(v)
+        self._fsa_dependent_names = dep_names
+
+        # enable_fsa rebuilds the Simulation; preserve any offline warmup default state.
+        offline_state = getattr(self.sim_helper, '_offline_default_state', None)
+        ineligible = self.sim_helper.enable_fsa(dep_names, self._fsa_param_names_flat)
+        if offline_state is not None:
+            self.sim_helper._offline_default_state = offline_state
+            self.sim_helper.default_states = list(offline_state)
+
+        self._fsa_ineligible_names = list(ineligible or [])
+        if self._fsa_ineligible_names:
+            n_total = len(self._fsa_param_names_flat)
+            warnings.warn(
+                f"FSA: {len(self._fsa_ineligible_names)} of {n_total} parameters are "
+                f"unsuitable for CVODES forward sensitivity (they appear in a state's "
+                f"initial-value expression): {self._fsa_ineligible_names}; these will use "
+                f"finite-difference gradients (2 extra simulations each per gradient).")
+        self._fsa_setup_done = True
+
+    def _total_weighted_obs_denominator(self):
+        """Sum of weighted-observable counts over all experiments/sub-experiments.
+
+        Matches the divisor get_cost_obs_and_pred_from_params uses for the full cost, so a
+        gradient assembled from raw per-sub costs divided by this equals d(mean cost)/dp.
+        """
+        num_experiments = self.protocol_info["num_experiments"]
+        num_sub_per_exp = self.protocol_info["num_sub_per_exp"]
+        D = 0
+        for exp_idx in range(num_experiments):
+            for sub_idx in range(num_sub_per_exp[exp_idx]):
+                if self._num_weighted_obs_by_exp_sub is not None:
+                    D += self._num_weighted_obs_by_exp_sub[exp_idx][sub_idx]
+                else:
+                    wc = self.protocol_info["scaled_weight_const_from_exp_sub"][exp_idx][sub_idx]
+                    ws = self.protocol_info["scaled_weight_series_from_exp_sub"][exp_idx][sub_idx]
+                    wa = self.protocol_info["scaled_weight_amp_from_exp_sub"][exp_idx][sub_idx]
+                    wp = self.protocol_info["scaled_weight_phase_from_exp_sub"][exp_idx][sub_idx]
+                    wd = self.protocol_info["scaled_weight_prob_dist_from_exp_sub"][exp_idx][sub_idx]
+                    D += int(np.sum(wc != 0) + np.sum(ws != 0) + np.sum(wa != 0)
+                             + np.sum(wp != 0) + np.sum(wd != 0))
+        return max(int(D), 1)
+
+    def get_jac_cost_fsa(self, param_vals):
+        """Gradient dJ/dp via Myokit CVODES forward sensitivity + directional derivative.
+
+        FSA gives S = d(operand_trace)/dp for every eligible parameter. Rather than
+        differentiate each observable operation and cost term by hand, we perturb the
+        operand traces along S (operand + h*S ≈ operand(p+h)) and re-evaluate the *existing*
+        cost path get_cost_from_operands; the finite difference over h is dJ/dp exactly (S is
+        the true trace derivative), reusing every operation / weight / std / cost function
+        with no duplication. FSA-ineligible parameters get a central finite difference over
+        the full cost. Supports one sub-experiment per experiment (raises otherwise).
+        """
+        self._ensure_fsa_setup()
+        param_vals = np.asarray(param_vals, dtype=float)
+        n_params = len(param_vals)
+        param_names = self.param_id_info["param_names"]
+
+        num_experiments = self.protocol_info["num_experiments"]
+        num_sub_per_exp = self.protocol_info["num_sub_per_exp"]
+        if any(n != 1 for n in num_sub_per_exp):
+            raise NotImplementedError(
+                "FSA gradient currently supports one sub-experiment per experiment; "
+                f"got num_sub_per_exp={num_sub_per_exp}.")
+
+        eligible_names = set(self.sim_helper._fsa_eligible_param_names or [])
+        # Map each flattened param name to its column index in param_vals.
+        flat_names = self._fsa_param_names_flat
+        grad = np.zeros(n_params)
+        denom = float(self._total_weighted_obs_denominator())
+
+        # ---- Eligible params: directional derivative via FSA, summed over experiments ----
+        for exp_idx in range(num_experiments):
+            _, operands_list, _ = self.get_cost_obs_and_pred_from_params(
+                param_vals, reset=True, only_one_exp=exp_idx)
+            operands = operands_list[exp_idx]  # single sub per exp -> subexp_count == exp_idx
+            if operands is None:
+                return np.full(n_params, np.nan)
+            sens = self.sim_helper.get_sensitivities(self._fsa_dependent_names, flat_names)
+
+            for j in range(n_params):
+                pname = flat_names[j]
+                if pname not in eligible_names:
+                    continue
+                pj = float(param_vals[j])
+                # Central directional difference along the exact sensitivity S. The step acts
+                # on fixed operand traces (not the solver), so it is immune to integration
+                # noise; a moderate step avoids catastrophic cancellation in raw_p - raw_m
+                # while staying small enough that argmax/argmin of max/min observables is
+                # stable and linear operations (mean) are reproduced exactly.
+                h = 1e-3 * abs(pj) if pj != 0.0 else 1e-4
+                pert_p = self._perturb_operands_along_sensitivity(operands, sens, pname, h)
+                pert_m = self._perturb_operands_along_sensitivity(operands, sens, pname, -h)
+                raw_p = float(self.get_cost_from_operands(pert_p, exp_idx=exp_idx, sub_idx=0))
+                raw_m = float(self.get_cost_from_operands(pert_m, exp_idx=exp_idx, sub_idx=0))
+                grad[j] += (raw_p - raw_m) / (2.0 * h)
+
+        grad /= denom
+
+        # ---- Ineligible params: central finite difference over the full mean cost ----
+        ineligible_idx = [j for j in range(n_params) if flat_names[j] not in eligible_names]
+        if ineligible_idx:
+            base_cost = float(self.get_cost_from_params(param_vals))
+            if not np.isfinite(base_cost):
+                base_cost = None
+            for j in ineligible_idx:
+                pj = float(param_vals[j])
+                # Real re-simulation FD, so the step must balance truncation against the
+                # integrator noise floor: the central-difference optimum is ~tol^(1/3), i.e.
+                # a ~1e-3 relative step for the ~1e-9 cost noise at rtol/atol 1e-8 (a
+                # convergence study confirmed rel 1e-3 is well inside the flat region while
+                # rel 1e-4 sits in the noise floor).
+                h = 1e-3 * abs(pj) if pj != 0.0 else 1e-5
+                p_plus = param_vals.copy(); p_plus[j] += h
+                p_minus = param_vals.copy(); p_minus[j] -= h
+                c_plus = float(self.get_cost_from_params(p_plus))
+                c_minus = float(self.get_cost_from_params(p_minus))
+                if np.isfinite(c_plus) and np.isfinite(c_minus):
+                    grad[j] = (c_plus - c_minus) / (2.0 * h)
+                elif base_cost is not None and np.isfinite(c_plus):
+                    grad[j] = (c_plus - base_cost) / h
+                elif base_cost is not None and np.isfinite(c_minus):
+                    grad[j] = (base_cost - c_minus) / h
+                else:
+                    grad[j] = 0.0
+        return grad
+
+    def _perturb_operands_along_sensitivity(self, operands, sens, pname, h):
+        """Return a copy of one sub-experiment's operand traces stepped by h along dS/dp.
+
+        `operands` is the list-of-operand-arrays for one observable-bearing sub-experiment,
+        indexed [obs_entry][operand] to match self.obs_info["operands"]; `sens[var][pname]`
+        is the FSA sensitivity trace of operand variable `var` w.r.t. parameter `pname`.
+        """
+        pert = []
+        for JJ, operand_arrays in enumerate(operands):
+            operand_var_names = self.obs_info["operands"][JJ]
+            new_entry = []
+            for k, arr in enumerate(operand_arrays):
+                arr = np.asarray(arr, dtype=float)
+                var_name = operand_var_names[k]
+                s_trace = sens.get(var_name, {}).get(pname)
+                if s_trace is None:
+                    new_entry.append(arr.copy())
+                    continue
+                s_trace = np.asarray(s_trace, dtype=float)
+                L = min(arr.shape[0], s_trace.shape[0])
+                stepped = arr.copy()
+                stepped[:L] = arr[:L] + h * s_trace[:L]
+                new_entry.append(stepped)
+            pert.append(new_entry)
+        return pert
+
     # ---- Backend-agnostic cost/gradient interface ----
 
     def get_cost(self, param_vals):
@@ -2274,11 +2459,13 @@ class OpencorParamID():
         return float(self.get_cost_from_params(param_vals))
 
     def get_gradient(self, param_vals):
-        """Compute gradient ∇J(p), dispatching to CasADi or AADC."""
+        """Compute gradient ∇J(p), dispatching to CasADi, AADC, or Myokit FSA."""
         if self.model_type == 'casadi_python':
             return self.get_jac_cost_ca(param_vals)
         elif self.model_type == 'aadc_python':
             return self.get_jac_cost_aadc(param_vals)
+        elif self.fsa_gradient_available():
+            return self.get_jac_cost_fsa(param_vals)
         else:
             raise ValueError(f"Gradient not available for model_type={self.model_type}")
 
