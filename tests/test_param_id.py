@@ -2357,24 +2357,24 @@ def test_param_id_lotka_volterra_sp_minimize_numpy_only_operation(base_user_inpu
 @pytest.mark.mpi
 @pytest.mark.compare_optimisers
 def test_compare_optimisers(base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm, request):
-    """
-    Test comparison of different optimization methods (GA vs CMA-ES).
-    
-    This test runs both genetic_algorithm and CMA-ES optimizers and compares
-    their results to ensure they produce similar parameter values.
-    
-    Args:
-        base_user_inputs: Base user inputs configuration fixture
-        resources_dir: Resources directory fixture
-        temp_output_dir: Temporary output directory fixture
-        mpi_comm: MPI communicator fixture
+    """Compare optimisers on the STIFF, long-warmup 3compartment problem.
+
+    Two gradient-free global searches (genetic algorithm, CMA-ES) against multi-start L-BFGS-B
+    driven by the two gradient backends that actually work on a stiff model over a nonzero
+    pre_time: Myokit CVODES forward sensitivity (cellml_only) and the CasADi symbolic bdf.
+    (AADC is deliberately excluded here: its fixed-step tape integrators are inaccurate/unstable
+    on this stiff model -- see test_3compartment_aadc_run_warns_stiff -- so it belongs only in
+    the non-stiff FitzHugh-Nagumo benchmark.)
     """
     rank = mpi_comm.Get_rank()
-    
+
     # Import here to avoid issues if nevergrad is not available
     from tests.compare_optimisers import OptimiserComparison
-    
-    # Setup configuration
+
+    casadi_models = os.path.join(temp_generated_models_dir, 'casadi')
+    fsa_models = os.path.join(temp_generated_models_dir, 'fsa')
+
+    # Base config (GA / CMA-ES run cellml_only + CVODE, as before).
     config = base_user_inputs.copy()
     config.update({
         'file_prefix': '3compartment',
@@ -2395,47 +2395,70 @@ def test_compare_optimisers(base_user_inputs, resources_dir, temp_output_dir, te
         'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
         'param_id_output_dir': temp_output_dir,
         'generated_models_dir': temp_generated_models_dir,
-        'debug_optimiser_options': {'num_calls_to_function': 10000, 'max_patience': 500},
+        # keep the multi-start count modest so the test is tractable; bump num_starts locally
+        # for a real accuracy/time benchmark.
+        'debug_optimiser_options': {'num_calls_to_function': 10000, 'max_patience': 500,
+                                    'num_starts': 5, 'start_sampling': 'sobol', 'seed': 0},
     })
 
     _ensure_cellml_model_generated(config, mpi_comm)
 
-    # Create comparison object with full number of calls for testing
-    comparison = OptimiserComparison(config, methods=['genetic_algorithm', 'CMA-ES'], num_calls=10000)
-    
-    # Run both methods
-    ga_success = comparison.run_method('genetic_algorithm')
-    cmaes_success = comparison.run_method('CMA-ES')
-    
-    # Verify both completed successfully
+    # multi-start L-BFGS-B driven by the two stiff-capable AD gradient backends.
+    multi_start_fsa = {
+        'param_id_method': 'multi_start_sp_minimize',
+        'model_type': 'cellml_only', 'solver': 'CVODE_myokit', 'do_ad': True,
+        'solver_info': {'MaximumStep': 0.005, 'MaximumNumberOfSteps': 50000,
+                        'rtol': 1e-9, 'atol': 1e-9},
+        'generated_models_dir': fsa_models,
+    }
+    multi_start_casadi = {
+        'param_id_method': 'multi_start_sp_minimize',
+        'model_type': 'casadi_python', 'solver': 'casadi_integrator', 'do_ad': True,
+        'solver_info': {'max_step_size': 0.001, 'max_num_steps': 50000, 'method': 'bdf'},
+        'generated_models_dir': casadi_models,
+    }
+    extra = {
+        'multi_start (Myokit FSA)': multi_start_fsa,
+        'multi_start (CasADi bdf)': multi_start_casadi,
+    }
+
     if rank == 0:
-        assert ga_success, "Genetic algorithm optimization should succeed"
-        assert cmaes_success, "CMA-ES optimization should succeed"
-        
-        # Verify results are loaded
-        assert 'genetic_algorithm' in comparison.results, "GA results should be available"
-        assert 'CMA-ES' in comparison.results, "CMA-ES results should be available"
-        
-        # Verify costs are finite and reasonable
-        ga_cost = comparison.results['genetic_algorithm']['cost']
-        cmaes_cost = comparison.results['CMA-ES']['cost']
-        
-        assert np.isfinite(ga_cost), f"GA cost should be finite, got {ga_cost}"
-        assert np.isfinite(cmaes_cost), f"CMA-ES cost should be finite, got {cmaes_cost}"
-        assert ga_cost >= 0, f"GA cost should be non-negative, got {ga_cost}"
-        assert cmaes_cost >= 0, f"CMA-ES cost should be non-negative, got {cmaes_cost}"
-        
-        # Compare results (costs should be within reasonable range)
-        cost_diff = abs(cmaes_cost - ga_cost)
-        max_cost = max(abs(ga_cost), abs(cmaes_cost), 1e-10)
-        cost_rel_diff = cost_diff / max_cost * 100
-        
-        # For test purposes, we just verify both methods complete
-        # Actual similarity depends on convergence, which may vary
-        print(f"\nGA cost: {ga_cost:.6e}")
-        print(f"CMA-ES cost: {cmaes_cost:.6e}")
-        print(f"Cost difference: {cost_diff:.6e} ({cost_rel_diff:.2f}%)")
-    
+        casadi_cfg = config.copy(); casadi_cfg.update(multi_start_casadi)
+        assert generate_with_new_architecture(False, casadi_cfg), \
+            'CasADi bdf model generation should succeed for 3compartment'
+        fsa_cfg = config.copy(); fsa_cfg.update(multi_start_fsa)
+        assert generate_with_new_architecture(False, fsa_cfg), \
+            'FSA (cellml_only) model generation should succeed for 3compartment'
+    mpi_comm.Barrier()
+
+    methods = ['genetic_algorithm', 'CMA-ES',
+               'multi_start (Myokit FSA)', 'multi_start (CasADi bdf)']
+    comparison = OptimiserComparison(config, methods=methods, num_calls=10000,
+                                     extra_method_configs=extra)
+
+    for method in methods:
+        assert comparison.run_method(method) is not False, f'{method} optimisation should succeed'
+
+    if rank == 0:
+        for method in methods:
+            assert method in comparison.results, f"{method} results should be available"
+            cost = comparison.results[method]['cost']
+            assert np.isfinite(cost) and cost >= 0, \
+                f"{method} produced a non-finite or negative cost: {cost}"
+
+        print(f"\n{'method':<28}{'cost':>14}{'runtime_s':>12}")
+        for method in methods:
+            print(f"{method:<28}{comparison.results[method]['cost']:>14.6e}"
+                  f"{comparison.runtimes[method]:>12.1f}")
+
+        # The stiff-capable multi-start variants should at least match the population methods.
+        best_pop = min(comparison.results['genetic_algorithm']['cost'],
+                       comparison.results['CMA-ES']['cost'])
+        for method in ('multi_start (Myokit FSA)', 'multi_start (CasADi bdf)'):
+            assert comparison.results[method]['cost'] <= best_pop * 5.0 + 1e-9, (
+                f"{method} cost {comparison.results[method]['cost']:.3e} is far worse than the "
+                f"best population method {best_pop:.3e}")
+
     mpi_comm.Barrier()
 
 
@@ -3662,6 +3685,7 @@ def test_compare_optimisers_on_fitzhugh_nagumo(
 
     casadi_models = os.path.join(temp_generated_models_dir, 'casadi')
     aadc_models = os.path.join(temp_generated_models_dir, 'aadc')
+    fsa_models = os.path.join(temp_generated_models_dir, 'fsa')
 
     config = _fitzhugh_nagumo_config(base_user_inputs, resources_dir, temp_output_dir,
                                      casadi_models, 'genetic_algorithm')
@@ -3690,14 +3714,24 @@ def test_compare_optimisers_on_fitzhugh_nagumo(
         'generated_models_dir': aadc_models,
     }
 
+    # Myokit CVODES forward-sensitivity gradient on the same problem (cellml_only backend).
+    multi_start_fsa = {
+        'param_id_method': 'multi_start_sp_minimize',
+        'model_type': 'cellml_only', 'solver': 'CVODE_myokit', 'do_ad': True,
+        'solver_info': {'rtol': 1e-9, 'atol': 1e-9},
+        'generated_models_dir': fsa_models,
+    }
+
     extra = {
         'multi_start (CasADi AD)': multi_start_casadi,
+        'multi_start (Myokit FSA)': multi_start_fsa,
         'multi_start (FD)': multi_start_fd,
     }
     if AADC_LICENSE_AVAILABLE:
         extra['multi_start (AADC AD)'] = multi_start_aadc
 
-    methods = ['genetic_algorithm', 'CMA-ES', 'multi_start (FD)', 'multi_start (CasADi AD)']
+    methods = ['genetic_algorithm', 'CMA-ES', 'multi_start (FD)',
+               'multi_start (CasADi AD)', 'multi_start (Myokit FSA)']
     if AADC_LICENSE_AVAILABLE:
         methods.append('multi_start (AADC AD)')
 
@@ -3706,6 +3740,10 @@ def test_compare_optimisers_on_fitzhugh_nagumo(
         casadi_cfg.update(multi_start_casadi)
         assert generate_with_new_architecture(False, casadi_cfg), \
             'CasADi model generation should succeed for FitzHugh-Nagumo'
+        fsa_cfg = config.copy()
+        fsa_cfg.update(multi_start_fsa)
+        assert generate_with_new_architecture(False, fsa_cfg), \
+            'FSA (cellml_only) model generation should succeed for FitzHugh-Nagumo'
         if AADC_LICENSE_AVAILABLE:
             aadc_cfg = config.copy()
             aadc_cfg.update(multi_start_aadc)
