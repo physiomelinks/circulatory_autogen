@@ -242,16 +242,20 @@ def run_three_compartment(base_config, resources_dir, output_dir, generated_mode
     """
     rank = mpi_comm.Get_rank()
     casadi_models = os.path.join(generated_models_dir, 'casadi')
-    fsa_models = os.path.join(generated_models_dir, 'fsa')
+    # GA/CMA-ES (base config) and the FSA variant are all cellml_only + CVODE_myokit, so they
+    # share one generated Myokit model. (The CasADi bdf variant needs its own casadi_python
+    # model.) Every method's generated_models_dir must point at a model that actually gets
+    # generated below, or that method fails at load with FileNotFoundError.
+    myokit_models = os.path.join(generated_models_dir, 'myokit')
 
-    config = three_compartment_config(base_config, resources_dir, output_dir, generated_models_dir)
+    config = three_compartment_config(base_config, resources_dir, output_dir, myokit_models)
 
     multi_start_fsa = {
         'param_id_method': 'multi_start_sp_minimize',
         'model_type': 'cellml_only', 'solver': 'CVODE_myokit', 'do_ad': True,
         'solver_info': {'MaximumStep': 0.005, 'MaximumNumberOfSteps': 50000,
                         'rtol': 1e-9, 'atol': 1e-9},
-        'generated_models_dir': fsa_models,
+        'generated_models_dir': myokit_models,
     }
     multi_start_casadi = {
         'param_id_method': 'multi_start_sp_minimize',
@@ -270,12 +274,12 @@ def run_three_compartment(base_config, resources_dir, output_dir, generated_mode
     }
 
     if rank == 0:
+        # Base cellml_only (Myokit) model, used by GA / CMA-ES and the FSA multi-start.
+        assert generate_with_new_architecture(False, config), \
+            'Myokit (cellml_only) model generation should succeed for 3compartment'
         casadi_cfg = config.copy(); casadi_cfg.update(multi_start_casadi)
         assert generate_with_new_architecture(False, casadi_cfg), \
             'CasADi bdf model generation should succeed for 3compartment'
-        fsa_cfg = config.copy(); fsa_cfg.update(multi_start_fsa)
-        assert generate_with_new_architecture(False, fsa_cfg), \
-            'FSA (cellml_only) model generation should succeed for 3compartment'
     mpi_comm.Barrier()
 
     methods = ['genetic_algorithm', 'CMA-ES',
