@@ -602,6 +602,87 @@ class SimulationHelper:
         return traj
 
     # ---- simulation ----
+    def _warn_if_stiff(self, variables_all):
+        """Probe the first second of dynamics and warn loudly if the model is stiff.
+
+        AADC's tape-consistent integrators are all fixed-step, and fixed-step schemes are
+        inaccurate or outright unstable on stiff systems -- on the stiff 3compartment model
+        the fixed-step implicit-Euler tape solve deviates from CVODE by ~2e4%. Stiffness is
+        therefore the single best predictor that an AADC run (forward or gradient) will be
+        wrong, so we surface it before doing any work.
+
+        Two cheap, independent signals over the first second of simulated time:
+          * the spectral abscissa of the RHS Jacobian, max|Re(lambda)|: if
+            max|Re(lambda)| * dt >> 1 the fastest mode is far below the step, i.e. stiff;
+          * an explicit forward-Euler probe: if it blows up to non-finite / huge values, the
+            model is stiff for an explicit fixed step (the class AADC's rk4 belongs to).
+        Diagnostics only -- any failure here is swallowed so it can never break a run.
+        """
+        if getattr(self, '_stiffness_checked', False):
+            return
+        self._stiffness_checked = True
+        try:
+            n = self.STATE_COUNT
+            vars_all = list(variables_all)
+
+            def rhs(x):
+                rates = [0.0] * n
+                self.model.compute_rates(0.0, list(x), rates, list(vars_all))
+                return np.array([float(r) for r in rates], dtype=float)
+
+            def spectral_abscissa(x):
+                f0 = rhs(x)
+                if not np.all(np.isfinite(f0)):
+                    return np.inf
+                J = np.zeros((n, n))
+                for j in range(n):
+                    dxj = 1e-6 * max(abs(float(x[j])), 1e-8)
+                    xp = np.array(x, dtype=float); xp[j] += dxj
+                    J[:, j] = (rhs(xp) - f0) / dxj
+                eig = np.linalg.eigvals(J)
+                return float(np.max(np.abs(eig.real))) if eig.size else 0.0
+
+            x0 = np.array([float(s) for s in self.states[:n]], dtype=float)
+            dt = float(self.dt)
+            worst_abscissa = spectral_abscissa(x0)
+
+            # Explicit forward-Euler probe over the first second (or the sim horizon if shorter).
+            probe_T = min(1.0, dt * (self.pre_steps + self.n_steps))
+            n_probe = max(20, int(np.ceil(probe_T / dt)))
+            h = probe_T / n_probe if n_probe else dt
+            x = x0.copy()
+            blew_up = False
+            scale = 1.0 + float(np.max(np.abs(x0)))
+            for k in range(n_probe):
+                fx = rhs(x)
+                if not np.all(np.isfinite(fx)):
+                    blew_up = True
+                    break
+                x = x + h * fx
+                if not np.all(np.isfinite(x)) or float(np.max(np.abs(x))) > 1e6 * scale:
+                    blew_up = True
+                    break
+                if k % max(1, n_probe // 5) == 0:
+                    worst_abscissa = max(worst_abscissa, spectral_abscissa(x))
+
+            product = worst_abscissa * dt
+            if blew_up or product > 1.0:
+                fastest = (1.0 / worst_abscissa) if worst_abscissa > 0 else float('inf')
+                warnings.warn(
+                    "AADC stiffness check: the model appears STIFF over the first second of "
+                    f"simulation (fastest mode timescale ~{fastest:.2e}s vs dt={dt:g}s; "
+                    f"max|Re(eig(J))|*dt~{product:.1f}"
+                    + ("; an explicit forward-Euler probe diverged" if blew_up else "")
+                    + "). AADC's tape-consistent integrators are all fixed-step and are "
+                    "inaccurate or unstable on stiff systems (e.g. ~2e4% error vs CVODE on "
+                    "3compartment), so both the forward solve and the AADC gradient are likely "
+                    "wrong here. Use model_type 'casadi_python' with solver_info method 'bdf', "
+                    "or a Myokit CVODES forward-sensitivity run (model_type 'cellml_only', "
+                    "solver 'CVODE_myokit', do_ad: true), for stiff models.")
+        except Exception:
+            # A diagnostic must never break the actual simulation.
+            pass
+
     def run(self):
         """Run simulation. If _do_ad is True, records onto AADC tape."""
         total_steps = self.pre_steps + self.n_steps
@@ -610,6 +691,11 @@ class SimulationHelper:
         variables_all = list(self._numeric_variables_all)
         for const_pos, const_idx in enumerate(self.constant_indices):
             variables_all[const_idx] = self.variables[const_pos]
+
+        # Stiffness is what breaks AADC's fixed-step tape methods (measured up to ~2e4% error
+        # and unstable rootfinds on the stiff 3compartment valve dynamics), so probe the model
+        # once and warn loudly before integrating.
+        self._warn_if_stiff(variables_all)
 
         # Choose integrator based on method
         method = self.solver_info.get('method', 'adaptive_rk45')
@@ -960,8 +1046,15 @@ class SimulationHelper:
             for i, var_idx in enumerate(self._ad_param_var_indices):
                 vars_rec[var_idx] = id_p[i]
 
-            # Initial state
-            st = [aadc.idouble(float(self.states[i])) for i in range(n)]
+            # Initial state seeded ON the tape via initialise_variables, so a parameter that
+            # sets a state's initial value (e.g. an *_init constant) propagates to the
+            # gradient. Seeding from frozen floats (self.states) would leave such parameters
+            # disconnected from the tape and give them a spurious zero gradient column. A copy
+            # of vars_rec is passed so initialise_variables cannot clobber the idouble
+            # parameter entries used by the integration below.
+            st = [aadc.idouble(0.0) for _ in range(n)]
+            rates_seed = [aadc.idouble(0.0) for _ in range(n)]
+            self.model.initialise_variables(st, rates_seed, list(vars_rec))
 
             if tape_method == 'implicit_euler_ift':
                 st = self._integrate_implicit_euler_ift_on_tape(

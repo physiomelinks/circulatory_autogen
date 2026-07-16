@@ -483,6 +483,32 @@ def test_3compartment_gradient_vs_fd_aadc(aadc_licensed, models_3compartment):
         assert abs(g_ad) < 1e-10, f"FD≈0 but AD={g_ad:.6e}"
 
 
+@pytest.mark.integration
+@pytest.mark.slow
+def test_3compartment_aadc_run_warns_stiff(aadc_licensed, models_3compartment):
+    """The AADC backend must loudly warn that 3compartment is stiff before integrating.
+
+    Stiffness is what makes AADC's fixed-step tape integrators inaccurate/unstable on this
+    model, so run() probes the first second of dynamics and warns. This guards that the
+    warning actually fires (and names the recommended stiff-capable backends).
+    """
+    import warnings as _warnings
+    paths = models_3compartment["aadc"]
+    sim = get_simulation_helper(
+        model_path=paths["py"], solver='aadc_semi_implicit', model_type='aadc_python',
+        dt=0.01, sim_time=0.3, pre_time=0.0, solver_info={'method': 'semi_implicit'},
+    )
+    with _warnings.catch_warnings(record=True) as caught:
+        _warnings.simplefilter("always")
+        sim.run()  # licence check + stiffness probe happen here
+    messages = [str(w.message) for w in caught]
+    stiff_warnings = [m for m in messages if "stiffness check" in m.lower() and "stiff" in m.lower()]
+    assert stiff_warnings, f"expected a loud stiffness warning; got warnings: {messages}"
+    # the warning must point the user at a stiff-capable backend
+    assert any("casadi" in m.lower() or "fsa" in m.lower() or "forward-sensitivity" in m.lower()
+               for m in stiff_warnings), stiff_warnings
+
+
 # ---- 3. Speed ----
 @pytest.mark.integration
 @pytest.mark.slow
