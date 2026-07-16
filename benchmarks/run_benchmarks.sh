@@ -1,6 +1,7 @@
 #!/bin/bash
-# Run the optimiser benchmarks under the OpenCOR Python shell (needed for the stiff
-# 3compartment benchmark) with MPI, and pass through any run_benchmarks.py arguments.
+# Run the optimiser benchmarks under the OpenCOR Python shell with MPI, passing through any
+# run_benchmarks.py arguments. The benchmarks do not require OpenCOR (they run on
+# Myokit/CasADi); this wrapper just gives a consistent local environment with MPI.
 #
 #   ./benchmarks/run_benchmarks.sh                 # all benchmarks, 1 rank
 #   ./benchmarks/run_benchmarks.sh -n 8            # all benchmarks, 8 MPI ranks

@@ -213,7 +213,8 @@ def three_compartment_config(base_config, resources_dir, output_dir, generated_m
         'file_prefix': '3compartment',
         'input_param_file': '3compartment_parameters.csv',
         'model_type': 'cellml_only',
-        'solver': 'CVODE',
+        # Myokit (not OpenCOR) so the gradient-free baselines run in CI without OpenCOR.
+        'solver': 'CVODE_myokit',
         'pre_time': 20,
         'sim_time': 2,
         'dt': 0.01,
@@ -320,10 +321,11 @@ def assert_three_compartment(result, mpi_comm):
     mpi_comm.Barrier()
 
 
-# Registry: which benchmarks run in which context.
-# 'ci' benchmarks must not need OpenCOR and must finish quickly.
+# Registry: which benchmarks run in which context. 'ci' benchmarks must not need OpenCOR.
+# Both current benchmarks run on Myokit/CasADi (no OpenCOR), so both are CI-enabled; the flag
+# is kept so a future OpenCOR-only benchmark can opt out of CI.
 BENCHMARKS = {
     'fitzhugh_nagumo': {'run': run_fitzhugh_nagumo, 'assert': assert_fitzhugh_nagumo, 'ci': True},
     'three_compartment': {'run': run_three_compartment, 'assert': assert_three_compartment,
-                          'ci': False},
+                          'ci': True},
 }

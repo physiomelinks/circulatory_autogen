@@ -438,7 +438,7 @@ is a standard hard case for parameter estimation: its least-squares surface has 
 _No benchmark results published yet. Run `python benchmarks/run_benchmarks.py --set ci --update-docs`, or trigger the **Benchmarks** GitHub Actions workflow, to populate this section._
 <!-- BENCHMARK_RESULTS_END -->
 
-The stiff 3compartment cardiovascular benchmark (which needs OpenCOR and a long warmup) is run locally with `./benchmarks/run_benchmarks.sh`; see `benchmarks/README.md`.
+The stiff 3compartment cardiovascular benchmark (long warmup, Myokit/CasADi — no OpenCOR needed) runs in the same set; it is slower, so the workflow schedule is weekly. See `benchmarks/README.md`.
 
 Note: For backwards compatibility, `ga_options` can still be used and will be automatically merged into `optimiser_options`.
 

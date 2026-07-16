@@ -2,17 +2,17 @@
 
 Examples
 --------
-    # everything (local; the stiff 3compartment benchmark needs the OpenCOR Python)
-    ./benchmarks/run_benchmarks.sh
+    # everything, under the OpenCOR Python + MPI wrapper
+    ./benchmarks/run_benchmarks.sh --update-docs
 
-    # just the CI-safe set (no OpenCOR), and splice the results into the docs
+    # the CI-safe set (no OpenCOR needed), and splice the results into the docs
     python benchmarks/run_benchmarks.py --set ci --update-docs
 
     # one benchmark, with regression assertions
     python benchmarks/run_benchmarks.py --benchmark fitzhugh_nagumo --assert
 
-``--set ci`` selects only benchmarks that run without OpenCOR and finish quickly; that is what
-the GitHub Actions workflow runs. ``--update-docs`` rewrites the marker-delimited results
+``--set ci`` selects the benchmarks that run without OpenCOR (currently all of them); that is
+what the GitHub Actions workflow runs. ``--update-docs`` rewrites the marker-delimited results
 region of tutorial/docs/parameter-identification.md.
 """
 # AADC's licence check must run before mpi4py is imported (importing MPI first breaks it),

@@ -18,7 +18,11 @@ global search vs multi-start L-BFGS-B driven by different gradient backends).
 | Name | Model | Needs OpenCOR? | Runs in CI? |
 |---|---|---|---|
 | `fitzhugh_nagumo` | FitzHugh-Nagumo (non-stiff, multi-modal) | no | yes |
-| `three_compartment` | 3compartment cardiovascular (stiff, 20 s warmup) | yes | no (local only) |
+| `three_compartment` | 3compartment cardiovascular (stiff, 20 s warmup) | no (Myokit/CasADi) | yes (slow, ~20+ min) |
+
+Both benchmarks run on Myokit and CasADi, so neither needs OpenCOR and both run in CI. AADC is
+recorded as a skipped row on the stiff 3compartment benchmark (its fixed-step tape integrators
+are inaccurate/unstable on stiff models).
 
 The FitzHugh-Nagumo benchmark is also a normal pytest test
 (`tests/test_param_id.py::test_compare_optimisers_on_fitzhugh_nagumo`) — the test and the
@@ -26,7 +30,8 @@ runner call the same `run_fitzhugh_nagumo` in `benchmark_specs.py`.
 
 ## Running
 
-Everything, locally (needs the OpenCOR Python for the stiff 3compartment benchmark):
+Everything, locally under the OpenCOR Python + MPI (the wrapper just gives a consistent
+environment; the benchmarks themselves do not require OpenCOR):
 
 ```bash
 ./benchmarks/run_benchmarks.sh                 # 1 MPI rank
@@ -34,7 +39,7 @@ Everything, locally (needs the OpenCOR Python for the stiff 3compartment benchma
 ./benchmarks/run_benchmarks.sh --update-docs   # and splice results into the docs
 ```
 
-Just the CI-safe set (no OpenCOR — plain Python with the pip-installed deps):
+Or with any Python that has the deps installed (this is what CI does):
 
 ```bash
 python benchmarks/run_benchmarks.py --set ci --update-docs

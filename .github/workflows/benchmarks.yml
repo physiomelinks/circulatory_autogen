@@ -1,9 +1,9 @@
 name: Benchmarks
 
-# Runs the CI-safe optimiser benchmarks (the ones that do NOT need OpenCOR), refreshes the
-# results table in the parameter-identification docs, and deploys the docs. The stiff
-# 3compartment benchmark needs OpenCOR and is NOT run here — run it locally with
-# ./benchmarks/run_benchmarks.sh (see benchmarks/README.md).
+# Runs the CI-safe optimiser benchmarks (those that do NOT need OpenCOR — currently both the
+# FitzHugh-Nagumo and the stiff 3compartment comparisons, which run on Myokit/CasADi),
+# refreshes the results table in the parameter-identification docs, and deploys the docs.
+# The 3compartment run is slow (~20+ min); this workflow is scheduled weekly / on dispatch.
 
 on:
   workflow_dispatch:
