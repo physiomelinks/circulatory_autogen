@@ -1110,18 +1110,35 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
 
     def _make_gradient_func(self, cost_fun):
         """dJ/dq in normalised parameter space."""
+        fd_step = float(self.optimiser_options['fd_step'])
+
+        def fd_gradient(q_norm):
+            return approx_fprime(np.asarray(q_norm, dtype=float), cost_fun, epsilon=fd_step)
+
         if self.use_ad_gradient:
             def gradient_func(q_norm):
                 p = self.param_norm_obj.unnormalise(np.asarray(q_norm, dtype=float))
-                # get_gradient dispatches on model_type: the CasADi symbolic jacobian, or the
-                # AADC tape gradient.
-                dJ_dp = np.asarray(self.param_id_obj.get_gradient(p), dtype=float).flatten()
+                # get_gradient dispatches on model_type: the CasADi symbolic jacobian, the
+                # AADC tape gradient, or the Myokit CVODES FSA gradient. If the AD backend
+                # cannot handle this configuration (e.g. a protocol shape it does not support),
+                # fall back to finite differences rather than crash the descent -- warn once so
+                # a silent switch to the slower/less-exact path is visible.
+                try:
+                    dJ_dp = np.asarray(self.param_id_obj.get_gradient(p), dtype=float).flatten()
+                    if not np.all(np.isfinite(dJ_dp)):
+                        raise ValueError("AD gradient returned non-finite values")
+                except Exception as e:
+                    if not getattr(self, '_ad_gradient_fallback_warned', False):
+                        warnings.warn(
+                            f"AD gradient unavailable for this configuration ({type(e).__name__}: "
+                            f"{e}); falling back to finite differences for the gradient.")
+                        self._ad_gradient_fallback_warned = True
+                    return fd_gradient(q_norm)
                 # chain rule: dJ/dq = dJ/dp * dp/dq = dJ/dp * (max - min)
                 return dJ_dp * self.param_ranges
             return gradient_func
 
-        fd_step = float(self.optimiser_options['fd_step'])
-        return lambda q_norm: approx_fprime(np.asarray(q_norm, dtype=float), cost_fun, epsilon=fd_step)
+        return fd_gradient
 
     def _run_one_start(self, start_idx, x0_norm, cost_fun, gradient_func, bounds_norm):
         """Run a single bounded L-BFGS-B descent. Returns a result dict (never raises for a

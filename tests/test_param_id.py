@@ -2028,6 +2028,124 @@ def test_3compartment_fsa_longrun_gradient(
     runner.close_simulation()
 
 
+# Ground-truth params the synthetic multi-sub obs was generated at (the model defaults).
+LV_MULTISUB_TRUE = np.array([5.0, 0.2, 0.2, 3.0])   # alpha, beta, delta, gamma
+
+
+def _lotka_multisub_fsa_config(base_user_inputs, resources_dir, output_dir, generated_models_dir):
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': 'Lotka_Volterra',
+        'input_param_file': 'Lotka_Volterra_parameters.csv',
+        'params_for_id_file': 'Lotka_Volterra_params_for_id.csv',
+        'model_type': 'cellml_only',
+        'solver': 'CVODE_myokit',
+        'do_ad': True,
+        'pre_time': 0.0,
+        'sim_time': 3.0,
+        'dt': 0.15,
+        'DEBUG': False,
+        'do_mcmc': False,
+        'plot_predictions': False,
+        'do_ia': False,
+        'solver_info': {'MaximumStep': 0.005, 'MaximumNumberOfSteps': 50000,
+                        'rtol': 1e-9, 'atol': 1e-9},
+        'param_id_obs_path': os.path.join(resources_dir, 'Lotka_Volterra_multisub_obs_data.json'),
+        'param_id_output_dir': output_dir,
+        'generated_models_dir': generated_models_dir,
+        'resources_dir': resources_dir,
+    })
+    return config
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.need_opencor
+def test_fsa_multisub_gradient_matches_fd(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir):
+    """Myokit CVODES FSA gradient on a MULTI-sub-experiment protocol matches central FD.
+
+    The Lotka-Volterra obs has one experiment with two sub-experiments (the state carries across
+    the sub boundary). The FSA gradient must carry dy/dp across that boundary so each sub's
+    operand sensitivities include the cross-sub chain-rule term; a wrong carry would make the
+    gradient of the later sub disagree with finite differences. Checked at an arbitrary interior
+    point.
+    """
+    config = _lotka_multisub_fsa_config(base_user_inputs, resources_dir, temp_output_dir,
+                                        temp_generated_models_dir)
+    config['param_id_method'] = 'sp_minimize'
+    assert generate_with_new_architecture(False, config), 'Lotka_Volterra generation should succeed'
+    parsed = YamlFileParser().parse_user_inputs_file(
+        config, obs_path_needed=True, do_generation_with_fit_parameters=False)
+    parsed['one_rank'] = True
+    runner = CVS0DParamID.init_from_dict(parsed)
+    inner = runner.param_id
+
+    assert inner.protocol_info['num_sub_per_exp'] == [2], \
+        f"expected a 2-sub-experiment obs, got {inner.protocol_info['num_sub_per_exp']}"
+    assert inner.fsa_gradient_available()
+
+    mins = np.asarray(inner.param_id_info['param_mins'], dtype=float)
+    maxs = np.asarray(inner.param_id_info['param_maxs'], dtype=float)
+    p = mins + 0.4 * (maxs - mins)   # arbitrary interior point (cost != 0)
+
+    grad = np.asarray(inner.get_gradient(p), dtype=float).ravel()
+    assert grad.shape == (4,) and np.all(np.isfinite(grad)) and not np.all(grad == 0)
+
+    fd = np.zeros(4)
+    for i in range(4):
+        dp = max(abs(p[i]) * 1e-3, 1e-12)
+        p_plus, p_minus = p.copy(), p.copy()
+        p_plus[i] += dp
+        p_minus[i] -= dp
+        fd[i] = (float(inner.get_cost(p_plus)) - float(inner.get_cost(p_minus))) / (2 * dp)
+
+    for i, label in enumerate(['alpha', 'beta', 'delta', 'gamma']):
+        if abs(fd[i]) > 1e-9:
+            assert grad[i] == pytest.approx(fd[i], rel=0.05), (
+                f"multi-sub FSA gradient[{i}] ({label}) = {grad[i]:.6e} != FD {fd[i]:.6e} "
+                f"(AD/FD={grad[i]/fd[i]:.4f})")
+
+    runner.close_simulation()
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.mpi
+def test_fsa_multisub_calibration_recovers_params(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
+    """End-to-end: multi-start L-BFGS-B with the Myokit FSA gradient calibrates a MULTI-sub
+    Lotka-Volterra model and recovers the ground-truth parameters.
+
+    The synthetic obs (series of x, y in each of two sub-experiments) has cost 0 at the true
+    (alpha, beta, delta, gamma) = (5, 0.2, 0.2, 3). This exercises the FSA gradient across
+    sub-experiment boundaries inside a real optimiser run, not just an AD-vs-FD check.
+    """
+    rank = mpi_comm.Get_rank()
+    config = _lotka_multisub_fsa_config(base_user_inputs, resources_dir, temp_output_dir,
+                                        temp_generated_models_dir)
+    config['param_id_method'] = 'multi_start_sp_minimize'
+    config['optimiser_options'] = {
+        'cost_convergence': 1e-6, 'max_patience': 500,
+        'num_starts': 8, 'start_sampling': 'sobol', 'seed': 0,
+    }
+
+    _ensure_cellml_model_generated(config, mpi_comm)
+    run_param_id(config)
+
+    if rank == 0:
+        out_dir = os.path.join(
+            temp_output_dir,
+            'multi_start_sp_minimize_Lotka_Volterra_Lotka_Volterra_multisub_obs_data')
+        best_cost = float(np.load(os.path.join(out_dir, 'best_cost.npy')))
+        best_params = np.load(os.path.join(out_dir, 'best_param_vals.npy'))
+        assert best_cost < 1e-2, f"expected the multi-sub calibration to converge, got cost {best_cost}"
+        np.testing.assert_allclose(
+            best_params, LV_MULTISUB_TRUE, rtol=0.1,
+            err_msg=f"multi-sub FSA calibration recovered {best_params}, expected {LV_MULTISUB_TRUE}")
+    mpi_comm.Barrier()
+
+
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.mpi

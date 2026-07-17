@@ -2344,19 +2344,20 @@ class OpencorParamID():
         cost path get_cost_from_operands; the finite difference over h is dJ/dp exactly (S is
         the true trace derivative), reusing every operation / weight / std / cost function
         with no duplication. FSA-ineligible parameters get a central finite difference over
-        the full cost. Supports one sub-experiment per experiment (raises otherwise).
+        the full cost.
+
+        Multi-sub-experiment protocols are supported: the Myokit helper carries dy/dp across
+        sub-experiment boundaries (myokit_helper.update_times), so each sub's operand
+        sensitivities already include the parameter's effect through earlier subs' end states
+        (the cross-sub chain-rule term). Summing the per-sub directional derivatives is then
+        exact; the helper retains each sub's sensitivities in _fsa_sensitivities_history.
         """
         self._ensure_fsa_setup()
         param_vals = np.asarray(param_vals, dtype=float)
         n_params = len(param_vals)
-        param_names = self.param_id_info["param_names"]
 
         num_experiments = self.protocol_info["num_experiments"]
         num_sub_per_exp = self.protocol_info["num_sub_per_exp"]
-        if any(n != 1 for n in num_sub_per_exp):
-            raise NotImplementedError(
-                "FSA gradient currently supports one sub-experiment per experiment; "
-                f"got num_sub_per_exp={num_sub_per_exp}.")
 
         eligible_names = set(self.sim_helper._fsa_eligible_param_names or [])
         # Map each flattened param name to its column index in param_vals.
@@ -2364,31 +2365,39 @@ class OpencorParamID():
         grad = np.zeros(n_params)
         denom = float(self._total_weighted_obs_denominator())
 
-        # ---- Eligible params: directional derivative via FSA, summed over experiments ----
+        # ---- Eligible params: directional derivative via FSA, summed over (exp, sub) ----
         for exp_idx in range(num_experiments):
             _, operands_list, _ = self.get_cost_obs_and_pred_from_params(
                 param_vals, reset=True, only_one_exp=exp_idx)
-            operands = operands_list[exp_idx]  # single sub per exp -> subexp_count == exp_idx
-            if operands is None:
-                return np.full(n_params, np.nan)
-            sens = self.sim_helper.get_sensitivities(self._fsa_dependent_names, flat_names)
+            # Per-sub sensitivities captured during this experiment's protocol run, in sub order
+            # (reset_states cleared the history at the experiment start).
+            sens_history = list(self.sim_helper._fsa_sensitivities_history)
+            base = int(np.sum(num_sub_per_exp[:exp_idx]))
+            for sub_idx in range(num_sub_per_exp[exp_idx]):
+                subexp_count = base + sub_idx
+                operands = operands_list[subexp_count]
+                if operands is None:
+                    return np.full(n_params, np.nan)
+                sens_arr = sens_history[sub_idx] if sub_idx < len(sens_history) else None
+                sens = self.sim_helper.get_sensitivities(
+                    self._fsa_dependent_names, flat_names, sensitivities=sens_arr)
 
-            for j in range(n_params):
-                pname = flat_names[j]
-                if pname not in eligible_names:
-                    continue
-                pj = float(param_vals[j])
-                # Central directional difference along the exact sensitivity S. The step acts
-                # on fixed operand traces (not the solver), so it is immune to integration
-                # noise; a moderate step avoids catastrophic cancellation in raw_p - raw_m
-                # while staying small enough that argmax/argmin of max/min observables is
-                # stable and linear operations (mean) are reproduced exactly.
-                h = 1e-3 * abs(pj) if pj != 0.0 else 1e-4
-                pert_p = self._perturb_operands_along_sensitivity(operands, sens, pname, h)
-                pert_m = self._perturb_operands_along_sensitivity(operands, sens, pname, -h)
-                raw_p = float(self.get_cost_from_operands(pert_p, exp_idx=exp_idx, sub_idx=0))
-                raw_m = float(self.get_cost_from_operands(pert_m, exp_idx=exp_idx, sub_idx=0))
-                grad[j] += (raw_p - raw_m) / (2.0 * h)
+                for j in range(n_params):
+                    pname = flat_names[j]
+                    if pname not in eligible_names:
+                        continue
+                    pj = float(param_vals[j])
+                    # Central directional difference along the exact sensitivity S. The step acts
+                    # on fixed operand traces (not the solver), so it is immune to integration
+                    # noise; a moderate step avoids catastrophic cancellation in raw_p - raw_m
+                    # while staying small enough that argmax/argmin of max/min observables is
+                    # stable and linear operations (mean) are reproduced exactly.
+                    h = 1e-3 * abs(pj) if pj != 0.0 else 1e-4
+                    pert_p = self._perturb_operands_along_sensitivity(operands, sens, pname, h)
+                    pert_m = self._perturb_operands_along_sensitivity(operands, sens, pname, -h)
+                    raw_p = float(self.get_cost_from_operands(pert_p, exp_idx=exp_idx, sub_idx=sub_idx))
+                    raw_m = float(self.get_cost_from_operands(pert_m, exp_idx=exp_idx, sub_idx=sub_idx))
+                    grad[j] += (raw_p - raw_m) / (2.0 * h)
 
         grad /= denom
 
