@@ -29,6 +29,10 @@ class SimulationHelper:
         self.solver_info = solver_info or {}
         solver_method = self.solver_info.get('method')
         self.solve_ivp_method = solver_method
+        # End state of the previous sub-experiment, used to carry state across sub-experiment
+        # boundaries in the forward (non-AD) protocol. None means "start fresh" (cleared by
+        # reset_states at each experiment boundary). Set before update_times, which reads it.
+        self._sub_carry_state = None
         self._load_model()
         self.update_times(dt, 0.0, sim_time, pre_time)
         self._init_state()
@@ -241,6 +245,12 @@ class SimulationHelper:
         self.t_eval = np.arange(start_time, self.stop_time + dt/2, dt)
         # stored portion excludes pre_time
         self.tSim = self.t_eval[self.pre_steps:]
+        # Carry state across a sub-experiment boundary: the previous run() in this experiment
+        # recorded its end state; continue the next sub-experiment from there. reset_states
+        # clears it at each experiment boundary, so an experiment's first sub-experiment starts
+        # from the (possibly overridden) default state, not a stale carry.
+        if self._sub_carry_state is not None:
+            self.states = list(self._sub_carry_state)
 
     # ---- parameter helpers ----
     def get_init_param_vals(self, param_names):
@@ -478,7 +488,17 @@ class SimulationHelper:
 
         self._has_run = True
         self._post_process()
-        
+
+        # Record the integration end state so the next sub-experiment can continue from here
+        # (matching the Myokit/OpenCOR backends). The carry is applied in update_times, not by
+        # mutating self.states here: self.states must stay at this run's initial condition so
+        # post-run inspection (get_init_param_vals, a re-run, _post_process reference checks)
+        # sees the same state it integrated from. Only in the forward (non-AD) path -- in AD
+        # mode self.states is the point the symbolic cost/gradient is evaluated at, and the
+        # carry must not interfere.
+        if not self._do_ad:
+            self._sub_carry_state = list(self.state_traj_dm[:, -1])
+
         return True
 
     # ---- results ----
@@ -617,6 +637,9 @@ class SimulationHelper:
     def reset_states(self):
         self.states = copy.copy(self.default_state_inits)
         self.model.compute_computed_constants(self.variables_model)
+        # Experiment boundary: drop any carried sub-experiment end state so the next
+        # experiment's first sub-experiment starts from the default (reset) state.
+        self._sub_carry_state = None
 
     def close_simulation(self):
         # no-op for scipy solver
