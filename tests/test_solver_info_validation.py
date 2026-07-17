@@ -110,7 +110,8 @@ def test_solver_integrator_keys_derived_from_schema():
     assert _SOLVER_INTEGRATOR_KEYS['solve_ivp'] == {
         'rtol', 'atol', 'max_step', 'vectorized', 'dense_output', 'jac'}
     assert _SOLVER_INTEGRATOR_KEYS['casadi_integrator'] == {
-        'reltol', 'abstol', 'rtol', 'atol', 'max_num_steps', 'max_step_size', 'options'}
+        'reltol', 'abstol', 'rtol', 'atol', 'max_num_steps', 'max_step_size', 'max_step',
+        'options'}
     assert _SOLVER_INTEGRATOR_KEYS['aadc_semi_implicit'] == {'tol', 'threads', 'gradient_method'}
 
 
@@ -174,6 +175,18 @@ def test_casadi_integrator_accepts_cvodes_options():
         'reltol': 1e-8,
         'abstol': 1e-10,
     })
+
+
+def test_casadi_integrator_accepts_bdf_max_step():
+    """The symbolic bdf method reads solver_info['max_step'] (internal sub-step cap), distinct
+    from max_step_size. It must validate -- previously it was rejected as an unsupported key."""
+    validate_solver_info('casadi_integrator', {
+        'solver': 'casadi_integrator',
+        'method': 'bdf',
+        'max_step': 0.0005,
+        'max_step_size': 0.001,
+    })
+    assert any(f['name'] == 'max_step' for f in solver_info_fields('casadi_integrator'))
 
 
 def test_cellml_solver_accepts_maximum_step_keys():

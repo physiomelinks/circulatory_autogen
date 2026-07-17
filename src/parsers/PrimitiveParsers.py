@@ -120,7 +120,11 @@ SOLVER_INFO_FIELDS = {
     ],
     'casadi_integrator': [
         {'name': 'max_step_size', 'type': 'float', 'default': 0.001, 'required': False,
-         'description': 'Maximum integrator step size.'},
+         'description': 'Maximum step size for the adaptive CasADi integrators (cvodes/idas/etc).'},
+        {'name': 'max_step', 'type': 'float', 'default': 0.001, 'required': False,
+         'description': ('Internal sub-step cap for the symbolic bdf method (self.dt is split '
+                         'into ceil(dt/max_step) implicit sub-steps); distinct from '
+                         'max_step_size, which sizes the adaptive integrators.')},
         {'name': 'max_num_steps', 'type': 'int', 'default': 5000, 'required': False,
          'description': 'Maximum number of internal integrator steps.'},
         {'name': 'reltol', 'type': 'float', 'default': 1e-8, 'required': False,
