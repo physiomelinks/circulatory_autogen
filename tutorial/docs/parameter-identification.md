@@ -293,6 +293,12 @@ Before doing calibration, a solver for the model needs to be chosen
     Future work will get it working for stiff models so its advantages for large numbers of parameters 
     can be used.
 
+    **Multiple sub-experiments / experiments are not yet supported by the AADC wrapper.** The tape
+    records one straight-line integration, so a protocol with more than one sub-experiment (or more
+    than one experiment) raises rather than silently differentiating the wrong thing. The Myokit
+    CVODES FSA gradient (`model_type: cellml_only` + `solver: CVODE_myokit`) does support multi-sub
+    protocols; the AADC equivalent is tracked as future work.
+
 
 ## Parameter Identification Settings
 
