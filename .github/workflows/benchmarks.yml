@@ -7,6 +7,12 @@ name: Benchmarks
 
 on:
   workflow_dispatch:
+  # Push a tag like `run-benchmarks-<anything>` to run the benchmarks on that commit on demand
+  # (works from any branch, unlike workflow_dispatch which needs the workflow on the default
+  # branch). Handy for benchmarking a feature branch and emailing the results.
+  push:
+    tags:
+      - 'run-benchmarks-*'
   schedule:
     - cron: '0 4 * * 1'   # weekly, Monday 04:00 UTC
 
