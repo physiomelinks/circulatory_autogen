@@ -7,7 +7,23 @@ from parsers.PrimitiveParsers import (
     migrate_legacy_solver_info_keys,
     validate_solver_info,
     warn_if_casadi_nonzero_pre_time,
+    PARAM_ID_METHODS,
+    valid_param_id_methods,
 )
+
+
+def test_param_id_methods_schema_matches_dispatch():
+    """PARAM_ID_METHODS is the discoverable list of calibration methods surfaced to downstream
+    tools (e.g. the CUFLynx settings UI), so it must stay in sync with the param_id_method
+    dispatch in OpencorParamID.run(). If a method is added/removed there, update this set."""
+    assert set(PARAM_ID_METHODS.keys()) == {
+        'genetic_algorithm', 'CMA-ES', 'bayesian', 'sp_minimize', 'multi_start_sp_minimize'
+    }
+    for name, meta in PARAM_ID_METHODS.items():
+        assert meta.get('label') and meta.get('description')
+        assert isinstance(meta.get('gradient_based'), bool)
+    # aliases are surfaced by valid_param_id_methods (the dispatch accepts CMAES / cmaes for CMA-ES)
+    assert set(valid_param_id_methods()) >= set(PARAM_ID_METHODS.keys()) | {'CMAES', 'cmaes'}
 
 
 def test_casadi_integrator_rejects_maximum_step_keys():

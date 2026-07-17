@@ -80,6 +80,52 @@ SOLVER_SCHEMA = {
 }
 
 
+# Single source of truth for the parameter-identification (calibration) methods, i.e. the valid
+# values of `param_id_method`. Surfaced to downstream tools (e.g. the CUFLynx settings UI) the
+# same way SOLVER_SCHEMA is, so they can populate a calibration-method menu without hardcoding
+# the list. Keep in sync with OpencorParamID.run()'s param_id_method dispatch (paramID.py).
+PARAM_ID_METHODS = {
+    'genetic_algorithm': {
+        'label': 'Genetic algorithm',
+        'gradient_based': False,
+        'description': 'Gradient-free population-based global search.',
+    },
+    'CMA-ES': {
+        'label': 'CMA-ES',
+        'aliases': ['CMAES', 'cmaes'],
+        'gradient_based': False,
+        'description': 'Covariance-matrix-adaptation evolution strategy (gradient-free).',
+    },
+    'bayesian': {
+        'label': 'Bayesian optimisation',
+        'gradient_based': False,
+        'description': 'Surrogate-model Bayesian optimisation.',
+    },
+    'sp_minimize': {
+        'label': 'Gradient descent (L-BFGS-B)',
+        'gradient_based': True,
+        'description': ('Local bounded L-BFGS-B. Uses an automatic-differentiation gradient for '
+                        'casadi_python, aadc_python, or cellml_only + CVODE_myokit + do_ad; '
+                        'finite differences otherwise.'),
+    },
+    'multi_start_sp_minimize': {
+        'label': 'Multi-start gradient descent',
+        'gradient_based': True,
+        'description': ('L-BFGS-B from many scattered starts, so it exploits the gradient while '
+                        'still escaping local minima. Same AD gradient sources as sp_minimize.'),
+    },
+}
+
+
+def valid_param_id_methods():
+    """All accepted `param_id_method` strings: canonical names plus their aliases."""
+    names = []
+    for canonical, meta in PARAM_ID_METHODS.items():
+        names.append(canonical)
+        names.extend(meta.get('aliases', []))
+    return names
+
+
 def save_dated_user_inputs(inp_data_dict):
     """Best-effort: archive the resolved run config as ``user_inputs_<yymmdd>.yaml``
     in ``resources_dir``, so every run keeps a dated, reproducible record of what

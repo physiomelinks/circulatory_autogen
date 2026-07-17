@@ -57,7 +57,7 @@ import csv
 import shutil
 from datetime import date, datetime
 # from skopt import gp_minimize, Optimizer
-from parsers.PrimitiveParsers import CSVFileParser, ObsAndParamDataParser
+from parsers.PrimitiveParsers import CSVFileParser, ObsAndParamDataParser, PARAM_ID_METHODS
 from param_id.optimisers import GeneticAlgorithmOptimiser, BayesianOptimiser, CMAESOptimiser, \
     SciPyMinimizeOptimiser, MultiStartSciPyMinimizeOptimiser
 from param_id.differentiable import (
@@ -1485,7 +1485,8 @@ class OpencorParamID():
             self.best_gradient = optimiser.best_gradient
 
         else:
-            print(f'param_id_method {self.param_id_method} hasn\'t been implemented')
+            print(f"param_id_method '{self.param_id_method}' is not implemented. Valid options: "
+                  f"{list(PARAM_ID_METHODS.keys())}")
             exit()
 
         if rank == 0:
