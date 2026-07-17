@@ -282,15 +282,16 @@ Before doing calibration, a solver for the model needs to be chosen
     reports how many and which). Tighten `rtol`/`atol` when using FSA so the sensitivities are well
     resolved.
 
-!!! warning "AADC is not suitable for stiff models"
+!!! warning "our AADC wrapper is not yet suitable for stiff models"
     The AADC tape backend (`model_type: aadc_python`) records a **fixed-step** integrator, which is
     inaccurate or unstable on stiff models — on the 3compartment cardiovascular model its
     fixed-step implicit solve deviates from CVODE by orders of magnitude. Every AADC run now probes
     the first second of dynamics and prints a loud warning if the model is stiff, pointing you at
     CasADi `bdf` or Myokit CVODES FSA instead. AADC's tape cost also only represents observables
     whose operand is a **state** (not an algebraic variable), in a **single** experiment; anything
-    else is reported and omitted from the tape gradient. Use AADC only for non-stiff,
-    state-observable, single-experiment problems.
+    else is reported and omitted from the tape gradient. Use AADC only for non-stiff problems for now. 
+    Future work will get it working for stiff models so its advantages for large numbers of parameters 
+    can be used.
 
 
 ## Parameter Identification Settings
