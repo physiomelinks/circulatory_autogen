@@ -80,6 +80,73 @@ SOLVER_SCHEMA = {
 }
 
 
+# The integrator-specific `solver_info` settings each solver accepts, in schema form, so a tool
+# (e.g. CUFLynx) can auto-populate the solver settings form when a solver is picked -- the
+# companion to SOLVER_SCHEMA's solver/method menus. Each descriptor: `name` (the solver_info key),
+# `type` ('int' | 'float' | 'bool' | 'str' | 'dict' | 'enum'), `default` (None => no built-in
+# default; falls back to the integrator's own), `required`, `description`; enums add `choices`.
+# The framework keys ('solver', 'method', 'dt_solver') are handled separately (method comes from
+# SOLVER_SCHEMA['methods_by_solver']) and are not listed here. Defaults mirror
+# get_solver_info_default(); this is the single source of truth for _SOLVER_INTEGRATOR_KEYS below.
+_SI_RTOL = {'name': 'rtol', 'type': 'float', 'default': 1e-8, 'required': False,
+            'description': 'Relative integration tolerance.'}
+_SI_ATOL = {'name': 'atol', 'type': 'float', 'default': 1e-8, 'required': False,
+            'description': 'Absolute integration tolerance.'}
+# CVODE-family backends (opencor/myokit, and the cpp CVODE/RK4/PETSC) share the same fields.
+_CVODE_FAMILY_SOLVER_INFO = [
+    {'name': 'MaximumStep', 'type': 'float', 'default': 0.001, 'required': False,
+     'description': 'Maximum integrator step size.'},
+    {'name': 'MaximumNumberOfSteps', 'type': 'int', 'default': 5000, 'required': False,
+     'description': 'Maximum number of internal integrator steps per output step.'},
+    _SI_RTOL, _SI_ATOL,
+]
+
+SOLVER_INFO_FIELDS = {
+    'CVODE_opencor': _CVODE_FAMILY_SOLVER_INFO,
+    'CVODE_myokit': _CVODE_FAMILY_SOLVER_INFO,
+    'CVODE': _CVODE_FAMILY_SOLVER_INFO,
+    'RK4': _CVODE_FAMILY_SOLVER_INFO,
+    'PETSC': _CVODE_FAMILY_SOLVER_INFO,
+    'solve_ivp': [
+        _SI_RTOL, _SI_ATOL,
+        {'name': 'max_step', 'type': 'float', 'default': 0.001, 'required': False,
+         'description': 'Maximum step size passed to scipy.integrate.solve_ivp.'},
+        {'name': 'vectorized', 'type': 'bool', 'default': False, 'required': False,
+         'description': 'Whether the RHS accepts vectorised input (scipy solve_ivp option).'},
+        {'name': 'dense_output', 'type': 'bool', 'default': False, 'required': False,
+         'description': 'Whether to compute a continuous (dense) solution.'},
+        {'name': 'jac', 'type': 'str', 'default': None, 'required': False,
+         'description': 'Optional Jacobian specification for implicit methods.'},
+    ],
+    'casadi_integrator': [
+        {'name': 'max_step_size', 'type': 'float', 'default': 0.001, 'required': False,
+         'description': 'Maximum integrator step size.'},
+        {'name': 'max_num_steps', 'type': 'int', 'default': 5000, 'required': False,
+         'description': 'Maximum number of internal integrator steps.'},
+        {'name': 'reltol', 'type': 'float', 'default': 1e-8, 'required': False,
+         'description': 'Relative integration tolerance (SUNDIALS naming).'},
+        {'name': 'abstol', 'type': 'float', 'default': 1e-10, 'required': False,
+         'description': 'Absolute integration tolerance (SUNDIALS naming).'},
+        {**_SI_RTOL, 'default': None,
+         'description': 'Relative-tolerance alias (reltol is preferred for CasADi).'},
+        {**_SI_ATOL, 'default': None,
+         'description': 'Absolute-tolerance alias (abstol is preferred for CasADi).'},
+        {'name': 'options', 'type': 'dict', 'default': None, 'required': False,
+         'description': 'Extra options passed straight through to the CasADi integrator.'},
+    ],
+    'aadc_semi_implicit': [
+        {'name': 'tol', 'type': 'float', 'default': 1e-8, 'required': False,
+         'description': 'Integration tolerance for the adaptive AADC integrator.'},
+        {'name': 'threads', 'type': 'int', 'default': 4, 'required': False,
+         'description': 'Number of threads for AADC evaluation.'},
+        {'name': 'gradient_method', 'type': 'str', 'default': 'auto', 'required': False,
+         'description': 'How the AADC tape computes gradients.'},
+    ],
+}
+# Expose the solver_info field schema alongside the solver/method menus for one-stop discovery.
+SOLVER_SCHEMA['solver_info_fields_by_solver'] = SOLVER_INFO_FIELDS
+
+
 # Option (setting) descriptors for the per-method `optimiser_options` blocks, so downstream tools
 # (e.g. the CUFLynx settings UI) can auto-populate the correct settings fields when a calibration
 # method is selected instead of hardcoding them. Each descriptor: `name` (the optimiser_options
@@ -192,6 +259,66 @@ def param_id_method_options(param_id_method):
         if param_id_method == canonical or param_id_method in meta.get('aliases', []):
             return meta.get('options', [])
     return []
+
+
+def solver_info_fields(solver):
+    """The `solver_info` settings a given solver accepts (see SOLVER_INFO_FIELDS), for tools that
+    auto-populate the solver settings form. Empty list for an unknown solver."""
+    return SOLVER_INFO_FIELDS.get(solver, [])
+
+
+# Settings blocks for the non-calibration analysis modes (sensitivity, MCMC, identifiability), in
+# the same descriptor shape as a param_id method's `options`, so a tool can auto-populate their
+# settings forms too. Each entry gives the enabling top-level flag (`enable_flag`), the
+# user_inputs key holding the block (`options_key`), and the option descriptors the mode reads.
+# Keep in sync with sensitivityAnalysis.py / paramID.py (MCMC) / identifiabilityAnalysis.py.
+ANALYSIS_OPTIONS = {
+    'sensitivity_analysis': {
+        'label': 'Sobol sensitivity analysis',
+        'enable_flag': 'do_sensitivity',
+        'options_key': 'sa_options',
+        'options': [
+            {'name': 'method', 'type': 'enum', 'default': 'sobol', 'required': False,
+             'choices': ['sobol', 'naive'],
+             'description': 'Sensitivity method: Sobol indices or a naive one-at-a-time sweep.'},
+            {'name': 'sample_type', 'type': 'str', 'default': 'saltelli', 'required': False,
+             'description': 'SALib sampling scheme (e.g. saltelli for Sobol).'},
+            {'name': 'num_samples', 'type': 'int', 'default': None, 'required': True,
+             'description': ('Base sample count; the actual number of runs is num_samples*(2M+2) '
+                             'for Sobol, where M is the number of parameters.')},
+        ],
+    },
+    'mcmc': {
+        'label': 'MCMC posterior sampling',
+        'enable_flag': 'do_mcmc',
+        'options_key': 'mcmc_options',
+        'options': [
+            {'name': 'num_steps', 'type': 'int', 'default': 5000, 'required': False,
+             'description': 'Number of MCMC steps per walker.'},
+            {'name': 'num_walkers', 'type': 'int', 'default': None, 'required': False,
+             'description': 'Number of ensemble walkers (defaults to 2 * number of parameters).'},
+        ],
+    },
+    'identifiability_analysis': {
+        'label': 'Identifiability analysis',
+        'enable_flag': 'do_ia',
+        'options_key': 'ia_options',
+        'options': [
+            {'name': 'method', 'type': 'enum', 'default': 'Laplace', 'required': True,
+             'choices': ['Laplace', 'profile_likelihood'],
+             'description': 'Identifiability method: Laplace approximation or profile likelihood.'},
+            {'name': 'sub_method', 'type': 'str', 'default': 'parabola_fit', 'required': False,
+             'description': "Hessian method for the Laplace approximation (e.g. 'parabola_fit')."},
+        ],
+    },
+}
+
+
+def analysis_options(mode):
+    """The option descriptors for a non-calibration analysis mode ('sensitivity_analysis',
+    'mcmc', 'identifiability_analysis'); an empty list for an unknown mode."""
+    meta = ANALYSIS_OPTIONS.get(mode)
+    return meta['options'] if meta else []
 
 
 def save_dated_user_inputs(inp_data_dict):
@@ -820,20 +947,12 @@ class YamlFileParser(object):
 # Keys always allowed in solver_info (framework metadata, not passed to integrators).
 _FRAMEWORK_SOLVER_INFO_KEYS = frozenset({'solver', 'method', 'dt_solver'})
 
-# Integrator-specific keys that may appear in solver_info for each backend.
+# Integrator-specific keys that may appear in solver_info for each backend. Derived from
+# SOLVER_INFO_FIELDS (the schema surfaced to tools) so the validation and the advertised settings
+# cannot drift apart -- add a field there and it is both offered to the UI and accepted here.
 _SOLVER_INTEGRATOR_KEYS = {
-    'CVODE_opencor': frozenset({'MaximumStep', 'MaximumNumberOfSteps', 'rtol', 'atol'}),
-    'CVODE_myokit': frozenset({'MaximumStep', 'MaximumNumberOfSteps', 'rtol', 'atol'}),
-    'CVODE': frozenset({'MaximumStep', 'MaximumNumberOfSteps', 'rtol', 'atol'}),
-    'RK4': frozenset({'MaximumStep', 'MaximumNumberOfSteps', 'rtol', 'atol'}),
-    'PETSC': frozenset({'MaximumStep', 'MaximumNumberOfSteps', 'rtol', 'atol'}),
-    'solve_ivp': frozenset({'rtol', 'atol', 'max_step', 'vectorized', 'dense_output', 'jac'}),
-    'casadi_integrator': frozenset({
-        'reltol', 'abstol', 'rtol', 'atol', 'max_num_steps', 'max_step_size', 'options',
-    }),
-    'aadc_semi_implicit': frozenset({
-        'tol', 'threads', 'gradient_method',
-    }),
+    solver: frozenset(field['name'] for field in fields)
+    for solver, fields in SOLVER_INFO_FIELDS.items()
 }
 
 

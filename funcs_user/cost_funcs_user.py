@@ -159,3 +159,24 @@ def build_cost_funcs_dict(backend):
 
 def get_cost_funcs_dict_for_mode(mode="numpy"):
     return build_cost_funcs_dict(make_math_backend(mode))
+
+
+def cost_func_metadata(mode="numpy"):
+    """Discoverable metadata for every registered cost function, so an obs-data editor (e.g.
+    CUFLynx) can offer the valid ``cost_type`` values and their flags without introspecting the
+    callables. Returns ``{name: {"is_MLE": bool, "is_combiner": bool, "differentiable": bool}}``,
+    covering both the built-ins and any user-added costs in this module.
+
+    - ``is_MLE``: cost equals a negative log-likelihood (required by the Bayesian method).
+    - ``is_combiner``: combines the per-observable costs (e.g. additive), not a per-item cost.
+    - ``differentiable``: safe for CasADi symbolic execution (AD gradients).
+    """
+    from param_id.differentiable import is_circulatory_differentiable
+    meta = {}
+    for name, func in get_cost_funcs_dict_for_mode(mode).items():
+        meta[name] = {
+            "is_MLE": bool(getattr(func, "is_MLE", False)),
+            "is_combiner": bool(getattr(func, "cost_combiner", False)),
+            "differentiable": is_circulatory_differentiable(func),
+        }
+    return meta
