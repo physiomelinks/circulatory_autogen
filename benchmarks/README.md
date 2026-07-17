@@ -21,8 +21,11 @@ global search vs multi-start L-BFGS-B driven by different gradient backends).
 | `three_compartment` | 3compartment cardiovascular (stiff, 20 s warmup) | no (Myokit/CasADi) | yes (slow, ~20+ min) |
 
 Both benchmarks run on Myokit and CasADi, so neither needs OpenCOR and both run in CI. AADC is
-recorded as a skipped row on the stiff 3compartment benchmark (its fixed-step tape integrators
-are inaccurate/unstable on stiff models).
+recorded as a skipped row on the 3compartment benchmark: its tape cost can only represent
+observables whose operand is a state with a reimplemented op (max/min/mean), so 3compartment's
+algebraic-variable observables (`aortic_root/u`) and its `max_minus_min` are dropped — AADC
+would optimise a reduced cost, not the full one the other methods use. It stays off until it
+can replicate the same cost (upstream issue #258).
 
 The FitzHugh-Nagumo benchmark is also a normal pytest test
 (`tests/test_param_id.py::test_compare_optimisers_on_fitzhugh_nagumo`) — the test and the

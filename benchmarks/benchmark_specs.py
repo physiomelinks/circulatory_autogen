@@ -267,10 +267,20 @@ def run_three_compartment(base_config, resources_dir, output_dir, generated_mode
         'multi_start (Myokit FSA)': multi_start_fsa,
         'multi_start (CasADi bdf)': multi_start_casadi,
     }
+    # AADC is left off this benchmark: its tape cost can only represent observables whose
+    # operand is a *state* with a reimplemented operation (max/min/mean). On 3compartment 4 of
+    # the 6 observables -- the aortic_root/u features (an algebraic variable, not a state) and
+    # heart/q_lv's max_minus_min -- are dropped from the tape, so AADC would minimise a reduced
+    # 2-of-6-observable cost rather than the same cost the other methods use. The on-tape
+    # damping fix made the gradient exact for the observables it *can* tape, but full-cost
+    # parity needs the algebraic variables recomputed on the tape and max_minus_min supported
+    # (tracked upstream, issue #258). Until then AADC is not comparable here.
     skipped = {
         'multi_start (AADC AD)':
-            'not suitable for stiff models (AADC fixed-step tape integrators are '
-            'inaccurate/unstable here; use CasADi bdf or Myokit FSA)',
+            "AADC's tape cost covers only state-operand observables with a reimplemented op "
+            "(max/min/mean); 3compartment's algebraic-variable observables (aortic_root/u) and "
+            "its max_minus_min are dropped, so AADC would optimise a reduced cost, not the full "
+            "one -- excluded until it can replicate the same cost (upstream issue #258)",
     }
 
     if rank == 0:
