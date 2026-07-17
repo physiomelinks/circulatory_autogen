@@ -33,15 +33,90 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]" "mkdocs-material>=9.0" "mkdocstrings[python]>=0.24"
 
-      - name: Run CI-safe benchmarks (no OpenCOR) and update the docs results
-        run: python benchmarks/run_benchmarks.py --set ci --update-docs
+      - name: Run CI-safe benchmarks (no OpenCOR), update docs, capture results
+        id: bench
+        continue-on-error: true   # still email/summarise results even if an assertion fails
+        run: |
+          set -o pipefail
+          python benchmarks/run_benchmarks.py --set ci --update-docs --assert \
+            --results-out benchmark_results.md 2>&1 | tee benchmark_output.txt
 
+      - name: Publish results to the run summary
+        if: always()
+        run: |
+          {
+            echo "## Optimiser benchmark results"
+            echo "Branch \`${{ github.ref_name }}\` @ \`${{ github.sha }}\` — outcome: **${{ steps.bench.outcome }}**"
+            echo
+            if [ -f benchmark_results.md ]; then
+              cat benchmark_results.md
+            else
+              echo "Results table not produced; tail of the log:"
+              echo '```'; tail -n 80 benchmark_output.txt 2>/dev/null; echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload benchmark results and log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: |
+            benchmark_results.md
+            benchmark_output.txt
+          if-no-files-found: warn
+
+      # Detect whether the SMTP secrets are configured (secrets can't be used directly in a step
+      # `if:`, so map to an env var and expose the result as an output).
+      - name: Detect mail configuration
+        id: mailcfg
+        if: always()
+        env:
+          MAIL_SERVER: ${{ secrets.MAIL_SERVER }}
+        run: |
+          if [ -n "$MAIL_SERVER" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "MAIL_SERVER secret not set; skipping email (results are in the summary/artifact)."
+          fi
+
+      # Emails the results when the SMTP secrets are configured (MAIL_SERVER, MAIL_PORT,
+      # MAIL_USERNAME, MAIL_PASSWORD; optional BENCHMARK_EMAIL_TO overrides the recipient).
+      # Skips cleanly if MAIL_SERVER is unset, and never fails the job.
+      - name: Email the benchmark results
+        if: always() && steps.mailcfg.outputs.configured == 'true'
+        continue-on-error: true
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.MAIL_SERVER }}
+          server_port: ${{ secrets.MAIL_PORT }}
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "Benchmarks ${{ steps.bench.outcome }} — ${{ github.ref_name }}"
+          to: ${{ secrets.BENCHMARK_EMAIL_TO || 'finbar.argus@auckland.ac.nz' }}
+          from: Circulatory Autogen CI <${{ secrets.MAIL_USERNAME }}>
+          body: |
+            Optimiser benchmarks for ${{ github.ref_name }} @ ${{ github.sha }}
+            finished with outcome: ${{ steps.bench.outcome }}.
+
+            Full run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            The results table (benchmark_results.md) and full log (benchmark_output.txt)
+            are attached.
+          attachments: benchmark_results.md,benchmark_output.txt
+
+      # Publishing the refreshed docs only happens on the scheduled run, so a manual dispatch
+      # (e.g. to benchmark a feature branch and email the results) never pushes a commit to that
+      # branch or deploys docs from it.
       - name: Configure git
+        if: github.event_name == 'schedule' && steps.bench.outcome == 'success'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Commit refreshed benchmark results
+        if: github.event_name == 'schedule' && steps.bench.outcome == 'success'
         run: |
           if git diff --quiet -- tutorial/docs/parameter-identification.md; then
             echo "No benchmark result changes to commit."
@@ -54,6 +129,13 @@ jobs:
           fi
 
       - name: Deploy docs
+        if: github.event_name == 'schedule' && steps.bench.outcome == 'success'
         run: |
           cd tutorial
           mkdocs gh-deploy -b tutorial-gh-pages --force
+
+      - name: Reflect benchmark failure in the job status
+        if: steps.bench.outcome == 'failure'
+        run: |
+          echo "Benchmarks failed (see the log/artifact/email above)."
+          exit 1
