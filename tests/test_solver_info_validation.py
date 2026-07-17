@@ -9,6 +9,7 @@ from parsers.PrimitiveParsers import (
     warn_if_casadi_nonzero_pre_time,
     PARAM_ID_METHODS,
     valid_param_id_methods,
+    param_id_method_options,
 )
 
 
@@ -24,6 +25,51 @@ def test_param_id_methods_schema_matches_dispatch():
         assert isinstance(meta.get('gradient_based'), bool)
     # aliases are surfaced by valid_param_id_methods (the dispatch accepts CMAES / cmaes for CMA-ES)
     assert set(valid_param_id_methods()) >= set(PARAM_ID_METHODS.keys()) | {'CMAES', 'cmaes'}
+
+
+def test_param_id_method_options_are_well_formed():
+    """Every method exposes its optimiser_options settings so a tool can auto-populate a settings
+    form. Each option descriptor must carry the fields the UI relies on, with consistent types."""
+    valid_types = {'int', 'float', 'bool', 'enum'}
+    for name, meta in PARAM_ID_METHODS.items():
+        options = meta.get('options')
+        assert isinstance(options, list) and options, f'{name} must list its optimiser_options'
+        seen = set()
+        for opt in options:
+            key = opt.get('name')
+            assert key and key not in seen, f'{name}: missing/duplicate option name {key!r}'
+            seen.add(key)
+            assert opt.get('type') in valid_types, f'{name}.{key}: bad type {opt.get("type")!r}'
+            assert isinstance(opt.get('required'), bool), f'{name}.{key}: required must be bool'
+            assert 'default' in opt, f'{name}.{key}: needs a default (None if none)'
+            assert opt.get('description'), f'{name}.{key}: needs a description'
+            if opt['type'] == 'enum':
+                assert opt.get('default') in opt.get('choices', []), \
+                    f'{name}.{key}: enum default not in choices'
+    # aliases resolve to the same options as their canonical method
+    assert param_id_method_options('CMAES') == param_id_method_options('CMA-ES')
+    assert param_id_method_options('not_a_method') == []
+
+
+def test_param_id_method_options_match_optimiser_reads():
+    """The advertised options must be the ones the optimiser classes actually read from
+    optimiser_options -- otherwise a tool would offer settings that do nothing (or omit real
+    ones). Guards against PARAM_ID_METHODS drifting from optimisers.py."""
+    def names(method):
+        return {opt['name'] for opt in param_id_method_options(method)}
+
+    # Keys each optimiser reads from optimiser_options (see param_id/optimisers.py).
+    assert names('genetic_algorithm') == {'num_calls_to_function', 'cost_convergence',
+                                          'max_patience'}
+    assert names('CMA-ES') == {'num_calls_to_function', 'sigma0', 'cost_convergence',
+                               'max_patience'}
+    assert names('bayesian') == {'num_calls_to_function'}
+    assert names('sp_minimize') == {'cost_convergence'}
+    assert names('multi_start_sp_minimize') == {
+        'num_starts', 'start_sampling', 'include_init_point', 'seed', 'fd_step',
+        'no_new_starts_on_convergence', 'convergence_cluster_tol_frac', 'cost_convergence'}
+    # multi-start is a superset of sp_minimize's gradient-descent settings
+    assert names('sp_minimize') <= names('multi_start_sp_minimize')
 
 
 def test_casadi_integrator_rejects_maximum_step_keys():

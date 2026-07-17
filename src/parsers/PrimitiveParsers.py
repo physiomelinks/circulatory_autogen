@@ -80,26 +80,60 @@ SOLVER_SCHEMA = {
 }
 
 
+# Option (setting) descriptors for the per-method `optimiser_options` blocks, so downstream tools
+# (e.g. the CUFLynx settings UI) can auto-populate the correct settings fields when a calibration
+# method is selected instead of hardcoding them. Each descriptor: `name` (the optimiser_options
+# key), `type` ('int' | 'float' | 'bool' | 'enum'), `default` (None => must be supplied by the
+# user; no built-in default), `required`, and a `description`; enum settings add `choices`. Keep
+# in sync with the optimiser classes in param_id/optimisers.py.
+_OPT_NUM_CALLS = {
+    'name': 'num_calls_to_function', 'type': 'int', 'default': None, 'required': True,
+    'description': 'Evaluation budget: maximum number of cost-function calls.',
+}
+_OPT_COST_CONVERGENCE = {
+    'name': 'cost_convergence', 'type': 'float', 'default': 1e-4, 'required': False,
+    'description': 'Stop once the cost drops below this value.',
+}
+_OPT_MAX_PATIENCE = {
+    'name': 'max_patience', 'type': 'int', 'default': 10, 'required': False,
+    'description': 'Stop after this many generations without an improvement in cost.',
+}
+
+
 # Single source of truth for the parameter-identification (calibration) methods, i.e. the valid
 # values of `param_id_method`. Surfaced to downstream tools (e.g. the CUFLynx settings UI) the
-# same way SOLVER_SCHEMA is, so they can populate a calibration-method menu without hardcoding
-# the list. Keep in sync with OpencorParamID.run()'s param_id_method dispatch (paramID.py).
+# same way SOLVER_SCHEMA is, so they can populate a calibration-method menu AND the per-method
+# settings form without hardcoding either. Each method's `options` lists the `optimiser_options`
+# keys it reads (see _OPT_* above). Keep in sync with OpencorParamID.run()'s param_id_method
+# dispatch (paramID.py) and the optimiser classes (optimisers.py).
 PARAM_ID_METHODS = {
     'genetic_algorithm': {
         'label': 'Genetic algorithm',
         'gradient_based': False,
         'description': 'Gradient-free population-based global search.',
+        'options': [_OPT_NUM_CALLS, _OPT_COST_CONVERGENCE, _OPT_MAX_PATIENCE],
     },
     'CMA-ES': {
         'label': 'CMA-ES',
         'aliases': ['CMAES', 'cmaes'],
         'gradient_based': False,
         'description': 'Covariance-matrix-adaptation evolution strategy (gradient-free).',
+        'options': [
+            # CMA-ES falls back to a 10000-call budget when none is given (GA requires one).
+            {**_OPT_NUM_CALLS, 'default': 10000, 'required': False},
+            {'name': 'sigma0', 'type': 'float', 'default': None, 'required': False,
+             'description': ('Initial CMA-ES step size (standard deviation) in normalised '
+                             'parameter space; omitted lets CMA choose.')},
+            _OPT_COST_CONVERGENCE, _OPT_MAX_PATIENCE,
+        ],
     },
     'bayesian': {
         'label': 'Bayesian optimisation',
         'gradient_based': False,
-        'description': 'Surrogate-model Bayesian optimisation.',
+        'description': 'Surrogate-model Bayesian optimisation (experimental / untested).',
+        # The acquisition-function constants (acq_func, n_initial_points, random_state) are
+        # currently hardcoded in paramID.py, not user-configurable, so they are not listed here.
+        'options': [_OPT_NUM_CALLS],
     },
     'sp_minimize': {
         'label': 'Gradient descent (L-BFGS-B)',
@@ -107,12 +141,36 @@ PARAM_ID_METHODS = {
         'description': ('Local bounded L-BFGS-B. Uses an automatic-differentiation gradient for '
                         'casadi_python, aadc_python, or cellml_only + CVODE_myokit + do_ad; '
                         'finite differences otherwise.'),
+        # The gradient source is the top-level `do_ad` user input, not an optimiser_option.
+        'options': [_OPT_COST_CONVERGENCE],
     },
     'multi_start_sp_minimize': {
         'label': 'Multi-start gradient descent',
         'gradient_based': True,
         'description': ('L-BFGS-B from many scattered starts, so it exploits the gradient while '
                         'still escaping local minima. Same AD gradient sources as sp_minimize.'),
+        'options': [
+            {'name': 'num_starts', 'type': 'int', 'default': 10, 'required': False,
+             'description': 'Number of L-BFGS-B starts scattered across the parameter box '
+                            '(defaults to 4 when DEBUG is on).'},
+            {'name': 'start_sampling', 'type': 'enum', 'default': 'sobol', 'required': False,
+             'choices': ['sobol', 'latin_hypercube', 'random'],
+             'description': 'How the start points are sampled across the parameter box.'},
+            {'name': 'include_init_point', 'type': 'bool', 'default': True, 'required': False,
+             'description': 'Include the parameters-CSV x0 as one of the starts.'},
+            {'name': 'seed', 'type': 'int', 'default': 0, 'required': False,
+             'description': 'Seed for the deterministic start sampling.'},
+            {'name': 'fd_step', 'type': 'float', 'default': 1e-4, 'required': False,
+             'description': 'Finite-difference step used when no AD gradient is available.'},
+            {'name': 'no_new_starts_on_convergence', 'type': 'bool', 'default': True,
+             'required': False,
+             'description': 'Stop launching new starts once one has converged.'},
+            {'name': 'convergence_cluster_tol_frac', 'type': 'float', 'default': 0.02,
+             'required': False,
+             'description': ('Fraction of each parameter range within which two minima are '
+                             'treated as the same cluster.')},
+            _OPT_COST_CONVERGENCE,
+        ],
     },
 }
 
@@ -124,6 +182,16 @@ def valid_param_id_methods():
         names.append(canonical)
         names.extend(meta.get('aliases', []))
     return names
+
+
+def param_id_method_options(param_id_method):
+    """The `optimiser_options` settings a given `param_id_method` accepts (aliases resolved), for
+    tools that auto-populate a per-method settings form. Returns the list of option descriptor
+    dicts (see PARAM_ID_METHODS); an empty list for an unknown method."""
+    for canonical, meta in PARAM_ID_METHODS.items():
+        if param_id_method == canonical or param_id_method in meta.get('aliases', []):
+            return meta.get('options', [])
+    return []
 
 
 def save_dated_user_inputs(inp_data_dict):
