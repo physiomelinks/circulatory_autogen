@@ -1028,10 +1028,7 @@ class SimulationHelper:
         if not hasattr(self, '_tape_funcs') or self._tape_funcs is None:
             self._patch_math_functions()
 
-            # Pre-record inner RHS kernel for Jacobian damping (before outer recording)
             tape_method = self.solver_info.get('method', 'adaptive_rk45')
-            if tape_method == 'semi_implicit':
-                self._record_rhs_inner_kernel(variables_all, n)
 
             funcs = aadc.Functions()
             funcs.start_recording()
@@ -1063,32 +1060,44 @@ class SimulationHelper:
                 zeta_idx = [i for i, info in enumerate(self.model.STATE_INFO)
                             if 'zeta' in info.get('name', '').lower()]
 
-                def _passive(x):
-                    return x.val() if hasattr(x, 'val') else float(x)
+                # Record semi-implicit Euler with damping ON tape.
+                # Jacobian diagonal df_i/dy_i computed via on-tape finite
+                # differences: perturb state i, recompute rates, take ratio.
+                # This puts lam on the same tape as rates → exact AD gradient.
+                # (Previous version used a separate inner kernel → passive
+                # floats → AD/FD ≈ 0.79 on stiff models.)
+                FD_EPS = 1e-6
 
-                # Record semi-implicit Euler with per-step AADC Jacobian damping
+                self._tape_trajectory = [list(st)]
                 for step in range(total_steps):
-                    # Rates on outer tape
+                    t_step = step * dt
+                    # Rates at current state (on tape)
                     rates_id = [aadc.idouble(0.0) for _ in range(n)]
-                    self.model.compute_rates(step * dt, st, rates_id, list(vars_rec))
+                    self.model.compute_rates(t_step, st, rates_id, list(vars_rec))
 
-                    # Jacobian diagonal via pre-recorded inner kernel
-                    _inp = {self._rhs_a_st[i]: _passive(st[i]) for i in range(n)}
-                    if self._rhs_a_param is not None:
-                        _inp[self._rhs_a_param] = float(variables_all[self._ad_param_var_indices[0]])
-                    lam = np.zeros(n)
+                    # Jacobian diagonal via on-tape FD: lam[i] = |df_i/dy_i|
+                    lam = [aadc.idouble(0.0)] * n
                     for i in range(n):
-                        _res = aadc.evaluate(self._rhs_funcs, {self._rhs_r_rates[i]: [self._rhs_a_st[i]]},
-                                             _inp, self._rhs_workers)
-                        lam[i] = abs(float(np.asarray(
-                            _res[1][self._rhs_r_rates[i]][self._rhs_a_st[i]]).flat[0]))
+                        h_i = aadc.iif(st[i] >= aadc.idouble(0.0), st[i], -st[i])
+                        h_i = aadc.iif(h_i >= aadc.idouble(1e-8),
+                                       h_i * aadc.idouble(FD_EPS),
+                                       aadc.idouble(FD_EPS))
+                        st_bump = list(st)
+                        st_bump[i] = st[i] + h_i
+                        rates_bump = [aadc.idouble(0.0) for _ in range(n)]
+                        self.model.compute_rates(t_step, st_bump, rates_bump, list(vars_rec))
+                        dlam = (rates_bump[i] - rates_id[i]) / h_i
+                        lam[i] = aadc.iif(dlam >= aadc.idouble(0.0), dlam, -dlam)
 
-                    # Semi-implicit step
+                    # Semi-implicit step (all idouble — on tape)
                     for i in range(n):
-                        st[i] = st[i] + dt * rates_id[i] / (1.0 + dt * lam[i])
+                        st[i] = st[i] + aadc.idouble(dt) * rates_id[i] / (aadc.idouble(1.0) + aadc.idouble(dt) * lam[i])
                     for z in zeta_idx:
-                        st[z] = aadc.iif(st[z] >= 0.0, st[z], aadc.idouble(0.0))
-                        st[z] = aadc.iif(st[z] <= 1.0, st[z], aadc.idouble(1.0))
+                        st[z] = aadc.iif(st[z] >= aadc.idouble(0.0), st[z], aadc.idouble(0.0))
+                        st[z] = aadc.iif(st[z] <= aadc.idouble(1.0), st[z], aadc.idouble(1.0))
+
+                    if step >= self.pre_steps:
+                        self._tape_trajectory.append(list(st))
             else:
                 # RK4 on tape (for non-stiff models)
                 # Collect trajectory for trajectory-based cost functions (max, min, mean)
