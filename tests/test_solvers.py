@@ -577,6 +577,64 @@ def test_myokit_multi_trace_protocol():
 
 @pytest.mark.integration
 @pytest.mark.solver
+def test_params_to_change_affects_targeted_subexperiment_output():
+    """A params_to_change value must actually change the simulated output of the sub-experiment
+    it targets -- and only that one.
+
+    Forced Lotka-Volterra: dx/dt = (alpha + u_alpha)*x - beta*x*y, so u_alpha is an additive
+    forcing on the growth rate. A 2-sub-experiment protocol keeps u_alpha=0 in sub 0 and applies
+    it in sub 1. Running with two different sub-1 values, sub 0 (same u_alpha in both) must be
+    bit-for-bit identical, and sub 1 (differing u_alpha) must visibly differ. If params_to_change
+    were silently ignored, sub 1 would be identical too.
+    """
+    tests_dir = os.path.dirname(__file__)
+    cellml_path = os.path.join(tests_dir, "test_inputs", "Lotka_Volterra_forced.cellml")
+    assert os.path.exists(cellml_path), f"CellML model not found: {cellml_path}"
+
+    dt = 0.02
+    sub_times = [2.0, 2.0]  # one experiment, two sub-experiments
+    U_ALPHA = "Lotka_Volterra_module/u_alpha"
+    X = "Lotka_Volterra_module/x"
+    solver_info = {"MaximumStep": 0.01, "MaximumNumberOfSteps": 50000}
+
+    def run_protocol(u_alpha_sub1):
+        try:
+            helper = get_simulation_helper(
+                model_path=cellml_path, model_type="cellml_only", solver="CVODE_myokit",
+                dt=dt, sim_time=sub_times[0], solver_info=solver_info, pre_time=0.0)
+        except RuntimeError as exc:
+            pytest.skip(f"Myokit backend not available: {exc}")
+        helper.reset_states()
+        traces, current_time = [], 0.0
+        for sub_idx, st in enumerate(sub_times):
+            helper.update_times(dt, current_time, st, 0.0)
+            helper.set_param_vals([U_ALPHA], [0.0 if sub_idx == 0 else u_alpha_sub1])
+            assert helper.run(), f"simulation failed on sub-experiment {sub_idx}"
+            traces.append(np.asarray(helper.get_results([[X]], flatten=True)[0]).flatten())
+            current_time += st
+        helper.close_simulation()
+        return traces
+
+    base = run_protocol(0.0)     # no forcing in sub 1
+    forced = run_protocol(0.6)   # forcing in sub 1
+
+    # sub 0: same params_to_change (u_alpha=0) in both runs -> identical output.
+    n0 = min(len(base[0]), len(forced[0]))
+    np.testing.assert_allclose(
+        base[0][:n0], forced[0][:n0], rtol=1e-6, atol=1e-6,
+        err_msg="sub 0 output changed even though its params_to_change value did not")
+
+    # sub 1: different u_alpha -> output must visibly differ.
+    n1 = min(len(base[1]), len(forced[1]))
+    denom = np.max(np.abs(base[1][:n1])) + 1e-9
+    max_rel_diff = float(np.max(np.abs(forced[1][:n1] - base[1][:n1])) / denom)
+    assert max_rel_diff > 0.05, (
+        f"params_to_change (u_alpha) had no meaningful effect on the sub-experiment it targets: "
+        f"max relative difference {max_rel_diff:.4g}")
+
+
+@pytest.mark.integration
+@pytest.mark.solver
 def test_myokit_set_constant_preserved_after_rebind():
     """
     Regression test for issue #219: cost mismatch when two protocol_traces are active.
