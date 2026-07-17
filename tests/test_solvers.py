@@ -635,6 +635,79 @@ def test_params_to_change_affects_targeted_subexperiment_output():
 
 @pytest.mark.integration
 @pytest.mark.solver
+def test_trace_step_input_equals_discrete_subexperiment_change():
+    """A step-function trace input over ONE sub-experiment must give the same output as the same
+    step encoded as a DISCRETE parameter change across TWO sub-experiments.
+
+    Two ways to say "u_alpha is 0 until t=T, then V":
+      A. one sub-experiment of length 2T, u_alpha driven by a step trace (0 -> V at t=T);
+      B. two sub-experiments of length T, u_alpha = 0 in sub 0 and V in sub 1.
+    Physically identical, so x(t) and y(t) must match. (B restarts the integrator at the boundary
+    while A crosses the discontinuity continuously, so they agree to solver tolerance, not bits.)
+    """
+    tests_dir = os.path.dirname(__file__)
+    cellml_path = os.path.join(tests_dir, "test_inputs", "Lotka_Volterra_forced.cellml")
+    assert os.path.exists(cellml_path), f"CellML model not found: {cellml_path}"
+
+    dt, T, V = 0.02, 2.0, 0.5
+    U_ALPHA = "Lotka_Volterra_module/u_alpha"
+    X, Y = "Lotka_Volterra_module/x", "Lotka_Volterra_module/y"
+    solver_info = {"MaximumStep": 0.005, "MaximumNumberOfSteps": 50000, "rtol": 1e-10, "atol": 1e-10}
+
+    def _helper(sim_time):
+        try:
+            return get_simulation_helper(
+                model_path=cellml_path, model_type="cellml_only", solver="CVODE_myokit",
+                dt=dt, sim_time=sim_time, solver_info=solver_info, pre_time=0.0)
+        except RuntimeError as exc:
+            pytest.skip(f"Myokit backend not available: {exc}")
+
+    def _traces(helper):
+        return (np.asarray(helper.get_results([[X]], flatten=True)[0]).flatten(),
+                np.asarray(helper.get_results([[Y]], flatten=True)[0]).flatten())
+
+    # B: two sub-experiments, discrete u_alpha 0 -> V; concatenate (drop the duplicate boundary).
+    hB = _helper(T)
+    hB.set_protocol_info({'pre_times': [0.0], 'sim_times': [[T, T]],
+                          'params_to_change': {U_ALPHA: [[0.0, V]]}})
+    hB.reset_states()
+    xB, yB, cur = [], [], 0.0
+    for sub_idx, st in enumerate([T, T]):
+        hB.update_times(dt, cur, st, 0.0)
+        hB.set_param_vals([U_ALPHA], [0.0 if sub_idx == 0 else V])
+        assert hB.run(), f"sub-experiment {sub_idx} failed"
+        x, y = _traces(hB)
+        if sub_idx == 0:
+            xB, yB = list(x), list(y)
+        else:
+            xB += list(x[1:]); yB += list(y[1:])
+        cur += st
+    hB.close_simulation()
+    xB, yB = np.array(xB), np.array(yB)
+
+    # A: one sub-experiment, u_alpha driven by a step trace (0 on [0,T], V on [T,2T]).
+    hA = _helper(2 * T)
+    hA.set_protocol_info({'pre_times': [0.0], 'sim_times': [[2 * T]],
+                          'params_to_change': {U_ALPHA: [['u_step']]},
+                          'protocol_traces': {'u_step': {'t': [0.0, T, T, 2 * T],
+                                                         'values': [0.0, 0.0, V, V]}}})
+    hA.reset_states()
+    hA.update_times(dt, 0.0, 2 * T, 0.0)
+    hA.set_param_vals([U_ALPHA], ['u_step'])
+    assert hA.run(), "trace-step run failed"
+    xA, yA = _traces(hA)
+    hA.close_simulation()
+
+    n = min(len(xA), len(xB))
+    assert n > 10 and len(xA) == len(xB), f"grid mismatch: {len(xA)} vs {len(xB)}"
+    np.testing.assert_allclose(xA[:n], xB[:n], rtol=1e-4, atol=1e-4,
+        err_msg="x(t) differs between the trace-step and the two-sub-experiment encodings")
+    np.testing.assert_allclose(yA[:n], yB[:n], rtol=1e-4, atol=1e-4,
+        err_msg="y(t) differs between the trace-step and the two-sub-experiment encodings")
+
+
+@pytest.mark.integration
+@pytest.mark.solver
 def test_myokit_set_constant_preserved_after_rebind():
     """
     Regression test for issue #219: cost mismatch when two protocol_traces are active.
