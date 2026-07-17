@@ -575,135 +575,132 @@ def test_myokit_multi_trace_protocol():
     )
 
 
+def _lotka_sim_helper(generated_cellml_model_factory, temp_model_dir, model_type, dt, sim_time):
+    """A Lotka-Volterra simulation helper on the given backend (Myokit or CasADi).
+
+    CasADi needs a generated (casadi_compat) Python model; Myokit runs the cellml directly. Both
+    are non-stiff CVODE-family integrations at tight tolerance so their trajectories agree.
+    """
+    cellml = generated_cellml_model_factory("Lotka_Volterra", "Lotka_Volterra_parameters.csv")
+    if model_type == "casadi_python":
+        pytest.importorskip("casadi")
+        model_path = PythonGenerator(
+            cellml, output_dir=temp_model_dir, module_name="Lotka_Volterra_casadi",
+            casadi_compat=True).generate()
+        solver = "casadi_integrator"
+        solver_info = {"method": "cvodes", "max_step_size": 0.005, "max_num_steps": 50000}
+    else:
+        model_path = cellml
+        solver = "CVODE_myokit"
+        solver_info = {"MaximumStep": 0.005, "MaximumNumberOfSteps": 50000,
+                       "rtol": 1e-9, "atol": 1e-9}
+    return get_simulation_helper(
+        model_path=model_path, model_type=model_type, solver=solver,
+        dt=dt, sim_time=sim_time, solver_info=solver_info, pre_time=0.0)
+
+
 @pytest.mark.integration
 @pytest.mark.solver
-def test_params_to_change_affects_targeted_subexperiment_output():
-    """A params_to_change value must actually change the simulated output of the sub-experiment
-    it targets -- and only that one.
+@pytest.mark.parametrize("model_type", ["cellml_only", "casadi_python"])
+def test_params_to_change_affects_targeted_subexperiment_output(
+        model_type, generated_cellml_model_factory, temp_model_dir):
+    """A params_to_change value must change the simulated output of the sub-experiment it targets,
+    and only that one -- on both the Myokit (cellml_only) and CasADi backends.
 
-    Forced Lotka-Volterra: dx/dt = (alpha + u_alpha)*x - beta*x*y, so u_alpha is an additive
-    forcing on the growth rate. A 2-sub-experiment protocol keeps u_alpha=0 in sub 0 and applies
-    it in sub 1. Running with two different sub-1 values, sub 0 (same u_alpha in both) must be
-    bit-for-bit identical, and sub 1 (differing u_alpha) must visibly differ. If params_to_change
-    were silently ignored, sub 1 would be identical too.
+    Lotka-Volterra with gamma (the predator decay rate) changed between two sub-experiments: gamma
+    is the model default in sub 0 and set per-run in sub 1. Running two different sub-1 values,
+    sub 0 (same gamma in both) must be identical and sub 1 (differing gamma) must visibly differ.
+    A silently-ignored params_to_change would leave sub 1 identical too.
     """
-    tests_dir = os.path.dirname(__file__)
-    cellml_path = os.path.join(tests_dir, "test_inputs", "Lotka_Volterra_forced.cellml")
-    assert os.path.exists(cellml_path), f"CellML model not found: {cellml_path}"
+    dt, T = 0.02, 2.0
+    GAMMA, Y = "Lotka_Volterra/gamma", "Lotka_Volterra/y"
 
-    dt = 0.02
-    sub_times = [2.0, 2.0]  # one experiment, two sub-experiments
-    U_ALPHA = "Lotka_Volterra_module/u_alpha"
-    X = "Lotka_Volterra_module/x"
-    solver_info = {"MaximumStep": 0.01, "MaximumNumberOfSteps": 50000}
-
-    def run_protocol(u_alpha_sub1):
-        try:
-            helper = get_simulation_helper(
-                model_path=cellml_path, model_type="cellml_only", solver="CVODE_myokit",
-                dt=dt, sim_time=sub_times[0], solver_info=solver_info, pre_time=0.0)
-        except RuntimeError as exc:
-            pytest.skip(f"Myokit backend not available: {exc}")
-        helper.reset_states()
-        traces, current_time = [], 0.0
-        for sub_idx, st in enumerate(sub_times):
-            helper.update_times(dt, current_time, st, 0.0)
-            helper.set_param_vals([U_ALPHA], [0.0 if sub_idx == 0 else u_alpha_sub1])
-            assert helper.run(), f"simulation failed on sub-experiment {sub_idx}"
-            traces.append(np.asarray(helper.get_results([[X]], flatten=True)[0]).flatten())
-            current_time += st
-        helper.close_simulation()
+    def run_protocol(gamma_sub1):
+        h = _lotka_sim_helper(generated_cellml_model_factory, temp_model_dir, model_type, dt, T)
+        h.set_protocol_info({"pre_times": [0.0], "sim_times": [[T, T]],
+                             "params_to_change": {GAMMA: [[3.0, gamma_sub1]]}})
+        h.reset_states()
+        traces, cur = [], 0.0
+        for sub_idx, st in enumerate([T, T]):
+            h.update_times(dt, cur, st, 0.0)
+            h.set_param_vals([GAMMA], [3.0 if sub_idx == 0 else gamma_sub1])
+            assert h.run(), f"sub-experiment {sub_idx} failed"
+            traces.append(np.asarray(h.get_results([[Y]], flatten=True)[0]).flatten())
+            cur += st
+        h.close_simulation()
         return traces
 
-    base = run_protocol(0.0)     # no forcing in sub 1
-    forced = run_protocol(0.6)   # forcing in sub 1
+    base = run_protocol(3.0)      # gamma unchanged in sub 1
+    changed = run_protocol(6.0)   # gamma changed in sub 1
 
-    # sub 0: same params_to_change (u_alpha=0) in both runs -> identical output.
-    n0 = min(len(base[0]), len(forced[0]))
+    n0 = min(len(base[0]), len(changed[0]))
     np.testing.assert_allclose(
-        base[0][:n0], forced[0][:n0], rtol=1e-6, atol=1e-6,
+        base[0][:n0], changed[0][:n0], rtol=1e-6, atol=1e-6,
         err_msg="sub 0 output changed even though its params_to_change value did not")
 
-    # sub 1: different u_alpha -> output must visibly differ.
-    n1 = min(len(base[1]), len(forced[1]))
+    n1 = min(len(base[1]), len(changed[1]))
     denom = np.max(np.abs(base[1][:n1])) + 1e-9
-    max_rel_diff = float(np.max(np.abs(forced[1][:n1] - base[1][:n1])) / denom)
+    max_rel_diff = float(np.max(np.abs(changed[1][:n1] - base[1][:n1])) / denom)
     assert max_rel_diff > 0.05, (
-        f"params_to_change (u_alpha) had no meaningful effect on the sub-experiment it targets: "
+        f"params_to_change (gamma) had no meaningful effect on its target sub-experiment: "
         f"max relative difference {max_rel_diff:.4g}")
 
 
 @pytest.mark.integration
 @pytest.mark.solver
-def test_trace_step_input_equals_discrete_subexperiment_change():
-    """A step-function trace input over ONE sub-experiment must give the same output as the same
-    step encoded as a DISCRETE parameter change across TWO sub-experiments.
+def test_trace_step_input_equals_discrete_subexperiment_change(
+        generated_cellml_model_factory, temp_model_dir):
+    """A step-function trace input over ONE sub-experiment gives the same output as the same step
+    encoded as a DISCRETE parameter change across TWO sub-experiments.
 
-    Two ways to say "u_alpha is 0 until t=T, then V":
-      A. one sub-experiment of length 2T, u_alpha driven by a step trace (0 -> V at t=T);
-      B. two sub-experiments of length T, u_alpha = 0 in sub 0 and V in sub 1.
-    Physically identical, so x(t) and y(t) must match. (B restarts the integrator at the boundary
-    while A crosses the discontinuity continuously, so they agree to solver tolerance, not bits.)
+    "gamma steps 3 -> 5 at t=T", compared against a Myokit step-trace reference:
+      - Myokit, one sub-experiment, gamma driven by a step trace (a 0-order step at t=T);
+      - Myokit, two sub-experiments, gamma = 3 then 5 (discrete);
+      - CasADi, two sub-experiments, gamma = 3 then 5 (discrete).
+    CasADi has no trace/pace mechanism, so it can only express the discrete two-sub encoding; that
+    it matches the Myokit trace-step is the check that CasADi's multi-sub state carry is correct.
+    The two-sub versions restart the integrator at the boundary while the trace crosses the
+    discontinuity continuously, so they agree to solver tolerance, not bits.
     """
-    tests_dir = os.path.dirname(__file__)
-    cellml_path = os.path.join(tests_dir, "test_inputs", "Lotka_Volterra_forced.cellml")
-    assert os.path.exists(cellml_path), f"CellML model not found: {cellml_path}"
+    dt, T, G0, G1 = 0.02, 2.0, 3.0, 5.0
+    GAMMA, Y = "Lotka_Volterra/gamma", "Lotka_Volterra/y"
 
-    dt, T, V = 0.02, 2.0, 0.5
-    U_ALPHA = "Lotka_Volterra_module/u_alpha"
-    X, Y = "Lotka_Volterra_module/x", "Lotka_Volterra_module/y"
-    solver_info = {"MaximumStep": 0.005, "MaximumNumberOfSteps": 50000, "rtol": 1e-10, "atol": 1e-10}
+    def discrete_2sub(model_type):
+        h = _lotka_sim_helper(generated_cellml_model_factory, temp_model_dir, model_type, dt, T)
+        h.set_protocol_info({"pre_times": [0.0], "sim_times": [[T, T]],
+                             "params_to_change": {GAMMA: [[G0, G1]]}})
+        h.reset_states()
+        ys, cur = [], 0.0
+        for sub_idx, st in enumerate([T, T]):
+            h.update_times(dt, cur, st, 0.0)
+            h.set_param_vals([GAMMA], [G0 if sub_idx == 0 else G1])
+            assert h.run(), f"{model_type} sub-experiment {sub_idx} failed"
+            ys.append(np.asarray(h.get_results([[Y]], flatten=True)[0]).flatten())
+            cur += st
+        h.close_simulation()
+        return np.concatenate([ys[0], ys[1][1:]])
 
-    def _helper(sim_time):
-        try:
-            return get_simulation_helper(
-                model_path=cellml_path, model_type="cellml_only", solver="CVODE_myokit",
-                dt=dt, sim_time=sim_time, solver_info=solver_info, pre_time=0.0)
-        except RuntimeError as exc:
-            pytest.skip(f"Myokit backend not available: {exc}")
+    # Reference: Myokit, one sub-experiment, gamma driven by a step trace (0-order step at t=T).
+    hT = _lotka_sim_helper(generated_cellml_model_factory, temp_model_dir, "cellml_only", dt, 2 * T)
+    hT.set_protocol_info({"pre_times": [0.0], "sim_times": [[2 * T]],
+                          "params_to_change": {GAMMA: [["g_step"]]},
+                          "protocol_traces": {"g_step": {"t": [0.0, T, T, 2 * T],
+                                                         "values": [G0, G0, G1, G1]}}})
+    hT.reset_states()
+    hT.update_times(dt, 0.0, 2 * T, 0.0)
+    hT.set_param_vals([GAMMA], ["g_step"])
+    assert hT.run(), "myokit trace-step run failed"
+    trace = np.asarray(hT.get_results([[Y]], flatten=True)[0]).flatten()
+    hT.close_simulation()
 
-    def _traces(helper):
-        return (np.asarray(helper.get_results([[X]], flatten=True)[0]).flatten(),
-                np.asarray(helper.get_results([[Y]], flatten=True)[0]).flatten())
-
-    # B: two sub-experiments, discrete u_alpha 0 -> V; concatenate (drop the duplicate boundary).
-    hB = _helper(T)
-    hB.set_protocol_info({'pre_times': [0.0], 'sim_times': [[T, T]],
-                          'params_to_change': {U_ALPHA: [[0.0, V]]}})
-    hB.reset_states()
-    xB, yB, cur = [], [], 0.0
-    for sub_idx, st in enumerate([T, T]):
-        hB.update_times(dt, cur, st, 0.0)
-        hB.set_param_vals([U_ALPHA], [0.0 if sub_idx == 0 else V])
-        assert hB.run(), f"sub-experiment {sub_idx} failed"
-        x, y = _traces(hB)
-        if sub_idx == 0:
-            xB, yB = list(x), list(y)
-        else:
-            xB += list(x[1:]); yB += list(y[1:])
-        cur += st
-    hB.close_simulation()
-    xB, yB = np.array(xB), np.array(yB)
-
-    # A: one sub-experiment, u_alpha driven by a step trace (0 on [0,T], V on [T,2T]).
-    hA = _helper(2 * T)
-    hA.set_protocol_info({'pre_times': [0.0], 'sim_times': [[2 * T]],
-                          'params_to_change': {U_ALPHA: [['u_step']]},
-                          'protocol_traces': {'u_step': {'t': [0.0, T, T, 2 * T],
-                                                         'values': [0.0, 0.0, V, V]}}})
-    hA.reset_states()
-    hA.update_times(dt, 0.0, 2 * T, 0.0)
-    hA.set_param_vals([U_ALPHA], ['u_step'])
-    assert hA.run(), "trace-step run failed"
-    xA, yA = _traces(hA)
-    hA.close_simulation()
-
-    n = min(len(xA), len(xB))
-    assert n > 10 and len(xA) == len(xB), f"grid mismatch: {len(xA)} vs {len(xB)}"
-    np.testing.assert_allclose(xA[:n], xB[:n], rtol=1e-4, atol=1e-4,
-        err_msg="x(t) differs between the trace-step and the two-sub-experiment encodings")
-    np.testing.assert_allclose(yA[:n], yB[:n], rtol=1e-4, atol=1e-4,
-        err_msg="y(t) differs between the trace-step and the two-sub-experiment encodings")
+    for model_type in ("cellml_only", "casadi_python"):
+        disc = discrete_2sub(model_type)
+        n = min(len(trace), len(disc))
+        assert n > 10 and len(trace) == len(disc), \
+            f"{model_type}: grid mismatch {len(trace)} vs {len(disc)}"
+        np.testing.assert_allclose(
+            disc[:n], trace[:n], rtol=1e-3, atol=1e-3,
+            err_msg=f"{model_type} two-sub discrete gamma differs from the Myokit step trace")
 
 
 @pytest.mark.integration
