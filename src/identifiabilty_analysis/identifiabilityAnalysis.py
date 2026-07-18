@@ -65,7 +65,7 @@ class IdentifiabilityAnalysis():
         param_id: The inner param-id engine to analyse (required).
 
     Attributes:
-        mean_Lapalace: Mean (best-fit) parameter vector after Laplace approximation.
+        mean_Laplace: Mean (best-fit) parameter vector after Laplace approximation.
         covariance_matrix_Laplace: Posterior covariance matrix from the Laplace
             approximation.
     """
@@ -80,7 +80,7 @@ class IdentifiabilityAnalysis():
         self.resources_dir = resources_dir
         self.best_param_vals = None
         self.covariance_matrix_Laplace = None
-        self.mean_Lapalace = None
+        self.mean_Laplace = None
         self.param_id = param_id
         if self.param_id is None:
             # TODO intialise the param_id_object here
@@ -186,9 +186,9 @@ class IdentifiabilityAnalysis():
         print("Mean (Best Parameter Values):", mean)
         print("Covariance Matrix:\n", covariance_matrix)
         self.covariance_matrix_Laplace = covariance_matrix
-        self.mean_Lapalace = mean
+        self.mean_Laplace = mean
         parent_dir = os.path.dirname(self.param_id_output_dir)
-        np.save(os.path.join(parent_dir, self.file_name_prefix + '_laplace_mean.npy'), self.mean_Lapalace)
+        np.save(os.path.join(parent_dir, self.file_name_prefix + '_laplace_mean.npy'), self.mean_Laplace)
         np.save(os.path.join(parent_dir, self.file_name_prefix + '_laplace_covariance.npy'), self.covariance_matrix_Laplace)
 
     def plot_laplace_results(self, parameter_names, output_dir):
@@ -203,10 +203,10 @@ class IdentifiabilityAnalysis():
             raise ImportError("corner is required to plot Laplace results.")
           
 
-        if self.covariance_matrix_Laplace is None or self.mean_Lapalace is None:
+        if self.covariance_matrix_Laplace is None or self.mean_Laplace is None:
             try:
                 parent_dir = os.path.dirname(self.param_id_output_dir)
-                self.mean_Lapalace = np.load(os.path.join(parent_dir, self.file_name_prefix + '_laplace_mean.npy'))
+                self.mean_Laplace = np.load(os.path.join(parent_dir, self.file_name_prefix + '_laplace_mean.npy'))
                 self.covariance_matrix_Laplace = np.load(os.path.join(parent_dir, self.file_name_prefix + '_laplace_covariance.npy'))
                 print("Loaded Laplace approximation results from files.")
             except Exception as e:
@@ -214,9 +214,9 @@ class IdentifiabilityAnalysis():
                 print("Please run the Laplace approximation before plotting.")
                 return
 
-        samples = np.random.multivariate_normal(self.mean_Lapalace, self.covariance_matrix_Laplace, size=100000)
+        samples = np.random.multivariate_normal(self.mean_Laplace, self.covariance_matrix_Laplace, size=100000)
         print(f'samples shape: {samples.shape}')
-        figure = corner.corner(samples, labels=parameter_names, truths=self.mean_Lapalace, bins=20, hist_bin_factor=2, smooth=0.5, quantiles=(0.05, 0.5, 0.95))
+        figure = corner.corner(samples, labels=parameter_names, truths=self.mean_Laplace, bins=20, hist_bin_factor=2, smooth=0.5, quantiles=(0.05, 0.5, 0.95))
         plot_path = os.path.join(output_dir, f"{self.file_name_prefix}_laplace_corner_plot.pdf")
         
         axes = figure.get_axes()
