@@ -845,7 +845,15 @@ class SciPyMinimizeOptimiser(Optimiser):
                     key = q.tobytes()
                     if ad_eval_cache["key"] != key:
                         p = self.param_norm_obj.unnormalise(q)
-                        cost, grad_real = self.param_id_obj.get_cost_and_gradient(p)
+                        # Prefer the one-solve (cost, grad) path (e.g. Myokit FSA) when the
+                        # param-id object provides it; otherwise fall back to separate calls so
+                        # any object exposing get_cost/get_gradient still works.
+                        combined = getattr(self.param_id_obj, "get_cost_and_gradient", None)
+                        if combined is not None:
+                            cost, grad_real = combined(p)
+                        else:
+                            cost = self.param_id_obj.get_cost(p)
+                            grad_real = self.param_id_obj.get_gradient(p)
                         ad_eval_cache["key"] = key
                         ad_eval_cache["cost"] = float(cost)
                         ad_eval_cache["grad_real"] = np.asarray(grad_real, dtype=float).flatten()
