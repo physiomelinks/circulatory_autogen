@@ -831,12 +831,31 @@ class SciPyMinimizeOptimiser(Optimiser):
                         label = names[0] if isinstance(names, (list, tuple)) else str(names)
                         print(f'    {label:<30} p={init_param_vals[i]:.6g}  dJ/dp={init_gradient[i]:.6e}')
 
-                if (self.do_ad):
-                    def gradient_func(q):
+                # Cache the (cost, gradient) at the most recently visited point. L-BFGS-B
+                # evaluates the objective and its gradient at the same parameter vector, and
+                # get_cost_and_gradient returns both from ONE solve (a single augmented CVODES
+                # solve on the Myokit FSA path). So the objective, the jacobian and the progress
+                # callback all reuse that one solve instead of each triggering its own -- on the
+                # FSA path this removes the separate cost solve per point and the callback's
+                # extra cost/gradient solves per iteration.
+                ad_eval_cache = {"key": None, "cost": None, "grad_real": None}
+
+                def _ad_cost_and_grad(q):
+                    q = np.asarray(q, dtype=float)
+                    key = q.tobytes()
+                    if ad_eval_cache["key"] != key:
                         p = self.param_norm_obj.unnormalise(q)
-                        dJ_dp = self.param_id_obj.get_gradient(p)
-                        return dJ_dp * self.param_ranges
+                        cost, grad_real = self.param_id_obj.get_cost_and_gradient(p)
+                        ad_eval_cache["key"] = key
+                        ad_eval_cache["cost"] = float(cost)
+                        ad_eval_cache["grad_real"] = np.asarray(grad_real, dtype=float).flatten()
+                    return ad_eval_cache["cost"], ad_eval_cache["grad_real"]
+
+                if (self.do_ad):
+                    min_cost_fun = lambda q: _ad_cost_and_grad(q)[0]
+                    gradient_func = lambda q: _ad_cost_and_grad(q)[1] * self.param_ranges
                 else:
+                    min_cost_fun = cost_fun
                     gradient_func = lambda q: approx_fprime(q, cost_fun, epsilon=1e-4)
 
                 cost_history_path = os.path.join(self.output_dir, 'best_cost_history.csv')
@@ -865,7 +884,12 @@ class SciPyMinimizeOptimiser(Optimiser):
                     x_norm = np.asarray(x_norm, dtype=float).copy()
                     last_iterate["x_norm"] = x_norm
                     param_vals = self.param_norm_obj.unnormalise(x_norm)
-                    cost_val = float(self.param_id_obj.get_cost(param_vals))
+                    if self.do_ad:
+                        # Reuse the solve L-BFGS-B already did at this iterate (cache hit) rather
+                        # than recomputing the cost -- and, under DEBUG, the gradient too.
+                        cost_val = float(_ad_cost_and_grad(x_norm)[0])
+                    else:
+                        cost_val = float(self.param_id_obj.get_cost(param_vals))
                     last_iterate["cost"] = cost_val
                     # Live progress: one history row per accepted iteration.
                     _append_history(cost_val, x_norm)
@@ -875,14 +899,14 @@ class SciPyMinimizeOptimiser(Optimiser):
                             label = names[0] if isinstance(names, (list, tuple)) else str(names)
                             print(f'    {label:<30} {param_vals[i]:.6g}')
                         if self.do_ad:
-                            grad = np.asarray(self.param_id_obj.get_gradient(param_vals)).flatten()
+                            grad = _ad_cost_and_grad(x_norm)[1]  # cache hit, real-space gradient
                             print(f'    |grad|_inf = {np.max(np.abs(grad)):.6e}')
                     if cost_val <= self.optimiser_options['cost_convergence']:
                         raise StopIteration(f"Cost converged: {cost_val}")
 
                 res = None
                 try:
-                    res = minimize(cost_fun, self.param_norm_obj.normalise(init_param_vals), method='L-BFGS-B',
+                    res = minimize(min_cost_fun, self.param_norm_obj.normalise(init_param_vals), method='L-BFGS-B',
                             bounds=param_ranges_norm, jac=gradient_func, callback=lbfgsb_callback)
                 except StopIteration as e:
                     print(str(e))

@@ -2336,8 +2336,14 @@ class OpencorParamID():
                              + np.sum(wp != 0) + np.sum(wd != 0))
         return max(int(D), 1)
 
-    def get_jac_cost_fsa(self, param_vals):
+    def get_jac_cost_fsa(self, param_vals, return_cost=False):
         """Gradient dJ/dp via Myokit CVODES forward sensitivity + directional derivative.
+
+        With ``return_cost=True`` this returns ``(cost, grad)`` instead of just ``grad``. The
+        augmented FSA solve already produces the unperturbed operand traces, so the cost J(p)
+        is reconstructed from them with ``get_cost_from_operands`` (cheap arithmetic, no extra
+        solve) -- it is identical to ``get_cost_from_params(p)``. This lets L-BFGS-B get both
+        the value and the gradient from one CVODES solve per point instead of two.
 
         FSA gives S = d(operand_trace)/dp for every eligible parameter. Rather than
         differentiate each observable operation and cost term by hand, we perturb the
@@ -2365,6 +2371,7 @@ class OpencorParamID():
         flat_names = self._fsa_param_names_flat
         grad = np.zeros(n_params)
         denom = float(self._total_weighted_obs_denominator())
+        raw_cost = 0.0  # unperturbed sub-costs, so we can also return J(p) from this same solve
 
         # ---- Eligible params: directional derivative via FSA, summed over (exp, sub) ----
         for exp_idx in range(num_experiments):
@@ -2378,7 +2385,13 @@ class OpencorParamID():
                 subexp_count = base + sub_idx
                 operands = operands_list[subexp_count]
                 if operands is None:
-                    return np.full(n_params, np.nan)
+                    return (np.inf, np.full(n_params, np.nan)) if return_cost \
+                        else np.full(n_params, np.nan)
+                # Unperturbed cost of this sub from the operand traces the solve already gave us
+                # (get_cost_from_operands is the same one get_cost_obs_and_pred_from_params uses,
+                # so raw_cost / denom reproduces get_cost_from_params exactly -- no extra solve).
+                raw_cost += float(self.get_cost_from_operands(
+                    operands, exp_idx=exp_idx, sub_idx=sub_idx))
                 sens_arr = sens_history[sub_idx] if sub_idx < len(sens_history) else None
                 sens = self.sim_helper.get_sensitivities(
                     self._fsa_dependent_names, flat_names, sensitivities=sens_arr)
@@ -2428,7 +2441,13 @@ class OpencorParamID():
                     grad[j] = (base_cost - c_minus) / h
                 else:
                     grad[j] = 0.0
+        if return_cost:
+            return raw_cost / denom, grad
         return grad
+
+    def get_cost_and_jac_fsa(self, param_vals):
+        """(cost, gradient) from a single Myokit CVODES FSA solve. See get_jac_cost_fsa."""
+        return self.get_jac_cost_fsa(param_vals, return_cost=True)
 
     def _perturb_operands_along_sensitivity(self, operands, sens, pname, h):
         """Return a copy of one sub-experiment's operand traces stepped by h along dS/dp.
@@ -2478,6 +2497,19 @@ class OpencorParamID():
             return self.get_jac_cost_fsa(param_vals)
         else:
             raise ValueError(f"Gradient not available for model_type={self.model_type}")
+
+    def get_cost_and_gradient(self, param_vals):
+        """Return ``(cost, gradient)`` in one evaluation.
+
+        L-BFGS-B needs both J(p) and ∇J(p) at every point it visits. For the Myokit CVODES
+        FSA path a single augmented solve yields both, so this avoids the separate cost solve
+        the optimiser would otherwise do. Other backends fall back to separate calls (CasADi's
+        reverse pass and the AADC tape are cheap, so there is little to merge there).
+        """
+        if self.model_type not in ('casadi_python', 'aadc_python') \
+                and self.fsa_gradient_available():
+            return self.get_cost_and_jac_fsa(param_vals)
+        return float(self.get_cost(param_vals)), self.get_gradient(param_vals)
 
     def _aadc_cost_and_grad(self, param_vals):
         """Compute J(p) and ∇J(p) via AADC tape: forward solve + cost on tape, reverse pass.

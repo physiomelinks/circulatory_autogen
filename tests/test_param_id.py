@@ -2028,6 +2028,52 @@ def test_3compartment_fsa_longrun_gradient(
     runner.close_simulation()
 
 
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.need_opencor
+def test_3compartment_fsa_cost_and_gradient_combined(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir):
+    """get_cost_and_gradient() returns the same gradient as get_jac_cost_fsa() and a cost that
+    matches get_cost_from_params(), from a SINGLE augmented CVODES solve.
+
+    This is the speedup the L-BFGS-B path relies on: one FSA solve yields both J(p) and dJ/dp
+    (the cost is reconstructed from the operand traces the solve already produced), instead of
+    a separate cost solve. The gradient must be identical (same operand path); the cost must
+    agree to within the integrator noise floor (a wrong normalisation would show a factor, not
+    a ~1e-5 difference).
+    """
+    runner, _ = _build_3compartment_fsa_runner(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir,
+        pre_time=20.0, sim_time=2.0)
+    inner = runner.param_id
+
+    mins = np.asarray(inner.param_id_info['param_mins'], dtype=float)
+    maxs = np.asarray(inner.param_id_info['param_maxs'], dtype=float)
+    p = mins + 0.4 * (maxs - mins)   # arbitrary interior point
+
+    grad_ref = np.asarray(inner.get_jac_cost_fsa(p), dtype=float).ravel()
+    cost_ref = float(inner.get_cost_from_params(p))
+
+    cost_c, grad_c = inner.get_cost_and_gradient(p)
+    cost_c = float(cost_c)
+    grad_c = np.asarray(grad_c, dtype=float).ravel()
+
+    # Gradient is bit-for-bit the same computation as get_jac_cost_fsa.
+    np.testing.assert_allclose(grad_c, grad_ref, rtol=1e-8, atol=1e-12)
+    # Cost agrees with a standalone evaluation to within the integrator noise (< the 1e-3
+    # best-cost consistency-check threshold), NOT off by a normalisation factor.
+    assert abs(cost_c - cost_ref) <= 1e-3 * max(1.0, abs(cost_ref)), (
+        f"combined cost {cost_c:.6e} vs get_cost_from_params {cost_ref:.6e}")
+
+    # get_cost_and_jac_fsa is the FSA-specific entry point behind get_cost_and_gradient.
+    cost_f, grad_f = inner.get_cost_and_jac_fsa(p)
+    np.testing.assert_allclose(np.asarray(grad_f, dtype=float).ravel(), grad_ref,
+                               rtol=1e-8, atol=1e-12)
+    assert abs(float(cost_f) - cost_ref) <= 1e-3 * max(1.0, abs(cost_ref))
+
+    runner.close_simulation()
+
+
 # Ground-truth params the synthetic multi-sub obs was generated at (the model defaults).
 LV_MULTISUB_TRUE = np.array([5.0, 0.2, 0.2, 3.0])   # alpha, beta, delta, gamma
 
