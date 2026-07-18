@@ -235,6 +235,22 @@ You should now have:
 
 This section documents the **older workflow** that used **OpenCOR’s bundled Python** and `python_path.sh`. It is **not required** for the default Myokit-based path described above. Keep it only if you maintain legacy scripts or environments that still call OpenCOR’s interpreter.
 
+!!! warning "OpenCOR’s `pythonshell` is deprecated — it will be replaced by `pip install libopencor`"
+    Do not build new workflows on OpenCOR’s bundled interpreter. Once
+    [libOpenCOR](https://opencor.ws/libopencor/) is available on PyPI, the OpenCOR
+    functionality will be obtained with a plain `pip install libopencor` into a
+    normal Python environment, and `pythonshell` / `python_path.sh` /
+    `opencor_pythonshell_path.sh` will be removed.
+
+    Prefer the standard `pip install -e .` setup above. Relying on the bundled
+    interpreter pins you to whatever OpenCOR ships, which causes real problems —
+    e.g. OpenCOR bundles a **dual-ABI `mpi4py`** (both an `MPI.mpich.*.so` and an
+    `MPI.openmpi.*.so`), and the variant chosen at import time may not match the
+    system `mpiexec`, aborting MPI runs with
+    `unsupported PMI version PMIx`. Pin it with `MPI4PY_MPIABI=openmpi` (or
+    `mpich`) to match your installed launcher. A pip-installed `mpi4py` builds
+    against the one system MPI and has no such ambiguity.
+
 ### Install OpenCOR (legacy)
 
 Download OpenCOR (e.g. version 0.8.1) from the [OpenCOR downloads page](https://opencor.ws/downloads/index.html). A zip/tarball install in a directory you control (e.g. `~/Desktop`) is typical.

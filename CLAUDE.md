@@ -7,6 +7,8 @@ This file documents the conventions, gotchas, and entry points an agent needs th
 ## Build / run / test
 
 - **Tests MUST run under the OpenCOR Python shell** — not the system Python. Always use `./run_pytest.sh`, which sources `user_run_files/python_path.sh` and runs pytest under `mpiexec`. The path to the OpenCOR python is in `user_run_files/opencor_pythonshell_path.sh` (sourced by `python_path.sh`).
+  - **DEPRECATED — do not build on it.** OpenCOR's `pythonshell` is on its way out: it will be replaced by a plain `pip install libopencor` into a normal Python env once libOpenCOR reaches PyPI, and `python_path.sh` / `opencor_pythonshell_path.sh` will be removed. Don't add new code paths that assume the bundled interpreter; prefer a standard venv + `pip install -e ".[dev]"`.
+  - Gotcha it causes today: OpenCOR bundles a **dual-ABI `mpi4py`** (`MPI.mpich.*.so` **and** `MPI.openmpi.*.so`, dispatched by `mpi4py._mpiabi`). If the variant picked at import doesn't match the MPI owning the system `mpiexec`, every rank aborts at `MPI_Init` with `unsupported PMI version PMIx`. Fix by pinning the ABI to the installed launcher — `export MPI4PY_MPIABI=openmpi` (or `mpich`) — **not** by installing a second MPI.
   - `./run_pytest.sh` — full suite, 1 MPI rank.
   - `./run_pytest.sh -n 4 -v -s` — `-n N` sets **MPI rank count** (it is *not* pytest-xdist; xdist is force-disabled with `-p no:xdist` because ranks and xdist workers conflict).
   - `./run_pytest.sh -m "not slow"` / `-m "not compare_optimisers"` — deselect expensive tests.
