@@ -282,16 +282,29 @@ Before doing calibration, a solver for the model needs to be chosen
     reports how many and which). Tighten `rtol`/`atol` when using FSA so the sensitivities are well
     resolved.
 
-!!! warning "our AADC wrapper is not yet suitable for stiff models"
+!!! warning "our AADC wrapper is not yet suitable for stiff models or multiple observables"
     The AADC tape backend (`model_type: aadc_python`) records a **fixed-step** integrator, which is
     inaccurate or unstable on stiff models — on the 3compartment cardiovascular model its
     fixed-step implicit solve deviates from CVODE by orders of magnitude. Every AADC run now probes
     the first second of dynamics and prints a loud warning if the model is stiff, pointing you at
-    CasADi `bdf` or Myokit CVODES FSA instead. AADC's tape cost also only represents observables
-    whose operand is a **state** (not an algebraic variable), in a **single** experiment; anything
-    else is reported and omitted from the tape gradient. Use AADC only for non-stiff problems for now. 
-    Future work will get it working for stiff models so its advantages for large numbers of parameters 
-    can be used.
+    CasADi `bdf` or Myokit CVODES FSA instead.
+
+    **AADC is also not currently suitable for problems with multiple observables.** Its tape cost
+    can only represent an observable whose operand is a **state** with a reimplemented operation
+    (`max`/`min`/`mean`), in a **single** experiment. Any other observable — one whose operand is an
+    **algebraic variable** (e.g. a pressure or flow computed from the states rather than integrated),
+    an operation the tape does not reimplement (e.g. `max_minus_min`), or a `series`/other data type
+    — is reported and **omitted from the tape cost and gradient**. When several observables are
+    present and any of them can't be taped, AADC silently minimises the **reduced** cost over only
+    the tapeable subset, not the full cost, so the fit is wrong for the omitted observables and its
+    result is not comparable to the other backends. On the 3compartment model, for instance, only 2
+    of the 6 observables are tapeable (the `aortic_root/u` features are algebraic and `heart/q_lv`
+    uses `max_minus_min`), which is why AADC is left off that benchmark until it can reproduce the
+    full cost. Full-cost parity needs the algebraic variables recomputed on the tape from the state
+    trajectory and `max_minus_min` support (tracked upstream). Use AADC only for non-stiff,
+    single-experiment problems whose observables are all state-operand `max`/`min`/`mean` features
+    for now. Future work will get it working for stiff models and general observables so its
+    advantages for large numbers of parameters can be used.
 
     **Multiple sub-experiments / experiments are not yet supported by the AADC wrapper.** The tape
     records one straight-line integration, so a protocol with more than one sub-experiment (or more
