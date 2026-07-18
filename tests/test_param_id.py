@@ -4084,6 +4084,57 @@ def test_aadc_gradient_rejects_an_untapeable_solver(
         inner.get_gradient(np.asarray(inner.param_init, dtype=float))
 
 
+def _aadc_3compartment_config(base_user_inputs, resources_dir, temp_output_dir,
+                              temp_generated_models_dir):
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': '3compartment',
+        'input_param_file': '3compartment_parameters.csv',
+        'params_for_id_file': '3compartment_params_for_id.csv',
+        'model_type': 'aadc_python',
+        'solver': 'aadc_semi_implicit',
+        'param_id_method': 'sp_minimize',
+        'do_ad': True,
+        'pre_time': 0.0,
+        'sim_time': 0.3,
+        'dt': 0.01,
+        'DEBUG': False,
+        'do_mcmc': False,
+        'plot_predictions': False,
+        'do_ia': False,
+        'solver_info': {'method': 'semi_implicit'},  # fixed-step, tape-consistent
+        'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
+        'param_id_output_dir': temp_output_dir,
+        'generated_models_dir': temp_generated_models_dir,
+        'resources_dir': resources_dir,
+    })
+    return config
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_aadc_gradient_rejects_untapeable_observables(
+        aadc_licensed, base_user_inputs, resources_dir, temp_output_dir,
+        temp_generated_models_dir):
+    """The current AADC wrapper can only tape an observable whose operand is a state with a
+    max/min/mean operation (or a state series). 3compartment's obs set has algebraic-variable
+    operands (aortic_root/u) and a max_minus_min, so the tape cannot represent them. Taping only
+    the rest would silently minimise a reduced cost, so the wrapper must raise -- and the message
+    must point at the tracking issue (#258) and the working alternatives (CasADi bdf / Myokit
+    FSA)."""
+    inner = _init_aadc_param_id(
+        _aadc_3compartment_config(base_user_inputs, resources_dir, temp_output_dir,
+                                  temp_generated_models_dir),
+        resources_dir)
+
+    with pytest.raises(NotImplementedError,
+                       match=r'cannot be represented on the AADC tape'):
+        inner.get_gradient(np.asarray(inner.param_init, dtype=float))
+    # the error must name the tracking issue so users know it is a known limitation
+    with pytest.raises(NotImplementedError, match=r'#258'):
+        inner.get_gradient(np.asarray(inner.param_init, dtype=float))
+
+
 def _aadc_fitzhugh_nagumo_config(base_user_inputs, resources_dir, temp_output_dir,
                                  temp_generated_models_dir, param_id_method='sp_minimize'):
     config = base_user_inputs.copy()

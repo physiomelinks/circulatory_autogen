@@ -294,17 +294,19 @@ Before doing calibration, a solver for the model needs to be chosen
     (`max`/`min`/`mean`), in a **single** experiment. Any other observable — one whose operand is an
     **algebraic variable** (e.g. a pressure or flow computed from the states rather than integrated),
     an operation the tape does not reimplement (e.g. `max_minus_min`), or a `series`/other data type
-    — is reported and **omitted from the tape cost and gradient**. When several observables are
-    present and any of them can't be taped, AADC silently minimises the **reduced** cost over only
-    the tapeable subset, not the full cost, so the fit is wrong for the omitted observables and its
-    result is not comparable to the other backends. On the 3compartment model, for instance, only 2
-    of the 6 observables are tapeable (the `aortic_root/u` features are algebraic and `heart/q_lv`
-    uses `max_minus_min`), which is why AADC is left off that benchmark until it can reproduce the
-    full cost. Full-cost parity needs the algebraic variables recomputed on the tape from the state
-    trajectory and `max_minus_min` support (tracked upstream). Use AADC only for non-stiff,
-    single-experiment problems whose observables are all state-operand `max`/`min`/`mean` features
-    for now. Future work will get it working for stiff models and general observables so its
-    advantages for large numbers of parameters can be used.
+    — **cannot be put on the tape**. Rather than silently minimise a reduced cost over only the
+    tapeable subset (which would give a fit that is wrong for the omitted observables), the AADC
+    gradient path **raises an error** as soon as any observable in the set can't be taped, naming
+    the offending observables and pointing at the tracking issue (#258). On the 3compartment model,
+    for instance, only 2 of the 6 observables are tapeable (the `aortic_root/u` features are
+    algebraic and `heart/q_lv` uses `max_minus_min`), so AADC refuses to run there and is left off
+    that benchmark. Full-cost parity needs the algebraic variables recomputed on the tape from the
+    state trajectory and `max_minus_min` support (tracked in issue #258). Until then, use AADC only
+    for non-stiff, single-experiment problems whose observables are all state-operand
+    `max`/`min`/`mean` features (or state series); for other observables use `casadi_python`
+    (`method: bdf`) or a Myokit CVODES FSA run, which the error message also points you to. Future
+    work will get it working for stiff models and general observables so its advantages for large
+    numbers of parameters can be used.
 
     **Multiple sub-experiments / experiments are not yet supported by the AADC wrapper.** The tape
     records one straight-line integration, so a protocol with more than one sub-experiment (or more

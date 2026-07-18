@@ -2584,48 +2584,51 @@ class OpencorParamID():
         # The tape cost (cost_on_tape below) can only reproduce observables whose operand is a
         # STATE and whose operation the tape re-implements (max/min/mean, or a plain final
         # value; series). An operand that is an *algebraic* variable (not a state) resolves to
-        # no state index and is dropped from the tape cost, and operations such as
-        # max_minus_min are not reproduced either. A dropped observable makes the tape cost --
-        # and therefore its gradient -- a different function than the one being minimised, so
-        # warn loudly rather than silently descend the wrong cost. (Fully supporting algebraic
-        # observables needs the algebraic variables recomputed on the tape from the state
-        # trajectory; not yet implemented.)
-        if not getattr(self, '_warned_aadc_untaped_obs', False):
-            state_names_lower = [info['name'].lower() for info in self.sim_helper.model.STATE_INFO]
+        # no state index and cannot be put on the tape, and operations such as max_minus_min are
+        # not reproduced either. Such an observable would be silently dropped from the tape cost,
+        # making the tape cost -- and therefore its gradient -- a different function than the one
+        # being minimised, so the optimiser would descend the wrong cost. Refuse rather than
+        # silently mislead. (Fully supporting algebraic observables needs the algebraic variables
+        # recomputed on the tape from the state trajectory, tracked in issue #258.)
+        state_names_lower = [info['name'].lower() for info in self.sim_helper.model.STATE_INFO]
 
-            def _operand_is_state(op):
-                kind, _ = self.sim_helper._resolve_name(op)
-                if kind == 'state':
-                    return True
-                return op.split('/')[-1].lower() in state_names_lower
+        def _operand_is_state(op):
+            kind, _ = self.sim_helper._resolve_name(op)
+            if kind == 'state':
+                return True
+            return op.split('/')[-1].lower() in state_names_lower
 
-            supported_const_ops = (None, 'max', 'min', 'mean')
-            operand_names_o = self.obs_info.get("operands", []) if self.obs_info else []
-            operations_o = self.obs_info.get("operations", []) if self.obs_info else []
-            data_types_o = self.obs_info.get("data_types", []) if self.obs_info else []
-            untaped = []
-            for jj in range(len(operand_names_o)):
-                op = operand_names_o[jj][0] if isinstance(operand_names_o[jj], (list, tuple)) \
-                    else operand_names_o[jj]
-                dtype = data_types_o[jj] if jj < len(data_types_o) else 'constant'
-                oper = operations_o[jj] if jj < len(operations_o) else None
-                if dtype == 'constant':
-                    if not _operand_is_state(op) or oper not in supported_const_ops:
-                        untaped.append(f"{op} (op={oper})")
-                elif dtype == 'series':
-                    if not _operand_is_state(op):
-                        untaped.append(f"{op} (series)")
-                else:
-                    untaped.append(f"{op} (data_type={dtype})")
-            if untaped:
-                warnings.warn(
-                    f"AADC tape gradient: {len(untaped)} of {len(operand_names_o)} observable(s) "
-                    f"cannot be represented on the tape and are omitted from the tape cost/gradient "
-                    f"(operand is an algebraic variable rather than a state, or the operation is "
-                    f"unsupported): {untaped}. The AADC gradient therefore does NOT match the full "
-                    f"cost the optimiser evaluates; use model_type 'casadi_python' (method 'bdf') "
-                    f"or a Myokit CVODES FSA run for a correct gradient on these observables.")
-            self._warned_aadc_untaped_obs = True
+        supported_const_ops = (None, 'max', 'min', 'mean')
+        operand_names_o = self.obs_info.get("operands", []) if self.obs_info else []
+        operations_o = self.obs_info.get("operations", []) if self.obs_info else []
+        data_types_o = self.obs_info.get("data_types", []) if self.obs_info else []
+        untaped = []
+        for jj in range(len(operand_names_o)):
+            op = operand_names_o[jj][0] if isinstance(operand_names_o[jj], (list, tuple)) \
+                else operand_names_o[jj]
+            dtype = data_types_o[jj] if jj < len(data_types_o) else 'constant'
+            oper = operations_o[jj] if jj < len(operations_o) else None
+            if dtype == 'constant':
+                if not _operand_is_state(op) or oper not in supported_const_ops:
+                    untaped.append(f"{op} (op={oper})")
+            elif dtype == 'series':
+                if not _operand_is_state(op):
+                    untaped.append(f"{op} (series)")
+            else:
+                untaped.append(f"{op} (data_type={dtype})")
+        if untaped:
+            raise NotImplementedError(
+                f"AADC is not usable with this observable set: {len(untaped)} of "
+                f"{len(operand_names_o)} observable(s) cannot be represented on the AADC tape "
+                f"(operand is an algebraic variable rather than a state, or the operation is "
+                f"unsupported such as max_minus_min): {untaped}. The current AADC wrapper can "
+                f"only tape observables whose operand is a state with a max/min/mean operation "
+                f"(or a state series). Taping these would silently minimise a reduced cost, not "
+                f"the one the optimiser evaluates. Support for algebraic-variable observables and "
+                f"max_minus_min on the tape is tracked in issue #258. For a correct gradient on "
+                f"these observables now, use model_type 'casadi_python' (solver_info method "
+                f"'bdf') or a Myokit CVODES FSA run (model_type 'cellml_only', solver "
+                f"'CVODE_myokit', do_ad true).")
 
         weighted_obs_denominator = 0
         if self._num_weighted_obs_by_exp_sub is not None:
