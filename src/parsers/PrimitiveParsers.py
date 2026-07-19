@@ -143,8 +143,11 @@ SOLVER_INFO_FIELDS = {
          'description': 'Integration tolerance for the adaptive AADC integrator.'},
         {'name': 'threads', 'type': 'int', 'default': 4, 'required': False,
          'description': 'Number of threads for AADC evaluation.'},
-        {'name': 'gradient_method', 'type': 'str', 'default': 'auto', 'required': False,
-         'description': 'How the AADC tape computes gradients.'},
+        # No 'gradient_method' here: nothing reads it. AD vs FD is chosen by the `do_ad` flag
+        # (see SciPyMinimizeOptimiser.run, which falls back to approx_fprime when it is off),
+        # and which AD backend runs follows from model_type/solver in
+        # OpencorParamID.get_gradient. Advertising a setting the code never reads makes CUFLynx
+        # render a control that silently does nothing.
     ],
 }
 # Expose the solver_info field schema alongside the solver/method menus for one-stop discovery.
@@ -1079,7 +1082,6 @@ def get_solver_info_default(model_type):
             'method': 'adaptive_rk45',
             'tol': 1e-8,
             'threads': 4,
-            'gradient_method': 'auto',
         }
     raise ValueError(f'Invalid model type: {model_type}')
 

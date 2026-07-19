@@ -702,9 +702,22 @@ class SimulationHelper:
         if method == 'implicit_euler_ift':
             traj = self._integrate_implicit_euler_ift(self.states, variables_all, total_steps, self.dt)
         elif method == 'bdf':
-            self._patch_math_functions()
-            traj = self._integrate_bdf(self.states, variables_all, total_steps, self.dt)
-            self._unpatch_math_functions()
+            # _record_rhs_aad tapes the RHS once with compute_rates(0.0, ...) and _integrate_bdf
+            # then drives it as `lambda t, y: vfj.func(y)`, discarding t. For a non-autonomous
+            # model -- a cardiac elastance driver, or any protocol_traces input -- that
+            # integrates the t=0 right-hand side for the whole simulation and returns a smooth,
+            # plausible, wrong trajectory with solve_ivp reporting success. Non-AD variables are
+            # also frozen at their first-call values, so params_to_change has no effect after
+            # the first run. Refuse rather than return a confident wrong answer.
+            raise NotImplementedError(
+                "AADC solver_info method 'bdf' is not usable: its RHS kernel is recorded once "
+                "at t=0 and the integrator discards t, so any model whose rates depend on time "
+                "(a cardiac driver, a protocol trace) is integrated with its t=0 right-hand "
+                "side for the entire run -- silently, since solve_ivp still converges. "
+                "Non-AD variables are likewise frozen at first-call values, so params_to_change "
+                "stops taking effect. Use method 'semi_implicit' or 'rk4' for AADC, or "
+                "model_type 'casadi_python' (solver_info method 'bdf') for a symbolic BDF that "
+                "handles time-dependent models correctly.")
         elif method == 'semi_implicit':
             traj = self._integrate_semi_implicit(self.states, variables_all, total_steps, self.dt)
         elif method == 'rk4':

@@ -1334,54 +1334,77 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
         gathered = comm.gather(local_results, root=0)
 
         best = None
+        # Everything rank 0 does below happens while the other ranks are already blocked in
+        # the bcast at the end of this block. If rank 0 raises in here -- no results, a
+        # read-only or full output directory in one of the _write_* calls, an empty `status`
+        # in the max() -- it leaves the function and every other rank waits on that bcast
+        # forever. The job hangs instead of failing, which under a scheduler burns the entire
+        # wall-clock allocation with no diagnostic. Capture the failure and broadcast it
+        # alongside the result so all ranks raise together, mirroring the all-ranks-agree
+        # handling already used for per-start errors above.
+        rank0_error = None
         if rank == 0:
-            all_results = sorted([r for rank_results in gathered for r in rank_results],
-                                 key=lambda r: r['start_idx'])
-            if not all_results:
-                raise RuntimeError('multi-start L-BFGS-B produced no results')
+            try:
+                all_results = sorted([r for rank_results in gathered for r in rank_results],
+                                     key=lambda r: r['start_idx'])
+                if not all_results:
+                    raise RuntimeError('multi-start L-BFGS-B produced no results')
 
-            best_result = min(all_results, key=lambda r: r['final_cost'])
-            best_param_vals = self.param_norm_obj.unnormalise(best_result['final_x_norm'])
+                best_result = min(all_results, key=lambda r: r['final_cost'])
+                best_param_vals = self.param_norm_obj.unnormalise(best_result['final_x_norm'])
 
-            self._write_history(all_results)
-            self._write_start_summary(all_results)
-            self._cluster_converged_starts(all_results)
+                self._write_history(all_results)
+                self._write_start_summary(all_results)
+                self._cluster_converged_starts(all_results)
 
-            # Scaling bookkeeping. The serial cost is the sum of every start's own wall time; the
-            # parallel cost is the slowest rank's loop time. Their ratio is the achieved speedup,
-            # which approaches num_procs only when there are many more starts than ranks.
-            durations = [r['duration'] for r in all_results]
-            self.num_starts_run = len(all_results)
-            self.starts_run_per_rank = [len(rank_results) for rank_results in gathered]
-            self.serial_seconds = float(sum(durations))
-            self.wall_seconds = max(st['loop_wall'] for st in status)
-            self.speedup = (self.serial_seconds / self.wall_seconds
-                            if self.wall_seconds > 0 else float('nan'))
+                # Scaling bookkeeping. The serial cost is the sum of every start's own wall time; the
+                # parallel cost is the slowest rank's loop time. Their ratio is the achieved speedup,
+                # which approaches num_procs only when there are many more starts than ranks.
+                durations = [r['duration'] for r in all_results]
+                self.num_starts_run = len(all_results)
+                self.starts_run_per_rank = [len(rank_results) for rank_results in gathered]
+                self.serial_seconds = float(sum(durations))
+                self.wall_seconds = max(st['loop_wall'] for st in status)
+                self.speedup = (self.serial_seconds / self.wall_seconds
+                                if self.wall_seconds > 0 else float('nan'))
 
-            skipped_note = ('the rest were skipped after a start converged'
-                            if self.optimiser_options['no_new_starts_on_convergence']
-                            else 'no_new_starts_on_convergence is off, so all ran')
-            print(f'Multi-start L-BFGS-B ran {len(all_results)} of '
-                  f'{int(self.optimiser_options["num_starts"])} starts '
-                  f'({skipped_note}); '
-                  f'best cost {best_result["final_cost"]:.6e} came from start '
-                  f'{best_result["start_idx"]}; '
-                  f'speedup {self.speedup:.1f}x over {num_procs} rank(s)')
-            print(f'  {self.num_converged} of {len(all_results)} starts converged '
-                  f'(cost <= {self.optimiser_options["cost_convergence"]:g}), landing in '
-                  f'{len(self.convergence_clusters)} distinct solution(s):')
-            for i, cl in enumerate(self.convergence_clusters):
-                params_str = ' '.join(f'{v:.4g}' for v in cl['params'])
-                print(f'    solution {i}: {cl["count"]} start(s), cost {cl["best_cost"]:.3e}, '
-                      f'params [{params_str}]')
+                skipped_note = ('the rest were skipped after a start converged'
+                                if self.optimiser_options['no_new_starts_on_convergence']
+                                else 'no_new_starts_on_convergence is off, so all ran')
+                print(f'Multi-start L-BFGS-B ran {len(all_results)} of '
+                      f'{int(self.optimiser_options["num_starts"])} starts '
+                      f'({skipped_note}); '
+                      f'best cost {best_result["final_cost"]:.6e} came from start '
+                      f'{best_result["start_idx"]}; '
+                      f'speedup {self.speedup:.1f}x over {num_procs} rank(s)')
+                print(f'  {self.num_converged} of {len(all_results)} starts converged '
+                      f'(cost <= {self.optimiser_options["cost_convergence"]:g}), landing in '
+                      f'{len(self.convergence_clusters)} distinct solution(s):')
+                for i, cl in enumerate(self.convergence_clusters):
+                    params_str = ' '.join(f'{v:.4g}' for v in cl['params'])
+                    print(f'    solution {i}: {cl["count"]} start(s), cost {cl["best_cost"]:.3e}, '
+                          f'params [{params_str}]')
 
-            best = {
-                'param_vals': np.asarray(best_param_vals, dtype=float).flatten(),
-                'cost': float(best_result['final_cost']),
-            }
+                best = {
+                    'param_vals': np.asarray(best_param_vals, dtype=float).flatten(),
+                    'cost': float(best_result['final_cost']),
+                }
+            except Exception as exc:
+                best = None
+                rank0_error = {
+                    'type': type(exc).__name__,
+                    'message': str(exc),
+                    'traceback': traceback.format_exc(),
+                }
 
-        # Collective 3: give every rank the winner.
-        best = comm.bcast(best, root=0)
+        # Collective 3: give every rank the winner -- or rank 0's failure, so that an error
+        # here raises on every rank instead of stranding them all in this bcast.
+        best, rank0_error = comm.bcast((best, rank0_error), root=0)
+        if rank0_error is not None:
+            raise RuntimeError(
+                'multi-start L-BFGS-B failed while collecting results on rank 0: '
+                f"{rank0_error['type']}: {rank0_error['message']}\n{rank0_error['traceback']}"
+            )
 
         self.best_param_vals = best['param_vals']
         self.best_cost = best['cost']

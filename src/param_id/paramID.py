@@ -2,6 +2,7 @@
 @author: Finbar J. Argus
 '''
 
+import hashlib
 import numpy as np
 import os
 import sys
@@ -145,6 +146,38 @@ def _as_casadi_column(x):
     if isinstance(x, (np.ndarray, list, tuple)):
         return ca.DM(np.asarray(x, dtype=float).reshape(-1, 1))
     return ca.reshape(x, x.numel(), 1)
+
+
+def _content_hash(obj):
+    """Stable content digest of nested lists/dicts/arrays, for cache keys.
+
+    Not repr(): numpy truncates the repr of an array past ~1000 elements
+    ('array([0, 1, 2, ..., 9997, 9998, 9999])'), so two different long observation series --
+    exactly the thing this is used to distinguish -- can share a repr. Hash the raw bytes
+    instead, tagging dtype and shape so arrays that differ only in those still separate.
+    """
+    digest = hashlib.blake2b(digest_size=16)
+
+    def update(value):
+        if isinstance(value, np.ndarray):
+            digest.update(b'\x01' + str(value.dtype).encode() + str(value.shape).encode())
+            digest.update(np.ascontiguousarray(value).tobytes())
+        elif isinstance(value, (list, tuple)):
+            digest.update(b'\x02')
+            for item in value:
+                update(item)
+            digest.update(b'\x03')
+        elif isinstance(value, dict):
+            digest.update(b'\x04')
+            for key in sorted(value, key=repr):
+                update(key)
+                update(value[key])
+            digest.update(b'\x05')
+        else:
+            digest.update(b'\x06' + repr(value).encode())
+
+    update(obj)
+    return digest.hexdigest()
 
 
 class CVS0DParamID():
@@ -2197,16 +2230,37 @@ class OpencorParamID():
         return preds_const_vec
     
     def _casadi_functions_cache_key(self, param_names, get_all_series):
-        """Structure signature of the CasADi symbolic graph. It depends on which parameters are
-        free, whether all series are requested, and the solver/protocol config -- but NOT on the
-        numeric parameter values. Two calls with the same key produce identical ca.Function
-        objects (verified: gradients are bit-identical), so the graph can be built once and
-        re-evaluated at new parameter values."""
+        """Signature of everything the CasADi symbolic graph is built from, so that the graph can
+        be built once and re-evaluated at new parameter values.
+
+        The free parameters enter the graph symbolically, so the key deliberately does NOT
+        include their numeric values. Everything else does, because get_cost_and_obs_from_params
+        bakes it into the SX graph as literal constants: the ground truth, the standard
+        deviations, the per-experiment/sub weights, the cost type, and the params_to_change
+        protocol values. Those are all reachable through public setters (set_ground_truth_data,
+        set_obs_info, set_protocol_info) and by direct mutation of obs_info, so without them in
+        the key a flow that re-points the data -- `set_ground_truth_data(A); run();
+        set_ground_truth_data(B); run()`, staged sequential param-id, MCMC after calibration --
+        would hit the cache and silently keep optimising against the *previous* data while
+        reporting a plausible converged cost. Hashing them here rather than clearing the key in
+        each setter also covers in-place mutation, which no setter can intercept.
+        """
         pnames = tuple(n[0] if isinstance(n, (list, tuple)) else n for n in param_names)
         proto = self.protocol_info or {}
+        obs = self.obs_info or {}
+        data_sig = _content_hash([
+            obs.get('ground_truth_const'), obs.get('ground_truth_series'),
+            obs.get('std_const_vec'), obs.get('std_series_vec'),
+            obs.get('obs_dt'), obs.get('operands'), obs.get('operations'),
+            obs.get('data_types'), obs.get('cost_type'), self.cost_type,
+            proto.get('scaled_weight_const_from_exp_sub'),
+            proto.get('scaled_weight_series_from_exp_sub'),
+            proto.get('params_to_change'),
+        ])
         return (pnames, bool(get_all_series), float(self.dt),
                 repr(proto.get('sim_times')), repr(proto.get('pre_times')),
-                repr(self.solver_info.get('method') if self.solver_info else None))
+                repr(self.solver_info.get('method') if self.solver_info else None),
+                data_sig)
 
     def build_casadi_functions(self, param_names, param_vals = None, get_all_series=False):
         _require_casadi()

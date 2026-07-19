@@ -1,3 +1,4 @@
+import pathlib
 import warnings
 
 import pytest
@@ -112,7 +113,52 @@ def test_solver_integrator_keys_derived_from_schema():
     assert _SOLVER_INTEGRATOR_KEYS['casadi_integrator'] == {
         'reltol', 'abstol', 'rtol', 'atol', 'max_num_steps', 'max_step_size', 'max_step',
         'options'}
-    assert _SOLVER_INTEGRATOR_KEYS['aadc_semi_implicit'] == {'tol', 'threads', 'gradient_method'}
+    assert _SOLVER_INTEGRATOR_KEYS['aadc_semi_implicit'] == {'tol', 'threads'}
+
+
+def test_schema_settings_are_actually_read_by_the_code():
+    """Every setting the schemas advertise must be read somewhere in src/.
+
+    The schemas are CUFLynx's contract -- it builds its settings forms by reading them -- so a
+    setting no code consumes becomes a control the user can change with no effect and no way to
+    tell. The sibling tests above cannot catch that: _SOLVER_INTEGRATOR_KEYS is *derived from*
+    SOLVER_INFO_FIELDS, so they compare the schema against a copy of itself. A phantom
+    'gradient_method' on aadc_semi_implicit passed them for precisely that reason (AD vs FD is
+    chosen by the do_ad flag, and the AD backend follows from model_type -- nothing ever read
+    it). Check the schema against the source instead.
+
+    The search is deliberately repo-wide rather than per-solver-file, because a setting is not
+    always consumed by its own helper: CVODE_myokit's MaximumNumberOfSteps is read in
+    protocol_runner.py, not myokit_helper.py. PrimitiveParsers.py is excluded because that is
+    where the schema declares the names in the first place.
+    """
+    src_dir = pathlib.Path(__file__).resolve().parent.parent / 'src'
+    corpus = '\n'.join(
+        path.read_text(errors='ignore')
+        for path in src_dir.rglob('*.py')
+        if path.name != 'PrimitiveParsers.py' and 'obsolete' not in path.parts
+    )
+
+    def never_read(names):
+        return [n for n in names if f'"{n}"' not in corpus and f"'{n}'" not in corpus]
+
+    unread_solver = {
+        solver: never_read([f['name'] for f in fields])
+        for solver, fields in SOLVER_INFO_FIELDS.items()
+    }
+    unread_solver = {k: v for k, v in unread_solver.items() if v}
+    assert not unread_solver, (
+        f'solver_info settings advertised to CUFLynx but read nowhere in src/: {unread_solver}. '
+        'Either wire the setting up or remove it from SOLVER_INFO_FIELDS.')
+
+    unread_method = {
+        method: never_read([o['name'] for o in spec.get('options', [])])
+        for method, spec in PARAM_ID_METHODS.items()
+    }
+    unread_method = {k: v for k, v in unread_method.items() if v}
+    assert not unread_method, (
+        f'optimiser options advertised to CUFLynx but read nowhere in src/: {unread_method}. '
+        'Either wire the option up or remove it from PARAM_ID_METHODS.')
 
 
 def test_analysis_options_schema_well_formed():
