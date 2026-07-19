@@ -705,6 +705,68 @@ def test_trace_step_input_equals_discrete_subexperiment_change(
 
 @pytest.mark.integration
 @pytest.mark.solver
+def test_casadi_ad_mode_carries_state_across_sub_experiments(
+        generated_cellml_model_factory, temp_model_dir):
+    """Under do_ad, CasADi must chain sub-experiments exactly as the forward path does.
+
+    _create_param_subset flips the helper into AD mode, where the cost and its gradient are read
+    off one symbolic graph. That graph used to skip the sub-experiment carry altogether -- the
+    carry was recorded only `if not self._do_ad` -- so every sub-experiment restarted from the
+    default state while the forward path continued from the previous sub's end state. do_ad
+    therefore calibrated a different protocol from the one that was simulated afterwards, since
+    reset_and_clear turns _do_ad back off and the final simulate/plot does carry. Cost and
+    gradient agreed with each other (same graph), so nothing downstream could detect it.
+
+    Runs the same two-sub protocol with and without AD mode and requires identical numeric
+    trajectories. Fails on the second sub-experiment before the fix.
+    """
+    pytest.importorskip("casadi")
+    dt, T, G0, G1 = 0.02, 2.0, 3.0, 5.0
+    GAMMA = "Lotka_Volterra/gamma"
+
+    def two_sub_trajectories(ad_mode):
+        h = _lotka_sim_helper(generated_cellml_model_factory, temp_model_dir,
+                              "casadi_python", dt, T)
+        h.set_protocol_info({"pre_times": [0.0], "sim_times": [[T, T]],
+                             "params_to_change": {GAMMA: [[G0, G1]]}})
+        h.reset_states()
+        if ad_mode:
+            # What build_casadi_functions does before evaluating a cost or gradient.
+            h._create_param_subset([["Lotka_Volterra/alpha"]])
+            assert h._do_ad, "_create_param_subset should have switched the helper into AD mode"
+        trajectories, cur = [], 0.0
+        for sub_idx, st in enumerate([T, T]):
+            h.update_times(dt, cur, st, 0.0)
+            h.set_param_vals([GAMMA], [G0 if sub_idx == 0 else G1])
+            assert h.run(), f"sub-experiment {sub_idx} failed (ad_mode={ad_mode})"
+            # get_results returns SX under do_ad, so compare the numeric trajectory the helper
+            # evaluates alongside the symbolic one.
+            trajectories.append(np.array(h.state_traj_dm, dtype=float))
+            cur += st
+        h.close_simulation()
+        return trajectories
+
+    forward = two_sub_trajectories(ad_mode=False)
+    ad = two_sub_trajectories(ad_mode=True)
+
+    # Guard that the comparison is meaningful: if sub 1 happened to start where sub 0 did, a
+    # missing carry would be undetectable and this test would pass vacuously.
+    assert not np.allclose(forward[1][:, 0], forward[0][:, 0], rtol=1e-3, atol=1e-3), (
+        "the two sub-experiments start from the same state, so this test cannot detect a "
+        "missing carry -- pick a protocol where the first sub actually moves the state")
+
+    np.testing.assert_allclose(
+        ad[0], forward[0], rtol=1e-8, atol=1e-10,
+        err_msg="AD and forward mode disagree on the FIRST sub-experiment, before any carry")
+    np.testing.assert_allclose(
+        ad[1], forward[1], rtol=1e-6, atol=1e-8,
+        err_msg="AD mode did not carry state across the sub-experiment boundary: its second "
+                "sub-experiment restarts from the default state instead of continuing from "
+                "the first sub's end state")
+
+
+@pytest.mark.integration
+@pytest.mark.solver
 def test_myokit_set_constant_preserved_after_rebind():
     """
     Regression test for issue #219: cost mismatch when two protocol_traces are active.

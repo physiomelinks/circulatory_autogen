@@ -33,11 +33,16 @@ class SimulationHelper:
         # boundaries in the forward (non-AD) protocol. None means "start fresh" (cleared by
         # reset_states at each experiment boundary). Set before update_times, which reads it.
         self._sub_carry_state = None
+        # Symbolic counterpart, used under do_ad: re-roots the next sub's x0_symb at the
+        # previous sub's symbolic end state so the sub-experiments chain inside the graph.
+        self._sub_carry_symb = None
+        # Must precede update_times below, which branches on it to choose the symbolic or the
+        # numeric carry. Set True by _create_param_subset; cleared by reset_and_clear.
+        self._do_ad = False
         self._load_model()
         self.update_times(dt, 0.0, sim_time, pre_time)
         self._init_state()
         self._has_run = False
-        self._do_ad = False  # set True by _create_param_subset; cleared by reset_and_clear
 
     def set_protocol_info(self, protocol_info):
         """Store protocol metadata for a common helper API."""
@@ -184,6 +189,11 @@ class SimulationHelper:
             else:
                 x0_parts.append(state_sym)
         self.x0_symb = ca.vertcat(*x0_parts)
+        # Pristine root of the symbolic trajectory. In AD mode a sub-experiment boundary
+        # re-roots x0_symb at the previous sub's symbolic end state (see update_times), so the
+        # experiment boundary needs the original back. Built once -- this method is only called
+        # from __init__ -- so caching it here is safe.
+        self._x0_symb_pristine = self.x0_symb
 
         self._integrator_const_indices = [
             i for i in self.constant_indices if i not in self._init_var_idx_to_state_idx
@@ -249,7 +259,20 @@ class SimulationHelper:
         # recorded its end state; continue the next sub-experiment from there. reset_states
         # clears it at each experiment boundary, so an experiment's first sub-experiment starts
         # from the (possibly overridden) default state, not a stale carry.
-        if self._sub_carry_state is not None:
+        #
+        # In AD mode the carry must be *symbolic*. self.states is the numeric point the whole
+        # composed graph is evaluated at, so it has to stay at the experiment's initial
+        # condition; re-rooting x0_symb at the previous sub's symbolic end state is what chains
+        # the sub-experiments inside the graph. That makes the gradient the gradient of the
+        # protocol actually being simulated. Previously the carry was skipped entirely under
+        # do_ad, so every sub restarted from the default state while the forward path chained --
+        # meaning do_ad silently calibrated a different protocol from the one that was later
+        # plotted (reset_and_clear turns _do_ad off, so simulate_with_best_param_vals does
+        # carry).
+        if self._do_ad:
+            if self._sub_carry_symb is not None:
+                self.x0_symb = self._sub_carry_symb
+        elif self._sub_carry_state is not None:
             self.states = list(self._sub_carry_state)
 
     # ---- parameter helpers ----
@@ -493,11 +516,30 @@ class SimulationHelper:
         # (matching the Myokit/OpenCOR backends). The carry is applied in update_times, not by
         # mutating self.states here: self.states must stay at this run's initial condition so
         # post-run inspection (get_init_param_vals, a re-run, _post_process reference checks)
-        # sees the same state it integrated from. Only in the forward (non-AD) path -- in AD
-        # mode self.states is the point the symbolic cost/gradient is evaluated at, and the
-        # carry must not interfere.
-        if not self._do_ad:
-            self._sub_carry_state = list(self.state_traj_dm[:, -1])
+        # sees the same state it integrated from.
+        self._sub_carry_state = list(self.state_traj_dm[:, -1])
+        if self._do_ad:
+            # Symbolic end state. Re-rooting the next sub at this expression composes the
+            # sub-experiments into one graph, so the numeric evaluation point (self.states)
+            # stays the experiment's initial condition and the gradient chains through every
+            # sub.
+            #
+            # Every sub shares ONE symbolic variable vector, and the numeric evaluation
+            # substitutes today's values throughout it. So the carried expression must have
+            # this sub's constants baked in as literals -- otherwise the next sub, which calls
+            # set_param_vals with its own params_to_change values first, would re-evaluate this
+            # sub's segment at *those* values. (Verified: with the same params_to_change value
+            # in both subs the carry matches the forward path exactly; with different values it
+            # does not.) The calibrated parameters are deliberately left symbolic -- they are
+            # what the gradient is taken with respect to, and they do not change between subs.
+            calibrated = set(getattr(self, '_calib_const_positions', None) or [])
+            frozen = ca.vertcat(*[
+                self.variables_symb[j] if j in calibrated
+                else ca.DM(float(self.variables[j]))
+                for j in range(self.variables_symb.numel())
+            ])
+            self._sub_carry_symb = ca.substitute(
+                self.state_traj_symb[:, -1], self.variables_symb, frozen)
 
         return True
 
@@ -597,6 +639,10 @@ class SimulationHelper:
             symb_list.append(self.variables_all_symb[var_idx])
 
         self.variables_symb_subset = ca.vertcat(*symb_list)
+        # Positions (into self.variables / self.variables_symb) of the parameters being
+        # calibrated. The sub-experiment carry needs them: everything *else* must be frozen at
+        # its current value when a sub's end state is carried forward -- see run().
+        self._calib_const_positions = list(const_positions)
 
         if param_vals is not None:
             param_vals = np.asarray(param_vals, dtype=float)
@@ -638,8 +684,13 @@ class SimulationHelper:
         self.states = copy.copy(self.default_state_inits)
         self.model.compute_computed_constants(self.variables_model)
         # Experiment boundary: drop any carried sub-experiment end state so the next
-        # experiment's first sub-experiment starts from the default (reset) state.
+        # experiment's first sub-experiment starts from the default (reset) state. The symbolic
+        # carry is dropped with it, and x0_symb is re-rooted at the pristine initial state --
+        # otherwise the next experiment's graph would still be composed on top of the previous
+        # experiment's trajectory.
         self._sub_carry_state = None
+        self._sub_carry_symb = None
+        self.x0_symb = self._x0_symb_pristine
 
     def close_simulation(self):
         # no-op for scipy solver
