@@ -102,7 +102,7 @@ The authoritative lists are `[project.dependencies]` and `[project.optional-depe
         *downgrade* it to the newest 0.6.x. That is intended — but if libCellML came from conda or
         a system package rather than pip, the resolver may instead fail with a version conflict
         that does not obviously point here. Installing into a fresh virtual environment avoids
-        both. Lifting the pin is tracked upstream.
+        both. Lifting the pin is tracked in issue #271.
 - Parameter identification: `mpi4py`, `nevergrad` (CMA-ES), `emcee`, `numdifftools`, and related scientific stack.
 - Sensitivity analysis: `SALib`, `seaborn`.
 - **Development**: the `dev` extra (e.g. `pytest`, `pytest-mpi`).

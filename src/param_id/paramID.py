@@ -1239,7 +1239,7 @@ class OpencorParamID():
             # ProtocolExecutor, which passes pre_times[exp_idx] to update_times for sub 0), so
             # the starting state and its sensitivity are both correct. This gives up the
             # speed-up the offline pass existed to provide; reinstating a *correct* offline
-            # optimisation is tracked separately.
+            # optimisation is tracked in issue #269.
             offline_pre_time = float(offline_pre_time)
             pre_times = self.protocol_info.get('pre_times')
             if pre_times is not None:

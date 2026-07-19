@@ -717,7 +717,7 @@ class SimulationHelper:
                 "Non-AD variables are likewise frozen at first-call values, so params_to_change "
                 "stops taking effect. Use method 'semi_implicit' or 'rk4' for AADC, or "
                 "model_type 'casadi_python' (solver_info method 'bdf') for a symbolic BDF that "
-                "handles time-dependent models correctly.")
+                "handles time-dependent models correctly. Tracked in issue #268.")
         elif method == 'semi_implicit':
             traj = self._integrate_semi_implicit(self.states, variables_all, total_steps, self.dt)
         elif method == 'rk4':

@@ -477,7 +477,7 @@ class SimulationHelper:
                 # the clock through _run's `self._time += duration`, so the run_t0 offset below
                 # is unaffected -- but leaves the sensitivities alone. pre() IS the correct call
                 # for a genuine *offline* warm-up, which really does establish a new initial
-                # condition; see the offline_pre_time issue.
+                # condition; see issue #269.
                 # (Return value discarded: with FSA on this is (log, sensitivities), and the
                 # warm-up's own log/sensitivities are not wanted.)
                 self.simulation.run(self.pre_time, log=myokit.LOG_NONE)
@@ -549,7 +549,7 @@ class SimulationHelper:
         state.
 
         Two things must be handled if a (correct) offline optimisation is reinstated on top of
-        this method:
+        this method (tracked in issue #269):
           1. pre() resets initial-value sensitivity rows of _s_state to the identity. That is
              the RIGHT semantics here -- an offline warm-up really does establish a new initial
              condition -- but it also mutates _s_default_state, so the pristine save/restore
