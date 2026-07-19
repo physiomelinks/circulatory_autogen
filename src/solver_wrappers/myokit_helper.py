@@ -465,9 +465,22 @@ class SimulationHelper:
     def run(self):
         try:
             if self.pre_time > 0:
-                # Run a pre-simulation without logging
-                self.simulation.pre(self.pre_time)
-                # Note: pre-simulation may change state, but for pre_time=0, this doesn't run
+                # Unlogged warm-up. Deliberately run(log=LOG_NONE) and NOT simulation.pre():
+                # pre() resets every initial-value sensitivity row of _s_state to the identity
+                # basis vector ("Reset to time 0", myokit cvodessim.pre()), throwing away the
+                # d(state)/d(init) that CVODES accumulated across the warm-up. This warm-up is
+                # part of *this* experiment and the calibrated initial value lives at its
+                # start, so that sensitivity must propagate through it; otherwise a directly
+                # calibrated state reports ~identity sensitivity when the true value has
+                # decayed towards zero (the system forgets its IC), and the optimiser chases a
+                # parameter that barely matters. run() integrates identically -- both advance
+                # the clock through _run's `self._time += duration`, so the run_t0 offset below
+                # is unaffected -- but leaves the sensitivities alone. pre() IS the correct call
+                # for a genuine *offline* warm-up, which really does establish a new initial
+                # condition; see the offline_pre_time issue.
+                # (Return value discarded: with FSA on this is (log, sensitivities), and the
+                # warm-up's own log/sensitivities are not wanted.)
+                self.simulation.run(self.pre_time, log=myokit.LOG_NONE)
 
             log = self._make_log()
             # Use explicit log times so the end-point is included.
@@ -526,7 +539,24 @@ class SimulationHelper:
         return True
 
     def run_offline_pre_and_set_default_state(self, offline_pre_time):
-        """Run unlogged warmup once; use end state as default for reset_states()."""
+        """Run unlogged warmup once; use end state as default for reset_states().
+
+        Currently UNUSED: the param-id path folds offline_pre_time into each experiment's
+        first-sub warm-up instead, so it is re-integrated at the current parameter values on
+        every evaluation. Freezing one state here made every evaluation start from the steady
+        state of the *initial* parameter guess, and made the gradient drop the
+        d(steady state)/d(p) term -- invisibly, since AD-vs-FD both perturb the same frozen
+        state.
+
+        Two things must be handled if a (correct) offline optimisation is reinstated on top of
+        this method:
+          1. pre() resets initial-value sensitivity rows of _s_state to the identity. That is
+             the RIGHT semantics here -- an offline warm-up really does establish a new initial
+             condition -- but it also mutates _s_default_state, so the pristine save/restore
+             deleted from reset_states() must be reinstated alongside it.
+          2. The frozen state must be invalidated whenever the parameters move, or the same
+             silent gradient bias returns.
+        """
         offline_pre_time = float(offline_pre_time)
         if offline_pre_time <= 0:
             return
@@ -556,13 +586,14 @@ class SimulationHelper:
         # New experiment: start a fresh per-sub sensitivity history (each experiment is
         # independent; sensitivities do not carry across experiment boundaries).
         self._fsa_sensitivities_history = []
+        # reset() restores _s_state from _s_default_state. Nothing mutates _s_default_state any
+        # more -- the warm-up in run() uses run(log=LOG_NONE), not pre(), precisely so the
+        # initial-value sensitivity rows survive it -- so the default reset() restores is
+        # already the pristine one built at construction. The explicit pristine save/restore
+        # that used to live here existed only to undo pre()'s pollution and is now redundant.
+        # NOTE: if an offline warm-up using pre() is ever reinstated, that pollution returns and
+        # this restore must come back with it (see run_offline_pre_and_set_default_state).
         self.simulation.reset()
-        # reset() restored _s_default_state, which a previous experiment's pre() may have
-        # polluted; restore the pristine sensitivity default so this experiment starts fresh.
-        if self._fsa_enabled and getattr(self, '_fsa_pristine_s_state', None) is not None:
-            fresh = [list(row) for row in self._fsa_pristine_s_state]
-            self.simulation._s_state = fresh
-            self.simulation._s_default_state = [list(row) for row in fresh]
         if self._offline_default_state is not None:
             self.simulation.set_state(self._offline_default_state)
         else:
@@ -991,12 +1022,22 @@ class SimulationHelper:
         self._recreate_simulation()
         self._build_variable_maps()
         self._init_defaults()
-        # Capture the pristine sensitivity default (identity for init-value independents, zero
-        # for constants) straight after construction. Myokit's pre() mutates _s_default_state,
-        # so reset() at an experiment boundary would otherwise restore a warmup-polluted default
-        # and contaminate the next experiment's sensitivities. reset_states() restores this.
-        pristine = getattr(self.simulation, '_s_state', None)
-        self._fsa_pristine_s_state = [list(row) for row in pristine] if pristine is not None else None
+        # The multi-sub sensitivity carry in update_times() reads and writes Myokit's private
+        # CVODES sensitivity matrix, `Simulation._s_state` (a list indexed
+        # [independent][state]); Myokit exposes no public setter for it. Fail loudly here if it
+        # is missing rather than at the call sites, which all use getattr(..., None) and would
+        # otherwise silently skip the carry -- dropping the cross-sub chain-rule term and
+        # biasing every gradient low with no warning at all. A Myokit upgrade that renames or
+        # removes this attribute must break the build, not the numbers.
+        if not hasattr(self.simulation, '_s_state'):
+            raise RuntimeError(
+                "This Myokit build does not expose Simulation._s_state, the private CVODES "
+                "sensitivity matrix that the multi-sub-experiment FSA gradient carries across "
+                f"sub-experiment boundaries (myokit {getattr(myokit, '__version__', 'unknown')}). "
+                "Verified present in 1.39.1 with layout [independent][state]. Without it the "
+                "gradient would be silently wrong rather than absent, so FSA refuses to run. "
+                "Either pin a Myokit that provides it, or use model_type 'casadi_python' "
+                "(solver_info method 'bdf') for a gradient that does not depend on it.")
         return ineligible_names
 
     def _classify_fsa_independents(self, dep_specs, cand_specs, cand_names):

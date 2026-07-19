@@ -1,0 +1,57 @@
+DEBUG: false
+file_prefix: 3compartment
+input_param_file: 3compartment_parameters.csv
+model_type: aadc_python
+param_id_method: sp_minimize
+do_ad: true
+pre_time: 0.0
+sim_time: 0.3
+cpp_generated_models_dir: /home/farg967/Documents/git_projects/circulatory_autogen/generated_models/3compartment/
+couple_to_1d: false
+cpp_1d_model_config_path: /home/farg967/software/venous_system/lucas_model/aortic_bif_coupling/run_dir/input1d.dat
+dt: 0.01
+solver_info:
+  method: semi_implicit
+  solver: aadc_semi_implicit
+do_sensitivity: false
+optimiser_options:
+  num_calls_to_function: 2000
+  cost_convergence: 0.001
+  max_patience: 10
+  cost_type: gaussian_MLE
+debug_optimiser_options:
+  num_calls_to_function: 30
+  cost_convergence: 0.001
+  cost_type: gaussian_MLE
+do_mcmc: false
+mcmc_options:
+  num_steps: 1000
+  num_walkers: 64
+  cost_type: gaussian_MLE
+  cost_convergence: 0.001
+debug_mcmc_options:
+  num_steps: 5
+  num_walkers: 40
+  cost_type: gaussian_MLE
+  cost_convergence: 0.001
+sa_options:
+  method: sobol
+  sample_type: saltelli
+  num_samples: 256
+  output_dir: /home/farg967/Documents/git_projects/circulatory_autogen/.claude/worktrees/bench-aadc-3compartment/tests/../src/parsers/../../sensitivity_outputs/3compartment_SA_results
+do_ia: false
+ia_options:
+  method: Laplace
+plot_predictions: false
+params_for_id_file: 3compartment_params_for_id.csv
+param_id_obs_path: /home/farg967/Documents/git_projects/circulatory_autogen/.claude/worktrees/bench-aadc-3compartment/tests/../resources/3compartment_obs_data.json
+param_id_output_dir: /home/farg967/Documents/git_projects/circulatory_autogen/.claude/worktrees/bench-aadc-3compartment/tests/test_outputs/tests_test_param_id.py_test_aadc_gradient_rejects_untapeable_observables
+generated_models_dir: /home/farg967/Documents/git_projects/circulatory_autogen/.claude/worktrees/bench-aadc-3compartment/tests/test_outputs/tests_test_param_id.py_test_aadc_gradient_rejects_untapeable_observables/generated_models
+resources_dir: /home/farg967/Documents/git_projects/circulatory_autogen/.claude/worktrees/bench-aadc-3compartment/tests/../resources
+generated_models_subdir: /home/farg967/Documents/git_projects/circulatory_autogen/.claude/worktrees/bench-aadc-3compartment/tests/test_outputs/tests_test_param_id.py_test_aadc_gradient_rejects_untapeable_observables/generated_models/3compartment
+model_path: /home/farg967/Documents/git_projects/circulatory_autogen/.claude/worktrees/bench-aadc-3compartment/tests/test_outputs/tests_test_param_id.py_test_aadc_gradient_rejects_untapeable_observables/generated_models/3compartment/3compartment.py
+uncalibrated_model_path: /home/farg967/Documents/git_projects/circulatory_autogen/.claude/worktrees/bench-aadc-3compartment/tests/test_outputs/tests_test_param_id.py_test_aadc_gradient_rejects_untapeable_observables/generated_models/3compartment/3compartment.py
+external_modules_dir: null
+vessels_csv_abs_path: /home/farg967/Documents/git_projects/circulatory_autogen/.claude/worktrees/bench-aadc-3compartment/tests/../resources/3compartment_vessel_array.csv
+parameters_csv_abs_path: /home/farg967/Documents/git_projects/circulatory_autogen/.claude/worktrees/bench-aadc-3compartment/tests/../resources/3compartment_parameters.csv
+params_for_id_path: /home/farg967/Documents/git_projects/circulatory_autogen/.claude/worktrees/bench-aadc-3compartment/tests/../resources/3compartment_params_for_id.csv

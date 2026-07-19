@@ -1191,11 +1191,32 @@ class OpencorParamID():
         if self.protocol_info is not None:
             offline_pre_time = self.protocol_info.get('offline_pre_time')
         if offline_pre_time is not None and float(offline_pre_time) > 0:
-            if not hasattr(self.sim_helper, 'run_offline_pre_and_set_default_state'):
-                raise NotImplementedError(
-                    f"Solver {self.solver_info.get('solver')} does not support offline_pre_time"
-                )
-            self.sim_helper.run_offline_pre_and_set_default_state(offline_pre_time)
+            # offline_pre_time used to be run ONCE here, freezing the resulting state into the
+            # solver's default_state_inits for the whole calibration. That state is the steady
+            # state of the *initial* parameter guess, and it was never recomputed as the
+            # optimiser moved -- yet parameters change the steady state that is reached. Two
+            # consequences: every evaluation started from a state correct only for the initial
+            # params (a bias that itself varies with the params, so it distorts the cost
+            # landscape); and the gradient silently lost the d(steady state)/d(p) term, because
+            # FSA/AD treats that frozen state as a constant. AD-vs-FD verification cannot catch
+            # the latter -- FD perturbs the same frozen state, so both agree and both are wrong.
+            #
+            # Fold the duration into each experiment's first-sub warm-up instead. That warm-up
+            # IS re-integrated at the current parameter values on every evaluation (see
+            # ProtocolExecutor, which passes pre_times[exp_idx] to update_times for sub 0), so
+            # the starting state and its sensitivity are both correct. This gives up the
+            # speed-up the offline pass existed to provide; reinstating a *correct* offline
+            # optimisation is tracked separately.
+            offline_pre_time = float(offline_pre_time)
+            pre_times = self.protocol_info.get('pre_times')
+            if pre_times is not None:
+                self.protocol_info = dict(self.protocol_info)
+                self.protocol_info['pre_times'] = [
+                    float(pt or 0.0) + offline_pre_time for pt in pre_times
+                ]
+                self.pre_time = self.protocol_info['pre_times'][0]
+            else:
+                self.pre_time = float(self.pre_time or 0.0) + offline_pre_time
             if self.sim_time is not None and self.pre_time is not None:
                 self.sim_helper.update_times(self.dt, 0.0, self.sim_time, self.pre_time)
 
@@ -2383,7 +2404,14 @@ class OpencorParamID():
             base = int(np.sum(num_sub_per_exp[:exp_idx]))
             for sub_idx in range(num_sub_per_exp[exp_idx]):
                 subexp_count = base + sub_idx
-                operands = operands_list[subexp_count]
+                # A failed simulation makes get_cost_obs_and_pred_from_params return
+                # `np.inf, [], []` -- an *empty* list, not a list of Nones. Indexing it
+                # unguarded raises IndexError before the None check below can fire, which
+                # propagates out of scipy.minimize and kills the whole calibration. The
+                # non-AD path returns inf here and lets L-BFGS-B's line search back off, so
+                # bounds-check and fall through to the same (inf, nan) result.
+                operands = operands_list[subexp_count] \
+                    if subexp_count < len(operands_list) else None
                 if operands is None:
                     return (np.inf, np.full(n_params, np.nan)) if return_cost \
                         else np.full(n_params, np.nan)
@@ -2590,13 +2618,19 @@ class OpencorParamID():
         # being minimised, so the optimiser would descend the wrong cost. Refuse rather than
         # silently mislead. (Fully supporting algebraic observables needs the algebraic variables
         # recomputed on the tape from the state trajectory, tracked in issue #258.)
-        state_names_lower = [info['name'].lower() for info in self.sim_helper.model.STATE_INFO]
-
         def _operand_is_state(op):
+            # _resolve_name is authoritative. There used to be a fallback here matching the
+            # operand's leaf name (op.split('/')[-1]) against every state name, which could
+            # declare an *algebraic* observable tapeable purely because some unrelated
+            # component happened to own a state with the same leaf -- e.g. observable
+            # 'pulmonary_artery/v' matching state 'heart/v'. That suppressed the untapeable
+            # check below, and _resolve_state_idx's matching fallback then bound the tape to
+            # the first state with that leaf: a different variable entirely. Because both the
+            # tape cost and its gradient used the wrong variable they agreed with each other,
+            # so AD-vs-FD checks passed and the optimiser converged cleanly onto a fit of a
+            # variable the user never asked for.
             kind, _ = self.sim_helper._resolve_name(op)
-            if kind == 'state':
-                return True
-            return op.split('/')[-1].lower() in state_names_lower
+            return kind == 'state'
 
         supported_const_ops = (None, 'max', 'min', 'mean')
         operand_names_o = self.obs_info.get("operands", []) if self.obs_info else []
@@ -2673,18 +2707,14 @@ class OpencorParamID():
             weights_const = self.protocol_info["scaled_weight_const_from_exp_sub"][0][0] \
                 if self.protocol_info else np.ones(len(gt_const))
 
-            # Map operand names to state indices
-            state_names = [info['name'] for info in sim_helper.model.STATE_INFO]
-
-            # Helper: resolve operand name to state index
+            # Helper: resolve operand name to state index. _resolve_name is authoritative --
+            # see _operand_is_state for why the leaf-name fallback that used to live here was
+            # removed (it could bind the tape to a same-leaf state in an unrelated component,
+            # consistently in both cost and gradient, so nothing downstream could detect it).
             def _resolve_state_idx(op_name):
                 kind, resolved_idx = sim_helper._resolve_name(op_name)
                 if kind == "state":
                     return resolved_idx
-                op_leaf = op_name.split('/')[-1].lower()
-                for k, sn in enumerate(state_names):
-                    if sn.lower() == op_leaf:
-                        return k
                 return None
 
             gt_series = obs_info.get("ground_truth_series", [])
