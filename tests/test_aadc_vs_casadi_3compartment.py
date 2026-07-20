@@ -44,6 +44,17 @@ from utilities.utility_funcs import get_default_inp_data_dict
 _DT = 0.001
 _SIM_TIME = 1.0
 
+# AADC's ``method='bdf'`` is disabled: its RHS kernel is recorded once with
+# compute_rates(0.0, ...) and the integrator discards t, so any model whose rates depend on
+# time -- which 3compartment's cardiac driver does -- is integrated with its t=0 right-hand
+# side for the whole run while solve_ivp still reports success. AadcPythonSimulationHelper.run
+# now raises rather than return that. The tests below compare AADC bdf against CasADi/CVODE
+# and therefore cannot run until the kernel is re-recorded with time as an input (issue #268).
+# CasADi bdf and AADC semi_implicit are unaffected and still covered here.
+_AADC_BDF_DISABLED = pytest.mark.skip(
+    reason="AADC method='bdf' raises by design until its RHS kernel stops being frozen at "
+           "t=0 (issue #268); see test_aadc_bdf_is_refused_while_frozen_at_t0")
+
 
 @pytest.fixture(scope="module")
 def models_3compartment(tmp_path_factory):
@@ -250,6 +261,30 @@ def test_3compartment_casadi_rk_no_abstol_option(models_3compartment):
     assert 'abstol' in cv_opts and 'reltol' in cv_opts, "cvodes should still receive tolerances"
 
 
+@pytest.mark.integration
+@pytest.mark.slow
+def test_aadc_bdf_is_refused_while_frozen_at_t0(aadc_licensed, models_3compartment):
+    """AADC ``method='bdf'`` must refuse to run, not return a confident wrong trajectory.
+
+    Its RHS kernel is recorded once via ``compute_rates(0.0, ...)`` and the integrator drives
+    it as ``lambda t, y: vfj.func(y)``, discarding t. 3compartment has a time-varying cardiac
+    driver, so the whole run would use the t=0 right-hand side -- and ``solve_ivp`` would
+    still converge and report success, which is what makes it dangerous. This test is the
+    counterpart to the three comparison tests skipped by ``_AADC_BDF_DISABLED``: it keeps the
+    guard itself covered while they cannot run. Remove all four together when issue #268 is
+    fixed.
+    """
+    pytest.importorskip("aadc")
+    paths = models_3compartment["aadc"]
+    helper = get_simulation_helper(
+        model_path=paths["py"], solver='aadc_semi_implicit', model_type='aadc_python',
+        dt=_DT, sim_time=_SIM_TIME, pre_time=0.0, solver_info={'method': 'bdf'},
+    )
+    with pytest.raises(NotImplementedError, match="issue #268"):
+        helper.run()
+
+
+@_AADC_BDF_DISABLED
 @pytest.mark.integration
 @pytest.mark.slow
 def test_3compartment_forward_aadc_bdf_vs_cvode(aadc_licensed, models_3compartment):
@@ -510,6 +545,7 @@ def test_3compartment_aadc_run_warns_stiff(aadc_licensed, models_3compartment):
 
 
 # ---- 3. Speed ----
+@_AADC_BDF_DISABLED
 @pytest.mark.integration
 @pytest.mark.slow
 def test_3compartment_speed_casadi_vs_aadc_bdf(aadc_licensed, models_3compartment):
@@ -622,6 +658,7 @@ def test_3compartment_casadi_post_process_matches_per_timestep_reference(models_
 _ISO_CASADI_MAX_STEP = 1e-5
 
 
+@_AADC_BDF_DISABLED
 @pytest.mark.integration
 @pytest.mark.slow
 def test_3compartment_casadi_vs_aadc_bdf_iso_accuracy(aadc_licensed, models_3compartment):
