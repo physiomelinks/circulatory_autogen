@@ -1,0 +1,6 @@
+variable_name,units,value,data_reference
+V_init_fhn,dimensionless,-1.0,Ramsay_2007
+R_init_fhn,dimensionless,1.0,Ramsay_2007
+a_fhn,dimensionless,0.8,poor_initial_guess_local_minimum
+b_fhn,dimensionless,0.9,poor_initial_guess_local_minimum
+c_fhn,dimensionless,2.0,poor_initial_guess_local_minimum

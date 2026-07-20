@@ -181,13 +181,21 @@ Before doing calibration, a solver for the model needs to be chosen
 - **solver** defines the solver family. Options depend on `model_type`:
     - CellML (`model_type: cellml_only`): `CVODE` defaults to `CVODE_myokit` (Myokit). Use `CVODE_opencor` explicitly if you want the OpenCOR backend instead.
     - Python (`model_type: python`): `solve_ivp` with `solver_info.method` set to `RK45`, `BDF`, etc.
-    - CasADi Python (`model_type: casadi_python`): `casadi_integrator` with `solver_info.method` set to `cvodes`, `idas`, `collocation`, `rk`, or `semi_implicit_euler`.
+    - CasADi Python (`model_type: casadi_python`): `casadi_integrator` with `solver_info.method` set to `cvodes`, `idas`, `collocation`, `rk`, `semi_implicit_euler`, or `bdf`.
     - C++ (`model_type: cpp`): `CVODE`, `RK4`, or `PETSC`.
 - **solver_info** defines settings for the chosen solver:
     - **dt_solver**: solver time step (for CVODE this sets `MaximumStep` when provided)
     - **MaximumStep**: maximum step size for adaptive solvers
     - **MaximumNumberOfSteps**: maximum number of substeps before stepping
     - **method**: any method for `solve_ivp` or `casadi_integrator`, e.g. `RK45`, `BDF`, `cvodes`, etc.
+
+!!! note "Automatic differentiation supports `constant` and `series` observables only"
+    With `do_ad: true` the cost is built symbolically. `constant` and `series` data items are
+    both supported, and `dt` does not have to equal a series item's `obs_dt`: the simulated
+    series is linearly interpolated onto the observation times, which is a multiply by a matrix
+    of weights fixed by the two time grids, so it stays differentiable. Frequency (`amp` /
+    `phase`) and `prob_dist` observables cannot be differentiated yet, and raise rather than
+    silently contributing nothing to the cost.
 
 !!! note "CasADi `semi_implicit_euler` — enables automatic differentiation on stiff models (verify with a convergence study)"
     When using gradient-based parameter identification (`param_id_method: sp_minimize` with
@@ -231,6 +239,81 @@ Before doing calibration, a solver for the model needs to be chosen
         identified parameters stop changing meaningfully before relying on them. Where
         `cvodes` works, it remains the more accurate default.
 
+!!! tip "CasADi `bdf` — a more accurate stiff AD method that also supports a long `pre_time`"
+    `bdf` is a fixed-step, symbolic implicit **BDF2** scheme (a rootfinder per step, differentiated
+    through the implicit-function theorem). Like `semi_implicit_euler` it is built as a single
+    symbolic graph, so CasADi produces exact gradients by reverse-mode AD with no adjoint solver to
+    fail — but it is **second order and full-Jacobian implicit**, so it tracks a stiff trajectory
+    far more accurately than the first-order, diagonally-damped `semi_implicit_euler` at the same
+    `dt`. It also handles a nonzero `pre_time` warmup (unlike `cvodes`, whose adjoint typically
+    fails with `CV_TOO_MUCH_WORK` over a long warmup). Prefer `bdf` over `semi_implicit_euler` for
+    stiff models; still do a convergence study in `dt`.
+
+    ```yaml
+    model_type: casadi_python
+    solver: casadi_integrator
+    do_ad: true
+    solver_info:
+      method: bdf
+      max_step_size: 0.001
+    ```
+
+!!! tip "Myokit CVODES forward sensitivity — AD gradients for `cellml_only` models"
+    A `cellml_only` model run through the Myokit backend can produce an exact gradient without
+    converting to `casadi_python`, using Myokit's native **CVODES forward-sensitivity analysis
+    (FSA)**. Set `model_type: cellml_only`, `solver: CVODE_myokit`, `do_ad: true`, and a
+    gradient-based `param_id_method` (`sp_minimize` or `multi_start_sp_minimize`). FSA integrates
+    the state and sensitivity equations together with the adaptive stiff CVODES solver, so it
+    handles **stiff dynamics and a long `pre_time` warmup natively** while staying as accurate as
+    the forward simulation itself.
+
+    ```yaml
+    model_type: cellml_only
+    solver: CVODE_myokit
+    do_ad: true
+    param_id_method: multi_start_sp_minimize
+    solver_info:
+      rtol: 1e-9
+      atol: 1e-9        # tight tolerances keep the sensitivities out of the integrator noise floor
+    ```
+
+    A parameter that only sets a **state's initial value** cannot be a CVODES sensitivity
+    independent; such parameters automatically fall back to finite differences (a one-line warning
+    reports how many and which). Tighten `rtol`/`atol` when using FSA so the sensitivities are well
+    resolved.
+
+!!! warning "our AADC wrapper is not yet suitable for stiff models or multiple observables"
+    The AADC tape backend (`model_type: aadc_python`) records a **fixed-step** integrator, which is
+    inaccurate or unstable on stiff models — on the 3compartment cardiovascular model its
+    fixed-step implicit solve deviates from CVODE by orders of magnitude. Every AADC run now probes
+    the first second of dynamics and prints a loud warning if the model is stiff, pointing you at
+    CasADi `bdf` or Myokit CVODES FSA instead.
+
+    **AADC is also not currently suitable for problems with multiple observables.** Its tape cost
+    can only represent an observable whose operand is a **state** with a reimplemented operation
+    (`max`/`min`/`mean`), in a **single** experiment. Any other observable — one whose operand is an
+    **algebraic variable** (e.g. a pressure or flow computed from the states rather than integrated),
+    an operation the tape does not reimplement (e.g. `max_minus_min`), or a `series`/other data type
+    — **cannot be put on the tape**. Rather than silently minimise a reduced cost over only the
+    tapeable subset (which would give a fit that is wrong for the omitted observables), the AADC
+    gradient path **raises an error** as soon as any observable in the set can't be taped, naming
+    the offending observables and pointing at the tracking issue (#258). On the 3compartment model,
+    for instance, only 2 of the 6 observables are tapeable (the `aortic_root/u` features are
+    algebraic and `heart/q_lv` uses `max_minus_min`), so AADC refuses to run there and is left off
+    that benchmark. Full-cost parity needs the algebraic variables recomputed on the tape from the
+    state trajectory and `max_minus_min` support (tracked in issue #258). Until then, use AADC only
+    for non-stiff, single-experiment problems whose observables are all state-operand
+    `max`/`min`/`mean` features (or state series); for other observables use `casadi_python`
+    (`method: bdf`) or a Myokit CVODES FSA run, which the error message also points you to. Future
+    work will get it working for stiff models and general observables so its advantages for large
+    numbers of parameters can be used.
+
+    **Multiple sub-experiments / experiments are not yet supported by the AADC wrapper.** The tape
+    records one straight-line integration, so a protocol with more than one sub-experiment (or more
+    than one experiment) raises rather than silently differentiating the wrong thing. The Myokit
+    CVODES FSA gradient (`model_type: cellml_only` + `solver: CVODE_myokit`) does support multi-sub
+    protocols; the AADC equivalent is tracked as future work.
+
 
 ## Parameter Identification Settings
 
@@ -240,7 +323,8 @@ To run the parameter identification we need to set a few entries in the `[CA_dir
     - **genetic_algorithm**: Genetic algorithm optimizer (default, well-tested)
     - **CMA-ES**: Covariance Matrix Adaptation Evolution Strategy using Nevergrad (supports parallel execution)
     - **bayesian**: Bayesian optimization using scikit-optimize (deprecated, untested)
-    - **sp_minimize**: Gradient-based optimizer
+    - **sp_minimize**: Gradient-based optimizer (L-BFGS-B, local only)
+    - **multi_start_sp_minimize**: Multi-start L-BFGS-B — a gradient-based descent from many scattered starting points, so it exploits the gradient but still escapes local minima
 - **pre_time**: this is the amount of time the simulation is run to get to steady state before comparing to the observables from `obs_data.json`. IMPORTANT: THis is overwritten by the pre_times within the obs_data.json file, see the next section.
 - **sim_time**: The amount of time used to compare simulation output and observable data. This should be equal to the length of a series observable entry divided by the "sample_rate". If not, only up to the minimum length of observable data and modelled data will be compared. 
 - **dt**: The output (sample) time step for model outputs
@@ -271,6 +355,33 @@ To run the parameter identification we need to set a few entries in the `[CA_dir
 
     - **do_ad**: Boolean value to determine whether to use automatic differentiation for gradient calculation. If it's set to *False*, gradients will be estimated using finite difference approximation.
 
+    multi_start_sp_minimize specific options:
+
+    - **num_starts**: Number of L-BFGS-B descents to run (default: 10, or 4 when `DEBUG` is true). The starts are spread round-robin over the MPI ranks; make `num_starts` several times the rank count so the work balances (see the note under "Multi-start Gradient-based Optimizer" below).
+    - **start_sampling**: How the starting points are scattered over the parameter bounds: `sobol` (default), `latin_hypercube` or `random`.
+    - **include_init_point**: If true (default), the first start is the initial parameter values from `{file_prefix}_parameters.csv`, so this method can never do worse than a single-start `sp_minimize` run.
+    - **seed**: Seed for the start sampler (default: 0), so a run is repeatable.
+    - **fd_step**: Finite-difference step used when an automatic-differentiation gradient isn't available — i.e. any configuration without an AD backend (see the gradient-backend note below), or when `do_ad: false` (default: 1e-4).
+    - **cost_convergence**: Once any start reaches this cost, every MPI rank stops launching new starts (signalled between ranks with a non-blocking message), so no rank keeps working after a good-enough solution has been found. (Set `no_new_starts_on_convergence: false` to disable this.)
+    - **no_new_starts_on_convergence**: `true` (default) is the behaviour above — stop launching starts once one converges. Set to `false` to run **every** start regardless, then report how many converged and how many landed in each distinct minimum. That maps the basin structure of a multi-modal problem (which minima exist, and how the starts split between them); the counts are written to `multi_start_convergence_clusters.csv` and printed at the end of the run.
+    - **convergence_cluster_tol_frac**: When counting how many starts reached each minimum, two converged starts are treated as the same solution if every parameter agrees to within this fraction of that parameter's range (default: 0.02, i.e. 2%).
+
+    !!! note "Automatic-differentiation gradient backends"
+        Gradient-based calibration (`do_ad: true`) is provided by two open-source backends:
+        **CasADi** (`model_type: casadi_python`, LGPL — symbolic differentiation) and **Myokit
+        CVODES forward sensitivity** (`model_type: cellml_only` + `solver: CVODE_myokit`). Both
+        require no proprietary licence and both handle stiff models; see the Solver section for
+        which method to pick.
+
+        Circulatory Autogen also ships an *optional* adapter for **AADC (Matlogica)**, which
+        is **third-party proprietary software, not part of Circulatory Autogen**, not
+        bundled with it, and restricted to academic/non-commercial use under Matlogica's own
+        licence. It is not required. It can drive `sp_minimize` / `multi_start_sp_minimize`
+        only for **non-stiff, state-observable, single-experiment** problems (its tape records
+        a fixed-step integrator); it is unsuitable for stiff models such as the full
+        cardiovascular model. See [Optional third-party backends](getting-started.md) if you
+        already hold a Matlogica licence.
+
 - **ga_options**: Legacy dictionary for optimization options. For backwards compatibility, entries in `ga_options` are automatically merged into `optimiser_options` if not already present. It is recommended to use `optimiser_options` instead.
 
 
@@ -300,6 +411,56 @@ optimiser_options:
 - **Pros**: Efficient gradient-based optimization, fast convergence
 - **Cons**: Can get stuck in local minima
 - **Best for**: Smooth optimization landscapes, when you want faster convergence
+
+For an AD gradient use `model_type: casadi_python` (CasADi symbolic differentiation) or a
+`cellml_only` model run through `solver: CVODE_myokit` with `do_ad: true` (Myokit CVODES forward
+sensitivity — see the Solver section). Any other configuration falls back to a finite-difference
+gradient.
+
+### Multi-start Gradient-based Optimizer (multi_start_sp_minimize)
+
+L-BFGS-B only ever finds the minimum of the basin it starts in, so on a multi-modal cost surface `sp_minimize` is at the mercy of the initial parameter values. This method scatters `num_starts` starting points over the parameter bounds and runs a bounded L-BFGS-B descent from each one, keeping the best minimum found. It explores globally, like the population-based optimisers, while still using the gradient to descend each basin quickly and accurately.
+
+- **Pros**: Escapes local minima while still exploiting the gradient; the starts are independent so they are distributed over the MPI ranks with no communication; typically reaches a far lower cost than a gradient-free global search for the same wall-clock time.
+- **Cons**: Cost scales with `num_starts`; a very rugged surface may need many starts.
+- **Best for**: Multi-modal cost surfaces — the common case when calibrating oscillatory models, where a wrong rate constant puts the simulation out of phase with the data.
+
+!!! note "Parallel multi-start pays off only for many starts"
+    The starts are distributed statically round-robin over the MPI ranks (`run_param_id.sh` with `num_processors > 1`). Because individual L-BFGS-B descents vary a lot in length — some converge in a handful of iterations, some take many — the per-rank workloads only even out when **each rank runs many starts**, i.e. when `num_starts` is much larger than the number of ranks. With `num_starts ≤ num_processors` each rank runs a single descent and the wall-clock is bounded by the slowest one, so extra ranks buy little. As a rule of thumb, run with several times as many starts as ranks. Measured on a 20-core host with 100 starts: ~3.8× on 4 ranks, ~4× on 8. Once any start reaches `cost_convergence`, every rank stops launching new starts, so a converged run doesn't keep the other ranks busy needlessly. `run()` reports the achieved speedup in its final log line.
+
+This works for **any** `model_type`. The gradient comes from `get_gradient()`, which has an AD backend for `casadi_python` (symbolic jacobian), `cellml_only` run through `CVODE_myokit` with `do_ad: true` (Myokit CVODES forward sensitivity), and `aadc_python` (tape reverse pass — non-stiff, state-observable, single-experiment problems only; see the AADC caveat in the Solver section). For every other configuration there is no AD gradient, so the cost is evaluated with the usual simulation cost and the gradient falls back to finite differences.
+
+Example configuration:
+```yaml
+param_id_method: multi_start_sp_minimize
+model_type: casadi_python     # for AD gradients; other model types use finite differences
+solver: casadi_integrator
+do_ad: true
+optimiser_options:
+  cost_convergence: 0.0001
+  num_starts: 10              # number of L-BFGS-B descents
+  start_sampling: sobol       # sobol | latin_hypercube | random
+  include_init_point: true    # first start is the x0 from {file_prefix}_parameters.csv
+  seed: 0
+```
+
+Alongside the usual `best_cost_history.csv` / `best_param_vals_history.csv` (written as a running-best curve over the concatenated starts), this optimiser writes a **`multi_start_summary.csv`** with one row per start — its initial cost, final cost, iteration count and final parameter values. That tells you how many distinct basins your starts fell into, which is the quickest way to see whether `num_starts` is high enough.
+
+#### Benchmark: FitzHugh-Nagumo
+
+`resources/FitzHugh_Nagumo_*` is a deliberately multi-modal benchmark. The FitzHugh-Nagumo excitable-cell model
+
+$$\dot V = c\left(V - \tfrac{V^3}{3} + R\right), \qquad \dot R = -\tfrac{1}{c}\left(V - a + bR\right)$$
+
+is a standard hard case for parameter estimation: its least-squares surface has many local minima, because a wrong recovery rate `c` puts the simulated spike train out of phase with the data (Ramsay et al. 2007, *J. R. Statist. Soc. B* 69(5), "Parameter estimation for differential equations: a generalized smoothing approach"). The supplied `FitzHugh_Nagumo_parameters.csv` starts at `(a, b, c) = (0.8, 0.9, 2.0)`, which sits inside a local basin; the true values are `(0.2, 0.2, 3.0)`.
+
+`sp_minimize` never leaves the basin it starts in. The genetic algorithm escapes it but, being gradient-free, converges slowly. The multi-start finds the global basin *and* refines it with the gradient — whatever gradient backend drives it (finite differences, CasADi AD, or Myokit CVODES FSA). The table below is regenerated by the benchmark runner (`python benchmarks/run_benchmarks.py --update-docs`) and by the **Benchmarks** GitHub Actions workflow, so the published numbers stay current; they depend on the hardware and MPI rank count used.
+
+<!-- BENCHMARK_RESULTS_START -->
+_No benchmark results published yet. Run `python benchmarks/run_benchmarks.py --set ci --update-docs`, or trigger the **Benchmarks** GitHub Actions workflow, to populate this section._
+<!-- BENCHMARK_RESULTS_END -->
+
+The stiff 3compartment cardiovascular benchmark (long warmup, Myokit/CasADi — no OpenCOR needed) runs in the same set; it is slower, so the workflow schedule is weekly. See `benchmarks/README.md`.
 
 Note: For backwards compatibility, `ga_options` can still be used and will be automatically merged into `optimiser_options`.
 

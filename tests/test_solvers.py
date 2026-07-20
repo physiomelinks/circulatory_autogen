@@ -575,6 +575,196 @@ def test_myokit_multi_trace_protocol():
     )
 
 
+def _lotka_sim_helper(generated_cellml_model_factory, temp_model_dir, model_type, dt, sim_time):
+    """A Lotka-Volterra simulation helper on the given backend (Myokit or CasADi).
+
+    CasADi needs a generated (casadi_compat) Python model; Myokit runs the cellml directly. Both
+    are non-stiff CVODE-family integrations at tight tolerance so their trajectories agree.
+    """
+    cellml = generated_cellml_model_factory("Lotka_Volterra", "Lotka_Volterra_parameters.csv")
+    if model_type == "casadi_python":
+        pytest.importorskip("casadi")
+        model_path = PythonGenerator(
+            cellml, output_dir=temp_model_dir, module_name="Lotka_Volterra_casadi",
+            casadi_compat=True).generate()
+        solver = "casadi_integrator"
+        solver_info = {"method": "cvodes", "max_step_size": 0.005, "max_num_steps": 50000}
+    else:
+        model_path = cellml
+        solver = "CVODE_myokit"
+        solver_info = {"MaximumStep": 0.005, "MaximumNumberOfSteps": 50000,
+                       "rtol": 1e-9, "atol": 1e-9}
+    return get_simulation_helper(
+        model_path=model_path, model_type=model_type, solver=solver,
+        dt=dt, sim_time=sim_time, solver_info=solver_info, pre_time=0.0)
+
+
+@pytest.mark.integration
+@pytest.mark.solver
+@pytest.mark.parametrize("model_type", ["cellml_only", "casadi_python"])
+def test_params_to_change_affects_targeted_subexperiment_output(
+        model_type, generated_cellml_model_factory, temp_model_dir):
+    """A params_to_change value must change the simulated output of the sub-experiment it targets,
+    and only that one -- on both the Myokit (cellml_only) and CasADi backends.
+
+    Lotka-Volterra with gamma (the predator decay rate) changed between two sub-experiments: gamma
+    is the model default in sub 0 and set per-run in sub 1. Running two different sub-1 values,
+    sub 0 (same gamma in both) must be identical and sub 1 (differing gamma) must visibly differ.
+    A silently-ignored params_to_change would leave sub 1 identical too.
+    """
+    dt, T = 0.02, 2.0
+    GAMMA, Y = "Lotka_Volterra/gamma", "Lotka_Volterra/y"
+
+    def run_protocol(gamma_sub1):
+        h = _lotka_sim_helper(generated_cellml_model_factory, temp_model_dir, model_type, dt, T)
+        h.set_protocol_info({"pre_times": [0.0], "sim_times": [[T, T]],
+                             "params_to_change": {GAMMA: [[3.0, gamma_sub1]]}})
+        h.reset_states()
+        traces, cur = [], 0.0
+        for sub_idx, st in enumerate([T, T]):
+            h.update_times(dt, cur, st, 0.0)
+            h.set_param_vals([GAMMA], [3.0 if sub_idx == 0 else gamma_sub1])
+            assert h.run(), f"sub-experiment {sub_idx} failed"
+            traces.append(np.asarray(h.get_results([[Y]], flatten=True)[0]).flatten())
+            cur += st
+        h.close_simulation()
+        return traces
+
+    base = run_protocol(3.0)      # gamma unchanged in sub 1
+    changed = run_protocol(6.0)   # gamma changed in sub 1
+
+    n0 = min(len(base[0]), len(changed[0]))
+    np.testing.assert_allclose(
+        base[0][:n0], changed[0][:n0], rtol=1e-6, atol=1e-6,
+        err_msg="sub 0 output changed even though its params_to_change value did not")
+
+    n1 = min(len(base[1]), len(changed[1]))
+    denom = np.max(np.abs(base[1][:n1])) + 1e-9
+    max_rel_diff = float(np.max(np.abs(changed[1][:n1] - base[1][:n1])) / denom)
+    assert max_rel_diff > 0.05, (
+        f"params_to_change (gamma) had no meaningful effect on its target sub-experiment: "
+        f"max relative difference {max_rel_diff:.4g}")
+
+
+@pytest.mark.integration
+@pytest.mark.solver
+def test_trace_step_input_equals_discrete_subexperiment_change(
+        generated_cellml_model_factory, temp_model_dir):
+    """A step-function trace input over ONE sub-experiment gives the same output as the same step
+    encoded as a DISCRETE parameter change across TWO sub-experiments.
+
+    "gamma steps 3 -> 5 at t=T", compared against a Myokit step-trace reference:
+      - Myokit, one sub-experiment, gamma driven by a step trace (a 0-order step at t=T);
+      - Myokit, two sub-experiments, gamma = 3 then 5 (discrete);
+      - CasADi, two sub-experiments, gamma = 3 then 5 (discrete).
+    CasADi has no trace/pace mechanism, so it can only express the discrete two-sub encoding; that
+    it matches the Myokit trace-step is the check that CasADi's multi-sub state carry is correct.
+    The two-sub versions restart the integrator at the boundary while the trace crosses the
+    discontinuity continuously, so they agree to solver tolerance, not bits.
+    """
+    dt, T, G0, G1 = 0.02, 2.0, 3.0, 5.0
+    GAMMA, Y = "Lotka_Volterra/gamma", "Lotka_Volterra/y"
+
+    def discrete_2sub(model_type):
+        h = _lotka_sim_helper(generated_cellml_model_factory, temp_model_dir, model_type, dt, T)
+        h.set_protocol_info({"pre_times": [0.0], "sim_times": [[T, T]],
+                             "params_to_change": {GAMMA: [[G0, G1]]}})
+        h.reset_states()
+        ys, cur = [], 0.0
+        for sub_idx, st in enumerate([T, T]):
+            h.update_times(dt, cur, st, 0.0)
+            h.set_param_vals([GAMMA], [G0 if sub_idx == 0 else G1])
+            assert h.run(), f"{model_type} sub-experiment {sub_idx} failed"
+            ys.append(np.asarray(h.get_results([[Y]], flatten=True)[0]).flatten())
+            cur += st
+        h.close_simulation()
+        return np.concatenate([ys[0], ys[1][1:]])
+
+    # Reference: Myokit, one sub-experiment, gamma driven by a step trace (0-order step at t=T).
+    hT = _lotka_sim_helper(generated_cellml_model_factory, temp_model_dir, "cellml_only", dt, 2 * T)
+    hT.set_protocol_info({"pre_times": [0.0], "sim_times": [[2 * T]],
+                          "params_to_change": {GAMMA: [["g_step"]]},
+                          "protocol_traces": {"g_step": {"t": [0.0, T, T, 2 * T],
+                                                         "values": [G0, G0, G1, G1]}}})
+    hT.reset_states()
+    hT.update_times(dt, 0.0, 2 * T, 0.0)
+    hT.set_param_vals([GAMMA], ["g_step"])
+    assert hT.run(), "myokit trace-step run failed"
+    trace = np.asarray(hT.get_results([[Y]], flatten=True)[0]).flatten()
+    hT.close_simulation()
+
+    for model_type in ("cellml_only", "casadi_python"):
+        disc = discrete_2sub(model_type)
+        n = min(len(trace), len(disc))
+        assert n > 10 and len(trace) == len(disc), \
+            f"{model_type}: grid mismatch {len(trace)} vs {len(disc)}"
+        np.testing.assert_allclose(
+            disc[:n], trace[:n], rtol=1e-3, atol=1e-3,
+            err_msg=f"{model_type} two-sub discrete gamma differs from the Myokit step trace")
+
+
+@pytest.mark.integration
+@pytest.mark.solver
+def test_casadi_ad_mode_carries_state_across_sub_experiments(
+        generated_cellml_model_factory, temp_model_dir):
+    """Under do_ad, CasADi must chain sub-experiments exactly as the forward path does.
+
+    _create_param_subset flips the helper into AD mode, where the cost and its gradient are read
+    off one symbolic graph. That graph used to skip the sub-experiment carry altogether -- the
+    carry was recorded only `if not self._do_ad` -- so every sub-experiment restarted from the
+    default state while the forward path continued from the previous sub's end state. do_ad
+    therefore calibrated a different protocol from the one that was simulated afterwards, since
+    reset_and_clear turns _do_ad back off and the final simulate/plot does carry. Cost and
+    gradient agreed with each other (same graph), so nothing downstream could detect it.
+
+    Runs the same two-sub protocol with and without AD mode and requires identical numeric
+    trajectories. Fails on the second sub-experiment before the fix.
+    """
+    pytest.importorskip("casadi")
+    dt, T, G0, G1 = 0.02, 2.0, 3.0, 5.0
+    GAMMA = "Lotka_Volterra/gamma"
+
+    def two_sub_trajectories(ad_mode):
+        h = _lotka_sim_helper(generated_cellml_model_factory, temp_model_dir,
+                              "casadi_python", dt, T)
+        h.set_protocol_info({"pre_times": [0.0], "sim_times": [[T, T]],
+                             "params_to_change": {GAMMA: [[G0, G1]]}})
+        h.reset_states()
+        if ad_mode:
+            # What build_casadi_functions does before evaluating a cost or gradient.
+            h._create_param_subset([["Lotka_Volterra/alpha"]])
+            assert h._do_ad, "_create_param_subset should have switched the helper into AD mode"
+        trajectories, cur = [], 0.0
+        for sub_idx, st in enumerate([T, T]):
+            h.update_times(dt, cur, st, 0.0)
+            h.set_param_vals([GAMMA], [G0 if sub_idx == 0 else G1])
+            assert h.run(), f"sub-experiment {sub_idx} failed (ad_mode={ad_mode})"
+            # get_results returns SX under do_ad, so compare the numeric trajectory the helper
+            # evaluates alongside the symbolic one.
+            trajectories.append(np.array(h.state_traj_dm, dtype=float))
+            cur += st
+        h.close_simulation()
+        return trajectories
+
+    forward = two_sub_trajectories(ad_mode=False)
+    ad = two_sub_trajectories(ad_mode=True)
+
+    # Guard that the comparison is meaningful: if sub 1 happened to start where sub 0 did, a
+    # missing carry would be undetectable and this test would pass vacuously.
+    assert not np.allclose(forward[1][:, 0], forward[0][:, 0], rtol=1e-3, atol=1e-3), (
+        "the two sub-experiments start from the same state, so this test cannot detect a "
+        "missing carry -- pick a protocol where the first sub actually moves the state")
+
+    np.testing.assert_allclose(
+        ad[0], forward[0], rtol=1e-8, atol=1e-10,
+        err_msg="AD and forward mode disagree on the FIRST sub-experiment, before any carry")
+    np.testing.assert_allclose(
+        ad[1], forward[1], rtol=1e-6, atol=1e-8,
+        err_msg="AD mode did not carry state across the sub-experiment boundary: its second "
+                "sub-experiment restarts from the default state instead of continuing from "
+                "the first sub's end state")
+
+
 @pytest.mark.integration
 @pytest.mark.solver
 def test_myokit_set_constant_preserved_after_rebind():
@@ -1010,7 +1200,8 @@ def test_python_BDF_solver(model_name, input_param_file, temp_model_dir, generat
 
 
 def _run_all_solvers_and_compare(model_name, full_model_path_cellml, temp_model_dir, dt=0.01, sim_time=1.0,
-                                  pre_time=0.0, tolerance=0.01, include_casadi=False):
+                                  pre_time=0.0, tolerance=0.01, include_casadi=False, include_aadc=False,
+                                  aadc_method="semi_implicit"):
     """
     Run all solvers on a model and compare outputs.
 
@@ -1020,8 +1211,12 @@ def _run_all_solvers_and_compare(model_name, full_model_path_cellml, temp_model_
       - solve_ivp_BDF         (Python model, scipy BDF)
       - casadi_integrator_cvodes (Python model, CasADi cvodes; only when include_casadi=True,
                                   skipped gracefully if CasADi unavailable or symbolic eval fails)
+      - aadc_semi_implicit    (AADC Python model; only when include_aadc=True, skipped
+                                  gracefully if the aadc package is not installed)
 
     The Python model (.py) is generated once and reused by both Python-family backends.
+    The AADC model is generated separately (different codegen — iif/aadc.math etc.) into an
+    ``aadc/`` subdir so it does not clobber the plain Python module.
 
     Returns:
         Tuple of (results dict, comparison_results dict, helpers dict)
@@ -1050,6 +1245,26 @@ def _run_all_solvers_and_compare(model_name, full_model_path_cellml, temp_model_
                 "reason": f"Python model generation failed: {e}",
             }
 
+    # Generate the AADC model (separate codegen) into its own subdir.
+    aadc_model_path = None
+    if include_aadc:
+        try:
+            aadc_dir = os.path.join(temp_model_dir, "aadc")
+            os.makedirs(aadc_dir, exist_ok=True)
+            aadc_generator = PythonGenerator(
+                full_model_path_cellml,
+                output_dir=aadc_dir,
+                module_name=model_name,
+                aadc_compat=True,
+            )
+            aadc_model_path = aadc_generator.generate()
+        except Exception as e:
+            results["aadc_semi_implicit"] = {
+                "success": False,
+                "skipped": True,
+                "reason": f"AADC model generation failed: {e}",
+            }
+
     # (helper_key, solver_arg, model_type, model_path, solver_info)
     backends = [
         # Tight rtol/atol on the CVODE reference too: myokit's CVODE default is rel_tol=1e-4
@@ -1064,9 +1279,13 @@ def _run_all_solvers_and_compare(model_name, full_model_path_cellml, temp_model_
         backends.append(
             ("casadi_integrator_cvodes", "casadi_integrator", "casadi_python", python_model_path, {"method": "cvodes"})
         )
+    if include_aadc and aadc_model_path is not None:
+        backends.append(
+            ("aadc_semi_implicit", "aadc_semi_implicit", "aadc_python", aadc_model_path, {"method": aadc_method})
+        )
 
     # Backends where unavailability is a graceful skip rather than a test failure
-    skip_on_error = {"CVODE_opencor", "casadi_integrator_cvodes"}
+    skip_on_error = {"CVODE_opencor", "casadi_integrator_cvodes", "aadc_semi_implicit"}
 
     for helper_key, solver, model_type, model_path, solver_info in backends:
         # Skip Python-family backends if model generation already failed
@@ -1216,6 +1435,66 @@ def test_all_solvers(model_name, input_param_file, sim_time, include_casadi, tem
             failed_msg = f"{solver_name} has {len(comp_result['failed_vars'])} variables exceeding 0.01% tolerance. "
             failed_msg += f"Maximum error: {comp_result['max_rel_error']:.6f}%"
             pytest.fail(failed_msg)
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_aadc_semi_implicit_vs_cvode_3compartment(aadc_licensed, temp_model_dir,
+                                                  generated_cellml_model_factory):
+    """The stiff 3compartment model integrated with AADC ``semi_implicit`` should track
+    the CVODE_myokit reference trajectory.
+
+    Why this test: the PR's own AADC stiff test only asserts the 3compartment run
+    produces no NaNs — it does not check the values are *correct*. This compares the
+    integrated ODE states against CVODE_myokit, which is what "same outputs with
+    CVODE and with AADC" requires.
+
+    **This test currently FAILS, deliberately.** It used to run ``method='bdf'``, which
+    tracked CVODE closely, and its docstring noted that ``semi_implicit`` could not meet a
+    meaningful tolerance (~35% relative-L2). That is still true, but bdf has been removed:
+    it handed the solve to ``scipy.solve_ivp`` with AADC supplying only the RHS and
+    Jacobian, so the trajectory never reached the tape, and the AD tape had no bdf branch —
+    ``do_ad`` silently recorded rk4 instead, making the cost and the gradient different
+    functions. Semi-implicit Euler is first-order with numerical diagonal damping
+    (``y += dt*f/(1+dt*lam)``); that damping suppresses the stiff states, which in this
+    cardiovascular model carry physiologically important fast dynamics.
+
+    Refining dt does not rescue it — the error *grows* (35% at 1e-3, 280% at 1e-4), because
+    as dt shrinks the damping factor tends to 1 and the scheme degenerates into explicit
+    forward Euler on a system with ``max|Re(eig(J))|*dt ~ 4.5e10``. AADC therefore has no
+    accurate stiff forward path on this model, and the assertion is left strict so that
+    stays visible. Note CI does not catch this: AADC is licence-gated and ``aadc_licensed``
+    skips the test in an unlicensed environment.
+    """
+    cellml_path = generated_cellml_model_factory("3compartment", "3compartment_parameters.csv")
+    results, _, helpers = _run_all_solvers_and_compare(
+        "3compartment", cellml_path, temp_model_dir, dt=0.001, sim_time=1.0,
+        tolerance=5.0, include_aadc=True, aadc_method="semi_implicit",
+    )
+
+    aadc_result = results.get("aadc_semi_implicit", {})
+    if aadc_result.get("skipped"):
+        pytest.skip(aadc_result.get("reason", "AADC backend unavailable"))
+
+    assert "aadc_semi_implicit" in helpers, "AADC backend did not run"
+    assert "CVODE_myokit" in helpers, "CVODE_myokit reference did not run"
+
+    # Compare the integrated ODE states (state names live on the aadc/"python" side).
+    aadc_state_names = list(helpers["aadc_semi_implicit"].state_name_to_idx.keys())
+    max_pct, worst_var, compared = _max_rel_l2_error(
+        helpers["CVODE_myokit"], helpers["aadc_semi_implicit"],
+        only_other_vars=aadc_state_names,
+    )
+    print(f"3compartment CVODE vs AADC: max rel-L2 error {max_pct:.3f}% on "
+          f"{worst_var} ({compared} states compared)")
+
+    assert compared > 0, "No ODE states were matched between CVODE and AADC"
+    tol_pct = 1.0
+    assert max_pct < tol_pct, (
+        f"AADC semi_implicit deviates from CVODE by {max_pct:.3f}% (> {tol_pct}%) "
+        f"on state {worst_var}. Expected to fail at ~35%: semi_implicit is not convergent "
+        f"on this stiff model (see docstring). Kept strict so the limitation stays visible."
+    )
 
 
 def _max_rel_l2_error(ref_helper, other_helper, only_other_vars=None):

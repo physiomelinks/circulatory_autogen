@@ -10,10 +10,14 @@ from mpi4py import MPI
 import math
 import os
 import csv
+import time
+import warnings
+import traceback
 from datetime import date
 from abc import ABC, abstractmethod
 from scipy.optimize import approx_fprime
 from scipy.optimize import minimize
+from scipy.stats import qmc
 try:
     from skopt import Optimizer
     SKOPT_AVAILABLE = True
@@ -26,6 +30,11 @@ try:
     NEVERGRAD_AVAILABLE = True
 except ImportError:
     NEVERGRAD_AVAILABLE = False
+
+# Model types for which OpencorParamID.get_gradient() has an AD backend: a symbolic jacobian
+# for casadi models, a tape reverse pass for aadc ones. Everything else falls back to finite
+# differences. Keep in sync with OpencorParamID.get_gradient.
+AD_GRADIENT_MODEL_TYPES = ('casadi_python', 'aadc_python')
 
 
 class Optimiser(ABC):
@@ -810,11 +819,11 @@ class SciPyMinimizeOptimiser(Optimiser):
                 param_maxs_norm = self.param_norm_obj.normalise(self.param_maxs)
                 param_ranges_norm = list(zip(param_mins_norm, param_maxs_norm))
 
-                cost_fun = lambda p: float(self.param_id_obj.get_cost_ca(self.param_norm_obj.unnormalise(p)))
+                cost_fun = lambda p: float(self.param_id_obj.get_cost(self.param_norm_obj.unnormalise(p)))
                 
-                init_cost = self.param_id_obj.get_cost_ca(init_param_vals)
+                init_cost = self.param_id_obj.get_cost(init_param_vals)
                 print(f'Cost before gradient-based optimisation: {init_cost}')
-                init_gradient = self.param_id_obj.get_jac_cost_ca(init_param_vals)
+                init_gradient = self.param_id_obj.get_gradient(init_param_vals)
 
                 if self.DEBUG:
                     print('[sp_minimize] initial parameters and gradient:')
@@ -822,12 +831,39 @@ class SciPyMinimizeOptimiser(Optimiser):
                         label = names[0] if isinstance(names, (list, tuple)) else str(names)
                         print(f'    {label:<30} p={init_param_vals[i]:.6g}  dJ/dp={init_gradient[i]:.6e}')
 
-                if (self.do_ad):
-                    def gradient_func(q):
+                # Cache the (cost, gradient) at the most recently visited point. L-BFGS-B
+                # evaluates the objective and its gradient at the same parameter vector, and
+                # get_cost_and_gradient returns both from ONE solve (a single augmented CVODES
+                # solve on the Myokit FSA path). So the objective, the jacobian and the progress
+                # callback all reuse that one solve instead of each triggering its own -- on the
+                # FSA path this removes the separate cost solve per point and the callback's
+                # extra cost/gradient solves per iteration.
+                ad_eval_cache = {"key": None, "cost": None, "grad_real": None}
+
+                def _ad_cost_and_grad(q):
+                    q = np.asarray(q, dtype=float)
+                    key = q.tobytes()
+                    if ad_eval_cache["key"] != key:
                         p = self.param_norm_obj.unnormalise(q)
-                        dJ_dp = self.param_id_obj.get_jac_cost_ca(p)
-                        return dJ_dp * self.param_ranges
+                        # Prefer the one-solve (cost, grad) path (e.g. Myokit FSA) when the
+                        # param-id object provides it; otherwise fall back to separate calls so
+                        # any object exposing get_cost/get_gradient still works.
+                        combined = getattr(self.param_id_obj, "get_cost_and_gradient", None)
+                        if combined is not None:
+                            cost, grad_real = combined(p)
+                        else:
+                            cost = self.param_id_obj.get_cost(p)
+                            grad_real = self.param_id_obj.get_gradient(p)
+                        ad_eval_cache["key"] = key
+                        ad_eval_cache["cost"] = float(cost)
+                        ad_eval_cache["grad_real"] = np.asarray(grad_real, dtype=float).flatten()
+                    return ad_eval_cache["cost"], ad_eval_cache["grad_real"]
+
+                if (self.do_ad):
+                    min_cost_fun = lambda q: _ad_cost_and_grad(q)[0]
+                    gradient_func = lambda q: _ad_cost_and_grad(q)[1] * self.param_ranges
                 else:
+                    min_cost_fun = cost_fun
                     gradient_func = lambda q: approx_fprime(q, cost_fun, epsilon=1e-4)
 
                 cost_history_path = os.path.join(self.output_dir, 'best_cost_history.csv')
@@ -856,7 +892,12 @@ class SciPyMinimizeOptimiser(Optimiser):
                     x_norm = np.asarray(x_norm, dtype=float).copy()
                     last_iterate["x_norm"] = x_norm
                     param_vals = self.param_norm_obj.unnormalise(x_norm)
-                    cost_val = float(self.param_id_obj.get_cost_ca(param_vals))
+                    if self.do_ad:
+                        # Reuse the solve L-BFGS-B already did at this iterate (cache hit) rather
+                        # than recomputing the cost -- and, under DEBUG, the gradient too.
+                        cost_val = float(_ad_cost_and_grad(x_norm)[0])
+                    else:
+                        cost_val = float(self.param_id_obj.get_cost(param_vals))
                     last_iterate["cost"] = cost_val
                     # Live progress: one history row per accepted iteration.
                     _append_history(cost_val, x_norm)
@@ -866,14 +907,14 @@ class SciPyMinimizeOptimiser(Optimiser):
                             label = names[0] if isinstance(names, (list, tuple)) else str(names)
                             print(f'    {label:<30} {param_vals[i]:.6g}')
                         if self.do_ad:
-                            grad = np.asarray(self.param_id_obj.get_jac_cost_ca(param_vals)).flatten()
+                            grad = _ad_cost_and_grad(x_norm)[1]  # cache hit, real-space gradient
                             print(f'    |grad|_inf = {np.max(np.abs(grad)):.6e}')
                     if cost_val <= self.optimiser_options['cost_convergence']:
                         raise StopIteration(f"Cost converged: {cost_val}")
 
                 res = None
                 try:
-                    res = minimize(cost_fun, self.param_norm_obj.normalise(init_param_vals), method='L-BFGS-B',
+                    res = minimize(min_cost_fun, self.param_norm_obj.normalise(init_param_vals), method='L-BFGS-B',
                             bounds=param_ranges_norm, jac=gradient_func, callback=lbfgsb_callback)
                 except StopIteration as e:
                     print(str(e))
@@ -887,7 +928,7 @@ class SciPyMinimizeOptimiser(Optimiser):
                     best_cost_array = np.array([last_iterate["cost"]])
                     if self.do_ad:
                         best_gradient_vals = np.asarray(
-                            self.param_id_obj.get_jac_cost_ca(best_param_vals), dtype=float
+                            self.param_id_obj.get_gradient(best_param_vals), dtype=float
                         ).flatten()
                     else:
                         best_gradient_vals = approx_fprime(
@@ -940,3 +981,535 @@ class SciPyMinimizeOptimiser(Optimiser):
                                fmt='%.5e', delimiter=', ')
 
             self._save_best_params()
+
+
+class MultiStartSciPyMinimizeOptimiser(Optimiser):
+    """
+    Multi-start L-BFGS-B optimiser for parameter identification.
+
+    L-BFGS-B on its own only ever finds the minimum of the basin it starts in, so on a
+    multi-modal cost surface it is at the mercy of the initial parameter values. This
+    optimiser scatters `num_starts` starting points over the bounded parameter space and
+    runs a bounded L-BFGS-B descent from each one, keeping the best minimum found. It
+    therefore explores globally (like the population-based optimisers) while still
+    exploiting the gradient for a fast, accurate descent within each basin.
+
+    The starts are independent, so they are distributed round-robin over the MPI ranks and
+    each rank runs its own descents with no collective communication in between. The
+    results are gathered once at the end.
+
+    Gradients come from `param_id_obj.get_gradient()`, which has an AD backend for
+    `casadi_python` (symbolic jacobian) and `aadc_python` (tape) models. For every other model
+    type there is no AD gradient, so it falls back to finite differences on the ordinary
+    simulation cost.
+
+    Optimiser options:
+        num_starts:         number of L-BFGS-B descents (default 10, or 4 when DEBUG).
+        start_sampling:     'sobol' (default), 'latin_hypercube' or 'random'.
+        include_init_point: if True (default) the first start is the initial parameter
+                            values from the parameters csv, so this can never do worse
+                            than a single-start sp_minimize run.
+        seed:               seed for the start sampler (default 0), so runs are repeatable.
+        cost_convergence:   once any start reaches this cost, every rank stops launching new
+                            starts (a non-blocking message tells the others), so no rank keeps
+                            grinding through starts after a good-enough solution has been found.
+        fd_step:            finite-difference step used when AD is unavailable (default 1e-4).
+
+    Parallelism: the starts are distributed statically round-robin over the MPI ranks with no
+    per-start communication, so the speedup approaches the rank count only when there are many
+    more starts than ranks (individual descents vary widely in length, and that variance only
+    averages out across ranks when each rank runs many of them). With num_starts <= num_procs
+    each rank runs one long-or-short descent and the wall-clock is bounded by the slowest single
+    one, so there is little to gain. run() records the achieved speedup on rank 0 (self.speedup).
+    """
+
+    # Cost returned to L-BFGS-B when a simulation fails. Must be finite, otherwise the
+    # finite-difference gradient becomes nan and the descent silently stalls.
+    FAILED_SIM_COST = 1e10
+
+    # MPI tag for the global early-stop signal.
+    _STOP_TAG = 11711
+
+    def __init__(self, param_id_obj, param_id_info, param_norm_obj,
+                 num_params, output_dir, optimiser_options=None,
+                 do_ad=True, model_type=None, DEBUG=False):
+        super().__init__(param_id_obj, param_id_info, param_norm_obj,
+                         num_params, output_dir, optimiser_options, DEBUG)
+
+        self.do_ad = do_ad
+        self.model_type = model_type
+        # param_id_obj.get_gradient() has an AD backend for casadi (symbolic) and aadc
+        # (tape) models, and for cellml_only models run through Myokit CVODES forward
+        # sensitivity (advertised via fsa_gradient_available); for anything else it raises,
+        # so those fall back to finite differences.
+        fsa_available = getattr(param_id_obj, 'fsa_gradient_available', None)
+        self.use_ad_gradient = do_ad and (
+            model_type in AD_GRADIENT_MODEL_TYPES
+            or (callable(fsa_available) and fsa_available())
+        )
+
+        self.param_mins = self.param_id_info["param_mins"]
+        self.param_maxs = self.param_id_info["param_maxs"]
+        self.param_ranges = self.param_maxs - self.param_mins
+
+        if 'num_starts' not in self.optimiser_options:
+            self.optimiser_options['num_starts'] = 4 if DEBUG else 10
+        if 'start_sampling' not in self.optimiser_options:
+            self.optimiser_options['start_sampling'] = 'sobol'
+        if 'include_init_point' not in self.optimiser_options:
+            self.optimiser_options['include_init_point'] = True
+        if 'seed' not in self.optimiser_options:
+            self.optimiser_options['seed'] = 0
+        if 'fd_step' not in self.optimiser_options:
+            self.optimiser_options['fd_step'] = 1e-4
+        if 'no_new_starts_on_convergence' not in self.optimiser_options:
+            # True (default): once any start reaches cost_convergence, no rank launches new
+            # starts. False: run every start to completion regardless -- useful for mapping the
+            # basins of a multi-modal problem (how many starts land in each minimum).
+            self.optimiser_options['no_new_starts_on_convergence'] = True
+        if 'convergence_cluster_tol_frac' not in self.optimiser_options:
+            # Two converged starts are the "same" solution if every parameter agrees to within
+            # this fraction of that parameter's range (max - min).
+            self.optimiser_options['convergence_cluster_tol_frac'] = 0.02
+
+        self.init_gradient = None
+        self.best_gradient = None
+
+        # Convergence report, filled in by run() on rank 0.
+        self.num_converged = None
+        self.convergence_clusters = None
+
+        # Scaling bookkeeping, filled in by run() on rank 0.
+        self.num_starts_run = None
+        self.starts_run_per_rank = None
+        self.serial_seconds = None
+        self.wall_seconds = None
+        self.speedup = None
+
+    def _generate_starts(self):
+        """Starting points in normalised [0, 1] parameter space, shape (num_starts, num_params).
+
+        Deterministic given the seed, so every rank generates the identical set and no
+        broadcast is needed to agree on who runs which start.
+        """
+        num_starts = int(self.optimiser_options['num_starts'])
+        if num_starts < 1:
+            raise ValueError(f'num_starts must be at least 1, got {num_starts}')
+        sampling = self.optimiser_options['start_sampling']
+        seed = self.optimiser_options['seed']
+        include_init = self.optimiser_options['include_init_point']
+
+        num_sampled = num_starts - 1 if include_init else num_starts
+
+        sampled = np.zeros((0, self.num_params))
+        if num_sampled > 0:
+            if sampling == 'sobol':
+                # Sobol warns for sample counts that aren't a power of two; the balance
+                # properties we lose don't matter for scattering a handful of starts.
+                with warnings.catch_warnings():
+                    warnings.simplefilter('ignore')
+                    sampled = qmc.Sobol(d=self.num_params, scramble=True,
+                                        seed=seed).random(num_sampled)
+            elif sampling == 'latin_hypercube':
+                sampled = qmc.LatinHypercube(d=self.num_params, seed=seed).random(num_sampled)
+            elif sampling == 'random':
+                sampled = np.random.default_rng(seed).random((num_sampled, self.num_params))
+            else:
+                raise ValueError(f'unknown start_sampling "{sampling}", expected one of '
+                                 f'sobol, latin_hypercube or random')
+
+        if include_init:
+            init_norm = np.clip(
+                np.asarray(self.param_norm_obj.normalise(np.asarray(self.param_id_obj.param_init)),
+                           dtype=float).flatten(), 0.0, 1.0)
+            starts = np.vstack([init_norm.reshape(1, -1), sampled])
+        else:
+            starts = sampled
+
+        return starts
+
+    def _make_cost_func(self):
+        """Cost as a function of normalised parameters."""
+        def cost_fun(q_norm):
+            p = self.param_norm_obj.unnormalise(np.asarray(q_norm, dtype=float))
+            # get_cost dispatches on model_type: the symbolic cost for casadi models, the
+            # ordinary simulation cost otherwise.
+            cost = float(self.param_id_obj.get_cost(p))
+            # A failed simulation returns inf, which would poison the finite-difference
+            # gradient and stall L-BFGS-B.
+            return cost if np.isfinite(cost) else self.FAILED_SIM_COST
+        return cost_fun
+
+    def _make_gradient_func(self, cost_fun):
+        """dJ/dq in normalised parameter space."""
+        fd_step = float(self.optimiser_options['fd_step'])
+
+        def fd_gradient(q_norm):
+            return approx_fprime(np.asarray(q_norm, dtype=float), cost_fun, epsilon=fd_step)
+
+        if self.use_ad_gradient:
+            def gradient_func(q_norm):
+                p = self.param_norm_obj.unnormalise(np.asarray(q_norm, dtype=float))
+                # get_gradient dispatches on model_type: the CasADi symbolic jacobian, the
+                # AADC tape gradient, or the Myokit CVODES FSA gradient. If the AD backend
+                # cannot handle this configuration (e.g. a protocol shape it does not support),
+                # fall back to finite differences rather than crash the descent -- warn once so
+                # a silent switch to the slower/less-exact path is visible.
+                try:
+                    dJ_dp = np.asarray(self.param_id_obj.get_gradient(p), dtype=float).flatten()
+                    if not np.all(np.isfinite(dJ_dp)):
+                        raise ValueError("AD gradient returned non-finite values")
+                except Exception as e:
+                    if not getattr(self, '_ad_gradient_fallback_warned', False):
+                        warnings.warn(
+                            f"AD gradient unavailable for this configuration ({type(e).__name__}: "
+                            f"{e}); falling back to finite differences for the gradient.")
+                        self._ad_gradient_fallback_warned = True
+                    return fd_gradient(q_norm)
+                # chain rule: dJ/dq = dJ/dp * dp/dq = dJ/dp * (max - min)
+                return dJ_dp * self.param_ranges
+            return gradient_func
+
+        return fd_gradient
+
+    def _run_one_start(self, start_idx, x0_norm, cost_fun, gradient_func, bounds_norm):
+        """Run a single bounded L-BFGS-B descent. Returns a result dict (never raises for a
+        cost-converged early stop)."""
+        iterates = []  # (cost, x_norm) per accepted L-BFGS-B iteration, for the history csv
+
+        start_wall = time.perf_counter()
+        init_cost = cost_fun(x0_norm)
+        iterates.append((init_cost, np.asarray(x0_norm, dtype=float).copy()))
+
+        last_iterate = {"x_norm": None, "cost": None}
+
+        def callback(x_norm):
+            x_norm = np.asarray(x_norm, dtype=float).copy()
+            cost_val = cost_fun(x_norm)
+            last_iterate["x_norm"] = x_norm
+            last_iterate["cost"] = cost_val
+            iterates.append((cost_val, x_norm))
+            if self.DEBUG:
+                print(f'[multi_start_sp_minimize] rank {self.rank} start {start_idx}: '
+                      f'cost = {cost_val:.6e}')
+            if cost_val <= self.optimiser_options['cost_convergence']:
+                raise StopIteration(f'Cost converged: {cost_val}')
+
+        res = None
+        try:
+            res = minimize(cost_fun, np.asarray(x0_norm, dtype=float), method='L-BFGS-B',
+                           bounds=bounds_norm, jac=gradient_func, callback=callback)
+        except StopIteration:
+            pass
+
+        if res is not None:
+            final_x_norm = np.asarray(res.x, dtype=float)
+            final_cost = float(res.fun)
+        elif last_iterate["x_norm"] is not None:
+            final_x_norm = last_iterate["x_norm"]
+            final_cost = float(last_iterate["cost"])
+        else:
+            # L-BFGS-B stopped before the first accepted iteration; the start itself is the
+            # best we have from this descent.
+            final_x_norm = np.asarray(x0_norm, dtype=float)
+            final_cost = float(init_cost)
+
+        return {
+            'start_idx': start_idx,
+            'init_cost': float(init_cost),
+            'final_cost': final_cost,
+            'final_x_norm': final_x_norm,
+            'num_iterations': max(len(iterates) - 1, 0),
+            'iterates': iterates,
+            'duration': time.perf_counter() - start_wall,
+        }
+
+    def run(self):
+        """Run L-BFGS-B from every start, distributed over the MPI ranks."""
+        comm = self.comm
+        rank = self.rank
+        num_procs = self.num_procs
+
+        cost_fun = self._make_cost_func()
+        gradient_func = self._make_gradient_func(cost_fun)
+
+        # Non-blocking global early stop. When a start meets the convergence threshold, that rank
+        # tells every OTHER rank to stop via a point-to-point message; between starts each rank
+        # checks (without ever blocking) whether such a message has arrived. Point-to-point and
+        # non-blocking is what keeps this deadlock-free with uneven start counts -- a blocking
+        # collective inside the loop would hang the instant two ranks had different numbers of
+        # starts left to run.
+        stop_tag = self._STOP_TAG
+        i_signalled = False
+        should_stop = False
+        stop_send_requests = []
+        num_stop_received = 0
+
+        # Every rank must take part in the same collectives, so any failure is caught
+        # locally and only turned into an exception after all ranks have agreed on it.
+        local_results = []
+        local_error = None
+        loop_wall = 0.0
+        try:
+            starts = self._generate_starts()
+            num_starts = starts.shape[0]
+            cost_convergence = self.optimiser_options['cost_convergence']
+            stop_on_convergence = self.optimiser_options['no_new_starts_on_convergence']
+
+            param_mins_norm = self.param_norm_obj.normalise(self.param_mins)
+            param_maxs_norm = self.param_norm_obj.normalise(self.param_maxs)
+            bounds_norm = list(zip(param_mins_norm, param_maxs_norm))
+
+            if rank == 0:
+                grad_source = (f'{self.model_type} AD' if self.use_ad_gradient
+                               else 'finite differences')
+                print(f'Running multi-start L-BFGS-B: {num_starts} starts '
+                      f'({self.optimiser_options["start_sampling"]} sampling) over '
+                      f'{num_procs} rank(s), gradients from {grad_source}')
+
+            # Static round-robin: rank r runs starts r, r+P, r+2P, ... No communication is needed
+            # to agree who runs what. With num_starts >> num_procs the per-rank workloads even out
+            # even though individual starts vary a lot in length -- which is exactly why parallel
+            # multi-start only pays off for many starts (see the docs).
+            my_start_indices = [s for s in range(num_starts) if s % num_procs == rank]
+
+            loop_t0 = time.perf_counter()
+            for start_idx in my_start_indices:
+                # Has any other rank reached the threshold? Drain every pending stop message
+                # without blocking. (Only relevant when stop_on_convergence is on; when it is
+                # off no rank ever signals, so the probe simply always finds nothing.)
+                if stop_on_convergence:
+                    while comm.iprobe(source=MPI.ANY_SOURCE, tag=stop_tag):
+                        comm.recv(source=MPI.ANY_SOURCE, tag=stop_tag)
+                        num_stop_received += 1
+                        should_stop = True
+                    if should_stop:
+                        break
+
+                result = self._run_one_start(start_idx, starts[start_idx, :], cost_fun,
+                                             gradient_func, bounds_norm)
+                local_results.append(result)
+
+                # This start met the threshold. If early stopping is on, tell every other rank to
+                # stop launching new starts (once); isend is non-blocking, drained after the loop.
+                # If it is off, keep going -- every start runs, so the basins can be mapped.
+                if (stop_on_convergence and not i_signalled
+                        and result['final_cost'] <= cost_convergence):
+                    for other in range(num_procs):
+                        if other != rank:
+                            stop_send_requests.append(comm.isend(1, dest=other, tag=stop_tag))
+                    i_signalled = True
+                    should_stop = True  # stop this rank's own remaining starts too
+            loop_wall = time.perf_counter() - loop_t0
+        except Exception as e:
+            local_error = {"rank": rank, "type": type(e).__name__, "message": str(e),
+                           "traceback": traceback.format_exc()}
+
+        # Collective 1: agree on failures, and exchange the stop-signal bookkeeping so the
+        # non-blocking messages can be drained without leaking.
+        status = comm.allgather({"error": local_error, "signalled": i_signalled,
+                                 "loop_wall": loop_wall})
+
+        # Drain the stop machinery. Each signalling rank sent one message to every OTHER rank, so
+        # this rank must receive one per other signalling rank; both counts are known here, so
+        # neither the receives nor the waits can block. Done even on the error path so that no MPI
+        # message or request is left dangling.
+        num_signalling_others = sum(1 for i, st in enumerate(status)
+                                    if st["signalled"] and i != rank)
+        while num_stop_received < num_signalling_others:
+            comm.recv(source=MPI.ANY_SOURCE, tag=stop_tag)
+            num_stop_received += 1
+        if stop_send_requests:
+            MPI.Request.Waitall(stop_send_requests)
+
+        errors = [st["error"] for st in status if st["error"] is not None]
+        if errors:
+            first = errors[0]
+            raise RuntimeError(
+                f"multi-start L-BFGS-B failed on rank {first['rank']}\n"
+                f"{first['type']}: {first['message']}\n{first['traceback']}"
+            )
+
+        # Collective 2: gather every start's result on rank 0.
+        gathered = comm.gather(local_results, root=0)
+
+        best = None
+        # Everything rank 0 does below happens while the other ranks are already blocked in
+        # the bcast at the end of this block. If rank 0 raises in here -- no results, a
+        # read-only or full output directory in one of the _write_* calls, an empty `status`
+        # in the max() -- it leaves the function and every other rank waits on that bcast
+        # forever. The job hangs instead of failing, which under a scheduler burns the entire
+        # wall-clock allocation with no diagnostic. Capture the failure and broadcast it
+        # alongside the result so all ranks raise together, mirroring the all-ranks-agree
+        # handling already used for per-start errors above.
+        rank0_error = None
+        if rank == 0:
+            try:
+                all_results = sorted([r for rank_results in gathered for r in rank_results],
+                                     key=lambda r: r['start_idx'])
+                if not all_results:
+                    raise RuntimeError('multi-start L-BFGS-B produced no results')
+
+                best_result = min(all_results, key=lambda r: r['final_cost'])
+                best_param_vals = self.param_norm_obj.unnormalise(best_result['final_x_norm'])
+
+                self._write_history(all_results)
+                self._write_start_summary(all_results)
+                self._cluster_converged_starts(all_results)
+
+                # Scaling bookkeeping. The serial cost is the sum of every start's own wall time; the
+                # parallel cost is the slowest rank's loop time. Their ratio is the achieved speedup,
+                # which approaches num_procs only when there are many more starts than ranks.
+                durations = [r['duration'] for r in all_results]
+                self.num_starts_run = len(all_results)
+                self.starts_run_per_rank = [len(rank_results) for rank_results in gathered]
+                self.serial_seconds = float(sum(durations))
+                self.wall_seconds = max(st['loop_wall'] for st in status)
+                self.speedup = (self.serial_seconds / self.wall_seconds
+                                if self.wall_seconds > 0 else float('nan'))
+
+                skipped_note = ('the rest were skipped after a start converged'
+                                if self.optimiser_options['no_new_starts_on_convergence']
+                                else 'no_new_starts_on_convergence is off, so all ran')
+                print(f'Multi-start L-BFGS-B ran {len(all_results)} of '
+                      f'{int(self.optimiser_options["num_starts"])} starts '
+                      f'({skipped_note}); '
+                      f'best cost {best_result["final_cost"]:.6e} came from start '
+                      f'{best_result["start_idx"]}; '
+                      f'speedup {self.speedup:.1f}x over {num_procs} rank(s)')
+                print(f'  {self.num_converged} of {len(all_results)} starts converged '
+                      f'(cost <= {self.optimiser_options["cost_convergence"]:g}), landing in '
+                      f'{len(self.convergence_clusters)} distinct solution(s):')
+                for i, cl in enumerate(self.convergence_clusters):
+                    params_str = ' '.join(f'{v:.4g}' for v in cl['params'])
+                    print(f'    solution {i}: {cl["count"]} start(s), cost {cl["best_cost"]:.3e}, '
+                          f'params [{params_str}]')
+
+                best = {
+                    'param_vals': np.asarray(best_param_vals, dtype=float).flatten(),
+                    'cost': float(best_result['final_cost']),
+                }
+            except Exception as exc:
+                best = None
+                rank0_error = {
+                    'type': type(exc).__name__,
+                    'message': str(exc),
+                    'traceback': traceback.format_exc(),
+                }
+
+        # Collective 3: give every rank the winner -- or rank 0's failure, so that an error
+        # here raises on every rank instead of stranding them all in this bcast.
+        best, rank0_error = comm.bcast((best, rank0_error), root=0)
+        if rank0_error is not None:
+            raise RuntimeError(
+                'multi-start L-BFGS-B failed while collecting results on rank 0: '
+                f"{rank0_error['type']}: {rank0_error['message']}\n{rank0_error['traceback']}"
+            )
+
+        self.best_param_vals = best['param_vals']
+        self.best_cost = best['cost']
+        self.param_id_obj.set_best_param_vals(self.best_param_vals)
+
+        if self.use_ad_gradient:
+            self.init_gradient = np.asarray(
+                self.param_id_obj.get_gradient(np.asarray(self.param_id_obj.param_init)),
+                dtype=float).flatten()
+            self.best_gradient = np.asarray(
+                self.param_id_obj.get_gradient(self.best_param_vals), dtype=float).flatten()
+
+        self._save_best_params()
+
+    def _write_history(self, all_results):
+        """Write the running-best cost/parameter history over the concatenated starts.
+
+        The history csvs are read as a monotonically improving progress curve by the
+        plotting code, so we record a row only when a start improves on the best cost seen
+        so far, walking the starts in order.
+        """
+        cost_history_path = os.path.join(self.output_dir, 'best_cost_history.csv')
+        param_history_path = os.path.join(self.output_dir, 'best_param_vals_history.csv')
+
+        best_so_far = np.inf
+        rows_cost = []
+        rows_params = []
+        for result in all_results:
+            for cost_val, x_norm in result['iterates']:
+                if cost_val < best_so_far:
+                    best_so_far = cost_val
+                    rows_cost.append([float(cost_val)])
+                    rows_params.append(np.asarray(x_norm, dtype=float).flatten())
+
+        if not rows_cost:
+            return
+
+        with open(cost_history_path, 'a') as file:
+            np.savetxt(file, np.array(rows_cost), fmt='%1.9f', delimiter=', ')
+        with open(param_history_path, 'a') as file:
+            np.savetxt(file, np.array(rows_params), fmt='%.5e', delimiter=', ')
+
+    def _write_start_summary(self, all_results):
+        """One row per start, so the basins the starts fell into can be inspected."""
+        param_labels = [names[0] if isinstance(names, (list, tuple)) else str(names)
+                        for names in self.param_id_info["param_names"]]
+
+        summary_path = os.path.join(self.output_dir, 'multi_start_summary.csv')
+        with open(summary_path, 'w') as file:
+            writer = csv.writer(file)
+            writer.writerow(['start_idx', 'init_cost', 'final_cost', 'num_iterations',
+                             'duration_s'] +
+                            [label.replace('/', ' ') for label in param_labels])
+            for result in all_results:
+                param_vals = self.param_norm_obj.unnormalise(result['final_x_norm'])
+                writer.writerow(
+                    [result['start_idx'], f'{result["init_cost"]:.9e}',
+                     f'{result["final_cost"]:.9e}', result['num_iterations'],
+                     f'{result.get("duration", float("nan")):.6f}'] +
+                    [f'{val:.9e}' for val in np.asarray(param_vals, dtype=float).flatten()])
+
+    def _cluster_converged_starts(self, all_results):
+        """Group the converged starts by which solution they reached, and record how many landed
+        in each.
+
+        A start has "converged" if its final cost is at or below cost_convergence. Two converged
+        starts are the same solution if every parameter agrees to within
+        convergence_cluster_tol_frac of that parameter's range (max - min) -- so on a multi-modal
+        problem the clusters are the distinct minima found, and their sizes say how the starts
+        split between them. Sets self.num_converged and self.convergence_clusters (largest first)
+        and writes multi_start_convergence_clusters.csv.
+        """
+        cost_convergence = self.optimiser_options['cost_convergence']
+        tol = self.optimiser_options['convergence_cluster_tol_frac'] * self.param_ranges
+
+        converged = [r for r in all_results if r['final_cost'] <= cost_convergence]
+        self.num_converged = len(converged)
+
+        clusters = []  # each: {'params', 'best_cost', 'count', 'start_idxs'}
+        for result in converged:
+            params = np.asarray(self.param_norm_obj.unnormalise(result['final_x_norm']),
+                                dtype=float).flatten()
+            for cluster in clusters:
+                if np.all(np.abs(params - cluster['params']) <= tol):
+                    cluster['count'] += 1
+                    cluster['start_idxs'].append(result['start_idx'])
+                    if result['final_cost'] < cluster['best_cost']:
+                        # keep the lowest-cost member as the cluster's representative point
+                        cluster['params'] = params
+                        cluster['best_cost'] = result['final_cost']
+                    break
+            else:
+                clusters.append({'params': params, 'best_cost': result['final_cost'],
+                                 'count': 1, 'start_idxs': [result['start_idx']]})
+
+        clusters.sort(key=lambda c: c['count'], reverse=True)
+        self.convergence_clusters = clusters
+
+        param_labels = [names[0] if isinstance(names, (list, tuple)) else str(names)
+                        for names in self.param_id_info["param_names"]]
+        path = os.path.join(self.output_dir, 'multi_start_convergence_clusters.csv')
+        with open(path, 'w') as file:
+            writer = csv.writer(file)
+            writer.writerow(['solution_idx', 'num_starts', 'best_cost'] +
+                            [label.replace('/', ' ') for label in param_labels])
+            for i, cluster in enumerate(clusters):
+                writer.writerow([i, cluster['count'], f'{cluster["best_cost"]:.9e}'] +
+                                [f'{v:.9e}' for v in cluster['params']])

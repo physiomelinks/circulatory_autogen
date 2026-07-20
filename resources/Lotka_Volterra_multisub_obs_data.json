@@ -1,0 +1,174 @@
+{
+ "protocol_info": {
+  "pre_times": [
+   0.0
+  ],
+  "sim_times": [
+   [
+    3.0,
+    3.0
+   ]
+  ],
+  "params_to_change": {}
+ },
+ "data_items": [
+  {
+   "variable": "Lotka_Volterra_module/x_series_s0",
+   "name_for_plotting": "Lotka_Volterra_module/x",
+   "data_type": "series",
+   "operation": null,
+   "operands": [
+    "Lotka_Volterra_module/x"
+   ],
+   "unit": "dimensionless",
+   "weight": 1.0,
+   "value": [
+    20.0,
+    30.115663,
+    37.200714,
+    28.820507,
+    13.9339,
+    6.836492,
+    4.534744,
+    4.093616,
+    4.680753,
+    6.301019,
+    9.404493,
+    14.797658,
+    23.269906,
+    33.502759,
+    36.401468,
+    23.188827,
+    10.641122,
+    5.717072,
+    4.241898,
+    4.190367,
+    5.106753
+   ],
+   "std": 0.57856,
+   "obs_dt": 0.15,
+   "experiment_idx": 0,
+   "subexperiment_idx": 0
+  },
+  {
+   "variable": "Lotka_Volterra_module/y_series_s0",
+   "name_for_plotting": "Lotka_Volterra_module/y",
+   "data_type": "series",
+   "operation": null,
+   "operands": [
+    "Lotka_Volterra_module/y"
+   ],
+   "unit": "dimensionless",
+   "weight": 1.0,
+   "value": [
+    10.0,
+    13.468795,
+    24.130259,
+    43.297646,
+    51.732528,
+    44.23483,
+    33.21991,
+    24.035458,
+    17.440734,
+    13.073256,
+    10.502107,
+    9.560955,
+    10.705247,
+    16.025363,
+    30.275657,
+    48.509731,
+    50.258794,
+    40.412884,
+    29.771131,
+    21.486706,
+    15.712488
+   ],
+   "std": 0.715935,
+   "obs_dt": 0.15,
+   "experiment_idx": 0,
+   "subexperiment_idx": 0
+  },
+  {
+   "variable": "Lotka_Volterra_module/x_series_s1",
+   "name_for_plotting": "Lotka_Volterra_module/x",
+   "data_type": "series",
+   "operation": null,
+   "operands": [
+    "Lotka_Volterra_module/x"
+   ],
+   "unit": "dimensionless",
+   "weight": 1.0,
+   "value": [
+    5.106753,
+    7.166598,
+    10.952159,
+    17.346814,
+    26.817462,
+    36.104827,
+    33.270267,
+    17.893021,
+    8.31321,
+    4.974657,
+    4.10541,
+    4.39679,
+    5.664536,
+    8.233108,
+    12.80941,
+    20.285057,
+    30.442827,
+    37.222332,
+    28.318939,
+    13.586678,
+    6.714433
+   ],
+   "std": 0.556523,
+   "obs_dt": 0.15,
+   "experiment_idx": 0,
+   "subexperiment_idx": 1
+  },
+  {
+   "variable": "Lotka_Volterra_module/y_series_s1",
+   "name_for_plotting": "Lotka_Volterra_module/y",
+   "data_type": "series",
+   "operation": null,
+   "operands": [
+    "Lotka_Volterra_module/y"
+   ],
+   "unit": "dimensionless",
+   "weight": 1.0,
+   "value": [
+    15.712488,
+    12.002841,
+    9.990071,
+    9.664064,
+    11.871736,
+    19.676181,
+    37.220731,
+    51.328857,
+    47.441078,
+    36.57248,
+    26.622194,
+    19.238311,
+    14.227309,
+    11.130129,
+    9.671017,
+    10.048713,
+    13.664682,
+    24.642138,
+    43.856467,
+    51.671919,
+    43.892346
+   ],
+   "std": 0.752028,
+   "obs_dt": 0.15,
+   "experiment_idx": 0,
+   "subexperiment_idx": 1
+  }
+ ],
+ "_ground_truth_params": {
+  "Lotka_Volterra/alpha": 5.0,
+  "Lotka_Volterra/beta": 0.2,
+  "Lotka_Volterra/delta": 0.2,
+  "Lotka_Volterra/gamma": 3.0
+ }
+}

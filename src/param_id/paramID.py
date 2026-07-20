@@ -2,6 +2,7 @@
 @author: Finbar J. Argus
 '''
 
+import hashlib
 import numpy as np
 import os
 import sys
@@ -57,8 +58,9 @@ import csv
 import shutil
 from datetime import date, datetime
 # from skopt import gp_minimize, Optimizer
-from parsers.PrimitiveParsers import CSVFileParser, ObsAndParamDataParser
-from param_id.optimisers import GeneticAlgorithmOptimiser, BayesianOptimiser, CMAESOptimiser, SciPyMinimizeOptimiser
+from parsers.PrimitiveParsers import CSVFileParser, ObsAndParamDataParser, PARAM_ID_METHODS
+from param_id.optimisers import GeneticAlgorithmOptimiser, BayesianOptimiser, CMAESOptimiser, \
+    SciPyMinimizeOptimiser, MultiStartSciPyMinimizeOptimiser
 from param_id.differentiable import (
     assert_casadi_differentiable,
     assert_mle_cost_for_bayesian,
@@ -130,6 +132,52 @@ def _require_casadi():
             "CasADi is required for symbolic or casadi_python workflows but is not installed. "
             "Install the casadi package (for example: pip install casadi)."
         )
+
+
+# AADC solver methods whose forward integration the tape can record step-for-step. An adaptive
+# integrator picks its step sizes from the state, so the sequence of operations changes with the
+# parameters and cannot be replayed from a tape.
+TAPE_CONSISTENT_AADC_METHODS = ('rk4', 'implicit_euler_ift', 'semi_implicit')
+
+
+def _as_casadi_column(x):
+    """Column vector, for either a numeric array or a casadi symbolic."""
+    _require_casadi()
+    if isinstance(x, (np.ndarray, list, tuple)):
+        return ca.DM(np.asarray(x, dtype=float).reshape(-1, 1))
+    return ca.reshape(x, x.numel(), 1)
+
+
+def _content_hash(obj):
+    """Stable content digest of nested lists/dicts/arrays, for cache keys.
+
+    Not repr(): numpy truncates the repr of an array past ~1000 elements
+    ('array([0, 1, 2, ..., 9997, 9998, 9999])'), so two different long observation series --
+    exactly the thing this is used to distinguish -- can share a repr. Hash the raw bytes
+    instead, tagging dtype and shape so arrays that differ only in those still separate.
+    """
+    digest = hashlib.blake2b(digest_size=16)
+
+    def update(value):
+        if isinstance(value, np.ndarray):
+            digest.update(b'\x01' + str(value.dtype).encode() + str(value.shape).encode())
+            digest.update(np.ascontiguousarray(value).tobytes())
+        elif isinstance(value, (list, tuple)):
+            digest.update(b'\x02')
+            for item in value:
+                update(item)
+            digest.update(b'\x03')
+        elif isinstance(value, dict):
+            digest.update(b'\x04')
+            for key in sorted(value, key=repr):
+                update(key)
+                update(value[key])
+            digest.update(b'\x05')
+        else:
+            digest.update(b'\x06' + repr(value).encode())
+
+    update(obj)
+    return digest.hexdigest()
 
 
 class CVS0DParamID():
@@ -269,6 +317,7 @@ class CVS0DParamID():
                 pre_time=pre_time,
                 sim_time=sim_time,
                 model_type=model_type,
+                method=(solver_info or {}).get('method'),
             )
             self.gt_df = parsed_data["gt_df"]
             self.protocol_info = parsed_data["protocol_info"]
@@ -307,7 +356,7 @@ class CVS0DParamID():
                                            DEBUG=self.DEBUG, model_type=self.model_type)
             self.n_steps = mcmc_object.n_steps
         else:
-            if model_type in ['cellml_only', 'python', 'casadi_python']:
+            if model_type in ['cellml_only', 'python', 'casadi_python', 'aadc_python']:
                 self.param_id = OpencorParamID(self.model_path, self.param_id_method,
                                                self.obs_info, self.param_id_info, self.protocol_info,
                                                self.prediction_info, self.solver_info, dt=self.dt,
@@ -364,7 +413,7 @@ class CVS0DParamID():
             'file_name_prefix', 'params_for_id_path', 'param_id_obs_path',
             'sim_time', 'pre_time', 'dt', 'solver_info', 'mcmc_options',
             'optimiser_options', 'DEBUG', 'param_id_output_dir', 'resources_dir',
-            'one_rank',
+            'one_rank', 'do_ad',
         ]
         kwargs = {key: inp_data_dict[key] for key in arg_options if key in inp_data_dict}
 
@@ -1127,7 +1176,12 @@ class OpencorParamID():
 
         self.sfp = scriptFunctionParser()
 
-        mode = "casadi" if self.model_type == "casadi_python" else "numpy"
+        if self.model_type == "casadi_python":
+            mode = "casadi"
+        elif self.model_type == "aadc_python":
+            mode = "numpy"  # AADC uses numpy for passive (non-tape) cost evaluation
+        else:
+            mode = "numpy"
         self.operation_funcs_dict = self.sfp.get_operation_funcs_dict(mode)
         self.cost_funcs_dict = self.sfp.get_cost_funcs_dict(mode)
 
@@ -1170,11 +1224,32 @@ class OpencorParamID():
         if self.protocol_info is not None:
             offline_pre_time = self.protocol_info.get('offline_pre_time')
         if offline_pre_time is not None and float(offline_pre_time) > 0:
-            if not hasattr(self.sim_helper, 'run_offline_pre_and_set_default_state'):
-                raise NotImplementedError(
-                    f"Solver {self.solver_info.get('solver')} does not support offline_pre_time"
-                )
-            self.sim_helper.run_offline_pre_and_set_default_state(offline_pre_time)
+            # offline_pre_time used to be run ONCE here, freezing the resulting state into the
+            # solver's default_state_inits for the whole calibration. That state is the steady
+            # state of the *initial* parameter guess, and it was never recomputed as the
+            # optimiser moved -- yet parameters change the steady state that is reached. Two
+            # consequences: every evaluation started from a state correct only for the initial
+            # params (a bias that itself varies with the params, so it distorts the cost
+            # landscape); and the gradient silently lost the d(steady state)/d(p) term, because
+            # FSA/AD treats that frozen state as a constant. AD-vs-FD verification cannot catch
+            # the latter -- FD perturbs the same frozen state, so both agree and both are wrong.
+            #
+            # Fold the duration into each experiment's first-sub warm-up instead. That warm-up
+            # IS re-integrated at the current parameter values on every evaluation (see
+            # ProtocolExecutor, which passes pre_times[exp_idx] to update_times for sub 0), so
+            # the starting state and its sensitivity are both correct. This gives up the
+            # speed-up the offline pass existed to provide; reinstating a *correct* offline
+            # optimisation is tracked in issue #269.
+            offline_pre_time = float(offline_pre_time)
+            pre_times = self.protocol_info.get('pre_times')
+            if pre_times is not None:
+                self.protocol_info = dict(self.protocol_info)
+                self.protocol_info['pre_times'] = [
+                    float(pt or 0.0) + offline_pre_time for pt in pre_times
+                ]
+                self.pre_time = self.protocol_info['pre_times'][0]
+            else:
+                self.pre_time = float(self.pre_time or 0.0) + offline_pre_time
             if self.sim_time is not None and self.pre_time is not None:
                 self.sim_helper.update_times(self.dt, 0.0, self.sim_time, self.pre_time)
 
@@ -1448,8 +1523,24 @@ class OpencorParamID():
             self.init_gradient = optimiser.init_gradient
             self.best_gradient = optimiser.best_gradient
 
+        elif self.param_id_method == 'multi_start_sp_minimize':
+            # Multi-start L-BFGS-B: gradient descent from many scattered starts, so a
+            # multi-modal cost surface doesn't trap us in the basin of the initial params.
+            optimiser = MultiStartSciPyMinimizeOptimiser(
+                self, self.param_id_info, self.param_norm_obj,
+                self.num_params, self.output_dir,
+                optimiser_options=self.optimiser_options,
+                do_ad=self.do_ad, model_type=self.model_type, DEBUG=self.DEBUG
+            )
+            optimiser.run()
+            self.best_param_vals = optimiser.best_param_vals
+            self.best_cost = optimiser.best_cost
+            self.init_gradient = optimiser.init_gradient
+            self.best_gradient = optimiser.best_gradient
+
         else:
-            print(f'param_id_method {self.param_id_method} hasn\'t been implemented')
+            print(f"param_id_method '{self.param_id_method}' is not implemented. Valid options: "
+                  f"{list(PARAM_ID_METHODS.keys())}")
             exit()
 
         if rank == 0:
@@ -1462,7 +1553,8 @@ class OpencorParamID():
 
             self.save_all_outputs_per_experiment(self.best_param_vals, suffix="")
 
-            if self.param_id_method == 'sp_minimize':
+            if self.param_id_method in ['sp_minimize', 'multi_start_sp_minimize'] and \
+                    self.init_gradient is not None:
                 print('init gradients  : {}'.format(self.init_gradient))
                 print('best gradients  : {}'.format(self.best_gradient))
 
@@ -1662,8 +1754,75 @@ class OpencorParamID():
 
         return cost
 
+    def _align_series_to_ground_truth(self, series_obj, series_idx):
+        """Put a simulated series and its ground truth on a common time grid.
+
+        `series_obj` is either a numpy array or a casadi column vector (symbolic when
+        differentiating). When the simulation dt differs from the observation's obs_dt, the
+        simulated series is linearly interpolated onto the observation times, so the residuals
+        are taken at the times the data was actually measured at.
+
+        Linear interpolation is a multiply by weights that depend only on the two time grids,
+        never on the parameters, so this works on a symbolic series too and leaves it
+        differentiable. (Interpolating the ground truth up onto the finer simulation grid
+        instead would invent data points between the samples, leaving a non-zero cost at the
+        true parameters.)
+
+        Returns (series_entry, ground_truth, std), all of the same length, with series_entry the
+        same kind of object as `series_obj`.
+        """
+        is_casadi = not isinstance(series_obj, np.ndarray)
+
+        ground_truth = np.asarray(self.obs_info["ground_truth_series"][series_idx], dtype=float)
+        std = np.asarray(self.obs_info["std_series_vec"][series_idx], dtype=float)
+        if std.ndim == 0:
+            std = np.full(ground_truth.shape, float(std))
+
+        obs_dt = self.obs_info["obs_dt"][series_idx]
+        num_sim = series_obj.size1() if is_casadi else series_obj.shape[0]
+
+        if obs_dt == self.dt:
+            min_len_series = min(ground_truth.shape[0], num_sim)
+            return (series_obj[:min_len_series], ground_truth[:min_len_series],
+                    std[:min_len_series])
+
+        if num_sim < 2:
+            raise ValueError(
+                f'cannot interpolate series observable {series_idx}: the simulation produced '
+                f'{num_sim} sample(s).')
+
+        # Sample k of a series is at time k*dt, so the grids are built with arange. (Note
+        # linspace(0, n*dt, n) has a spacing of n*dt/(n-1), not dt, which stretches the two grids
+        # by different factors and drifts them apart over a long simulation.)
+        t_sim = np.arange(num_sim) * self.dt
+        t_obs = np.arange(ground_truth.shape[0]) * obs_dt
+
+        # Only compare where the simulation actually reaches: past its end there is nothing to
+        # interpolate between, and clamping to the final value would invent a flat tail.
+        num_in_range = int(np.count_nonzero(t_obs <= t_sim[-1] + 1e-12 * max(1.0, t_sim[-1])))
+        if num_in_range == 0:
+            raise ValueError(
+                f'series observable {series_idx} has no overlap between the simulated times '
+                f'(dt={self.dt}, {num_sim} samples) and the observation times (obs_dt={obs_dt}).')
+        t_obs = t_obs[:num_in_range]
+
+        # Each observation time sits between simulation samples lower and lower+1, a fraction
+        # `frac` of the way along; interpolated[k] = (1-frac)*sim[lower] + frac*sim[lower+1].
+        lower = np.clip(np.floor(t_obs / self.dt).astype(int), 0, num_sim - 2)
+        frac = (t_obs - lower * self.dt) / self.dt
+
+        if is_casadi:
+            # gathers, so every entry of the symbolic series is preserved and differentiable
+            frac_ca = ca.DM(frac.reshape(-1, 1))
+            series_entry = ((1.0 - frac_ca) * series_obj[lower.tolist()]
+                            + frac_ca * series_obj[(lower + 1).tolist()])
+        else:
+            series_entry = (1.0 - frac) * series_obj[lower] + frac * series_obj[lower + 1]
+
+        return series_entry, ground_truth[:num_in_range], std[:num_in_range]
+
     def cost_calc(self, obs_dict, exp_idx=0, sub_idx=0, is_symbolic=False):
-        
+
 
         const = obs_dict['const']
         series = obs_dict['series']
@@ -1699,7 +1858,7 @@ class OpencorParamID():
         if self.obs_info["ground_truth_phase"].all() == None:
             phase = None
 
-        # TODO: Fix for series, amp, phase, and val_for_prob_dist
+        # TODO: Fix for amp, phase, and val_for_prob_dist
         if is_symbolic:
             _require_casadi()
             cost = ca.SX(0)
@@ -1709,8 +1868,40 @@ class OpencorParamID():
                     if updated_weight_const_vec[const_idx] != 0:
                         cost += self.cost_funcs_dict[self.cost_type[obs_idx]](const[const_idx], self.obs_info["ground_truth_const"][const_idx],
                                                         self.obs_info["std_const_vec"][const_idx], updated_weight_const_vec[const_idx])
+
+            if series is not None:
+                for series_idx in range(len(series)):
+                    obs_idx = self.obs_info['series_idx_to_obs_idx'][series_idx]
+                    weight_entry = updated_weight_series_vec[series_idx]
+                    if weight_entry == 0:
+                        continue
+
+                    # this branch is taken for every casadi_python model, not just when
+                    # differentiating, so the series is symbolic (SX) under do_ad and a plain
+                    # numeric array otherwise. Both become a casadi column vector here.
+                    series_col = _as_casadi_column(series[series_idx])
+
+                    series_entry, obs_np, std_np = self._align_series_to_ground_truth(
+                        series_col, series_idx)
+
+                    # cast the data to casadi column vectors so the elementwise ops below
+                    # don't get broadcast against a numpy row vector
+                    obs_entry = ca.DM(obs_np.reshape(-1, 1))
+                    std_entry = ca.DM(std_np.reshape(-1, 1))
+
+                    cost += self.cost_funcs_dict[self.cost_type[obs_idx]](
+                        series_entry, obs_entry, std_entry, weight_entry)
+
+            # Silently returning a zero cost for observables we can't differentiate would look
+            # like a perfectly converged fit, so fail loudly instead.
+            if amp is not None or phase is not None or val_for_prob_dist is not None:
+                raise NotImplementedError(
+                    'automatic differentiation of frequency (amp/phase) and prob_dist '
+                    'observables is not implemented. Use constant or series data items, or '
+                    'turn off do_ad.')
+
             return cost
-        
+
         # # TODO change functionality so the cost type is defined in the obs_data.json not the user_inputs.yaml
         # if self.cost_type == 'MSE':
         #     cost = np.sum(np.power(updated_weight_const_vec*(const -
@@ -1752,25 +1943,13 @@ class OpencorParamID():
             #                                 self.obs_info["std_series_vec"].reshape(-1, 1))) / min_len_series
 
             for series_idx in range(len(series)):
-                if self.obs_info["obs_dt"][series_idx] != self.dt:
-                    # interpolate the series to the dt of the ground truth series
-                    time_series = np.linspace(0, series[series_idx].shape[0]*self.dt, series[series_idx].shape[0])
-                    obs_time_series = np.linspace(0, self.obs_info["ground_truth_series"][series_idx].shape[0]*self.obs_info["obs_dt"][series_idx],
-                                                    self.obs_info["ground_truth_series"][series_idx].shape[0])
+                # interpolates the simulated series onto the observation times when
+                # dt != obs_dt; shared with the symbolic cost so both agree exactly
+                series_entry, obs_entry, std_entry = self._align_series_to_ground_truth(
+                    np.asarray(series[series_idx], dtype=float).flatten(), series_idx)
 
-                    series_entry = np.interp(obs_time_series, time_series, series[series_idx])
-                    obs_entry = self.obs_info["ground_truth_series"][series_idx]
-                    std_entry = self.obs_info["std_series_vec"][series_idx]
-                else:
-                    min_len_series = min(self.obs_info["ground_truth_series"][series_idx].shape[0], len(series[series_idx]))
-                    series_entry = series[series_idx][:min_len_series]
-                    obs_entry = self.obs_info["ground_truth_series"][series_idx][:min_len_series]
-                    # TODO make sure the std entries are the same shape as the obs entries
-                    std_entry = self.obs_info["std_series_vec"][series_idx][:min_len_series]
-                    
-                
                 weight_entry = updated_weight_series_vec[series_idx]
-                
+
                 obs_idx = self.obs_info['series_idx_to_obs_idx'][series_idx]
                 if weight_entry != 0:
                     series_cost += self.cost_funcs_dict[self.cost_type[obs_idx]](series_entry, obs_entry, std_entry, weight_entry)
@@ -2050,9 +2229,51 @@ class OpencorParamID():
             preds_const_vec[JJ + 2] = np.mean(preds[JJ, :])
         return preds_const_vec
     
+    def _casadi_functions_cache_key(self, param_names, get_all_series):
+        """Signature of everything the CasADi symbolic graph is built from, so that the graph can
+        be built once and re-evaluated at new parameter values.
+
+        The free parameters enter the graph symbolically, so the key deliberately does NOT
+        include their numeric values. Everything else does, because get_cost_and_obs_from_params
+        bakes it into the SX graph as literal constants: the ground truth, the standard
+        deviations, the per-experiment/sub weights, the cost type, and the params_to_change
+        protocol values. Those are all reachable through public setters (set_ground_truth_data,
+        set_obs_info, set_protocol_info) and by direct mutation of obs_info, so without them in
+        the key a flow that re-points the data -- `set_ground_truth_data(A); run();
+        set_ground_truth_data(B); run()`, staged sequential param-id, MCMC after calibration --
+        would hit the cache and silently keep optimising against the *previous* data while
+        reporting a plausible converged cost. Hashing them here rather than clearing the key in
+        each setter also covers in-place mutation, which no setter can intercept.
+        """
+        pnames = tuple(n[0] if isinstance(n, (list, tuple)) else n for n in param_names)
+        proto = self.protocol_info or {}
+        obs = self.obs_info or {}
+        data_sig = _content_hash([
+            obs.get('ground_truth_const'), obs.get('ground_truth_series'),
+            obs.get('std_const_vec'), obs.get('std_series_vec'),
+            obs.get('obs_dt'), obs.get('operands'), obs.get('operations'),
+            obs.get('data_types'), obs.get('cost_type'), self.cost_type,
+            proto.get('scaled_weight_const_from_exp_sub'),
+            proto.get('scaled_weight_series_from_exp_sub'),
+            proto.get('params_to_change'),
+        ])
+        return (pnames, bool(get_all_series), float(self.dt),
+                repr(proto.get('sim_times')), repr(proto.get('pre_times')),
+                repr(self.solver_info.get('method') if self.solver_info else None),
+                data_sig)
+
     def build_casadi_functions(self, param_names, param_vals = None, get_all_series=False):
         _require_casadi()
+        # Always refresh the numeric evaluation point (parameter values + init-seeded states).
         self.sim_helper._create_param_subset(param_names, param_vals)
+
+        # Build the symbolic graph once per structure. On a symbolic BDF / semi_implicit_euler
+        # solve the graph is a mapaccum of thousands of rootfinder steps, and ca.gradient unrolls
+        # sensitivities across all of them -- rebuilding it on every get_cost_ca / get_jac_cost_ca
+        # call (twice per optimiser iteration) is what made long-run stiff multi-start impractical.
+        cache_key = self._casadi_functions_cache_key(param_names, get_all_series)
+        if getattr(self, '_casadi_functions_cache_key_val', None) == cache_key:
+            return
 
         self.cost_symb, self.obs_dict_symb = self.get_cost_and_obs_from_params(param_vals, do_ad=True)
 
@@ -2070,7 +2291,21 @@ class OpencorParamID():
             for key in ['const', 'series', 'amp', 'phase', 'val_for_prob_dist']:
                 val = obs_dict_item[key]
 
-                if val is not None:
+                if val is None:
+                    continue
+
+                if isinstance(val, list):
+                    # series/amp/phase come back as a list with one entry per data item of
+                    # that type, each entry being a whole trace. Flatten each entry into the
+                    # obs vector but record the individual sizes, so get_obs_ca can rebuild
+                    # the list of traces that the numpy path (and the plotting) expects.
+                    entry_sizes = []
+                    for entry in val:
+                        entry_col = _as_casadi_column(entry)
+                        obs_outputs.append(entry_col)
+                        entry_sizes.append(entry_col.size1())
+                    obs_meta.append((key, i, entry_sizes))
+                else:
                     obs_outputs.append(val)
                     obs_meta.append((key, i, val.size1()))
 
@@ -2087,18 +2322,576 @@ class OpencorParamID():
             self.obs_func = ca.Function('obs_func', [self.sim_helper.states_symb, self.sim_helper.variables_symb], [self.obs_vec])
 
         self.jac_cost_func = ca.Function('jac_cost_func', [self.sim_helper.states_symb, self.sim_helper.variables_symb], [self.jac_cost_symb])
-    
+
+        self._casadi_functions_cache_key_val = self._casadi_functions_cache_key(param_names, get_all_series)
+
     def get_jac_cost_ca(self, param_vals):
         param_names = self.param_id_info["param_names"]
         self.build_casadi_functions(param_names, param_vals)
         jac_cost = np.array(self.jac_cost_func(self.sim_helper.states, self.sim_helper.variables)).flatten()
         return jac_cost
-    
+
     def get_cost_ca(self, param_vals):
         param_names = self.param_id_info["param_names"]
         self.build_casadi_functions(param_names, param_vals)
         cost= self.cost_func(self.sim_helper.states, self.sim_helper.variables)
         return cost
+
+    # ---- Myokit CVODES forward-sensitivity (FSA) gradient ----
+
+    def fsa_gradient_available(self):
+        """True when this run can produce an analytic gradient via Myokit CVODES FSA.
+
+        Requires a cellml_only model run through the Myokit backend (whose SimulationHelper
+        exposes enable_fsa) with do_ad requested. This is the gradient path for stiff /
+        long-warmup models that neither CasADi nor AADC covers.
+        """
+        return (self.model_type == 'cellml_only'
+                and getattr(self, 'do_ad', False)
+                and hasattr(self.sim_helper, 'enable_fsa'))
+
+    def _ensure_fsa_setup(self):
+        """Enable CVODES forward sensitivities on the Myokit sim helper (once).
+
+        Dependents are the unique observable-operand variables; independents are the AD
+        parameters. Parameters that appear in a state's initial-value expression are
+        FSA-ineligible (Myokit cannot make them sensitivity independents) and fall back to
+        finite differences; a single warning reports how many and which.
+        """
+        if getattr(self, '_fsa_setup_done', False):
+            return
+        # Flatten param names (a param may be shared across several vessels via a list).
+        self._fsa_param_names_flat = [
+            n[0] if isinstance(n, list) else n for n in self.param_id_info["param_names"]]
+        # Unique operand variables across all observables, order-preserving.
+        dep_names = []
+        for operands in self.obs_info["operands"]:
+            for v in operands:
+                if v not in dep_names:
+                    dep_names.append(v)
+        self._fsa_dependent_names = dep_names
+
+        # enable_fsa rebuilds the Simulation; preserve any offline warmup default state.
+        offline_state = getattr(self.sim_helper, '_offline_default_state', None)
+        ineligible = self.sim_helper.enable_fsa(dep_names, self._fsa_param_names_flat)
+        if offline_state is not None:
+            self.sim_helper._offline_default_state = offline_state
+            self.sim_helper.default_states = list(offline_state)
+
+        self._fsa_ineligible_names = list(ineligible or [])
+        if self._fsa_ineligible_names:
+            n_total = len(self._fsa_param_names_flat)
+            warnings.warn(
+                f"FSA: {len(self._fsa_ineligible_names)} of {n_total} parameters are "
+                f"unsuitable for CVODES forward sensitivity (they appear in a state's "
+                f"initial-value expression): {self._fsa_ineligible_names}; these will use "
+                f"finite-difference gradients (2 extra simulations each per gradient).")
+        self._fsa_setup_done = True
+
+    def _total_weighted_obs_denominator(self):
+        """Sum of weighted-observable counts over all experiments/sub-experiments.
+
+        Matches the divisor get_cost_obs_and_pred_from_params uses for the full cost, so a
+        gradient assembled from raw per-sub costs divided by this equals d(mean cost)/dp.
+        """
+        num_experiments = self.protocol_info["num_experiments"]
+        num_sub_per_exp = self.protocol_info["num_sub_per_exp"]
+        D = 0
+        for exp_idx in range(num_experiments):
+            for sub_idx in range(num_sub_per_exp[exp_idx]):
+                if self._num_weighted_obs_by_exp_sub is not None:
+                    D += self._num_weighted_obs_by_exp_sub[exp_idx][sub_idx]
+                else:
+                    wc = self.protocol_info["scaled_weight_const_from_exp_sub"][exp_idx][sub_idx]
+                    ws = self.protocol_info["scaled_weight_series_from_exp_sub"][exp_idx][sub_idx]
+                    wa = self.protocol_info["scaled_weight_amp_from_exp_sub"][exp_idx][sub_idx]
+                    wp = self.protocol_info["scaled_weight_phase_from_exp_sub"][exp_idx][sub_idx]
+                    wd = self.protocol_info["scaled_weight_prob_dist_from_exp_sub"][exp_idx][sub_idx]
+                    D += int(np.sum(wc != 0) + np.sum(ws != 0) + np.sum(wa != 0)
+                             + np.sum(wp != 0) + np.sum(wd != 0))
+        return max(int(D), 1)
+
+    def get_jac_cost_fsa(self, param_vals, return_cost=False):
+        """Gradient dJ/dp via Myokit CVODES forward sensitivity + directional derivative.
+
+        With ``return_cost=True`` this returns ``(cost, grad)`` instead of just ``grad``. The
+        augmented FSA solve already produces the unperturbed operand traces, so the cost J(p)
+        is reconstructed from them with ``get_cost_from_operands`` (cheap arithmetic, no extra
+        solve) -- it is identical to ``get_cost_from_params(p)``. This lets L-BFGS-B get both
+        the value and the gradient from one CVODES solve per point instead of two.
+
+        FSA gives S = d(operand_trace)/dp for every eligible parameter. Rather than
+        differentiate each observable operation and cost term by hand, we perturb the
+        operand traces along S (operand + h*S ≈ operand(p+h)) and re-evaluate the *existing*
+        cost path get_cost_from_operands; the finite difference over h is dJ/dp exactly (S is
+        the true trace derivative), reusing every operation / weight / std / cost function
+        with no duplication. FSA-ineligible parameters get a central finite difference over
+        the full cost.
+
+        Multi-sub-experiment protocols are supported: the Myokit helper carries dy/dp across
+        sub-experiment boundaries (myokit_helper.update_times), so each sub's operand
+        sensitivities already include the parameter's effect through earlier subs' end states
+        (the cross-sub chain-rule term). Summing the per-sub directional derivatives is then
+        exact; the helper retains each sub's sensitivities in _fsa_sensitivities_history.
+        """
+        self._ensure_fsa_setup()
+        param_vals = np.asarray(param_vals, dtype=float)
+        n_params = len(param_vals)
+
+        num_experiments = self.protocol_info["num_experiments"]
+        num_sub_per_exp = self.protocol_info["num_sub_per_exp"]
+
+        eligible_names = set(self.sim_helper._fsa_eligible_param_names or [])
+        # Map each flattened param name to its column index in param_vals.
+        flat_names = self._fsa_param_names_flat
+        grad = np.zeros(n_params)
+        denom = float(self._total_weighted_obs_denominator())
+        raw_cost = 0.0  # unperturbed sub-costs, so we can also return J(p) from this same solve
+
+        # ---- Eligible params: directional derivative via FSA, summed over (exp, sub) ----
+        for exp_idx in range(num_experiments):
+            _, operands_list, _ = self.get_cost_obs_and_pred_from_params(
+                param_vals, reset=True, only_one_exp=exp_idx)
+            # Per-sub sensitivities captured during this experiment's protocol run, in sub order
+            # (reset_states cleared the history at the experiment start).
+            sens_history = list(self.sim_helper._fsa_sensitivities_history)
+            base = int(np.sum(num_sub_per_exp[:exp_idx]))
+            for sub_idx in range(num_sub_per_exp[exp_idx]):
+                subexp_count = base + sub_idx
+                # A failed simulation makes get_cost_obs_and_pred_from_params return
+                # `np.inf, [], []` -- an *empty* list, not a list of Nones. Indexing it
+                # unguarded raises IndexError before the None check below can fire, which
+                # propagates out of scipy.minimize and kills the whole calibration. The
+                # non-AD path returns inf here and lets L-BFGS-B's line search back off, so
+                # bounds-check and fall through to the same (inf, nan) result.
+                operands = operands_list[subexp_count] \
+                    if subexp_count < len(operands_list) else None
+                if operands is None:
+                    return (np.inf, np.full(n_params, np.nan)) if return_cost \
+                        else np.full(n_params, np.nan)
+                # Unperturbed cost of this sub from the operand traces the solve already gave us
+                # (get_cost_from_operands is the same one get_cost_obs_and_pred_from_params uses,
+                # so raw_cost / denom reproduces get_cost_from_params exactly -- no extra solve).
+                raw_cost += float(self.get_cost_from_operands(
+                    operands, exp_idx=exp_idx, sub_idx=sub_idx))
+                sens_arr = sens_history[sub_idx] if sub_idx < len(sens_history) else None
+                sens = self.sim_helper.get_sensitivities(
+                    self._fsa_dependent_names, flat_names, sensitivities=sens_arr)
+
+                for j in range(n_params):
+                    pname = flat_names[j]
+                    if pname not in eligible_names:
+                        continue
+                    pj = float(param_vals[j])
+                    # Central directional difference along the exact sensitivity S. The step acts
+                    # on fixed operand traces (not the solver), so it is immune to integration
+                    # noise; a moderate step avoids catastrophic cancellation in raw_p - raw_m
+                    # while staying small enough that argmax/argmin of max/min observables is
+                    # stable and linear operations (mean) are reproduced exactly.
+                    h = 1e-3 * abs(pj) if pj != 0.0 else 1e-4
+                    pert_p = self._perturb_operands_along_sensitivity(operands, sens, pname, h)
+                    pert_m = self._perturb_operands_along_sensitivity(operands, sens, pname, -h)
+                    raw_p = float(self.get_cost_from_operands(pert_p, exp_idx=exp_idx, sub_idx=sub_idx))
+                    raw_m = float(self.get_cost_from_operands(pert_m, exp_idx=exp_idx, sub_idx=sub_idx))
+                    grad[j] += (raw_p - raw_m) / (2.0 * h)
+
+        grad /= denom
+
+        # ---- Ineligible params: central finite difference over the full mean cost ----
+        ineligible_idx = [j for j in range(n_params) if flat_names[j] not in eligible_names]
+        if ineligible_idx:
+            base_cost = float(self.get_cost_from_params(param_vals))
+            if not np.isfinite(base_cost):
+                base_cost = None
+            for j in ineligible_idx:
+                pj = float(param_vals[j])
+                # Real re-simulation FD, so the step must balance truncation against the
+                # integrator noise floor: the central-difference optimum is ~tol^(1/3), i.e.
+                # a ~1e-3 relative step for the ~1e-9 cost noise at rtol/atol 1e-8 (a
+                # convergence study confirmed rel 1e-3 is well inside the flat region while
+                # rel 1e-4 sits in the noise floor).
+                h = 1e-3 * abs(pj) if pj != 0.0 else 1e-5
+                p_plus = param_vals.copy(); p_plus[j] += h
+                p_minus = param_vals.copy(); p_minus[j] -= h
+                c_plus = float(self.get_cost_from_params(p_plus))
+                c_minus = float(self.get_cost_from_params(p_minus))
+                if np.isfinite(c_plus) and np.isfinite(c_minus):
+                    grad[j] = (c_plus - c_minus) / (2.0 * h)
+                elif base_cost is not None and np.isfinite(c_plus):
+                    grad[j] = (c_plus - base_cost) / h
+                elif base_cost is not None and np.isfinite(c_minus):
+                    grad[j] = (base_cost - c_minus) / h
+                else:
+                    grad[j] = 0.0
+        if return_cost:
+            return raw_cost / denom, grad
+        return grad
+
+    def get_cost_and_jac_fsa(self, param_vals):
+        """(cost, gradient) from a single Myokit CVODES FSA solve. See get_jac_cost_fsa."""
+        return self.get_jac_cost_fsa(param_vals, return_cost=True)
+
+    def _perturb_operands_along_sensitivity(self, operands, sens, pname, h):
+        """Return a copy of one sub-experiment's operand traces stepped by h along dS/dp.
+
+        `operands` is the list-of-operand-arrays for one observable-bearing sub-experiment,
+        indexed [obs_entry][operand] to match self.obs_info["operands"]; `sens[var][pname]`
+        is the FSA sensitivity trace of operand variable `var` w.r.t. parameter `pname`.
+        """
+        pert = []
+        for JJ, operand_arrays in enumerate(operands):
+            operand_var_names = self.obs_info["operands"][JJ]
+            new_entry = []
+            for k, arr in enumerate(operand_arrays):
+                arr = np.asarray(arr, dtype=float)
+                var_name = operand_var_names[k]
+                s_trace = sens.get(var_name, {}).get(pname)
+                if s_trace is None:
+                    new_entry.append(arr.copy())
+                    continue
+                s_trace = np.asarray(s_trace, dtype=float)
+                L = min(arr.shape[0], s_trace.shape[0])
+                stepped = arr.copy()
+                stepped[:L] = arr[:L] + h * s_trace[:L]
+                new_entry.append(stepped)
+            pert.append(new_entry)
+        return pert
+
+    # ---- Backend-agnostic cost/gradient interface ----
+
+    def get_cost(self, param_vals):
+        """Compute cost J(p), dispatching to CasADi or AADC or numpy."""
+        if self.model_type == 'casadi_python':
+            return float(self.get_cost_ca(param_vals))
+        if self.model_type == 'aadc_python' and self.do_ad:
+            # When the gradient comes off the tape the cost has to as well, or the optimiser
+            # descends a different function than it evaluates. See get_cost_aadc.
+            return float(self.get_cost_aadc(param_vals))
+        return float(self.get_cost_from_params(param_vals))
+
+    def get_gradient(self, param_vals):
+        """Compute gradient ∇J(p), dispatching to CasADi, AADC, or Myokit FSA."""
+        if self.model_type == 'casadi_python':
+            return self.get_jac_cost_ca(param_vals)
+        elif self.model_type == 'aadc_python':
+            return self.get_jac_cost_aadc(param_vals)
+        elif self.fsa_gradient_available():
+            return self.get_jac_cost_fsa(param_vals)
+        else:
+            raise ValueError(f"Gradient not available for model_type={self.model_type}")
+
+    def get_cost_and_gradient(self, param_vals):
+        """Return ``(cost, gradient)`` in one evaluation.
+
+        L-BFGS-B needs both J(p) and ∇J(p) at every point it visits. For the Myokit CVODES
+        FSA path a single augmented solve yields both, so this avoids the separate cost solve
+        the optimiser would otherwise do. Other backends fall back to separate calls (CasADi's
+        reverse pass and the AADC tape are cheap, so there is little to merge there).
+        """
+        if self.model_type not in ('casadi_python', 'aadc_python') \
+                and self.fsa_gradient_available():
+            return self.get_cost_and_jac_fsa(param_vals)
+        return float(self.get_cost(param_vals)), self.get_gradient(param_vals)
+
+    def _aadc_cost_and_grad(self, param_vals):
+        """Compute J(p) and ∇J(p) via AADC tape: forward solve + cost on tape, reverse pass.
+
+        Uses sim_helper.compute_gradient_tape() which records the entire ODE
+        integration + cost function on an AADC tape and gets the gradient via
+        one reverse pass. Requires a tape-compatible solver (implicit_euler_ift
+        or semi_implicit).
+        """
+        # The AADC tape must integrate the same discrete system as the forward solve, or the
+        # gradient is the exact gradient of a *different* function than the cost. The tape has
+        # to replay a fixed sequence of operations, so it can only record fixed-step schemes:
+        # 'rk4' (its default), 'implicit_euler_ift' and 'semi_implicit'. sim_helper.run() with
+        # 'adaptive_rk45' or 'bdf' integrates something else entirely, and the tape then quietly
+        # falls back to RK4 -- measured on Lotka-Volterra, that gave AD/FD = [1.79, 1.96, 1.32,
+        # -0.067], the last with the wrong sign. Refuse instead.
+        method = self.sim_helper.solver_info.get('method', 'adaptive_rk45')
+        if method not in TAPE_CONSISTENT_AADC_METHODS:
+            raise ValueError(
+                f"solver method '{method}' cannot be recorded on an AADC tape, so the forward "
+                f"solve and the gradient would integrate different systems. With do_ad, use one "
+                f"of {list(TAPE_CONSISTENT_AADC_METHODS)} (fixed-step, and what the tape records) "
+                f"-- an adaptive integrator chooses its steps from the state, so its step "
+                f"sequence changes with the parameters and cannot be taped. Or turn off do_ad.")
+
+        param_names_raw = self.param_id_info["param_names"]
+        # param_names may be lists of strings (e.g. [['alpha_Lotka_Volterra']]) — flatten
+        param_names = []
+        for pn in param_names_raw:
+            if isinstance(pn, (list, tuple)):
+                param_names.append(pn[0])
+            else:
+                param_names.append(pn)
+
+        # Set up AD parameter tracking on the simulation helper
+        self.sim_helper.set_param_vals(param_names_raw, param_vals)
+        self.sim_helper._ad_param_names = list(param_names)
+
+        # Map param names to variable indices using sim_helper's name resolver
+        ad_indices = []
+        for pname in param_names:
+            kind, idx = self.sim_helper._resolve_name(pname)
+            if kind == "var":
+                ad_indices.append(idx)
+            elif kind == "state":
+                raise ValueError(f"Param '{pname}' resolves to a state, not a variable. "
+                                 "AADC gradient currently supports variable parameters only.")
+            else:
+                raise ValueError(f"Param '{pname}' not found by name resolver.")
+        self.sim_helper._ad_param_var_indices = ad_indices
+
+        # Build cost function that works with idouble on tape.
+        # Receives: final state (list of idouble), params (list of idouble),
+        # and optionally the full trajectory (list of lists of idouble).
+        obs_info = self.obs_info
+        sim_helper = self.sim_helper
+        operation_funcs = self.operation_funcs_dict
+        cost_funcs = self.cost_funcs_dict
+        cost_types = self.cost_type
+
+        # The tape records one straight-line integration, so it cannot express a protocol with
+        # several experiments / sub-experiments (each of which resets the state and changes
+        # parameters). Refuse rather than silently differentiate the wrong thing.
+        num_experiments = self.protocol_info["num_experiments"] if self.protocol_info else 1
+        num_sub_per_exp = self.protocol_info["num_sub_per_exp"] if self.protocol_info else [1]
+        if num_experiments > 1 or any(n > 1 for n in num_sub_per_exp):
+            raise NotImplementedError(
+                f'the AADC tape cannot represent a protocol with {num_experiments} experiment(s) '
+                f'and sub-experiment counts {list(num_sub_per_exp)}: it records a single '
+                f'straight-line integration. Use a single-experiment obs_data, or turn off do_ad.')
+
+        # The tape cost (cost_on_tape below) can only reproduce observables whose operand is a
+        # STATE and whose operation the tape re-implements (max/min/mean, or a plain final
+        # value; series). An operand that is an *algebraic* variable (not a state) resolves to
+        # no state index and cannot be put on the tape, and operations such as max_minus_min are
+        # not reproduced either. Such an observable would be silently dropped from the tape cost,
+        # making the tape cost -- and therefore its gradient -- a different function than the one
+        # being minimised, so the optimiser would descend the wrong cost. Refuse rather than
+        # silently mislead. (Fully supporting algebraic observables needs the algebraic variables
+        # recomputed on the tape from the state trajectory, tracked in issue #258.)
+        def _operand_is_state(op):
+            # _resolve_name is authoritative. There used to be a fallback here matching the
+            # operand's leaf name (op.split('/')[-1]) against every state name, which could
+            # declare an *algebraic* observable tapeable purely because some unrelated
+            # component happened to own a state with the same leaf -- e.g. observable
+            # 'pulmonary_artery/v' matching state 'heart/v'. That suppressed the untapeable
+            # check below, and _resolve_state_idx's matching fallback then bound the tape to
+            # the first state with that leaf: a different variable entirely. Because both the
+            # tape cost and its gradient used the wrong variable they agreed with each other,
+            # so AD-vs-FD checks passed and the optimiser converged cleanly onto a fit of a
+            # variable the user never asked for.
+            kind, _ = self.sim_helper._resolve_name(op)
+            return kind == 'state'
+
+        supported_const_ops = (None, 'max', 'min', 'mean')
+        operand_names_o = self.obs_info.get("operands", []) if self.obs_info else []
+        operations_o = self.obs_info.get("operations", []) if self.obs_info else []
+        data_types_o = self.obs_info.get("data_types", []) if self.obs_info else []
+        untaped = []
+        for jj in range(len(operand_names_o)):
+            op = operand_names_o[jj][0] if isinstance(operand_names_o[jj], (list, tuple)) \
+                else operand_names_o[jj]
+            dtype = data_types_o[jj] if jj < len(data_types_o) else 'constant'
+            oper = operations_o[jj] if jj < len(operations_o) else None
+            if dtype == 'constant':
+                if not _operand_is_state(op) or oper not in supported_const_ops:
+                    untaped.append(f"{op} (op={oper})")
+            elif dtype == 'series':
+                if not _operand_is_state(op):
+                    untaped.append(f"{op} (series)")
+            else:
+                untaped.append(f"{op} (data_type={dtype})")
+        if untaped:
+            raise NotImplementedError(
+                f"AADC is not usable with this observable set: {len(untaped)} of "
+                f"{len(operand_names_o)} observable(s) cannot be represented on the AADC tape "
+                f"(operand is an algebraic variable rather than a state, or the operation is "
+                f"unsupported such as max_minus_min): {untaped}. The current AADC wrapper can "
+                f"only tape observables whose operand is a state with a max/min/mean operation "
+                f"(or a state series). Taping these would silently minimise a reduced cost, not "
+                f"the one the optimiser evaluates. Support for algebraic-variable observables and "
+                f"max_minus_min on the tape is tracked in issue #258. For a correct gradient on "
+                f"these observables now, use model_type 'casadi_python' (solver_info method "
+                f"'bdf') or a Myokit CVODES FSA run (model_type 'cellml_only', solver "
+                f"'CVODE_myokit', do_ad true).")
+
+        weighted_obs_denominator = 0
+        if self._num_weighted_obs_by_exp_sub is not None:
+            for exp_idx in range(num_experiments):
+                for sub_idx in range(num_sub_per_exp[exp_idx]):
+                    weighted_obs_denominator += self._num_weighted_obs_by_exp_sub[exp_idx][sub_idx]
+
+        def cost_on_tape(states_idouble, params_idouble, trajectory=None):
+            import aadc as _aadc
+            from param_id.math_backend import make_math_backend
+            mb = make_math_backend("aadc")
+
+            cost = _aadc.idouble(0.0)
+            if obs_info is None:
+                return cost
+
+            def _cost_scale(obs_idx):
+                """The constant in front of the normalised squared residual, for the cost type
+                configured on this observable.
+
+                The tape re-implements the cost by hand, so it has to reproduce the *configured*
+                cost function exactly -- if it does not, the gradient is the gradient of some
+                other function than the one being minimised. gaussian_MLE is
+                ``0.5 * mean(((x - mu)/std)^2 * w)`` and MSE is twice that. The hand-rolled form
+                below was missing the 0.5, which made every tape cost exactly 2x the real one.
+                """
+                name = cost_types[obs_idx] if obs_idx < len(cost_types) else 'gaussian_MLE'
+                if name == 'gaussian_MLE':
+                    return 0.5
+                if name == 'MSE':
+                    return 1.0
+                raise NotImplementedError(
+                    f"cost_type '{name}' cannot be recorded on an AADC tape yet; the tape cost "
+                    f"would not match the cost the optimiser minimises. Use gaussian_MLE or MSE, "
+                    f"or turn off do_ad.")
+
+            gt_const = obs_info.get("ground_truth_const", [])
+            std_const = obs_info.get("std_const_vec", [])
+            operations = obs_info.get("operations", [])
+            operand_names = obs_info.get("operands", [])
+            data_types = obs_info.get("data_types", [])
+            weights_const = self.protocol_info["scaled_weight_const_from_exp_sub"][0][0] \
+                if self.protocol_info else np.ones(len(gt_const))
+
+            # Helper: resolve operand name to state index. _resolve_name is authoritative --
+            # see _operand_is_state for why the leaf-name fallback that used to live here was
+            # removed (it could bind the tape to a same-leaf state in an unrelated component,
+            # consistently in both cost and gradient, so nothing downstream could detect it).
+            def _resolve_state_idx(op_name):
+                kind, resolved_idx = sim_helper._resolve_name(op_name)
+                if kind == "state":
+                    return resolved_idx
+                return None
+
+            gt_series = obs_info.get("ground_truth_series", [])
+            std_series = obs_info.get("std_series_vec", [])
+            obs_dts = obs_info.get("obs_dt", [])
+            sim_dt = float(sim_helper.dt)
+            weights_series = self.protocol_info["scaled_weight_series_from_exp_sub"][0][0] \
+                if self.protocol_info and "scaled_weight_series_from_exp_sub" in self.protocol_info \
+                else np.ones(len(gt_series)) if gt_series else np.array([])
+
+            const_idx = 0
+            series_idx = 0
+            for jj in range(len(operand_names)):
+                op_name = operand_names[jj][0] if isinstance(operand_names[jj], (list, tuple)) else operand_names[jj]
+                operation = operations[jj]
+                si = _resolve_state_idx(op_name)
+
+                if data_types[jj] == 'constant':
+                    if const_idx >= len(gt_const) or si is None:
+                        const_idx += 1
+                        continue
+
+                    # Apply operation to trajectory
+                    if trajectory is not None and operation in ('max', 'min', 'mean'):
+                        series_vals = [trajectory[t][si] for t in range(len(trajectory))]
+                        if operation == 'max':
+                            obs_val = mb.max(series_vals)
+                        elif operation == 'min':
+                            obs_val = mb.min(series_vals)
+                        elif operation == 'mean':
+                            obs_val = mb.mean(series_vals)
+                    else:
+                        obs_val = states_idouble[si]
+
+                    gt_val = _aadc.idouble(float(gt_const[const_idx]))
+                    std_val = _aadc.idouble(float(std_const[const_idx]))
+                    w = _aadc.idouble(float(weights_const[const_idx]))
+                    diff = (obs_val - gt_val) / std_val
+                    cost = cost + diff * diff * w * _aadc.idouble(_cost_scale(jj))
+                    const_idx += 1
+
+                elif data_types[jj] == 'series':
+                    # Series: compare trajectory at each time point
+                    if trajectory is None or si is None:
+                        series_idx += 1
+                        continue
+                    if series_idx >= len(gt_series):
+                        series_idx += 1
+                        continue
+
+                    gt_s = gt_series[series_idx]
+                    # std may be one value for the whole series or one per sample
+                    std_raw = np.asarray(std_series[series_idx], dtype=float) \
+                        if series_idx < len(std_series) else np.asarray(1.0)
+                    if std_raw.ndim == 0:
+                        std_raw = np.full(len(gt_s), float(std_raw))
+                    w_s = float(weights_series[series_idx]) if series_idx < len(weights_series) else 1.0
+
+                    if w_s > 0 and gt_s is not None:
+                        # trajectory[k] is the state at time k*dt, and ground-truth sample k is
+                        # at k*obs_dt. Those grids only coincide when dt == obs_dt, so line the
+                        # simulated series up with the observation times by linear interpolation
+                        # -- the weights depend only on the two grids, never on the parameters,
+                        # so this stays on tape and stays differentiable. Indexing
+                        # trajectory[t_idx] directly (as this did) silently compared the
+                        # simulation against the wrong times whenever dt != obs_dt.
+                        obs_dt_s = float(obs_dts[series_idx]) if series_idx < len(obs_dts) \
+                            else sim_dt
+                        n_traj = len(trajectory)
+                        n_pts = 0
+                        terms = []
+                        for k in range(len(gt_s)):
+                            pos = k * obs_dt_s / sim_dt
+                            lower = int(np.floor(pos))
+                            if lower >= n_traj - 1:
+                                if lower == n_traj - 1 and abs(pos - lower) < 1e-9:
+                                    sim_val = trajectory[lower][si]
+                                else:
+                                    break  # past the end of the simulation: no data to compare
+                            else:
+                                frac = pos - lower
+                                sim_val = (trajectory[lower][si] * _aadc.idouble(1.0 - frac)
+                                           + trajectory[lower + 1][si] * _aadc.idouble(frac))
+                            terms.append((sim_val, float(gt_s[k]), float(std_raw[k])))
+                            n_pts += 1
+
+                        for sim_val, gt_val_k, std_k in terms:
+                            diff = (sim_val - _aadc.idouble(gt_val_k)) / _aadc.idouble(std_k)
+                            cost = cost + diff * diff * _aadc.idouble(
+                                _cost_scale(jj) * w_s / n_pts)
+
+                    series_idx += 1
+
+            # get_cost_obs_and_pred_from_params divides the summed sub-costs by the total
+            # number of weighted observable slots, so the tape must do the same or its cost is
+            # a constant multiple of the real one -- and a constant multiple of the cost has a
+            # constant multiple of the gradient, which is exactly as wrong for a line search.
+            # (This was the factor of 2 in the measured AD/FD = [2, 2, 2, 2].)
+            if weighted_obs_denominator > 0:
+                cost = cost / _aadc.idouble(float(weighted_obs_denominator))
+
+            return cost
+
+        # Run forward + reverse on AADC tape. Both the cost and the gradient come out of the
+        # same evaluation, so get_cost_aadc and get_jac_cost_aadc cannot drift apart.
+        return self.sim_helper.compute_cost_and_gradient_tape(cost_on_tape)
+
+    def get_jac_cost_aadc(self, param_vals):
+        return self._aadc_cost_and_grad(param_vals)[1]
+
+    def get_cost_aadc(self, param_vals):
+        """J(p) evaluated on the AADC tape.
+
+        This must be the cost an AADC-gradient optimiser minimises. The forward solver and the
+        tape do not integrate the same way -- the tape has to replay a fixed sequence of
+        operations, so it uses a fixed-step scheme, while sim_helper.run() may use an adaptive
+        one -- and the tape's cost is a separate implementation of the cost function. Taking
+        J(p) from get_cost_from_params and dJ/dp from the tape therefore hands L-BFGS-B the
+        gradient of a *different function* than the one it is minimising, which breaks the line
+        search. Measured on Lotka-Volterra, that mismatch gave AD/FD ratios of
+        [1.79, 1.96, 1.32, -0.067] -- the last one has the wrong sign.
+        """
+        return self._aadc_cost_and_grad(param_vals)[0]
     
     def get_obs_ca(self, param_vals, get_all_series=False):
         param_names = self.param_id_info["param_names"]
@@ -2130,6 +2923,15 @@ class OpencorParamID():
 
         idx = 0
         for key, i, size in self.obs_meta:
+            if isinstance(size, list):
+                # a list of sizes means one trace per data item of this type
+                traces = []
+                for trace_size in size:
+                    traces.append(obs_dict[idx:idx+trace_size])
+                    idx += trace_size
+                obs[i][key] = traces
+                continue
+
             values = obs_dict[idx:idx+size]
 
             if size == 1:

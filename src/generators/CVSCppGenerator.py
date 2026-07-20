@@ -1116,7 +1116,7 @@ class CVS0DCppGenerator(object):
 
         
         a.analyseModel(flat_model)
-        analysed_model = a.model()
+        analysed_model = cellml.get_analysed_model(a)
 
         if self.DEBUG:
             # parse_model seems to print most of the necessary issues, so we don't need to print them here
@@ -1250,8 +1250,6 @@ class CVS0DCppGenerator(object):
         # TODO I should create my own profile with most of the below code so I don't have to change it when changes are made to libcellml
         profile = GeneratorProfile(GeneratorProfile.Profile.C)
         profile.setInterfaceFileNameString(f'{self.output_cpp_file_name}.h')
-        gen.setProfile(profile)
-        gen.setModel(analysed_model)
 
 
         #XXX HEADER FILE
@@ -1292,7 +1290,7 @@ class CVS0DCppGenerator(object):
         interFaceCodePreClass = ''
         interFaceCodeInClass = ''
         pre_class = True
-        for line in gen.interfaceCode().split('\n'):
+        for line in cellml.generate_interface_code(gen, analysed_model, profile).split('\n'):
             # print(line)
             if 'extern ' in line:
                 if 'VERSION' in line:
@@ -1732,7 +1730,7 @@ Model0d::Model0d() :
         in_class_init = False
 
         # TODO The below is all really susceptible to changes in libcellml, I should create my own profile
-        lines = gen.implementationCode().split('\n')
+        lines = cellml.generate_implementation_code(gen, analysed_model, profile).split('\n')
         max_func_found = any(l.startswith('double max') for l in lines)
         
         lines_to_pass = []

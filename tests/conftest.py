@@ -7,6 +7,52 @@ It provides fixtures for test data, configuration, and deterministic randomness.
 import os
 import re
 import sys
+
+
+def _validate_aadc_license():
+    """Record a throwaway AADC tape to force the licence check, and report whether
+    it succeeded.
+
+    This MUST run before ``mpi4py.MPI`` is imported. AADC validates its licence over
+    the network via LicenseSpring/libcurl, and once MPI is loaded into the process the
+    curl TLS backend can no longer be initialised ("Could not initialize curl TLS
+    backend"), so every subsequent ``start_recording()`` raises ``RuntimeError: AADC
+    License check failed`` — even with a perfectly valid licence. Validating here caches
+    the licence while curl still works, and it stays usable for the rest of the session.
+    """
+    try:
+        import aadc
+        import numpy
+
+        funcs = aadc.Functions()
+        funcs.start_recording()
+        x = aadc.idouble(2.0)
+        x_arg = x.mark_as_input()
+        y = x * x
+        y_res = y.mark_as_output()
+        funcs.stop_recording()
+        aadc.evaluate(funcs, {y_res: [x_arg]}, {x_arg: numpy.array([3.0])},
+                      aadc.ThreadPool(1))
+        return True
+    except ImportError:
+        # aadc simply isn't installed -- the ordinary case on CI and for most contributors.
+        return False
+    except RuntimeError as exc:
+        # Only an actual licence failure means "skip". Anything else raised by
+        # start_recording/mark_as_input/evaluate is a genuine regression in the AADC tape
+        # path, and swallowing it here would report the entire AADC suite as "skipped, no
+        # Matlogica licence" with the run still green -- hiding exactly the breakage these
+        # tests exist to catch.
+        if 'License' in str(exc) or 'licence' in str(exc).lower():
+            return False
+        raise
+
+
+# Whether AADC is installed *and* licensed. AADC's forward solves run unlicensed, but
+# anything that records a tape (the gradients) does not, so licence-gated tests skip
+# rather than fail. See the `aadc_licensed` fixture.
+AADC_LICENSE_AVAILABLE = _validate_aadc_license()
+
 import yaml
 import shutil
 import pytest
@@ -23,12 +69,22 @@ _TEST_ROOT = os.path.join(os.path.dirname(__file__), '..')
 _SRC_DIR = os.path.join(_TEST_ROOT, 'src')
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
+# Also put the repo root on sys.path so top-level packages (e.g. `benchmarks`, which
+# test_param_id imports for the shared FitzHugh-Nagumo benchmark) are importable regardless of
+# how pytest was invoked. Without this, `pytest tests/` in CI fails to even collect
+# test_param_id with `ModuleNotFoundError: No module named 'benchmarks'`.
+_ROOT_DIR = os.path.abspath(_TEST_ROOT)
+if _ROOT_DIR not in sys.path:
+    sys.path.insert(0, _ROOT_DIR)
 
 from scripts.script_generate_with_new_architecture import generate_with_new_architecture
 
 # Store pytest config for hooks that need plugin access (xdist reports lack config)
 _PYTEST_CONFIG = None
 _AUTOGEN_RESULTS_FILE = os.path.join(os.path.dirname(__file__), "..", ".pytest_one_rank_results")
+# Must match the autogen_status_file fixture: the completion counter that
+# wait_for_autogen_if_needed blocks on.
+_AUTOGEN_STATUS_FILE = os.path.join(os.path.dirname(__file__), "..", ".pytest_autogen_status")
 _MISC_RESULTS_FILE = os.path.join(os.path.dirname(__file__), "..", ".pytest_misc_results")
 _SOLVER_RESULTS_FILE = os.path.join(os.path.dirname(__file__), "..", ".pytest_solver_results")
 _SESSION_START = None
@@ -256,7 +312,26 @@ def pytest_runtest_logreport(report):
     Some runners/plugins keep capture enabled; this surfaces the comparison output.
     """
     if report.when != "call":
-        return
+        # A test that is skipped or errors during setup -- by a fixture (e.g. aadc_licensed),
+        # a skipif marker, or a broken fixture -- never reaches the "call" phase, so it would
+        # never be written to the results file. It is still counted in the expected totals set
+        # by pytest_collection_modifyitems, so pytest_terminal_summary would then block on
+        # _wait_for_expected_result_count for its full 1800 s timeout waiting for a line that
+        # can never arrive. Record it here instead.
+        if not (report.when == "setup" and (report.skipped or report.failed)):
+            return
+
+        # The same applies to the autogen completion counter. track_autogen_completion is a
+        # yield fixture, so a test skipped during setup never runs its teardown and never
+        # appends its "done" line -- but it is still counted in ONE_RANK_TOTAL. That leaves
+        # wait_for_autogen_if_needed short by one line, and its loop is unbounded, so the run
+        # hangs forever. Write the line here for tests whose teardown won't.
+        if "autogen_task" in getattr(report, "keywords", {}):
+            try:
+                with open(_AUTOGEN_STATUS_FILE, "a") as f:
+                    f.write("done\n")
+            except OSError:
+                pass
 
     # Collect autogen outcomes for cross-rank aggregation
     if "one_rank_task" in getattr(report, "keywords", {}):
@@ -476,6 +551,25 @@ def user_inputs_dir(project_root):
 def resources_dir(project_root):
     """Fixture that returns the resources directory."""
     return os.path.join(project_root, 'resources')
+
+
+@pytest.fixture(scope="session")
+def aadc_licensed():
+    """Skip a test unless AADC is installed *and* licensed.
+
+    AADC's forward solves run with a bare ``pip install aadc``, but anything that
+    records a tape — the gradients, and the on-tape damping in ``method='semi_implicit'``
+    — needs a Matlogica licence and otherwise raises ``RuntimeError: AADC License check
+    failed``. Those tests skip rather than fail so an unlicensed environment (including
+    CI) stays green.
+    """
+    pytest.importorskip("aadc")
+    if not AADC_LICENSE_AVAILABLE:
+        pytest.skip(
+            "AADC is installed but not licensed: recording a tape raises 'AADC License "
+            "check failed'. A Matlogica licence is needed to exercise the AADC gradient "
+            "and tape-recording solve paths."
+        )
 
 
 @pytest.fixture(scope="function")
@@ -763,8 +857,14 @@ def wait_for_autogen_if_needed(request, autogen_status_file):
         # No autogen tests collected; nothing to wait for
         return
 
+    # Bounded: this loop used to be `while True`, so a single missing completion line hung the
+    # whole run forever (on CI that means the 6 hour job timeout, with no diagnostic). Time out
+    # loudly instead -- the tests that follow will fail on their own if the models really are
+    # missing, which is far easier to debug than a silent hang.
+    deadline = time.time() + 600.0
+    count = 0
     waited = 0.0
-    while True:
+    while time.time() < deadline:
         if os.path.exists(autogen_status_file):
             try:
                 with open(autogen_status_file, "r") as f:
@@ -781,6 +881,21 @@ def wait_for_autogen_if_needed(request, autogen_status_file):
             continue
         if abs(waited - round(waited, 1)) < 1e-6 and int(waited) % 10 == 0 and waited > 0:
             print(f"Waiting for autogeneration to finish... ({waited:.1f}s)")
+
+    print(
+        f"ERROR: timed out after {waited:.0f}s waiting for autogeneration to finish "
+        f"({count} of {total} completion lines in {autogen_status_file}). "
+        f"A one-rank test was counted but never recorded its completion."
+    )
+    # Fail rather than continue. The tests that follow consume temp_generated_models_dir,
+    # which is *persistent* (not tmp_path), so on a warm checkout they would happily run
+    # against models generated by an earlier commit and report passed -- turning a missed
+    # autogeneration into a green run. Absent models would have failed loudly; stale ones
+    # do not, so the timeout itself has to be the failure.
+    raise RuntimeError(
+        f"Timed out after {waited:.0f}s waiting for autogeneration "
+        f"({count} of {total} completion lines in {autogen_status_file}). Refusing to "
+        f"continue: downstream tests would silently run against stale generated models.")
 
 
 @pytest.fixture(scope="function", autouse=True)

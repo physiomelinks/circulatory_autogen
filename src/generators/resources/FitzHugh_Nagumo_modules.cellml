@@ -1,0 +1,73 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<model name="FitzHugh_Nagumo" xmlns="http://www.cellml.org/cellml/1.1#" xmlns:cellml="http://www.cellml.org/cellml/1.1#">
+    <component name="FitzHugh_Nagumo_main_type">
+        <variable name="t" public_interface="in" units="second"/>
+        <variable name="V_init" public_interface="in" units="dimensionless"/>
+        <variable name="R_init" public_interface="in" units="dimensionless"/>
+        <variable name="a" public_interface="in" units="dimensionless"/>
+        <variable name="b" public_interface="in" units="dimensionless"/>
+        <variable name="c" public_interface="in" units="dimensionless"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <apply>
+                    <diff/>
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>V</ci>
+                </apply>
+                <apply>
+                    <times/>
+                    <ci>c</ci>
+                    <apply>
+                        <plus/>
+                        <apply>
+                            <minus/>
+                            <ci>V</ci>
+                            <apply>
+                                <divide/>
+                                <apply>
+                                    <power/>
+                                    <ci>V</ci>
+                                    <cn cellml:units="dimensionless">3</cn>
+                                </apply>
+                                <cn cellml:units="dimensionless">3</cn>
+                            </apply>
+                        </apply>
+                        <ci>R</ci>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <apply>
+                    <diff/>
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>R</ci>
+                </apply>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <minus/>
+                        <apply>
+                            <minus/>
+                            <ci>a</ci>
+                            <ci>V</ci>
+                        </apply>
+                        <apply>
+                            <times/>
+                            <ci>b</ci>
+                            <ci>R</ci>
+                        </apply>
+                    </apply>
+                    <ci>c</ci>
+                </apply>
+            </apply>
+        </math>
+        <variable initial_value="V_init" name="V" public_interface="out" units="dimensionless"/>
+        <variable initial_value="R_init" name="R" public_interface="out" units="dimensionless"/>
+    </component>
+</model>

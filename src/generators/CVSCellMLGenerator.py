@@ -118,7 +118,7 @@ class CVS0DCellMLGenerator(object):
             a = Analyser()
 
             a.analyseModel(flat_model)
-            analysed_model = a.model()
+            analysed_model = cellml.get_analysed_model(a)
 
             libcellml_utils.print_issues(a)
 

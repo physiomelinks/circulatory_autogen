@@ -41,12 +41,13 @@ sys.path.append(os.path.join(root_dir, 'src'))
 # settings UI) so they don't hardcode these lists. Keep this in sync with
 # solver_wrappers.get_simulation_helper.
 SOLVER_SCHEMA = {
-    'model_types': ['cellml_only', 'python', 'cpp', 'casadi_python'],
+    'model_types': ['cellml_only', 'python', 'cpp', 'casadi_python', 'aadc_python'],
     'solvers_by_model_type': {
         'cellml_only': ['CVODE_opencor', 'CVODE_myokit'],
         'python': ['solve_ivp'],
         'cpp': ['CVODE', 'RK4', 'PETSC'],
         'casadi_python': ['casadi_integrator'],
+        'aadc_python': ['aadc_semi_implicit'],
     },
     # Methods/plugins valid for each solver.
     'methods_by_solver': {
@@ -59,7 +60,19 @@ SOLVER_SCHEMA = {
         # 'semi_implicit_euler' is a fixed-step damped scheme implemented in the
         # CasADi helper (not a SUNDIALS plugin); used for stiff models whose cvodes
         # adjoint-sensitivity gradient fails (e.g. 3compartment).
-        'casadi_integrator': ['cvodes', 'idas', 'collocation', 'rk', 'semi_implicit_euler'],
+        # 'bdf' is a fixed-step implicit BDF (order 2, BDF1 startup) built as a symbolic
+        # CasADi graph with a rootfinder per step; stable for stiff models and, unlike
+        # cvodes adjoint sensitivity, fully supports CasADi AD (rootfinder is
+        # differentiable via the implicit-function theorem).
+        'casadi_integrator': ['cvodes', 'idas', 'collocation', 'rk', 'semi_implicit_euler', 'bdf'],
+        # 'rk4' is fixed-step and is what the AADC tape records, so it is the method for which
+        # the forward cost and the tape gradient are of the same function (see do_ad).
+        # There is deliberately no 'bdf' here: that method handed the solve to scipy's
+        # solve_ivp with AADC supplying only the RHS and Jacobian, so the trajectory never
+        # reached the tape. The AD tape has no bdf branch either, so do_ad silently recorded
+        # rk4 instead -- cost and gradient were different functions. Use 'semi_implicit' for
+        # stiff models, or model_type 'casadi_python' for a differentiable symbolic BDF.
+        'aadc_semi_implicit': ['adaptive_rk45', 'semi_implicit', 'implicit_euler_ift', 'rk4'],
     },
     # Default solver for each model_type (used when none is specified).
     'default_solver_by_model_type': {
@@ -67,8 +80,257 @@ SOLVER_SCHEMA = {
         'python': 'solve_ivp',
         'cpp': 'CVODE',
         'casadi_python': 'casadi_integrator',
+        'aadc_python': 'aadc_semi_implicit',
     },
 }
+
+
+# The integrator-specific `solver_info` settings each solver accepts, in schema form, so a tool
+# (e.g. CUFLynx) can auto-populate the solver settings form when a solver is picked -- the
+# companion to SOLVER_SCHEMA's solver/method menus. Each descriptor: `name` (the solver_info key),
+# `type` ('int' | 'float' | 'bool' | 'str' | 'dict' | 'enum'), `default` (None => no built-in
+# default; falls back to the integrator's own), `required`, `description`; enums add `choices`.
+# The framework keys ('solver', 'method', 'dt_solver') are handled separately (method comes from
+# SOLVER_SCHEMA['methods_by_solver']) and are not listed here. Defaults mirror
+# get_solver_info_default(); this is the single source of truth for _SOLVER_INTEGRATOR_KEYS below.
+_SI_RTOL = {'name': 'rtol', 'type': 'float', 'default': 1e-8, 'required': False,
+            'description': 'Relative integration tolerance.'}
+_SI_ATOL = {'name': 'atol', 'type': 'float', 'default': 1e-8, 'required': False,
+            'description': 'Absolute integration tolerance.'}
+# CVODE-family backends (opencor/myokit, and the cpp CVODE/RK4/PETSC) share the same fields.
+_CVODE_FAMILY_SOLVER_INFO = [
+    {'name': 'MaximumStep', 'type': 'float', 'default': 0.001, 'required': False,
+     'description': 'Maximum integrator step size.'},
+    {'name': 'MaximumNumberOfSteps', 'type': 'int', 'default': 5000, 'required': False,
+     'description': 'Maximum number of internal integrator steps per output step.'},
+    _SI_RTOL, _SI_ATOL,
+]
+
+SOLVER_INFO_FIELDS = {
+    'CVODE_opencor': _CVODE_FAMILY_SOLVER_INFO,
+    'CVODE_myokit': _CVODE_FAMILY_SOLVER_INFO,
+    'CVODE': _CVODE_FAMILY_SOLVER_INFO,
+    'RK4': _CVODE_FAMILY_SOLVER_INFO,
+    'PETSC': _CVODE_FAMILY_SOLVER_INFO,
+    'solve_ivp': [
+        _SI_RTOL, _SI_ATOL,
+        {'name': 'max_step', 'type': 'float', 'default': 0.001, 'required': False,
+         'description': 'Maximum step size passed to scipy.integrate.solve_ivp.'},
+        {'name': 'vectorized', 'type': 'bool', 'default': False, 'required': False,
+         'description': 'Whether the RHS accepts vectorised input (scipy solve_ivp option).'},
+        {'name': 'dense_output', 'type': 'bool', 'default': False, 'required': False,
+         'description': 'Whether to compute a continuous (dense) solution.'},
+        {'name': 'jac', 'type': 'str', 'default': None, 'required': False,
+         'description': 'Optional Jacobian specification for implicit methods.'},
+    ],
+    'casadi_integrator': [
+        {'name': 'max_step_size', 'type': 'float', 'default': 0.001, 'required': False,
+         'description': 'Maximum step size for the adaptive CasADi integrators (cvodes/idas/etc).'},
+        {'name': 'max_step', 'type': 'float', 'default': 0.001, 'required': False,
+         'description': ('Internal sub-step cap for the symbolic bdf method (self.dt is split '
+                         'into ceil(dt/max_step) implicit sub-steps); distinct from '
+                         'max_step_size, which sizes the adaptive integrators.')},
+        {'name': 'max_num_steps', 'type': 'int', 'default': 5000, 'required': False,
+         'description': 'Maximum number of internal integrator steps.'},
+        {'name': 'reltol', 'type': 'float', 'default': 1e-8, 'required': False,
+         'description': 'Relative integration tolerance (SUNDIALS naming).'},
+        {'name': 'abstol', 'type': 'float', 'default': 1e-10, 'required': False,
+         'description': 'Absolute integration tolerance (SUNDIALS naming).'},
+        {**_SI_RTOL, 'default': None,
+         'description': 'Relative-tolerance alias (reltol is preferred for CasADi).'},
+        {**_SI_ATOL, 'default': None,
+         'description': 'Absolute-tolerance alias (abstol is preferred for CasADi).'},
+        {'name': 'options', 'type': 'dict', 'default': None, 'required': False,
+         'description': 'Extra options passed straight through to the CasADi integrator.'},
+    ],
+    'aadc_semi_implicit': [
+        {'name': 'tol', 'type': 'float', 'default': 1e-8, 'required': False,
+         'description': 'Integration tolerance for the adaptive AADC integrator.'},
+        {'name': 'threads', 'type': 'int', 'default': 4, 'required': False,
+         'description': 'Number of threads for AADC evaluation.'},
+        # No 'gradient_method' here: nothing reads it. AD vs FD is chosen by the `do_ad` flag
+        # (see SciPyMinimizeOptimiser.run, which falls back to approx_fprime when it is off),
+        # and which AD backend runs follows from model_type/solver in
+        # OpencorParamID.get_gradient. Advertising a setting the code never reads makes CUFLynx
+        # render a control that silently does nothing.
+    ],
+}
+# Expose the solver_info field schema alongside the solver/method menus for one-stop discovery.
+SOLVER_SCHEMA['solver_info_fields_by_solver'] = SOLVER_INFO_FIELDS
+
+
+# Option (setting) descriptors for the per-method `optimiser_options` blocks, so downstream tools
+# (e.g. the CUFLynx settings UI) can auto-populate the correct settings fields when a calibration
+# method is selected instead of hardcoding them. Each descriptor: `name` (the optimiser_options
+# key), `type` ('int' | 'float' | 'bool' | 'enum'), `default` (None => must be supplied by the
+# user; no built-in default), `required`, and a `description`; enum settings add `choices`. Keep
+# in sync with the optimiser classes in param_id/optimisers.py.
+_OPT_NUM_CALLS = {
+    'name': 'num_calls_to_function', 'type': 'int', 'default': None, 'required': True,
+    'description': 'Evaluation budget: maximum number of cost-function calls.',
+}
+_OPT_COST_CONVERGENCE = {
+    'name': 'cost_convergence', 'type': 'float', 'default': 1e-4, 'required': False,
+    'description': 'Stop once the cost drops below this value.',
+}
+_OPT_MAX_PATIENCE = {
+    'name': 'max_patience', 'type': 'int', 'default': 10, 'required': False,
+    'description': 'Stop after this many generations without an improvement in cost.',
+}
+
+
+# Single source of truth for the parameter-identification (calibration) methods, i.e. the valid
+# values of `param_id_method`. Surfaced to downstream tools (e.g. the CUFLynx settings UI) the
+# same way SOLVER_SCHEMA is, so they can populate a calibration-method menu AND the per-method
+# settings form without hardcoding either. Each method's `options` lists the `optimiser_options`
+# keys it reads (see _OPT_* above). Keep in sync with OpencorParamID.run()'s param_id_method
+# dispatch (paramID.py) and the optimiser classes (optimisers.py).
+PARAM_ID_METHODS = {
+    'genetic_algorithm': {
+        'label': 'Genetic algorithm',
+        'gradient_based': False,
+        'description': 'Gradient-free population-based global search.',
+        'options': [_OPT_NUM_CALLS, _OPT_COST_CONVERGENCE, _OPT_MAX_PATIENCE],
+    },
+    'CMA-ES': {
+        'label': 'CMA-ES',
+        'aliases': ['CMAES', 'cmaes'],
+        'gradient_based': False,
+        'description': 'Covariance-matrix-adaptation evolution strategy (gradient-free).',
+        'options': [
+            # CMA-ES falls back to a 10000-call budget when none is given (GA requires one).
+            {**_OPT_NUM_CALLS, 'default': 10000, 'required': False},
+            {'name': 'sigma0', 'type': 'float', 'default': None, 'required': False,
+             'description': ('Initial CMA-ES step size (standard deviation) in normalised '
+                             'parameter space; omitted lets CMA choose.')},
+            _OPT_COST_CONVERGENCE, _OPT_MAX_PATIENCE,
+        ],
+    },
+    'bayesian': {
+        'label': 'Bayesian optimisation',
+        'gradient_based': False,
+        'description': 'Surrogate-model Bayesian optimisation (experimental / untested).',
+        # The acquisition-function constants (acq_func, n_initial_points, random_state) are
+        # currently hardcoded in paramID.py, not user-configurable, so they are not listed here.
+        'options': [_OPT_NUM_CALLS],
+    },
+    'sp_minimize': {
+        'label': 'Gradient descent (L-BFGS-B)',
+        'gradient_based': True,
+        'description': ('Local bounded L-BFGS-B. Uses an automatic-differentiation gradient for '
+                        'casadi_python, aadc_python, or cellml_only + CVODE_myokit + do_ad; '
+                        'finite differences otherwise.'),
+        # The gradient source is the top-level `do_ad` user input, not an optimiser_option.
+        'options': [_OPT_COST_CONVERGENCE],
+    },
+    'multi_start_sp_minimize': {
+        'label': 'Multi-start gradient descent',
+        'gradient_based': True,
+        'description': ('L-BFGS-B from many scattered starts, so it exploits the gradient while '
+                        'still escaping local minima. Same AD gradient sources as sp_minimize.'),
+        'options': [
+            {'name': 'num_starts', 'type': 'int', 'default': 10, 'required': False,
+             'description': 'Number of L-BFGS-B starts scattered across the parameter box '
+                            '(defaults to 4 when DEBUG is on).'},
+            {'name': 'start_sampling', 'type': 'enum', 'default': 'sobol', 'required': False,
+             'choices': ['sobol', 'latin_hypercube', 'random'],
+             'description': 'How the start points are sampled across the parameter box.'},
+            {'name': 'include_init_point', 'type': 'bool', 'default': True, 'required': False,
+             'description': 'Include the parameters-CSV x0 as one of the starts.'},
+            {'name': 'seed', 'type': 'int', 'default': 0, 'required': False,
+             'description': 'Seed for the deterministic start sampling.'},
+            {'name': 'fd_step', 'type': 'float', 'default': 1e-4, 'required': False,
+             'description': 'Finite-difference step used when no AD gradient is available.'},
+            {'name': 'no_new_starts_on_convergence', 'type': 'bool', 'default': True,
+             'required': False,
+             'description': 'Stop launching new starts once one has converged.'},
+            {'name': 'convergence_cluster_tol_frac', 'type': 'float', 'default': 0.02,
+             'required': False,
+             'description': ('Fraction of each parameter range within which two minima are '
+                             'treated as the same cluster.')},
+            _OPT_COST_CONVERGENCE,
+        ],
+    },
+}
+
+
+def valid_param_id_methods():
+    """All accepted `param_id_method` strings: canonical names plus their aliases."""
+    names = []
+    for canonical, meta in PARAM_ID_METHODS.items():
+        names.append(canonical)
+        names.extend(meta.get('aliases', []))
+    return names
+
+
+def param_id_method_options(param_id_method):
+    """The `optimiser_options` settings a given `param_id_method` accepts (aliases resolved), for
+    tools that auto-populate a per-method settings form. Returns the list of option descriptor
+    dicts (see PARAM_ID_METHODS); an empty list for an unknown method."""
+    for canonical, meta in PARAM_ID_METHODS.items():
+        if param_id_method == canonical or param_id_method in meta.get('aliases', []):
+            return meta.get('options', [])
+    return []
+
+
+def solver_info_fields(solver):
+    """The `solver_info` settings a given solver accepts (see SOLVER_INFO_FIELDS), for tools that
+    auto-populate the solver settings form. Empty list for an unknown solver."""
+    return SOLVER_INFO_FIELDS.get(solver, [])
+
+
+# Settings blocks for the non-calibration analysis modes (sensitivity, MCMC, identifiability), in
+# the same descriptor shape as a param_id method's `options`, so a tool can auto-populate their
+# settings forms too. Each entry gives the enabling top-level flag (`enable_flag`), the
+# user_inputs key holding the block (`options_key`), and the option descriptors the mode reads.
+# Keep in sync with sensitivityAnalysis.py / paramID.py (MCMC) / identifiabilityAnalysis.py.
+ANALYSIS_OPTIONS = {
+    'sensitivity_analysis': {
+        'label': 'Sobol sensitivity analysis',
+        'enable_flag': 'do_sensitivity',
+        'options_key': 'sa_options',
+        'options': [
+            {'name': 'method', 'type': 'enum', 'default': 'sobol', 'required': False,
+             'choices': ['sobol', 'naive'],
+             'description': 'Sensitivity method: Sobol indices or a naive one-at-a-time sweep.'},
+            {'name': 'sample_type', 'type': 'str', 'default': 'saltelli', 'required': False,
+             'description': 'SALib sampling scheme (e.g. saltelli for Sobol).'},
+            {'name': 'num_samples', 'type': 'int', 'default': None, 'required': True,
+             'description': ('Base sample count; the actual number of runs is num_samples*(2M+2) '
+                             'for Sobol, where M is the number of parameters.')},
+        ],
+    },
+    'mcmc': {
+        'label': 'MCMC posterior sampling',
+        'enable_flag': 'do_mcmc',
+        'options_key': 'mcmc_options',
+        'options': [
+            {'name': 'num_steps', 'type': 'int', 'default': 5000, 'required': False,
+             'description': 'Number of MCMC steps per walker.'},
+            {'name': 'num_walkers', 'type': 'int', 'default': None, 'required': False,
+             'description': 'Number of ensemble walkers (defaults to 2 * number of parameters).'},
+        ],
+    },
+    'identifiability_analysis': {
+        'label': 'Identifiability analysis',
+        'enable_flag': 'do_ia',
+        'options_key': 'ia_options',
+        'options': [
+            {'name': 'method', 'type': 'enum', 'default': 'Laplace', 'required': True,
+             'choices': ['Laplace', 'profile_likelihood'],
+             'description': 'Identifiability method: Laplace approximation or profile likelihood.'},
+            {'name': 'sub_method', 'type': 'str', 'default': 'parabola_fit', 'required': False,
+             'description': "Hessian method for the Laplace approximation (e.g. 'parabola_fit')."},
+        ],
+    },
+}
+
+
+def analysis_options(mode):
+    """The option descriptors for a non-calibration analysis mode ('sensitivity_analysis',
+    'mcmc', 'identifiability_analysis'); an empty list for an unknown mode."""
+    meta = ANALYSIS_OPTIONS.get(mode)
+    return meta['options'] if meta else []
 
 
 def save_dated_user_inputs(inp_data_dict):
@@ -99,14 +361,25 @@ def save_dated_user_inputs(inp_data_dict):
         pass
 
 
+# CasADi integrator methods that use SUNDIALS adjoint sensitivity for AD, which fails on a long
+# warmup with CV_TOO_MUCH_WORK. The symbolic methods (bdf, semi_implicit_euler) build a plain
+# reverse-mode mapaccum graph instead and handle nonzero pre_time fine, so they must NOT warn.
+_CASADI_ADJOINT_METHODS = ('cvodes', 'idas')
+
+
 def warn_if_casadi_nonzero_pre_time(
     model_type,
     pre_time=None,
     pre_times=None,
     offline_pre_time=None,
+    method=None,
 ):
-    """Warn when CasADi AD is configured with nonzero warmup times (unsupported for adjoint)."""
+    """Warn when CasADi AD with an ADJOINT integrator (cvodes/idas) is configured with nonzero
+    warmup times. The symbolic bdf / semi_implicit_euler methods are differentiated by reverse
+    mode (no adjoint) and support nonzero pre_time, so they are exempt."""
     if model_type != 'casadi_python':
+        return
+    if method is not None and method not in _CASADI_ADJOINT_METHODS:
         return
 
     issues = []
@@ -121,11 +394,11 @@ def warn_if_casadi_nonzero_pre_time(
 
     if issues:
         warnings.warn(
-            'CasADi automatic differentiation (model_type="casadi_python", '
-            'solver="casadi_integrator") does not support nonzero pre_time or pre_times: '
+            f'CasADi automatic differentiation with an adjoint integrator '
+            f'(solver_info method={method!r}) does not support nonzero pre_time or pre_times: '
             'adjoint sensitivity integration typically fails with CV_TOO_MUCH_WORK. '
-            'Set pre_time and protocol pre_times to 0.0 (use offline_pre_time only with '
-            'non-CasADi solvers for warmup). '
+            'Set pre_time/pre_times to 0.0, or use a symbolic method '
+            '(method="bdf" or "semi_implicit_euler") which supports warmup. '
             f'Affected: {", ".join(issues)}.',
             UserWarning,
             stacklevel=3,
@@ -215,9 +488,27 @@ class YamlFileParser(object):
         if 'param_id_method' not in inp_data_dict.keys():
             inp_data_dict['param_id_method'] = 'genetic_algorithm'
 
-        if inp_data_dict.get('param_id_method') == 'sp_minimize' and inp_data_dict.get('model_type') != 'casadi_python':
-            print(f'Parameter identification with sp_minimize requires model_type to be "casadi_python"')
+        # cellml_only models get an AD gradient too, via Myokit CVODES forward sensitivity,
+        # when run through the Myokit solver with do_ad set.
+        _fsa_ad = (inp_data_dict.get('model_type') == 'cellml_only'
+                   and inp_data_dict.get('solver', 'CVODE_myokit') == 'CVODE_myokit'
+                   and inp_data_dict.get('do_ad'))
+        if inp_data_dict.get('param_id_method') == 'sp_minimize' and \
+                inp_data_dict.get('model_type') not in ('casadi_python', 'aadc_python') and not _fsa_ad:
+            print('Parameter identification with sp_minimize requires model_type to be '
+                  '"casadi_python" or "aadc_python", or "cellml_only" with solver '
+                  '"CVODE_myokit" and do_ad: true (Myokit CVODES forward sensitivity).')
             exit()
+
+        # multi_start_sp_minimize runs on any model type: it uses the AD gradient for
+        # casadi_python (symbolic), aadc_python (tape), and cellml_only + Myokit CVODES FSA
+        # (do_ad), and falls back to finite differences for the others.
+        if inp_data_dict.get('param_id_method') == 'multi_start_sp_minimize' and \
+                inp_data_dict.get('model_type') not in ('casadi_python', 'aadc_python') and not _fsa_ad:
+            print('Note: multi_start_sp_minimize with model_type '
+                  f'"{inp_data_dict.get("model_type")}" will use finite-difference gradients. '
+                  'Set model_type to "casadi_python"/"aadc_python", or use "cellml_only" with '
+                  'solver "CVODE_myokit" and do_ad: true, to use automatic differentiation.')
 
         # overwrite dir paths if set in user_inputs.yaml
         if "resources_dir" in inp_data_dict.keys():
@@ -274,6 +565,8 @@ class YamlFileParser(object):
             model_ext = '.cellml'
         elif inp_data_dict.get('model_type') == 'cpp':
             model_ext = '.cpp'
+        elif inp_data_dict.get('model_type') == 'aadc_python':
+            model_ext = '.py'
         else:
             print(f'Invalid model type: {inp_data_dict.get("model_type")}')
             exit()
@@ -321,6 +614,7 @@ class YamlFileParser(object):
         valid_solve_ivp_methods = _methods['solve_ivp']
         valid_casadi_solvers = _solvers['casadi_python']
         valid_casadi_solver_plugins = _methods['casadi_integrator']
+        valid_aadc_solvers = _solvers.get('aadc_python', [])
 
         solver_name = inp_data_dict.get('solver_info', {}).get('solver')
         if solver_name is None:
@@ -339,14 +633,18 @@ class YamlFileParser(object):
                 solver_name = 'CVODE'
             elif inp_data_dict.get('model_type') == 'casadi_python':
                 solver_name = 'cvodes'
+            elif inp_data_dict.get('model_type') == 'aadc_python':
+                solver_name = 'aadc_semi_implicit'
             else:
                 print(f'Invalid model type: {inp_data_dict.get("model_type")}')
                 exit()
         else:
+            valid_aadc_solvers = SOLVER_SCHEMA['solvers_by_model_type'].get('aadc_python', [])
             if (solver_name not in valid_cellml_solvers and
                 solver_name not in valid_cpp_solvers and
                 solver_name not in valid_python_solvers and
-                solver_name not in valid_casadi_solvers):
+                solver_name not in valid_casadi_solvers and
+                solver_name not in valid_aadc_solvers):
                 print(f'Invalid solver: {solver_name}')
                 exit()
         
@@ -366,6 +664,8 @@ class YamlFileParser(object):
             elif inp_data_dict.get('model_type') == 'python':
                 if 'max_step' not in inp_data_dict['solver_info']:
                     inp_data_dict['solver_info']['max_step'] = defaults.get('max_step', 0.001)
+            elif inp_data_dict.get('model_type') == 'aadc_python':
+                pass  # AADC solver handles its own defaults
             elif 'MaximumNumberOfSteps' not in inp_data_dict['solver_info']:
                 inp_data_dict['solver_info']['MaximumNumberOfSteps'] = defaults['MaximumNumberOfSteps']
         if 'solver' not in inp_data_dict['solver_info'].keys():
@@ -432,15 +732,17 @@ class YamlFileParser(object):
                     solver_method = 'RK45'
                     inp_data_dict['solver_info']['method'] = solver_method
 
-        if (solver_name not in valid_cellml_solvers 
+        if (solver_name not in valid_cellml_solvers
             and solver_name not in valid_python_solvers
             and solver_name not in valid_cpp_solvers
-            and solver_name not in valid_casadi_solvers):
+            and solver_name not in valid_casadi_solvers
+            and solver_name not in valid_aadc_solvers):
             print(f'Invalid solver: {solver_name}')
             print(f'Valid CellML solvers: {valid_cellml_solvers}')
             print(f'Valid Python solvers: {valid_python_solvers}')
             print(f'Valid Cpp solvers: {valid_cpp_solvers}')
-            print(f'Valid CasAdi solvers: {valid_casadi_solvers}')
+            print(f'Valid CasADi solvers: {valid_casadi_solvers}')
+            print(f'Valid AADC solvers: {valid_aadc_solvers}')
             exit()
         
         
@@ -476,9 +778,19 @@ class YamlFileParser(object):
                 print(f'Use {valid_casadi_solvers} for CasADi Python models')
                 exit()
 
-        # CasADi solvers can only be used with CasADi Python models
+        # AADC solvers can only be used with AADC Python models
+        if inp_data_dict.get('model_type') == 'aadc_python' and solver_name not in valid_aadc_solvers:
+                print(f'Solver {solver_name} cannot be used with AADC Python models')
+                print(f'Use {valid_aadc_solvers} for AADC Python models')
+                exit()
+
+        # CasADi solvers can only be used with CasADi Python models.
+        # aadc_python is exempted here so that a stale config carrying the removed AADC
+        # method 'bdf' falls through to validate_solver_info below, which names the methods
+        # aadc_semi_implicit actually accepts, rather than being rejected with a misleading
+        # "requires model_type casadi_python" message.
         if solver_method in valid_casadi_solver_plugins:
-            if inp_data_dict.get('model_type') not in ['casadi_python', None]:
+            if inp_data_dict.get('model_type') not in ['casadi_python', 'aadc_python', None]:
                 print(f'CasADi solver {solver_method} requires model_type to be "casadi_python"')
                 print('Use CVODE_opencor (or legacy CVODE) or CVODE_myokit for CellML models')
                 print('Use CVODE or RK4 or PETSC for Cpp models')
@@ -493,6 +805,7 @@ class YamlFileParser(object):
         warn_if_casadi_nonzero_pre_time(
             inp_data_dict.get('model_type'),
             pre_time=inp_data_dict.get('pre_time'),
+            method=(inp_data_dict.get('solver_info') or {}).get('method'),
         )
 
         if 'DEBUG' in inp_data_dict.keys(): 
@@ -648,17 +961,12 @@ class YamlFileParser(object):
 # Keys always allowed in solver_info (framework metadata, not passed to integrators).
 _FRAMEWORK_SOLVER_INFO_KEYS = frozenset({'solver', 'method', 'dt_solver'})
 
-# Integrator-specific keys that may appear in solver_info for each backend.
+# Integrator-specific keys that may appear in solver_info for each backend. Derived from
+# SOLVER_INFO_FIELDS (the schema surfaced to tools) so the validation and the advertised settings
+# cannot drift apart -- add a field there and it is both offered to the UI and accepted here.
 _SOLVER_INTEGRATOR_KEYS = {
-    'CVODE_opencor': frozenset({'MaximumStep', 'MaximumNumberOfSteps', 'rtol', 'atol'}),
-    'CVODE_myokit': frozenset({'MaximumStep', 'MaximumNumberOfSteps', 'rtol', 'atol'}),
-    'CVODE': frozenset({'MaximumStep', 'MaximumNumberOfSteps', 'rtol', 'atol'}),
-    'RK4': frozenset({'MaximumStep', 'MaximumNumberOfSteps', 'rtol', 'atol'}),
-    'PETSC': frozenset({'MaximumStep', 'MaximumNumberOfSteps', 'rtol', 'atol'}),
-    'solve_ivp': frozenset({'rtol', 'atol', 'max_step', 'vectorized', 'dense_output', 'jac'}),
-    'casadi_integrator': frozenset({
-        'reltol', 'abstol', 'rtol', 'atol', 'max_num_steps', 'max_step_size', 'options',
-    }),
+    solver: frozenset(field['name'] for field in fields)
+    for solver, fields in SOLVER_INFO_FIELDS.items()
 }
 
 
@@ -774,6 +1082,13 @@ def get_solver_info_default(model_type):
             'max_num_steps': 5000,
             'reltol': 1e-8,
             'abstol': 1e-10,
+        }
+    if model_type == 'aadc_python':
+        return {
+            'solver': 'aadc_semi_implicit',
+            'method': 'adaptive_rk45',
+            'tol': 1e-8,
+            'threads': 4,
         }
     raise ValueError(f'Invalid model type: {model_type}')
 
@@ -1059,6 +1374,7 @@ class ObsAndParamDataParser(object):
         pre_time=None,
         sim_time=None,
         model_type=None,
+        method=None,
     ):
         """
         Loads the ground truth observation data from the JSON file and returns 
@@ -1499,6 +1815,7 @@ class ObsAndParamDataParser(object):
             pre_time=pre_time,
             pre_times=protocol_info.get('pre_times') if protocol_info is not None else None,
             offline_pre_time=protocol_info.get('offline_pre_time') if protocol_info is not None else None,
+            method=method,
         )
 
         return {

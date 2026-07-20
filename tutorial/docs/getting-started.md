@@ -89,6 +89,20 @@ Dependencies are listed in `pyproject.toml`. Installing the package in editable 
 The authoritative lists are `[project.dependencies]` and `[project.optional-dependencies]` in `pyproject.toml`. Highlights:
 
 - Autogeneration: `pandas`, `pyyaml`, `rdflib`, `libcellml`, `pint`, etc.
+
+    !!! warning "libCellML is pinned below 0.7.0"
+        The requirement is `libcellml>=0.6.3,<0.7.0`. libCellML 0.7.0 renamed part of the API
+        (`Analyser.model()` became `Analyser.analyserModel()`, and `Generator.implementationCode()`
+        now takes the model and profile as arguments) and also changed generated-Python output and
+        unit flattening. The renames are handled by shims in
+        `src/utilities/libcellml_helper_funcs.py`, but the code-generation and unit changes are a
+        real migration that has not been done yet, so the pin stays until it is.
+
+        **If you already have libCellML 0.7.0 installed**, `pip install -e ".[dev]"` will silently
+        *downgrade* it to the newest 0.6.x. That is intended — but if libCellML came from conda or
+        a system package rather than pip, the resolver may instead fail with a version conflict
+        that does not obviously point here. Installing into a fresh virtual environment avoids
+        both. Lifting the pin is tracked in issue #271.
 - Parameter identification: `mpi4py`, `nevergrad` (CMA-ES), `emcee`, `numdifftools`, and related scientific stack.
 - Sensitivity analysis: `SALib`, `seaborn`.
 - **Development**: the `dev` extra (e.g. `pytest`, `pytest-mpi`).
@@ -104,6 +118,91 @@ python src/scripts/<script_name>.py
 The shell helpers under `user_run_files/*.sh` may still assume a particular interpreter; if a script fails, run the matching Python module or script directly with your venv’s `python`.
 
 For a notebook-oriented walkthrough, see `tutorial/interactive/generate_and_calibrate.ipynb`.
+
+## Optional third-party backends (not part of Circulatory Autogen)
+
+Circulatory Autogen itself is **fully open source** (Apache License 2.0) and everything
+described in this documentation works without installing anything below.
+
+This section describes **optional, third-party software that is *not* part of Circulatory
+Autogen**. It is not bundled with it, not installed by `pip install -e .`, not required by
+any feature, and not distributed under Circulatory Autogen's license. It is developed and
+licensed by other parties, on their terms. Circulatory Autogen merely provides an optional
+adapter so that users who *already* have a licence for such a product can plug it in. If
+you install one, you are entering a licensing relationship with that third party, not with
+this project.
+
+### AADC (Matlogica) — proprietary, optional, not included
+
+!!! danger "AADC is third-party proprietary software and is NOT part of Circulatory Autogen"
+    - **Not included, not required.** AADC is **not** shipped with Circulatory Autogen and
+      **no** feature of Circulatory Autogen depends on it. The project is fully functional,
+      and fully open source, without it. Nothing installs it for you.
+    - **Not open source.** [AADC](https://matlogica.com/) is a commercial product of
+      **Matlogica**, distributed under **Matlogica's own proprietary licence** — *not* under
+      Circulatory Autogen's Apache-2.0 licence, and not under any open-source licence. Its
+      terms restrict it to **academic / non-commercial use**.
+    - **You must obtain your own licence.** The Circulatory Autogen maintainers do not
+      supply, sublicense, or broker AADC licences, and cannot support licensing issues.
+      **Read and accept Matlogica's licence terms yourself, directly with Matlogica,**
+      before installing or using it.
+    - **Its gradients are licence-gated at runtime.** Forward simulation may run with a bare
+      `pip install aadc`, but anything that records a tape — the automatic-differentiation
+      gradients, and the on-tape damping in `semi_implicit` — raises
+      `RuntimeError: AADC License check failed` without a valid licence.
+    - **Use CasADi if you want a fully open-source pipeline.** CasADi (LGPL) is the
+      **default and supported** AD backend and requires no proprietary licence — see
+      `model_type: casadi_python` in
+      [Parameter Identification](parameter-identification.md). AADC is **only** an optional
+      alternative for licensed academic users; you never need it.
+
+If, and only if, you hold a Matlogica licence and accept their terms, the optional adapter
+is enabled by installing the package:
+
+```
+python -m pip install aadc
+```
+
+(Into OpenCOR's Python if you run the test suite that way — see the legacy section below,
+e.g. `[OpenCOR_dir]/pythonshell -m pip install aadc`.)
+
+and then selecting it in your `user_inputs.yaml`:
+
+```yaml
+model_type: aadc_python
+solver: aadc_semi_implicit
+solver_info:
+  method: adaptive_rk45   # non-stiff forward solve; see the gradient caveat below
+```
+
+Available `solver_info.method` values for the AADC adapter are `adaptive_rk45` (**adaptive**,
+so accurate for a *forward* solve but **untapeable** — its step sequence depends on the
+parameters, so it cannot produce an AD gradient), and the **fixed-step** `implicit_euler_ift`,
+`semi_implicit`, and `rk4` (the only methods that can be recorded on a tape for an AD
+gradient).
+
+!!! note "`method: bdf` was removed from the AADC adapter"
+    AADC previously offered a `bdf` method. It ran the solve inside `scipy.solve_ivp` with AADC
+    supplying only the RHS and its Jacobian, so the trajectory never reached the tape — and the
+    AD tape had no `bdf` branch, so `do_ad: true` silently recorded `rk4` instead, making the
+    cost and the gradient different functions. Its RHS kernel was also taped once at `t=0` with
+    the integrator discarding `t`, so a time-dependent model would have been integrated with
+    its `t=0` right-hand side throughout. Setting `method: bdf` on an `aadc_python` model now
+    raises. Use `semi_implicit` for stiff models — subject to the accuracy warning below — or
+    `model_type: casadi_python` with `method: bdf` for a differentiable symbolic BDF.
+
+!!! warning "AADC gradients do not work on stiff models"
+    Only the fixed-step methods can be taped, and fixed-step schemes are inaccurate or unstable
+    on **stiff** models: on the 3compartment cardiovascular model `semi_implicit` deviates from
+    the CVODE reference by ~35% and `implicit_euler_ift` by orders of magnitude. Reducing `dt`
+    does not help — `semi_implicit` *diverges* under step refinement (~35% at `dt=1e-3` rising
+    to ~280% at `dt=1e-4`), because its damping factor `1/(1+dt*lam)` tends to 1 as `dt` shrinks
+    and the scheme degenerates into explicit forward Euler on a very stiff system. The AADC
+    backend probes the first second of dynamics and warns loudly when it detects a stiff model.
+    **For gradient-based calibration of a stiff model, use CasADi `bdf` or Myokit CVODES forward
+    sensitivity instead** — see [Parameter Identification](parameter-identification.md). AADC's
+    tape gradient is appropriate only for non-stiff, state-observable, single-experiment
+    problems.
 
 ## MPI and system libraries
 

@@ -1,0 +1,36 @@
+{
+  "protocol_info": {
+    "pre_times": [
+      0.0
+    ],
+    "sim_times": [
+      [
+        5.0
+      ]
+    ],
+    "params_to_change": {},
+    "experiment_labels": [
+      "two_global_minima"
+    ]
+  },
+  "prediction_items": [],
+  "data_items": [
+    {
+      "variable": "twomin/x",
+      "name_for_plotting": "x_{SS}",
+      "data_type": "constant",
+      "operation": "steady_state_avg",
+      "operands": [
+        "twomin/x"
+      ],
+      "unit": "dimensionless",
+      "cost_type": "gaussian_MLE",
+      "weight": 1.0,
+      "value": 4.0,
+      "std": 0.5,
+      "experiment_idx": 0,
+      "subexperiment_idx": 0,
+      "plot_type": "horizontal"
+    }
+  ]
+}

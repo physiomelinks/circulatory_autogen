@@ -33,6 +33,21 @@ class SimulationHelper:
         self.paced_parameter_qname = None
         self.solver_info = solver_info or {}
 
+        # Forward sensitivity analysis (FSA / CVODES) config. Populated by enable_fsa();
+        # when _fsa_enabled the Simulation is built with sensitivities and run() returns
+        # (log, sensitivities). See enable_fsa/get_sensitivities.
+        self._fsa_enabled = False
+        self._fsa_dependent_qnames = None       # ordered myokit qnames of dependents
+        self._fsa_dependent_specs = None        # myokit dependent spec strings
+        self._fsa_independent_specs = None       # myokit independent spec strings (eligible only)
+        self._fsa_eligible_param_names = None    # framework param names, order matches independents
+        self._fsa_ineligible_param_names = None  # framework param names needing FD fallback
+        self._fsa_independent_state_qnames = None  # state qnames that ARE FSA independents (init params)
+        self._last_sensitivities = None
+        # Per-sub-experiment sensitivities within one experiment: run() appends, reset_states()
+        # clears. get_jac_cost_fsa reads this so multi-sub protocols keep each sub's dy/dp.
+        self._fsa_sensitivities_history = []
+
         self.model = self._load_model(self.cellml_path)
         self.processed_cellml_path = getattr(self, '_last_processed_path', None)
         self._recreate_simulation()
@@ -229,7 +244,18 @@ class SimulationHelper:
         self.tSim = np.linspace(start_time + pre_time, self.stop_time, self.n_steps + 1)
 
     def _recreate_simulation(self):
-        self.simulation = myokit.Simulation(self.model)
+        if self._fsa_enabled:
+            # CVODES forward sensitivity: sensitivities=(dependents, independents) makes
+            # run() return (log, sensitivities), where sensitivities[time][dep][indep] is
+            # d(dependent)/d(independent). Only FSA-eligible params are independents; params
+            # that appear in a state's initial-value expression raise NotImplementedError in
+            # Myokit and are handled by finite differences instead (see enable_fsa).
+            self.simulation = myokit.Simulation(
+                self.model,
+                sensitivities=(self._fsa_dependent_specs, self._fsa_independent_specs),
+            )
+        else:
+            self.simulation = myokit.Simulation(self.model)
         # Store baseline initial state used before any pre-simulation.
         self.original_state = self._get_simulation_model().initial_values(as_floats=True)
 
@@ -241,6 +267,11 @@ class SimulationHelper:
                 pass
         rtol = self.solver_info.get("rtol", None)
         atol = self.solver_info.get("atol", None)
+        if (rtol is None and atol is None) and self._fsa_enabled:
+            # CVODES forward sensitivities are only as accurate as the state integration;
+            # the default tolerance leaves a noise floor that swamps small sensitivities,
+            # so tighten it (unless the user set explicit tolerances) when FSA is active.
+            rtol, atol = 1e-8, 1e-8
         if rtol is not None or atol is not None:
             self.simulation.set_tolerance(
                 rtol if rtol is not None else 1e-8,
@@ -434,9 +465,22 @@ class SimulationHelper:
     def run(self):
         try:
             if self.pre_time > 0:
-                # Run a pre-simulation without logging
-                self.simulation.pre(self.pre_time)
-                # Note: pre-simulation may change state, but for pre_time=0, this doesn't run
+                # Unlogged warm-up. Deliberately run(log=LOG_NONE) and NOT simulation.pre():
+                # pre() resets every initial-value sensitivity row of _s_state to the identity
+                # basis vector ("Reset to time 0", myokit cvodessim.pre()), throwing away the
+                # d(state)/d(init) that CVODES accumulated across the warm-up. This warm-up is
+                # part of *this* experiment and the calibrated initial value lives at its
+                # start, so that sensitivity must propagate through it; otherwise a directly
+                # calibrated state reports ~identity sensitivity when the true value has
+                # decayed towards zero (the system forgets its IC), and the optimiser chases a
+                # parameter that barely matters. run() integrates identically -- both advance
+                # the clock through _run's `self._time += duration`, so the run_t0 offset below
+                # is unaffected -- but leaves the sensitivities alone. pre() IS the correct call
+                # for a genuine *offline* warm-up, which really does establish a new initial
+                # condition; see issue #269.
+                # (Return value discarded: with FSA on this is (log, sensitivities), and the
+                # warm-up's own log/sensitivities are not wanted.)
+                self.simulation.run(self.pre_time, log=myokit.LOG_NONE)
 
             log = self._make_log()
             # Use explicit log times so the end-point is included.
@@ -460,11 +504,20 @@ class SimulationHelper:
             self._last_log_times_passed_to_myokit = np.asarray(log_times, dtype=float).copy()
             duration = float(self.sim_time) + eps
             self._last_integration_interval = (run_t0, run_t0 + duration)
-            self.last_log = self.simulation.run(
+            run_out = self.simulation.run(
                 self.sim_time+eps,
                 log=log,
                 log_times=log_times,
             )
+            if self._fsa_enabled:
+                # With sensitivities enabled, run() returns (log, sensitivities).
+                self.last_log, self._last_sensitivities = run_out
+                # Retain this sub-experiment's sensitivities; reset_states() (experiment start)
+                # clears the list, so it holds exactly the current experiment's per-sub dy/dp in
+                # sub order for get_jac_cost_fsa.
+                self._fsa_sensitivities_history.append(np.asarray(self._last_sensitivities))
+            else:
+                self.last_log = run_out
             self._validate_myokit_state_logs()
             # Restore exact endpoint (without epsilon overshoot) for continued runs.
             end_state = [float(np.asarray(self.last_log[qname])[-1]) for qname in self.state_qnames]
@@ -486,7 +539,24 @@ class SimulationHelper:
         return True
 
     def run_offline_pre_and_set_default_state(self, offline_pre_time):
-        """Run unlogged warmup once; use end state as default for reset_states()."""
+        """Run unlogged warmup once; use end state as default for reset_states().
+
+        Currently UNUSED: the param-id path folds offline_pre_time into each experiment's
+        first-sub warm-up instead, so it is re-integrated at the current parameter values on
+        every evaluation. Freezing one state here made every evaluation start from the steady
+        state of the *initial* parameter guess, and made the gradient drop the
+        d(steady state)/d(p) term -- invisibly, since AD-vs-FD both perturb the same frozen
+        state.
+
+        Two things must be handled if a (correct) offline optimisation is reinstated on top of
+        this method (tracked in issue #269):
+          1. pre() resets initial-value sensitivity rows of _s_state to the identity. That is
+             the RIGHT semantics here -- an offline warm-up really does establish a new initial
+             condition -- but it also mutates _s_default_state, so the pristine save/restore
+             deleted from reset_states() must be reinstated alongside it.
+          2. The frozen state must be invalidated whenever the parameters move, or the same
+             silent gradient bias returns.
+        """
         offline_pre_time = float(offline_pre_time)
         if offline_pre_time <= 0:
             return
@@ -513,6 +583,16 @@ class SimulationHelper:
         # Reset to offline pre-time state when configured, otherwise model ICs.
         if self.last_log is not None:
             self._last_results_dict = self._collect_all_results_dict_from_log()
+        # New experiment: start a fresh per-sub sensitivity history (each experiment is
+        # independent; sensitivities do not carry across experiment boundaries).
+        self._fsa_sensitivities_history = []
+        # reset() restores _s_state from _s_default_state. Nothing mutates _s_default_state any
+        # more -- the warm-up in run() uses run(log=LOG_NONE), not pre(), precisely so the
+        # initial-value sensitivity rows survive it -- so the default reset() restores is
+        # already the pristine one built at construction. The explicit pristine save/restore
+        # that used to live here existed only to undo pre()'s pollution and is now redundant.
+        # NOTE: if an offline warm-up using pre() is ever reinstated, that pollution returns and
+        # this restore must come back with it (see run_offline_pre_and_set_default_state).
         self.simulation.reset()
         if self._offline_default_state is not None:
             self.simulation.set_state(self._offline_default_state)
@@ -521,7 +601,7 @@ class SimulationHelper:
             self.simulation.set_state(updated_initial_state)
         for qname, val in self._state_overrides.items():
             if qname in self.state_index:
-                self.simulation.set_state_value(self.state_index[qname], float(val))
+                self._set_state_value(qname, float(val))
         state = list(self.simulation.state())
         self.simulation.set_default_state(state)
         self.default_states = state
@@ -623,6 +703,15 @@ class SimulationHelper:
             param_init.append(vals if len(vals) > 1 else vals[0])
         return param_init
 
+    def _set_state_value(self, qname, val):
+        """Set a single state's current value. Myokit's Simulation exposes only set_state()
+        (the full vector), so read-modify-write it. Does not disturb the CVODES sensitivity
+        state (set_state leaves _s_state untouched)."""
+        idx = self.state_index[qname]
+        state = list(self.simulation.state())
+        state[idx] = float(val)
+        self.simulation.set_state(state)
+
     def set_param_vals(self, param_names, param_vals):
         # Phase 1: Pre-scan for any string trace value and rebind pace if the target
         # variable differs from the currently bound one.  This ensures set_constant
@@ -642,7 +731,20 @@ class SimulationHelper:
 
                 if kind == "state":
                     self._state_overrides[qname] = float(val)
-                    self.simulation.set_state_value(self.state_index[qname], float(val))
+                    self._set_state_value(qname, float(val))
+                    # FSA: a params_to_change entry that forces a state to a value makes that
+                    # state momentarily independent of the calibration params, so its carried
+                    # dy/dp column is stale -- zero it. Skip states that are themselves FSA
+                    # independents (calibration state-init params): Myokit seeds those, and a
+                    # reset_states() re-seed will restore them anyway.
+                    if (self._fsa_enabled
+                            and qname not in (self._fsa_independent_state_qnames or set())):
+                        s = getattr(self.simulation, '_s_state', None)
+                        if s is not None:
+                            sidx = self.state_index[qname]
+                            for row in s:
+                                if sidx < len(row):
+                                    row[sidx] = 0.0
                 elif kind == "var":
                     if isinstance(val, str):
                         trace_name = val
@@ -798,10 +900,24 @@ class SimulationHelper:
         # default state, so without this restore every sub-experiment after the
         # first would restart from the model initial conditions.
         current_state = list(self.simulation.state())
+        # Same idea for the CVODES forward sensitivities. reset() zeros dy/dp (restores
+        # _s_default_state); without carrying it, a later sub-experiment's sensitivities would
+        # ignore how the parameters shaped the earlier sub's end state (which is this sub's
+        # initial condition) -- the cross-sub chain-rule term. Myokit exposes no public setter,
+        # so we save/restore the private _s_state (a list indexed [independent][state]). At an
+        # experiment start reset_states() has just re-seeded _s_state, so the carried value is
+        # the correct fresh identity/zero; at sub boundaries it is the previous sub's end dy/dp.
+        carried_s_state = None
+        if self._fsa_enabled:
+            s = getattr(self.simulation, '_s_state', None)
+            if s is not None:
+                carried_s_state = [list(row) for row in s]
         self._setup_time(dt, sim_time, pre_time, start_time=start_time)
         # Reset to ensure time/step changes are honored
         self.simulation.reset()
         self.simulation.set_state(current_state)
+        if carried_s_state is not None:
+            self.simulation._s_state = carried_s_state
 
     def close_simulation(self):
         # Myokit doesn't require explicit close
@@ -849,4 +965,138 @@ class SimulationHelper:
             [("state", self.state_index), ("var", self.qname_to_var)],
             separator=".",
         )
+
+    # ------------------------------------------------------------------
+    # Forward sensitivity analysis (FSA / CVODES)
+    # ------------------------------------------------------------------
+
+    def enable_fsa(self, dependent_names, independent_param_names):
+        """Rebuild the Simulation with CVODES forward sensitivities.
+
+        dependent_names       : framework variable names of the observable operands
+                                (e.g. 'aortic_root/u'), i.e. the traces whose gradient
+                                w.r.t. parameters we need.
+        independent_param_names : framework names of the parameters to differentiate.
+
+        A parameter that appears inside a state's initial-value expression cannot be a
+        CVODES independent (Myokit raises NotImplementedError); such parameters are
+        classified as FSA-ineligible and returned so the caller can fall back to finite
+        differences. Returns the list of ineligible parameter names.
+        """
+        dep_specs = []
+        dep_qnames = []
+        for name in dependent_names:
+            _, qname = self._resolve_name(name)
+            dep_specs.append(qname)
+            dep_qnames.append(qname)
+
+        cand_specs = []
+        cand_names = []
+        indep_state_qnames = set()
+        for name in independent_param_names:
+            kind, qname = self._resolve_name(name)
+            # A directly-overridden state uses its initial value as the independent;
+            # a constant uses the constant itself.
+            spec = f'init({qname})' if kind == 'state' else qname
+            if kind == 'state':
+                indep_state_qnames.add(qname)
+            cand_specs.append(spec)
+            cand_names.append(name)
+        # States that are calibration (FSA-independent) params: Myokit seeds their sensitivity
+        # (identity at t=0), so a set_param_vals state override of these must NOT be treated as a
+        # protocol re-seed (see set_param_vals). params_to_change state overrides are everything
+        # else and DO get their sensitivity column zeroed.
+        self._fsa_independent_state_qnames = indep_state_qnames
+
+        eligible_specs, eligible_names, ineligible_names = self._classify_fsa_independents(
+            dep_specs, cand_specs, cand_names)
+
+        self._fsa_dependent_specs = dep_specs
+        self._fsa_dependent_qnames = dep_qnames
+        self._fsa_independent_specs = eligible_specs
+        self._fsa_eligible_param_names = eligible_names
+        self._fsa_ineligible_param_names = ineligible_names
+        self._fsa_enabled = True
+
+        # Rebuild the simulation with sensitivities and refresh derived maps/defaults.
+        self._recreate_simulation()
+        self._build_variable_maps()
+        self._init_defaults()
+        # The multi-sub sensitivity carry in update_times() reads and writes Myokit's private
+        # CVODES sensitivity matrix, `Simulation._s_state` (a list indexed
+        # [independent][state]); Myokit exposes no public setter for it. Fail loudly here if it
+        # is missing rather than at the call sites, which all use getattr(..., None) and would
+        # otherwise silently skip the carry -- dropping the cross-sub chain-rule term and
+        # biasing every gradient low with no warning at all. A Myokit upgrade that renames or
+        # removes this attribute must break the build, not the numbers.
+        if not hasattr(self.simulation, '_s_state'):
+            raise RuntimeError(
+                "This Myokit build does not expose Simulation._s_state, the private CVODES "
+                "sensitivity matrix that the multi-sub-experiment FSA gradient carries across "
+                f"sub-experiment boundaries (myokit {getattr(myokit, '__version__', 'unknown')}). "
+                "Verified present in 1.39.1 with layout [independent][state]. Without it the "
+                "gradient would be silently wrong rather than absent, so FSA refuses to run. "
+                "Either pin a Myokit that provides it, or use model_type 'casadi_python' "
+                "(solver_info method 'bdf') for a gradient that does not depend on it.")
+        return ineligible_names
+
+    def _classify_fsa_independents(self, dep_specs, cand_specs, cand_names):
+        """Split candidate independents into FSA-eligible/ineligible using Myokit itself.
+
+        Tries to build one sensitivity Simulation with all candidates (a single compile
+        when nothing is ineligible); only if that fails does it probe each parameter
+        individually to find the offenders. This defers to Myokit's own rule for what may
+        be a forward-sensitivity independent, rather than re-deriving it structurally.
+        """
+        if not cand_specs:
+            return [], [], []
+        try:
+            myokit.Simulation(self.model, sensitivities=(dep_specs, list(cand_specs)))
+            return list(cand_specs), list(cand_names), []
+        except Exception:
+            pass
+
+        probe_dep = dep_specs[:1] if dep_specs else dep_specs
+        eligible_specs, eligible_names, ineligible_names = [], [], []
+        for spec, name in zip(cand_specs, cand_names):
+            try:
+                myokit.Simulation(self.model, sensitivities=(probe_dep, [spec]))
+                eligible_specs.append(spec)
+                eligible_names.append(name)
+            except Exception:
+                ineligible_names.append(name)
+        return eligible_specs, eligible_names, ineligible_names
+
+    def get_fsa_ineligible_params(self):
+        """Framework names of AD params that fall back to finite differences (or None)."""
+        return self._fsa_ineligible_param_names
+
+    def get_sensitivities(self, dependent_names, param_names, sensitivities=None):
+        """d(dependent_trace)/d(param) from a FSA run.
+
+        Returns ``{dependent_name: {param_name: np.ndarray}}`` with each array aligned to
+        the logged output grid (same length as get_results traces). Only FSA-eligible
+        params are present in the inner dicts; ineligible params are omitted (the caller
+        handles them by finite differences).
+
+        ``sensitivities`` defaults to the last run's array; pass an explicit array (e.g. one
+        retained per sub-experiment in ``_fsa_sensitivities_history``) to map that one instead.
+        """
+        if sensitivities is None:
+            sensitivities = self._last_sensitivities
+        if sensitivities is None:
+            raise RuntimeError(
+                "No sensitivities available: FSA is not enabled or run() has not been called.")
+        sens = np.asarray(sensitivities, dtype=float)  # [n_time, n_dep, n_indep]
+        dep_index = {q: i for i, q in enumerate(self._fsa_dependent_qnames)}
+        indep_index = {n: i for i, n in enumerate(self._fsa_eligible_param_names)}
+        out = {}
+        for dname in dependent_names:
+            _, dqname = self._resolve_name(dname)
+            di = dep_index[dqname]
+            out[dname] = {}
+            for pname in param_names:
+                if pname in indep_index:
+                    out[dname][pname] = sens[:, di, indep_index[pname]].copy()
+        return out
 

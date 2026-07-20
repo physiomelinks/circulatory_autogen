@@ -366,7 +366,7 @@ def main():
 
     flat_model = cellml.flatten_model(model, importer)
     analyser.analyseModel(flat_model)
-    analysed_model = analyser.model()
+    analysed_model = cellml.get_analysed_model(analyser)
 
     # TODO this commented out temporarily
     # libcellml_utils.print_issues(analyser)

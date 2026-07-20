@@ -38,7 +38,7 @@ from parsers.PrimitiveParsers import YamlFileParser
 class OptimiserComparison:
     """Class to handle comparison of different optimization methods."""
     
-    def __init__(self, base_config, methods=None, num_calls=10000):
+    def __init__(self, base_config, methods=None, num_calls=10000, extra_method_configs=None):
         """
         Initialize the comparison.
         
@@ -74,7 +74,22 @@ class OptimiserComparison:
                 'param_id_method': 'bayesian',
                 'optimiser_options': None,
             },
+            'sp_minimize': {
+                'param_id_method': 'sp_minimize',
+                'optimiser_options': {},
+            },
+            'multi_start_sp_minimize': {
+                'param_id_method': 'multi_start_sp_minimize',
+                'optimiser_options': {},
+            },
         }
+
+        # Callers can add variants of a method (e.g. the same optimiser driven by different
+        # gradient backends). A variant's key is its display name; its 'param_id_method' is the
+        # optimiser actually run, and it may override model_type / solver / dt / do_ad /
+        # generated_models_dir.
+        if extra_method_configs:
+            self.method_configs.update(extra_method_configs)
         
         # Results storage
         self.results = {}
@@ -146,13 +161,24 @@ class OptimiserComparison:
         warnings.warn(summary)
         self._summary_warned = True
     
+    def _method_output_root(self, method):
+        """Each method gets its own output root.
+
+        The run itself writes to '<root>/<param_id_method>_<prefix>_<obs>', which is keyed on the
+        optimiser, not on this harness's method name. Two variants of the same optimiser (say the
+        same multi-start driven by CasADi AD and by AADC AD) would therefore write to the same
+        directory and the second would silently overwrite the first's results.
+        """
+        base = self.base_config.get('param_id_output_dir', str(root_dir / 'param_id_output'))
+        return os.path.join(base, method)
+
     def get_output_dir(self, method):
         """Get the output directory for a given method."""
-        param_id_output_dir = self.base_config.get('param_id_output_dir', 
-                                                   str(root_dir / 'param_id_output'))
+        param_id_method = self.method_configs.get(method, {}).get('param_id_method', method)
         file_prefix = self.base_config['file_prefix']
         obs_file = os.path.basename(self.base_config['param_id_obs_path']).replace('.json', '')
-        return os.path.join(param_id_output_dir, f'{method}_{file_prefix}_{obs_file}')
+        return os.path.join(self._method_output_root(method),
+                            f'{param_id_method}_{file_prefix}_{obs_file}')
     
     def load_results(self, output_dir):
         """Load best cost and parameters from output directory."""
@@ -180,13 +206,19 @@ class OptimiserComparison:
             raise ValueError(f"Unknown method: {method}. Available methods: {list(self.method_configs.keys())}")
         
         method_config = self.method_configs[method]
-        config = self.base_config.copy()
-        config.update(method_config)
-        
-        # Ensure optimiser_options exists and preserve any provided options (e.g., max_patience)
-        base_opts = config.get('optimiser_options') or {}
+
+        # Read the base optimiser_options BEFORE config.update(method_config) below, which
+        # replaces the whole optimiser_options dict with the method's one. Reading them
+        # afterwards silently threw away everything the caller had set (max_patience,
+        # num_starts, seed, ...), so every method quietly ran on defaults.
+        base_opts = self.base_config.get('optimiser_options') or {}
         if not isinstance(base_opts, dict):
             raise ValueError("optimiser_options must be a dictionary")
+
+        config = self.base_config.copy()
+        config.update(method_config)
+        config['param_id_output_dir'] = self._method_output_root(method)
+        os.makedirs(config['param_id_output_dir'], exist_ok=True)
         method_opts = method_config.get('optimiser_options') if isinstance(method_config, dict) else None
         if method_opts is None:
             method_opts = {}

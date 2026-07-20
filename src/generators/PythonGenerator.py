@@ -62,6 +62,95 @@ class _CasadiCompatTransformer(ast.NodeTransformer):
         return ast.BinOp(left=node.left, op=ast.Div(), right=guarded_denom)
 
 
+class _AadcCompatTransformer(ast.NodeTransformer):
+    """AADC codegen transforms: ternaries -> aadc.iif, math -> aadc.math, etc."""
+
+    _AADC_MATH = {'cos', 'sin', 'tan', 'exp', 'log', 'sqrt',
+                  'acos', 'asin', 'atan', 'cosh', 'sinh', 'tanh'}
+
+    def visit_BoolOp(self, node):
+        self.generic_visit(node)
+        if isinstance(node.op, ast.And):
+            result = node.values[-1]
+            for val in reversed(node.values[:-1]):
+                result = ast.Call(
+                    func=ast.Attribute(value=ast.Name(id='aadc', ctx=ast.Load()),
+                                       attr='iand', ctx=ast.Load()),
+                    args=[val, result], keywords=[])
+            return result
+        if isinstance(node.op, ast.Or):
+            result = node.values[-1]
+            for val in reversed(node.values[:-1]):
+                result = ast.Call(
+                    func=ast.Attribute(value=ast.Name(id='aadc', ctx=ast.Load()),
+                                       attr='ior', ctx=ast.Load()),
+                    args=[val, result], keywords=[])
+            return result
+        return node
+
+    def visit_IfExp(self, node):
+        self.generic_visit(node)
+        return ast.Call(
+            func=ast.Attribute(value=ast.Name(id='aadc', ctx=ast.Load()),
+                               attr='iif', ctx=ast.Load()),
+            args=[node.test, node.body, node.orelse], keywords=[])
+
+    def visit_Call(self, node):
+        self.generic_visit(node)
+        # bare cos/sin/exp etc. → aadc.math.*
+        if isinstance(node.func, ast.Name) and node.func.id in self._AADC_MATH:
+            node.func = ast.Attribute(
+                value=ast.Attribute(value=ast.Name(id='aadc', ctx=ast.Load()),
+                                     attr='math', ctx=ast.Load()),
+                attr=node.func.id, ctx=ast.Load())
+            return node
+        # math.cos etc. → aadc.math.*
+        if (isinstance(node.func, ast.Attribute) and
+            isinstance(node.func.value, ast.Name) and
+            node.func.value.id == 'math' and node.func.attr in self._AADC_MATH):
+            node.func = ast.Attribute(
+                value=ast.Attribute(value=ast.Name(id='aadc', ctx=ast.Load()),
+                                     attr='math', ctx=ast.Load()),
+                attr=node.func.attr, ctx=ast.Load())
+            return node
+        # bare floor(x) → math.floor(_aadc_passive(x))
+        if isinstance(node.func, ast.Name) and node.func.id == 'floor':
+            node.func = ast.Attribute(value=ast.Name(id='math', ctx=ast.Load()),
+                                       attr='floor', ctx=ast.Load())
+            node.args = [ast.Call(func=ast.Name(id='_aadc_passive', ctx=ast.Load()),
+                                  args=node.args, keywords=[])]
+            return node
+        # math.floor(x) → math.floor(_aadc_passive(x))
+        if (isinstance(node.func, ast.Attribute) and
+            isinstance(node.func.value, ast.Name) and
+            node.func.value.id == 'math' and node.func.attr == 'floor'):
+            node.args = [ast.Call(func=ast.Name(id='_aadc_passive', ctx=ast.Load()),
+                                  args=node.args, keywords=[])]
+            return node
+        # pow(x, 2.0) → x * x
+        if isinstance(node.func, ast.Name) and node.func.id == 'pow' and len(node.args) == 2:
+            import copy
+            if isinstance(node.args[1], ast.Constant) and node.args[1].value == 2.0:
+                return ast.BinOp(left=node.args[0], op=ast.Mult(), right=copy.deepcopy(node.args[0]))
+            return ast.BinOp(left=node.args[0], op=ast.Pow(), right=node.args[1])
+        # fabs(x) / math.fabs(x) → aadc.math.abs(x)
+        if isinstance(node.func, ast.Name) and node.func.id == 'fabs' and len(node.args) == 1:
+            node.func = ast.Attribute(
+                value=ast.Attribute(value=ast.Name(id='aadc', ctx=ast.Load()),
+                                     attr='math', ctx=ast.Load()),
+                attr='abs', ctx=ast.Load())
+            return node
+        if (isinstance(node.func, ast.Attribute) and
+            isinstance(node.func.value, ast.Name) and
+            node.func.value.id == 'math' and node.func.attr == 'fabs'):
+            node.func = ast.Attribute(
+                value=ast.Attribute(value=ast.Name(id='aadc', ctx=ast.Load()),
+                                     attr='math', ctx=ast.Load()),
+                attr='abs', ctx=ast.Load())
+            return node
+        return node
+
+
 class PythonGenerator:
     """
     Generate a Python module from a CellML file.
@@ -78,12 +167,16 @@ class PythonGenerator:
         module_name: Optional[str] = None,
         human_readable: bool = True,
         casadi_compat: bool = False,
+        aadc_compat: bool = False,
     ):
         self.cellml_path = cellml_path
         self.output_dir = output_dir or os.path.dirname(os.path.abspath(cellml_path))
         self.module_name = module_name or os.path.splitext(os.path.basename(cellml_path))[0]
         self.human_readable = human_readable
         self.casadi_compat = casadi_compat
+        self.aadc_compat = aadc_compat
+        if casadi_compat and aadc_compat:
+            raise ValueError("casadi_compat and aadc_compat are mutually exclusive")
 
     @staticmethod
     def _make_identifier(text: str) -> str:
@@ -174,7 +267,41 @@ class PythonGenerator:
         return ast.unparse(transformed) + "\n"
 
     @staticmethod
-    def _comparison_helper_lines(casadi_compat: bool) -> list:
+    def _apply_aadc_transform(function_block: str) -> str:
+        """Apply AADC-compat AST transforms (iif, aadc.math, iand, etc.) to a function block."""
+        tree = ast.parse(function_block)
+        transformed = _AadcCompatTransformer().visit(tree)
+        ast.fix_missing_locations(transformed)
+        return ast.unparse(transformed) + "\n"
+
+    @staticmethod
+    def _comparison_helper_lines(casadi_compat: bool, aadc_compat: bool = False) -> list:
+        if aadc_compat:
+            return [
+                "import aadc",
+                "",
+                "def _aadc_passive(x):",
+                "    return x.val() if hasattr(x, 'val') else float(x)",
+                "",
+                "def lt_func(x, y):",
+                "    return x < y",
+                "",
+                "def leq_func(x, y):",
+                "    return x <= y",
+                "",
+                "def gt_func(x, y):",
+                "    return x > y",
+                "",
+                "def geq_func(x, y):",
+                "    return x >= y",
+                "",
+                "def and_func(x, y):",
+                "    return aadc.iand(x, y)",
+                "",
+                "def max(x, y):",
+                "    return aadc.iif(x >= y, x, y)",
+                "",
+            ]
         if casadi_compat:
             return [
                 "def lt_func(x, y):",
@@ -271,6 +398,12 @@ class PythonGenerator:
                 "import casadi as ca",
                 "",
             ])
+        if self.aadc_compat:
+            utility_parts.extend([
+                "import math",
+                "import aadc",
+                "",
+            ])
         utility_parts.extend([
             "",
             f"__version__ = {version!r}",
@@ -358,7 +491,7 @@ class PythonGenerator:
             "    return VarView(variables).as_dict()",
             "",
         ])
-        utility_parts.extend(self._comparison_helper_lines(self.casadi_compat))
+        utility_parts.extend(self._comparison_helper_lines(self.casadi_compat, self.aadc_compat))
 
         return "\n".join(utility_parts) + "\n"
 
@@ -408,6 +541,12 @@ class PythonGenerator:
             compute_rates = self._apply_casadi_if_else_transform(compute_rates)
             compute_variables = self._apply_casadi_if_else_transform(compute_variables)
 
+        if self.aadc_compat:
+            initialise_variables = self._apply_aadc_transform(initialise_variables)
+            compute_computed_constants = self._apply_aadc_transform(compute_computed_constants)
+            compute_rates = self._apply_aadc_transform(compute_rates)
+            compute_variables = self._apply_aadc_transform(compute_variables)
+
         export_names = [
             "__version__",
             "LIBCELLML_VERSION",
@@ -439,6 +578,8 @@ class PythonGenerator:
             "and_func",
             "max",
         ]
+        if self.aadc_compat:
+            export_names.append("_aadc_passive")
         export_block = "\n".join(f"    {name!r}," for name in export_names)
 
         main_parts = [
@@ -451,6 +592,12 @@ class PythonGenerator:
         if self.casadi_compat:
             main_parts.extend([
                 "import casadi as ca",
+                "",
+            ])
+        if self.aadc_compat:
+            main_parts.extend([
+                "import math",
+                "import aadc",
                 "",
             ])
         main_parts.extend([
@@ -534,7 +681,7 @@ class PythonGenerator:
         analyser = lc.Analyser()
         analyser.analyseModel(flat_model)
         libcellml_utils.print_issues(analyser)
-        analysed_model = analyser.model()
+        analysed_model = cellml_utils.get_analysed_model(analyser)
         if analysed_model.type() != lc.AnalyserModel.Type.ODE:
             raise ValueError(
                 'Generated model is not a valid ODE model according to'
@@ -552,10 +699,8 @@ class PythonGenerator:
 
         profile = lc.GeneratorProfile(lc.GeneratorProfile.Profile.PYTHON)
         generator = lc.Generator()
-        generator.setProfile(profile)
-        generator.setModel(analysed_model)
 
-        code = generator.implementationCode()
+        code = cellml_utils.generate_implementation_code(generator, analysed_model, profile)
         utilities_filename = None
         utilities_code = None
         if self.human_readable and code:
@@ -579,6 +724,14 @@ class PythonGenerator:
                 utilities_path = os.path.join(self.output_dir, utilities_filename)
                 compile(utilities_code, utilities_path, "exec")
             print("CasADi model generation successful (compile check passed).")
+            return output_path
+
+        if self.aadc_compat:
+            compile(code, output_path, "exec")
+            if utilities_code is not None:
+                utilities_path = os.path.join(self.output_dir, utilities_filename)
+                compile(utilities_code, utilities_path, "exec")
+            print("AADC model generation successful (compile check passed).")
             return output_path
 
         sim_helper = PythonSimulationHelper(output_path, dt=0.00001, sim_time=0.00001)

@@ -372,6 +372,54 @@ def test_param_id_3compartment_succeeds(base_user_inputs, resources_dir, temp_ou
 
 
 @pytest.mark.integration
+@pytest.mark.mpi
+def test_param_id_3compartment_genetic_algorithm_myokit_fast(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
+    """Fast smoke: 3compartment parameter identification runs with the genetic algorithm on the
+    Myokit CVODE backend and produces a finite, non-negative best cost.
+
+    Deliberately small -- short pre_time/sim_time, few function calls, no MCMC/IA/plotting/
+    regeneration -- so it stays in the fast (`-m "not slow"`) suite. The heavier 3compartment
+    param-id tests cover accuracy/MCMC/IA, and benchmarks/ covers the full optimiser comparison.
+    """
+    rank = mpi_comm.Get_rank()
+
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': '3compartment',
+        'input_param_file': '3compartment_parameters.csv',
+        'model_type': 'cellml_only',
+        'solver': 'CVODE_myokit',
+        'param_id_method': 'genetic_algorithm',
+        'pre_time': 2,
+        'sim_time': 1,
+        'dt': 0.01,
+        'DEBUG': True,
+        'do_mcmc': False,
+        'plot_predictions': False,
+        'do_ia': False,
+        'solver_info': {'MaximumStep': 0.001, 'MaximumNumberOfSteps': 5000},
+        'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
+        'param_id_output_dir': temp_output_dir,
+        'generated_models_dir': temp_generated_models_dir,
+        # num_calls must exceed the genetic-algorithm population (28 for these 4 params); keep it
+        # just above so the run stays fast (~one generation).
+        'debug_optimiser_options': {'num_calls_to_function': 40, 'max_patience': 500},
+    })
+
+    _ensure_cellml_model_generated(config, mpi_comm)
+    run_param_id(config)
+
+    if rank == 0:
+        out_dir = os.path.join(temp_output_dir,
+                               'genetic_algorithm_3compartment_3compartment_obs_data')
+        best_cost = float(np.load(os.path.join(out_dir, 'best_cost.npy')))
+        assert np.isfinite(best_cost) and best_cost >= 0, \
+            f'expected a finite, non-negative best cost, got {best_cost}'
+    mpi_comm.Barrier()
+
+
+@pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.mpi
 def test_param_id_3compartment_extra_ops_succeeds(base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
@@ -1199,7 +1247,75 @@ def test_param_id_lotka_volterra_sp_minimize_ad_vs_fd(base_user_inputs, resource
         print(f"Cost difference: {cost_diff:.6e} (tolerance: {cost_tolerance})")
         print(f"AD parameters: {params_ad}")
         print(f"FD parameters: {params_fd}")
-    
+
+    mpi_comm.Barrier()
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.mpi
+def test_param_id_lotka_volterra_sp_minimize_ad_vs_fd_aadc(base_user_inputs, resources_dir, temp_output_dir, mpi_comm):
+    """AADC analogue of test_param_id_lotka_volterra_sp_minimize_ad_vs_fd.
+
+    Runs sp_minimize with AADC tape-gradient AD (do_ad=True) vs finite differences
+    (do_ad=False) on Lotka-Volterra and asserts the best costs agree within 1e-3.
+    Mirrors the CasADi reference test exactly except for model_type/solver, so when
+    the backend-agnostic AD calibration path lands this becomes a one-line unskip.
+    """
+    pytest.importorskip("aadc")
+    rank = mpi_comm.Get_rank()
+
+    base_config = base_user_inputs.copy()
+    base_config.update({
+        'file_prefix': 'Lotka_Volterra',
+        'input_param_file': 'Lotka_Volterra_parameters.csv',
+        'model_type': 'aadc_python',
+        'solver': 'aadc_semi_implicit',
+        'param_id_method': 'sp_minimize',
+        'pre_time': 0.0,
+        'sim_time': 5.0,
+        'dt': 0.01,
+        'DEBUG': True,
+        'do_mcmc': False,
+        'plot_predictions': False,
+        'do_ia': False,
+        # fixed-step, and exactly what the AADC tape records: with an adaptive integrator the
+        # forward solve and the tape integrate different systems, so the gradient would not be
+        # the gradient of the cost
+        'solver_info': {'method': 'rk4'},
+        'param_id_obs_path': os.path.join(resources_dir, 'Lotka_Volterra_obs_data.json'),
+        'optimiser_options': {'num_calls_to_function': 40, 'cost_convergence': 1e-3},
+    })
+
+    if rank == 0:
+        success = generate_with_new_architecture(False, base_config)
+        assert success, "AADC Python model generation should succeed"
+    mpi_comm.Barrier()
+
+    config_ad = base_config.copy()
+    config_ad.update({'do_ad': True, 'param_id_output_dir': os.path.join(temp_output_dir, 'ad_run')})
+    run_param_id(config_ad)
+    mpi_comm.Barrier()
+
+    config_fd = base_config.copy()
+    config_fd.update({'do_ad': False, 'param_id_output_dir': os.path.join(temp_output_dir, 'fd_run')})
+    run_param_id(config_fd)
+    mpi_comm.Barrier()
+
+    if rank == 0:
+        out_ad = os.path.join(config_ad['param_id_output_dir'],
+                              'sp_minimize_Lotka_Volterra_Lotka_Volterra_obs_data')
+        out_fd = os.path.join(config_fd['param_id_output_dir'],
+                              'sp_minimize_Lotka_Volterra_Lotka_Volterra_obs_data')
+        cost_ad = float(np.load(os.path.join(out_ad, 'best_cost.npy')))
+        cost_fd = float(np.load(os.path.join(out_fd, 'best_cost.npy')))
+        assert np.isfinite(cost_ad), f"AD cost should be finite, got {cost_ad}"
+        assert np.isfinite(cost_fd), f"FD cost should be finite, got {cost_fd}"
+        cost_diff = abs(cost_ad - cost_fd)
+        assert cost_diff < 1e-3, (
+            f"AD vs FD cost mismatch: AD={cost_ad:.6e} FD={cost_fd:.6e} diff={cost_diff:.6e}"
+        )
+
     mpi_comm.Barrier()
 
 
@@ -1574,12 +1690,14 @@ def test_3compartment_nonstiff_casadi_forward_and_gradient(
 
 
 def _build_3compartment_casadi_runner(
-    method, base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir
+    method, base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir,
+    pre_time=0.0, sim_time=0.3, obs_file='3compartment_obs_data.json',
 ):
     """Generate the (stiff) 3compartment CasADi model and build a CVS0DParamID at baseline.
 
     Shared by the stiff-3compartment CasADi tests. ``method`` selects the CasADi
-    integrator method ('cvodes' or the damped 'semi_implicit_euler').
+    integrator method ('cvodes', the damped 'semi_implicit_euler', or the symbolic 'bdf').
+    ``pre_time`` > 0 exercises the long-warmup path (supported by the symbolic methods).
     """
     import json
 
@@ -1592,8 +1710,8 @@ def _build_3compartment_casadi_runner(
         'solver': 'casadi_integrator',
         'param_id_method': 'sp_minimize',
         'do_ad': True,
-        'pre_time': 0.0,
-        'sim_time': 0.3,
+        'pre_time': pre_time,
+        'sim_time': sim_time,
         'dt': 0.01,
         'DEBUG': False,
         'do_mcmc': False,
@@ -1604,7 +1722,7 @@ def _build_3compartment_casadi_runner(
             'max_num_steps': 50000,
             'method': method,
         },
-        'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
+        'param_id_obs_path': os.path.join(resources_dir, obs_file),
         'param_id_output_dir': temp_output_dir,
         'generated_models_dir': temp_generated_models_dir,
         'resources_dir': resources_dir,
@@ -1619,7 +1737,7 @@ def _build_3compartment_casadi_runner(
     parsed['one_rank'] = True
 
     runner = CVS0DParamID.init_from_dict(parsed)
-    with open(os.path.join(resources_dir, '3compartment_obs_data.json')) as f:
+    with open(os.path.join(resources_dir, obs_file)) as f:
         obs_data = json.load(f)
     runner.set_ground_truth_data(obs_data)
 
@@ -1742,6 +1860,336 @@ def test_3compartment_stiff_casadi_semi_implicit_forward_and_gradient(
     print(f"  Gradient:         {gradient}")
 
     runner.close_simulation()
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_3compartment_casadi_bdf_longrun_gradient_and_cache(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir):
+    """The symbolic CasADi 'bdf' method calibrates the STIFF 3compartment model over a LONG run
+    (nonzero pre_time warmup) with a correct gradient, and the symbolic graph is built once and
+    reused across cost/gradient calls.
+
+    bdf differentiates by plain reverse-mode AD (no CVODES adjoint), so it handles pre_time > 0
+    (unlike cvodes, which fails with CV_TOO_MUCH_WORK). The symbolic graph over a long warmup is
+    ~thousands of rootfinder steps, so build_casadi_functions caches it keyed on structure rather
+    than rebuilding on every cost/gradient call."""
+    pytest.importorskip("casadi")
+
+    runner, baseline_vals = _build_3compartment_casadi_runner(
+        'bdf', base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir,
+        pre_time=5.0, sim_time=1.0,
+    )
+    inner = runner.param_id
+    baseline = np.asarray(baseline_vals, dtype=float)
+
+    # count symbolic graph builds
+    orig = inner.get_cost_and_obs_from_params
+    builds = [0]
+    def _counting(*a, **k):
+        builds[0] += 1
+        return orig(*a, **k)
+    inner.get_cost_and_obs_from_params = _counting
+
+    # AD gradient must match central FD of the same cost (the bdf symbolic graph is exact)
+    gradient = np.asarray(inner.get_gradient(baseline), dtype=float).ravel()
+    assert gradient.shape == (4,)
+    assert np.all(np.isfinite(gradient))
+
+    fd = np.zeros(4)
+    for i in range(4):
+        dp = max(abs(baseline[i]) * 1e-5, 1e-14)
+        p_plus, p_minus = baseline.copy(), baseline.copy()
+        p_plus[i] += dp
+        p_minus[i] -= dp
+        fd[i] = (float(inner.get_cost(p_plus)) - float(inner.get_cost(p_minus))) / (2 * dp)
+        if abs(fd[i]) > 1e-6:
+            assert gradient[i] == pytest.approx(fd[i], rel=0.02), (
+                f"bdf AD gradient[{i}]={gradient[i]:.6e} != FD {fd[i]:.6e} "
+                f"(AD/FD={gradient[i]/fd[i]:.4f}) over a nonzero-pre_time run")
+
+    # the cache built the graph exactly once despite 1 gradient + 8 cost evals
+    assert builds[0] == 1, f"symbolic graph should build once (cached), built {builds[0]} times"
+
+    runner.close_simulation()
+
+
+def _build_3compartment_fsa_runner(
+    base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir,
+    pre_time=20.0, sim_time=2.0, obs_file='3compartment_obs_data.json',
+):
+    """Generate the (stiff) 3compartment cellml_only model, run through Myokit, and build a
+    CVS0DParamID configured for the CVODES forward-sensitivity (FSA) gradient path.
+
+    Tight rtol/atol keep the sensitivities and any finite-difference fallback out of the
+    integrator noise floor. Returns (runner, baseline_vals).
+    """
+    import json
+
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': '3compartment',
+        'input_param_file': '3compartment_parameters.csv',
+        'params_for_id_file': '3compartment_params_for_id.csv',
+        'model_type': 'cellml_only',
+        'solver': 'CVODE_myokit',
+        'param_id_method': 'sp_minimize',
+        'do_ad': True,
+        'pre_time': pre_time,
+        'sim_time': sim_time,
+        'dt': 0.01,
+        'DEBUG': False,
+        'do_mcmc': False,
+        'plot_predictions': False,
+        'do_ia': False,
+        'solver_info': {'MaximumStep': 0.005, 'MaximumNumberOfSteps': 50000,
+                        'rtol': 1e-9, 'atol': 1e-9},
+        'param_id_obs_path': os.path.join(resources_dir, obs_file),
+        'param_id_output_dir': temp_output_dir,
+        'generated_models_dir': temp_generated_models_dir,
+        'resources_dir': resources_dir,
+    })
+
+    success = generate_with_new_architecture(False, config)
+    assert success, "cellml_only model generation should succeed for 3compartment"
+
+    parsed = YamlFileParser().parse_user_inputs_file(
+        config, obs_path_needed=True, do_generation_with_fit_parameters=False
+    )
+    parsed['one_rank'] = True
+
+    runner = CVS0DParamID.init_from_dict(parsed)
+    with open(os.path.join(resources_dir, obs_file)) as f:
+        obs_data = json.load(f)
+    runner.set_ground_truth_data(obs_data)
+
+    params_for_id = [
+        {'vessel_name': 'global',      'param_name': 'q_lv_init', 'param_type': 'const', 'min': 200e-6, 'max': 1500e-6},
+        {'vessel_name': 'aortic_root', 'param_name': 'C',         'param_type': 'const', 'min': 1e-9,   'max': 5e-8},
+        {'vessel_name': 'global',      'param_name': 'E_lv_A',    'param_type': 'const', 'min': 1e8,    'max': 5e8},
+        {'vessel_name': 'global',      'param_name': 'E_lv_B',    'param_type': 'const', 'min': 1e6,    'max': 5e7},
+    ]
+    runner.set_params_for_id(params_for_id)
+    baseline_vals = runner.param_id.sim_helper.get_init_param_vals(
+        runner.param_id.param_id_info['param_names'])
+    assert baseline_vals is not None and len(baseline_vals) == 4
+    return runner, baseline_vals
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.need_opencor
+def test_3compartment_fsa_longrun_gradient(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir):
+    """Myokit CVODES forward-sensitivity gradient for the STIFF 3compartment over a LONG
+    (nonzero pre_time) run matches central finite differences of the same cost.
+
+    This is the gradient path for cellml_only / CVODE_myokit models. FSA gives d(operand)/dp
+    for constant parameters; q_lv_init sets a state initial value so it is FSA-ineligible and
+    falls back to finite differences (verified below). The gradient is checked at an arbitrary
+    interior point (not the optimum, so cost != 0), which is all a correct descent direction
+    needs. The reference FD uses a rel~1e-3 step: a convergence study showed rel 1e-4 sits in
+    the integrator noise floor for this stiff oscillatory model.
+    """
+    runner, _ = _build_3compartment_fsa_runner(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir,
+        pre_time=20.0, sim_time=2.0)
+    inner = runner.param_id
+
+    mins = np.asarray(inner.param_id_info['param_mins'], dtype=float)
+    maxs = np.asarray(inner.param_id_info['param_maxs'], dtype=float)
+    p = mins + 0.4 * (maxs - mins)   # arbitrary interior point
+
+    assert inner.fsa_gradient_available(), "FSA gradient should be advertised for this run"
+    gradient = np.asarray(inner.get_gradient(p), dtype=float).ravel()
+    assert gradient.shape == (4,)
+    assert np.all(np.isfinite(gradient))
+    assert not np.all(gradient == 0)
+
+    # q_lv_init feeds a state initial-value expression -> FSA-ineligible -> FD fallback.
+    assert inner._fsa_ineligible_names == ['global/q_lv_init'], inner._fsa_ineligible_names
+    # its gradient column is still populated (via the finite-difference fallback).
+    assert abs(gradient[0]) > 1e-6
+
+    fd = np.zeros(4)
+    for i in range(4):
+        dp = max(abs(p[i]) * 1e-3, 1e-14)
+        p_plus, p_minus = p.copy(), p.copy()
+        p_plus[i] += dp
+        p_minus[i] -= dp
+        fd[i] = (float(inner.get_cost(p_plus)) - float(inner.get_cost(p_minus))) / (2 * dp)
+
+    for i, label in enumerate(["q_lv_init", "C_aortic", "E_lv_A", "E_lv_B"]):
+        if abs(fd[i]) > 1e-6:
+            assert gradient[i] == pytest.approx(fd[i], rel=0.10), (
+                f"FSA gradient[{i}] ({label}) = {gradient[i]:.6e} != FD {fd[i]:.6e} "
+                f"(AD/FD={gradient[i]/fd[i]:.4f})")
+
+    runner.close_simulation()
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.need_opencor
+def test_3compartment_fsa_cost_and_gradient_combined(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir):
+    """get_cost_and_gradient() returns the same gradient as get_jac_cost_fsa() and a cost that
+    matches get_cost_from_params(), from a SINGLE augmented CVODES solve.
+
+    This is the speedup the L-BFGS-B path relies on: one FSA solve yields both J(p) and dJ/dp
+    (the cost is reconstructed from the operand traces the solve already produced), instead of
+    a separate cost solve. The gradient must be identical (same operand path); the cost must
+    agree to within the integrator noise floor (a wrong normalisation would show a factor, not
+    a ~1e-5 difference).
+    """
+    runner, _ = _build_3compartment_fsa_runner(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir,
+        pre_time=20.0, sim_time=2.0)
+    inner = runner.param_id
+
+    mins = np.asarray(inner.param_id_info['param_mins'], dtype=float)
+    maxs = np.asarray(inner.param_id_info['param_maxs'], dtype=float)
+    p = mins + 0.4 * (maxs - mins)   # arbitrary interior point
+
+    grad_ref = np.asarray(inner.get_jac_cost_fsa(p), dtype=float).ravel()
+    cost_ref = float(inner.get_cost_from_params(p))
+
+    cost_c, grad_c = inner.get_cost_and_gradient(p)
+    cost_c = float(cost_c)
+    grad_c = np.asarray(grad_c, dtype=float).ravel()
+
+    # Gradient is bit-for-bit the same computation as get_jac_cost_fsa.
+    np.testing.assert_allclose(grad_c, grad_ref, rtol=1e-8, atol=1e-12)
+    # Cost agrees with a standalone evaluation to within the integrator noise (< the 1e-3
+    # best-cost consistency-check threshold), NOT off by a normalisation factor.
+    assert abs(cost_c - cost_ref) <= 1e-3 * max(1.0, abs(cost_ref)), (
+        f"combined cost {cost_c:.6e} vs get_cost_from_params {cost_ref:.6e}")
+
+    # get_cost_and_jac_fsa is the FSA-specific entry point behind get_cost_and_gradient.
+    cost_f, grad_f = inner.get_cost_and_jac_fsa(p)
+    np.testing.assert_allclose(np.asarray(grad_f, dtype=float).ravel(), grad_ref,
+                               rtol=1e-8, atol=1e-12)
+    assert abs(float(cost_f) - cost_ref) <= 1e-3 * max(1.0, abs(cost_ref))
+
+    runner.close_simulation()
+
+
+# Ground-truth params the synthetic multi-sub obs was generated at (the model defaults).
+LV_MULTISUB_TRUE = np.array([5.0, 0.2, 0.2, 3.0])   # alpha, beta, delta, gamma
+
+
+def _lotka_multisub_fsa_config(base_user_inputs, resources_dir, output_dir, generated_models_dir):
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': 'Lotka_Volterra',
+        'input_param_file': 'Lotka_Volterra_parameters.csv',
+        'params_for_id_file': 'Lotka_Volterra_params_for_id.csv',
+        'model_type': 'cellml_only',
+        'solver': 'CVODE_myokit',
+        'do_ad': True,
+        'pre_time': 0.0,
+        'sim_time': 3.0,
+        'dt': 0.15,
+        'DEBUG': False,
+        'do_mcmc': False,
+        'plot_predictions': False,
+        'do_ia': False,
+        'solver_info': {'MaximumStep': 0.005, 'MaximumNumberOfSteps': 50000,
+                        'rtol': 1e-9, 'atol': 1e-9},
+        'param_id_obs_path': os.path.join(resources_dir, 'Lotka_Volterra_multisub_obs_data.json'),
+        'param_id_output_dir': output_dir,
+        'generated_models_dir': generated_models_dir,
+        'resources_dir': resources_dir,
+    })
+    return config
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.need_opencor
+def test_fsa_multisub_gradient_matches_fd(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir):
+    """Myokit CVODES FSA gradient on a MULTI-sub-experiment protocol matches central FD.
+
+    The Lotka-Volterra obs has one experiment with two sub-experiments (the state carries across
+    the sub boundary). The FSA gradient must carry dy/dp across that boundary so each sub's
+    operand sensitivities include the cross-sub chain-rule term; a wrong carry would make the
+    gradient of the later sub disagree with finite differences. Checked at an arbitrary interior
+    point.
+    """
+    config = _lotka_multisub_fsa_config(base_user_inputs, resources_dir, temp_output_dir,
+                                        temp_generated_models_dir)
+    config['param_id_method'] = 'sp_minimize'
+    assert generate_with_new_architecture(False, config), 'Lotka_Volterra generation should succeed'
+    parsed = YamlFileParser().parse_user_inputs_file(
+        config, obs_path_needed=True, do_generation_with_fit_parameters=False)
+    parsed['one_rank'] = True
+    runner = CVS0DParamID.init_from_dict(parsed)
+    inner = runner.param_id
+
+    assert inner.protocol_info['num_sub_per_exp'] == [2], \
+        f"expected a 2-sub-experiment obs, got {inner.protocol_info['num_sub_per_exp']}"
+    assert inner.fsa_gradient_available()
+
+    mins = np.asarray(inner.param_id_info['param_mins'], dtype=float)
+    maxs = np.asarray(inner.param_id_info['param_maxs'], dtype=float)
+    p = mins + 0.4 * (maxs - mins)   # arbitrary interior point (cost != 0)
+
+    grad = np.asarray(inner.get_gradient(p), dtype=float).ravel()
+    assert grad.shape == (4,) and np.all(np.isfinite(grad)) and not np.all(grad == 0)
+
+    fd = np.zeros(4)
+    for i in range(4):
+        dp = max(abs(p[i]) * 1e-3, 1e-12)
+        p_plus, p_minus = p.copy(), p.copy()
+        p_plus[i] += dp
+        p_minus[i] -= dp
+        fd[i] = (float(inner.get_cost(p_plus)) - float(inner.get_cost(p_minus))) / (2 * dp)
+
+    for i, label in enumerate(['alpha', 'beta', 'delta', 'gamma']):
+        if abs(fd[i]) > 1e-9:
+            assert grad[i] == pytest.approx(fd[i], rel=0.05), (
+                f"multi-sub FSA gradient[{i}] ({label}) = {grad[i]:.6e} != FD {fd[i]:.6e} "
+                f"(AD/FD={grad[i]/fd[i]:.4f})")
+
+    runner.close_simulation()
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.mpi
+def test_fsa_multisub_calibration_recovers_params(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
+    """End-to-end: multi-start L-BFGS-B with the Myokit FSA gradient calibrates a MULTI-sub
+    Lotka-Volterra model and recovers the ground-truth parameters.
+
+    The synthetic obs (series of x, y in each of two sub-experiments) has cost 0 at the true
+    (alpha, beta, delta, gamma) = (5, 0.2, 0.2, 3). This exercises the FSA gradient across
+    sub-experiment boundaries inside a real optimiser run, not just an AD-vs-FD check.
+    """
+    rank = mpi_comm.Get_rank()
+    config = _lotka_multisub_fsa_config(base_user_inputs, resources_dir, temp_output_dir,
+                                        temp_generated_models_dir)
+    config['param_id_method'] = 'multi_start_sp_minimize'
+    config['optimiser_options'] = {
+        'cost_convergence': 1e-6, 'max_patience': 500,
+        'num_starts': 8, 'start_sampling': 'sobol', 'seed': 0,
+    }
+
+    _ensure_cellml_model_generated(config, mpi_comm)
+    run_param_id(config)
+
+    if rank == 0:
+        out_dir = os.path.join(
+            temp_output_dir,
+            'multi_start_sp_minimize_Lotka_Volterra_Lotka_Volterra_multisub_obs_data')
+        best_cost = float(np.load(os.path.join(out_dir, 'best_cost.npy')))
+        best_params = np.load(os.path.join(out_dir, 'best_param_vals.npy'))
+        assert best_cost < 1e-2, f"expected the multi-sub calibration to converge, got cost {best_cost}"
+        np.testing.assert_allclose(
+            best_params, LV_MULTISUB_TRUE, rtol=0.1,
+            err_msg=f"multi-sub FSA calibration recovered {best_params}, expected {LV_MULTISUB_TRUE}")
+    mpi_comm.Barrier()
 
 
 @pytest.mark.integration
@@ -2110,97 +2558,6 @@ def test_param_id_lotka_volterra_sp_minimize_numpy_only_operation(base_user_inpu
         f"Expected error message to mention {undefined_operation}, 'KeyError', or 'differentiable'. "
         f"Got: {error_msg}"
     )
-
-
-@pytest.mark.skipif(
-    os.environ.get("GITHUB_ACTIONS") == "true",
-    reason="compare_optimisers is heavy; run locally only (skipped on GitHub Actions)",
-)
-@pytest.mark.integration
-@pytest.mark.slow
-@pytest.mark.mpi
-@pytest.mark.compare_optimisers
-def test_compare_optimisers(base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm, request):
-    """
-    Test comparison of different optimization methods (GA vs CMA-ES).
-    
-    This test runs both genetic_algorithm and CMA-ES optimizers and compares
-    their results to ensure they produce similar parameter values.
-    
-    Args:
-        base_user_inputs: Base user inputs configuration fixture
-        resources_dir: Resources directory fixture
-        temp_output_dir: Temporary output directory fixture
-        mpi_comm: MPI communicator fixture
-    """
-    rank = mpi_comm.Get_rank()
-    
-    # Import here to avoid issues if nevergrad is not available
-    from tests.compare_optimisers import OptimiserComparison
-    
-    # Setup configuration
-    config = base_user_inputs.copy()
-    config.update({
-        'file_prefix': '3compartment',
-        'input_param_file': '3compartment_parameters.csv',
-        'model_type': 'cellml_only',
-        'solver': 'CVODE',
-        'pre_time': 20,
-        'sim_time': 2,
-        'dt': 0.01,
-        'DEBUG': True,
-        'do_mcmc': False,
-        'plot_predictions': False,
-        'do_ia': False,
-        'solver_info': {
-            'MaximumStep': 0.001,
-            'MaximumNumberOfSteps': 5000,
-        },
-        'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
-        'param_id_output_dir': temp_output_dir,
-        'generated_models_dir': temp_generated_models_dir,
-        'debug_optimiser_options': {'num_calls_to_function': 10000, 'max_patience': 500},
-    })
-
-    _ensure_cellml_model_generated(config, mpi_comm)
-
-    # Create comparison object with full number of calls for testing
-    comparison = OptimiserComparison(config, methods=['genetic_algorithm', 'CMA-ES'], num_calls=10000)
-    
-    # Run both methods
-    ga_success = comparison.run_method('genetic_algorithm')
-    cmaes_success = comparison.run_method('CMA-ES')
-    
-    # Verify both completed successfully
-    if rank == 0:
-        assert ga_success, "Genetic algorithm optimization should succeed"
-        assert cmaes_success, "CMA-ES optimization should succeed"
-        
-        # Verify results are loaded
-        assert 'genetic_algorithm' in comparison.results, "GA results should be available"
-        assert 'CMA-ES' in comparison.results, "CMA-ES results should be available"
-        
-        # Verify costs are finite and reasonable
-        ga_cost = comparison.results['genetic_algorithm']['cost']
-        cmaes_cost = comparison.results['CMA-ES']['cost']
-        
-        assert np.isfinite(ga_cost), f"GA cost should be finite, got {ga_cost}"
-        assert np.isfinite(cmaes_cost), f"CMA-ES cost should be finite, got {cmaes_cost}"
-        assert ga_cost >= 0, f"GA cost should be non-negative, got {ga_cost}"
-        assert cmaes_cost >= 0, f"CMA-ES cost should be non-negative, got {cmaes_cost}"
-        
-        # Compare results (costs should be within reasonable range)
-        cost_diff = abs(cmaes_cost - ga_cost)
-        max_cost = max(abs(ga_cost), abs(cmaes_cost), 1e-10)
-        cost_rel_diff = cost_diff / max_cost * 100
-        
-        # For test purposes, we just verify both methods complete
-        # Actual similarity depends on convergence, which may vary
-        print(f"\nGA cost: {ga_cost:.6e}")
-        print(f"CMA-ES cost: {cmaes_cost:.6e}")
-        print(f"Cost difference: {cost_diff:.6e} ({cost_rel_diff:.2f}%)")
-    
-    mpi_comm.Barrier()
 
 
 @pytest.mark.integration  
@@ -2829,6 +3186,13 @@ def test_sp_minimize_streams_cost_history_per_iteration(temp_output_dir):
                 200.0 * (p[1] - p[0] ** 2),
             ])
 
+        # Backend-agnostic aliases (used by refactored optimisers.py)
+        def get_cost(self, p):
+            return float(self.get_cost_ca(p))
+
+        def get_gradient(self, p):
+            return self.get_jac_cost_ca(p)
+
         def set_best_param_vals(self, p):
             self.best = np.asarray(p, dtype=float)
 
@@ -2852,3 +3216,1031 @@ def test_sp_minimize_streams_cost_history_per_iteration(temp_output_dir):
     # Parameter history is written in lockstep with the cost history.
     param_rows = [ln for ln in open(param_path).read().splitlines() if ln.strip()]
     assert len(param_rows) == len(costs)
+
+
+# ---------------------------------------------------------------------------
+# multi_start_sp_minimize (multi-start L-BFGS-B)
+# ---------------------------------------------------------------------------
+
+# A deliberately multi-modal cost with two wells per dimension:
+#   g(t) = (t^2 - 1)^2 + 0.5*t + 0.6
+# g has a shallow local minimum near t = +1 (g ~ 1.1) and the global minimum near
+# t = -1 (g ~ 0.1). Summed over 2 dimensions, a gradient descent started in the
+# right-hand well converges to a local minimum roughly 2.0 above the global one.
+def _two_well_cost(p):
+    p = np.asarray(p, dtype=float)
+    return float(np.sum((p ** 2 - 1.0) ** 2 + 0.5 * p + 0.6))
+
+
+def _two_well_grad(p):
+    p = np.asarray(p, dtype=float)
+    return 4.0 * p * (p ** 2 - 1.0) + 0.5
+
+
+class _TwoWellParamId:
+    """Stand-in for OpencorParamID exposing just what the optimisers call.
+
+    Mirrors the backend-agnostic interface: get_cost() always works, get_gradient() only has an
+    AD backend for casadi_python / aadc_python models and raises otherwise, exactly as
+    OpencorParamID.get_gradient does.
+    """
+
+    def __init__(self, param_init=(1.2, 1.2), model_type='casadi_python'):
+        self.param_init = np.array(param_init, dtype=float)
+        self.model_type = model_type
+        self.best = None
+        self.num_cost_calls = 0
+        self.num_jac_calls = 0
+
+    def get_cost(self, p):
+        self.num_cost_calls += 1
+        return _two_well_cost(p)
+
+    def get_gradient(self, p):
+        if self.model_type not in ('casadi_python', 'aadc_python'):
+            raise ValueError(f"Gradient not available for model_type={self.model_type}")
+        self.num_jac_calls += 1
+        return _two_well_grad(p)
+
+    def get_cost_from_params(self, p):
+        self.num_cost_calls += 1
+        return _two_well_cost(p)
+
+    def set_best_param_vals(self, p):
+        self.best = np.asarray(p, dtype=float)
+
+
+class _TwoWellNorm:
+    mins = np.array([-2.0, -2.0])
+    maxs = np.array([2.0, 2.0])
+
+    def normalise(self, p):
+        return (np.asarray(p, dtype=float) - self.mins) / (self.maxs - self.mins)
+
+    def unnormalise(self, q):
+        return self.mins + np.asarray(q, dtype=float) * (self.maxs - self.mins)
+
+
+def _two_well_param_id_info():
+    return {
+        "param_names": [["well/x"], ["well/y"]],
+        "param_mins": _TwoWellNorm.mins,
+        "param_maxs": _TwoWellNorm.maxs,
+    }
+
+
+def _make_multi_start_optimiser(output_dir, param_id_obj, optimiser_options,
+                                model_type='casadi_python', do_ad=True):
+    from param_id.optimisers import MultiStartSciPyMinimizeOptimiser
+
+    return MultiStartSciPyMinimizeOptimiser(
+        param_id_obj=param_id_obj, param_id_info=_two_well_param_id_info(),
+        param_norm_obj=_TwoWellNorm(), num_params=2, output_dir=output_dir,
+        optimiser_options=optimiser_options, do_ad=do_ad, model_type=model_type,
+        DEBUG=False,
+    )
+
+
+class _WorkloadTwoWellParamId(_TwoWellParamId):
+    """Two-well cost with a fixed, non-trivial amount of CPU work per evaluation.
+
+    Real starts vary a lot in length (some descents take 4 L-BFGS-B iterations, some 70), which
+    is precisely the imbalance parallel multi-start has to average out. This fake makes each cost
+    evaluation cost a few tenths of a millisecond of deterministic work, so per-start durations
+    are real and measurable (and imbalanced, through the natural spread of iteration counts) --
+    enough to measure the achieved speedup without needing a physiological model.
+    """
+
+    # small enough to stay in L1 cache: the work is then compute-bound, not memory-bandwidth
+    # bound, so parallel ranks don't contend for memory and the scaling reflects the optimiser
+    # rather than the host's memory bus (a real ODE solve is likewise compute-bound).
+    _WORK = np.linspace(0.0, 1.0, 256)
+
+    def _burn(self):
+        # deterministic, defeats being optimised away by returning a value
+        acc = 0.0
+        for _ in range(600):
+            acc += float(np.sum(np.sqrt(self._WORK) * np.cos(self._WORK)))
+        return acc
+
+    def get_cost(self, p):
+        self._burn()
+        return super().get_cost(p)
+
+    def get_gradient(self, p):
+        self._burn()
+        return super().get_gradient(p)
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.mpi
+def test_multi_start_scales_with_many_starts(temp_output_dir):
+    """With many more starts than ranks, the static round-robin distribution balances out and the
+    multi-start scales close to the rank count. Run under multiple MPI ranks to see the speedup;
+    it still passes (with weaker assertions) on a single rank.
+
+    cost_convergence is set below any achievable cost, so the global early stop never fires and
+    all 100 starts run -- the speedup is then measured on the full, fixed workload, and this also
+    exercises the stop machinery on the path where it must NOT trigger.
+    """
+    comm = MPI.COMM_WORLD
+    num_procs = comm.Get_size()
+
+    opt = _make_multi_start_optimiser(
+        temp_output_dir, _WorkloadTwoWellParamId(param_init=(1.2, 1.2)),
+        {'num_starts': 100, 'start_sampling': 'sobol', 'seed': 0,
+         'include_init_point': False, 'cost_convergence': 1e-300})
+    opt.run()
+
+    if comm.Get_rank() != 0:
+        comm.Barrier()
+        return
+
+    # the global early stop never fired, so every start ran
+    assert opt.num_starts_run == 100, \
+        f'expected all 100 starts to run, got {opt.num_starts_run}'
+
+    # static round-robin spreads the starts to within one of each other
+    counts = opt.starts_run_per_rank
+    assert sum(counts) == 100
+    assert max(counts) - min(counts) <= 1, \
+        f'starts should be evenly distributed over ranks, got {counts}'
+
+    # serial_seconds is the summed per-start work; wall_seconds is the slowest rank. Their ratio
+    # is the achieved speedup.
+    print(f'\n[scaling] {num_procs} rank(s): serial={opt.serial_seconds:.2f}s '
+          f'wall={opt.wall_seconds:.2f}s speedup={opt.speedup:.2f}x '
+          f'starts_per_rank={counts}')
+    if num_procs > 1:
+        # With 100 starts over num_procs ranks the per-rank workloads average out and the
+        # multi-start clearly scales. The floor is deliberately conservative -- ideal speedup is
+        # num_procs, and 0.4x still comfortably fails if the work stopped being distributed --
+        # because the achievable fraction depends on the host (CPU turbo throttles as more cores
+        # get busy, and 100/num_procs starts per rank averages imperfectly for larger rank
+        # counts). Measured on a 20-core host: ~3.8x on 4 ranks, ~4.2x on 8. Requiring near
+        # num_procs would make the test hostage to the machine it runs on.
+        assert opt.speedup >= max(1.5, 0.3 * num_procs), (
+            f'expected the multi-start to scale with {num_procs} ranks '
+            f'(speedup >= {max(1.5, 0.3 * num_procs):.1f}), got {opt.speedup:.2f}')
+    else:
+        # on one rank there is no parallelism, but serial and wall should agree
+        assert opt.speedup == pytest.approx(1.0, abs=0.2)
+
+    comm.Barrier()
+
+
+@pytest.mark.integration
+@pytest.mark.mpi
+def test_multi_start_global_early_stop_halts_all_ranks(temp_output_dir):
+    """When a start meets the threshold, every rank stops launching new starts -- not just the
+    rank that found it. With a threshold that IS met, fewer than all starts run."""
+    comm = MPI.COMM_WORLD
+
+    # the -1 well sits at cost ~0.1 (see _two_well_cost); a threshold of 0.5 is met by any start
+    # that reaches that well, so the search stops well before running all 100 starts
+    opt = _make_multi_start_optimiser(
+        temp_output_dir, _TwoWellParamId(param_init=(-1.0, -1.0)),
+        {'num_starts': 100, 'start_sampling': 'sobol', 'seed': 0,
+         'include_init_point': True, 'cost_convergence': 0.5})
+    opt.run()
+
+    if comm.Get_rank() == 0:
+        assert opt.num_starts_run < 100, \
+            f'the global early stop should have halted the search early, ran {opt.num_starts_run}'
+        assert opt.best_cost <= 0.5, \
+            f'the run should have stopped because the threshold was met, best {opt.best_cost}'
+
+    comm.Barrier()
+
+
+@pytest.mark.unit
+def test_multi_start_no_new_starts_on_convergence_false_runs_every_start(temp_output_dir):
+    """With no_new_starts_on_convergence off, every start runs even once one has converged, and
+    the run reports the converged starts clustered by which solution they reached.
+
+    The two-well cost has a global minimum at -1 and a shallow local one at +1, so a start that
+    reaches -1 converges (cost ~0.1 <= threshold) but must NOT stop the others -- and the starts
+    that fall into the +1 well don't converge, so they aren't clustered."""
+    opt = _make_multi_start_optimiser(
+        temp_output_dir, _TwoWellParamId(),
+        {'num_starts': 20, 'start_sampling': 'sobol', 'seed': 0, 'include_init_point': False,
+         'cost_convergence': 0.5, 'no_new_starts_on_convergence': False})
+    opt.run()
+
+    if MPI.COMM_WORLD.Get_rank() == 0:
+        # nothing was skipped
+        assert opt.num_starts_run == 20
+        # the converged starts all reached the -1 well, i.e. one cluster with negative params
+        assert opt.num_converged > 0
+        assert len(opt.convergence_clusters) >= 1
+        counts = sum(c['count'] for c in opt.convergence_clusters)
+        assert counts == opt.num_converged
+        for cluster in opt.convergence_clusters:
+            assert np.all(np.asarray(cluster['params']) < 0.0), \
+                f'converged starts should be in the -1 well, got {cluster["params"]}'
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.mpi
+def test_multi_start_reports_both_minima_of_a_two_minimum_model(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
+    """End to end on a CellML model with two equal global minima.
+
+    resources/TwoMinima is dx/dt = c*(a^2 - x), fitting `a` to a steady state of 4. Because the
+    observable depends on a^2, a = +2 and a = -2 both fit perfectly -- two global minima either
+    side of a barrier at a = 0. With no_new_starts_on_convergence off, every start runs and the
+    optimiser reports how many landed in each minimum. The test checks that both minima are
+    found and that the per-minimum counts are reported (they differ, since the starts don't split
+    exactly evenly)."""
+    import csv as _csv
+
+    rank = mpi_comm.Get_rank()
+
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': 'TwoMinima',
+        'input_param_file': 'TwoMinima_parameters.csv',
+        'params_for_id_file': 'TwoMinima_params_for_id.csv',
+        'model_type': 'cellml_only',
+        'solver': 'CVODE_myokit',
+        'param_id_method': 'multi_start_sp_minimize',
+        'do_ad': False,
+        'pre_time': 0.0,
+        'sim_time': 5.0,
+        'dt': 0.05,
+        'DEBUG': False,
+        'do_mcmc': False,
+        'plot_predictions': False,
+        'do_ia': False,
+        'solver_info': {'MaximumStep': 0.01, 'MaximumNumberOfSteps': 5000},
+        'param_id_obs_path': os.path.join(resources_dir, 'TwoMinima_obs_data.json'),
+        'param_id_output_dir': temp_output_dir,
+        'generated_models_dir': temp_generated_models_dir,
+        'optimiser_options': {
+            'cost_convergence': 1e-3,
+            'num_starts': 20,
+            'start_sampling': 'sobol',
+            'seed': 0,
+            'include_init_point': False,
+            # run every start so we can count how many land in each minimum
+            'no_new_starts_on_convergence': False,
+        },
+    })
+
+    if rank == 0:
+        assert generate_with_new_architecture(False, config), \
+            'TwoMinima model generation should succeed'
+    mpi_comm.Barrier()
+
+    run_param_id(config)
+
+    if rank == 0:
+        output_dir = os.path.join(
+            temp_output_dir, 'multi_start_sp_minimize_TwoMinima_TwoMinima_obs_data')
+        clusters = list(_csv.DictReader(
+            open(os.path.join(output_dir, 'multi_start_convergence_clusters.csv'))))
+
+        # exactly the two global minima were found
+        assert len(clusters) == 2, \
+            f'expected two distinct solutions (a = +2 and a = -2), got {len(clusters)}: {clusters}'
+
+        a_vals = sorted(float(c['twomin a']) for c in clusters)
+        np.testing.assert_allclose(a_vals, [-2.0, 2.0], atol=0.02)
+
+        counts = {round(float(c['twomin a'])): int(c['num_starts']) for c in clusters}
+        total_converged = sum(counts.values())
+        print(f'\n[two-minima] of 20 starts, {total_converged} converged: '
+              f'{counts[2]} to a=+2, {counts[-2]} to a=-2')
+
+        # every start converged to one of the two wells, and both wells were reached
+        assert total_converged == 20
+        assert counts[2] > 0 and counts[-2] > 0
+        # the split is reported per minimum; with sobol sampling it is not exactly even
+        assert counts[2] != counts[-2], \
+            'expected the two minima to receive different numbers of starts'
+
+    mpi_comm.Barrier()
+
+
+@pytest.mark.unit
+def test_multi_start_lbfgsb_escapes_a_local_minimum_that_traps_single_start(temp_output_dir):
+    """The headline behaviour: from an x0 inside a local well, a single L-BFGS-B descent
+    stays in that well, while scattering starts over the bounds finds the global one."""
+    single_dir = os.path.join(temp_output_dir, 'multi_start_single')
+    multi_dir = os.path.join(temp_output_dir, 'multi_start_multi')
+    for d in (single_dir, multi_dir):
+        os.makedirs(d, exist_ok=True)
+
+    # num_starts=1 with include_init_point is exactly a single-start L-BFGS-B from x0.
+    single = _make_multi_start_optimiser(
+        single_dir, _TwoWellParamId(param_init=(1.2, 1.2)),
+        {'num_starts': 1, 'include_init_point': True, 'cost_convergence': 1e-12})
+    single.run()
+
+    multi = _make_multi_start_optimiser(
+        multi_dir, _TwoWellParamId(param_init=(1.2, 1.2)),
+        {'num_starts': 8, 'include_init_point': True, 'start_sampling': 'sobol',
+         'seed': 0, 'cost_convergence': 1e-12})
+    multi.run()
+
+    # the single start is trapped in the right-hand well ...
+    assert np.all(single.best_param_vals > 0.0), \
+        f'expected the single start to stay in the +1 well, got {single.best_param_vals}'
+    # ... while the multi-start escapes into the left-hand (global) well
+    assert np.all(multi.best_param_vals < 0.0), \
+        f'expected the multi-start to find the -1 well, got {multi.best_param_vals}'
+    assert multi.best_cost < single.best_cost - 1.0, \
+        f'multi-start cost {multi.best_cost} should be well below {single.best_cost}'
+
+
+@pytest.mark.unit
+def test_multi_start_finite_difference_fallback_without_casadi(temp_output_dir):
+    """For non-casadi models there is no AD cost, so the optimiser must fall back to
+    get_cost_from_params with a finite-difference gradient and still escape the local well."""
+    # a cellml_only model has no AD gradient, so get_gradient would raise if it were called
+    param_id_obj = _TwoWellParamId(param_init=(1.2, 1.2), model_type='cellml_only')
+    opt = _make_multi_start_optimiser(
+        temp_output_dir, param_id_obj,
+        {'num_starts': 8, 'start_sampling': 'sobol', 'seed': 0, 'cost_convergence': 1e-12},
+        model_type='cellml_only', do_ad=False)
+    opt.run()
+
+    assert param_id_obj.num_jac_calls == 0, \
+        'the AD gradient must not be used for a model type that has no AD backend'
+    assert param_id_obj.num_cost_calls > 0
+    assert np.all(opt.best_param_vals < 0.0), \
+        f'finite-difference multi-start should still find the -1 well, got {opt.best_param_vals}'
+
+
+@pytest.mark.unit
+def test_multi_start_generates_deterministic_starts(temp_output_dir):
+    """Every rank must generate an identical set of starts (they are assigned round-robin
+    with no communication), and the initial parameter values must be the first start."""
+    opts = {'num_starts': 6, 'start_sampling': 'sobol', 'seed': 3, 'include_init_point': True}
+    first = _make_multi_start_optimiser(temp_output_dir, _TwoWellParamId(), dict(opts))
+    second = _make_multi_start_optimiser(temp_output_dir, _TwoWellParamId(), dict(opts))
+
+    starts_a = first._generate_starts()
+    starts_b = second._generate_starts()
+
+    assert starts_a.shape == (6, 2)
+    np.testing.assert_allclose(starts_a, starts_b)
+    # start 0 is x0 = (1.2, 1.2) normalised over bounds [-2, 2]
+    np.testing.assert_allclose(starts_a[0], _TwoWellNorm().normalise(np.array([1.2, 1.2])))
+    # everything stays inside the normalised bounds
+    assert np.all(starts_a >= 0.0) and np.all(starts_a <= 1.0)
+
+    without_init = _make_multi_start_optimiser(
+        temp_output_dir, _TwoWellParamId(),
+        {'num_starts': 6, 'start_sampling': 'sobol', 'seed': 3, 'include_init_point': False})
+    starts_c = without_init._generate_starts()
+    assert starts_c.shape == (6, 2)
+    assert not np.allclose(starts_c[0], starts_a[0])
+
+
+@pytest.mark.unit
+def test_multi_start_rejects_bad_options(temp_output_dir):
+    bad_sampling = _make_multi_start_optimiser(
+        temp_output_dir, _TwoWellParamId(), {'num_starts': 4, 'start_sampling': 'banana'})
+    with pytest.raises(ValueError, match='banana'):
+        bad_sampling._generate_starts()
+
+    no_starts = _make_multi_start_optimiser(
+        temp_output_dir, _TwoWellParamId(), {'num_starts': 0})
+    with pytest.raises(ValueError, match='num_starts'):
+        no_starts._generate_starts()
+
+
+@pytest.mark.unit
+def test_multi_start_writes_running_best_history_and_start_summary(temp_output_dir):
+    """The history csvs must stay monotonically improving across the concatenated starts
+    (the plotting reads them as a progress curve), and every start that ran gets a
+    summary row."""
+    out_dir = os.path.join(temp_output_dir, 'multi_start_history')
+    os.makedirs(out_dir, exist_ok=True)
+
+    opt = _make_multi_start_optimiser(
+        out_dir, _TwoWellParamId(param_init=(1.2, 1.2)),
+        {'num_starts': 5, 'start_sampling': 'latin_hypercube', 'seed': 1,
+         'cost_convergence': 1e-12})
+    opt.run()
+
+    if MPI.COMM_WORLD.Get_rank() == 0:
+        cost_path = os.path.join(out_dir, 'best_cost_history.csv')
+        costs = [float(ln.split(',')[0])
+                 for ln in open(cost_path).read().splitlines() if ln.strip()]
+        assert len(costs) > 1
+        # only improvements are written, but the csv rounds to 9 dp so two consecutive
+        # improvements can print as equal; the curve must never go back up.
+        assert all(costs[i + 1] <= costs[i] for i in range(len(costs) - 1)), \
+            f'running-best cost history must never worsen, got {costs}'
+        # abs tolerance matches the 9 dp the history csv is written with
+        assert costs[-1] == pytest.approx(opt.best_cost, abs=1e-8)
+
+        param_rows = [ln for ln in
+                      open(os.path.join(out_dir, 'best_param_vals_history.csv')).read().splitlines()
+                      if ln.strip()]
+        assert len(param_rows) == len(costs)
+
+        import csv as _csv
+        summary = list(_csv.DictReader(open(os.path.join(out_dir, 'multi_start_summary.csv'))))
+        assert len(summary) == 5, f'expected one summary row per start, got {len(summary)}'
+        assert [int(r['start_idx']) for r in summary] == [0, 1, 2, 3, 4]
+        for row in summary:
+            assert float(row['final_cost']) <= float(row['init_cost']) + 1e-9
+
+    MPI.COMM_WORLD.Barrier()
+
+
+# The FitzHugh-Nagumo excitable-cell model is a standard multi-modal parameter-estimation
+# benchmark: its least-squares surface has many local minima, because a wrong recovery rate
+# c puts the simulated spike train out of phase with the data (Ramsay et al. 2007, JRSS-B,
+# "Parameter estimation for differential equations: a generalized smoothing approach").
+# resources/FitzHugh_Nagumo_parameters.csv deliberately starts at (a, b, c) = (0.8, 0.9, 2.0),
+# which is inside a local basin: a single L-BFGS-B descent converges to (1, 1, 2.07) and
+# stops, nowhere near the true (0.2, 0.2, 3.0).
+# The FitzHugh-Nagumo benchmark run logic lives in benchmarks/ so it can be driven both by the
+# test below and by the standalone benchmark runner; the config builder is shared with the other
+# FHN tests here.
+from benchmarks.benchmark_specs import (  # noqa: E402
+    FHN_TRUE_PARAMS,
+    fitzhugh_nagumo_config as _fitzhugh_nagumo_config,
+    run_fitzhugh_nagumo,
+    assert_fitzhugh_nagumo,
+)
+FHN_TRAPPED_COST = 100.0  # the local minimum a single start falls into sits at ~144
+
+
+def _load_best(temp_output_dir, param_id_method):
+    output_dir = os.path.join(
+        temp_output_dir, f'{param_id_method}_FitzHugh_Nagumo_FitzHugh_Nagumo_obs_data')
+    cost = float(np.load(os.path.join(output_dir, 'best_cost.npy')))
+    params = np.load(os.path.join(output_dir, 'best_param_vals.npy'))
+    return cost, params
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.mpi
+def test_multi_start_escapes_fitzhugh_nagumo_local_minimum_that_traps_sp_minimize(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
+    """On the multi-modal FitzHugh-Nagumo benchmark, sp_minimize converges to a local
+    minimum while multi_start_sp_minimize recovers the true parameters."""
+    rank = mpi_comm.Get_rank()
+
+    sp_config = _fitzhugh_nagumo_config(base_user_inputs, resources_dir, temp_output_dir,
+                                        temp_generated_models_dir, 'sp_minimize')
+    sp_config['optimiser_options'] = {'cost_convergence': 1e-4, 'max_patience': 100}
+
+    if rank == 0:
+        assert generate_with_new_architecture(False, sp_config), \
+            'CasADi model generation should succeed for FitzHugh-Nagumo'
+    mpi_comm.Barrier()
+
+    run_param_id(sp_config)
+
+    multi_config = _fitzhugh_nagumo_config(base_user_inputs, resources_dir, temp_output_dir,
+                                           temp_generated_models_dir, 'multi_start_sp_minimize')
+    multi_config['optimiser_options'] = {
+        'cost_convergence': 1e-4, 'max_patience': 100,
+        'num_starts': 8, 'start_sampling': 'sobol', 'seed': 0,
+    }
+    run_param_id(multi_config)
+
+    if rank == 0:
+        sp_cost, sp_params = _load_best(temp_output_dir, 'sp_minimize')
+        multi_cost, multi_params = _load_best(temp_output_dir, 'multi_start_sp_minimize')
+
+        # sp_minimize starts inside the local basin and cannot leave it
+        assert sp_cost > FHN_TRAPPED_COST, (
+            f'expected sp_minimize to stay trapped in the local minimum (cost > '
+            f'{FHN_TRAPPED_COST}), got {sp_cost}. The benchmark x0 may no longer be inside '
+            f'the local basin.')
+        assert np.max(np.abs(sp_params - FHN_TRUE_PARAMS)) > 0.5, \
+            f'expected sp_minimize to miss the true params, got {sp_params}'
+
+        # the multi-start finds the global minimum and recovers the true parameters
+        assert multi_cost < 1e-2, \
+            f'expected multi_start_sp_minimize to reach the global minimum, got {multi_cost}'
+        np.testing.assert_allclose(multi_params, FHN_TRUE_PARAMS, atol=0.02)
+        assert multi_cost < sp_cost
+
+    mpi_comm.Barrier()
+
+
+@pytest.mark.skipif(
+    os.environ.get("GITHUB_ACTIONS") == "true",
+    reason="compare_optimisers is heavy; run locally / in the benchmarks workflow only",
+)
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.mpi
+@pytest.mark.compare_optimisers
+def test_compare_optimisers_on_fitzhugh_nagumo(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
+    """Benchmark every optimiser on the multi-modal FitzHugh-Nagumo problem.
+
+    Gradient-free global searches (genetic algorithm, CMA-ES) against the same multi-start
+    L-BFGS-B driven by finite differences, CasADi AD, Myokit CVODES FSA, and (when licensed)
+    AADC AD. Holding the optimiser fixed and varying only the gradient source isolates what the
+    gradient buys. The run logic and regression assertions live in
+    ``benchmarks/benchmark_specs.py`` so the standalone benchmark runner exercises exactly the
+    same comparison.
+    """
+    result = run_fitzhugh_nagumo(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm)
+    assert_fitzhugh_nagumo(result, mpi_comm)
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.mpi
+def test_ad_series_cost_supports_dt_finer_than_obs_dt(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
+    """The symbolic cost cannot resample the (symbolic) simulated series, so it interpolates the
+    ground truth onto the simulation time grid instead. That means dt does not have to equal a
+    series item's obs_dt. Check that a finer dt still gives a sane cost and a correct gradient.
+
+    FitzHugh_Nagumo_obs_data.json has obs_dt = 0.2; here the model is simulated at dt = 0.1.
+    """
+    import json
+
+    rank = mpi_comm.Get_rank()
+    if rank != 0:
+        mpi_comm.Barrier()
+        return
+
+    config = _fitzhugh_nagumo_config(base_user_inputs, resources_dir, temp_output_dir,
+                                     temp_generated_models_dir, 'sp_minimize')
+    config['dt'] = 0.1  # half the obs_dt of 0.2, so the ground truth must be interpolated
+    config['resources_dir'] = resources_dir
+
+    assert generate_with_new_architecture(False, config), \
+        'CasADi model generation should succeed for FitzHugh-Nagumo'
+
+    parsed = YamlFileParser().parse_user_inputs_file(
+        config, obs_path_needed=True, do_generation_with_fit_parameters=False)
+    parsed['one_rank'] = True
+    runner = CVS0DParamID.init_from_dict(parsed)
+
+    with open(os.path.join(resources_dir, 'FitzHugh_Nagumo_obs_data.json')) as f:
+        runner.set_ground_truth_data(json.load(f))
+
+    runner.set_params_for_id([
+        {'vessel_name': 'fhn', 'param_name': 'a', 'param_type': 'const', 'min': 0.0, 'max': 1.0},
+        {'vessel_name': 'fhn', 'param_name': 'b', 'param_type': 'const', 'min': 0.0, 'max': 1.0},
+        {'vessel_name': 'fhn', 'param_name': 'c', 'param_type': 'const', 'min': 0.5, 'max': 6.0},
+    ])
+
+    # At the true parameters the cost must be ~0 even though the data was sampled at obs_dt and
+    # the model is being run at half that step.
+    cost_at_truth = float(runner.param_id.get_cost_ca(FHN_TRUE_PARAMS))
+    assert np.isfinite(cost_at_truth)
+    assert cost_at_truth < 1e-3, \
+        f'cost at the true params should be ~0 with dt < obs_dt, got {cost_at_truth}'
+
+    # Away from the truth the cost is finite and positive, and the AD gradient agrees with a
+    # central finite difference of the same cost function.
+    probe = np.array([0.35, 0.30, 2.6])
+    cost_at_probe = float(runner.param_id.get_cost_ca(probe))
+    assert np.isfinite(cost_at_probe) and cost_at_probe > cost_at_truth
+
+    gradient = np.asarray(runner.param_id.get_jac_cost_ca(probe), dtype=float).ravel()
+    assert gradient.shape == (3,)
+    assert np.all(np.isfinite(gradient))
+
+    step = 1e-5
+    for idx in range(3):
+        p_plus = probe.copy()
+        p_minus = probe.copy()
+        p_plus[idx] += step
+        p_minus[idx] -= step
+        fd = (float(runner.param_id.get_cost_ca(p_plus))
+              - float(runner.param_id.get_cost_ca(p_minus))) / (2 * step)
+        assert fd == pytest.approx(gradient[idx], rel=1e-2, abs=1e-4), (
+            f'AD gradient {gradient[idx]} disagrees with the finite difference {fd} for '
+            f'parameter {idx}, so the interpolated ground truth is breaking differentiability')
+
+    mpi_comm.Barrier()
+
+
+@pytest.mark.unit
+def test_series_interpolation_uses_the_correct_sample_times():
+    """Sample k of a series is at time k*dt, so a simulated series interpolated onto the
+    observation times must land on exactly those times.
+
+    The old code built both time grids with np.linspace(0, n*step, n), whose spacing is
+    n*step/(n-1) rather than step. That stretches the simulation and observation grids by
+    different factors, so they drift apart over a long simulation — about a full observation
+    sample over the 60 s below — and the residuals are taken at the wrong times.
+    """
+    from param_id.paramID import OpencorParamID
+
+    dt = 0.1
+    obs_dt = 0.25
+    num_sim = 601                      # 0 .. 60.0 s at dt
+    ground_truth = np.zeros(241)       # 0 .. 60.0 s at obs_dt
+
+    class _Fake:
+        pass
+
+    fake = _Fake()
+    fake.dt = dt
+    fake.obs_info = {
+        "ground_truth_series": [ground_truth],
+        "std_series_vec": [np.ones_like(ground_truth)],
+        "obs_dt": [obs_dt],
+    }
+
+    # A simulated series whose value *is* the time. Interpolating it onto the observation
+    # times must therefore reproduce those times exactly.
+    t_sim = np.arange(num_sim) * dt
+    series_entry, obs_entry, std_entry = OpencorParamID._align_series_to_ground_truth(
+        fake, t_sim.copy(), 0)
+
+    expected_t_obs = np.arange(ground_truth.shape[0]) * obs_dt
+    np.testing.assert_allclose(series_entry, expected_t_obs, atol=1e-9)
+    assert len(obs_entry) == len(series_entry) == len(std_entry)
+
+
+@pytest.mark.unit
+def test_series_interpolation_matches_between_numpy_and_casadi_paths():
+    """The numeric and symbolic costs must resample a series identically, otherwise the same
+    model calibrated as cellml_only and as casadi_python would have different cost surfaces."""
+    import casadi as ca
+    from param_id.paramID import OpencorParamID
+
+    dt = 0.1
+    obs_dt = 0.25
+    num_sim = 61
+    ground_truth = np.zeros(21)
+
+    class _Fake:
+        pass
+
+    fake = _Fake()
+    fake.dt = dt
+    fake.obs_info = {
+        "ground_truth_series": [ground_truth],
+        "std_series_vec": [np.ones_like(ground_truth)],
+        "obs_dt": [obs_dt],
+    }
+
+    rng = np.random.default_rng(0)
+    sim = rng.normal(size=num_sim)
+
+    from_numpy, _, _ = OpencorParamID._align_series_to_ground_truth(fake, sim.copy(), 0)
+    from_casadi, _, _ = OpencorParamID._align_series_to_ground_truth(
+        fake, ca.DM(sim.reshape(-1, 1)), 0)
+
+    np.testing.assert_allclose(
+        np.asarray(from_numpy, dtype=float).flatten(),
+        np.asarray(ca.DM(from_casadi), dtype=float).flatten(),
+        rtol=1e-12, atol=1e-12)
+
+
+@pytest.mark.unit
+def test_series_interpolation_does_not_invent_data_past_the_end_of_the_simulation():
+    """np.interp clamps to the last value, which would compare a flat fabricated tail against
+    real observations. Observation times past the end of the simulation are dropped instead."""
+    from param_id.paramID import OpencorParamID
+
+    dt = 0.1
+    obs_dt = 0.25
+    num_sim = 21                    # simulation only reaches 2.0 s
+    ground_truth = np.arange(21.0)  # observations run out to 5.0 s
+
+    class _Fake:
+        pass
+
+    fake = _Fake()
+    fake.dt = dt
+    fake.obs_info = {
+        "ground_truth_series": [ground_truth],
+        "std_series_vec": [np.ones_like(ground_truth)],
+        "obs_dt": [obs_dt],
+    }
+
+    t_sim = np.arange(num_sim) * dt
+    series_entry, obs_entry, std_entry = OpencorParamID._align_series_to_ground_truth(
+        fake, t_sim.copy(), 0)
+
+    # only the observation times up to 2.0 s (0, 0.25, ..., 2.0 => 9 of them) are compared
+    assert len(series_entry) == 9
+    assert len(obs_entry) == 9 and len(std_entry) == 9
+    np.testing.assert_allclose(series_entry, np.arange(9) * obs_dt, atol=1e-9)
+
+
+@pytest.mark.unit
+def test_multi_start_uses_the_ad_gradient_for_aadc_models(temp_output_dir):
+    """An aadc_python model has a tape gradient, so the multi-start must call get_gradient()
+    rather than quietly falling back to finite differences (which is what it did before the
+    backend-agnostic AD wiring landed)."""
+    param_id_obj = _TwoWellParamId(param_init=(1.2, 1.2), model_type='aadc_python')
+    opt = _make_multi_start_optimiser(
+        temp_output_dir, param_id_obj,
+        {'num_starts': 4, 'start_sampling': 'sobol', 'seed': 0, 'cost_convergence': 1e-12},
+        model_type='aadc_python', do_ad=True)
+    assert opt.use_ad_gradient, 'aadc_python models must use the AD gradient'
+    opt.run()
+
+    assert param_id_obj.num_jac_calls > 0, \
+        'expected the aadc tape gradient to be used, not finite differences'
+    assert np.all(opt.best_param_vals < 0.0), \
+        f'the multi-start should still find the -1 well, got {opt.best_param_vals}'
+
+
+@pytest.mark.unit
+def test_multi_start_falls_back_to_fd_when_do_ad_is_off(temp_output_dir):
+    """do_ad: false must disable the AD gradient even on a model type that has one."""
+    param_id_obj = _TwoWellParamId(param_init=(1.2, 1.2), model_type='casadi_python')
+    opt = _make_multi_start_optimiser(
+        temp_output_dir, param_id_obj,
+        {'num_starts': 4, 'start_sampling': 'sobol', 'seed': 0, 'cost_convergence': 1e-12},
+        model_type='casadi_python', do_ad=False)
+    assert not opt.use_ad_gradient
+    opt.run()
+    assert param_id_obj.num_jac_calls == 0
+
+
+# ---------------------------------------------------------------------------
+# AADC gradient: the cost and the gradient must be of the SAME function
+# ---------------------------------------------------------------------------
+
+def _aadc_lotka_volterra_config(base_user_inputs, resources_dir, temp_output_dir,
+                                temp_generated_models_dir, param_id_method='sp_minimize',
+                                method='rk4'):
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': 'Lotka_Volterra',
+        'input_param_file': 'Lotka_Volterra_parameters.csv',
+        'params_for_id_file': 'Lotka_Volterra_params_for_id.csv',
+        'model_type': 'aadc_python',
+        'solver': 'aadc_semi_implicit',
+        'param_id_method': param_id_method,
+        'do_ad': True,
+        'pre_time': 0.0,
+        'sim_time': 5.0,
+        'dt': 0.01,
+        'DEBUG': False,
+        'do_mcmc': False,
+        'plot_predictions': False,
+        'do_ia': False,
+        # fixed-step, and exactly what the AADC tape records
+        'solver_info': {'method': method},
+        'param_id_obs_path': os.path.join(resources_dir, 'Lotka_Volterra_obs_data.json'),
+        'param_id_output_dir': temp_output_dir,
+        'generated_models_dir': temp_generated_models_dir,
+        'resources_dir': resources_dir,
+    })
+    return config
+
+
+def _init_aadc_param_id(config, resources_dir):
+    # rank 0 generates the model into the shared dir; the others wait, then all load it. Letting
+    # every rank generate into the same directory races.
+    comm = MPI.COMM_WORLD
+    if comm.Get_rank() == 0:
+        assert generate_with_new_architecture(False, config), 'AADC model generation should succeed'
+    comm.Barrier()
+    parsed = YamlFileParser().parse_user_inputs_file(
+        config, obs_path_needed=True, do_generation_with_fit_parameters=False)
+    parsed['one_rank'] = True
+    parsed['do_ad'] = True
+    runner = CVS0DParamID.init_from_dict(parsed)
+    inner = runner.param_id
+    inner.param_init = inner.sim_helper.get_init_param_vals(inner.param_id_info['param_names'])
+    return inner
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_aadc_cost_and_gradient_are_of_the_same_function(
+        aadc_licensed, base_user_inputs, resources_dir, temp_output_dir,
+        temp_generated_models_dir):
+    """The AADC tape gradient must be the gradient of the cost that is actually being minimised.
+
+    A gradient that is merely 'close' is not good enough: L-BFGS-B's line search assumes the
+    gradient is exact for the cost it evaluates, so a mismatch does not just slow convergence,
+    it sends the search to the wrong place. Three separate bugs each broke this, and each
+    showed up here as AD/FD != 1:
+
+      * the tape recorded fixed-step RK4 while the forward solve ran adaptive RK45, so the
+        gradient was exact -- for a different discretisation  -> AD/FD = [1.79, 1.96, 1.32, -0.07]
+      * the tape did not divide by the weighted-observable count that the numpy cost divides
+        by, making the tape cost a constant 2x the real one                -> AD/FD = [2, 2, 2, 2]
+      * every parameter's AD index was appended twice, so the index vector was double length
+    """
+    inner = _init_aadc_param_id(
+        _aadc_lotka_volterra_config(base_user_inputs, resources_dir, temp_output_dir,
+                                    temp_generated_models_dir),
+        resources_dir)
+
+    p0 = np.asarray(inner.param_init, dtype=float)
+    assert len(p0) == 4
+
+    # 1. the tape's cost is the forward solve's cost
+    tape_cost = float(inner.get_cost_aadc(p0))
+    forward_cost = float(inner.get_cost_from_params(p0))
+    assert tape_cost == pytest.approx(forward_cost, rel=1e-9), (
+        f'the AADC tape cost ({tape_cost}) is not the cost the forward solve computes '
+        f'({forward_cost}); the optimiser would descend a different function than it evaluates')
+
+    # 2. get_cost routes to the tape when do_ad is on, so cost and gradient are one evaluation
+    assert float(inner.get_cost(p0)) == pytest.approx(tape_cost, rel=1e-9)
+
+    # 3. the AD gradient is the gradient of that cost
+    grad = np.asarray(inner.get_gradient(p0), dtype=float).flatten()
+    assert grad.shape == (4,), f'expected one gradient entry per parameter, got {grad.shape}'
+    assert np.all(np.isfinite(grad))
+
+    step = 1e-6
+    for j in range(4):
+        up, down = p0.copy(), p0.copy()
+        up[j] += step
+        down[j] -= step
+        fd = (float(inner.get_cost(up)) - float(inner.get_cost(down))) / (2 * step)
+        assert grad[j] == pytest.approx(fd, rel=1e-3, abs=1e-6), (
+            f'AADC gradient[{j}] = {grad[j]} disagrees with the finite difference {fd} '
+            f'(AD/FD = {grad[j] / (fd + 1e-30):.4f})')
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_aadc_gradient_rejects_an_untapeable_solver(
+        aadc_licensed, base_user_inputs, resources_dir, temp_output_dir,
+        temp_generated_models_dir):
+    """An adaptive integrator picks its steps from the state, so the tape cannot replay it. Ask
+    for one with do_ad on and the run must stop, not silently differentiate a different (RK4)
+    system than it simulates."""
+    inner = _init_aadc_param_id(
+        _aadc_lotka_volterra_config(base_user_inputs, resources_dir, temp_output_dir,
+                                    temp_generated_models_dir, method='adaptive_rk45'),
+        resources_dir)
+
+    with pytest.raises(ValueError, match='cannot be recorded on an AADC tape'):
+        inner.get_gradient(np.asarray(inner.param_init, dtype=float))
+
+
+def _aadc_3compartment_config(base_user_inputs, resources_dir, temp_output_dir,
+                              temp_generated_models_dir):
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': '3compartment',
+        'input_param_file': '3compartment_parameters.csv',
+        'params_for_id_file': '3compartment_params_for_id.csv',
+        'model_type': 'aadc_python',
+        'solver': 'aadc_semi_implicit',
+        'param_id_method': 'sp_minimize',
+        'do_ad': True,
+        'pre_time': 0.0,
+        'sim_time': 0.3,
+        'dt': 0.01,
+        'DEBUG': False,
+        'do_mcmc': False,
+        'plot_predictions': False,
+        'do_ia': False,
+        'solver_info': {'method': 'semi_implicit'},  # fixed-step, tape-consistent
+        'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
+        'param_id_output_dir': temp_output_dir,
+        'generated_models_dir': temp_generated_models_dir,
+        'resources_dir': resources_dir,
+    })
+    return config
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_aadc_gradient_rejects_untapeable_observables(
+        aadc_licensed, base_user_inputs, resources_dir, temp_output_dir,
+        temp_generated_models_dir):
+    """The current AADC wrapper can only tape an observable whose operand is a state with a
+    max/min/mean operation (or a state series). 3compartment's obs set has algebraic-variable
+    operands (aortic_root/u) and a max_minus_min, so the tape cannot represent them. Taping only
+    the rest would silently minimise a reduced cost, so the wrapper must raise -- and the message
+    must point at the tracking issue (#258) and the working alternatives (CasADi bdf / Myokit
+    FSA)."""
+    inner = _init_aadc_param_id(
+        _aadc_3compartment_config(base_user_inputs, resources_dir, temp_output_dir,
+                                  temp_generated_models_dir),
+        resources_dir)
+
+    with pytest.raises(NotImplementedError,
+                       match=r'cannot be represented on the AADC tape'):
+        inner.get_gradient(np.asarray(inner.param_init, dtype=float))
+    # the error must name the tracking issue so users know it is a known limitation
+    with pytest.raises(NotImplementedError, match=r'#258'):
+        inner.get_gradient(np.asarray(inner.param_init, dtype=float))
+
+
+def _aadc_fitzhugh_nagumo_config(base_user_inputs, resources_dir, temp_output_dir,
+                                 temp_generated_models_dir, param_id_method='sp_minimize'):
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': 'FitzHugh_Nagumo',
+        'input_param_file': 'FitzHugh_Nagumo_parameters.csv',
+        'params_for_id_file': 'FitzHugh_Nagumo_params_for_id.csv',
+        'model_type': 'aadc_python',
+        'solver': 'aadc_semi_implicit',
+        'param_id_method': param_id_method,
+        'do_ad': True,
+        'pre_time': 0.0,
+        'sim_time': 60.0,
+        # dt differs from the obs_dt of 0.2, so this exercises the tape's series interpolation
+        'dt': 0.02,
+        'DEBUG': False,
+        'do_mcmc': False,
+        'plot_predictions': False,
+        'do_ia': False,
+        'solver_info': {'method': 'rk4'},  # fixed-step, what the AADC tape records
+        'param_id_obs_path': os.path.join(resources_dir, 'FitzHugh_Nagumo_obs_data.json'),
+        'param_id_output_dir': temp_output_dir,
+        'generated_models_dir': temp_generated_models_dir,
+        'resources_dir': resources_dir,
+    })
+    return config
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_aadc_series_cost_and_gradient_are_of_the_same_function(
+        aadc_licensed, base_user_inputs, resources_dir, temp_output_dir,
+        temp_generated_models_dir):
+    """The AADC tape gradient must match the cost for a SERIES observable, not just a constant.
+
+    FitzHugh-Nagumo fits the V and R traces (series data), and its obs_dt (0.2) differs from the
+    simulation dt (0.02), so this exercises the tape's series-observable path and its
+    interpolation of the simulated trace onto the observation times -- code that the
+    constant-observable Lotka-Volterra test does not touch. As there, the check is that the tape
+    cost equals the forward-solve cost and that the tape gradient agrees with a finite difference
+    of that cost (AD/FD == 1), at the initial parameters and at perturbed ones."""
+    inner = _init_aadc_param_id(
+        _aadc_fitzhugh_nagumo_config(base_user_inputs, resources_dir, temp_output_dir,
+                                     temp_generated_models_dir),
+        resources_dir)
+
+    p0 = np.asarray(inner.param_init, dtype=float)
+    assert len(p0) == 3  # a, b, c
+
+    for label, p in (('initial', p0), ('perturbed', p0 * np.array([1.1, 0.9, 1.05]))):
+        tape_cost = float(inner.get_cost_aadc(p))
+        forward_cost = float(inner.get_cost_from_params(p))
+        assert tape_cost == pytest.approx(forward_cost, rel=1e-6), (
+            f'[{label}] the AADC tape cost ({tape_cost}) is not the forward-solve cost '
+            f'({forward_cost}) for a series observable')
+
+        grad = np.asarray(inner.get_gradient(p), dtype=float).flatten()
+        assert grad.shape == (3,)
+        assert np.all(np.isfinite(grad))
+
+        step = 1e-6
+        for j in range(3):
+            up, down = p.copy(), p.copy()
+            up[j] += step
+            down[j] -= step
+            fd = (float(inner.get_cost(up)) - float(inner.get_cost(down))) / (2 * step)
+            assert grad[j] == pytest.approx(fd, rel=2e-3, abs=1e-5), (
+                f'[{label}] AADC series gradient[{j}] = {grad[j]} disagrees with the finite '
+                f'difference {fd} (AD/FD = {grad[j] / (fd + 1e-30):.4f})')
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_multi_start_sp_minimize_calibrates_an_aadc_model(
+        aadc_licensed, base_user_inputs, resources_dir, temp_output_dir,
+        temp_generated_models_dir):
+    """multi_start_sp_minimize must actually calibrate an aadc_python model using the tape
+    gradient -- the merge criterion for the AADC backend."""
+    config = _aadc_lotka_volterra_config(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir,
+        param_id_method='multi_start_sp_minimize')
+    config['optimiser_options'] = {
+        'cost_convergence': 1e-3, 'max_patience': 100,
+        'num_starts': 4, 'start_sampling': 'sobol', 'seed': 0,
+    }
+
+    comm = MPI.COMM_WORLD
+    rank = comm.Get_rank()
+
+    if rank == 0:
+        assert generate_with_new_architecture(False, config), \
+            'AADC model generation should succeed'
+    comm.Barrier()
+    run_param_id(config)
+
+    # only rank 0 writes the result files
+    if rank == 0:
+        output_dir = os.path.join(
+            temp_output_dir, 'multi_start_sp_minimize_Lotka_Volterra_Lotka_Volterra_obs_data')
+        cost = float(np.load(os.path.join(output_dir, 'best_cost.npy')))
+        params = np.load(os.path.join(output_dir, 'best_param_vals.npy'))
+
+        assert np.isfinite(cost)
+        assert np.all(np.isfinite(params))
+        # the observables are two constants the model can match, so a working gradient descent
+        # should drive the cost right down; a wrong gradient leaves it stuck near its start
+        assert cost < 1e-2, \
+            f'multi_start_sp_minimize with the AADC tape gradient failed to calibrate: cost {cost}'
+    comm.Barrier()
