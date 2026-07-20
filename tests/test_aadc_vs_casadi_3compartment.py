@@ -1,11 +1,14 @@
 """
 AADC vs CasADi comparison on the stiff 3compartment model.
 
-Compares the two automatic-differentiation backends on three axes, all using a BDF
-stiff solve where applicable:
+Compares the two automatic-differentiation backends on three axes:
   1. Forward-solve accuracy vs the Myokit CVODE reference.
   2. Gradient accuracy vs finite differences (FD).
   3. Wall-clock speed of the forward solve.
+
+CasADi uses its stiff ``method='bdf'``; AADC uses ``method='semi_implicit'``, which is its
+only stiff-capable *tape-consistent* method. The two are therefore different algorithms,
+and the tests below say so rather than pretending to a like-for-like comparison.
 
 Both backends generate from the same CellML, so their state names are identical
 (``component/variable``); the Myokit reference uses ``component_module.variable`` and is
@@ -16,9 +19,15 @@ Notes / current status (see PR #251):
     CVODE on this stiff model, and its own gradient matches FD — the BDF graph is fully
     differentiable, so AD works directly on bdf (no fallback to semi_implicit_euler).
     These tests pass.
-  - AADC's ``method='bdf'`` matches CVODE closely and its tape gradient matches FD, but
-    both **record a tape and so are license-gated** (Matlogica). Without a license they
-    raise ``RuntimeError: AADC License check failed``; those tests take the
+  - AADC's ``method='bdf'`` was **removed**: it handed the solve to ``scipy.solve_ivp``
+    with AADC supplying only the RHS and Jacobian, so the trajectory never reached the
+    tape, and the AD tape had no bdf branch — ``do_ad`` silently recorded rk4 instead,
+    making the cost and the gradient different functions. These tests now use
+    ``method='semi_implicit'``: first-order with on-tape diagonal damping, so its forward
+    solve and its gradient are of the same function, at the cost of real accuracy against
+    CVODE (quantified in the individual tests).
+  - AADC records a tape and is therefore **license-gated** (Matlogica). Without a license
+    it raises ``RuntimeError: AADC License check failed``; those tests take the
     ``aadc_licensed`` fixture and skip when no license is present, so an unlicensed
     environment (including CI) stays green.
 
@@ -43,17 +52,6 @@ from utilities.utility_funcs import get_default_inp_data_dict
 
 _DT = 0.001
 _SIM_TIME = 1.0
-
-# AADC's ``method='bdf'`` is disabled: its RHS kernel is recorded once with
-# compute_rates(0.0, ...) and the integrator discards t, so any model whose rates depend on
-# time -- which 3compartment's cardiac driver does -- is integrated with its t=0 right-hand
-# side for the whole run while solve_ivp still reports success. AadcPythonSimulationHelper.run
-# now raises rather than return that. The tests below compare AADC bdf against CasADi/CVODE
-# and therefore cannot run until the kernel is re-recorded with time as an input (issue #268).
-# CasADi bdf and AADC semi_implicit are unaffected and still covered here.
-_AADC_BDF_DISABLED = pytest.mark.skip(
-    reason="AADC method='bdf' raises by design until its RHS kernel stops being frozen at "
-           "t=0 (issue #268); see test_aadc_bdf_is_refused_while_frozen_at_t0")
 
 
 @pytest.fixture(scope="module")
@@ -80,7 +78,7 @@ def models_3compartment(tmp_path_factory):
 
     return {
         "casadi": _gen("casadi_python", "casadi_integrator", {"method": "bdf"}, "ca"),
-        "aadc": _gen("aadc_python", "aadc_semi_implicit", {"method": "bdf"}, "aadc"),
+        "aadc": _gen("aadc_python", "aadc_semi_implicit", {"method": "semi_implicit"}, "aadc"),
     }
 
 
@@ -263,16 +261,19 @@ def test_3compartment_casadi_rk_no_abstol_option(models_3compartment):
 
 @pytest.mark.integration
 @pytest.mark.slow
-def test_aadc_bdf_is_refused_while_frozen_at_t0(aadc_licensed, models_3compartment):
-    """AADC ``method='bdf'`` must refuse to run, not return a confident wrong trajectory.
+def test_aadc_bdf_is_refused_as_a_removed_method(aadc_licensed, models_3compartment):
+    """AADC ``method='bdf'`` must raise, not silently fall back to another integrator.
 
-    Its RHS kernel is recorded once via ``compute_rates(0.0, ...)`` and the integrator drives
-    it as ``lambda t, y: vfj.func(y)``, discarding t. 3compartment has a time-varying cardiac
-    driver, so the whole run would use the t=0 right-hand side -- and ``solve_ivp`` would
-    still converge and report success, which is what makes it dangerous. This test is the
-    counterpart to the three comparison tests skipped by ``_AADC_BDF_DISABLED``: it keeps the
-    guard itself covered while they cannot run. Remove all four together when issue #268 is
-    fixed.
+    bdf was removed: it ran the solve in ``scipy.solve_ivp`` with AADC supplying only the RHS
+    and its Jacobian, so the trajectory never reached the tape, and the AD tape had no bdf
+    branch -- ``do_ad`` silently recorded rk4, making the cost and the gradient different
+    functions. Its RHS kernel was also taped once at t=0 with the integrator discarding t
+    (issue #268), so a time-dependent model integrated its t=0 right-hand side throughout
+    while ``solve_ivp`` still reported success.
+
+    This guards the *removal*, not the old NotImplementedError: an unrecognised method used to
+    fall through to adaptive_rk45, so a config still carrying 'bdf' would have been silently
+    integrated with an explicit RK45 -- the worst choice for the stiff models bdf was used for.
     """
     pytest.importorskip("aadc")
     paths = models_3compartment["aadc"]
@@ -280,15 +281,35 @@ def test_aadc_bdf_is_refused_while_frozen_at_t0(aadc_licensed, models_3compartme
         model_path=paths["py"], solver='aadc_semi_implicit', model_type='aadc_python',
         dt=_DT, sim_time=_SIM_TIME, pre_time=0.0, solver_info={'method': 'bdf'},
     )
-    with pytest.raises(NotImplementedError, match="issue #268"):
+    with pytest.raises(ValueError, match="was removed"):
         helper.run()
 
 
-@_AADC_BDF_DISABLED
 @pytest.mark.integration
 @pytest.mark.slow
-def test_3compartment_forward_aadc_bdf_vs_cvode(aadc_licensed, models_3compartment):
-    """AADC BDF (scipy BDF + AADC Jacobian) should match the CVODE reference.
+def test_3compartment_forward_aadc_semi_implicit_vs_cvode(aadc_licensed, models_3compartment):
+    """AADC ``semi_implicit`` should match the CVODE reference on the stiff 3compartment model.
+
+    **This test currently FAILS, deliberately.** It previously ran ``method='bdf'``, which met
+    the 5% bar but has since been removed: bdf handed the solve to ``scipy.solve_ivp`` with
+    AADC supplying only the RHS and Jacobian, so the trajectory never reached the tape, and the
+    AD tape had no bdf branch -- ``do_ad`` silently recorded rk4 instead, making the cost and
+    the gradient different functions. ``semi_implicit`` is AADC's only stiff-capable
+    *tape-consistent* method, and on this model it is not accurate:
+
+        dt=1e-3  ->   35.1%      dt=5e-4  ->  183.2%
+        dt=2e-4  ->  173.3%      dt=1e-4  ->  279.7%
+
+    It does not merely miss the bar, it *diverges under step refinement*. The scheme is
+    ``y += dt*f/(1 + dt*lam)``; as dt shrinks the damping factor ``1/(1+dt*lam)`` tends to 1
+    and it degenerates into explicit forward Euler on a system whose stiffness probe measures
+    ``max|Re(eig(J))|*dt ~ 4.5e10``. So there is no step size at which this passes.
+
+    The assertion is left strict rather than relaxed to ~35% or marked xfail, so the gap stays
+    visible: AADC has no usable stiff forward path on 3compartment. (``benchmarks/
+    benchmark_specs.py`` already excludes AADC from the 3compartment benchmark for a related
+    reason -- see issue #258.) Note CI does not catch this: AADC is licence-gated and the
+    ``aadc_licensed`` fixture skips the whole test in an unlicensed environment.
 
     License-gated: raises ``AADC License check failed`` without a Matlogica license.
     """
@@ -298,14 +319,19 @@ def test_3compartment_forward_aadc_bdf_vs_cvode(aadc_licensed, models_3compartme
 
     sim = get_simulation_helper(
         model_path=paths["py"], solver='aadc_semi_implicit', model_type='aadc_python',
-        dt=_DT, sim_time=_SIM_TIME, pre_time=0.0, solver_info={'method': 'bdf'},
+        dt=_DT, sim_time=_SIM_TIME, pre_time=0.0, solver_info={'method': 'semi_implicit'},
     )
-    sim.run()  # license check happens here (AADC VectorFunctionWithJacobian)
+    sim.run()  # license check happens here (on-tape damping records a tape)
 
     max_pct, worst_var, compared = _max_state_rel_l2_vs_cvode(ref, sim)
-    print(f"\nAADC BDF vs CVODE: max rel-L2 {max_pct:.3f}% on {worst_var} ({compared} states)")
+    print(f"\nAADC semi_implicit vs CVODE: max rel-L2 {max_pct:.3f}% on {worst_var} "
+          f"({compared} states)")
     assert compared > 0, "No states matched between CVODE and AADC"
-    assert max_pct < 5.0, f"AADC BDF deviates from CVODE by {max_pct:.3f}% on {worst_var}"
+    assert max_pct < 5.0, (
+        f"AADC semi_implicit deviates from CVODE by {max_pct:.3f}% on {worst_var}. "
+        f"Expected to fail at ~35%: semi_implicit is not convergent on this stiff model "
+        f"(see docstring). Kept strict so the limitation stays visible."
+    )
 
 
 # ---- 2. Gradient accuracy vs FD ----
@@ -545,28 +571,30 @@ def test_3compartment_aadc_run_warns_stiff(aadc_licensed, models_3compartment):
 
 
 # ---- 3. Speed ----
-@_AADC_BDF_DISABLED
 @pytest.mark.integration
 @pytest.mark.slow
-def test_3compartment_speed_casadi_vs_aadc_bdf(aadc_licensed, models_3compartment):
-    """Wall-clock comparison of the BDF forward solve: CasADi vs AADC.
+def test_3compartment_speed_casadi_bdf_vs_aadc_semi_implicit(aadc_licensed, models_3compartment):
+    """Wall-clock comparison of the stiff forward solve: CasADi bdf vs AADC semi_implicit.
 
     Both are timed and printed; the test asserts only that each solve produces finite
     states, so it reports rather than gates.
 
-    **Time alone is meaningless here — read it with the accuracy.** The two
-    ``method='bdf'`` paths are not the same algorithm and do not land at the same error:
+    **Time alone is meaningless here — read it with the accuracy.** These are different
+    algorithms and they do not land anywhere near the same error:
 
-      * CasADi: *fixed*-step symbolic implicit BDF2 (internal step capped at
-        ``solver_info['max_step']``, default 1e-3) — on 3compartment that is ~0.5%
-        relative-L2 vs the CVODE reference.
-      * AADC: scipy's *adaptive*, variable-order BDF with an AADC-supplied exact
-        Jacobian — ~0.003% vs the same reference.
+      * CasADi ``bdf``: *fixed*-step symbolic implicit BDF2 (internal step capped at
+        ``solver_info['max_step']``, default 1e-3) — ~0.52% relative-L2 vs the CVODE
+        reference, in ~0.19s.
+      * AADC ``semi_implicit``: first-order Euler with on-tape diagonal damping — ~35%
+        vs the same reference, in ~3.1s.
 
-    So AADC buys roughly two extra digits of accuracy with its extra time. A defensible
-    benchmark must compare at *matched accuracy* (a work-precision comparison), not at
-    matched configuration; quoting this raw ratio in either direction is misleading. The
-    accuracy of each run is therefore printed next to its time.
+    So on this stiff model CasADi is both ~67x more accurate and ~16x faster, and the
+    ratio below is not a backend-technology result: AADC's remaining stiff-capable method
+    is simply not convergent here (see
+    ``test_3compartment_forward_aadc_semi_implicit_vs_cvode`` for the dt sweep). This
+    previously timed AADC ``method='bdf'``, which was accurate but has been removed — it
+    solved in scipy, off-tape, while do_ad silently taped rk4. The accuracy of each run is
+    printed next to its time so the number is never quoted bare.
     """
     ca_paths = models_3compartment["casadi"]
     aadc_paths = models_3compartment["aadc"]
@@ -584,7 +612,7 @@ def test_3compartment_speed_casadi_vs_aadc_bdf(aadc_licensed, models_3compartmen
 
     sim_aadc = get_simulation_helper(
         model_path=aadc_paths["py"], solver='aadc_semi_implicit', model_type='aadc_python',
-        dt=_DT, sim_time=_SIM_TIME, pre_time=0.0, solver_info={'method': 'bdf'},
+        dt=_DT, sim_time=_SIM_TIME, pre_time=0.0, solver_info={'method': 'semi_implicit'},
     )
     t0 = time.perf_counter()
     sim_aadc.run()  # license check happens here
@@ -647,36 +675,41 @@ def test_3compartment_casadi_post_process_matches_per_timestep_reference(models_
 
 # ---- 5. The fair (iso-accuracy) speed comparison ----
 
-# CasADi step size chosen so its error lands in the same ballpark as AADC's adaptive BDF
-# (~0.003%): fixed-step BDF2 degrades to ~first order on this model because the valve
-# switches are non-smooth, so h has to be ~100x smaller than the output dt to get there.
-#
-# Not h=1e-6: the symbolic graph holds one rootfinder node per *internal* step, so the
-# graph — and its memory — scale with sim_time/h. h=1e-5 over 1s is 1e5 steps (~2.1GB);
-# h=1e-6 would be 1e6 steps (~23GB) and OOMs. 1e-5 already reaches the same order of
-# accuracy as AADC, which is what the comparison needs.
-_ISO_CASADI_MAX_STEP = 1e-5
+# There used to be an _ISO_CASADI_MAX_STEP = 1e-5 here: the CasADi step size chosen so its
+# error landed in the same ballpark as AADC bdf's ~0.003%, since fixed-step BDF2 degrades to
+# ~first order on this model (the valve switches are non-smooth) and needed h ~100x below the
+# output dt to get there. It is gone with AADC bdf itself. AADC semi_implicit sits at ~35%,
+# so matching it would mean coarsening CasADi rather than refining it, and the 1e-5 graph
+# cost ~2.1GB (one rootfinder node per internal step, scaling as sim_time/h) to chase an
+# accuracy no AADC method now reaches.
 
 
-@_AADC_BDF_DISABLED
 @pytest.mark.integration
 @pytest.mark.slow
-def test_3compartment_casadi_vs_aadc_bdf_iso_accuracy(aadc_licensed, models_3compartment):
-    """Compare CasADi and AADC BDF **at matched accuracy** — the only comparison that means
-    anything.
+def test_3compartment_casadi_bdf_vs_aadc_semi_implicit_iso_accuracy(
+        aadc_licensed, models_3compartment):
+    """Compare CasADi bdf and AADC semi_implicit **at matched accuracy** — the only
+    comparison that means anything.
 
-    ``test_3compartment_speed_casadi_vs_aadc_bdf`` times both at the same *configuration*,
-    where CasADi (fixed step, 0.5% error) and AADC (adaptive, 0.003% error) are two orders
-    of magnitude apart in accuracy, so its ratio says nothing about the backends. Here both
-    are pushed to the same error and *then* timed, by shrinking CasADi's internal step until
-    it matches AADC's adaptive result.
+    **This test currently FAILS, deliberately**, on the accuracy-parity assertion. Its
+    original premise is gone. It used to run AADC ``method='bdf'``, which reached ~0.003%
+    on this model, and the interesting question was how far CasADi's fixed step had to
+    shrink to match it (h=1e-5, and CasADi was then slower — a step-control result, not an
+    AD-technology one). That method has been removed: it solved in ``scipy.solve_ivp`` with
+    AADC supplying only the RHS and Jacobian, so the trajectory never reached the tape,
+    while ``do_ad`` silently taped rk4 instead.
 
-    The finding: CasADi needs h=1e-5 (100x below the output dt) to reach AADC's accuracy,
-    and is then substantially *slower*. This is not an AD-technology result — it is a step
-    control result. AADC's BDF is scipy's adaptive, variable-order implicit solver, which
-    concentrates steps at the valve switches; CasADi's is a fixed-step BDF2, which has to
-    pay that resolution over the entire horizon. Closing the gap needs adaptive step control
-    (with discontinuity handling) on the CasADi side, not a faster backend.
+    AADC's remaining stiff-capable method, ``semi_implicit``, lands at ~35% here and gets
+    *worse* under step refinement (see
+    ``test_3compartment_forward_aadc_semi_implicit_vs_cvode``), so there is no iso-accuracy
+    point to find: reaching parity would mean making CasADi ~70x *coarser*, not finer, and
+    comparing two wrong answers. CasADi therefore runs at its default bdf configuration
+    (~0.52%, ~0.19s) rather than the old h=1e-5 tuning, which cost ~2.1GB of symbolic graph
+    to chase an accuracy AADC no longer reaches.
+
+    Left failing rather than relaxed or deleted so the regression stays visible: AADC has no
+    usable stiff path on 3compartment. Note CI does not catch this — AADC is licence-gated
+    and ``aadc_licensed`` skips the test in an unlicensed environment.
     """
     ca_paths = models_3compartment["casadi"]
     aadc_paths = models_3compartment["aadc"]
@@ -685,7 +718,7 @@ def test_3compartment_casadi_vs_aadc_bdf_iso_accuracy(aadc_licensed, models_3com
     sim_ca = get_simulation_helper(
         model_path=ca_paths["py"], solver='casadi_integrator', model_type='casadi_python',
         dt=_DT, sim_time=_SIM_TIME, pre_time=0.0,
-        solver_info={'method': 'bdf', 'max_step': _ISO_CASADI_MAX_STEP},
+        solver_info={'method': 'bdf'},
     )
     t0 = time.perf_counter()
     sim_ca.run()
@@ -694,29 +727,34 @@ def test_3compartment_casadi_vs_aadc_bdf_iso_accuracy(aadc_licensed, models_3com
 
     sim_aadc = get_simulation_helper(
         model_path=aadc_paths["py"], solver='aadc_semi_implicit', model_type='aadc_python',
-        dt=_DT, sim_time=_SIM_TIME, pre_time=0.0, solver_info={'method': 'bdf'},
+        dt=_DT, sim_time=_SIM_TIME, pre_time=0.0, solver_info={'method': 'semi_implicit'},
     )
     t0 = time.perf_counter()
     sim_aadc.run()
     t_aadc = time.perf_counter() - t0
     err_aadc, _, _ = _max_state_rel_l2_vs_cvode(ref, sim_aadc)
 
-    print(f"\n  iso-accuracy BDF comparison (3compartment, {_SIM_TIME}s @ dt={_DT}):")
-    print(f"    CasADi (fixed h={_ISO_CASADI_MAX_STEP:g}) : {t_casadi:7.2f}s  at {err_casadi:.5f}% rel-L2")
-    print(f"    AADC   (adaptive)        : {t_aadc:7.2f}s  at {err_aadc:.5f}% rel-L2")
-    print(f"    -> AADC is {t_casadi / t_aadc:.1f}x faster at comparable accuracy")
+    print(f"\n  iso-accuracy comparison (3compartment, {_SIM_TIME}s @ dt={_DT}):")
+    print(f"    CasADi bdf (fixed step)     : {t_casadi:7.2f}s  at {err_casadi:.5f}% rel-L2")
+    print(f"    AADC semi_implicit          : {t_aadc:7.2f}s  at {err_aadc:.5f}% rel-L2")
+    print(f"    -> CasADi is {t_aadc / t_casadi:.1f}x faster AND "
+          f"{err_aadc / max(err_casadi, 1e-12):.0f}x more accurate")
 
     assert np.all(np.isfinite(sim_ca.state_traj_dm[:, -1])), "CasADi produced non-finite states"
     assert np.all(np.isfinite(sim_aadc.state_traj[:, -1])), "AADC produced non-finite states"
 
     # The whole point is that the two are at comparable accuracy — if they drift apart the
-    # timing below stops being a like-for-like comparison and the test should say so rather
+    # timing above stops being a like-for-like comparison and the test should say so rather
     # than silently report a meaningless ratio.
-    assert err_casadi < 0.02, (
-        f"CasADi at h={_ISO_CASADI_MAX_STEP:g} gave {err_casadi:.5f}% error; expected it to "
-        f"reach AADC's ~0.003% ballpark. Retune _ISO_CASADI_MAX_STEP."
+    assert err_casadi < 1.0, (
+        f"CasADi bdf gave {err_casadi:.5f}% error, expected ~0.52% at its default step"
     )
-    assert err_aadc < 0.02, f"AADC BDF gave {err_aadc:.5f}% error, expected ~0.003%"
+    assert err_aadc < 1.0, (
+        f"AADC semi_implicit gave {err_aadc:.5f}% error, expected ~0.52% to be comparable "
+        f"with CasADi. Expected to fail at ~35%: semi_implicit is not convergent on this "
+        f"stiff model, so there is no iso-accuracy point. Kept strict so the gap stays "
+        f"visible rather than being relaxed away."
+    )
     ratio = max(err_casadi, err_aadc) / max(min(err_casadi, err_aadc), 1e-12)
     assert ratio < 10.0, (
         f"errors are not comparable (CasADi {err_casadi:.5f}% vs AADC {err_aadc:.5f}%, "

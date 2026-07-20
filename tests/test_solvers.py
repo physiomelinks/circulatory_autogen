@@ -1439,9 +1439,9 @@ def test_all_solvers(model_name, input_param_file, sim_time, include_casadi, tem
 
 @pytest.mark.integration
 @pytest.mark.slow
-def test_aadc_vs_cvode_3compartment(aadc_licensed, temp_model_dir,
-                                    generated_cellml_model_factory):
-    """The stiff 3compartment model integrated with the AADC ``bdf`` solver should track
+def test_aadc_semi_implicit_vs_cvode_3compartment(aadc_licensed, temp_model_dir,
+                                                  generated_cellml_model_factory):
+    """The stiff 3compartment model integrated with AADC ``semi_implicit`` should track
     the CVODE_myokit reference trajectory.
 
     Why this test: the PR's own AADC stiff test only asserts the 3compartment run
@@ -1449,17 +1449,27 @@ def test_aadc_vs_cvode_3compartment(aadc_licensed, temp_model_dir,
     integrated ODE states against CVODE_myokit, which is what "same outputs with
     CVODE and with AADC" requires.
 
-    This deliberately exercises ``method='bdf'`` (scipy's implicit BDF with an exact dense
-    Jacobian supplied by AADC) and not ``method='semi_implicit'``. Semi-implicit Euler is
-    first-order with numerical diagonal damping (``y += dt*f/(1+dt*lam)``); that damping
-    suppresses the stiff states, which in this cardiovascular model carry physiologically
-    important fast dynamics, so it deviates from CVODE by ~35% relative-L2 and cannot meet
-    a meaningful tolerance. ``bdf`` is the accurate stiff path and tracks CVODE closely.
+    **This test currently FAILS, deliberately.** It used to run ``method='bdf'``, which
+    tracked CVODE closely, and its docstring noted that ``semi_implicit`` could not meet a
+    meaningful tolerance (~35% relative-L2). That is still true, but bdf has been removed:
+    it handed the solve to ``scipy.solve_ivp`` with AADC supplying only the RHS and
+    Jacobian, so the trajectory never reached the tape, and the AD tape had no bdf branch —
+    ``do_ad`` silently recorded rk4 instead, making the cost and the gradient different
+    functions. Semi-implicit Euler is first-order with numerical diagonal damping
+    (``y += dt*f/(1+dt*lam)``); that damping suppresses the stiff states, which in this
+    cardiovascular model carry physiologically important fast dynamics.
+
+    Refining dt does not rescue it — the error *grows* (35% at 1e-3, 280% at 1e-4), because
+    as dt shrinks the damping factor tends to 1 and the scheme degenerates into explicit
+    forward Euler on a system with ``max|Re(eig(J))|*dt ~ 4.5e10``. AADC therefore has no
+    accurate stiff forward path on this model, and the assertion is left strict so that
+    stays visible. Note CI does not catch this: AADC is licence-gated and ``aadc_licensed``
+    skips the test in an unlicensed environment.
     """
     cellml_path = generated_cellml_model_factory("3compartment", "3compartment_parameters.csv")
     results, _, helpers = _run_all_solvers_and_compare(
         "3compartment", cellml_path, temp_model_dir, dt=0.001, sim_time=1.0,
-        tolerance=5.0, include_aadc=True, aadc_method="bdf",
+        tolerance=5.0, include_aadc=True, aadc_method="semi_implicit",
     )
 
     aadc_result = results.get("aadc_semi_implicit", {})
@@ -1481,8 +1491,9 @@ def test_aadc_vs_cvode_3compartment(aadc_licensed, temp_model_dir,
     assert compared > 0, "No ODE states were matched between CVODE and AADC"
     tol_pct = 1.0
     assert max_pct < tol_pct, (
-        f"AADC bdf deviates from CVODE by {max_pct:.3f}% (> {tol_pct}%) "
-        f"on state {worst_var}"
+        f"AADC semi_implicit deviates from CVODE by {max_pct:.3f}% (> {tol_pct}%) "
+        f"on state {worst_var}. Expected to fail at ~35%: semi_implicit is not convergent "
+        f"on this stiff model (see docstring). Kept strict so the limitation stays visible."
     )
 
 

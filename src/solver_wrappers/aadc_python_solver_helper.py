@@ -326,70 +326,6 @@ class SimulationHelper:
 
         return st
 
-    def _integrate_bdf(self, states, variables_all, total_steps, dt):
-        """BDF (implicit, adaptive) via scipy + AADC Jacobian.
-
-        Uses VectorFunctionWithJacobian from the inner RHS kernel to provide
-        exact dense Jacobian to scipy's BDF solver. Accurate for stiff models.
-
-        Returns state trajectory as list of state arrays (post pre-time).
-        """
-        import math as _math
-        from scipy.integrate import solve_ivp
-
-        n = self.STATE_COUNT
-        x0 = np.array(states[:n], dtype=float)
-        T = total_steps * dt
-
-        # Record inner RHS kernel for VectorFunctionWithJacobian
-        if not hasattr(self, '_bdf_vfj') or self._bdf_vfj is None:
-            rhs_f = aadc.Functions()
-            rhs_f.start_recording()
-            id_si = [aadc.idouble(float(x0[i])) for i in range(n)]
-            a_si = [s.mark_as_input() for s in id_si]
-            id_vi = [aadc.idouble(float(v) if not (isinstance(v, float) and _math.isnan(v)) else 0.0)
-                     for v in variables_all]
-            # Mark AD params as inputs on inner kernel too
-            a_params_inner = []
-            if hasattr(self, '_ad_param_var_indices'):
-                for idx in self._ad_param_var_indices:
-                    id_vi[idx] = aadc.idouble(float(variables_all[idx]))
-                    a_params_inner.append(id_vi[idx].mark_as_input())
-            id_ri = [aadc.idouble(0.0) for _ in range(n)]
-            self.model.compute_rates(0.0, id_si, id_ri, list(id_vi))
-            r_ri = []
-            for i in range(n):
-                r = id_ri[i] if hasattr(id_ri[i], 'mark_as_output') else aadc.idouble(float(id_ri[i]))
-                r_ri.append(r.mark_as_output())
-            rhs_f.stop_recording()
-            self._bdf_vfj = aadc.VectorFunctionWithJacobian(rhs_f, a_si, a_params_inner, r_ri)
-            self._bdf_rhs_funcs = rhs_f
-
-        # Set current parameter values
-        if hasattr(self, '_ad_param_var_indices') and self._ad_param_var_indices:
-            param_vals = np.array([float(variables_all[idx]) for idx in self._ad_param_var_indices])
-            self._bdf_vfj.set_params(param_vals)
-
-        # Solve with scipy BDF
-        vfj = self._bdf_vfj
-        sol = solve_ivp(
-            lambda t, y: vfj.func(y),
-            (0, T), x0,
-            method='BDF',
-            jac=lambda t, y: vfj.jac(y).reshape(n, n),
-            rtol=float(self.solver_info.get('tol', 1e-6)),
-            atol=float(self.solver_info.get('tol', 1e-6)) * 1e-3,
-            max_step=dt,
-            t_eval=np.linspace(0, T, total_steps + 1),
-        )
-
-        if sol.status != 0:
-            import warnings
-            warnings.warn(f"BDF solver: {sol.message}")
-
-        # Convert to trajectory list, drop pre-time
-        traj = [sol.y[:, i].copy() for i in range(sol.y.shape[1])]
-        return traj[self.pre_steps:]
 
     def _integrate_semi_implicit(self, states, variables_all, total_steps, dt):
         """Semi-implicit Euler with numerical diagonal damping.
@@ -701,31 +637,28 @@ class SimulationHelper:
         method = self.solver_info.get('method', 'adaptive_rk45')
         if method == 'implicit_euler_ift':
             traj = self._integrate_implicit_euler_ift(self.states, variables_all, total_steps, self.dt)
-        elif method == 'bdf':
-            # _record_rhs_aad tapes the RHS once with compute_rates(0.0, ...) and _integrate_bdf
-            # then drives it as `lambda t, y: vfj.func(y)`, discarding t. For a non-autonomous
-            # model -- a cardiac elastance driver, or any protocol_traces input -- that
-            # integrates the t=0 right-hand side for the whole simulation and returns a smooth,
-            # plausible, wrong trajectory with solve_ivp reporting success. Non-AD variables are
-            # also frozen at their first-call values, so params_to_change has no effect after
-            # the first run. Refuse rather than return a confident wrong answer.
-            raise NotImplementedError(
-                "AADC solver_info method 'bdf' is not usable: its RHS kernel is recorded once "
-                "at t=0 and the integrator discards t, so any model whose rates depend on time "
-                "(a cardiac driver, a protocol trace) is integrated with its t=0 right-hand "
-                "side for the entire run -- silently, since solve_ivp still converges. "
-                "Non-AD variables are likewise frozen at first-call values, so params_to_change "
-                "stops taking effect. Use method 'semi_implicit' or 'rk4' for AADC, or "
-                "model_type 'casadi_python' (solver_info method 'bdf') for a symbolic BDF that "
-                "handles time-dependent models correctly. Tracked in issue #268.")
         elif method == 'semi_implicit':
             traj = self._integrate_semi_implicit(self.states, variables_all, total_steps, self.dt)
         elif method == 'rk4':
             # fixed-step, and identical to what the tape records -- the method to use when the
             # cost and the AD gradient have to be of the same function
             traj = self._integrate_rk4(self.states, variables_all, total_steps, self.dt)
-        else:
+        elif method == 'adaptive_rk45':
             traj = self._integrate(self.states, variables_all, total_steps, self.dt)
+        else:
+            # Previously an unrecognised method fell through to adaptive_rk45 silently. That
+            # matters now that 'bdf' has been removed: a config still carrying it would have
+            # been integrated with an explicit RK45 -- the worst possible choice for the stiff
+            # models bdf was being used for -- with no indication anything had changed.
+            raise ValueError(
+                f"Unknown AADC solver_info method {method!r}. Valid methods are "
+                "'adaptive_rk45', 'semi_implicit', 'implicit_euler_ift', 'rk4'. "
+                + ("Method 'bdf' was removed: it ran the solve in scipy with AADC supplying "
+                   "only the RHS and Jacobian, so the trajectory never reached the tape, and "
+                   "do_ad silently taped rk4 instead -- the cost and the gradient were "
+                   "different functions. Use 'semi_implicit' for stiff models, or model_type "
+                   "'casadi_python' with method 'bdf' for a differentiable symbolic BDF."
+                   if method == 'bdf' else ""))
         self.state_traj = np.array(traj).T  # (n_states, n_sim_steps)
 
         # Compute algebraic variables at each time point

@@ -148,7 +148,7 @@ this project.
       before installing or using it.
     - **Its gradients are licence-gated at runtime.** Forward simulation may run with a bare
       `pip install aadc`, but anything that records a tape — the automatic-differentiation
-      gradients, and the Jacobian-backed `bdf` solver — raises
+      gradients, and the on-tape damping in `semi_implicit` — raises
       `RuntimeError: AADC License check failed` without a valid licence.
     - **Use CasADi if you want a fully open-source pipeline.** CasADi (LGPL) is the
       **default and supported** AD backend and requires no proprietary licence — see
@@ -175,16 +175,29 @@ solver_info:
   method: adaptive_rk45   # non-stiff forward solve; see the gradient caveat below
 ```
 
-Available `solver_info.method` values for the AADC adapter are `adaptive_rk45` and `bdf`
-(both **adaptive**, so accurate for a *forward* solve but **untapeable** — their step
-sequence depends on the parameters, so they cannot produce an AD gradient), and the
-**fixed-step** `implicit_euler_ift`, `semi_implicit`, and `rk4` (the only methods that can be
-recorded on a tape for an AD gradient).
+Available `solver_info.method` values for the AADC adapter are `adaptive_rk45` (**adaptive**,
+so accurate for a *forward* solve but **untapeable** — its step sequence depends on the
+parameters, so it cannot produce an AD gradient), and the **fixed-step** `implicit_euler_ift`,
+`semi_implicit`, and `rk4` (the only methods that can be recorded on a tape for an AD
+gradient).
+
+!!! note "`method: bdf` was removed from the AADC adapter"
+    AADC previously offered a `bdf` method. It ran the solve inside `scipy.solve_ivp` with AADC
+    supplying only the RHS and its Jacobian, so the trajectory never reached the tape — and the
+    AD tape had no `bdf` branch, so `do_ad: true` silently recorded `rk4` instead, making the
+    cost and the gradient different functions. Its RHS kernel was also taped once at `t=0` with
+    the integrator discarding `t`, so a time-dependent model would have been integrated with
+    its `t=0` right-hand side throughout. Setting `method: bdf` on an `aadc_python` model now
+    raises. Use `semi_implicit` for stiff models — subject to the accuracy warning below — or
+    `model_type: casadi_python` with `method: bdf` for a differentiable symbolic BDF.
 
 !!! warning "AADC gradients do not work on stiff models"
     Only the fixed-step methods can be taped, and fixed-step schemes are inaccurate or unstable
     on **stiff** models: on the 3compartment cardiovascular model `semi_implicit` deviates from
-    the CVODE reference by ~35% and `implicit_euler_ift` by orders of magnitude. The AADC
+    the CVODE reference by ~35% and `implicit_euler_ift` by orders of magnitude. Reducing `dt`
+    does not help — `semi_implicit` *diverges* under step refinement (~35% at `dt=1e-3` rising
+    to ~280% at `dt=1e-4`), because its damping factor `1/(1+dt*lam)` tends to 1 as `dt` shrinks
+    and the scheme degenerates into explicit forward Euler on a very stiff system. The AADC
     backend probes the first second of dynamics and warns loudly when it detects a stiff model.
     **For gradient-based calibration of a stiff model, use CasADi `bdf` or Myokit CVODES forward
     sensitivity instead** — see [Parameter Identification](parameter-identification.md). AADC's

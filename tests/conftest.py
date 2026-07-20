@@ -49,8 +49,8 @@ def _validate_aadc_license():
 
 
 # Whether AADC is installed *and* licensed. AADC's forward solves run unlicensed, but
-# anything that records a tape (gradients, and the Jacobian-based 'bdf' solve) does not,
-# so licence-gated tests skip rather than fail. See the `aadc_licensed` fixture.
+# anything that records a tape (the gradients) does not, so licence-gated tests skip
+# rather than fail. See the `aadc_licensed` fixture.
 AADC_LICENSE_AVAILABLE = _validate_aadc_license()
 
 import yaml
@@ -558,8 +558,8 @@ def aadc_licensed():
     """Skip a test unless AADC is installed *and* licensed.
 
     AADC's forward solves run with a bare ``pip install aadc``, but anything that
-    records a tape — the gradients, and the Jacobian-backed ``method='bdf'`` solve —
-    needs a Matlogica licence and otherwise raises ``RuntimeError: AADC License check
+    records a tape — the gradients, and the on-tape damping in ``method='semi_implicit'``
+    — needs a Matlogica licence and otherwise raises ``RuntimeError: AADC License check
     failed``. Those tests skip rather than fail so an unlicensed environment (including
     CI) stays green.
     """
@@ -568,7 +568,7 @@ def aadc_licensed():
         pytest.skip(
             "AADC is installed but not licensed: recording a tape raises 'AADC License "
             "check failed'. A Matlogica licence is needed to exercise the AADC gradient "
-            "and 'bdf' paths."
+            "and tape-recording solve paths."
         )
 
 

@@ -67,7 +67,12 @@ SOLVER_SCHEMA = {
         'casadi_integrator': ['cvodes', 'idas', 'collocation', 'rk', 'semi_implicit_euler', 'bdf'],
         # 'rk4' is fixed-step and is what the AADC tape records, so it is the method for which
         # the forward cost and the tape gradient are of the same function (see do_ad).
-        'aadc_semi_implicit': ['adaptive_rk45', 'semi_implicit', 'bdf', 'implicit_euler_ift', 'rk4'],
+        # There is deliberately no 'bdf' here: that method handed the solve to scipy's
+        # solve_ivp with AADC supplying only the RHS and Jacobian, so the trajectory never
+        # reached the tape. The AD tape has no bdf branch either, so do_ad silently recorded
+        # rk4 instead -- cost and gradient were different functions. Use 'semi_implicit' for
+        # stiff models, or model_type 'casadi_python' for a differentiable symbolic BDF.
+        'aadc_semi_implicit': ['adaptive_rk45', 'semi_implicit', 'implicit_euler_ift', 'rk4'],
     },
     # Default solver for each model_type (used when none is specified).
     'default_solver_by_model_type': {
@@ -780,8 +785,10 @@ class YamlFileParser(object):
                 exit()
 
         # CasADi solvers can only be used with CasADi Python models.
-        # 'bdf' is shared with the AADC backend's method list, so exempt aadc_python
-        # here (its methods are governed by methods_by_solver['aadc_semi_implicit']).
+        # aadc_python is exempted here so that a stale config carrying the removed AADC
+        # method 'bdf' falls through to validate_solver_info below, which names the methods
+        # aadc_semi_implicit actually accepts, rather than being rejected with a misleading
+        # "requires model_type casadi_python" message.
         if solver_method in valid_casadi_solver_plugins:
             if inp_data_dict.get('model_type') not in ['casadi_python', 'aadc_python', None]:
                 print(f'CasADi solver {solver_method} requires model_type to be "casadi_python"')
