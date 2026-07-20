@@ -1917,6 +1917,7 @@ def test_3compartment_casadi_bdf_longrun_gradient_and_cache(
 def _build_3compartment_fsa_runner(
     base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir,
     pre_time=20.0, sim_time=2.0, obs_file='3compartment_obs_data.json',
+    params_for_id=None,
 ):
     """Generate the (stiff) 3compartment cellml_only model, run through Myokit, and build a
     CVS0DParamID configured for the CVODES forward-sensitivity (FSA) gradient path.
@@ -1963,16 +1964,17 @@ def _build_3compartment_fsa_runner(
         obs_data = json.load(f)
     runner.set_ground_truth_data(obs_data)
 
-    params_for_id = [
-        {'vessel_name': 'global',      'param_name': 'q_lv_init', 'param_type': 'const', 'min': 200e-6, 'max': 1500e-6},
-        {'vessel_name': 'aortic_root', 'param_name': 'C',         'param_type': 'const', 'min': 1e-9,   'max': 5e-8},
-        {'vessel_name': 'global',      'param_name': 'E_lv_A',    'param_type': 'const', 'min': 1e8,    'max': 5e8},
-        {'vessel_name': 'global',      'param_name': 'E_lv_B',    'param_type': 'const', 'min': 1e6,    'max': 5e7},
-    ]
+    if params_for_id is None:
+        params_for_id = [
+            {'vessel_name': 'global',      'param_name': 'q_lv_init', 'param_type': 'const', 'min': 200e-6, 'max': 1500e-6},
+            {'vessel_name': 'aortic_root', 'param_name': 'C',         'param_type': 'const', 'min': 1e-9,   'max': 5e-8},
+            {'vessel_name': 'global',      'param_name': 'E_lv_A',    'param_type': 'const', 'min': 1e8,    'max': 5e8},
+            {'vessel_name': 'global',      'param_name': 'E_lv_B',    'param_type': 'const', 'min': 1e6,    'max': 5e7},
+        ]
     runner.set_params_for_id(params_for_id)
     baseline_vals = runner.param_id.sim_helper.get_init_param_vals(
         runner.param_id.param_id_info['param_names'])
-    assert baseline_vals is not None and len(baseline_vals) == 4
+    assert baseline_vals is not None and len(baseline_vals) == len(params_for_id)
     return runner, baseline_vals
 
 
@@ -1985,11 +1987,13 @@ def test_3compartment_fsa_longrun_gradient(
     (nonzero pre_time) run matches central finite differences of the same cost.
 
     This is the gradient path for cellml_only / CVODE_myokit models. FSA gives d(operand)/dp
-    for constant parameters; q_lv_init sets a state initial value so it is FSA-ineligible and
-    falls back to finite differences (verified below). The gradient is checked at an arbitrary
-    interior point (not the optimum, so cost != 0), which is all a correct descent direction
-    needs. The reference FD uses a rel~1e-3 step: a convergence study showed rel 1e-4 sits in
-    the integrator noise floor for this stiff oscillatory model.
+    for constant parameters; q_lv_init sets a state initial value, so Myokit cannot make it a
+    CVODES independent directly. It is handled analytically by the initial-value chain rule
+    (issue #270) -- d(obs)/d(q_lv_init) = d(obs)/d(init q_lv) * d(init q_lv)/d(q_lv_init) -- not
+    the finite-difference fallback, so it must be FSA-eligible (verified below). The gradient is
+    checked at an arbitrary interior point (not the optimum, so cost != 0), which is all a
+    correct descent direction needs. The reference FD uses a rel~1e-3 step: a convergence study
+    showed rel 1e-4 sits in the integrator noise floor for this stiff oscillatory model.
     """
     runner, _ = _build_3compartment_fsa_runner(
         base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir,
@@ -2006,9 +2010,15 @@ def test_3compartment_fsa_longrun_gradient(
     assert np.all(np.isfinite(gradient))
     assert not np.all(gradient == 0)
 
-    # q_lv_init feeds a state initial-value expression -> FSA-ineligible -> FD fallback.
-    assert inner._fsa_ineligible_names == ['global/q_lv_init'], inner._fsa_ineligible_names
-    # its gradient column is still populated (via the finite-difference fallback).
+    # q_lv_init feeds a state initial-value expression and nothing else, so it is handled by
+    # the chain rule (issue #270), not the FD fallback: no parameter is FSA-ineligible.
+    assert inner._fsa_ineligible_names == [], inner._fsa_ineligible_names
+    # It is routed through init(heart_module.q_lv) with an analytic d(init q_lv)/d(q_lv_init).
+    assert 'global/q_lv_init' in inner.sim_helper._fsa_chain_rule_map
+    targets = inner.sim_helper._fsa_chain_rule_map['global/q_lv_init']
+    assert [sq for sq, _ in targets] == ['heart_module.q_lv'], targets
+    assert targets[0][1] == pytest.approx(1.0)  # init q_lv = q_lv_init, so the factor is 1
+    # its gradient column is populated (via the chain rule, not FD).
     assert abs(gradient[0]) > 1e-6
 
     fd = np.zeros(4)
@@ -2020,6 +2030,59 @@ def test_3compartment_fsa_longrun_gradient(
         fd[i] = (float(inner.get_cost(p_plus)) - float(inner.get_cost(p_minus))) / (2 * dp)
 
     for i, label in enumerate(["q_lv_init", "C_aortic", "E_lv_A", "E_lv_B"]):
+        if abs(fd[i]) > 1e-6:
+            assert gradient[i] == pytest.approx(fd[i], rel=0.10), (
+                f"FSA gradient[{i}] ({label}) = {gradient[i]:.6e} != FD {fd[i]:.6e} "
+                f"(AD/FD={gradient[i]/fd[i]:.4f})")
+
+    runner.close_simulation()
+
+
+@pytest.mark.slow
+@pytest.mark.need_opencor
+def test_3compartment_fsa_multiple_init_params_chain_rule(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir):
+    """Two parameters feeding *different* state initial values are both handled by the chain
+    rule (issue #270) in the same run, and the gradient still matches finite differences.
+
+    q_lv_init -> init(heart_module.q_lv) and q_rv_init -> init(heart_module.q_rv) each add their
+    own init(state) sensitivity independent; neither is FSA-ineligible. This exercises the
+    multi-chain-param path (two distinct init(state) columns) that the single-param longrun test
+    does not, alongside one ordinary FSA-eligible constant.
+    """
+    params_for_id = [
+        {'vessel_name': 'global',      'param_name': 'q_lv_init', 'param_type': 'const', 'min': 200e-6, 'max': 1500e-6},
+        {'vessel_name': 'global',      'param_name': 'q_rv_init', 'param_type': 'const', 'min': 200e-6, 'max': 1500e-6},
+        {'vessel_name': 'aortic_root', 'param_name': 'C',         'param_type': 'const', 'min': 1e-9,   'max': 5e-8},
+    ]
+    runner, _ = _build_3compartment_fsa_runner(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir,
+        pre_time=20.0, sim_time=2.0, params_for_id=params_for_id)
+    inner = runner.param_id
+
+    mins = np.asarray(inner.param_id_info['param_mins'], dtype=float)
+    maxs = np.asarray(inner.param_id_info['param_maxs'], dtype=float)
+    p = mins + 0.4 * (maxs - mins)
+
+    gradient = np.asarray(inner.get_gradient(p), dtype=float).ravel()
+    assert gradient.shape == (3,)
+    assert np.all(np.isfinite(gradient))
+
+    # Both init params are chain-ruled (nothing falls back to FD); each maps to its own state.
+    assert inner._fsa_ineligible_names == [], inner._fsa_ineligible_names
+    chain = inner.sim_helper._fsa_chain_rule_map
+    assert [sq for sq, _ in chain['global/q_lv_init']] == ['heart_module.q_lv']
+    assert [sq for sq, _ in chain['global/q_rv_init']] == ['heart_module.q_rv']
+
+    fd = np.zeros(3)
+    for i in range(3):
+        dp = max(abs(p[i]) * 1e-3, 1e-14)
+        p_plus, p_minus = p.copy(), p.copy()
+        p_plus[i] += dp
+        p_minus[i] -= dp
+        fd[i] = (float(inner.get_cost(p_plus)) - float(inner.get_cost(p_minus))) / (2 * dp)
+
+    for i, label in enumerate(["q_lv_init", "q_rv_init", "C_aortic"]):
         if abs(fd[i]) > 1e-6:
             assert gradient[i] == pytest.approx(fd[i], rel=0.10), (
                 f"FSA gradient[{i}] ({label}) = {gradient[i]:.6e} != FD {fd[i]:.6e} "
