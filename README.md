@@ -27,11 +27,4 @@ for certain third-party products plug them in. Those products are **not part of
 circulatory_autogen**, are **not bundled or installed with it**, are **not covered by the
 Apache-2.0 licence above**, and are **not required by any feature**.
 
-- **AADC (Matlogica)** — proprietary, academic/non-commercial use only, and **not open
-  source**. It is an *optional* alternative automatic-differentiation backend
-  (`model_type: aadc_python`). You must obtain a licence directly from Matlogica and accept
-  their terms; the circulatory_autogen maintainers neither supply nor support AADC licences.
-  **The default, supported, fully open-source AD backend is CasADi** (`model_type:
-  casadi_python`) — you never need AADC. See
-  [Optional third-party backends](https://physiomelinks.github.io/circulatory_autogen/getting-started/)
-  in the tutorial.
+- See [Optional third-party backends](https://physiomelinks.github.io/circulatory_autogen/getting-started/) in the tutorial for more info.
