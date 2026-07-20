@@ -29,6 +29,11 @@ try:
 except ImportError:
     aadc = None
 
+# Shared FD step for Jacobian diagonal (damping). Used by both the forward
+# solve (_integrate_semi_implicit) and the tape (compute_cost_and_gradient_tape).
+# Must be identical in both paths so they integrate the same discrete system.
+_DAMPING_FD_EPS = 1e-8
+
 # Reuse the shared name resolver from circulatory_autogen
 try:
     from .name_resolver import VariableNameResolver
@@ -349,7 +354,7 @@ class SimulationHelper:
         n = self.STATE_COUNT
         x = np.array(states[:n], dtype=float)
         vars_all = list(variables_all)
-        eps_fd = 1e-8
+        eps_fd = _DAMPING_FD_EPS
 
         # Identify zeta indices (valve states to clamp to [0,1])
         zeta_indices = [i for i, info in enumerate(self.model.STATE_INFO)
@@ -1023,22 +1028,30 @@ class SimulationHelper:
                 # This puts lam on the same tape as rates → exact AD gradient.
                 # (Previous version used a separate inner kernel → passive
                 # floats → AD/FD ≈ 0.79 on stiff models.)
-                FD_EPS = 1e-6
+                # Same FD step as forward solve (_integrate_semi_implicit):
+                #   h_i = max(|x_i| * eps, eps)
+                # Using the shared _DAMPING_FD_EPS constant.
+                _eps = aadc.idouble(_DAMPING_FD_EPS)
 
-                self._tape_trajectory = [list(st)]
+                self._tape_trajectory = []
                 for step in range(total_steps):
                     t_step = step * dt
+                    # Collect trajectory BEFORE the step (matches forward solve)
+                    if step >= self.pre_steps:
+                        self._tape_trajectory.append(list(st))
+
                     # Rates at current state (on tape)
                     rates_id = [aadc.idouble(0.0) for _ in range(n)]
                     self.model.compute_rates(t_step, st, rates_id, list(vars_rec))
 
                     # Jacobian diagonal via on-tape FD: lam[i] = |df_i/dy_i|
+                    # Formula identical to forward: h = max(|x|*eps, eps)
                     lam = [aadc.idouble(0.0)] * n
                     for i in range(n):
-                        h_i = aadc.iif(st[i] >= aadc.idouble(0.0), st[i], -st[i])
-                        h_i = aadc.iif(h_i >= aadc.idouble(1e-8),
-                                       h_i * aadc.idouble(FD_EPS),
-                                       aadc.idouble(FD_EPS))
+                        abs_st = aadc.iif(st[i] >= aadc.idouble(0.0), st[i], -st[i])
+                        h_i = aadc.iif(abs_st * _eps >= _eps,
+                                       abs_st * _eps,
+                                       _eps)
                         st_bump = list(st)
                         st_bump[i] = st[i] + h_i
                         rates_bump = [aadc.idouble(0.0) for _ in range(n)]
@@ -1053,8 +1066,8 @@ class SimulationHelper:
                         st[z] = aadc.iif(st[z] >= aadc.idouble(0.0), st[z], aadc.idouble(0.0))
                         st[z] = aadc.iif(st[z] <= aadc.idouble(1.0), st[z], aadc.idouble(1.0))
 
-                    if step >= self.pre_steps:
-                        self._tape_trajectory.append(list(st))
+                # Append final state (matches forward: traj includes endpoint)
+                self._tape_trajectory.append(list(st))
             else:
                 # RK4 on tape (for non-stiff models)
                 # Collect trajectory for trajectory-based cost functions (max, min, mean)
