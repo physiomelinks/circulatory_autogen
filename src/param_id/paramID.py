@@ -2,7 +2,6 @@
 @author: Finbar J. Argus
 '''
 
-import hashlib
 import numpy as np
 import os
 import sys
@@ -67,6 +66,7 @@ from param_id.differentiable import (
     is_circulatory_differentiable,
 )
 from param_id.plot_outputs import ParamIDPlotOutputs
+from param_id import casadi_backend
 import pandas as pd
 try:
     import casadi as ca
@@ -126,58 +126,17 @@ def ensure_mle_cost_type_for_bayesian_inner(inner, inp_data_dict):
     inner.cost_type = inner.obs_info["cost_type"]
 
 
-def _require_casadi():
-    if ca is None:
-        raise ImportError(
-            "CasADi is required for symbolic or casadi_python workflows but is not installed. "
-            "Install the casadi package (for example: pip install casadi)."
-        )
-
-
 # AADC solver methods whose forward integration the tape can record step-for-step. An adaptive
 # integrator picks its step sizes from the state, so the sequence of operations changes with the
 # parameters and cannot be replayed from a tape.
 TAPE_CONSISTENT_AADC_METHODS = ('rk4', 'implicit_euler_ift', 'semi_implicit')
 
-
-def _as_casadi_column(x):
-    """Column vector, for either a numeric array or a casadi symbolic."""
-    _require_casadi()
-    if isinstance(x, (np.ndarray, list, tuple)):
-        return ca.DM(np.asarray(x, dtype=float).reshape(-1, 1))
-    return ca.reshape(x, x.numel(), 1)
-
-
-def _content_hash(obj):
-    """Stable content digest of nested lists/dicts/arrays, for cache keys.
-
-    Not repr(): numpy truncates the repr of an array past ~1000 elements
-    ('array([0, 1, 2, ..., 9997, 9998, 9999])'), so two different long observation series --
-    exactly the thing this is used to distinguish -- can share a repr. Hash the raw bytes
-    instead, tagging dtype and shape so arrays that differ only in those still separate.
-    """
-    digest = hashlib.blake2b(digest_size=16)
-
-    def update(value):
-        if isinstance(value, np.ndarray):
-            digest.update(b'\x01' + str(value.dtype).encode() + str(value.shape).encode())
-            digest.update(np.ascontiguousarray(value).tobytes())
-        elif isinstance(value, (list, tuple)):
-            digest.update(b'\x02')
-            for item in value:
-                update(item)
-            digest.update(b'\x03')
-        elif isinstance(value, dict):
-            digest.update(b'\x04')
-            for key in sorted(value, key=repr):
-                update(key)
-                update(value[key])
-            digest.update(b'\x05')
-        else:
-            digest.update(b'\x06' + repr(value).encode())
-
-    update(obj)
-    return digest.hexdigest()
+# The CasADi symbolic cost/gradient/observable machinery lives in param_id.casadi_backend; the
+# methods below delegate to it. require_casadi/as_casadi_column are re-bound to their previous
+# private names because the *generic* cost-assembly layer that stays here (cost_calc,
+# get_obs_output_dict) still builds SX expressions directly and calls them.
+_require_casadi = casadi_backend.require_casadi
+_as_casadi_column = casadi_backend.as_casadi_column
 
 
 class CVS0DParamID():
@@ -2229,113 +2188,26 @@ class OpencorParamID():
             preds_const_vec[JJ + 2] = np.mean(preds[JJ, :])
         return preds_const_vec
     
+    # ---- CasADi symbolic backend (param_id/casadi_backend.py) ----
+
     def _casadi_functions_cache_key(self, param_names, get_all_series):
-        """Signature of everything the CasADi symbolic graph is built from, so that the graph can
-        be built once and re-evaluated at new parameter values.
+        """Signature of everything the CasADi graph is built from. See
+        param_id.casadi_backend.functions_cache_key."""
+        return casadi_backend.functions_cache_key(self, param_names, get_all_series)
 
-        The free parameters enter the graph symbolically, so the key deliberately does NOT
-        include their numeric values. Everything else does, because get_cost_and_obs_from_params
-        bakes it into the SX graph as literal constants: the ground truth, the standard
-        deviations, the per-experiment/sub weights, the cost type, and the params_to_change
-        protocol values. Those are all reachable through public setters (set_ground_truth_data,
-        set_obs_info, set_protocol_info) and by direct mutation of obs_info, so without them in
-        the key a flow that re-points the data -- `set_ground_truth_data(A); run();
-        set_ground_truth_data(B); run()`, staged sequential param-id, MCMC after calibration --
-        would hit the cache and silently keep optimising against the *previous* data while
-        reporting a plausible converged cost. Hashing them here rather than clearing the key in
-        each setter also covers in-place mutation, which no setter can intercept.
-        """
-        pnames = tuple(n[0] if isinstance(n, (list, tuple)) else n for n in param_names)
-        proto = self.protocol_info or {}
-        obs = self.obs_info or {}
-        data_sig = _content_hash([
-            obs.get('ground_truth_const'), obs.get('ground_truth_series'),
-            obs.get('std_const_vec'), obs.get('std_series_vec'),
-            obs.get('obs_dt'), obs.get('operands'), obs.get('operations'),
-            obs.get('data_types'), obs.get('cost_type'), self.cost_type,
-            proto.get('scaled_weight_const_from_exp_sub'),
-            proto.get('scaled_weight_series_from_exp_sub'),
-            proto.get('params_to_change'),
-        ])
-        return (pnames, bool(get_all_series), float(self.dt),
-                repr(proto.get('sim_times')), repr(proto.get('pre_times')),
-                repr(self.solver_info.get('method') if self.solver_info else None),
-                data_sig)
-
-    def build_casadi_functions(self, param_names, param_vals = None, get_all_series=False):
-        _require_casadi()
-        # Always refresh the numeric evaluation point (parameter values + init-seeded states).
-        self.sim_helper._create_param_subset(param_names, param_vals)
-
-        # Build the symbolic graph once per structure. On a symbolic BDF / semi_implicit_euler
-        # solve the graph is a mapaccum of thousands of rootfinder steps, and ca.gradient unrolls
-        # sensitivities across all of them -- rebuilding it on every get_cost_ca / get_jac_cost_ca
-        # call (twice per optimiser iteration) is what made long-run stiff multi-start impractical.
-        cache_key = self._casadi_functions_cache_key(param_names, get_all_series)
-        if getattr(self, '_casadi_functions_cache_key_val', None) == cache_key:
-            return
-
-        self.cost_symb, self.obs_dict_symb = self.get_cost_and_obs_from_params(param_vals, do_ad=True)
-
-        obs_outputs = []
-        obs_meta = []
-
-        for i, obs_item in enumerate(self.obs_dict_symb):
-            output_dict = self.get_obs_output_dict(obs_item, get_all_series, is_symbolic=True)
-            if get_all_series: 
-                obs_dict_item, obs_series_array_all = output_dict
-                self.obs_series_array_all_vec = ca.vertcat(*obs_series_array_all)
-            else:
-                obs_dict_item = output_dict
-
-            for key in ['const', 'series', 'amp', 'phase', 'val_for_prob_dist']:
-                val = obs_dict_item[key]
-
-                if val is None:
-                    continue
-
-                if isinstance(val, list):
-                    # series/amp/phase come back as a list with one entry per data item of
-                    # that type, each entry being a whole trace. Flatten each entry into the
-                    # obs vector but record the individual sizes, so get_obs_ca can rebuild
-                    # the list of traces that the numpy path (and the plotting) expects.
-                    entry_sizes = []
-                    for entry in val:
-                        entry_col = _as_casadi_column(entry)
-                        obs_outputs.append(entry_col)
-                        entry_sizes.append(entry_col.size1())
-                    obs_meta.append((key, i, entry_sizes))
-                else:
-                    obs_outputs.append(val)
-                    obs_meta.append((key, i, val.size1()))
-
-        self.obs_vec = ca.vertcat(*obs_outputs)
-        self.obs_meta = obs_meta
-
-        self.jac_cost_symb = ca.gradient(self.cost_symb, self.sim_helper.variables_symb_subset)
-
-        self.cost_func = ca.Function('cost_func', [self.sim_helper.states_symb, self.sim_helper.variables_symb], [self.cost_symb])
-        
-        if get_all_series:
-            self.obs_func = ca.Function('obs_func', [self.sim_helper.states_symb, self.sim_helper.variables_symb], [self.obs_vec, self.obs_series_array_all_vec])
-        else:
-            self.obs_func = ca.Function('obs_func', [self.sim_helper.states_symb, self.sim_helper.variables_symb], [self.obs_vec])
-
-        self.jac_cost_func = ca.Function('jac_cost_func', [self.sim_helper.states_symb, self.sim_helper.variables_symb], [self.jac_cost_symb])
-
-        self._casadi_functions_cache_key_val = self._casadi_functions_cache_key(param_names, get_all_series)
+    def build_casadi_functions(self, param_names, param_vals=None, get_all_series=False):
+        """Build (and cache) the CasADi cost/gradient/observable Functions. See
+        param_id.casadi_backend.build_functions."""
+        return casadi_backend.build_functions(self, param_names, param_vals, get_all_series)
 
     def get_jac_cost_ca(self, param_vals):
-        param_names = self.param_id_info["param_names"]
-        self.build_casadi_functions(param_names, param_vals)
-        jac_cost = np.array(self.jac_cost_func(self.sim_helper.states, self.sim_helper.variables)).flatten()
-        return jac_cost
+        """Gradient dJ/dp from the CasADi symbolic graph. See
+        param_id.casadi_backend.get_jac_cost."""
+        return casadi_backend.get_jac_cost(self, param_vals)
 
     def get_cost_ca(self, param_vals):
-        param_names = self.param_id_info["param_names"]
-        self.build_casadi_functions(param_names, param_vals)
-        cost= self.cost_func(self.sim_helper.states, self.sim_helper.variables)
-        return cost
+        """Cost J(p) from the CasADi symbolic graph. See param_id.casadi_backend.get_cost."""
+        return casadi_backend.get_cost(self, param_vals)
 
     # ---- Myokit CVODES forward-sensitivity (FSA) gradient ----
 
@@ -2894,57 +2766,9 @@ class OpencorParamID():
         return self._aadc_cost_and_grad(param_vals)[0]
     
     def get_obs_ca(self, param_vals, get_all_series=False):
-        param_names = self.param_id_info["param_names"]
-        self.build_casadi_functions(param_names, param_vals, get_all_series)
-        obs_val = self.obs_func(self.sim_helper.states, self.sim_helper.variables)
-
-        if get_all_series:
-            obs_dict, obs_series_array_all = obs_val
-            series_np = np.array(obs_series_array_all)
-
-            obs_series_array_all_formatted = [
-                [series_np[i, :] for i in range(series_np.shape[0])]
-            ]
-        else:
-            obs_dict = obs_val
-        obs_dict = np.array(obs_dict).flatten()
-
-        obs = []
-
-        num_items = len(self.obs_dict_symb)
-        for _ in range(num_items):
-            obs.append({
-                'const': None,
-                'series': None,
-                'amp': None,
-                'phase': None,
-                'val_for_prob_dist': None
-            })
-
-        idx = 0
-        for key, i, size in self.obs_meta:
-            if isinstance(size, list):
-                # a list of sizes means one trace per data item of this type
-                traces = []
-                for trace_size in size:
-                    traces.append(obs_dict[idx:idx+trace_size])
-                    idx += trace_size
-                obs[i][key] = traces
-                continue
-
-            values = obs_dict[idx:idx+size]
-
-            if size == 1:
-                values = values[0]
-
-            obs[i][key] = values
-
-            idx += size
-
-        if get_all_series:
-            return obs, obs_series_array_all_formatted
-        else:
-            return obs
+        """Observables evaluated through the CasADi graph, in the same shape the numpy path
+        returns. See param_id.casadi_backend.get_obs."""
+        return casadi_backend.get_obs(self, param_vals, get_all_series)
 
     def simulate_once(self, param_vals=None, reset=True, only_one_exp=-1, return_series=False):
         """
