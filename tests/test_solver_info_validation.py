@@ -180,6 +180,61 @@ def test_analysis_options_schema_well_formed():
         'do_sensitivity', 'do_mcmc', 'do_ia'}
 
 
+def _option(mode, name):
+    return next(o for o in analysis_options(mode) if o['name'] == name)
+
+
+def test_closed_set_analysis_options_are_enums_with_choices():
+    """Every option whose consumer dispatches on a fixed set of values must be declared
+    'enum' with those values in 'choices' -- not a free 'str'.
+
+    The schema is what front-ends build their settings forms from, so a free string
+    becomes a text box for what is really a menu: the user can type something that
+    only fails once the run is under way, and a GUI cannot offer a dropdown without
+    hardcoding the list (which then drifts from CA).
+
+    Choices are pinned to the dispatch sites, so adding a branch there without
+    updating the schema fails here:
+      * sample_type -> sobolSA._generate_samples (raises ValueError otherwise)
+      * sub_method  -> utility_funcs.calculate_hessian
+      * method      -> sensitivityAnalysis / identifiabilityAnalysis
+    """
+    expected = {
+        ('sensitivity_analysis', 'method'): ['sobol', 'naive'],
+        ('sensitivity_analysis', 'sample_type'): ['saltelli', 'sobol'],
+        ('identifiability_analysis', 'method'): ['Laplace', 'profile_likelihood'],
+        # 'AD' is a branch in calculate_hessian but raises NotImplementedError, so it
+        # is deliberately absent -- offering it would let a user pick a guaranteed crash.
+        ('identifiability_analysis', 'sub_method'): ['parabola_fit', 'numdifftools_finite_diff'],
+    }
+    for (mode, name), choices in expected.items():
+        opt = _option(mode, name)
+        assert opt['type'] == 'enum', f'{mode}.{name} should be enum, got {opt["type"]!r}'
+        assert opt['choices'] == choices, f'{mode}.{name} choices drifted from the dispatch'
+        assert opt['default'] in opt['choices'], f'{mode}.{name} default not selectable'
+
+
+def test_sample_type_choices_match_sobolsa_dispatch():
+    """Guards the pairing directly: each declared sample_type must be a branch in
+    sobol_SA.generate_samples, and an unknown one must still raise.
+
+    Reads the source rather than importing sobolSA, which pulls in SALib/mpi4py and
+    would make a pure schema test depend on the analysis stack being installed.
+    """
+    import re
+    from pathlib import Path
+
+    src_file = Path(__file__).resolve().parents[1] / 'src' / 'sensitivity_analysis' / 'sobolSA.py'
+    src = src_file.read_text()
+    body = src[src.index('def generate_samples'):]
+    body = body[:body.index('\n    def ', 1)]  # just this method
+
+    for choice in _option('sensitivity_analysis', 'sample_type')['choices']:
+        assert re.search(rf'sample_type"?\'?\]?\s*==\s*[\'"]{choice}[\'"]', body), \
+            f'sample_type {choice!r} is offered but generate_samples does not dispatch on it'
+    assert 'raise ValueError' in body, 'generate_samples should still reject an unknown sample_type'
+
+
 def test_cost_func_metadata_discovers_builtins():
     """The obs-data editor discovers valid cost_type values + flags at runtime (costs are a
     user-extensible registry, not a static schema)."""
