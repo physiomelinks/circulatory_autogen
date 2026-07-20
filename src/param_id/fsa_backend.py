@@ -39,9 +39,11 @@ def ensure_setup(pid):
     """Enable CVODES forward sensitivities on the Myokit sim helper (once).
 
     Dependents are the unique observable-operand variables; independents are the AD
-    parameters. Parameters that appear in a state's initial-value expression are
-    FSA-ineligible (Myokit cannot make them sensitivity independents) and fall back to
-    finite differences; a single warning reports how many and which.
+    parameters. A parameter that feeds a state's initial-value expression (and only that) is
+    handled analytically by the chain rule through an ``init(state)`` sensitivity -- see
+    ``myokit_helper.enable_fsa`` / ``_init_chain_rule_targets``. Only a parameter that also
+    enters the dynamics (so the chain rule would be incomplete) stays FSA-ineligible and falls
+    back to finite differences; a single warning reports how many and which.
     """
     if getattr(pid, '_fsa_setup_done', False):
         return
@@ -68,9 +70,10 @@ def ensure_setup(pid):
         n_total = len(pid._fsa_param_names_flat)
         warnings.warn(
             f"FSA: {len(pid._fsa_ineligible_names)} of {n_total} parameters are "
-            f"unsuitable for CVODES forward sensitivity (they appear in a state's "
-            f"initial-value expression): {pid._fsa_ineligible_names}; these will use "
-            f"finite-difference gradients (2 extra simulations each per gradient).")
+            f"unsuitable for CVODES forward sensitivity (they enter the dynamics *and* a "
+            f"state's initial-value expression, so the initial-value chain rule is "
+            f"incomplete): {pid._fsa_ineligible_names}; these will use finite-difference "
+            f"gradients (2 extra simulations each per gradient).")
     pid._fsa_setup_done = True
 
 
@@ -105,6 +108,12 @@ def get_jac_cost(pid, param_vals, return_cost=False):
     num_sub_per_exp = pid.protocol_info["num_sub_per_exp"]
 
     eligible_names = set(pid.sim_helper._fsa_eligible_param_names or [])
+    # Params handled by the chain rule d(obs)/d(param) = sum_s d(obs)/d(init s)*d(init_s)/d(param):
+    # they carry no column of their own, so their operand sensitivity is synthesised below from
+    # the init(state) columns and then treated exactly like an eligible param (issue #270).
+    chain_rule_map = getattr(pid.sim_helper, '_fsa_chain_rule_map', None) or {}
+    chain_state_qnames = sorted({sq for tgts in chain_rule_map.values() for sq, _ in tgts})
+    has_sensitivity = eligible_names | set(chain_rule_map)
     # Map each flattened param name to its column index in param_vals.
     flat_names = pid._fsa_param_names_flat
     grad = np.zeros(n_params)
@@ -141,9 +150,28 @@ def get_jac_cost(pid, param_vals, return_cost=False):
             sens = pid.sim_helper.get_sensitivities(
                 pid._fsa_dependent_names, flat_names, sensitivities=sens_arr)
 
+            # Synthesise the operand sensitivity of each chain-rule param and inject it into
+            # `sens` under the param's own name, so the directional-difference loop below treats
+            # it identically to a param that had its own FSA column. For dependent var d:
+            #   d(d)/d(param) = sum_s [ d(d)/d(init s) ] * [ d(init_s)/d(param) ]
+            if chain_rule_map:
+                init_sens = pid.sim_helper.get_init_state_sensitivities(
+                    pid._fsa_dependent_names, chain_state_qnames, sensitivities=sens_arr)
+                for pname, targets in chain_rule_map.items():
+                    for dep_name in pid._fsa_dependent_names:
+                        acc = None
+                        for state_qname, dinit in targets:
+                            s_trace = init_sens.get(dep_name, {}).get(state_qname)
+                            if s_trace is None:
+                                continue
+                            term = np.asarray(s_trace, dtype=float) * dinit
+                            acc = term if acc is None else acc + term
+                        if acc is not None:
+                            sens.setdefault(dep_name, {})[pname] = acc
+
             for j in range(n_params):
                 pname = flat_names[j]
-                if pname not in eligible_names:
+                if pname not in has_sensitivity:
                     continue
                 pj = float(param_vals[j])
                 # Central directional difference along the exact sensitivity S. The step acts
@@ -161,7 +189,7 @@ def get_jac_cost(pid, param_vals, return_cost=False):
     grad /= denom
 
     # ---- Ineligible params: central finite difference over the full mean cost ----
-    ineligible_idx = [j for j in range(n_params) if flat_names[j] not in eligible_names]
+    ineligible_idx = [j for j in range(n_params) if flat_names[j] not in has_sensitivity]
     if ineligible_idx:
         base_cost = float(pid.get_cost_from_params(param_vals))
         if not np.isfinite(base_cost):

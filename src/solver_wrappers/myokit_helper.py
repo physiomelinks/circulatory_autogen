@@ -39,9 +39,11 @@ class SimulationHelper:
         self._fsa_enabled = False
         self._fsa_dependent_qnames = None       # ordered myokit qnames of dependents
         self._fsa_dependent_specs = None        # myokit dependent spec strings
-        self._fsa_independent_specs = None       # myokit independent spec strings (eligible only)
-        self._fsa_eligible_param_names = None    # framework param names, order matches independents
+        self._fsa_independent_specs = None       # myokit independent spec strings (eligible + chain init(state))
+        self._fsa_independent_keys = None        # retrieval key per independent: param name or ('init_state', qname)
+        self._fsa_eligible_param_names = None    # framework param names whose own column is the sensitivity
         self._fsa_ineligible_param_names = None  # framework param names needing FD fallback
+        self._fsa_chain_rule_map = {}            # param name -> [(state_qname, d(init_state)/d(param)), ...]
         self._fsa_independent_state_qnames = None  # state qnames that ARE FSA independents (init params)
         self._last_sensitivities = None
         # Per-sub-experiment sensitivities within one experiment: run() appends, reset_states()
@@ -978,10 +980,15 @@ class SimulationHelper:
                                 w.r.t. parameters we need.
         independent_param_names : framework names of the parameters to differentiate.
 
-        A parameter that appears inside a state's initial-value expression cannot be a
-        CVODES independent (Myokit raises NotImplementedError); such parameters are
-        classified as FSA-ineligible and returned so the caller can fall back to finite
-        differences. Returns the list of ineligible parameter names.
+        A parameter that appears inside a state's initial-value expression cannot be a CVODES
+        independent directly (Myokit raises NotImplementedError). When such a parameter feeds
+        *only* initial values (not the dynamics) it is handled analytically by the chain rule
+        d(obs)/d(param) = sum_s d(obs)/d(init s) * d(init_s)/d(param) -- the first factor from an
+        ``init(state)`` sensitivity independent, the second from the initial-value expression --
+        and is not ineligible. Only parameters that also enter the dynamics, or whose derivative
+        cannot be reduced to a fixed factor, remain FSA-ineligible and fall back to finite
+        differences. Returns the list of ineligible parameter names (empty when the chain rule
+        covers them all).
         """
         dep_specs = []
         dep_qnames = []
@@ -990,18 +997,41 @@ class SimulationHelper:
             dep_specs.append(qname)
             dep_qnames.append(qname)
 
+        # A constant that appears in a state's initial-value expression cannot be a CVODES
+        # independent directly -- Myokit raises "Sensitivities with respect to parameters used
+        # in initial conditions is not implemented". But the information is still analytic: by
+        # the chain rule d(obs)/d(param) = sum_s d(obs)/d(init s) * d(init_s)/d(param), where the
+        # first factor is an ordinary FSA independent `init(state)` (which Myokit *does* support,
+        # even when the initial value is an expression) and the second is the derivative of the
+        # initial-value expression w.r.t. the constant. `_init_chain_rule_targets` finds those
+        # states and derivatives; such params are then handled by that product instead of falling
+        # back to two extra full simulations per gradient evaluation (issue #270).
+        calib_qnames = {self._resolve_name(n)[1] for n in independent_param_names}
+
         cand_specs = []
         cand_names = []
         indep_state_qnames = set()
+        chain_rule_map = {}          # param name -> [(state_qname, d(init_state)/d(param)), ...]
+        chain_state_qnames = []      # extra init(state) independents needed by the chain rule
         for name in independent_param_names:
             kind, qname = self._resolve_name(name)
-            # A directly-overridden state uses its initial value as the independent;
-            # a constant uses the constant itself.
-            spec = f'init({qname})' if kind == 'state' else qname
             if kind == 'state':
+                # A directly-overridden state uses its own initial value as the independent.
+                cand_specs.append(f'init({qname})')
+                cand_names.append(name)
                 indep_state_qnames.add(qname)
-            cand_specs.append(spec)
-            cand_names.append(name)
+                continue
+            # A constant: use it directly unless it feeds a state initial value, in which case
+            # route it through the chain rule.
+            targets = self._init_chain_rule_targets(qname, calib_qnames)
+            if targets is None:
+                cand_specs.append(qname)
+                cand_names.append(name)
+            else:
+                chain_rule_map[name] = targets
+                for state_qname, _ in targets:
+                    if state_qname not in chain_state_qnames:
+                        chain_state_qnames.append(state_qname)
         # States that are calibration (FSA-independent) params: Myokit seeds their sensitivity
         # (identity at t=0), so a set_param_vals state override of these must NOT be treated as a
         # protocol re-seed (see set_param_vals). params_to_change state overrides are everything
@@ -1011,11 +1041,26 @@ class SimulationHelper:
         eligible_specs, eligible_names, ineligible_names = self._classify_fsa_independents(
             dep_specs, cand_specs, cand_names)
 
+        # The init(state) columns the chain rule needs, deduplicated against any state that is
+        # already a direct independent (a directly-calibrated state reuses its own column).
+        eligible_state_qnames = {
+            s[len('init('):-1] for s in eligible_specs if s.startswith('init(')}
+        indep_specs = list(eligible_specs)
+        indep_keys = list(eligible_names)  # retrieval key parallel to indep_specs
+        for state_qname in chain_state_qnames:
+            if state_qname in eligible_state_qnames:
+                continue
+            indep_specs.append(f'init({state_qname})')
+            indep_keys.append(('init_state', state_qname))
+            eligible_state_qnames.add(state_qname)
+
         self._fsa_dependent_specs = dep_specs
         self._fsa_dependent_qnames = dep_qnames
-        self._fsa_independent_specs = eligible_specs
+        self._fsa_independent_specs = indep_specs
+        self._fsa_independent_keys = indep_keys
         self._fsa_eligible_param_names = eligible_names
         self._fsa_ineligible_param_names = ineligible_names
+        self._fsa_chain_rule_map = chain_rule_map
         self._fsa_enabled = True
 
         # Rebuild the simulation with sensitivities and refresh derived maps/defaults.
@@ -1067,6 +1112,50 @@ class SimulationHelper:
                 ineligible_names.append(name)
         return eligible_specs, eligible_names, ineligible_names
 
+    def _init_chain_rule_targets(self, const_qname, calib_qnames):
+        """Chain-rule targets for a constant that feeds state initial-value expressions.
+
+        Returns ``[(state_qname, d(init_state)/d(const)), ...]`` if the constant ``const_qname``
+        can be differentiated through state initial values instead of being a direct CVODES
+        independent, or ``None`` if it should be handled the usual way (direct independent, or
+        FD fallback if Myokit then refuses it).
+
+        Chain-rule handling is used only when it is *exact*:
+          * the constant appears in at least one state's initial-value expression, and
+          * it does not appear in any dynamic equation (``refs_by()`` is empty) -- otherwise the
+            gradient has a component through the dynamics that ``init(state)`` sensitivities do
+            not capture, so we must keep the full-cost FD, and
+          * every ``d(init_state)/d(const)`` is a compile-time constant, i.e. its expression does
+            not reference another calibration parameter (if it did, the factor would vary with
+            those params and a value captured now would go stale between gradient evaluations).
+        Any expression Myokit cannot differentiate/evaluate here drops the constant back to the
+        normal path rather than risk a wrong number.
+        """
+        try:
+            const_var = self.model.get(const_qname)
+        except Exception:
+            return None
+        # Used in the dynamics as well as an initial value -> chain rule would be incomplete.
+        if list(const_var.refs_by()):
+            return None
+        const_name = myokit.Name(const_var)
+        targets = []
+        for state in self.model.states():
+            init_expr = state.initial_value()
+            if init_expr is None:
+                continue
+            if not any(ref.var().qname() == const_qname for ref in init_expr.references()):
+                continue
+            try:
+                deriv = init_expr.diff(const_name)
+                # A derivative that depends on another calibration param is not a fixed factor.
+                if any(ref.var().qname() in calib_qnames for ref in deriv.references()):
+                    return None
+                targets.append((state.qname(), float(deriv.eval())))
+            except Exception:
+                return None
+        return targets or None
+
     def get_fsa_ineligible_params(self):
         """Framework names of AD params that fall back to finite differences (or None)."""
         return self._fsa_ineligible_param_names
@@ -1098,5 +1187,37 @@ class SimulationHelper:
             for pname in param_names:
                 if pname in indep_index:
                     out[dname][pname] = sens[:, di, indep_index[pname]].copy()
+        return out
+
+    def get_init_state_sensitivities(self, dependent_names, state_qnames, sensitivities=None):
+        """d(dependent_trace)/d(init state) from a FSA run, for the chain-rule fallback.
+
+        Returns ``{dependent_name: {state_qname: np.ndarray}}`` for each requested state whose
+        ``init(state_qname)`` was set up as a sensitivity independent (either a directly
+        calibrated state or one added because a constant feeds its initial value -- see
+        ``enable_fsa`` / ``_init_chain_rule_targets``). Column positions are read from
+        ``_fsa_independent_specs`` so both key forms (param name and ``('init_state', qname)``)
+        resolve identically. States without an ``init(...)`` column are omitted.
+        """
+        if sensitivities is None:
+            sensitivities = self._last_sensitivities
+        if sensitivities is None:
+            raise RuntimeError(
+                "No sensitivities available: FSA is not enabled or run() has not been called.")
+        sens = np.asarray(sensitivities, dtype=float)  # [n_time, n_dep, n_indep]
+        dep_index = {q: i for i, q in enumerate(self._fsa_dependent_qnames)}
+        # Map each state qname to its column via the init(<qname>) independent specs.
+        state_col = {}
+        for i, spec in enumerate(self._fsa_independent_specs):
+            if spec.startswith('init(') and spec.endswith(')'):
+                state_col[spec[len('init('):-1]] = i
+        out = {}
+        for dname in dependent_names:
+            _, dqname = self._resolve_name(dname)
+            di = dep_index[dqname]
+            out[dname] = {}
+            for sq in state_qnames:
+                if sq in state_col:
+                    out[dname][sq] = sens[:, di, state_col[sq]].copy()
         return out
 
