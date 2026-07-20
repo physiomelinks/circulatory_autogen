@@ -5,8 +5,19 @@
 
 import json
 import os
+import re
 import sys
 from sys import exit
+
+
+def sanitize_for_filename(name):
+    """Turn a display label (e.g. a name_for_plotting like ``u_{A_{R}}`` or an output name with
+    spaces/commas) into a safe filename stem: any run of characters outside ``[A-Za-z0-9.-]``
+    collapses to a single ``_``, then leading/trailing ``_`` are stripped. Without this, LaTeX-ish
+    names produced paths with ``{}``, spaces and backslashes that fail to write on Windows
+    (issue #167)."""
+    safe = re.sub(r'[^A-Za-z0-9.-]+', '_', str(name))
+    return safe.strip('_') or 'output'
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '../utilities'))
 import math as math
@@ -451,7 +462,7 @@ class sobol_SA():
             plt.legend()
             plt.tight_layout()
 
-            file_name = f"{output_name}_n{self.num_samples}_First_order_idx.png"
+            file_name = f"{sanitize_for_filename(output_name)}_n{self.num_samples}_First_order_idx.png"
             plt.savefig(os.path.join(self.output_dir, file_name))
             plt.clf()
             plt.close()
@@ -479,7 +490,7 @@ class sobol_SA():
             plt.title(rf"2nd order Sobol Indices - {output_name}")
             plt.tight_layout()
 
-            filename = f"{output_name}_n{self.num_samples}_2nd_order_idx.png"
+            filename = f"{sanitize_for_filename(output_name)}_n{self.num_samples}_2nd_order_idx.png"
             plt.savefig(os.path.join(self.output_dir, filename))
             plt.clf()
             plt.close()

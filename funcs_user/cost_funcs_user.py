@@ -139,6 +139,7 @@ def register_cost_funcs(registry, backend):
             "register_cost_funcs",
             "build_cost_funcs_dict",
             "get_cost_funcs_dict_for_mode",
+            "cost_func_metadata",
         }
     )
     for name, obj in g.items():
