@@ -43,3 +43,7 @@ user_run_files/plot_param_id_without_autogen.sh
 
 # Local benchmark runner outputs
 benchmarks/_results/
+
+# Per-run resolved-config archives written by save_dated_user_inputs (PrimitiveParsers.py).
+# Run artifacts, not inputs: they bake in absolute local paths, so they are never committed.
+resources/user_inputs_[0-9]*.yaml

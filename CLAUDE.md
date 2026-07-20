@@ -66,6 +66,8 @@ Then call the same stages the scripts call, all taking that dict:
 - Feature flags: `do_ad`, `do_sensitivity` (`sa_options`), `do_mcmc` (`mcmc_options`), `do_ia` (`ia_options`).
 - Path overrides (recommended for real work, to keep inputs/outputs outside the repo): `resources_dir`, `generated_models_dir`, `param_id_output_dir`, `external_modules_dir`.
 
+**Never commit `resources/user_inputs_<yymmdd>.yaml`.** Every run archives its resolved config there via `save_dated_user_inputs` (`src/parsers/PrimitiveParsers.py`), so these files appear constantly as modified or untracked — they are per-machine run artifacts, not inputs. They bake in absolute local paths (`resources_dir`, `generated_models_dir`, and `/tmp/pytest-*` dirs when a test run writes them), so committing them adds churn and leaks one machine's layout into the repo. They are gitignored; leave them untracked, and do not `git add -A` them back in. The same goes for anything else that shows up modified purely because you ran the suite.
+
 ## Discoverable schemas (keep settings machine-readable for CUFLynx)
 
 The GUI front-end **CUFLynx** auto-populates its menus and settings forms by reading discoverable schemas in `src/parsers/PrimitiveParsers.py` — it does **not** hardcode the options. **Whenever you add or change a user-configurable setting, update the matching schema in the same PR**, or CUFLynx silently won't expose it:
