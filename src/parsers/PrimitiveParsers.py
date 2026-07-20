@@ -225,7 +225,9 @@ PARAM_ID_METHODS = {
         'description': 'Surrogate-model Bayesian optimisation (experimental / untested).',
         # The acquisition-function constants (acq_func, n_initial_points, random_state) are
         # currently hardcoded in paramID.py, not user-configurable, so they are not listed here.
-        'options': [_OPT_NUM_CALLS],
+        # Bayesian falls back to a 10000-call budget when none is given (param_id_run_script.py);
+        # only the genetic algorithm genuinely requires it, so advertise the default here (#277).
+        'options': [{**_OPT_NUM_CALLS, 'default': 10000, 'required': False}],
     },
     'sp_minimize': {
         'label': 'Gradient descent (L-BFGS-B)',
@@ -312,7 +314,9 @@ ANALYSIS_OPTIONS = {
             {'name': 'sample_type', 'type': 'enum', 'default': 'saltelli', 'required': False,
              'choices': ['saltelli', 'sobol'],
              'description': 'SALib sampling scheme: saltelli or sobol.'},
-            {'name': 'num_samples', 'type': 'int', 'default': None, 'required': True,
+            # Real default lives in the fill-in block below (sets 32 when absent), so the schema
+            # must advertise it rather than an empty required field (see issue #277).
+            {'name': 'num_samples', 'type': 'int', 'default': 32, 'required': False,
              'description': ('Base sample count; the actual number of runs is num_samples*(2M+2) '
                              'for Sobol, where M is the number of parameters.')},
         ],
@@ -1288,14 +1292,20 @@ class JSONFileParser(object):
         df = pd.DataFrame(json_obj)
         return df
 
+    @staticmethod
+    def _is_json_module_file(file):
+        # macOS writes AppleDouble '._<name>.json' sidecar files on non-native partitions; they
+        # match '.json' but are binary and blow up json.load, so skip them here (issue #83).
+        return file.endswith('.json') and not file.startswith('._')
+
     def json_to_dataframe_with_user_dir(self, json_dir, json_user_dir, external_modules_dir):
         dfs = [self.json_to_dataframe(os.path.join(json_dir, file)) \
-                for file in os.listdir(json_dir) if file.endswith('.json')]
+                for file in os.listdir(json_dir) if self._is_json_module_file(file)]
         user_module_dfs = [self.json_to_dataframe(os.path.join(json_user_dir, file)) \
-                for file in os.listdir(json_user_dir) if file.endswith('.json')]
+                for file in os.listdir(json_user_dir) if self._is_json_module_file(file)]
         if external_modules_dir is not None:
             external_module_dfs = [self.json_to_dataframe(os.path.join(external_modules_dir, file)) \
-                    for file in os.listdir(external_modules_dir) if file.endswith('.json')]
+                    for file in os.listdir(external_modules_dir) if self._is_json_module_file(file)]
         else:
             external_module_dfs = []
             

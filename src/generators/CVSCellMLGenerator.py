@@ -8,10 +8,13 @@ import numpy as np
 import re
 import pandas as pd
 import os
+import shutil
 import tempfile
 from sys import exit
 generators_dir = os.path.dirname(__file__)
 base_dir = os.path.join(os.path.dirname(__file__), '../..')
+# Build/run scripts copied alongside each generated model so it can be compiled/run standalone.
+solver_make_files_dir = os.path.join(base_dir, 'src', 'solver1d', 'Make_files')
 LIBCELLML_available = True
 try:
     from libcellml import Annotator, Analyser, AnalyserModel, AnalyserExternalVariable, Generator, GeneratorProfile        
@@ -55,16 +58,18 @@ class CVS0DCellMLGenerator(object):
         self.base_script = os.path.join(generators_dir, 'resources/base_script.cellml')
 
 
+        # `not startswith('._')` skips macOS AppleDouble sidecar files that also end in
+        # 'modules.cellml' but are binary and break the parser (issue #83).
         self.module_scripts = [os.path.join(generators_dir, 'resources', filename) for filename in
                                os.listdir(os.path.join(generators_dir, 'resources'))
-                               if filename.endswith('modules.cellml')]
+                               if filename.endswith('modules.cellml') and not filename.startswith('._')]
         self.module_scripts += [os.path.join(base_dir, 'module_config_user', filename) for filename in
                                os.listdir(os.path.join(base_dir, 'module_config_user'))
-                               if filename.endswith('modules.cellml')]
+                               if filename.endswith('modules.cellml') and not filename.startswith('._')]
         if inp_data_dict['external_modules_dir'] is not None:
             self.module_scripts += [os.path.join(self.inp_data_dict['external_modules_dir'], filename) for filename in
                                 os.listdir(os.path.join(self.inp_data_dict['external_modules_dir']))
-                                if filename.endswith('modules.cellml')]
+                                if filename.endswith('modules.cellml') and not filename.startswith('._')]
         self.units_scripts = [os.path.join(generators_dir, 'resources/units.cellml'),
                               os.path.join(base_dir, 'module_config_user/user_units.cellml')]
         self.all_parameters_defined = False
@@ -94,6 +99,7 @@ class CVS0DCellMLGenerator(object):
         self.__generate_parameters_csv()
         self.__generate_parameters_file()
         self.__generate_modules_file()
+        self.__copy_solver_make_files()
 
         # TODO check that model generation is successful, possibly by calling to opencor
         print('Model generation complete.')
@@ -454,6 +460,16 @@ class CVS0DCellMLGenerator(object):
             file_to_create,
             lambda wf: df.to_csv(wf, index=None, header=True),
         )
+
+    def __copy_solver_make_files(self):
+        # Copy the solver build/run scripts (src/solver1d/Make_files) into the generated model
+        # directory so each model is self-contained and can be built/run in place (issue #157).
+        if not os.path.isdir(solver_make_files_dir):
+            return
+        for filename in os.listdir(solver_make_files_dir):
+            src_path = os.path.join(solver_make_files_dir, filename)
+            if os.path.isfile(src_path) and not filename.startswith('._'):
+                shutil.copy2(src_path, os.path.join(self.output_dir, filename))
 
     def __generate_units_file(self):
         # TODO allow a specific units file to be generated
@@ -835,6 +851,16 @@ class CVS0DCellMLGenerator(object):
                     module_exit_general_ports = module_row["exit_ports"] + module_row["general_ports"]
                     out_module_entrance_general_ports = out_module_row["entrance_ports"] + out_module_row["general_ports"]
 
+                    if out_port_idx is None:
+                        # every matching port on main_module is already connected: without a clear
+                        # message this surfaces as an opaque `list indices must be integers ...
+                        # not NoneType` below (issue #82).
+                        raise ValueError(
+                            f"Cannot connect '{main_module}' to '{out_module}': all "
+                            f"'{port_types[port_type_idx]['port_type']}' ports on '{main_module}' "
+                            f"are already connected. If this port is meant to accept more than one "
+                            f"connection, add \"multi_port\":\"True\" to it in the "
+                            f"module_config.json entry for '{main_module}'.")
 
                     variables_1 = module_exit_general_ports[out_port_idx]['variables']
                     if entrance_port_idx == -2: #XXX TODO Bea add comment here to explain

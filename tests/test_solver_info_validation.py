@@ -251,6 +251,43 @@ def test_cost_func_metadata_discovers_builtins():
     assert not meta['MSE']['is_MLE']
 
 
+def test_cost_registry_excludes_organisational_accessors():
+    """The organisational helpers in cost_funcs_user (register/build/get accessors and the
+    cost_func_metadata accessor) must not be registered as selectable cost functions -- otherwise
+    a bogus 'cost_func_metadata' cost shows up and even self-references in its own output (#259)."""
+    from funcs_user.cost_funcs_user import get_cost_funcs_dict_for_mode, cost_func_metadata
+    costs = get_cost_funcs_dict_for_mode("numpy")
+    for accessor in ('cost_func_metadata', 'get_cost_funcs_dict_for_mode',
+                     'build_cost_funcs_dict', 'register_cost_funcs'):
+        assert accessor not in costs, f'{accessor} should not be a registered cost function'
+    # the real costs are still there
+    assert {'gaussian_MLE', 'MSE', 'AE'} <= set(costs)
+    # and the metadata accessor no longer lists itself
+    assert 'cost_func_metadata' not in cost_func_metadata()
+
+
+def test_statically_defaulted_options_advertise_their_default():
+    """If the code substitutes a fixed value when an option is absent, that value belongs in the
+    schema's `default` -- a `None` default renders as a blank required field in front-ends even
+    though CA supplies the value at run time (#277). Pins the options with a known static default;
+    genuinely-required options (GA's num_calls_to_function, which raises if absent) stay None."""
+    def opt(options, name):
+        return next(o for o in options if o['name'] == name)
+
+    num_samples = opt(analysis_options('sensitivity_analysis'), 'num_samples')
+    assert num_samples['default'] == 32 and num_samples['required'] is False
+
+    # bayesian falls back to a 10000-call budget; CMA-ES already advertised the same default.
+    for method in ('bayesian', 'CMA-ES'):
+        ncalls = opt(param_id_method_options(method), 'num_calls_to_function')
+        assert ncalls['default'] == 10000 and ncalls['required'] is False
+
+    # the genetic algorithm has no fallback (it raises if the key is missing), so None/required
+    # is the correct, honest descriptor -- do not give it a phantom default.
+    ga = opt(param_id_method_options('genetic_algorithm'), 'num_calls_to_function')
+    assert ga['default'] is None and ga['required'] is True
+
+
 def test_casadi_integrator_rejects_maximum_step_keys():
     with pytest.raises(ValueError, match="MaximumStep"):
         validate_solver_info('casadi_integrator', {
