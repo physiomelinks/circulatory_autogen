@@ -293,8 +293,12 @@ ANALYSIS_OPTIONS = {
             {'name': 'method', 'type': 'enum', 'default': 'sobol', 'required': False,
              'choices': ['sobol', 'naive'],
              'description': 'Sensitivity method: Sobol indices or a naive one-at-a-time sweep.'},
-            {'name': 'sample_type', 'type': 'str', 'default': 'saltelli', 'required': False,
-             'description': 'SALib sampling scheme (e.g. saltelli for Sobol).'},
+            # enum, not str: sobol_SA.generate_samples dispatches on exactly these two
+            # and raises ValueError on anything else, so a free string only lets a
+            # typo through to run time.
+            {'name': 'sample_type', 'type': 'enum', 'default': 'saltelli', 'required': False,
+             'choices': ['saltelli', 'sobol'],
+             'description': 'SALib sampling scheme: saltelli or sobol.'},
             {'name': 'num_samples', 'type': 'int', 'default': None, 'required': True,
              'description': ('Base sample count; the actual number of runs is num_samples*(2M+2) '
                              'for Sobol, where M is the number of parameters.')},
@@ -319,8 +323,13 @@ ANALYSIS_OPTIONS = {
             {'name': 'method', 'type': 'enum', 'default': 'Laplace', 'required': True,
              'choices': ['Laplace', 'profile_likelihood'],
              'description': 'Identifiability method: Laplace approximation or profile likelihood.'},
-            {'name': 'sub_method', 'type': 'str', 'default': 'parabola_fit', 'required': False,
-             'description': "Hessian method for the Laplace approximation (e.g. 'parabola_fit')."},
+            # enum, not str: utility_funcs.calculate_hessian dispatches on these.
+            # 'AD' is a fourth branch there but raises NotImplementedError, so it is
+            # deliberately not offered; any other value falls back to plain finite
+            # differences with only a printed warning, which a free string invites.
+            {'name': 'sub_method', 'type': 'enum', 'default': 'parabola_fit', 'required': False,
+             'choices': ['parabola_fit', 'numdifftools_finite_diff'],
+             'description': 'Hessian method for the Laplace approximation.'},
         ],
     },
 }
