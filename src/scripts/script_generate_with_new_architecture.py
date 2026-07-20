@@ -68,8 +68,20 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
         bool: True if generation succeeded, False otherwise.
     """
     yaml_parser = YamlFileParser()
-    inp_data_dict = yaml_parser.parse_user_inputs_file(inp_data_dict, obs_path_needed=False, 
+    inp_data_dict = yaml_parser.parse_user_inputs_file(inp_data_dict, obs_path_needed=False,
                                                        do_generation_with_fit_parameters=do_generation_with_fit_parameters)
+
+    if inp_data_dict['model_type'] == 'python_user_defined':
+        # No code generation: the "model" is the user's hand-written ODE wrapper
+        # in funcs_user/ (see solver_wrappers.python_solver_helper). Just verify it
+        # exists so misconfiguration fails early with a clear message.
+        wrapper_path = inp_data_dict['model_path']
+        if not os.path.exists(wrapper_path):
+            print(f'python_user_defined wrapper not found: {wrapper_path}')
+            print('Create it (copy funcs_user/model_wrapper_funcs_user.py) or set '
+                  'model_wrapper_path in user_inputs.yaml.')
+            return False
+        return True
 
     DEBUG = inp_data_dict['DEBUG']
     file_prefix = inp_data_dict['file_prefix']

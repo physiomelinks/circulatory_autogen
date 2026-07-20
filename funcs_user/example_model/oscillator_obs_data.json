@@ -1,0 +1,38 @@
+[
+  { "variable": "displacement mean",
+    "name_for_plotting": "mean(x)",
+    "data_type": "constant",
+    "operation": "mean",
+    "operands": ["oscillator/x"],
+    "unit": "dimensionless",
+    "weight": 1.0,
+    "value": 0.01663962,
+    "std": 0.002,
+    "cost_type": "gaussian_MLE",
+    "plot_type": "horizontal"
+  },
+  { "variable": "displacement min",
+    "name_for_plotting": "min(x)",
+    "data_type": "constant",
+    "operation": "min",
+    "operands": ["oscillator/x"],
+    "unit": "dimensionless",
+    "weight": 1.0,
+    "value": -0.60704870,
+    "std": 0.03,
+    "cost_type": "gaussian_MLE",
+    "plot_type": "horizontal"
+  },
+  { "variable": "velocity range",
+    "name_for_plotting": "range(v)",
+    "data_type": "constant",
+    "operation": "max_minus_min",
+    "operands": ["oscillator/v"],
+    "unit": "dimensionless",
+    "weight": 1.0,
+    "value": 2.87274456,
+    "std": 0.1,
+    "cost_type": "gaussian_MLE",
+    "plot_type": "horizontal_from_min"
+  }
+]

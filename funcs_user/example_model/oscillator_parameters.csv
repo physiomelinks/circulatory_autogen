@@ -1,0 +1,3 @@
+variable_name,units,value,data_reference
+c,dimensionless,0.5,user_defined
+k,dimensionless,4.0,user_defined
