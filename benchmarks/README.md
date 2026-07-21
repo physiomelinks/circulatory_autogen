@@ -64,6 +64,10 @@ skipped. (The licence check must precede `import mpi4py`, which `run_benchmarks.
 `--update-docs` rewrites the region between `<!-- BENCHMARK_RESULTS_START -->` and
 `<!-- BENCHMARK_RESULTS_END -->` in `tutorial/docs/parameter-identification.md`. The
 **Benchmarks** GitHub Actions workflow (`.github/workflows/benchmarks.yml`) does this
-automatically on a weekly schedule (and on manual dispatch) for the CI-safe set, then commits
-and deploys the docs. Because the numbers depend on the hardware and MPI rank count, treat the
+automatically on a weekly schedule (and on manual dispatch) for the CI-safe set, then — on the
+default branch — **opens a PR** with the refreshed table (`benchmarks/refresh-results`).
+Merging that PR lands the numbers in source and triggers the Docs Release workflow, which
+republishes the tutorial. A direct push/deploy is not used because `master` is branch-protected
+(the runner push is rejected) and a one-off `gh-deploy` would be overwritten by the next docs
+deploy from source. Because the numbers depend on the hardware and MPI rank count, treat the
 published table as indicative, not exact.

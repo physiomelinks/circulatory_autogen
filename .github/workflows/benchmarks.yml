@@ -2,8 +2,15 @@ name: Benchmarks
 
 # Runs the CI-safe optimiser benchmarks (those that do NOT need OpenCOR — currently both the
 # FitzHugh-Nagumo and the stiff 3compartment comparisons, which run on Myokit/CasADi),
-# refreshes the results table in the parameter-identification docs, and deploys the docs.
+# refreshes the results table in the parameter-identification docs, and (on the default branch)
+# opens a PR with the refreshed table. Merging that PR triggers the Docs Release workflow
+# (release-docs.yml), which republishes the tutorial from source so the numbers persist.
 # The 3compartment run is slow (~20+ min); this workflow is scheduled weekly / on dispatch.
+#
+# Why a PR and not a direct push+deploy: `master` is branch-protected, so a runner `git push`
+# is rejected (GH006), and a one-off `mkdocs gh-deploy` from the runner is overwritten the next
+# time release-docs deploys from the (unchanged) source. Publishing through source via a PR is
+# the only path that survives both. See the "Open/update the benchmark-results PR" step.
 
 on:
   workflow_dispatch:
@@ -18,6 +25,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write   # results are published by opening a PR (master is branch-protected)
 
 jobs:
   benchmarks:
@@ -112,33 +120,47 @@ jobs:
             are attached.
           attachments: benchmark_results.md,benchmark_output.txt
 
-      # Publishing the refreshed docs only happens on the scheduled run, so a manual dispatch
-      # (e.g. to benchmark a feature branch and email the results) never pushes a commit to that
-      # branch or deploys docs from it.
-      - name: Configure git
-        if: github.event_name == 'schedule' && steps.bench.outcome == 'success'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      # Publish the refreshed results by opening (or rolling forward) a PR against the default
+      # branch. This is gated on the *ref*, not the trigger, so it runs for both the weekly
+      # schedule and a manual workflow_dispatch on master -- but NOT for a `run-benchmarks-*`
+      # tag on a feature branch (github.ref is then refs/tags/..., so this is skipped and a
+      # feature-branch benchmark just emails/summarises without touching the docs).
+      #
+      # A PR is used rather than a direct push because master is branch-protected (a runner push
+      # is rejected with GH006). Merging the PR lands the results in source; release-docs.yml
+      # then rebuilds and deploys the tutorial, so the table persists instead of being wiped by
+      # the next docs deploy. The results are published regardless of the --assert outcome -- a
+      # cost/timing regression is a real, publishable number; the assertion failure is surfaced
+      # separately in the "Reflect benchmark failure" step and the run summary/email.
+      #
+      # peter-evans/create-pull-request maintains a single rolling branch/PR, so repeated runs
+      # update the same PR instead of opening a new one each time. For fully hands-off publishing
+      # (no manual merge), set a bypass token (a PAT or GitHub App token allowed past branch
+      # protection) as `token:` here and switch its base to a direct commit; the default
+      # GITHUB_TOKEN cannot bypass protection.
+      - name: Open/update the benchmark-results PR
+        if: >-
+          always()
+          && github.ref == 'refs/heads/master'
+          && hashFiles('benchmark_results.md') != ''
+        uses: peter-evans/create-pull-request@v6
+        with:
+          add-paths: tutorial/docs/parameter-identification.md
+          branch: benchmarks/refresh-results
+          base: master
+          commit-message: "chore(benchmarks): refresh published benchmark results"
+          title: "chore(benchmarks): refresh published benchmark results"
+          body: |
+            Automated refresh of the benchmark results table in
+            `tutorial/docs/parameter-identification.md`.
 
-      - name: Commit refreshed benchmark results
-        if: github.event_name == 'schedule' && steps.bench.outcome == 'success'
-        run: |
-          if git diff --quiet -- tutorial/docs/parameter-identification.md; then
-            echo "No benchmark result changes to commit."
-          else
-            git add tutorial/docs/parameter-identification.md
-            git commit -m "chore(benchmarks): refresh published benchmark results [skip ci]"
-            # Best-effort: branch protection on the default branch may block this; the docs are
-            # still deployed below regardless.
-            git push || echo "push failed (branch protection?); results deployed but not committed"
-          fi
+            - Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            - Trigger: `${{ github.event_name }}` — benchmark outcome: **${{ steps.bench.outcome }}**
 
-      - name: Deploy docs
-        if: github.event_name == 'schedule' && steps.bench.outcome == 'success'
-        run: |
-          cd tutorial
-          mkdocs gh-deploy -b tutorial-gh-pages --force
+            Merging republishes the tutorial via the **Docs Release** workflow (release-docs.yml).
+            (A `failure` outcome means a regression *assertion* tripped; the numbers are still
+            valid — see the run summary/log for which one.)
+          delete-branch: true
 
       - name: Reflect benchmark failure in the job status
         if: steps.bench.outcome == 'failure'
