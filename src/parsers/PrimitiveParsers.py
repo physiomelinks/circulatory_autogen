@@ -235,7 +235,8 @@ PARAM_ID_METHODS = {
         'description': ('Local bounded L-BFGS-B. Uses an automatic-differentiation gradient for '
                         'casadi_python, aadc_python, or cellml_only + CVODE_myokit + do_ad; '
                         'finite differences otherwise.'),
-        # The gradient source is the top-level `do_ad` user input, not an optimiser_option.
+        # The gradient source is the top-level `do_ad` user input, not an optimiser_option; the
+        # sources available for a given model_type/solver are exposed by gradient_sources().
         'options': [_OPT_COST_CONVERGENCE],
     },
     'multi_start_sp_minimize': {
@@ -292,6 +293,64 @@ def solver_info_fields(solver):
     """The `solver_info` settings a given solver accepts (see SOLVER_INFO_FIELDS), for tools that
     auto-populate the solver settings form. Empty list for an unknown solver."""
     return SOLVER_INFO_FIELDS.get(solver, [])
+
+
+def gradient_sources(model_type, solver=None):
+    """The gradient sources available for the gradient-based param-id methods (`sp_minimize`,
+    `multi_start_sp_minimize`) with this `model_type` + `solver`, for a front-end that offers a
+    "Gradient" menu without hardcoding CA's rules.
+
+    Each descriptor:
+      * ``value``  -- 'FD' | 'AD' | 'FSA' (the UI selector value)
+      * ``label``  -- human-readable name
+      * ``do_ad``  -- the top-level ``do_ad`` user-input flag CA needs for this source. There is
+                      no per-method "gradient" option in CA: AD vs finite differences is chosen by
+                      ``do_ad``, and which analytic backend runs follows from model_type/solver.
+                      Finite differences is ``do_ad`` False; every analytic source is ``do_ad`` True.
+      * ``requires_all_differentiable`` -- True only for CasADi AD, which needs every operation in
+                      the specific model to be differentiable. That is a per-model runtime property
+                      (not knowable from model_type/solver alone), so a caller that has loaded the
+                      model should gate the source on it -- e.g. via ``is_circulatory_differentiable``
+                      over the cost/operation funcs. All other sources are False.
+      * ``description``
+
+    The analytic source, if any, follows exactly ``OpencorParamID.get_gradient`` dispatch (and
+    ``AD_GRADIENT_MODEL_TYPES`` / ``fsa_gradient_available`` in the optimisers):
+      * ``casadi_python``               -> symbolic CasADi AD
+      * ``aadc_python``                 -> AADC tape AD (needs a Matlogica licence at runtime)
+      * ``cellml_only`` + ``CVODE_myokit`` -> Myokit CVODES forward sensitivity (FSA)
+      * otherwise                       -> finite differences only
+    Finite differences is always available. This is the single source of truth these rules were
+    previously duplicated from in downstream tools (e.g. CUFLynx); keep it in step with
+    get_gradient.
+    """
+    sources = [{
+        'value': 'FD', 'label': 'Finite difference', 'do_ad': False,
+        'requires_all_differentiable': False,
+        'description': ('Central finite differences of the cost; works for any model_type, at '
+                        'the cost of extra simulations per gradient.'),
+    }]
+    if model_type == 'casadi_python':
+        sources.append({
+            'value': 'AD', 'label': 'Automatic differentiation (CasADi)', 'do_ad': True,
+            'requires_all_differentiable': True,
+            'description': ('Exact symbolic CasADi gradient. Requires every operation in the '
+                            'model to be differentiable.'),
+        })
+    elif model_type == 'aadc_python':
+        sources.append({
+            'value': 'AD', 'label': 'Automatic differentiation (AADC)', 'do_ad': True,
+            'requires_all_differentiable': False,
+            'description': 'Exact AADC tape gradient (requires a Matlogica AADC licence at runtime).',
+        })
+    elif model_type == 'cellml_only' and solver == 'CVODE_myokit':
+        sources.append({
+            'value': 'FSA', 'label': 'Forward sensitivity (Myokit CVODES)', 'do_ad': True,
+            'requires_all_differentiable': False,
+            'description': ('Myokit CVODES forward-sensitivity gradient; the analytic gradient path '
+                            'for stiff cellml_only models.'),
+        })
+    return sources
 
 
 # Settings blocks for the non-calibration analysis modes (sensitivity, MCMC, identifiability), in

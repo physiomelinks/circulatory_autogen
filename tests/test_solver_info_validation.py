@@ -14,6 +14,7 @@ from parsers.PrimitiveParsers import (
     SOLVER_SCHEMA,
     SOLVER_INFO_FIELDS,
     solver_info_fields,
+    gradient_sources,
     ANALYSIS_OPTIONS,
     analysis_options,
     _SOLVER_INTEGRATOR_KEYS,
@@ -435,3 +436,49 @@ def test_sa_method_choices_each_have_a_dispatch_handler():
         assert hasattr(SensitivityAnalysis, f'run_{method}_sensitivity'), (
             f"schema advertises sa method {method!r} but SensitivityAnalysis has no "
             f"run_{method}_sensitivity handler")
+
+
+def test_gradient_sources_well_formed_and_match_get_gradient_dispatch():
+    """gradient_sources(model_type, solver) must advertise exactly the sources CA can actually
+    produce, keyed to the top-level do_ad flag, so a front-end can build a gradient menu without
+    hand-mirroring CA's rules. Pinned to OpencorParamID.get_gradient's dispatch: the AD-capable
+    model types are AD_GRADIENT_MODEL_TYPES, and cellml_only+CVODE_myokit gets FSA.
+    """
+    from param_id.optimisers import AD_GRADIENT_MODEL_TYPES
+
+    _REQUIRED_KEYS = {'value', 'label', 'do_ad', 'requires_all_differentiable', 'description'}
+
+    def _check_shape(srcs):
+        assert srcs, 'at least finite differences must always be offered'
+        for s in srcs:
+            assert set(s) == _REQUIRED_KEYS, s
+            assert s['value'] in {'FD', 'AD', 'FSA'}
+            assert isinstance(s['do_ad'], bool)
+            assert isinstance(s['requires_all_differentiable'], bool)
+        # Finite differences is always present, and is the only do_ad=False source.
+        fd = [s for s in srcs if s['value'] == 'FD']
+        assert len(fd) == 1 and fd[0]['do_ad'] is False
+        assert [s for s in srcs if not s['do_ad']] == fd
+        # Only CasADi AD needs all-differentiable.
+        for s in srcs:
+            assert s['requires_all_differentiable'] == (
+                s['value'] == 'AD' and 'CasADi' in s['label'])
+
+    # Every AD-capable model type offers an AD source with do_ad=True (matching get_gradient).
+    for mt in AD_GRADIENT_MODEL_TYPES:
+        srcs = gradient_sources(mt)
+        _check_shape(srcs)
+        ad = [s for s in srcs if s['value'] == 'AD']
+        assert len(ad) == 1 and ad[0]['do_ad'] is True, mt
+
+    # cellml_only gets the Myokit CVODES FSA source only with the Myokit solver.
+    myokit = gradient_sources('cellml_only', 'CVODE_myokit')
+    _check_shape(myokit)
+    fsa = [s for s in myokit if s['value'] == 'FSA']
+    assert len(fsa) == 1 and fsa[0]['do_ad'] is True
+
+    # No analytic source for cellml_only under a non-FSA solver, or for non-AD model types.
+    for mt, sv in [('cellml_only', 'CVODE_opencor'), ('python', 'solve_ivp'), ('cpp', 'RK4')]:
+        srcs = gradient_sources(mt, sv)
+        _check_shape(srcs)
+        assert [s['value'] for s in srcs] == ['FD'], (mt, sv)

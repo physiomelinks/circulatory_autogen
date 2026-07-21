@@ -74,10 +74,11 @@ The GUI front-end **CUFLynx** auto-populates its menus and settings forms by rea
 
 - `SOLVER_SCHEMA` — model types, solvers per model type, integrator `method`s per solver, and `solver_info_fields_by_solver` (`SOLVER_INFO_FIELDS`: the `solver_info` settings per solver). `_SOLVER_INTEGRATOR_KEYS` (validation) is **derived** from `SOLVER_INFO_FIELDS`, so add a solver_info field there.
 - `PARAM_ID_METHODS` — calibration methods, each with an `options` list = the `optimiser_options` it reads. Add a new optimiser knob here.
+- `gradient_sources(model_type, solver)` — the gradient sources (FD / AD / FSA) the gradient-based methods (`sp_minimize`, `multi_start_sp_minimize`) can use for a given model, each with the `do_ad` flag it implies. There is **no** per-method "gradient" option: AD vs FD is the top-level `do_ad` flag, and which analytic backend runs follows from `model_type`/`solver` (mirrors `OpencorParamID.get_gradient`). Keep it in step with that dispatch.
 - `ANALYSIS_OPTIONS` — the `sa_options` / `mcmc_options` / `ia_options` settings for the sensitivity / MCMC / identifiability modes.
 - Cost functions are a runtime registry (user-extensible), so they're discovered via `funcs_user.cost_funcs_user.cost_func_metadata()` (names + `is_MLE`/`is_combiner`/`differentiable` flags), not a static schema.
 
-Each setting is a descriptor `{name, type, default, required, description, choices?}`. Accessors: `solver_info_fields(solver)`, `param_id_method_options(method)`, `analysis_options(mode)`. Tests in `tests/test_solver_info_validation.py` lock every schema's shape **and** its correspondence to what the code actually reads (e.g. an option the optimiser doesn't read, or a read the schema omits, fails the suite) — extend those when you add settings.
+Each setting is a descriptor `{name, type, default, required, description, choices?}`. Accessors: `solver_info_fields(solver)`, `param_id_method_options(method)`, `analysis_options(mode)`, `gradient_sources(model_type, solver)`. Tests in `tests/test_solver_info_validation.py` lock every schema's shape **and** its correspondence to what the code actually reads (e.g. an option the optimiser doesn't read, or a read the schema omits, fails the suite) — extend those when you add settings.
 
 ## Source layout (`src/`)
 
