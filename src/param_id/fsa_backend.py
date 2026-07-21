@@ -35,7 +35,7 @@ def operand_sensitivities(sim_helper, dependent_names, param_names, sensitivitie
     chain-ruled (true FD-fallback params) are simply absent from the inner dicts.
 
     Shared by the FSA gradient (``get_jac_cost``) and the local sensitivity analysis
-    (``sobolSA.run_local_sensitivity``) so both see exactly the same d(operand)/d(param).
+    (``observable_feature_sensitivities``) so both see exactly the same d(operand)/d(param).
     """
     sens = sim_helper.get_sensitivities(dependent_names, param_names, sensitivities=sensitivities)
     chain_rule_map = getattr(sim_helper, '_fsa_chain_rule_map', None) or {}

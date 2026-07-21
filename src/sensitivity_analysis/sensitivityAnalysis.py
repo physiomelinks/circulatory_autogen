@@ -36,6 +36,17 @@ import pandas as pd
 import json
 import math
 from parsers.PrimitiveParsers import YamlFileParser
+from parsers.PrimitiveParsers import analysis_options
+
+
+def sa_method_choices():
+    """The sensitivity-analysis ``method`` values, read from the discoverable schema
+    (``ANALYSIS_OPTIONS['sensitivity_analysis']`` in parsers.PrimitiveParsers) rather than
+    hardcoded, so the dispatch, its error message and the docs stay in step with CUFLynx."""
+    for opt in analysis_options('sensitivity_analysis'):
+        if opt['name'] == 'method':
+            return list(opt.get('choices', []))
+    return []
 import warnings
 warnings.filterwarnings( "ignore", module = "matplotlib/..*" )
 from sensitivity_analysis.sobolSA import sobol_SA
@@ -159,8 +170,8 @@ class SensitivityAnalysis():
         """Set/update the sensitivity-analysis options dict.
 
         Args:
-            sa_options: e.g. ``method`` (``'sobol'``/``'local'``),
-                ``sample_type``, ``num_samples``, ``output_dir``.
+            sa_options: e.g. ``method`` (see ``sa_method_choices()`` / the sensitivity_analysis
+                schema), ``sample_type``, ``num_samples``, ``output_dir``.
         """
         self.SA_manager.set_sa_options(sa_options)
 
@@ -200,21 +211,29 @@ class SensitivityAnalysis():
 
         Args:
             sa_options: Optional options dict; if omitted, the options set at
-                construction (or via ``set_sa_options``) are used. ``method``
-                may be ``'sobol'`` or ``'local'``.
+                construction (or via ``set_sa_options``) are used. ``method`` is one of the
+                values declared for ``sa_options.method`` in the sensitivity_analysis schema
+                (``ANALYSIS_OPTIONS`` in parsers.PrimitiveParsers) -- see ``sa_method_choices()``.
         """
         if sa_options is None:
             sa_options = self.sa_options
         else:
             self.set_sa_options(sa_options)
 
-        if sa_options['method'] == 'sobol':
-            self.run_sobol_sensitivity(sa_options)
-        elif sa_options['method'] == 'local':
-            self.run_local_sensitivity(sa_options)
-        else:
-            print('ERROR: sensitivity analysis method not recognised')
+        # Dispatch by naming convention: method 'x' -> self.run_x_sensitivity. The valid set is
+        # the schema's method choices, so adding a method is: declare it in ANALYSIS_OPTIONS and
+        # define run_<method>_sensitivity -- nothing here is hardcoded.
+        method = sa_options['method']
+        if method not in sa_method_choices():
+            print(f'{RED}ERROR: sensitivity analysis method {method!r} not recognised; '
+                  f'valid methods are {sa_method_choices()}{RESET}')
             exit()
+        handler = getattr(self, f'run_{method}_sensitivity', None)
+        if handler is None:
+            print(f'{RED}ERROR: sensitivity method {method!r} is in the schema but no '
+                  f'run_{method}_sensitivity handler is defined{RESET}')
+            exit()
+        handler(sa_options)
 
     def run_sobol_sensitivity(self, sa_options=None):
         """Run Sobol SA and (on rank 0) save indices and plots.
