@@ -3792,6 +3792,69 @@ def test_multi_start_streams_per_start_cost_history_live(temp_output_dir):
     MPI.COMM_WORLD.Barrier()
 
 
+def test_multi_start_streams_per_start_param_vals_history_live(temp_output_dir):
+    """multi_start_param_vals_history.csv streams the actual parameter values per L-BFGS-B
+    iteration per start (iteration 0 = the start point), live and independent of DEBUG, so a GUI
+    can plot each parameter's per-start trajectory during the run alongside the cost.
+
+    Checks: the header names the parameters; a named value column per parameter; a row for every
+    global start 0..N-1 with iterations 0,1,2,...; the (start, iteration) keys match the cost
+    history exactly; and each start's last streamed params equal its multi_start_summary.csv
+    final parameter values.
+    """
+    import csv as _csv
+    import numpy as np
+    out_dir = os.path.join(temp_output_dir, 'multi_start_param_stream')
+    os.makedirs(out_dir, exist_ok=True)
+
+    num_starts = 5
+    opt = _make_multi_start_optimiser(
+        out_dir, _TwoWellParamId(param_init=(1.2, 1.2)),
+        {'num_starts': num_starts, 'start_sampling': 'latin_hypercube', 'seed': 1,
+         'cost_convergence': 1e-12})
+    assert opt.DEBUG is False
+    opt.run()
+
+    if MPI.COMM_WORLD.Get_rank() == 0:
+        rows = list(_csv.reader(open(os.path.join(out_dir, 'multi_start_param_vals_history.csv'))))
+        header = [c.strip() for c in rows[0]]
+        # header: start_idx, iteration, <one column per parameter> (the two-well params).
+        assert header[:2] == ['start_idx', 'iteration']
+        assert header[2:] == ['well x', 'well y'], header
+
+        per_start = {}
+        for r in rows[1:]:
+            if not r:
+                continue
+            s_idx, it = int(r[0]), int(r[1])
+            vals = [float(v) for v in r[2:]]
+            assert len(vals) == 2, r
+            per_start.setdefault(s_idx, []).append((it, vals))
+
+        assert sorted(per_start) == list(range(num_starts)), sorted(per_start)
+
+        # The param and cost streams are written together, so they must share the same
+        # (start_idx, iteration) keys.
+        cost_lines = [ln for ln in
+                      open(os.path.join(out_dir, 'multi_start_cost_history.csv')).read().splitlines()
+                      if ln.strip()][1:]
+        cost_keys = {(int(ln.split(',')[0]), int(ln.split(',')[1])) for ln in cost_lines}
+        param_keys = {(s, it) for s, rws in per_start.items() for it, _ in rws}
+        assert param_keys == cost_keys
+
+        summary = {int(row['start_idx']): row for row in
+                   _csv.DictReader(open(os.path.join(out_dir, 'multi_start_summary.csv')))}
+        for s_idx, rws in per_start.items():
+            iters = [it for it, _ in rws]
+            assert iters == list(range(len(iters))), (s_idx, iters)
+            # last streamed params == the start's recorded final (unnormalised) params.
+            last_vals = rws[-1][1]
+            final = [float(summary[s_idx][lbl]) for lbl in ('well x', 'well y')]
+            assert np.allclose(last_vals, final, rtol=1e-6, atol=1e-9), (s_idx, last_vals, final)
+
+    MPI.COMM_WORLD.Barrier()
+
+
 # The FitzHugh-Nagumo excitable-cell model is a standard multi-modal parameter-estimation
 # benchmark: its least-squares surface has many local minima, because a wrong recovery rate
 # c puts the simulated spike train out of phase with the data (Ramsay et al. 2007, JRSS-B,
