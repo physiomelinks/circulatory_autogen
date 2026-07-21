@@ -30,6 +30,11 @@ except:
 from solver_wrappers import get_simulation_helper
 from protocol_runners.protocol_executor import ProtocolExecutor
 from SALib.sample import saltelli
+# The Sobol *sampler* and the Sobol *analyzer* are different SALib modules that share the name
+# `sobol`. Import the sampler under a distinct name so it does not shadow (or get shadowed by)
+# the analyzer below -- `sample_type: sobol` previously called SALib.analyze.sobol.sample(),
+# which does not exist, so it raised AttributeError.
+from SALib.sample import sobol as sobol_sampler
 import pandas as pd
 from SALib.analyze import sobol
 import numpy as np
@@ -272,7 +277,7 @@ class sobol_SA():
         if self.SA_info["sample_type"] == "saltelli":
             samples = saltelli.sample(problem, self.num_samples, calc_second_order=True)  # Enable second-order interactions
         elif self.SA_info["sample_type"] == "sobol":
-            samples = sobol.sample(problem, self.num_samples, calc_second_order=True)  # Enable second-order interactions
+            samples = sobol_sampler.sample(problem, self.num_samples, calc_second_order=True)  # Enable second-order interactions
         else:
             raise ValueError(f"Unsupported sample type: {self.SA_info['sample_type']}")
         

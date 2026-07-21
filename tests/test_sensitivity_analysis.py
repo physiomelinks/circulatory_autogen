@@ -368,3 +368,34 @@ def test_local_observable_sensitivities_casadi_agrees_with_myokit(
                 f"backends disagree on d({label})/d({p}): myokit={a:.4e} casadi={b:.4e}")
             checked += 1
     assert checked > 0, "no mean-observable/param pair with a non-trivial sensitivity to compare"
+
+
+@pytest.mark.unit
+def test_sobolSA_generate_samples_supports_both_sample_types():
+    """Both advertised sample_type choices must actually produce samples.
+
+    `sample_type: sobol` used to raise `AttributeError: module 'SALib.analyze.sobol' has no
+    attribute 'sample'` because the name `sobol` in sobolSA.py was the SALib *analyzer* import,
+    not the *sampler* -- so only `saltelli` worked, even though the schema advertises both. This
+    exercises generate_samples directly (no model needed) for both types.
+    """
+    import numpy as np
+    from sensitivity_analysis.sobolSA import sobol_SA
+
+    # generate_samples only reads num_params + SA_info, so build a bare instance to avoid the
+    # heavy __init__ (which loads a model). This keeps the check a fast unit test of the dispatch.
+    mgr = object.__new__(sobol_SA)
+    mgr.num_params = 2
+    for sample_type in ('saltelli', 'sobol'):
+        mgr.SA_info = {
+            'param_names': ['a', 'b'],
+            'param_mins': [0.0, 0.0],
+            'param_maxs': [1.0, 1.0],
+            'num_samples': 8,
+            'sample_type': sample_type,
+        }
+        samples = mgr.generate_samples()
+        samples = np.asarray(samples)
+        assert samples.ndim == 2 and samples.shape[1] == 2, (sample_type, samples.shape)
+        assert samples.shape[0] > 0, sample_type
+        assert np.all(np.isfinite(samples)), sample_type
