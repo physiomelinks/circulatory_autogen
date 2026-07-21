@@ -325,6 +325,7 @@ To run the parameter identification we need to set a few entries in the `[CA_dir
     - **bayesian**: Bayesian optimization using scikit-optimize (deprecated, untested)
     - **sp_minimize**: Gradient-based optimizer (L-BFGS-B, local only)
     - **multi_start_sp_minimize**: Multi-start L-BFGS-B — a gradient-based descent from many scattered starting points, so it exploits the gradient but still escapes local minima
+    - **calisim_&lt;engine&gt;[_&lt;method&gt;]**: any optimisation method provided by [calisim](https://github.com/Plant-Food-Research-Open/calisim), e.g. `calisim_optuna_tpes`, `calisim_optuna_cmaes`, `calisim_openturns_de`, `calisim_emukit` (experimental, see below)
 - **pre_time**: this is the amount of time the simulation is run to get to steady state before comparing to the observables from `obs_data.json`. IMPORTANT: THis is overwritten by the pre_times within the obs_data.json file, see the next section.
 - **sim_time**: The amount of time used to compare simulation output and observable data. This should be equal to the length of a series observable entry divided by the "sample_rate". If not, only up to the minimum length of observable data and modelled data will be compared. 
 - **dt**: The output (sample) time step for model outputs
@@ -405,6 +406,43 @@ optimiser_options:
   cost_convergence: 0.001         # shared option
   sigma0: 0.1                      # CMA-ES specific (optional, initial standard deviation)
   # Note: Initial parameter values are automatically loaded from {file_prefix}_parameters.csv
+```
+
+### calisim backends (calisim_&lt;engine&gt;[_&lt;method&gt;]) — experimental
+
+[calisim](https://github.com/Plant-Food-Research-Open/calisim) wraps many optimisation libraries
+(optuna, OpenTURNS/Pagmo, emukit, BoTorch) behind one interface. CA wraps calisim once, so every
+calisim optimisation engine/method pair is usable as a `param_id_method` named
+`calisim_<engine>_<method>` — no new input files, and no new optimiser code per library.
+
+- **Pros**: a large family of global optimisers (TPE, CMA-ES, differential evolution, particle
+  swarm, simulated annealing, Bayesian optimisation, ...) with no further CA changes; the full
+  list is discovered automatically and shown in CUFLynx.
+- **Cons**: optional heavy dependency; calisim drives its own loop, so the run currently occupies
+  **rank 0 only** (the other MPI ranks idle); experimental.
+- **Best for**: trying an optimiser CA does not implement natively, before committing to it.
+
+Install with `pip install calisim` (the `botorch` engine additionally needs `pip install
+"calisim[torch]"`). calisim requires python `>=3.10,<3.13` and currently pins `numpy<2` and
+`scipy<1.12`.
+
+Everything else is unchanged: the bounds in `{file_prefix}_params_for_id.csv` become the calisim
+search box, `obs_data.json` is still evaluated by CA's own cost function (so all cost types,
+protocols, multi-experiment setups and user operations work), and the results are written as the
+usual `best_cost.npy`, `best_param_vals.npy` and history files, so plotting works as normal.
+calisim's own trial tables and plots land in a `calisim/` subdirectory of the output directory.
+
+```yaml
+param_id_method: calisim_optuna_tpes   # or calisim_optuna_cmaes, calisim_openturns_de, ...
+model_type: python
+solver: solve_ivp
+optimiser_options:
+  num_calls_to_function: 500   # calisim iterations (cost-function calls)
+  cost_convergence: 0.0001
+  n_init: 10                   # initial design size; the population size for openturns/Pagmo
+  random_seed: 0
+  method_kwargs:               # passed straight to the calisim sampler/algorithm
+    n_startup_trials: 50
 ```
 
 ### Gradient-based Optimizer (sp_minimize)
