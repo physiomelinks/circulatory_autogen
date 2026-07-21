@@ -23,6 +23,92 @@ import warnings
 import numpy as np
 
 
+def operand_sensitivities(sim_helper, dependent_names, param_names, sensitivities=None):
+    """d(operand_trace)/d(param) for every param that carries a sensitivity.
+
+    Returns ``{dependent_name: {param_name: np.ndarray}}``. Wraps the Myokit helper's
+    ``get_sensitivities`` (FSA-eligible params, whose own CVODES column *is* the sensitivity)
+    and folds in the initial-value **chain-rule** params (issue #270): a constant that feeds a
+    state's initial value has no column of its own, so its operand sensitivity is synthesised as
+    ``sum_s d(operand)/d(init s) * d(init_s)/d(param)`` from the ``init(state)`` columns and the
+    per-state factors in ``sim_helper._fsa_chain_rule_map``. Params that are neither eligible nor
+    chain-ruled (true FD-fallback params) are simply absent from the inner dicts.
+
+    Shared by the FSA gradient (``get_jac_cost``) and the local sensitivity analysis
+    (``sobolSA.run_local_sensitivity``) so both see exactly the same d(operand)/d(param).
+    """
+    sens = sim_helper.get_sensitivities(dependent_names, param_names, sensitivities=sensitivities)
+    chain_rule_map = getattr(sim_helper, '_fsa_chain_rule_map', None) or {}
+    if chain_rule_map:
+        chain_state_qnames = sorted({sq for tgts in chain_rule_map.values() for sq, _ in tgts})
+        init_sens = sim_helper.get_init_state_sensitivities(
+            dependent_names, chain_state_qnames, sensitivities=sensitivities)
+        for pname, targets in chain_rule_map.items():
+            for dep_name in dependent_names:
+                acc = None
+                for state_qname, dinit in targets:
+                    s_trace = init_sens.get(dep_name, {}).get(state_qname)
+                    if s_trace is None:
+                        continue
+                    term = np.asarray(s_trace, dtype=float) * dinit
+                    acc = term if acc is None else acc + term
+                if acc is not None:
+                    sens.setdefault(dep_name, {})[pname] = acc
+    return sens
+
+
+def observable_feature_sensitivities(pid, param_vals):
+    """d(observable feature)/d(param) for the scalar (const) observables, via the Myokit CVODES
+    sensitivities and a directional derivative.
+
+    Returns ``{observable_label: {param_name: d(feature)/d(param)}}`` -- the same shape as the
+    CasADi arm -- so the two backends report the identical quantity. FSA gives the exact operand
+    sensitivity S = d(operand)/d(param); the feature (max/min/mean/...) is re-evaluated on
+    ``operands +/- h*S`` and central-differenced, so d(feature)/d(param) reuses the existing
+    operation/observable code with no re-simulation, exactly as get_jac_cost does for the cost.
+    Single sub-experiment only (the SA local path); the multi-sub carry stays in get_jac_cost.
+
+    This is the Myokit arm of ``OpencorParamID.get_observable_sensitivities``. Only parameters
+    that carry a CVODES sensitivity (FSA-eligible plus initial-value chain-rule, #270) are
+    included; there is no finite-difference fallback here.
+    """
+    ensure_setup(pid)
+    param_vals = np.asarray(param_vals, dtype=float)
+    flat_names = pid._fsa_param_names_flat
+
+    num_sub_total = sum(len(st) for st in pid.protocol_info["sim_times"])
+    if num_sub_total != 1:
+        raise NotImplementedError(
+            "Local (CVODES) observable sensitivities currently support a single sub-experiment; "
+            f"this protocol has {num_sub_total} sub-experiments.")
+
+    _, operands_list, _ = pid.get_cost_obs_and_pred_from_params(
+        param_vals, reset=True, only_one_exp=0)
+    if not operands_list or operands_list[0] is None:
+        raise RuntimeError("Local sensitivity nominal simulation failed to converge.")
+    operands = operands_list[0]
+
+    sens = operand_sensitivities(pid.sim_helper, pid._fsa_dependent_names, flat_names)
+    has_sensitivity = (set(pid.sim_helper._fsa_eligible_param_names or [])
+                       | set(getattr(pid.sim_helper, '_fsa_chain_rule_map', None) or {}))
+
+    const_to_obs = pid.obs_info["const_idx_to_obs_idx"]
+    out = {pid._observable_label(obs_idx): {} for obs_idx in const_to_obs}
+    for j, pname in enumerate(flat_names):
+        if pname not in has_sensitivity:
+            continue
+        pj = float(param_vals[j])
+        h = 1e-3 * abs(pj) if pj != 0.0 else 1e-4
+        pert_p = perturb_operands_along_sensitivity(pid, operands, sens, pname, h)
+        pert_m = perturb_operands_along_sensitivity(pid, operands, sens, pname, -h)
+        const_p = np.asarray(pid.get_obs_output_dict(pert_p)['const'], dtype=float)
+        const_m = np.asarray(pid.get_obs_output_dict(pert_m)['const'], dtype=float)
+        d_feature = (const_p - const_m) / (2.0 * h)
+        for k, obs_idx in enumerate(const_to_obs):
+            out[pid._observable_label(obs_idx)][pname] = float(d_feature[k])
+    return out
+
+
 def gradient_available(pid):
     """True when this run can produce an analytic gradient via Myokit CVODES FSA.
 
@@ -109,10 +195,9 @@ def get_jac_cost(pid, param_vals, return_cost=False):
 
     eligible_names = set(pid.sim_helper._fsa_eligible_param_names or [])
     # Params handled by the chain rule d(obs)/d(param) = sum_s d(obs)/d(init s)*d(init_s)/d(param):
-    # they carry no column of their own, so their operand sensitivity is synthesised below from
-    # the init(state) columns and then treated exactly like an eligible param (issue #270).
+    # they carry no FSA column of their own (issue #270). operand_sensitivities() covers both
+    # these and the eligible params, so both are "has_sensitivity" here.
     chain_rule_map = getattr(pid.sim_helper, '_fsa_chain_rule_map', None) or {}
-    chain_state_qnames = sorted({sq for tgts in chain_rule_map.values() for sq, _ in tgts})
     has_sensitivity = eligible_names | set(chain_rule_map)
     # Map each flattened param name to its column index in param_vals.
     flat_names = pid._fsa_param_names_flat
@@ -147,27 +232,10 @@ def get_jac_cost(pid, param_vals, return_cost=False):
             raw_cost += float(pid.get_cost_from_operands(
                 operands, exp_idx=exp_idx, sub_idx=sub_idx))
             sens_arr = sens_history[sub_idx] if sub_idx < len(sens_history) else None
-            sens = pid.sim_helper.get_sensitivities(
-                pid._fsa_dependent_names, flat_names, sensitivities=sens_arr)
-
-            # Synthesise the operand sensitivity of each chain-rule param and inject it into
-            # `sens` under the param's own name, so the directional-difference loop below treats
-            # it identically to a param that had its own FSA column. For dependent var d:
-            #   d(d)/d(param) = sum_s [ d(d)/d(init s) ] * [ d(init_s)/d(param) ]
-            if chain_rule_map:
-                init_sens = pid.sim_helper.get_init_state_sensitivities(
-                    pid._fsa_dependent_names, chain_state_qnames, sensitivities=sens_arr)
-                for pname, targets in chain_rule_map.items():
-                    for dep_name in pid._fsa_dependent_names:
-                        acc = None
-                        for state_qname, dinit in targets:
-                            s_trace = init_sens.get(dep_name, {}).get(state_qname)
-                            if s_trace is None:
-                                continue
-                            term = np.asarray(s_trace, dtype=float) * dinit
-                            acc = term if acc is None else acc + term
-                        if acc is not None:
-                            sens.setdefault(dep_name, {})[pname] = acc
+            # d(operand)/d(param) for every param that has a sensitivity -- FSA-eligible plus
+            # init-value chain-rule params, synthesised identically (see operand_sensitivities).
+            sens = operand_sensitivities(
+                pid.sim_helper, pid._fsa_dependent_names, flat_names, sensitivities=sens_arr)
 
             for j in range(n_params):
                 pname = flat_names[j]

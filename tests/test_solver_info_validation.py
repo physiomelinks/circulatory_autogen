@@ -200,7 +200,7 @@ def test_closed_set_analysis_options_are_enums_with_choices():
       * method      -> sensitivityAnalysis / identifiabilityAnalysis
     """
     expected = {
-        ('sensitivity_analysis', 'method'): ['sobol', 'naive'],
+        ('sensitivity_analysis', 'method'): ['sobol', 'local'],
         ('sensitivity_analysis', 'sample_type'): ['saltelli', 'sobol'],
         ('identifiability_analysis', 'method'): ['Laplace', 'profile_likelihood'],
         # 'AD' is a branch in calculate_hessian but raises NotImplementedError, so it

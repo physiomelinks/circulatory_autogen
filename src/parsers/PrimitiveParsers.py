@@ -306,8 +306,10 @@ ANALYSIS_OPTIONS = {
         'options_key': 'sa_options',
         'options': [
             {'name': 'method', 'type': 'enum', 'default': 'sobol', 'required': False,
-             'choices': ['sobol', 'naive'],
-             'description': 'Sensitivity method: Sobol indices or a naive one-at-a-time sweep.'},
+             'choices': ['sobol', 'local'],
+             'description': ('Sensitivity method: global variance-based Sobol indices, or '
+                             '"local" derivative-based sensitivities from the Myokit CVODES '
+                             'forward sensitivities (cellml_only + CVODE_myokit only).')},
             # enum, not str: sobol_SA.generate_samples dispatches on exactly these two
             # and raises ValueError on anything else, so a free string only lets a
             # typo through to run time.

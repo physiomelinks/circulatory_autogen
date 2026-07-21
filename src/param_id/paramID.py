@@ -2287,6 +2287,45 @@ class OpencorParamID():
         else:
             raise ValueError(f"Gradient not available for model_type={self.model_type}")
 
+    def _observable_label(self, obs_idx):
+        """Human-readable, disambiguating label for observable ``obs_idx`` (used as the row key
+        of the local-sensitivity matrices). names_for_plotting can repeat across observables that
+        share a variable but differ by operation (e.g. mean vs max of the same trace), so the
+        operation and operand are folded in."""
+        name = self.obs_info["names_for_plotting"][obs_idx]
+        op = self.obs_info["operations"][obs_idx]
+        operands = self.obs_info["operands"][obs_idx]
+        operand = operands[0] if operands else ''
+        return f"{name} ({op} {operand})" if op else f"{name} ({operand})"
+
+    def get_observable_sensitivities(self, param_vals):
+        """d(observable feature)/d(param) for the scalar observables -- the backend-agnostic
+        local-sensitivity accessor, parallel to ``get_gradient``.
+
+        Returns ``{observable_label: {param_name: d(feature)/d(param)}}``, dispatching by
+        model_type to the same analytic machinery the cost gradient uses: the CasADi jacobian
+        of the observable vector, or the Myokit CVODES sensitivities with a directional
+        derivative of the feature. Both arms report the identical quantity so a local
+        sensitivity analysis is backend-consistent. There is no finite-difference fallback --
+        backends without an analytic sensitivity raise, pointing at global Sobol SA instead.
+        """
+        if self.model_type == 'casadi_python':
+            return casadi_backend.get_observable_sensitivities(self, param_vals)
+        elif self.model_type == 'aadc_python':
+            raise NotImplementedError(
+                "Local (derivative-based) sensitivity analysis is not yet implemented for the "
+                "AADC backend. Use model_type 'casadi_python', or 'cellml_only' with solver "
+                "'CVODE_myokit', or global Sobol SA (sa_options method 'sobol').")
+        elif fsa_backend.gradient_available(self):
+            return fsa_backend.observable_feature_sensitivities(self, param_vals)
+        else:
+            raise NotImplementedError(
+                "Local (derivative-based) sensitivity analysis needs an analytic sensitivity "
+                f"backend, not available for model_type={self.model_type} / solver="
+                f"{self.solver_info.get('solver') if isinstance(self.solver_info, dict) else None}. "
+                "Use model_type 'casadi_python', or 'cellml_only' with solver 'CVODE_myokit' and "
+                "do_ad true, or global Sobol SA (sa_options method 'sobol').")
+
     def get_cost_and_gradient(self, param_vals):
         """Return ``(cost, gradient)`` in one evaluation.
 
