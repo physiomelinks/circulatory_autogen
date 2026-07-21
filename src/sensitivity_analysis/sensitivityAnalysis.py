@@ -36,6 +36,17 @@ import pandas as pd
 import json
 import math
 from parsers.PrimitiveParsers import YamlFileParser
+from parsers.PrimitiveParsers import analysis_options
+
+
+def sa_method_choices():
+    """The sensitivity-analysis ``method`` values, read from the discoverable schema
+    (``ANALYSIS_OPTIONS['sensitivity_analysis']`` in parsers.PrimitiveParsers) rather than
+    hardcoded, so the dispatch, its error message and the docs stay in step with CUFLynx."""
+    for opt in analysis_options('sensitivity_analysis'):
+        if opt['name'] == 'method':
+            return list(opt.get('choices', []))
+    return []
 import warnings
 warnings.filterwarnings( "ignore", module = "matplotlib/..*" )
 from sensitivity_analysis.sobolSA import sobol_SA
@@ -101,6 +112,15 @@ class SensitivityAnalysis():
                             sa_output_dir, param_id_path=self.param_id_obs_path, params_for_id_path=self.params_for_id_path,
                             verbose=False, use_MPI=True, model_type=self.model_type)
 
+        # For the local (derivative-based) method, which -- unlike Sobol -- runs through a
+        # backend-agnostic param-id engine (mirroring IdentifiabilityAnalysis), not the Sobol
+        # sampling manager. Populated lazily by run_local_sensitivity from the stashes below.
+        self._inp_data_dict = None
+        self._obs_data_dict = None
+        self._params_for_id = None
+        self._local_engine = None
+        self.local_sensitivities = None
+
     @classmethod
     def init_from_dict(cls, inp_data_dict):
         """Build a `SensitivityAnalysis` from a configuration dict.
@@ -129,7 +149,10 @@ class SensitivityAnalysis():
         if 'file_name_prefix' not in kwargs and 'file_prefix' in inp_data_dict:
             kwargs['file_name_prefix'] = inp_data_dict['file_prefix']
 
-        return cls(**kwargs)
+        sa = cls(**kwargs)
+        # Keep the parsed config so the local method can build a param-id engine from it.
+        sa._inp_data_dict = inp_data_dict
+        return sa
 
     def init_from_all_dicts(cls, inp_data_dict, obs_data_dict, params_for_id_dict, sa_options):
         sa = cls.init_from_dict(inp_data_dict)
@@ -147,8 +170,8 @@ class SensitivityAnalysis():
         """Set/update the sensitivity-analysis options dict.
 
         Args:
-            sa_options: e.g. ``method`` (``'sobol'``/``'naive'``),
-                ``sample_type``, ``num_samples``, ``output_dir``.
+            sa_options: e.g. ``method`` (see ``sa_method_choices()`` / the sensitivity_analysis
+                schema), ``sample_type``, ``num_samples``, ``output_dir``.
         """
         self.SA_manager.set_sa_options(sa_options)
 
@@ -159,6 +182,7 @@ class SensitivityAnalysis():
             obs_data_dict: Observation data dict (see
                 [`ObsDataCreator`][utilities.obs_data_helpers.ObsDataCreator]).
         """
+        self._obs_data_dict = obs_data_dict
         self.SA_manager.set_ground_truth_data(obs_data_dict)
 
     def set_params_for_id(self, params_for_id_dict):
@@ -168,6 +192,7 @@ class SensitivityAnalysis():
             params_for_id_dict: List of parameter entries (see
                 [`CVS0DParamID.set_params_for_id`][param_id.paramID.CVS0DParamID.set_params_for_id]).
         """
+        self._params_for_id = params_for_id_dict
         self.SA_manager.set_params_for_id(params_for_id_dict)
 
     def set_model_out_names(self, obs_data_dict):
@@ -186,21 +211,29 @@ class SensitivityAnalysis():
 
         Args:
             sa_options: Optional options dict; if omitted, the options set at
-                construction (or via ``set_sa_options``) are used. ``method``
-                may be ``'sobol'`` or ``'naive'``.
+                construction (or via ``set_sa_options``) are used. ``method`` is one of the
+                values declared for ``sa_options.method`` in the sensitivity_analysis schema
+                (``ANALYSIS_OPTIONS`` in parsers.PrimitiveParsers) -- see ``sa_method_choices()``.
         """
         if sa_options is None:
             sa_options = self.sa_options
         else:
             self.set_sa_options(sa_options)
 
-        if sa_options['method'] == 'naive':
-            self.run_naive_sensitivity()
-        elif sa_options['method'] == 'sobol':
-            self.run_sobol_sensitivity(sa_options)
-        else:
-            print('ERROR: sensitivity analysis method not recognised')
+        # Dispatch by naming convention: method 'x' -> self.run_x_sensitivity. The valid set is
+        # the schema's method choices, so adding a method is: declare it in ANALYSIS_OPTIONS and
+        # define run_<method>_sensitivity -- nothing here is hardcoded.
+        method = sa_options['method']
+        if method not in sa_method_choices():
+            print(f'{RED}ERROR: sensitivity analysis method {method!r} not recognised; '
+                  f'valid methods are {sa_method_choices()}{RESET}')
             exit()
+        handler = getattr(self, f'run_{method}_sensitivity', None)
+        if handler is None:
+            print(f'{RED}ERROR: sensitivity method {method!r} is in the schema but no '
+                  f'run_{method}_sensitivity handler is defined{RESET}')
+            exit()
+        handler(sa_options)
 
     def run_sobol_sensitivity(self, sa_options=None):
         """Run Sobol SA and (on rank 0) save indices and plots.
@@ -231,7 +264,112 @@ class SensitivityAnalysis():
             self.SA_manager.plot_sobol_S2_idx(S2_all)
             self.SA_manager.plot_sobol_heatmap(S1_all, ST_all)
 
-    
+    def _build_local_engine(self):
+        """Build (once) a param-id engine for the local method.
+
+        Local SA is derivative-based and backend-agnostic, so -- unlike Sobol, which runs
+        through the ``sobol_SA`` sampling manager -- it goes through a ``CVS0DParamID`` engine
+        and its ``get_observable_sensitivities`` accessor, exactly as ``IdentifiabilityAnalysis``
+        wraps the engine for the Hessian. ``do_ad`` is forced on so the analytic sensitivity
+        path (CasADi jacobian / Myokit CVODES) is used.
+        """
+        if self._local_engine is not None:
+            return self._local_engine
+        from param_id.paramID import CVS0DParamID
+        if self._inp_data_dict is None or self._obs_data_dict is None or self._params_for_id is None:
+            raise RuntimeError(
+                "Local SA needs the config, ground-truth data and params for id: build via "
+                "init_from_dict and call set_ground_truth_data / set_params_for_id first.")
+        inp = dict(self._inp_data_dict)
+        inp['do_ad'] = True  # local SA is derivative-based
+        engine = CVS0DParamID.init_from_dict(inp)
+        engine.set_ground_truth_data(self._obs_data_dict)
+        engine.set_params_for_id(self._params_for_id)
+        self._local_engine = engine
+        return engine
+
+    def run_local_sensitivity(self, sa_options=None):
+        """Run local (derivative-based) sensitivity analysis.
+
+        Computes d(observable feature)/d(param) at the nominal parameter values -- the analytic,
+        single-solve counterpart to the sampling-based Sobol SA -- via the backend-agnostic
+        ``OpencorParamID.get_observable_sensitivities`` (CasADi jacobian for casadi_python;
+        Myokit CVODES sensitivities for cellml_only + CVODE_myokit). On rank 0 it saves the
+        absolute and relative sensitivity matrices to CSV. The result is also available via
+        ``get_local_sensitivities()``.
+
+        Args:
+            sa_options: Optional options dict (see ``set_sa_options``).
+        """
+        comm = MPI.COMM_WORLD
+        rank = comm.Get_rank()
+        if sa_options is not None:
+            self.set_sa_options(sa_options)
+
+        engine = self._build_local_engine().param_id
+        param_names = [n[0] if isinstance(n, list) else n
+                       for n in engine.param_id_info["param_names"]]
+        nominal = engine.sim_helper.get_init_param_vals(param_names)
+        nominal = np.asarray(
+            [float(v[0]) if isinstance(v, (list, tuple, np.ndarray)) else float(v)
+             for v in nominal], dtype=float)
+
+        sens = engine.get_observable_sensitivities(nominal)  # {obs_label: {param: d(feat)/dp}}
+
+        output_names = list(sens.keys())
+        n_out, n_par = len(output_names), len(param_names)
+        absolute = np.zeros((n_out, n_par))
+        relative = np.zeros((n_out, n_par))
+        # Nominal feature magnitudes for the dimensionless (relative) normalisation.
+        feat_mag = self._nominal_feature_magnitudes(engine, nominal, output_names)
+        for i, oname in enumerate(output_names):
+            fmag = feat_mag.get(oname, 0.0)
+            for jj, pname in enumerate(param_names):
+                d = float(sens[oname].get(pname, 0.0))
+                absolute[i, jj] = d
+                relative[i, jj] = d * abs(nominal[jj]) / fmag if fmag > 1e-30 else 0.0
+
+        self.local_sensitivities = {
+            'param_names': list(param_names),
+            'output_names': output_names,
+            'nominal_param_vals': list(nominal),
+            'absolute': absolute,     # d(feature)/d(param)
+            'relative': relative,     # dimensionless |p| * d(feature)/d(param) / |feature|
+            'raw': sens,
+        }
+        if rank == 0:
+            out_dir = self.SA_manager.output_dir
+            print(f"{GREEN}Local sensitivity analysis completed successfully :){RESET}")
+            print(f'{CYAN}saving results in {out_dir}{RESET}')
+            for key in ('relative', 'absolute'):
+                df = pd.DataFrame(self.local_sensitivities[key],
+                                  index=output_names, columns=param_names)
+                df.index.name = 'output'
+                df.to_csv(os.path.join(out_dir, f'local_sensitivity_{key}.csv'))
+        return self.local_sensitivities
+
+    def _nominal_feature_magnitudes(self, engine, nominal, output_names):
+        """|feature| at the nominal params, keyed by observable label, for relative scaling."""
+        try:
+            _, operands_list, _ = engine.get_cost_obs_and_pred_from_params(
+                nominal, reset=True, only_one_exp=0)
+            const = np.asarray(engine.get_obs_output_dict(operands_list[0])['const'], dtype=float)
+            c2o = engine.obs_info["const_idx_to_obs_idx"]
+            return {engine._observable_label(obs_i): abs(float(const[k]))
+                    for k, obs_i in enumerate(c2o)}
+        except Exception:
+            return {name: 0.0 for name in output_names}
+
+    def get_local_sensitivities(self):
+        """Return the last local-sensitivity result (or None if not run yet).
+
+        A dict with ``param_names``, ``output_names``, ``absolute`` and ``relative`` matrices
+        ([n_output x n_param]) and the ``raw`` {observable: {param: d(feature)/d(param)}}. This
+        is the accessor external tools (e.g. CUFLynx) read to obtain the local sensitivities.
+        """
+        return self.local_sensitivities
+
+
     def choose_most_impactful_params_sobol(self, top_n=5, index_type='ST', criterion='max', threshold=0.01, use_threshold=False):
         """
         Ranks and returns parameters based on Sobol indices.

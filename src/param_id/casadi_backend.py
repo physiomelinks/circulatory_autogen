@@ -189,6 +189,46 @@ def get_cost(pid, param_vals):
     return cost
 
 
+def get_observable_sensitivities(pid, param_vals):
+    """d(observable feature)/d(param) for the scalar (const) observables, via the exact CasADi
+    jacobian of the symbolic observable vector w.r.t. the parameters.
+
+    Returns ``{observable_label: {param_name: d(feature)/d(param)}}`` (see
+    ``OpencorParamID._observable_label``). This is the CasADi arm of
+    ``OpencorParamID.get_observable_sensitivities`` -- the backend-agnostic local-sensitivity
+    accessor -- and mirrors how get_jac_cost differentiates the cost, but for each observable
+    output instead of the aggregated cost.
+    """
+    import casadi as ca
+    param_names = pid.param_id_info["param_names"]
+    flat_names = [n[0] if isinstance(n, list) else n for n in param_names]
+    build_functions(pid, param_names, param_vals)
+
+    # jacobian of the flattened observable vector w.r.t. the differentiated parameter subset.
+    jac_symb = ca.jacobian(pid.obs_vec, pid.sim_helper.variables_symb_subset)
+    jac_func = ca.Function(
+        'obs_jac_func',
+        [pid.sim_helper.states_symb, pid.sim_helper.variables_symb],
+        [jac_symb])
+    jac = np.array(jac_func(pid.sim_helper.states, pid.sim_helper.variables))  # [n_rows x n_params]
+
+    # obs_meta slices obs_vec by (field, observable-item, size); the single 'const' entry holds
+    # all scalar-feature rows in const-index order, so row idx+k is const observable k, whose
+    # observable index is const_idx_to_obs_idx[k] (identical mapping to the Myokit arm). See
+    # casadi_backend.get_obs, which slices obs_vec the same way.
+    const_to_obs = pid.obs_info["const_idx_to_obs_idx"]
+    out = {}
+    idx = 0
+    for key, _item, size in pid.obs_meta:
+        n_rows = sum(size) if isinstance(size, list) else size
+        if key == 'const':
+            for k in range(n_rows):
+                label = pid._observable_label(const_to_obs[k])
+                out[label] = {flat_names[j]: float(jac[idx + k, j]) for j in range(len(flat_names))}
+        idx += n_rows
+    return out
+
+
 def get_obs(pid, param_vals, get_all_series=False):
     param_names = pid.param_id_info["param_names"]
     build_functions(pid, param_names, param_vals, get_all_series)

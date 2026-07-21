@@ -200,7 +200,7 @@ def test_closed_set_analysis_options_are_enums_with_choices():
       * method      -> sensitivityAnalysis / identifiabilityAnalysis
     """
     expected = {
-        ('sensitivity_analysis', 'method'): ['sobol', 'naive'],
+        ('sensitivity_analysis', 'method'): ['sobol', 'local'],
         ('sensitivity_analysis', 'sample_type'): ['saltelli', 'sobol'],
         ('identifiability_analysis', 'method'): ['Laplace', 'profile_likelihood'],
         # 'AD' is a branch in calculate_hessian but raises NotImplementedError, so it
@@ -417,3 +417,21 @@ def test_warn_if_casadi_nonzero_pre_time_ignores_other_model_types():
         warnings.simplefilter('always')
         warn_if_casadi_nonzero_pre_time('python', pre_time=0.5)
     assert len(caught) == 0
+
+
+def test_sa_method_choices_each_have_a_dispatch_handler():
+    """Every sensitivity_analysis 'method' choice in the schema must have a matching
+    run_<method>_sensitivity handler on SensitivityAnalysis, and the run dispatcher must derive
+    its valid set from the schema (not a hardcoded list). This locks the schema <-> dispatch
+    correspondence the run message now relies on, so adding a method to the schema without a
+    handler (or vice versa) fails here."""
+    from sensitivity_analysis.sensitivityAnalysis import SensitivityAnalysis, sa_method_choices
+
+    choices = sa_method_choices()
+    assert choices, "no sensitivity_analysis method choices found in the schema"
+    # sa_method_choices reads straight from the schema accessor.
+    assert choices == _option('sensitivity_analysis', 'method')['choices']
+    for method in choices:
+        assert hasattr(SensitivityAnalysis, f'run_{method}_sensitivity'), (
+            f"schema advertises sa method {method!r} but SensitivityAnalysis has no "
+            f"run_{method}_sensitivity handler")
