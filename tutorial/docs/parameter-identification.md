@@ -446,6 +446,8 @@ optimiser_options:
 
 Alongside the usual `best_cost_history.csv` / `best_param_vals_history.csv` (written as a running-best curve over the concatenated starts), this optimiser writes a **`multi_start_summary.csv`** with one row per start — its initial cost, final cost, iteration count and final parameter values. That tells you how many distinct basins your starts fell into, which is the quickest way to see whether `num_starts` is high enough.
 
+It also streams **`multi_start_cost_history.csv`** live *during* the run — one `start_idx, iteration, cost` row per L-BFGS-B iteration (iteration `0` is the start point), appended as it happens and independent of `DEBUG`. Group by `start_idx` and order by `iteration` to plot a cost-vs-iteration line per start while the run is still going (`start_idx` is a stable global index, so rows from starts running concurrently on different MPI ranks demux cleanly regardless of interleaving).
+
 #### Benchmark: FitzHugh-Nagumo
 
 `resources/FitzHugh_Nagumo_*` is a deliberately multi-modal benchmark. The FitzHugh-Nagumo excitable-cell model

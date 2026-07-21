@@ -3717,6 +3717,81 @@ def test_multi_start_writes_running_best_history_and_start_summary(temp_output_d
     MPI.COMM_WORLD.Barrier()
 
 
+def test_multi_start_cost_stream_tolerates_none_output_dir():
+    """The live cost stream must be a no-op when there is no output dir, not crash.
+
+    output_dir is set on rank 0 only (set_output_dir is rank-0-guarded), so on every other MPI
+    rank the optimiser's output_dir is None. Each rank streams the starts it runs, so a naive
+    os.path.join(self.output_dir, ...) raised `TypeError: expected str, bytes or os.PathLike
+    object, not NoneType` on rank 1+ and took the whole multi-start run down. This reproduces
+    that condition at a single rank: with output_dir None, _append_start_cost writes nothing and
+    does not raise. (run() broadcasts rank 0's real path to the other ranks so they *do* stream;
+    this guards the no-output-configured tail.)
+    """
+    opt = _make_multi_start_optimiser(
+        None, _TwoWellParamId(param_init=(1.2, 1.2)),
+        {'num_starts': 2, 'start_sampling': 'latin_hypercube', 'seed': 1,
+         'cost_convergence': 1e-12})
+    assert opt.output_dir is None and opt._stream_output_dir is None
+    # The exact call _run_one_start makes for iteration 0 -- must not raise.
+    opt._append_start_cost(0, 0, 1.23)
+
+
+def test_multi_start_streams_per_start_cost_history_live(temp_output_dir):
+    """multi_start_cost_history.csv streams one `start_idx, iteration, cost` row per L-BFGS-B
+    iteration (iteration 0 = the start point), live and independent of DEBUG, so a GUI can plot
+    a cost-vs-iteration line per start during the run (issue #286).
+
+    Checks: the header; DEBUG-independence (the optimiser is built with DEBUG=False); a row for
+    every global start index 0..N-1; iterations per start start at 0 and increase by 1; the cost
+    is non-increasing within a start (L-BFGS-B accepts only improving steps); and each start's
+    last streamed cost matches its multi_start_summary.csv final_cost.
+    """
+    import csv as _csv
+    out_dir = os.path.join(temp_output_dir, 'multi_start_stream')
+    os.makedirs(out_dir, exist_ok=True)
+
+    num_starts = 5
+    opt = _make_multi_start_optimiser(
+        out_dir, _TwoWellParamId(param_init=(1.2, 1.2)),
+        {'num_starts': num_starts, 'start_sampling': 'latin_hypercube', 'seed': 1,
+         'cost_convergence': 1e-12})
+    assert opt.DEBUG is False  # streaming must not depend on DEBUG
+    opt.run()
+
+    if MPI.COMM_WORLD.Get_rank() == 0:
+        path = os.path.join(out_dir, 'multi_start_cost_history.csv')
+        lines = [ln for ln in open(path).read().splitlines() if ln.strip()]
+        assert lines[0] == 'start_idx, iteration, cost'
+
+        per_start = {}
+        for ln in lines[1:]:
+            s_idx, it, cost = [tok.strip() for tok in ln.split(',')]
+            per_start.setdefault(int(s_idx), []).append((int(it), float(cost)))
+
+        # Every start streamed, keyed by its global index.
+        assert sorted(per_start) == list(range(num_starts)), sorted(per_start)
+
+        summary = {int(r['start_idx']): r for r in
+                   _csv.DictReader(open(os.path.join(out_dir, 'multi_start_summary.csv')))}
+        for s_idx, rows in per_start.items():
+            iters = [it for it, _ in rows]
+            costs = [c for _, c in rows]
+            # iteration 0 (the start point) is present and iterations increase by 1.
+            assert iters == list(range(len(iters))), (s_idx, iters)
+            # L-BFGS-B only accepts improving steps, so the per-start curve never worsens
+            # (9 sig-fig rounding can make two consecutive equal).
+            assert all(costs[i + 1] <= costs[i] * (1 + 1e-9) + 1e-30
+                       for i in range(len(costs) - 1)), (s_idx, costs)
+            # the first streamed cost is this start's init cost; the curve ends no worse than
+            # the start's recorded final cost (res.fun can be from a point after the last
+            # callback, so only a one-sided bound is guaranteed).
+            assert costs[0] == pytest.approx(float(summary[s_idx]['init_cost']), rel=1e-6)
+            assert float(summary[s_idx]['final_cost']) <= costs[-1] * (1 + 1e-6) + 1e-30
+
+    MPI.COMM_WORLD.Barrier()
+
+
 # The FitzHugh-Nagumo excitable-cell model is a standard multi-modal parameter-estimation
 # benchmark: its least-squares surface has many local minima, because a wrong recovery rate
 # c puts the simulated spike train out of phase with the data (Ramsay et al. 2007, JRSS-B,
