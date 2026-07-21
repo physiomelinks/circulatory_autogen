@@ -3717,6 +3717,26 @@ def test_multi_start_writes_running_best_history_and_start_summary(temp_output_d
     MPI.COMM_WORLD.Barrier()
 
 
+def test_multi_start_cost_stream_tolerates_none_output_dir():
+    """The live cost stream must be a no-op when there is no output dir, not crash.
+
+    output_dir is set on rank 0 only (set_output_dir is rank-0-guarded), so on every other MPI
+    rank the optimiser's output_dir is None. Each rank streams the starts it runs, so a naive
+    os.path.join(self.output_dir, ...) raised `TypeError: expected str, bytes or os.PathLike
+    object, not NoneType` on rank 1+ and took the whole multi-start run down. This reproduces
+    that condition at a single rank: with output_dir None, _append_start_cost writes nothing and
+    does not raise. (run() broadcasts rank 0's real path to the other ranks so they *do* stream;
+    this guards the no-output-configured tail.)
+    """
+    opt = _make_multi_start_optimiser(
+        None, _TwoWellParamId(param_init=(1.2, 1.2)),
+        {'num_starts': 2, 'start_sampling': 'latin_hypercube', 'seed': 1,
+         'cost_convergence': 1e-12})
+    assert opt.output_dir is None and opt._stream_output_dir is None
+    # The exact call _run_one_start makes for iteration 0 -- must not raise.
+    opt._append_start_cost(0, 0, 1.23)
+
+
 def test_multi_start_streams_per_start_cost_history_live(temp_output_dir):
     """multi_start_cost_history.csv streams one `start_idx, iteration, cost` row per L-BFGS-B
     iteration (iteration 0 = the start point), live and independent of DEBUG, so a GUI can plot

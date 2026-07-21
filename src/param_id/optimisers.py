@@ -1052,6 +1052,11 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
         self.param_maxs = self.param_id_info["param_maxs"]
         self.param_ranges = self.param_maxs - self.param_mins
 
+        # The live-stream output dir, broadcast to every rank at the start of run() (output_dir
+        # itself is set on rank 0 only). Defined here so a stray _append_start_cost before run()
+        # is a no-op rather than an AttributeError.
+        self._stream_output_dir = None
+
         if 'num_starts' not in self.optimiser_options:
             self.optimiser_options['num_starts'] = 4 if DEBUG else 10
         if 'start_sampling' not in self.optimiser_options:
@@ -1184,9 +1189,15 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
         orders by iteration. Each row is a single short line written under O_APPEND, which is
         atomic on POSIX, so concurrent multi-rank appends never tear a line. Best-effort: a write
         failure must not abort the optimisation (the end-of-run csvs are the record of truth).
+
+        Uses ``self._stream_output_dir`` (the output dir broadcast to every rank in ``run()``),
+        not ``self.output_dir``, which is set on rank 0 only. Skips silently when no output dir
+        is configured.
         """
+        if self._stream_output_dir is None:
+            return
         try:
-            path = os.path.join(self.output_dir, 'multi_start_cost_history.csv')
+            path = os.path.join(self._stream_output_dir, 'multi_start_cost_history.csv')
             with open(path, 'a') as file:
                 file.write(f'{int(start_idx)}, {int(iteration)}, {float(cost_val):.9e}\n')
         except OSError:
@@ -1254,16 +1265,22 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
         rank = self.rank
         num_procs = self.num_procs
 
-        # Start the live per-start cost stream fresh (header + empty). Rank 0 truncates before
-        # any rank writes a row; the barrier makes that ordering safe. This is done here, at the
-        # very top before any per-rank divergence, so every rank reaches the barrier together (a
-        # blocking collective inside the start loop could hang with uneven start counts, hence the
-        # point-to-point machinery there -- but this prelude is identical on every rank). Failing
-        # to prepare the stream must not abort the run: the end-of-run csvs are the record of
-        # truth, this file is only the live feed. See _append_start_cost / issue #286.
-        if rank == 0:
+        # Live per-start cost stream. output_dir is set on rank 0 only (set_output_dir is
+        # rank-0-guarded, so it is None on every other rank), but every rank streams the starts
+        # it runs, so broadcast the path first. Directory creation stays on rank 0. If no output
+        # dir is configured at all (rank 0 also None) the whole stream is skipped.
+        self._stream_output_dir = comm.bcast(self.output_dir, root=0)
+        # Start the stream fresh (header + empty). Rank 0 truncates before any rank writes a row;
+        # the barrier makes that ordering safe. This is done here, at the very top before any
+        # per-rank divergence, so every rank reaches the barrier together (a blocking collective
+        # inside the start loop could hang with uneven start counts, hence the point-to-point
+        # machinery there -- but this prelude is identical on every rank). Failing to prepare the
+        # stream must not abort the run: the end-of-run csvs are the record of truth, this file is
+        # only the live feed. See _append_start_cost / issue #286.
+        if rank == 0 and self._stream_output_dir is not None:
             try:
-                with open(os.path.join(self.output_dir, 'multi_start_cost_history.csv'), 'w') as f:
+                stream_path = os.path.join(self._stream_output_dir, 'multi_start_cost_history.csv')
+                with open(stream_path, 'w') as f:
                     f.write('start_idx, iteration, cost\n')
             except OSError as exc:
                 print(f'warning: could not initialise multi_start_cost_history.csv: {exc}')
