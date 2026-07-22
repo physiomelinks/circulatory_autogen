@@ -607,6 +607,73 @@ def test_param_id_3compartment_python_succeeds(base_user_inputs, resources_dir, 
 
 
 @pytest.mark.integration
+@pytest.mark.mpi
+@pytest.mark.parametrize('param_id_method', ['calisim_optuna_tpes',
+                                             'calisim_optuna_cmaes',
+                                             'calisim_openturns_de'])
+def test_param_id_3compartment_calisim_python_model(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm,
+        param_id_method):
+    """The three most common calisim optimisation methods calibrate a *generated python* model.
+
+    python + solve_ivp is the CUFLynx target for these backends, and it exercises the whole
+    translation: {prefix}_params_for_id.csv bounds -> calisim ParameterSpecification,
+    {prefix}_obs_data.json -> CA's cost function behind calisim's calibration_func, and calisim's
+    result -> CA's usual best_cost.npy / best_param_vals.npy / history files.
+
+    Skipped when the optional calisim package is absent (see param_id/calisim_wrapper.py).
+    """
+    pytest.importorskip('calisim',
+                        reason='calisim is an optional dependency (pip install calisim)')
+    rank = mpi_comm.Get_rank()
+
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': '3compartment',
+        'input_param_file': '3compartment_parameters.csv',
+        'model_type': 'python',
+        'solver': 'solve_ivp',
+        'param_id_method': param_id_method,
+        'pre_time': 0.5,
+        'sim_time': 0.3,
+        'dt': 0.01,
+        'DEBUG': True,
+        'do_mcmc': False,
+        'plot_predictions': False,
+        'do_ia': False,
+        'solver_info': {'method': 'BDF', 'rtol': 1e-6, 'atol': 1e-8},
+        'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
+        'param_id_output_dir': temp_output_dir,
+        'generated_models_dir': temp_generated_models_dir,
+        # Small budget: this is a smoke test that the backend runs and produces CA outputs, not
+        # an accuracy test. DEBUG clamps it to 20 in any case. n_init is the population size for
+        # the openturns/Pagmo algorithms, which have algorithm-specific minima (DE needs >= 5),
+        # so it cannot be made arbitrarily small.
+        'debug_optimiser_options': {'num_calls_to_function': 20, 'n_init': 8,
+                                    'cost_convergence': 1e-8, 'random_seed': 1},
+    })
+
+    if rank == 0:
+        assert generate_with_new_architecture(False, config), 'python model generation failed'
+    mpi_comm.Barrier()
+
+    run_param_id(config)
+
+    if rank == 0:
+        out_dir = os.path.join(temp_output_dir,
+                               f'{param_id_method}_3compartment_3compartment_obs_data')
+        best_cost = float(np.load(os.path.join(out_dir, 'best_cost.npy')))
+        best_params = np.load(os.path.join(out_dir, 'best_param_vals.npy'))
+        assert np.isfinite(best_cost) and best_cost >= 0, f'bad best cost {best_cost}'
+        assert best_params.shape[0] > 0
+        # the progress files the plotting reads must be written in the usual format
+        costs = np.atleast_1d(np.loadtxt(os.path.join(out_dir, 'best_cost_history.csv'),
+                                         delimiter=','))
+        assert len(costs) > 0 and np.all(np.diff(costs) <= 0)
+    mpi_comm.Barrier()
+
+
+@pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.mpi
 def test_param_id_test_fft_cost_is_zero(base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):

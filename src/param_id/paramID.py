@@ -65,6 +65,7 @@ from param_id.differentiable import (
     assert_mle_cost_for_bayesian,
     is_circulatory_differentiable,
 )
+from param_id.calisim_methods import is_calisim_method
 from param_id.plot_outputs import ParamIDPlotOutputs
 from param_id import casadi_backend
 from param_id import fsa_backend
@@ -1496,6 +1497,20 @@ class OpencorParamID():
             self.best_cost = optimiser.best_cost
             self.init_gradient = optimiser.init_gradient
             self.best_gradient = optimiser.best_gradient
+
+        elif is_calisim_method(self.param_id_method):
+            # Any calisim optimisation engine, named calisim_<engine>[_<method>]. Imported lazily
+            # so CA still runs when the optional calisim package is not installed.
+            from param_id.calisim_wrapper import CalisimOptimiser
+            optimiser = CalisimOptimiser(
+                self, self.param_id_info, self.param_norm_obj,
+                self.num_params, self.output_dir,
+                optimiser_options=self.optimiser_options,
+                param_id_method=self.param_id_method, DEBUG=self.DEBUG
+            )
+            optimiser.run()
+            self.best_param_vals = optimiser.best_param_vals
+            self.best_cost = optimiser.best_cost
 
         else:
             print(f"param_id_method '{self.param_id_method}' is not implemented. Valid options: "

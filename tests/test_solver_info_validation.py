@@ -46,9 +46,18 @@ def test_param_id_methods_schema_matches_dispatch():
     """PARAM_ID_METHODS is the discoverable list of calibration methods surfaced to downstream
     tools (e.g. the CUFLynx settings UI), so it must stay in sync with the param_id_method
     dispatch in OpencorParamID.run(). If a method is added/removed there, update this set."""
-    assert set(PARAM_ID_METHODS.keys()) == {
+    builtin_methods = {name for name in PARAM_ID_METHODS if not name.startswith('calisim_')}
+    assert builtin_methods == {
         'genetic_algorithm', 'CMA-ES', 'bayesian', 'sp_minimize', 'multi_start_sp_minimize'
     }
+    # The calisim_* methods are generated (one per calisim optimisation engine/method pair, see
+    # param_id/calisim_methods.py) rather than listed here: which ones exist depends on the
+    # installed calisim/openturns, so pin the shape, not the full set. They all dispatch through
+    # the same is_calisim_method() branch of OpencorParamID.run().
+    from param_id.calisim_methods import is_calisim_method
+    calisim_methods = {name for name in PARAM_ID_METHODS if name.startswith('calisim_')}
+    assert 'calisim_optuna_tpes' in calisim_methods
+    assert all(is_calisim_method(name) for name in calisim_methods)
     for name, meta in PARAM_ID_METHODS.items():
         assert meta.get('label') and meta.get('description')
         assert isinstance(meta.get('gradient_based'), bool)
@@ -85,6 +94,12 @@ def test_param_id_method_options_match_optimiser_reads():
         'no_new_starts_on_convergence', 'convergence_cluster_tol_frac', 'cost_convergence'}
     # multi-start is a superset of sp_minimize's gradient-descent settings
     assert names('sp_minimize') <= names('multi_start_sp_minimize')
+    # the calisim backends (param_id/calisim_wrapper.py) all read the same block, plus
+    # acquisition_func on the surrogate-based engines
+    calisim_common = {'num_calls_to_function', 'cost_convergence', 'n_init', 'random_seed',
+                      'n_jobs', 'method_kwargs'}
+    assert names('calisim_optuna_tpes') == calisim_common
+    assert names('calisim_emukit') == calisim_common | {'acquisition_func'}
 
 
 def test_solver_info_fields_schema_well_formed():

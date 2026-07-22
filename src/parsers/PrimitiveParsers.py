@@ -270,6 +270,20 @@ PARAM_ID_METHODS = {
 }
 
 
+
+# The calisim backends (param_id/calisim_wrapper.py) expose one calibration method per calisim
+# optimisation engine/method pair. There are many, and which ones exist depends on the installed
+# calisim/openturns, so they are generated rather than written out here -- CUFLynx then picks them
+# up automatically. calisim is an optional dependency: if anything about the discovery fails, CA
+# must still import, so the merge is best-effort and the built-in methods above are unaffected.
+try:
+    from param_id.calisim_methods import calisim_param_id_methods as _calisim_param_id_methods
+    PARAM_ID_METHODS.update(_calisim_param_id_methods())
+except Exception as _calisim_schema_error:  # pragma: no cover - defensive
+    print('WARNING could not add the calisim calibration methods to the schema: '
+          f'{_calisim_schema_error}')
+
+
 def valid_param_id_methods():
     """All accepted `param_id_method` strings: canonical names plus their aliases."""
     names = []
