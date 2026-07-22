@@ -8,6 +8,7 @@ import pytest
 
 from identifiabilty_analysis.identifiabilityAnalysis import IdentifiabilityAnalysis
 from parsers.PrimitiveParsers import scriptFunctionParser
+from utilities.utility_funcs import extract_hessian_from_samples, _param_fit_scale
 
 
 class _MockParamId:
@@ -112,6 +113,56 @@ def test_laplace_raises_on_information_less_parameter(tmp_path):
     with pytest.raises(RuntimeError, match="non-positive diagonal|no.*curvature"):
         ia.run_laplace_approximation({'method': 'Laplace', 'gradient_source': 'AD'})
     assert not os.path.exists(os.path.join(str(tmp_path), 'mock_laplace_covariance.npy'))
+
+
+def _quadratic_samples_and_losses(center, scale, H_true, half_frac=0.02, n=40, seed=0):
+    """Latin-hypercube-ish samples of an *exact* quadratic loss 0.5 (p-c)^T H_true (p-c), with each
+    parameter perturbed by ``half_frac`` of its scale. Returns (samples, losses)."""
+    center = np.asarray(center, float)
+    scale = np.asarray(scale, float)
+    rng = np.random.default_rng(seed)
+    z = (rng.random((n, center.size)) - 0.5) * 2 * half_frac  # normalised perturbations
+    samples = center + z * scale
+    d = samples - center
+    losses = 0.5 * np.einsum('ni,ij,nj->n', d, H_true, d)
+    return samples, losses
+
+
+def test_hessian_fit_normalised_recovers_wide_magnitude_curvature():
+    # Parameters spanning 16 orders of magnitude (as 3compartment's do). The true Hessian is O(1)
+    # in scale-normalised coordinates but spans ~1e32 in raw space. Fitting in normalised
+    # coordinates recovers it exactly; the raw-space fit cannot (its design matrix is singular to
+    # working precision), which is what produced the indefinite, non-positive-diagonal Hessian.
+    center = np.array([1e-8, 1e8])
+    scale = np.array([1e-8, 1e8])
+    H_norm = np.array([[2.0, 0.5], [0.5, 3.0]])
+    H_true = H_norm / np.outer(scale, scale)  # [[2e16, 0.5], [0.5, 3e-16]]
+    samples, losses = _quadratic_samples_and_losses(center, scale, H_true)
+
+    H_fit = extract_hessian_from_samples(samples, losses, scale=scale, center=center)
+    assert np.allclose(H_fit, H_true, rtol=1e-6), H_fit
+    # Diagonal is correctly positive (identifiable), unlike the raw-space fit.
+    assert H_fit[0, 0] > 0 and H_fit[1, 1] > 0
+
+    H_raw = extract_hessian_from_samples(samples, losses)  # no normalisation
+    # The large-magnitude curvature (2e16) is not recoverable in raw space.
+    assert not np.isclose(H_raw[0, 0], H_true[0, 0], rtol=1e-2)
+
+
+def test_param_fit_scale_uses_ranges_then_falls_back():
+    class _PidWithBounds:
+        param_id_info = {'param_mins': np.array([1e8, 1e-9]),
+                         'param_maxs': np.array([5e8, 5e-8])}
+
+    scale = _param_fit_scale(_PidWithBounds(), np.array([1.5e8, 1e-8]))
+    assert np.allclose(scale, [4e8, 4.9e-8])
+
+    # No bounds -> fall back to |best|; zeros -> 1 (never divide by zero).
+    class _PidNoBounds:
+        param_id_info = {}
+
+    scale2 = _param_fit_scale(_PidNoBounds(), np.array([3.0, 0.0]))
+    assert np.allclose(scale2, [3.0, 1.0])
 
 
 def test_laplace_gradient_source_not_available_for_model(tmp_path):

@@ -281,9 +281,27 @@ def calculate_hessian(param_id, AD=False, method="parabola_fit"):
     if method == 'numdifftools_finite_diff':
         hessian = nd.Hessian(param_id.get_lnlikelihood_lnprior_from_params)(best_params)
     elif method == 'parabola_fit':
-        samples, losses = latin_hypercube_sample_and_evaluate(param_id.get_lnlikelihood_lnprior_from_params, 
-                                                              best_params, radius=0.001, n_samples=30)
-        hessian = extract_hessian_from_samples(samples, losses, param_id.output_dir)
+        # Sample AND fit in range-normalised parameter coordinates. The parameters span a wide
+        # magnitude range (3compartment ~1e-9..1e8), which breaks the raw-space fit two ways:
+        #   * a step of 0.1% of each parameter's *value* is a wildly different -- and, for the
+        #     large-magnitude parameters, vanishingly small -- fraction of its allowed range, so
+        #     the cost barely moves and the recovered curvature is dominated by solver noise;
+        #   * a raw-space degree-2 design matrix has columns spanning ~1e32 (E_lvA^2 vs C^2), so
+        #     the least-squares solve is pure round-off.
+        # Both give an indefinite Hessian with non-positive diagonal even for identifiable
+        # parameters. Sampling a fixed fraction of each parameter's *range* (so every coordinate
+        # moves comparably and resolvably) and fitting in those normalised coordinates fixes both;
+        # the Hessian is transformed straight back to raw parameter space. Issue #293.
+        scale = _param_fit_scale(param_id, best_params)
+        # Clip samples to the parameter bounds: outside them the uniform prior is -inf, which would
+        # poison the quadratic fit if a best-fit parameter sits within the sampling half-width of a
+        # bound.
+        samples, losses = latin_hypercube_sample_and_evaluate(
+            param_id.get_lnlikelihood_lnprior_from_params, best_params, radius=0.001,
+            n_samples=30, half_width=0.02 * scale,
+            param_norm_obj=getattr(param_id, 'param_norm_obj', None))
+        hessian = extract_hessian_from_samples(samples, losses, param_id.output_dir,
+                                               scale=scale, center=best_params)
     elif method == 'AD':
         raise NotImplementedError("Automatic differentiation not implemented yet.")
     else:
@@ -374,25 +392,37 @@ def get_default_inp_data_dict(file_prefix, input_param_file, resources_dir):
     inp_data_dict = yaml_parser.parse_user_inputs_file(inp_data_dict, obs_path_needed=False, do_generation_with_fit_parameters=False)
     return inp_data_dict
 
-def latin_hypercube_sample_and_evaluate(fun, center, radius, n_samples, param_norm_obj=None):
+def latin_hypercube_sample_and_evaluate(fun, center, radius, n_samples, param_norm_obj=None,
+                                        half_width=None):
     """
         Generate Latin Hypercube samples around a center point, run the function, and return samples and results.
         The range for each parameter is set as:
             scan_min = center[i] - radius * center[i]
             scan_max = center[i] + radius * center[i]
+        unless ``half_width`` is given, in which case an absolute per-parameter half-width is used:
+            scan_min = center[i] - half_width[i]
+            scan_max = center[i] + half_width[i]
+        (used to sample a fixed fraction of each parameter's *range* rather than of its value, so a
+        wide magnitude range does not make the box collapse for the large-magnitude parameters).
         Args:
             fun: Callable that takes a parameter vector and returns a scalar result.
             center (np.ndarray): Center point for sampling.
             radius (float): Fractional range for each parameter (param_range_factor).
             n_samples (int): Number of samples.
             param_norm_obj (optional): If provided, used to clip samples to parameter bounds.
+            half_width (optional): Absolute per-parameter half-width; overrides ``radius``.
         Returns:
             samples (np.ndarray), results (np.ndarray)
     """
     center = np.asarray(center)
     n_params = center.shape[0]
-    scan_mins = center - radius * center
-    scan_maxs = center + radius * center
+    if half_width is not None:
+        half_width = np.asarray(half_width, dtype=float)
+        scan_mins = center - half_width
+        scan_maxs = center + half_width
+    else:
+        scan_mins = center - radius * center
+        scan_maxs = center + radius * center
 
     sampler = qmc.LatinHypercube(d=n_params)
     lhs_unit = sampler.random(n=n_samples)
@@ -412,11 +442,38 @@ def latin_hypercube_sample_and_evaluate(fun, center, radius, n_samples, param_no
     
     return samples, results
 
-def extract_hessian_from_samples(samples, losses, plot_dir=None):
+def _param_fit_scale(param_id, best_params):
+    """Per-parameter scale for the Hessian polynomial fit: the allowed range (max - min) when the
+    param-id engine exposes bounds, else the magnitude of the best-fit value. Always strictly
+    positive (zero ranges/values fall back to 1) so it can divide the sample coordinates."""
+    scale = None
+    info = getattr(param_id, 'param_id_info', None)
+    if isinstance(info, dict) and 'param_mins' in info and 'param_maxs' in info:
+        scale = np.abs(np.asarray(info['param_maxs'], dtype=float)
+                       - np.asarray(info['param_mins'], dtype=float))
+    if scale is None:
+        scale = np.abs(np.asarray(best_params, dtype=float))
+    scale = np.asarray(scale, dtype=float)
+    scale[~(scale > 0)] = 1.0
+    return scale
+
+
+def extract_hessian_from_samples(samples, losses, plot_dir=None, scale=None, center=None):
     """
-    Fits a 2nd degree polynomial to (samples, losses) 
+    Fits a 2nd degree polynomial to (samples, losses)
     and returns the reconstructed Hessian matrix.
+
+    When ``scale`` (and optionally ``center``) are given, the fit is done in normalised
+    coordinates ``z = (sample - center) / scale`` -- keeping the design matrix well-conditioned for
+    parameters spanning a wide magnitude range -- and the recovered Hessian is transformed back to
+    the raw parameter space via ``H[i,j] = H_z[i,j] / (scale_i * scale_j)`` (the second derivative
+    is unaffected by the centre shift). Issue #293.
     """
+    samples = np.asarray(samples, dtype=float)
+    if scale is not None:
+        scale = np.asarray(scale, dtype=float)
+        centre = np.asarray(center, dtype=float) if center is not None else np.zeros(samples.shape[1])
+        samples = (samples - centre) / scale
 
     # # Save samples and losses to CSV
     # df = pd.DataFrame(samples, columns=[f"x{i}" for i in range(samples.shape[1])])
@@ -459,7 +516,12 @@ def extract_hessian_from_samples(samples, losses, plot_dir=None):
             idx2 = int(parts[1].replace('x', ''))
             hessian[idx1, idx2] = val
             hessian[idx2, idx1] = val # Maintain symmetry
-            
+
+    # Transform the Hessian from the normalised fit coordinates back to raw parameter space:
+    # d2L/dp_i dp_j = (d2L/dz_i dz_j) * (dz_i/dp_i)(dz_j/dp_j) = H_z[i,j] / (scale_i scale_j).
+    if scale is not None:
+        hessian = hessian / np.outer(scale, scale)
+
     return hessian
 
 
