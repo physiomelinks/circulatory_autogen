@@ -68,13 +68,48 @@ def test_laplace_writes_inverse_fim_when_well_conditioned(tmp_path):
     assert np.allclose(cov, np.linalg.inv(fim)) and np.all(np.isfinite(cov))
 
 
-def test_laplace_raises_on_ill_conditioned_fim(tmp_path):
-    # J columns spanning ~16 orders of magnitude (as 3compartment's parameters do) -> the FIM is
-    # ill-conditioned, so inverting it would give meaningless uncertainties. Must raise, not save.
+def test_laplace_succeeds_on_wide_magnitude_but_identifiable_params(tmp_path):
+    # J columns spanning ~16 orders of magnitude (as 3compartment's parameters do) but with
+    # *independent* (diagonal) sensitivities: the parameters are perfectly identifiable, only
+    # differently scaled. The raw FIM = diag(1e16, 1e-16) has condition number 1e32, so the old
+    # code aborted; Jacobi normalisation removes the scaling and it now succeeds with the correct
+    # covariance = inv(FIM) = diag(1e-16, 1e16). This is the core of the #293 fix.
     sens = {'obsA': {'p0': 1e8, 'p1': 0.0}, 'obsB': {'p0': 0.0, 'p1': 1e-8}}
     pid = _MockParamId(sens, ['p0', 'p1'], ['obsA', 'obsB'], [1.0, 1.0])
     ia = _make_ia(pid, [1.0, 1.0], str(tmp_path))
+    ia.run_laplace_approximation({'method': 'Laplace', 'gradient_source': 'AD'})
+    fim = np.array([[1e16, 0.0], [0.0, 1e-16]])
+    cov = ia.covariance_matrix_Laplace
+    assert np.allclose(cov, np.linalg.inv(fim), rtol=1e-9) and np.all(np.isfinite(cov))
+    # p0 is tightly constrained (tiny variance), p1 barely constrained (huge variance) -- a real,
+    # correct answer, not the massively-inflated garbage the un-normalised inverse produced.
+    assert cov[0, 0] == pytest.approx(1e-16, rel=1e-9)
+    assert cov[1, 1] == pytest.approx(1e16, rel=1e-9)
+    saved = np.load(os.path.join(str(tmp_path), 'mock_laplace_covariance.npy'))
+    assert np.allclose(saved, cov)
+
+
+def test_laplace_raises_on_genuinely_correlated_params(tmp_path):
+    # Two observables whose sensitivity rows are parallel (obsB = 2 * obsA), so the parameters
+    # only ever appear in a fixed linear combination: genuinely (jointly) non-identifiable. The
+    # FIM stays singular *after* normalisation (unit-diagonal, off-diagonal == 1), so this must
+    # still raise -- normalisation fixes scaling, not real correlation.
+    sens = {'obsA': {'p0': 1.0, 'p1': 2.0}, 'obsB': {'p0': 2.0, 'p1': 4.0}}
+    pid = _MockParamId(sens, ['p0', 'p1'], ['obsA', 'obsB'], [1.0, 1.0])
+    ia = _make_ia(pid, [1.0, 1.0], str(tmp_path))
     with pytest.raises(RuntimeError, match="ill-conditioned"):
+        ia.run_laplace_approximation({'method': 'Laplace', 'gradient_source': 'AD'})
+    assert not os.path.exists(os.path.join(str(tmp_path), 'mock_laplace_covariance.npy'))
+
+
+def test_laplace_raises_on_information_less_parameter(tmp_path):
+    # p1 has zero sensitivity in every observable, so the FIM diagonal for p1 is 0: that parameter
+    # carries no information and its variance is undefined (Jacobi scaling would divide by zero).
+    # Must raise a clear non-identifiability error rather than produce nan/inf.
+    sens = {'obsA': {'p0': 2.0, 'p1': 0.0}, 'obsB': {'p0': 1.0, 'p1': 0.0}}
+    pid = _MockParamId(sens, ['p0', 'p1'], ['obsA', 'obsB'], [1.0, 1.0])
+    ia = _make_ia(pid, [1.0, 1.0], str(tmp_path))
+    with pytest.raises(RuntimeError, match="non-positive diagonal|no.*curvature"):
         ia.run_laplace_approximation({'method': 'Laplace', 'gradient_source': 'AD'})
     assert not os.path.exists(os.path.join(str(tmp_path), 'mock_laplace_covariance.npy'))
 
