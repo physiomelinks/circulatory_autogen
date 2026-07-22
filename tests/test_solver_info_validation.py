@@ -174,7 +174,7 @@ def test_analysis_options_schema_well_formed():
         return {o['name'] for o in analysis_options(mode)}
     assert names('sensitivity_analysis') == {'method', 'sample_type', 'num_samples'}
     assert names('mcmc') == {'num_steps', 'num_walkers'}
-    assert names('identifiability_analysis') == {'method', 'sub_method'}
+    assert names('identifiability_analysis') == {'method', 'gradient_source', 'sub_method'}
     assert analysis_options('not_a_mode') == []
     # the enabling flags match the documented user_inputs feature flags
     assert {m['enable_flag'] for m in ANALYSIS_OPTIONS.values()} == {
@@ -204,8 +204,10 @@ def test_closed_set_analysis_options_are_enums_with_choices():
         ('sensitivity_analysis', 'method'): ['sobol', 'local'],
         ('sensitivity_analysis', 'sample_type'): ['saltelli', 'sobol'],
         ('identifiability_analysis', 'method'): ['Laplace', 'profile_likelihood'],
-        # 'AD' is a branch in calculate_hessian but raises NotImplementedError, so it
-        # is deliberately absent -- offering it would let a user pick a guaranteed crash.
+        ('identifiability_analysis', 'gradient_source'): ['FD', 'AD', 'FSA'],
+        # sub_method's 'AD' branch in calculate_hessian raises NotImplementedError, so it is
+        # deliberately absent from sub_method's choices -- AD is now reached via gradient_source
+        # instead (the Fisher-information path), not the calculate_hessian sub_method.
         ('identifiability_analysis', 'sub_method'): ['parabola_fit', 'numdifftools_finite_diff'],
     }
     for (mode, name), choices in expected.items():

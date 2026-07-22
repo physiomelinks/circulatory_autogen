@@ -143,16 +143,73 @@ class IdentifiabilityAnalysis():
         exit()
         pass
 
+    # Above this condition number the precision (Hessian) matrix cannot be inverted to a
+    # trustworthy covariance -- the result would be massively inflated, meaningless uncertainties
+    # (issue #293). float64 has ~16 digits, so 1e12 keeps ~4 digits of margin.
+    _LAPLACE_MAX_CONDITION = 1e12
+
+    def _fisher_information_matrix(self, gradient_source):
+        """Fisher information matrix ``J^T diag(1/std^2) J`` from analytic observable sensitivities.
+
+        ``J[k, j] = d(observable feature k)/d(param j)`` at the best fit, from
+        ``OpencorParamID.get_observable_sensitivities`` -- the CasADi jacobian for
+        ``casadi_python`` ('AD') or the Myokit CVODES sensitivities for ``cellml_only`` +
+        ``CVODE_myokit`` ('FSA'), i.e. the sources ``gradient_sources(model_type, solver)``
+        advertises. At the MLE this Gauss-Newton matrix is the positive-definite negative Hessian
+        of the Gaussian log-likelihood, so the Laplace covariance is its inverse. Scalar (const)
+        observables only -- the same scope as ``get_observable_sensitivities``.
+        """
+        from parsers.PrimitiveParsers import gradient_sources
+
+        pid = self.param_id
+        solver = pid.solver_info.get('solver') if isinstance(pid.solver_info, dict) else None
+        available = {s['value'] for s in gradient_sources(pid.model_type, solver)}
+        if gradient_source not in available:
+            raise ValueError(
+                f"Laplace gradient_source '{gradient_source}' is not available for model_type "
+                f"'{pid.model_type}' / solver '{solver}'. Available: {sorted(available)}. "
+                "(gradient_sources(model_type, solver) lists the analytic sources per model; use "
+                "'FD' for finite differences.)")
+
+        sens = pid.get_observable_sensitivities(np.asarray(self.best_param_vals, dtype=float))
+        param_names = [n[0] if isinstance(n, (list, tuple)) else n
+                       for n in pid.param_id_info['param_names']]
+        obs_info = pid.obs_info
+        const_to_obs = obs_info['const_idx_to_obs_idx']
+        stds = np.asarray(obs_info['std_const_vec'], dtype=float)
+
+        n_par = len(param_names)
+        fim = np.zeros((n_par, n_par))
+        n_used = 0
+        for k, obs_idx in enumerate(const_to_obs):
+            row = sens.get(pid._observable_label(obs_idx))
+            if row is None or not stds[k] > 0:
+                continue
+            j = np.array([float(row.get(p, 0.0)) for p in param_names])
+            fim += np.outer(j, j) / (stds[k] ** 2)
+            n_used += 1
+        if n_used == 0:
+            raise RuntimeError(
+                "Laplace approximation: no scalar observable with a positive std was available "
+                "to build the Fisher information matrix.")
+        return fim
+
     def run_laplace_approximation(self, ia_options):
         """Run the Laplace approximation around the best fit.
 
-        Computes the Hessian of the cost, inverts it to a covariance matrix
-        (falling back to a regularised/pseudo-inverse if singular), and saves
-        ``{prefix}_laplace_mean.npy`` and ``{prefix}_laplace_covariance.npy``.
+        Forms the precision (negative log-likelihood Hessian) via ``ia_options['gradient_source']``
+        -- ``'AD'``/``'FSA'`` build the Fisher information matrix from the analytic observable
+        sensitivities, ``'FD'`` (default) uses the finite-difference ``sub_method`` -- and inverts
+        it to the parameter covariance, saving ``{prefix}_laplace_mean.npy`` and
+        ``{prefix}_laplace_covariance.npy``.
+
+        Raises ``RuntimeError`` when the precision matrix is ill-conditioned: inverting it would
+        give massively inflated, meaningless uncertainties (issue #293), so an error is preferable
+        to a wrong covariance.
 
         Args:
-            ia_options: Options dict; ``sub_method`` selects the Hessian method
-                (default ``'parabola_fit'``).
+            ia_options: Options dict; ``gradient_source`` ('FD'|'AD'|'FSA', default 'FD') and,
+                for 'FD', ``sub_method`` (default ``'parabola_fit'``).
         """
         from param_id.differentiable import assert_mle_cost_for_bayesian
 
@@ -162,27 +219,34 @@ class IdentifiabilityAnalysis():
             "Laplace approximation",
         )
 
-        # TODO fix hessian calculation now that it uses lnlikelihood + lnprior
-        Hessian = calculate_hessian(self.param_id, method=ia_options.get('sub_method', 'parabola_fit'))
-        
-        # Handle singular or near-singular matrices by using pseudo-inverse
-        # and adding small regularization if needed
-        try:
-            covariance_matrix = np.linalg.inv(-1 * Hessian)
-        except np.linalg.LinAlgError:
-            # If matrix is singular, try pseudo-inverse with regularization
-            print("Warning: Hessian is singular or near-singular. Using pseudo-inverse with regularization.")
-            # Add small regularization term to diagonal
-            regularization = 1e-10 * np.eye(Hessian.shape[0])
-            try:
-                covariance_matrix = np.linalg.inv(Hessian + regularization)
-            except np.linalg.LinAlgError:
-                # If still singular, use pseudo-inverse
-                print("Warning: Regularized Hessian still singular. Using pseudo-inverse.")
-                covariance_matrix = np.linalg.pinv(Hessian)
-        
+        gradient_source = ia_options.get('gradient_source', 'FD')
+        if gradient_source in ('AD', 'FSA'):
+            precision = self._fisher_information_matrix(gradient_source)
+        else:
+            # FD: calculate_hessian returns the Hessian of the log-posterior; the precision
+            # (negative log-likelihood Hessian) is its negative.
+            hessian = calculate_hessian(
+                self.param_id, method=ia_options.get('sub_method', 'parabola_fit'))
+            precision = -np.asarray(hessian, dtype=float)
+
+        # Refuse to invert an ill-conditioned precision matrix: the covariance would be numerically
+        # meaningless (massively inflated uncertainties). Error instead of masking it with a
+        # pseudo-inverse (issue #293).
+        cond = np.linalg.cond(precision)
+        if not np.isfinite(cond) or cond > self._LAPLACE_MAX_CONDITION:
+            raise RuntimeError(
+                f"Laplace approximation aborted: the {gradient_source} precision (Hessian) matrix "
+                f"is ill-conditioned (condition number {cond:.3e} > "
+                f"{self._LAPLACE_MAX_CONDITION:.0e}), so inverting it to a parameter covariance "
+                "would give numerically meaningless, massively inflated uncertainties. This means "
+                "the parameters are not jointly identifiable at their current scaling -- "
+                "parameters spanning a wide magnitude range (e.g. 3compartment) hit this even when "
+                "otherwise identifiable. Tracked in issue #293.")
+
+        covariance_matrix = np.linalg.inv(precision)
         mean = self.best_param_vals
         print("Laplace Approximation Results:")
+        print(f"Gradient source: {gradient_source}; precision condition number: {cond:.3e}")
         print("Mean (Best Parameter Values):", mean)
         print("Covariance Matrix:\n", covariance_matrix)
         self.covariance_matrix_Laplace = covariance_matrix

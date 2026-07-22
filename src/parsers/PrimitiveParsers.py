@@ -401,13 +401,28 @@ ANALYSIS_OPTIONS = {
             {'name': 'method', 'type': 'enum', 'default': 'Laplace', 'required': True,
              'choices': ['Laplace', 'profile_likelihood'],
              'description': 'Identifiability method: Laplace approximation or profile likelihood.'},
-            # enum, not str: utility_funcs.calculate_hessian dispatches on these.
-            # 'AD' is a fourth branch there but raises NotImplementedError, so it is
-            # deliberately not offered; any other value falls back to plain finite
-            # differences with only a printed warning, which a free string invites.
+            # The source for the Laplace Hessian. 'FD' uses sub_method below (a finite-difference
+            # Hessian of the log-posterior). 'AD'/'FSA' build the Fisher information matrix
+            # J^T diag(1/std^2) J from the analytic observable sensitivities (CasADi jacobian for
+            # casadi_python, Myokit CVODES for cellml_only + CVODE_myokit) -- i.e. the same
+            # sources gradient_sources(model_type, solver) advertises for calibration. Which of
+            # AD/FSA is actually usable follows from model_type/solver, so a front-end should
+            # offer only gradient_sources(...)'s values (plus FD); an unavailable choice raises.
+            {'name': 'gradient_source', 'type': 'enum', 'default': 'FD', 'required': False,
+             'choices': ['FD', 'AD', 'FSA'],
+             'description': ('Source for the Laplace Hessian: FD (finite-difference sub_method), '
+                             'AD (exact CasADi, casadi_python), or FSA (Myokit CVODES Fisher '
+                             'information, cellml_only + CVODE_myokit). See '
+                             'gradient_sources(model_type, solver) for what the current model '
+                             'supports.')},
+            # enum, not str: utility_funcs.calculate_hessian dispatches on these. Only consulted
+            # when gradient_source is 'FD'. 'AD' is a fourth branch there but raises
+            # NotImplementedError, so it is deliberately not offered; any other value falls back
+            # to plain finite differences with only a printed warning, which a free string invites.
             {'name': 'sub_method', 'type': 'enum', 'default': 'parabola_fit', 'required': False,
              'choices': ['parabola_fit', 'numdifftools_finite_diff'],
-             'description': 'Hessian method for the Laplace approximation.'},
+             'description': 'Finite-difference Hessian method for the Laplace approximation '
+                            '(used when gradient_source is FD).'},
         ],
     },
 }
