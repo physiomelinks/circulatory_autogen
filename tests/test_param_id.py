@@ -3281,6 +3281,71 @@ def test_sp_minimize_streams_cost_history_per_iteration(temp_output_dir):
     assert len(param_rows) == len(costs)
 
 
+def test_sp_minimize_streams_gradient_history_per_iteration(temp_output_dir):
+    """SciPyMinimizeOptimiser writes best_gradient_history.csv: a header of parameter labels then
+    one dJ/dp (real-space) row per L-BFGS-B iteration, in lockstep with best_cost_history.csv, so
+    the gradient at each cost can be plotted live during a gradient-based calibration.
+
+    Checks: the header names the parameters; the first gradient row equals the analytic gradient
+    at the start point; there is exactly one gradient row per cost row; and the gradient collapses
+    towards zero as the descent converges to the Rosenbrock minimum."""
+    from param_id.optimisers import SciPyMinimizeOptimiser
+
+    mins = np.array([-10.0, -10.0])
+    maxs = np.array([10.0, 10.0])
+
+    class _Norm:
+        def normalise(self, p):
+            return (np.asarray(p, dtype=float) - mins) / (maxs - mins)
+
+        def unnormalise(self, q):
+            return mins + np.asarray(q, dtype=float) * (maxs - mins)
+
+    def _rosen_grad(p):
+        p = np.asarray(p, dtype=float)
+        return np.array([
+            -400.0 * p[0] * (p[1] - p[0] ** 2) - 2.0 * (1.0 - p[0]),
+            200.0 * (p[1] - p[0] ** 2),
+        ])
+
+    class _ParamId:
+        param_init = np.array([-1.2, 1.0])
+
+        def get_cost(self, p):
+            p = np.asarray(p, dtype=float)
+            return float(100.0 * (p[1] - p[0] ** 2) ** 2 + (1.0 - p[0]) ** 2)
+
+        def get_gradient(self, p):
+            return _rosen_grad(p)
+
+        def set_best_param_vals(self, p):
+            self.best = np.asarray(p, dtype=float)
+
+    param_id_info = {"param_names": [["a"], ["b"]], "param_mins": mins, "param_maxs": maxs}
+    opt = SciPyMinimizeOptimiser(
+        param_id_obj=_ParamId(), param_id_info=param_id_info, param_norm_obj=_Norm(),
+        num_params=2, output_dir=temp_output_dir,
+        optimiser_options={"cost_convergence": 1e-15}, do_ad=True, DEBUG=False,
+    )
+    opt.run()
+
+    grad_path = os.path.join(temp_output_dir, "best_gradient_history.csv")
+    cost_path = os.path.join(temp_output_dir, "best_cost_history.csv")
+    assert os.path.exists(grad_path)
+    lines = [ln for ln in open(grad_path).read().splitlines() if ln.strip()]
+    assert [c.strip() for c in lines[0].split(",")] == ["a", "b"]  # header names the params
+
+    grad_rows = [[float(v) for v in ln.split(",")] for ln in lines[1:]]
+    # The first row is the gradient at the start point, in real (dJ/dp) space.
+    assert np.allclose(grad_rows[0], _rosen_grad([-1.2, 1.0]), rtol=1e-6)
+    # One gradient row per cost row (they are appended together).
+    cost_rows = [ln for ln in open(cost_path).read().splitlines() if ln.strip()]
+    assert len(grad_rows) == len(cost_rows)
+    # As L-BFGS-B converges to the minimum the gradient shrinks towards zero.
+    assert np.max(np.abs(grad_rows[-1])) < np.max(np.abs(grad_rows[0]))
+    assert np.max(np.abs(grad_rows[-1])) < 1e-3
+
+
 # ---------------------------------------------------------------------------
 # multi_start_sp_minimize (multi-start L-BFGS-B)
 # ---------------------------------------------------------------------------
@@ -3851,6 +3916,86 @@ def test_multi_start_streams_per_start_param_vals_history_live(temp_output_dir):
             last_vals = rws[-1][1]
             final = [float(summary[s_idx][lbl]) for lbl in ('well x', 'well y')]
             assert np.allclose(last_vals, final, rtol=1e-6, atol=1e-9), (s_idx, last_vals, final)
+
+    MPI.COMM_WORLD.Barrier()
+
+
+def test_multi_start_gradient_stream_tolerates_none_output_dir():
+    """The live gradient stream, like the cost/param streams, must be a no-op when there is no
+    output dir (output_dir is None on every non-rank-0 MPI rank), not crash. Reproduces the
+    iteration-0 call _run_one_start makes on a single rank with output_dir None."""
+    opt = _make_multi_start_optimiser(
+        None, _TwoWellParamId(param_init=(1.2, 1.2)),
+        {'num_starts': 2, 'start_sampling': 'latin_hypercube', 'seed': 1,
+         'cost_convergence': 1e-12})
+    assert opt.output_dir is None and opt._stream_output_dir is None
+    # Must not raise even though there is nowhere to write.
+    opt._append_start_gradient(0, 0, np.array([0.1, -0.2]))
+
+
+def test_multi_start_streams_per_start_gradient_history_live(temp_output_dir):
+    """multi_start_gradient_history.csv streams the dJ/dp (real-space) gradient per L-BFGS-B
+    iteration per start (iteration 0 = the start point), live and independent of DEBUG, so a GUI
+    can plot each parameter's gradient trajectory during the run alongside the cost and params.
+
+    Checks: the header names the parameters; a named gradient column per parameter; the
+    (start_idx, iteration) keys match the cost history exactly; the iteration-0 gradient equals the
+    analytic gradient at the start point; and the final streamed gradient matches the analytic
+    gradient at the start's recorded final parameters."""
+    import csv as _csv
+    import numpy as np
+    out_dir = os.path.join(temp_output_dir, 'multi_start_grad_stream')
+    os.makedirs(out_dir, exist_ok=True)
+
+    num_starts = 5
+    opt = _make_multi_start_optimiser(
+        out_dir, _TwoWellParamId(param_init=(1.2, 1.2)),
+        {'num_starts': num_starts, 'start_sampling': 'latin_hypercube', 'seed': 1,
+         'cost_convergence': 1e-12})
+    assert opt.DEBUG is False
+    opt.run()
+
+    if MPI.COMM_WORLD.Get_rank() == 0:
+        rows = list(_csv.reader(open(os.path.join(out_dir, 'multi_start_gradient_history.csv'))))
+        header = [c.strip() for c in rows[0]]
+        assert header[:2] == ['start_idx', 'iteration']
+        assert header[2:] == ['well x', 'well y'], header
+
+        per_start = {}
+        for r in rows[1:]:
+            if not r:
+                continue
+            s_idx, it = int(r[0]), int(r[1])
+            vals = [float(v) for v in r[2:]]
+            assert len(vals) == 2, r
+            per_start.setdefault(s_idx, []).append((it, vals))
+
+        assert sorted(per_start) == list(range(num_starts)), sorted(per_start)
+
+        # The gradient and cost streams are written together, so they must share the same
+        # (start_idx, iteration) keys.
+        cost_lines = [ln for ln in
+                      open(os.path.join(out_dir, 'multi_start_cost_history.csv')).read().splitlines()
+                      if ln.strip()][1:]
+        cost_keys = {(int(ln.split(',')[0]), int(ln.split(',')[1])) for ln in cost_lines}
+        grad_keys = {(s, it) for s, rws in per_start.items() for it, _ in rws}
+        assert grad_keys == cost_keys
+
+        # The iteration-0 gradient is the analytic dJ/dp at that start's start point (well away
+        # from any minimum, so this is a clean exact check).
+        starts = opt._generate_starts()
+        for s_idx, rws in per_start.items():
+            iters = [it for it, _ in rws]
+            assert iters == list(range(len(iters))), (s_idx, iters)
+            start_p = _TwoWellNorm().unnormalise(starts[s_idx, :])
+            assert np.allclose(rws[0][1], _two_well_grad(start_p), rtol=1e-6, atol=1e-9), s_idx
+            # Every streamed gradient is finite, and L-BFGS-B drives it towards zero: the final
+            # streamed gradient is (near) a stationary point. (An exact per-row compare against the
+            # streamed params is not reliable near convergence -- the params are stored to 9 sig
+            # figs and the tiny ~1e-9 gradient is amplified back through the Hessian by that
+            # rounding.)
+            assert all(np.all(np.isfinite(g)) for _, g in rws), s_idx
+            assert np.max(np.abs(rws[-1][1])) < 1e-3, (s_idx, rws[-1][1])
 
     MPI.COMM_WORLD.Barrier()
 

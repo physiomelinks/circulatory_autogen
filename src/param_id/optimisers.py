@@ -861,28 +861,67 @@ class SciPyMinimizeOptimiser(Optimiser):
 
                 if (self.do_ad):
                     min_cost_fun = lambda q: _ad_cost_and_grad(q)[0]
-                    gradient_func = lambda q: _ad_cost_and_grad(q)[1] * self.param_ranges
+                    base_gradient_func = lambda q: _ad_cost_and_grad(q)[1] * self.param_ranges
                 else:
                     min_cost_fun = cost_fun
-                    gradient_func = lambda q: approx_fprime(q, cost_fun, epsilon=1e-4)
+                    base_gradient_func = lambda q: approx_fprime(q, cost_fun, epsilon=1e-4)
+
+                # Cache the last normalised-space jacobian L-BFGS-B computed so the progress
+                # callback can log the gradient at each iterate without a second (possibly
+                # expensive, e.g. finite-difference) gradient evaluation. L-BFGS-B evaluates
+                # jac at the accepted iterate, which is the x the callback then fires with, so
+                # this is a cache hit in the common case; a miss just recomputes, staying correct.
+                jac_cache = {"key": None, "grad_norm": None}
+
+                def gradient_func(q):
+                    q = np.asarray(q, dtype=float)
+                    key = q.tobytes()
+                    if jac_cache["key"] != key:
+                        jac_cache["key"] = key
+                        jac_cache["grad_norm"] = np.asarray(base_gradient_func(q),
+                                                            dtype=float).flatten()
+                    return jac_cache["grad_norm"]
+
+                def _grad_real_at(x_norm):
+                    # dJ/dp (real parameter space), the physically meaningful gradient, matching
+                    # self.init_gradient / self.best_gradient. gradient_func gives dJ/dq in
+                    # normalised space; dJ/dp = dJ/dq / (max - min) = grad_norm / param_ranges.
+                    return gradient_func(x_norm) / self.param_ranges
 
                 cost_history_path = os.path.join(self.output_dir, 'best_cost_history.csv')
                 param_history_path = os.path.join(self.output_dir, 'best_param_vals_history.csv')
+                gradient_history_path = os.path.join(self.output_dir, 'best_gradient_history.csv')
 
-                def _append_history(cost_val, x_norm):
-                    # Append one row per L-BFGS-B iteration so the cost / parameter
+                # Start the gradient stream fresh with a header of parameter labels (one dJ/dp
+                # column per parameter). Self-contained to this gradient-based optimiser -- unlike
+                # best_cost_history / best_param_vals_history it is not created for the
+                # population-based methods, which have no gradient. Companion file, keyed by the
+                # same iteration order as best_cost_history, so it is non-breaking for existing
+                # readers of those files.
+                grad_labels = [(names[0] if isinstance(names, (list, tuple)) else str(names)).replace('/', ' ')
+                               for names in self.param_id_info["param_names"]]
+                with open(gradient_history_path, 'w') as file:
+                    file.write(', '.join(grad_labels) + '\n')
+
+                def _append_history(cost_val, x_norm, grad_real):
+                    # Append one row per L-BFGS-B iteration so the cost / parameter / gradient
                     # progress plots update live during the run (same CSV format the
                     # population-based optimisers use). x_norm is already in
-                    # normalised parameter space, matching best_param_vals_history.
+                    # normalised parameter space, matching best_param_vals_history; grad_real is
+                    # dJ/dp in real parameter space.
                     with open(cost_history_path, 'a') as file:
                         np.savetxt(file, np.array([[float(cost_val)]]), fmt='%1.9f', delimiter=', ')
                     with open(param_history_path, 'a') as file:
                         np.savetxt(file, np.asarray(x_norm, dtype=float).reshape(1, -1),
                                    fmt='%.5e', delimiter=', ')
+                    with open(gradient_history_path, 'a') as file:
+                        np.savetxt(file, np.asarray(grad_real, dtype=float).reshape(1, -1),
+                                   fmt='%.9e', delimiter=', ')
 
-                # Record the starting point so the progress curve begins at the
-                # pre-optimisation cost.
-                _append_history(init_cost, self.param_norm_obj.normalise(init_param_vals))
+                # Record the starting point so the progress curves begin at the
+                # pre-optimisation cost and gradient.
+                _append_history(init_cost, self.param_norm_obj.normalise(init_param_vals),
+                                init_gradient)
 
                 step_counter = [0]
                 last_iterate = {"x_norm": None, "cost": None}
@@ -899,16 +938,17 @@ class SciPyMinimizeOptimiser(Optimiser):
                     else:
                         cost_val = float(self.param_id_obj.get_cost(param_vals))
                     last_iterate["cost"] = cost_val
+                    # Real-space gradient at this iterate; a cache hit on the jacobian L-BFGS-B
+                    # already computed here, so no extra (finite-difference) solve.
+                    grad_real = _grad_real_at(x_norm)
                     # Live progress: one history row per accepted iteration.
-                    _append_history(cost_val, x_norm)
+                    _append_history(cost_val, x_norm, grad_real)
                     if self.DEBUG:
                         print(f'[sp_minimize] step {step_counter[0]}: cost = {cost_val:.6e}')
                         for i, names in enumerate(self.param_id_info["param_names"]):
                             label = names[0] if isinstance(names, (list, tuple)) else str(names)
                             print(f'    {label:<30} {param_vals[i]:.6g}')
-                        if self.do_ad:
-                            grad = _ad_cost_and_grad(x_norm)[1]  # cache hit, real-space gradient
-                            print(f'    |grad|_inf = {np.max(np.abs(grad)):.6e}')
+                        print(f'    |grad|_inf = {np.max(np.abs(grad_real)):.6e}')
                     if cost_val <= self.optimiser_options['cost_convergence']:
                         raise StopIteration(f"Cost converged: {cost_val}")
 
@@ -979,6 +1019,9 @@ class SciPyMinimizeOptimiser(Optimiser):
                     param_vals_norm = self.param_norm_obj.normalise(self.best_param_vals)
                     np.savetxt(file, np.asarray(param_vals_norm, dtype=float).reshape(1, -1),
                                fmt='%.5e', delimiter=', ')
+                with open(os.path.join(self.output_dir, 'best_gradient_history.csv'), 'a') as file:
+                    np.savetxt(file, np.asarray(best_gradient_vals, dtype=float).reshape(1, -1),
+                               fmt='%.9e', delimiter=', ')
 
             self._save_best_params()
 
@@ -1233,10 +1276,52 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
         except OSError:
             pass
 
+    def _append_start_gradient(self, start_idx, iteration, grad_real):
+        """Append one ``start_idx, iteration, <dJ/dp values>`` row to the live per-start gradient
+        stream (multi_start_gradient_history.csv), so a GUI can plot each parameter's gradient
+        trajectory during the run alongside the cost and parameters. ``grad_real`` is dJ/dp in
+        real parameter space (chain-rule un-scaled from the normalised jacobian), the physically
+        meaningful gradient; the header column order is ``_param_labels()``.
+
+        Sibling of ``_append_start_params`` -- same global ``start_idx`` keying, same unconditional
+        (not DEBUG-gated) best-effort write via ``self._stream_output_dir``. Each row is one line
+        under O_APPEND (atomic on POSIX for the typical short rows), keyed by start_idx+iteration,
+        so concurrent multi-rank appends demux cleanly. Skips silently when no output dir is set.
+        """
+        if self._stream_output_dir is None:
+            return
+        try:
+            vals = np.asarray(grad_real, dtype=float).flatten()
+            row = (f'{int(start_idx)}, {int(iteration)}, '
+                   + ', '.join(f'{v:.9e}' for v in vals) + '\n')
+            path = os.path.join(self._stream_output_dir, 'multi_start_gradient_history.csv')
+            with open(path, 'a') as file:
+                file.write(row)
+        except OSError:
+            pass
+
     def _run_one_start(self, start_idx, x0_norm, cost_fun, gradient_func, bounds_norm):
         """Run a single bounded L-BFGS-B descent. Returns a result dict (never raises for a
         cost-converged early stop)."""
         iterates = []  # (cost, x_norm) per accepted L-BFGS-B iteration, for the history csv
+
+        # Cache the last normalised-space jacobian L-BFGS-B computed so the callback can log the
+        # gradient at each iterate without a second (possibly finite-difference) gradient solve.
+        # L-BFGS-B evaluates jac at the accepted iterate -- the x the callback then fires with --
+        # so this is a cache hit in the common case; a miss just recomputes, staying correct.
+        jac_cache = {"key": None, "grad_norm": None}
+
+        def cached_gradient_func(q):
+            q = np.asarray(q, dtype=float)
+            key = q.tobytes()
+            if jac_cache["key"] != key:
+                jac_cache["key"] = key
+                jac_cache["grad_norm"] = np.asarray(gradient_func(q), dtype=float).flatten()
+            return jac_cache["grad_norm"]
+
+        def grad_real_at(x_norm):
+            # dJ/dp (real parameter space): dJ/dq / (max - min) = grad_norm / param_ranges.
+            return cached_gradient_func(x_norm) / self.param_ranges
 
         start_wall = time.perf_counter()
         init_cost = cost_fun(x0_norm)
@@ -1244,6 +1329,7 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
         # iteration 0 = the start point, so the live curves begin at the pre-descent state.
         self._append_start_cost(start_idx, 0, init_cost)
         self._append_start_params(start_idx, 0, x0_norm)
+        self._append_start_gradient(start_idx, 0, grad_real_at(x0_norm))
 
         last_iterate = {"x_norm": None, "cost": None}
 
@@ -1256,6 +1342,7 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
             # len(iterates)-1 is this iteration's number (0 was the start point above).
             self._append_start_cost(start_idx, len(iterates) - 1, cost_val)
             self._append_start_params(start_idx, len(iterates) - 1, x_norm)
+            self._append_start_gradient(start_idx, len(iterates) - 1, grad_real_at(x_norm))
             if self.DEBUG:
                 print(f'[multi_start_sp_minimize] rank {self.rank} start {start_idx}: '
                       f'cost = {cost_val:.6e}')
@@ -1265,7 +1352,7 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
         res = None
         try:
             res = minimize(cost_fun, np.asarray(x0_norm, dtype=float), method='L-BFGS-B',
-                           bounds=bounds_norm, jac=gradient_func, callback=callback)
+                           bounds=bounds_norm, jac=cached_gradient_func, callback=callback)
         except StopIteration:
             pass
 
@@ -1297,9 +1384,10 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
         rank = self.rank
         num_procs = self.num_procs
 
-        # Live per-start streams: cost (multi_start_cost_history.csv) and parameter values
-        # (multi_start_param_vals_history.csv), one row per L-BFGS-B iteration so a GUI can plot a
-        # cost-vs-iteration and parameter-vs-iteration line per start *during* the run. output_dir
+        # Live per-start streams: cost (multi_start_cost_history.csv), parameter values
+        # (multi_start_param_vals_history.csv) and gradient (multi_start_gradient_history.csv), one
+        # row per L-BFGS-B iteration so a GUI can plot a cost-, parameter- and gradient-vs-iteration
+        # line per start *during* the run. output_dir
         # is set on rank 0 only (set_output_dir is rank-0-guarded, so it is None on every other
         # rank), but every rank streams the starts it runs, so broadcast the path first. Directory
         # creation stays on rank 0. If no output dir is configured at all (rank 0 also None) the
@@ -1320,6 +1408,10 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
                 param_path = os.path.join(self._stream_output_dir,
                                           'multi_start_param_vals_history.csv')
                 with open(param_path, 'w') as f:
+                    f.write('start_idx, iteration, ' + ', '.join(self._param_labels()) + '\n')
+                gradient_path = os.path.join(self._stream_output_dir,
+                                             'multi_start_gradient_history.csv')
+                with open(gradient_path, 'w') as f:
                     f.write('start_idx, iteration, ' + ', '.join(self._param_labels()) + '\n')
             except OSError as exc:
                 print(f'warning: could not initialise the multi_start live-history csvs: {exc}')
