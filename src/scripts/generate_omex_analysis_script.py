@@ -243,7 +243,16 @@ def run_pipeline():
     best_param_vals = param_id.get_best_param_vals()
     id_analysis = IdentifiabilityAnalysis.init_from_dict(inp_data_dict, param_id.param_id)
     id_analysis.set_best_param_vals(best_param_vals)
-    id_analysis.run(inp_data_dict["ia_options"])
+    # The Laplace approximation is temporarily disabled (raises NotImplementedError; CA issue
+    # #293). Skip identifiability rather than fail the whole pipeline -- SA and calibration have
+    # already succeeded; the summary just records that no Laplace output was produced.
+    identifiability_ran = True
+    try:
+        id_analysis.run(inp_data_dict["ia_options"])
+    except NotImplementedError as exc:
+        identifiability_ran = False
+        if MPI.COMM_WORLD.Get_rank() == 0:
+            print(f"Skipping identifiability analysis: {{exc}}")
 
     if MPI.COMM_WORLD.Get_rank() == 0:
         summary = {{
@@ -255,8 +264,10 @@ def run_pipeline():
             "selected_param_names": selected_param_names,
             "best_cost": float(np.load(os.path.join(param_id.output_dir, "best_cost.npy"))),
             "best_param_vals_path": os.path.join(param_id.output_dir, "best_param_vals.npy"),
-            "laplace_mean_path": os.path.join(OUTPUT_ROOT, f"{{FILE_PREFIX}}_laplace_mean.npy"),
-            "laplace_covariance_path": os.path.join(OUTPUT_ROOT, f"{{FILE_PREFIX}}_laplace_covariance.npy"),
+            "laplace_mean_path": (os.path.join(OUTPUT_ROOT, f"{{FILE_PREFIX}}_laplace_mean.npy")
+                                  if identifiability_ran else None),
+            "laplace_covariance_path": (os.path.join(OUTPUT_ROOT, f"{{FILE_PREFIX}}_laplace_covariance.npy")
+                                        if identifiability_ran else None),
         }}
         with open(SUMMARY_PATH, "w", encoding="utf-8") as wf:
             json.dump(summary, wf, indent=2)

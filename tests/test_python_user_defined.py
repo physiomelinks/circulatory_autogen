@@ -167,21 +167,22 @@ def test_param_id_python_user_defined_recovers_params(base_user_inputs, temp_out
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.mpi
-def test_identifiability_python_user_defined_succeeds(base_user_inputs, temp_output_dir, temp_generated_models_dir):
-    """Laplace identifiability/UQ analysis runs end-to-end after calibration."""
-    rank = MPI.COMM_WORLD.Get_rank()
+def test_identifiability_python_user_defined_laplace_disabled(base_user_inputs, temp_output_dir, temp_generated_models_dir):
+    """Laplace identifiability/UQ is temporarily disabled (issue #293): the run reaches the
+    identifiability step after calibration and raises NotImplementedError rather than emitting a
+    numerically meaningless covariance.
+
+    When #293 is fixed and Laplace is re-enabled, restore this to assert the covariance is written
+    (and validate its values, per #293's acceptance criteria).
+    """
     config = _oscillator_config(base_user_inputs, temp_output_dir, temp_generated_models_dir)
     config['do_ia'] = True
     config['ia_options'] = {'method': 'Laplace'}
 
-    run_param_id(config)
+    with pytest.raises(NotImplementedError, match="#293"):
+        run_param_id(config)
 
-    if rank == 0:
-        # Laplace writes {prefix}_laplace_{mean,covariance}.npy to the parent of
-        # param_id_output_dir.
-        parent_dir = os.path.dirname(temp_output_dir)
-        cov_path = os.path.join(parent_dir, 'oscillator_laplace_covariance.npy')
-        assert os.path.exists(cov_path), f"expected Laplace covariance at {cov_path}"
-        cov = np.load(cov_path)
-        assert cov.shape == (2, 2)
-        assert np.all(np.isfinite(cov))
+    # No covariance should have been written.
+    parent_dir = os.path.dirname(temp_output_dir)
+    cov_path = os.path.join(parent_dir, 'oscillator_laplace_covariance.npy')
+    assert not os.path.exists(cov_path)

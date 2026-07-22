@@ -164,12 +164,9 @@ def test_generate_omex_analysis_pipeline_runs_successfully(temp_output_dir):
     assert best_cost >= 0.0, f"Calibration cost should be non-negative, got {best_cost}"
     assert best_cost < 150.0, f"Calibration cost should remain below threshold, got {best_cost}"
 
-    assert os.path.exists(laplace_mean_path), f"Laplace mean file missing: {laplace_mean_path}"
-    assert os.path.exists(laplace_covariance_path), (
-        f"Laplace covariance file missing: {laplace_covariance_path}"
-    )
-
-    covariance = np.load(laplace_covariance_path)
-    assert covariance.shape[0] == covariance.shape[1], "Covariance matrix should be square"
-    assert not np.isnan(covariance).any(), "Covariance matrix should not contain NaN values"
-    assert not np.isinf(covariance).any(), "Covariance matrix should not contain Inf values"
+    # Laplace is temporarily disabled (issue #293): the pipeline skips identifiability rather than
+    # emit a numerically meaningless covariance, and records no Laplace output in the summary. The
+    # rest of the pipeline (SA, calibration) still succeeds -- which is the point of skipping
+    # instead of hard-failing. When #293 is fixed, restore the file/covariance assertions here.
+    assert laplace_mean_path is None, laplace_mean_path
+    assert laplace_covariance_path is None, laplace_covariance_path

@@ -131,9 +131,21 @@ class IdentifiabilityAnalysis():
         if ia_options['method'] == 'profile_likelihood':
             self.run_profile_likelihood(ia_options)
         elif ia_options['method'] == 'Laplace':
-            if self.rank == 0:
-                # currently Laplace is not parallelised, so only run on rank 0
-                self.run_laplace_approximation(ia_options)
+            # TEMPORARILY DISABLED (issue #293). The Laplace covariance is computed by inverting a
+            # Hessian fitted in raw, un-normalised parameter space; for models whose parameters
+            # span a wide magnitude range (e.g. 3compartment, ~1e-9 to ~1e8) that fit is
+            # astronomically ill-conditioned, so the uncertainties come out massively inflated and
+            # numerically meaningless. Raise instead of emitting a wrong covariance. Raised on
+            # every rank so an MPI run fails together, not just rank 0. When #293 is fixed, restore
+            # the original dispatch below (which the raise replaced):
+            #     if self.rank == 0:  # Laplace is not parallelised
+            #         self.run_laplace_approximation(ia_options)
+            raise NotImplementedError(
+                "The Laplace approximation is temporarily disabled: it produces massively "
+                "inflated, numerically meaningless parameter uncertainties for models whose "
+                "parameters span a wide magnitude range (an ill-conditioned Hessian fitted in "
+                "raw parameter space). Tracked in issue #293. Use 'profile_likelihood', or wait "
+                "for the fix.")
         return
 
     def run_profile_likelihood(self, ia_options):
