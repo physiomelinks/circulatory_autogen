@@ -11,7 +11,7 @@ global search vs multi-start L-BFGS-B driven by different gradient backends).
 | `compare_optimisers.py` | `OptimiserComparison` — the harness that runs each method through `run_param_id` and collects costs/runtimes. |
 | `docs_results.py` | Format `BenchmarkResult`s as Markdown and splice them into the docs. |
 | `run_benchmarks.py` | CLI runner. |
-| `run_benchmarks.sh` | Local wrapper: runs `run_benchmarks.py` under the OpenCOR Python + MPI. |
+| `run_benchmarks.sh` | Local wrapper: runs `run_benchmarks.py` under a Python venv + MPI (see *Interpreter* below). |
 
 ## Benchmarks
 
@@ -33,14 +33,27 @@ runner call the same `run_fitzhugh_nagumo` in `benchmark_specs.py`.
 
 ## Running
 
-Everything, locally under the OpenCOR Python + MPI (the wrapper just gives a consistent
-environment; the benchmarks themselves do not require OpenCOR):
+Everything, locally with MPI:
 
 ```bash
 ./benchmarks/run_benchmarks.sh                 # 1 MPI rank
 ./benchmarks/run_benchmarks.sh -n 8            # 8 MPI ranks
 ./benchmarks/run_benchmarks.sh --update-docs   # and splice results into the docs
 ```
+
+### Interpreter
+
+The benchmarks only need Myokit/CasADi (no OpenCOR), so `run_benchmarks.sh` runs under a plain
+Python venv. It picks the interpreter in this order: **`$BENCH_PYTHON`** (explicit override) →
+**`/venv/bin/python`** (the standard project venv) → OpenCOR's bundled `pythonshell` (a
+**deprecated** fallback — heavier, ~2 GB RSS per MPI rank). Point it at your venv with either:
+
+```bash
+BENCH_PYTHON=/path/to/venv/bin/python ./benchmarks/run_benchmarks.sh --scaling
+```
+
+The venv needs the deps installed (`pip install -e ".[dev]"` plus `myokit` and `casadi`), and its
+`mpi4py` must match the system `mpiexec`.
 
 Or with any Python that has the deps installed (this is what CI does):
 
@@ -55,6 +68,35 @@ python benchmarks/run_benchmarks.py --benchmark fitzhugh_nagumo --assert
 ```
 
 Options: `--set {all,ci}`, `--benchmark NAME`, `--update-docs`, `--assert`, `--num-calls N`.
+
+## Parallel-scaling study (cores per column)
+
+`--scaling` runs each benchmark once at each of several core counts and builds a table with one
+**wall-clock column per core count** (default `1, 2, 4, 8`), so you can see how each optimiser
+speeds up with cores. Multi-start uses 16 starts and early-stopping is disabled, so every core
+count runs the *same* work — the best cost is therefore core-independent (reported once) and the
+per-core columns are pure wall-clock:
+
+```bash
+./benchmarks/run_benchmarks.sh --scaling                       # 1,2,4,8 cores, all benchmarks
+./benchmarks/run_benchmarks.sh --scaling --update-docs         # and splice tables into the docs
+./benchmarks/run_benchmarks.sh --cores 1,4,8 --benchmark fitzhugh_nagumo
+```
+
+A requested core count above the machine's physical cores is **skipped** (its child fails with
+"not enough slots" and the orchestrator omits that column) rather than oversubscribed onto logical
+threads — an oversubscribed leg would report a contended wall-clock, not a real speedup.
+
+How it works: in this mode `run_benchmarks.py` is an **orchestrator** — it launches its own
+`mpiexec -n C` child per core count (each child runs the benchmark and hands its numbers back as
+JSON), so it must *not* itself be under `mpiexec`. `run_benchmarks.sh` detects `--scaling`/`--cores`
+and drops the outer `mpiexec` automatically (and exports `BENCH_PYTHON`, since the OpenCOR
+`pythonshell` leaves `sys.executable` empty). Each child's numbers are cached under
+`benchmarks/_results/<name>/scaling_<C>core.json`; `--from-cache` rebuilds the tables (and can
+`--update-docs`) from those cached JSONs without re-running anything — handy when the benchmarks
+were run separately.
+
+Extra options: `--scaling`, `--cores C1,C2,...`, `--from-cache`.
 
 AADC variants run only if AADC is installed **and** licensed; otherwise they are reported as
 skipped. (The licence check must precede `import mpi4py`, which `run_benchmarks.py` handles.)
