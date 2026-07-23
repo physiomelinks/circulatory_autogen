@@ -469,12 +469,12 @@ Gradient-free global searches (genetic algorithm, CMA-ES) vs multi-start L-BFGS-
 
 | method | best cost | max param err | 1 core (s) | 2 cores (s) | 4 cores (s) | 8 cores (s) |
 |---|---|---|---|---|---|---|
-| `genetic_algorithm` | 6.1271e-01 | 0.0701 | 27.1 | 14.4 | 9.1 | 11.6 |
-| `CMA-ES` | 1.4413e+02 | 0.9263 | 23.6 | 15.0 | 7.5 | 15.5 |
-| `multi_start (FD)` | 2.5232e-03 | 0.0086 | 80.8 | 41.9 | 38.0 | 45.7 |
-| `multi_start (CasADi AD)` | 3.9704e-06 | 0.0006 | 74.7 | 42.2 | 39.1 | 39.1 |
-| `multi_start (Myokit FSA)` | 3.8261e-06 | 0.0006 | 11.5 | 7.3 | 6.6 | 8.5 |
-| `multi_start (AADC AD)` | 1.3751e-06 | 0.0002 | 2.7 | 2.2 | 3.2 | 3.8 |
+| `genetic_algorithm` | 1.6932e-03 | 0.0036 | 651.7 | 363.7 | 252.5 | 360.8 |
+| `CMA-ES` | 1.4413e+02 | 0.9265 | 19.3 | 14.3 | 8.5 | 15.3 |
+| `multi_start (FD)` | 2.5232e-03 | 0.0086 | 86.8 | 46.8 | 51.7 | 55.0 |
+| `multi_start (CasADi AD)` | 3.9704e-06 | 0.0006 | 80.9 | 45.5 | 52.8 | 54.6 |
+| `multi_start (Myokit FSA)` | 3.8261e-06 | 0.0006 | 12.5 | 6.6 | 8.1 | 7.3 |
+| `multi_start (AADC AD)` | 1.3751e-06 | 0.0002 | 3.9 | 2.2 | 3.4 | 3.8 |
 
 True parameters: a=0.2, b=0.2, c=3.
 
@@ -486,10 +486,10 @@ Gradient-free global searches vs multi-start L-BFGS-B with the two stiff-capable
 
 | method | best cost | 1 core (s) | 2 cores (s) | 4 cores (s) | 8 cores (s) |
 |---|---|---|---|---|---|
-| `genetic_algorithm` | 2.2549e-02 | 308.1 | 201.2 | 134.3 | 129.9 |
-| `CMA-ES` | 4.0749e-02 | 27.8 | 25.2 | 17.3 | 20.5 |
-| `multi_start (Myokit FSA)` | 2.2553e-02 | 1778.1 | 1012.6 | 758.3 | 545.4 |
-| `multi_start (CasADi bdf)` | 2.2753e-02 | 813.4 | 463.1 | 387.2 | 290.4 |
+| `genetic_algorithm` | 2.4738e-02 | 841.0 | 428.7 | 261.3 | 237.9 |
+| `CMA-ES` | 3.2210e-02 | 38.1 | 88.9 | 12.2 | 11.3 |
+| `multi_start (Myokit FSA)` | 2.2553e-02 | 1946.6 | 1072.9 | 726.3 | 478.8 |
+| `multi_start (CasADi bdf)` | 2.2753e-02 | 858.4 | 476.2 | 332.8 | 339.0 |
 | `multi_start (AADC AD)` | _skipped — AADC's tape cost covers only state-operand observables with a reimplemented op (max/min/mean); 3compartment's algebraic-variable observables (aortic_root/u) and its max_minus_min are dropped, so AADC would optimise a reduced cost, not the full one -- excluded until it can replicate the same cost (upstream issue #258)_ |  |  |  |  |
 
 ### Goodwin oscillator (external PMR CellML, non-stiff, multimodal)
@@ -500,10 +500,10 @@ Gradient-free global searches (genetic algorithm, CMA-ES) vs multi-start L-BFGS-
 
 | method | best cost | max param err | 1 core (s) | 2 cores (s) | 4 cores (s) | 8 cores (s) |
 |---|---|---|---|---|---|---|
-| `genetic_algorithm` | 4.3289e-01 | 12.2519 | 2.9 | 1.8 | 1.3 | 1.6 |
-| `CMA-ES` | 1.0306e-02 | 8.1083 | 5.5 | 3.7 | 3.0 | 6.9 |
-| `multi_start (FD)` | 9.1452e-15 | 0.0000 | 12.4 | 7.1 | 4.5 | 5.5 |
-| `multi_start (Myokit FSA)` | 1.5193e-13 | 0.0000 | 10.8 | 7.5 | 5.8 | 6.8 |
+| `genetic_algorithm` | 2.2272e-03 | 1.6251 | 43.3 | 23.8 | 16.1 | 18.3 |
+| `CMA-ES` | 1.5822e-04 | 0.9326 | 32.7 | 1.2 | 24.9 | 57.1 |
+| `multi_start (FD)` | 9.1452e-15 | 0.0000 | 12.5 | 7.0 | 4.7 | 4.6 |
+| `multi_start (Myokit FSA)` | 1.5193e-13 | 0.0000 | 10.3 | 7.5 | 6.1 | 5.7 |
 
 True parameters: a_i=72, b_i=2, A_i=36.
 <!-- BENCHMARK_RESULTS_END -->
