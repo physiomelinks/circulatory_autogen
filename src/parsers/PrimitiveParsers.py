@@ -35,6 +35,13 @@ sys.path.append(os.path.join(root_dir, 'src'))
 # ---------------------------------------------------------------------------
 # Backend solver schema
 # ---------------------------------------------------------------------------
+# CasADi integrator methods that use SUNDIALS adjoint sensitivity for AD, which fails on a long
+# warmup with CV_TOO_MUCH_WORK. The symbolic methods (bdf, semi_implicit_euler, collocation, rk)
+# build a plain reverse-mode graph instead and handle nonzero pre_time fine, so they must NOT warn
+# and ARE suitable for CasADi AD. Single source of truth for both warn_if_casadi_nonzero_pre_time
+# and SOLVER_SCHEMA['ad_suitable_methods'] below, so the two cannot drift.
+_CASADI_ADJOINT_METHODS = ('cvodes', 'idas')
+
 # Single source of truth for which generated model_types exist, which solvers are
 # valid for each, and which methods/plugins are valid for each solver. Used for
 # input validation here AND surfaced to downstream tools (e.g. the CUFLynx
@@ -89,6 +96,33 @@ SOLVER_SCHEMA = {
         'aadc_python': 'aadc_semi_implicit',
         'python_user_defined': 'user_defined',
     },
+}
+
+# Per-integrator suitability of the analytic-gradient backends, so a front-end (e.g. CUFLynx) can
+# gate its "Gradient" menu on the *selected integrator*, not just model_type/solver -- issue #298.
+#
+# AD-suitable casadi_integrator methods are exactly those NOT using SUNDIALS adjoint sensitivity
+# (cvodes/idas), whose adjoint integration fails on a long warmup (CV_TOO_MUCH_WORK); the symbolic
+# methods (collocation, rk, semi_implicit_euler, bdf) are differentiated by reverse mode and fully
+# support CasADi AD. Derived from _CASADI_ADJOINT_METHODS so the flag and the warning cannot drift.
+SOLVER_SCHEMA['ad_suitable_methods'] = {
+    'casadi_integrator': [m for m in SOLVER_SCHEMA['methods_by_solver']['casadi_integrator']
+                          if m not in _CASADI_ADJOINT_METHODS],
+}
+# Myokit CVODES forward-sensitivity (FSA) is the analytic gradient for stiff cellml_only models;
+# its method is 'CVODE' on the CVODE solvers. (CA's get_gradient currently produces FSA only for
+# CVODE_myokit; the CVODE_opencor entry records that its FSA-capable method would likewise be
+# CVODE, so a tool gating a method menu stays correct if/when it is wired up.)
+SOLVER_SCHEMA['fsa_suitable_methods'] = {
+    'CVODE_myokit': ['CVODE'],
+    'CVODE_opencor': ['CVODE'],
+}
+# Recommended default integrator per solver, for a front-end to pre-select an AD-friendly method:
+# casadi_python -> 'bdf' (stable and AD-suitable) rather than the adjoint 'cvodes'. This is the
+# value a tool (CUFLynx) should default its menu to; it is advisory and does not change CA's own
+# internal fallback (a plain run without a method still uses the helper's default).
+SOLVER_SCHEMA['default_method_by_solver'] = {
+    'casadi_integrator': 'bdf',
 }
 
 
@@ -295,10 +329,10 @@ def solver_info_fields(solver):
     return SOLVER_INFO_FIELDS.get(solver, [])
 
 
-def gradient_sources(model_type, solver=None):
+def gradient_sources(model_type, solver=None, method=None):
     """The gradient sources available for the gradient-based param-id methods (`sp_minimize`,
-    `multi_start_sp_minimize`) with this `model_type` + `solver`, for a front-end that offers a
-    "Gradient" menu without hardcoding CA's rules.
+    `multi_start_sp_minimize`) with this `model_type` + `solver` (+ optional integrator `method`),
+    for a front-end that offers a "Gradient" menu without hardcoding CA's rules.
 
     Each descriptor:
       * ``value``  -- 'FD' | 'AD' | 'FSA' (the UI selector value)
@@ -323,6 +357,12 @@ def gradient_sources(model_type, solver=None):
     Finite differences is always available. This is the single source of truth these rules were
     previously duplicated from in downstream tools (e.g. CUFLynx); keep it in step with
     get_gradient.
+
+    When ``method`` (the integrator plugin) is given, the analytic source is additionally gated on
+    per-integrator suitability (``SOLVER_SCHEMA['ad_suitable_methods']`` /
+    ``['fsa_suitable_methods']``): the CasADi AD descriptor is omitted for a casadi_integrator
+    method that uses adjoint sensitivity (cvodes/idas, which can't produce a usable AD gradient),
+    and FSA is omitted for a non-FSA method. ``method=None`` leaves the source ungated. Issue #298.
     """
     sources = [{
         'value': 'FD', 'label': 'Finite difference', 'do_ad': False,
@@ -331,12 +371,17 @@ def gradient_sources(model_type, solver=None):
                         'the cost of extra simulations per gradient.'),
     }]
     if model_type == 'casadi_python':
-        sources.append({
-            'value': 'AD', 'label': 'Automatic differentiation (CasADi)', 'do_ad': True,
-            'requires_all_differentiable': True,
-            'description': ('Exact symbolic CasADi gradient. Requires every operation in the '
-                            'model to be differentiable.'),
-        })
+        casadi_methods = SOLVER_SCHEMA['methods_by_solver']['casadi_integrator']
+        ad_suitable = SOLVER_SCHEMA['ad_suitable_methods']['casadi_integrator']
+        # Gate only a *known* casadi_integrator method that is AD-unsuitable (cvodes/idas); an
+        # unknown or unspecified method leaves AD offered.
+        if method is None or method not in casadi_methods or method in ad_suitable:
+            sources.append({
+                'value': 'AD', 'label': 'Automatic differentiation (CasADi)', 'do_ad': True,
+                'requires_all_differentiable': True,
+                'description': ('Exact symbolic CasADi gradient. Requires every operation in the '
+                                'model to be differentiable.'),
+            })
     elif model_type == 'aadc_python':
         sources.append({
             'value': 'AD', 'label': 'Automatic differentiation (AADC)', 'do_ad': True,
@@ -344,12 +389,15 @@ def gradient_sources(model_type, solver=None):
             'description': 'Exact AADC tape gradient (requires a Matlogica AADC licence at runtime).',
         })
     elif model_type == 'cellml_only' and solver == 'CVODE_myokit':
-        sources.append({
-            'value': 'FSA', 'label': 'Forward sensitivity (Myokit CVODES)', 'do_ad': True,
-            'requires_all_differentiable': False,
-            'description': ('Myokit CVODES forward-sensitivity gradient; the analytic gradient path '
-                            'for stiff cellml_only models.'),
-        })
+        solver_methods = SOLVER_SCHEMA['methods_by_solver'].get(solver, [])
+        fsa_suitable = SOLVER_SCHEMA['fsa_suitable_methods'].get(solver, [])
+        if method is None or method not in solver_methods or method in fsa_suitable:
+            sources.append({
+                'value': 'FSA', 'label': 'Forward sensitivity (Myokit CVODES)', 'do_ad': True,
+                'requires_all_differentiable': False,
+                'description': ('Myokit CVODES forward-sensitivity gradient; the analytic gradient '
+                                'path for stiff cellml_only models.'),
+            })
     return sources
 
 
@@ -446,12 +494,6 @@ def save_dated_user_inputs(inp_data_dict):
             yaml.safe_dump(safe, f, default_flow_style=False, sort_keys=False)
     except Exception:
         pass
-
-
-# CasADi integrator methods that use SUNDIALS adjoint sensitivity for AD, which fails on a long
-# warmup with CV_TOO_MUCH_WORK. The symbolic methods (bdf, semi_implicit_euler) build a plain
-# reverse-mode mapaccum graph instead and handle nonzero pre_time fine, so they must NOT warn.
-_CASADI_ADJOINT_METHODS = ('cvodes', 'idas')
 
 
 def warn_if_casadi_nonzero_pre_time(
