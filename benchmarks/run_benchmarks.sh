@@ -6,7 +6,7 @@
 #   ./benchmarks/run_benchmarks.sh -n 8            # all benchmarks, 8 MPI ranks
 #   ./benchmarks/run_benchmarks.sh --update-docs   # and splice results into the docs
 #   ./benchmarks/run_benchmarks.sh --set ci        # only the CI-safe (non-OpenCOR) set
-#   ./benchmarks/run_benchmarks.sh --scaling       # core-scaling study (1,2,4,8,16 cores)
+#   ./benchmarks/run_benchmarks.sh --scaling       # core-scaling study (1,2,4,8 cores)
 #
 # In --scaling / --cores mode run_benchmarks.py is the orchestrator and launches its own
 # `mpiexec -n C` children per core count, so this wrapper runs it WITHOUT an outer mpiexec.

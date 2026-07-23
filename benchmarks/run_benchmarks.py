@@ -15,7 +15,7 @@ Examples
     # wall-clock column per core count (this process orchestrates its own `mpiexec` children, so
     # do NOT wrap it in mpiexec -- run_benchmarks.sh handles that automatically):
     ./benchmarks/run_benchmarks.sh --scaling --update-docs
-    python benchmarks/run_benchmarks.py --cores 1,2,4,8,16 --set ci
+    python benchmarks/run_benchmarks.py --cores 1,2,4,8 --set ci
 
 ``--set ci`` selects the benchmarks that run without OpenCOR (currently all of them); that is
 what the GitHub Actions workflow runs. ``--update-docs`` rewrites the marker-delimited results
@@ -62,7 +62,7 @@ from benchmarks.registry import BENCHMARK_CI
 RESULTS_DIR = os.path.join(ROOT, "benchmarks", "_results")
 DOCS_PATH = os.path.join(ROOT, "tutorial", "docs", "parameter-identification.md")
 
-DEFAULT_SCALING_CORES = [1, 2, 4, 8, 16]
+DEFAULT_SCALING_CORES = [1, 2, 4, 8]
 
 
 def _load_base_config():
@@ -174,9 +174,9 @@ def run_child(args):
 # Scaling orchestrator: run each benchmark once per core count via `mpiexec -n C` children.
 # --------------------------------------------------------------------------------------------
 
-def _mpi_launcher(max_cores):
+def _mpi_launcher():
     """(mpiexec, extra_args, env) for launching child benchmark runs. Mirrors run_benchmarks.sh:
-    silence OpenMPI's abort-on-non-zero, and oversubscribe if a core count exceeds the box."""
+    silence OpenMPI's abort-on-non-zero. Does not oversubscribe -- see the comment below."""
     mpiexec = os.environ.get("MPIEXEC_BIN") or shutil.which("mpiexec") or "mpiexec"
     extra = []
     env = os.environ.copy()
@@ -192,13 +192,12 @@ def _mpi_launcher(max_cores):
     if is_openmpi:
         extra += ["--mca", "orte_abort_on_non_zero_status", "0"]
         env["OMPI_MCA_orte_abort_on_non_zero_status"] = "0"
-        # OpenMPI counts *physical* cores as slots (e.g. 14 on a 14-core/28-thread box), so a
-        # requested core count above that is rejected as "not enough slots" unless we allow
-        # oversubscription. Passing it unconditionally is harmless when slots suffice (scheduling
-        # is unchanged); when they do not, the extra ranks share logical threads -- so at core
-        # counts above the physical core count the wall-clock reflects hyperthread contention, not
-        # a pure speedup. See the env note on the table.
-        extra.append("--oversubscribe")
+        # Deliberately NOT --oversubscribe: OpenMPI counts *physical* cores as slots, so a core
+        # count above the machine's physical cores is rejected ("not enough slots"). The
+        # orchestrator then logs that leg as failed and simply omits its column, rather than
+        # reporting a wall-clock measured under hyperthread contention (which is misleading -- an
+        # oversubscribed point is not a real speedup). Only clean, non-oversubscribed core counts
+        # are measured.
     return mpiexec, extra, env
 
 
@@ -286,7 +285,7 @@ def orchestrate(args):
             print("[scaling] could not resolve the Python interpreter for the mpiexec children; "
                   "set BENCH_PYTHON to the interpreter path (run_benchmarks.sh does this).")
             return 1
-        mpiexec, extra, env = _mpi_launcher(max(cores))
+        mpiexec, extra, env = _mpi_launcher()
 
     scaling_results = []
     failures = []
@@ -375,8 +374,9 @@ def main(argv=None):
                         help=f"parallel-scaling study over the default core counts "
                              f"({','.join(map(str, DEFAULT_SCALING_CORES))}); shorthand for --cores")
     parser.add_argument("--cores", default=None,
-                        help="comma-separated core counts for a scaling study, e.g. 1,2,4,8,16 "
-                             "(runs each benchmark once per count via mpiexec children)")
+                        help="comma-separated core counts for a scaling study, e.g. 1,2,4,8 "
+                             "(runs each benchmark once per count via mpiexec children); a count "
+                             "above the machine's physical cores is skipped, not oversubscribed")
     parser.add_argument("--emit-json", default=None,
                         help="internal: a scaling child dumps its results here as JSON")
     parser.add_argument("--from-cache", action="store_true",

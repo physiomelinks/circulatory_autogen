@@ -72,16 +72,20 @@ Options: `--set {all,ci}`, `--benchmark NAME`, `--update-docs`, `--assert`, `--n
 ## Parallel-scaling study (cores per column)
 
 `--scaling` runs each benchmark once at each of several core counts and builds a table with one
-**wall-clock column per core count** (default `1, 2, 4, 8, 16`), so you can see how each optimiser
+**wall-clock column per core count** (default `1, 2, 4, 8`), so you can see how each optimiser
 speeds up with cores. Multi-start uses 16 starts and early-stopping is disabled, so every core
 count runs the *same* work — the best cost is therefore core-independent (reported once) and the
 per-core columns are pure wall-clock:
 
 ```bash
-./benchmarks/run_benchmarks.sh --scaling                       # 1,2,4,8,16 cores, all benchmarks
+./benchmarks/run_benchmarks.sh --scaling                       # 1,2,4,8 cores, all benchmarks
 ./benchmarks/run_benchmarks.sh --scaling --update-docs         # and splice tables into the docs
-./benchmarks/run_benchmarks.sh --cores 1,4,16 --benchmark fitzhugh_nagumo
+./benchmarks/run_benchmarks.sh --cores 1,4,8 --benchmark fitzhugh_nagumo
 ```
+
+A requested core count above the machine's physical cores is **skipped** (its child fails with
+"not enough slots" and the orchestrator omits that column) rather than oversubscribed onto logical
+threads — an oversubscribed leg would report a contended wall-clock, not a real speedup.
 
 How it works: in this mode `run_benchmarks.py` is an **orchestrator** — it launches its own
 `mpiexec -n C` child per core count (each child runs the benchmark and hands its numbers back as

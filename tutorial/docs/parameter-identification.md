@@ -465,16 +465,16 @@ is a standard hard case for parameter estimation: its least-squares surface has 
 
 Gradient-free global searches (genetic algorithm, CMA-ES) vs multi-start L-BFGS-B driven by four gradient sources. Holding the optimiser fixed and varying only the gradient isolates what the gradient buys.
 
-*cores: 1, 2, 4, 8, 16; wall-clock seconds per core count; best cost / max param err from the 1-core run (same work is run at every core count).*
+*cores: 1, 2, 4, 8; wall-clock seconds per core count; best cost / max param err from the 1-core run (same work is run at every core count).*
 
-| method | best cost | max param err | 1 core (s) | 2 cores (s) | 4 cores (s) | 8 cores (s) | 16 cores (s) |
-|---|---|---|---|---|---|---|---|
-| `genetic_algorithm` | 6.1271e-01 | 0.0701 | 27.1 | 14.4 | 9.1 | 11.6 | 9.8 |
-| `CMA-ES` | 1.4413e+02 | 0.9263 | 23.6 | 15.0 | 7.5 | 15.5 | 10.6 |
-| `multi_start (FD)` | 2.5232e-03 | 0.0086 | 80.8 | 41.9 | 38.0 | 45.7 | 66.2 |
-| `multi_start (CasADi AD)` | 3.9704e-06 | 0.0006 | 74.7 | 42.2 | 39.1 | 39.1 | 72.3 |
-| `multi_start (Myokit FSA)` | 3.8261e-06 | 0.0006 | 11.5 | 7.3 | 6.6 | 8.5 | 8.0 |
-| `multi_start (AADC AD)` | 1.3751e-06 | 0.0002 | 2.7 | 2.2 | 3.2 | 3.8 | 5.8 |
+| method | best cost | max param err | 1 core (s) | 2 cores (s) | 4 cores (s) | 8 cores (s) |
+|---|---|---|---|---|---|---|
+| `genetic_algorithm` | 6.1271e-01 | 0.0701 | 27.1 | 14.4 | 9.1 | 11.6 |
+| `CMA-ES` | 1.4413e+02 | 0.9263 | 23.6 | 15.0 | 7.5 | 15.5 |
+| `multi_start (FD)` | 2.5232e-03 | 0.0086 | 80.8 | 41.9 | 38.0 | 45.7 |
+| `multi_start (CasADi AD)` | 3.9704e-06 | 0.0006 | 74.7 | 42.2 | 39.1 | 39.1 |
+| `multi_start (Myokit FSA)` | 3.8261e-06 | 0.0006 | 11.5 | 7.3 | 6.6 | 8.5 |
+| `multi_start (AADC AD)` | 1.3751e-06 | 0.0002 | 2.7 | 2.2 | 3.2 | 3.8 |
 
 True parameters: a=0.2, b=0.2, c=3.
 
@@ -482,15 +482,15 @@ True parameters: a=0.2, b=0.2, c=3.
 
 Gradient-free global searches vs multi-start L-BFGS-B with the two stiff-capable gradient backends. AADC is not run on this stiff model.
 
-*cores: 1, 2, 4, 8, 16; wall-clock seconds per core count; best cost / max param err from the 1-core run (same work is run at every core count).*
+*cores: 1, 2, 4, 8; wall-clock seconds per core count; best cost / max param err from the 1-core run (same work is run at every core count).*
 
-| method | best cost | 1 core (s) | 2 cores (s) | 4 cores (s) | 8 cores (s) | 16 cores (s) |
-|---|---|---|---|---|---|---|
-| `genetic_algorithm` | 2.2549e-02 | 308.1 | 201.2 | 134.3 | 129.9 | 95.7 |
-| `CMA-ES` | 4.0749e-02 | 27.8 | 25.2 | 17.3 | 20.5 | 17.0 |
-| `multi_start (Myokit FSA)` | 2.2553e-02 | 1778.1 | 1012.6 | 758.3 | 545.4 | 515.9 |
-| `multi_start (CasADi bdf)` | 2.2753e-02 | 813.4 | 463.1 | 387.2 | 290.4 | 343.2 |
-| `multi_start (AADC AD)` | _skipped — AADC's tape cost covers only state-operand observables with a reimplemented op (max/min/mean); 3compartment's algebraic-variable observables (aortic_root/u) and its max_minus_min are dropped, so AADC would optimise a reduced cost, not the full one -- excluded until it can replicate the same cost (upstream issue #258)_ |  |  |  |  |  |
+| method | best cost | 1 core (s) | 2 cores (s) | 4 cores (s) | 8 cores (s) |
+|---|---|---|---|---|---|
+| `genetic_algorithm` | 2.2549e-02 | 308.1 | 201.2 | 134.3 | 129.9 |
+| `CMA-ES` | 4.0749e-02 | 27.8 | 25.2 | 17.3 | 20.5 |
+| `multi_start (Myokit FSA)` | 2.2553e-02 | 1778.1 | 1012.6 | 758.3 | 545.4 |
+| `multi_start (CasADi bdf)` | 2.2753e-02 | 813.4 | 463.1 | 387.2 | 290.4 |
+| `multi_start (AADC AD)` | _skipped — AADC's tape cost covers only state-operand observables with a reimplemented op (max/min/mean); 3compartment's algebraic-variable observables (aortic_root/u) and its max_minus_min are dropped, so AADC would optimise a reduced cost, not the full one -- excluded until it can replicate the same cost (upstream issue #258)_ |  |  |  |  |
 <!-- BENCHMARK_RESULTS_END -->
 
 The stiff 3compartment cardiovascular benchmark (long warmup, Myokit/CasADi — no OpenCOR needed) runs in the same set; it is slower, so the workflow schedule is weekly. See `benchmarks/README.md`.
