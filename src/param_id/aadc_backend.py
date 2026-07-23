@@ -387,6 +387,7 @@ def _cost_and_grad_bdf_newton(pid, param_vals):
     x = np.array(sim_helper.states[:n], dtype=float)
     S = np.zeros((n, n_p))  # accumulated dx/dp
     traj_sim = []
+    S_history = []  # sensitivity at each sim trajectory point
 
     for step in range(total_steps):
         for sub in range(n_sub):
@@ -431,25 +432,93 @@ def _cost_and_grad_bdf_newton(pid, param_vals):
 
         if step >= pre_steps:
             traj_sim.append(x.copy())
+            S_history.append(S.copy())
 
-    # Compute cost from trajectory (same as forward solve)
-    sim_helper.state_traj = np.array(traj_sim).T
+    # Store trajectory and compute observables
+    sim_helper.state_traj = np.array(traj_sim).T  # (n_states, n_sim_steps)
     sim_helper._compute_var_traj(traj_sim, variables_all)
     sim_helper._has_run = True
 
-    cost = pid.get_cost_obs_and_pred_from_params(param_vals)
+    # S_history: (n_sim_steps, n_states, n_params) — sensitivity at each sim point
+    S_history = np.array(S_history)  # already collected above
+    n_sim = len(traj_sim)
 
-    # Gradient: chain rule through observables
-    # For now: numerical gradient of cost w.r.t. each observable,
-    # times sensitivity S. This is approximate but correct for linear cost.
-    # TODO: analytic dcost/dy for exact gradient.
+    # Cost computed directly from stored trajectory (avoid re-running sim)
+    # Matches the cost function in cost_on_tape / get_cost_obs_and_pred_from_params
+    cost = 0.0
+
+    # Gradient via chain rule through observables
+    # cost = sum_obs w_obs * ((obs_val - gt) / std)^2
+    # dcost/dp = sum_obs w_obs * 2*(obs_val - gt)/std^2 * d(obs_val)/dp
+    # d(obs_val)/dp depends on operation (mean/max/min/max_minus_min)
+    obs_info = pid.obs_info
+    if obs_info is None:
+        return cost, np.zeros(n_p)
+
+    gt_const = obs_info.get("ground_truth_const", [])
+    std_const = obs_info.get("std_const_vec", [])
+    operations = obs_info.get("operations", [])
+    operand_names = obs_info.get("operands", [])
+    data_types = obs_info.get("data_types", [])
+    cost_types = pid.cost_type if hasattr(pid, 'cost_type') else ['gaussian_MLE'] * len(gt_const)
+    weights = pid.protocol_info["scaled_weight_const_from_exp_sub"][0][0] \
+        if pid.protocol_info and "scaled_weight_const_from_exp_sub" in pid.protocol_info \
+        else np.ones(len(gt_const))
+    weighted_obs_denom = sum(1 for w in weights if w > 0) if len(weights) > 0 else 1
+
     grad = np.zeros(n_p)
-    eps_fd = 1e-7
-    for k in range(n_p):
-        grad[k] = 0.0
-        for state_i in range(n):
-            # How much does the observable-based cost depend on state_i at final time?
-            # Use S[state_i, k] accumulated over trajectory
-            grad[k] += S[state_i, k]  # placeholder — needs proper dcost/dstate
+    const_idx = 0
+    traj_arr = sim_helper.state_traj  # (n_states, n_sim)
+
+    for jj in range(len(operand_names)):
+        if data_types[jj] != 'constant':
+            continue
+        op_name = operand_names[jj][0] if isinstance(operand_names[jj], (list, tuple)) else operand_names[jj]
+        operation = operations[jj]
+        kind, si = sim_helper._resolve_name(op_name)
+
+        if const_idx >= len(gt_const) or kind is None:
+            const_idx += 1
+            continue
+
+        gt = float(gt_const[const_idx])
+        std = float(std_const[const_idx])
+        w = float(weights[const_idx])
+        scale = 0.5 if (const_idx < len(cost_types) and cost_types[const_idx] == 'gaussian_MLE') else 1.0
+
+        if kind == 'state' and si is not None:
+            series = traj_arr[si, :]  # (n_sim,)
+            S_series = S_history[:, si, :]  # (n_sim, n_p)
+
+            if operation == 'mean':
+                obs_val = np.mean(series)
+                dobs_dp = np.mean(S_series, axis=0)  # (n_p,)
+            elif operation == 'max':
+                k_max = np.argmax(series)
+                obs_val = series[k_max]
+                dobs_dp = S_series[k_max, :]
+            elif operation == 'min':
+                k_min = np.argmin(series)
+                obs_val = series[k_min]
+                dobs_dp = S_series[k_min, :]
+            elif operation == 'max_minus_min':
+                k_max = np.argmax(series)
+                k_min = np.argmin(series)
+                obs_val = series[k_max] - series[k_min]
+                dobs_dp = S_series[k_max, :] - S_series[k_min, :]
+            else:
+                obs_val = series[-1]
+                dobs_dp = S_series[-1, :]
+
+            # Cost contribution
+            residual = (obs_val - gt) / std
+            cost += scale * residual * residual * w / weighted_obs_denom
+
+            # dcost/dp for this observable
+            dcost_dobs = scale * 2.0 * (obs_val - gt) / (std * std) * w / weighted_obs_denom
+            grad += dcost_dobs * dobs_dp
+
+        # TODO: algebraic variable observables (kind == 'var') — need var sensitivity
+        const_idx += 1
 
     return cost, grad
