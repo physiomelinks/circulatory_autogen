@@ -524,16 +524,27 @@ class SimulationHelper:
         vfj = self._bdf_vfj
         eye_n = np.eye(n)
         traj = [x.copy()]
+        x_prev = None  # for BDF2: need x_{n-1}
+
         for step in range(total_steps):
             for sub in range(n_sub):
                 y = x.copy()
+                use_bdf2 = x_prev is not None
+
                 for nit in range(max_newton):
-                    rates_arr = vfj.func(y)  # 35× faster than Python compute_rates
-                    F = y - x - idt * rates_arr
+                    rates_arr = vfj.func(y)
+                    if use_bdf2:
+                        # BDF2: x_{n+1} - 4/3 x_n + 1/3 x_{n-1} - 2/3 dt f(x_{n+1}) = 0
+                        F = y - (4.0/3.0) * x + (1.0/3.0) * x_prev - (2.0/3.0) * idt * rates_arr
+                        jac_coeff = 2.0 / 3.0
+                    else:
+                        # BDF1 (startup): x_{n+1} - x_n - dt f(x_{n+1}) = 0
+                        F = y - x - idt * rates_arr
+                        jac_coeff = 1.0
                     if np.max(np.abs(F)) < newton_tol:
                         break
                     J_rhs = vfj.jac(y)
-                    J_g = eye_n - idt * J_rhs
+                    J_g = eye_n - jac_coeff * idt * J_rhs
                     try:
                         lu_piv = lu_factor(J_g)
                         dy = lu_solve(lu_piv, -F)
@@ -542,6 +553,7 @@ class SimulationHelper:
                     y += dy
                 for z in zeta_indices:
                     y[z] = max(0.0, min(1.0, y[z]))
+                x_prev = x.copy()
                 x = y.copy()
             traj.append(x.copy())
 

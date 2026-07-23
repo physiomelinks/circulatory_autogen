@@ -394,6 +394,7 @@ def _cost_and_grad_bdf_newton(pid, param_vals):
     request_dfdp = {r: a_p for r in r_r}
     need_sensitivity = False
     eye_n = np.eye(n)
+    x_prev = None  # for BDF2
 
     for step in range(total_steps):
         if step == pre_steps:
@@ -403,15 +404,20 @@ def _cost_and_grad_bdf_newton(pid, param_vals):
         for sub in range(n_sub):
             y = x.copy()
             lu_piv = None
+            use_bdf2 = x_prev is not None
 
             for nit in range(max_newton):
-                # VFJ.func is 35× faster than Python compute_rates
                 rates_arr = vfj.func(y)
-                F = y - x - idt * rates_arr
+                if use_bdf2:
+                    F = y - (4.0/3.0) * x + (1.0/3.0) * x_prev - (2.0/3.0) * idt * rates_arr
+                    jac_coeff = 2.0 / 3.0
+                else:
+                    F = y - x - idt * rates_arr
+                    jac_coeff = 1.0
                 if np.max(np.abs(F)) < newton_tol:
                     break
                 J_rhs = vfj.jac(y)
-                J_g = eye_n - idt * J_rhs
+                J_g = eye_n - jac_coeff * idt * J_rhs
                 try:
                     lu_piv = lu_factor(J_g)
                     dy = lu_solve(lu_piv, -F)
@@ -419,7 +425,7 @@ def _cost_and_grad_bdf_newton(pid, param_vals):
                     break
                 y += dy
 
-            # IFT sensitivity only during sim_time (skip warmup)
+            # IFT sensitivity only during sim_time
             if need_sensitivity and lu_piv is not None:
                 inputs = dict(inputs_template)
                 for i in range(n):
@@ -429,12 +435,13 @@ def _cost_and_grad_bdf_newton(pid, param_vals):
                 for i in range(n):
                     for k in range(n_p):
                         dfdp[i, k] = float(np.asarray(res_eval[1][r_r[i]][a_p[k]]).flat[0])
-                rhs_S = S + idt * dfdp
+                rhs_S = S + jac_coeff * idt * dfdp
                 for k in range(n_p):
                     S[:, k] = lu_solve(lu_piv, rhs_S[:, k])
 
             for z in zeta_indices:
                 y[z] = max(0.0, min(1.0, y[z]))
+            x_prev = x.copy()
             x = y.copy()
 
         if step >= pre_steps:
