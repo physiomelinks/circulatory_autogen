@@ -102,24 +102,32 @@ def cost_and_grad(pid, param_vals):
     # being minimised, so the optimiser would descend the wrong cost. Refuse rather than
     # silently mislead. (Fully supporting algebraic observables needs the algebraic variables
     # recomputed on the tape from the state trajectory, tracked in issue #258.)
-    def _operand_is_state(op):
-        # _resolve_name is authoritative. There used to be a fallback here matching the
-        # operand's leaf name (op.split('/')[-1]) against every state name, which could
-        # declare an *algebraic* observable tapeable purely because some unrelated
-        # component happened to own a state with the same leaf -- e.g. observable
-        # 'pulmonary_artery/v' matching state 'heart/v'. That suppressed the untapeable
-        # check below, and _resolve_state_idx's matching fallback then bound the tape to
-        # the first state with that leaf: a different variable entirely. Because both the
-        # tape cost and its gradient used the wrong variable they agreed with each other,
-        # so AD-vs-FD checks passed and the optimiser converged cleanly onto a fit of a
-        # variable the user never asked for.
-        kind, _ = pid.sim_helper._resolve_name(op)
-        return kind == 'state'
+    def _operand_is_tapeable(op):
+        """Check if an operand can be represented on the AADC tape.
 
-    supported_const_ops = (None, 'max', 'min', 'mean')
+        Returns True for states (directly on tape) and algebraic variables
+        (computable from states via compute_variables on tape).
+        """
+        kind, _ = pid.sim_helper._resolve_name(op)
+        return kind in ('state', 'var')
+
+    supported_const_ops = (None, 'max', 'min', 'mean', 'max_minus_min')
     operand_names_o = pid.obs_info.get("operands", []) if pid.obs_info else []
     operations_o = pid.obs_info.get("operations", []) if pid.obs_info else []
     data_types_o = pid.obs_info.get("data_types", []) if pid.obs_info else []
+
+    # Collect which algebraic variable indices are needed on tape
+    needed_var_indices = set()
+    for jj in range(len(operand_names_o)):
+        op = operand_names_o[jj][0] if isinstance(operand_names_o[jj], (list, tuple)) \
+            else operand_names_o[jj]
+        kind, idx = pid.sim_helper._resolve_name(op)
+        if kind == 'var':
+            needed_var_indices.add(idx)
+    needed_var_indices = sorted(needed_var_indices)
+    # Store on sim_helper so the tape recording can use it
+    pid.sim_helper._needed_var_indices = needed_var_indices
+
     untaped = []
     for jj in range(len(operand_names_o)):
         op = operand_names_o[jj][0] if isinstance(operand_names_o[jj], (list, tuple)) \
@@ -127,26 +135,19 @@ def cost_and_grad(pid, param_vals):
         dtype = data_types_o[jj] if jj < len(data_types_o) else 'constant'
         oper = operations_o[jj] if jj < len(operations_o) else None
         if dtype == 'constant':
-            if not _operand_is_state(op) or oper not in supported_const_ops:
+            if not _operand_is_tapeable(op) or oper not in supported_const_ops:
                 untaped.append(f"{op} (op={oper})")
         elif dtype == 'series':
-            if not _operand_is_state(op):
+            if not _operand_is_tapeable(op):
                 untaped.append(f"{op} (series)")
         else:
             untaped.append(f"{op} (data_type={dtype})")
     if untaped:
         raise NotImplementedError(
             f"AADC is not usable with this observable set: {len(untaped)} of "
-            f"{len(operand_names_o)} observable(s) cannot be represented on the AADC tape "
-            f"(operand is an algebraic variable rather than a state, or the operation is "
-            f"unsupported such as max_minus_min): {untaped}. The current AADC wrapper can "
-            f"only tape observables whose operand is a state with a max/min/mean operation "
-            f"(or a state series). Taping these would silently minimise a reduced cost, not "
-            f"the one the optimiser evaluates. Support for algebraic-variable observables and "
-            f"max_minus_min on the tape is tracked in issue #258. For a correct gradient on "
-            f"these observables now, use model_type 'casadi_python' (solver_info method "
-            f"'bdf') or a Myokit CVODES FSA run (model_type 'cellml_only', solver "
-            f"'CVODE_myokit', do_ad true).")
+            f"{len(operand_names_o)} observable(s) cannot be represented on the AADC tape: "
+            f"{untaped}. Supported: state or algebraic-variable operands with "
+            f"max/min/mean/max_minus_min operations (or series).")
 
     weighted_obs_denominator = 0
     if pid._num_weighted_obs_by_exp_sub is not None:
@@ -154,7 +155,7 @@ def cost_and_grad(pid, param_vals):
             for sub_idx in range(num_sub_per_exp[exp_idx]):
                 weighted_obs_denominator += pid._num_weighted_obs_by_exp_sub[exp_idx][sub_idx]
 
-    def cost_on_tape(states_idouble, params_idouble, trajectory=None):
+    def cost_on_tape(states_idouble, params_idouble, trajectory=None, var_trajectory=None):
         import aadc as _aadc
         from param_id.math_backend import make_math_backend
         mb = make_math_backend("aadc")
@@ -195,11 +196,18 @@ def cost_and_grad(pid, param_vals):
         # see _operand_is_state for why the leaf-name fallback that used to live here was
         # removed (it could bind the tape to a same-leaf state in an unrelated component,
         # consistently in both cost and gradient, so nothing downstream could detect it).
-        def _resolve_state_idx(op_name):
+        def _resolve_obs_idx(op_name):
+            """Resolve operand to (source, index) where source is 'state' or 'var'.
+
+            For states: index into states array.
+            For vars: index into the var_trajectory (position in needed_var_indices).
+            """
             kind, resolved_idx = sim_helper._resolve_name(op_name)
             if kind == "state":
-                return resolved_idx
-            return None
+                return ('state', resolved_idx)
+            if kind == "var" and resolved_idx in needed_var_indices:
+                return ('var', needed_var_indices.index(resolved_idx))
+            return (None, None)
 
         gt_series = obs_info.get("ground_truth_series", [])
         std_series = obs_info.get("std_series_vec", [])
@@ -214,24 +222,38 @@ def cost_and_grad(pid, param_vals):
         for jj in range(len(operand_names)):
             op_name = operand_names[jj][0] if isinstance(operand_names[jj], (list, tuple)) else operand_names[jj]
             operation = operations[jj]
-            si = _resolve_state_idx(op_name)
+            source, si = _resolve_obs_idx(op_name)
 
             if data_types[jj] == 'constant':
-                if const_idx >= len(gt_const) or si is None:
+                if const_idx >= len(gt_const) or source is None:
                     const_idx += 1
                     continue
 
                 # Apply operation to trajectory
-                if trajectory is not None and operation in ('max', 'min', 'mean'):
-                    series_vals = [trajectory[t][si] for t in range(len(trajectory))]
+                if trajectory is not None and operation in ('max', 'min', 'mean', 'max_minus_min'):
+                    if source == 'state':
+                        series_vals = [trajectory[t][si] for t in range(len(trajectory))]
+                    elif source == 'var' and var_trajectory is not None:
+                        series_vals = [var_trajectory[t][si] for t in range(len(var_trajectory))]
+                    else:
+                        const_idx += 1
+                        continue
                     if operation == 'max':
                         obs_val = mb.max(series_vals)
                     elif operation == 'min':
                         obs_val = mb.min(series_vals)
                     elif operation == 'mean':
                         obs_val = mb.mean(series_vals)
+                    elif operation == 'max_minus_min':
+                        obs_val = mb.max(series_vals) - mb.min(series_vals)
                 else:
-                    obs_val = states_idouble[si]
+                    if source == 'state':
+                        obs_val = states_idouble[si]
+                    elif source == 'var' and var_trajectory is not None and len(var_trajectory) > 0:
+                        obs_val = var_trajectory[-1][si]  # final value
+                    else:
+                        const_idx += 1
+                        continue
 
                 gt_val = _aadc.idouble(float(gt_const[const_idx]))
                 std_val = _aadc.idouble(float(std_const[const_idx]))
@@ -242,7 +264,7 @@ def cost_and_grad(pid, param_vals):
 
             elif data_types[jj] == 'series':
                 # Series: compare trajectory at each time point
-                if trajectory is None or si is None:
+                if trajectory is None or source is None:
                     series_idx += 1
                     continue
                 if series_idx >= len(gt_series):
@@ -270,18 +292,22 @@ def cost_and_grad(pid, param_vals):
                     n_traj = len(trajectory)
                     n_pts = 0
                     terms = []
+                    traj_src = trajectory if source == 'state' else var_trajectory
+                    if traj_src is None:
+                        series_idx += 1
+                        continue
                     for k in range(len(gt_s)):
                         pos = k * obs_dt_s / sim_dt
                         lower = int(np.floor(pos))
                         if lower >= n_traj - 1:
                             if lower == n_traj - 1 and abs(pos - lower) < 1e-9:
-                                sim_val = trajectory[lower][si]
+                                sim_val = traj_src[lower][si]
                             else:
                                 break  # past the end of the simulation: no data to compare
                         else:
                             frac = pos - lower
-                            sim_val = (trajectory[lower][si] * _aadc.idouble(1.0 - frac)
-                                       + trajectory[lower + 1][si] * _aadc.idouble(frac))
+                            sim_val = (traj_src[lower][si] * _aadc.idouble(1.0 - frac)
+                                       + traj_src[lower + 1][si] * _aadc.idouble(frac))
                         terms.append((sim_val, float(gt_s[k]), float(std_raw[k])))
                         n_pts += 1
 

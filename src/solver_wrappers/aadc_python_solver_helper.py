@@ -1023,11 +1023,23 @@ class SimulationHelper:
                 _eps = aadc.idouble(_DAMPING_FD_EPS)
 
                 self._tape_trajectory = []
+                self._tape_var_trajectory = []
+                _needed_vars = getattr(self, '_needed_var_indices', [])
                 for step in range(total_steps):
                     t_step = step * dt
                     # Collect trajectory BEFORE the step (matches forward solve)
                     if step >= self.pre_steps:
                         self._tape_trajectory.append(list(st))
+                        # Compute algebraic variables on tape if needed
+                        if _needed_vars:
+                            rates_cv = [aadc.idouble(0.0) for _ in range(n)]
+                            vars_cv = list(vars_rec)
+                            self.model.compute_rates(t_step, st, rates_cv, vars_cv)
+                            try:
+                                self.model.compute_variables(t_step, st, rates_cv, vars_cv)
+                            except AttributeError:
+                                pass
+                            self._tape_var_trajectory.append([vars_cv[vi] for vi in _needed_vars])
 
                     # Rates at current state (on tape)
                     rates_id = [aadc.idouble(0.0) for _ in range(n)]
@@ -1057,10 +1069,32 @@ class SimulationHelper:
 
                 # Append final state (matches forward: traj includes endpoint)
                 self._tape_trajectory.append(list(st))
+                if _needed_vars:
+                    t_final = total_steps * dt
+                    rates_cv = [aadc.idouble(0.0) for _ in range(n)]
+                    vars_cv = list(vars_rec)
+                    self.model.compute_rates(t_final, st, rates_cv, vars_cv)
+                    try:
+                        self.model.compute_variables(t_final, st, rates_cv, vars_cv)
+                    except AttributeError:
+                        pass
+                    self._tape_var_trajectory.append([vars_cv[vi] for vi in _needed_vars])
             else:
                 # RK4 on tape (for non-stiff models)
                 # Collect trajectory for trajectory-based cost functions (max, min, mean)
+                _needed_vars = getattr(self, '_needed_var_indices', [])
                 self._tape_trajectory = [list(st)]  # initial state
+                self._tape_var_trajectory = []
+                if _needed_vars:
+                    # Initial algebraic variables
+                    rates_cv = [aadc.idouble(0.0) for _ in range(n)]
+                    vars_cv = list(vars_rec)
+                    self.model.compute_rates(0.0, st, rates_cv, vars_cv)
+                    try:
+                        self.model.compute_variables(0.0, st, rates_cv, vars_cv)
+                    except AttributeError:
+                        pass
+                    self._tape_var_trajectory.append([vars_cv[vi] for vi in _needed_vars])
                 for step in range(total_steps):
                     t = aadc.idouble(step * dt)
                     k1 = [aadc.idouble(0.0) for _ in range(n)]
@@ -1079,11 +1113,27 @@ class SimulationHelper:
                     # Store post-pre_time trajectory on tape
                     if step >= self.pre_steps:
                         self._tape_trajectory.append(list(st))
+                        if _needed_vars:
+                            t_now = (step + 1) * dt
+                            rates_cv = [aadc.idouble(0.0) for _ in range(n)]
+                            vars_cv = list(vars_rec)
+                            self.model.compute_rates(t_now, st, rates_cv, vars_cv)
+                            try:
+                                self.model.compute_variables(t_now, st, rates_cv, vars_cv)
+                            except AttributeError:
+                                pass
+                            self._tape_var_trajectory.append([vars_cv[vi] for vi in _needed_vars])
 
             # Cost — pass trajectory if cost function accepts it, else final state only
             import inspect
             sig = inspect.signature(cost_func_idouble)
-            if len(sig.parameters) >= 3:
+            n_params = len(sig.parameters)
+            if n_params >= 4:
+                # cost_func(final_state, params, trajectory, var_trajectory)
+                cost = cost_func_idouble(st, id_p,
+                                         getattr(self, '_tape_trajectory', None),
+                                         getattr(self, '_tape_var_trajectory', None))
+            elif n_params >= 3:
                 # cost_func(final_state, params, trajectory)
                 cost = cost_func_idouble(st, id_p, getattr(self, '_tape_trajectory', None))
             else:
