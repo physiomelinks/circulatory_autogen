@@ -105,7 +105,15 @@ def register_core_operations(registry, backend):
         registry[name] = obj
 
 
-def build_operation_funcs_dict(backend):
+# Decorator/hook helper names an external operation-funcs file might define locally (mirroring
+# operation_funcs_user.py); excluded so they are not registered as operations.
+_EXTERNAL_OP_EXCLUDE = frozenset({"series_to_constant", "register_user_operations"})
+
+
+def build_operation_funcs_dict(backend, external_path=None):
+    """Build the observable-operation registry: built-in core ops, then the user ops in
+    ``operation_funcs_user.py``, then (if given) the ops in the external file ``external_path``
+    (issue #303). Later registrations win, so an external func may override a user/core one."""
     registry = {}
     register_core_operations(registry, backend)
     try:
@@ -114,9 +122,12 @@ def build_operation_funcs_dict(backend):
         pass
     else:
         ofu.register_user_operations(registry, backend)
+    if external_path:
+        from param_id.external_funcs import register_funcs_from_file
+        register_funcs_from_file(external_path, registry, backend, exclude=_EXTERNAL_OP_EXCLUDE)
     return registry
 
 
-def get_operation_funcs_dict_for_mode(mode="numpy"):
+def get_operation_funcs_dict_for_mode(mode="numpy", external_path=None):
     """Convenience for callers that only have a mode string."""
-    return build_operation_funcs_dict(make_math_backend(mode))
+    return build_operation_funcs_dict(make_math_backend(mode), external_path=external_path)

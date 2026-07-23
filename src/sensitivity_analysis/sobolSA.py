@@ -67,9 +67,10 @@ class sobol_SA():
         if self._is_rank0():
             print(*args, **kwargs)
 
-    def __init__(self, model_path, model_out_names, solver_info, SA_info, dt, sa_output_dir, 
-                 param_id_path = None, params_for_id_path=None, use_MPI = False, verbose=False, 
-                 sim_time=2.0, pre_time=20.0, model_type=None):
+    def __init__(self, model_path, model_out_names, solver_info, SA_info, dt, sa_output_dir,
+                 param_id_path = None, params_for_id_path=None, use_MPI = False, verbose=False,
+                 sim_time=2.0, pre_time=20.0, model_type=None,
+                 operation_funcs_external_path=None, cost_funcs_external_path=None):
 
         """
         Initializes the Sensitivity_analysis class.
@@ -101,7 +102,9 @@ class sobol_SA():
         self.model_type = model_type
         mode = "casadi" if self.model_type == "casadi_python" else "numpy"
         # set up observables functions
-        self.sfp = scriptFunctionParser()
+        self.sfp = scriptFunctionParser(
+            operation_funcs_external_path=operation_funcs_external_path,
+            cost_funcs_external_path=cost_funcs_external_path)
         self.operation_funcs_dict = self.sfp.get_operation_funcs_dict(mode)
 
         self.obs_and_param_parser = None

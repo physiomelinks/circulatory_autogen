@@ -45,6 +45,12 @@ sim_time: 2
 # param_id_output_dir: /home/farg967/Documents/git_projects/CA_user/3compartment/param_id_output
 # external_modules_dir: /home/farg967/Documents/temp/test_for_phlynx_cvs/module_config
 
+# Optional external files with extra user operation / cost funcs, loaded and registered alongside
+# funcs_user/operation_funcs_user.py and cost_funcs_user.py (same decorators / conventions). Lets
+# a tool add funcs without editing CA's tracked source. Absent/empty => only the built-in funcs.
+# operation_funcs_external_path: /path/to/my_operation_funcs.py
+# cost_funcs_external_path: /path/to/my_cost_funcs.py
+
 
 # This is for cpp generation
 # cpp_generated_models_dir: /home/farg967/software/venous_system/lucas_model/fvm

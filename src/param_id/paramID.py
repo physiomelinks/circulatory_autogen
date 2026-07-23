@@ -200,12 +200,17 @@ class CVS0DParamID():
                  param_id_obs_path=None, sim_time=2.0, pre_time=20.0, dt=0.01,
                  solver_info=None, mcmc_options=None, optimiser_options=None, 
                  do_ad=False, DEBUG=False,
-                 param_id_output_dir=None, resources_dir=None, one_rank=False):
+                 param_id_output_dir=None, resources_dir=None, one_rank=False,
+                 operation_funcs_external_path=None, cost_funcs_external_path=None):
         self.model_path = model_path
         self.param_id_method = param_id_method
         self.mcmc_instead = mcmc_instead
         self.model_type = model_type
         self.file_name_prefix = file_name_prefix
+        # Optional external user-func files (issue #303), threaded into the param-id engine so its
+        # operation/cost dicts merge them in alongside the built-ins.
+        self.operation_funcs_external_path = operation_funcs_external_path
+        self.cost_funcs_external_path = cost_funcs_external_path
 
         self.comm = MPI.COMM_WORLD
         self.rank = self.comm.Get_rank()
@@ -319,9 +324,11 @@ class CVS0DParamID():
                 self.param_id = OpencorParamID(self.model_path, self.param_id_method,
                                                self.obs_info, self.param_id_info, self.protocol_info,
                                                self.prediction_info, self.solver_info, dt=self.dt,
-                                               optimiser_options=self.optimiser_options, 
-                                               do_ad=do_ad, DEBUG=self.DEBUG, 
-                                               model_type=self.model_type)
+                                               optimiser_options=self.optimiser_options,
+                                               do_ad=do_ad, DEBUG=self.DEBUG,
+                                               model_type=self.model_type,
+                                               operation_funcs_external_path=self.operation_funcs_external_path,
+                                               cost_funcs_external_path=self.cost_funcs_external_path)
                 self.n_steps = self.param_id.n_steps
         if self.rank == 0:
             self.set_output_dir(self.output_dir)
@@ -373,6 +380,7 @@ class CVS0DParamID():
             'sim_time', 'pre_time', 'dt', 'solver_info', 'mcmc_options',
             'optimiser_options', 'DEBUG', 'param_id_output_dir', 'resources_dir',
             'one_rank', 'do_ad',
+            'operation_funcs_external_path', 'cost_funcs_external_path',
         ]
         kwargs = {key: inp_data_dict[key] for key in arg_options if key in inp_data_dict}
 
@@ -1113,9 +1121,10 @@ class OpencorParamID():
     """
     def __init__(self, model_path, param_id_method,
                  obs_info, param_id_info, protocol_info, prediction_info,
-                 solver_info, dt=0.01, 
-                 optimiser_options=None, do_ad=False, 
-                 DEBUG=False, model_type=None):
+                 solver_info, dt=0.01,
+                 optimiser_options=None, do_ad=False,
+                 DEBUG=False, model_type=None,
+                 operation_funcs_external_path=None, cost_funcs_external_path=None):
 
         self.model_path = model_path
         self.param_id_method = param_id_method
@@ -1133,7 +1142,9 @@ class OpencorParamID():
 
         self.protocol_info = protocol_info
 
-        self.sfp = scriptFunctionParser()
+        self.sfp = scriptFunctionParser(
+            operation_funcs_external_path=operation_funcs_external_path,
+            cost_funcs_external_path=cost_funcs_external_path)
 
         if self.model_type == "casadi_python":
             mode = "casadi"

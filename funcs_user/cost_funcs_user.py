@@ -152,17 +152,27 @@ def register_cost_funcs(registry, backend):
         registry[name] = obj
 
 
-def build_cost_funcs_dict(backend):
+# Decorator/hook helper names an external cost-funcs file might define locally; excluded so they
+# are not registered as costs.
+_EXTERNAL_COST_EXCLUDE = frozenset({"is_MLE", "cost_combiner", "register_cost_funcs"})
+
+
+def build_cost_funcs_dict(backend, external_path=None):
+    """Build the cost registry: the built-in costs in this module, then (if given) the costs in the
+    external file ``external_path`` (issue #303). A later external func may override a built-in."""
     registry = {}
     register_cost_funcs(registry, backend)
+    if external_path:
+        from param_id.external_funcs import register_funcs_from_file
+        register_funcs_from_file(external_path, registry, backend, exclude=_EXTERNAL_COST_EXCLUDE)
     return registry
 
 
-def get_cost_funcs_dict_for_mode(mode="numpy"):
-    return build_cost_funcs_dict(make_math_backend(mode))
+def get_cost_funcs_dict_for_mode(mode="numpy", external_path=None):
+    return build_cost_funcs_dict(make_math_backend(mode), external_path=external_path)
 
 
-def cost_func_metadata(mode="numpy"):
+def cost_func_metadata(mode="numpy", external_path=None):
     """Discoverable metadata for every registered cost function, so an obs-data editor (e.g.
     CUFLynx) can offer the valid ``cost_type`` values and their flags without introspecting the
     callables. Returns ``{name: {"is_MLE": bool, "is_combiner": bool, "differentiable": bool}}``,
@@ -174,7 +184,7 @@ def cost_func_metadata(mode="numpy"):
     """
     from param_id.differentiable import is_circulatory_differentiable
     meta = {}
-    for name, func in get_cost_funcs_dict_for_mode(mode).items():
+    for name, func in get_cost_funcs_dict_for_mode(mode, external_path=external_path).items():
         meta[name] = {
             "is_MLE": bool(getattr(func, "is_MLE", False)),
             "is_combiner": bool(getattr(func, "cost_combiner", False)),
