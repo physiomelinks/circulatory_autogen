@@ -388,20 +388,29 @@ def _cost_and_grad_bdf_newton(pid, param_vals):
     traj_sim = []
     S_history = []  # sensitivity at each sim trajectory point
 
+    # Pre-build inputs template
+    inputs_template = {a_p[k]: p_vals[k] for k in range(n_p)}
+    request_dfdp = {r: a_p for r in r_r}
+    need_sensitivity = False
+    eye_n = np.eye(n)
+
     for step in range(total_steps):
+        if step == pre_steps:
+            need_sensitivity = True
+            S = np.zeros((n, n_p))
+
         for sub in range(n_sub):
-            t = step * dt + sub * idt
             y = x.copy()
             lu_piv = None
 
             for nit in range(max_newton):
-                rates = [0.0] * n
-                sim_helper.model.compute_rates(t + idt, list(y), rates, list(variables_all))
-                F = y - x - idt * np.array(rates)
+                # VFJ.func is 35× faster than Python compute_rates
+                rates_arr = vfj.func(y)
+                F = y - x - idt * rates_arr
                 if np.max(np.abs(F)) < newton_tol:
                     break
                 J_rhs = vfj.jac(y)
-                J_g = np.eye(n) - idt * J_rhs
+                J_g = eye_n - idt * J_rhs
                 try:
                     lu_piv = lu_factor(J_g)
                     dy = lu_solve(lu_piv, -F)
@@ -409,14 +418,12 @@ def _cost_and_grad_bdf_newton(pid, param_vals):
                     break
                 y += dy
 
-            # IFT sensitivity: S_{n+1} = (dg/dx)^{-1} * (S_n + idt * df/dp)
-            if lu_piv is not None:
-                inputs = {}
+            # IFT sensitivity only during sim_time (skip warmup)
+            if need_sensitivity and lu_piv is not None:
+                inputs = dict(inputs_template)
                 for i in range(n):
                     inputs[a_x[i]] = float(y[i])
-                for k in range(n_p):
-                    inputs[a_p[k]] = p_vals[k]
-                res_eval = aadc.evaluate(rhs_f, {r: a_p for r in r_r}, inputs, workers)
+                res_eval = aadc.evaluate(rhs_f, request_dfdp, inputs, workers)
                 dfdp = np.zeros((n, n_p))
                 for i in range(n):
                     for k in range(n_p):
