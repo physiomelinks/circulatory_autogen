@@ -20,7 +20,7 @@ import numpy as np
 # AADC solver methods whose forward integration the tape can record step-for-step. An adaptive
 # integrator picks its step sizes from the state, so the sequence of operations changes with the
 # parameters and cannot be replayed from a tape.
-TAPE_CONSISTENT_METHODS = ('rk4', 'implicit_euler_ift', 'semi_implicit')
+TAPE_CONSISTENT_METHODS = ('rk4', 'implicit_euler_ift', 'semi_implicit', 'implicit_newton')
 
 
 def cost_and_grad(pid, param_vals):

@@ -82,7 +82,7 @@ SOLVER_SCHEMA = {
         # reached the tape. The AD tape has no bdf branch either, so do_ad silently recorded
         # rk4 instead -- cost and gradient were different functions. Use 'semi_implicit' for
         # stiff models, or model_type 'casadi_python' for a differentiable symbolic BDF.
-        'aadc_semi_implicit': ['adaptive_rk45', 'semi_implicit', 'implicit_euler_ift', 'rk4'],
+        'aadc_semi_implicit': ['adaptive_rk45', 'semi_implicit', 'implicit_euler_ift', 'implicit_newton', 'rk4'],
         # The user wrapper supplies the rhs; the framework integrates it with the
         # same scipy solve_ivp methods as model_type 'python'.
         'user_defined': ['RK45', 'RK23', 'DOP853', 'Radau', 'BDF', 'LSODA', 'forward_euler'],
