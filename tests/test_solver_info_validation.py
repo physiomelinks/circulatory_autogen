@@ -18,6 +18,7 @@ from parsers.PrimitiveParsers import (
     ANALYSIS_OPTIONS,
     analysis_options,
     _SOLVER_INTEGRATOR_KEYS,
+    _CASADI_ADJOINT_METHODS,
 )
 
 # The descriptor shape shared by optimiser_options, solver_info fields, and analysis options.
@@ -482,3 +483,55 @@ def test_gradient_sources_well_formed_and_match_get_gradient_dispatch():
         srcs = gradient_sources(mt, sv)
         _check_shape(srcs)
         assert [s['value'] for s in srcs] == ['FD'], (mt, sv)
+
+
+def test_per_integrator_ad_fsa_and_default_method_schema():
+    """ad_suitable_methods / fsa_suitable_methods / default_method_by_solver let a front-end gate
+    its Gradient menu on the selected integrator (issue #298). Lock their shape and, crucially,
+    that ad_suitable_methods is derived from _CASADI_ADJOINT_METHODS (so the flag and the
+    adjoint-warning cannot drift) and that the referenced methods actually exist in the schema."""
+    ad = SOLVER_SCHEMA['ad_suitable_methods']
+    fsa = SOLVER_SCHEMA['fsa_suitable_methods']
+    default_method = SOLVER_SCHEMA['default_method_by_solver']
+
+    casadi_methods = SOLVER_SCHEMA['methods_by_solver']['casadi_integrator']
+    # AD-suitable = every casadi_integrator method that is NOT an adjoint-sensitivity method.
+    assert ad['casadi_integrator'] == [m for m in casadi_methods
+                                       if m not in _CASADI_ADJOINT_METHODS]
+    assert ad['casadi_integrator'] == ['collocation', 'rk', 'semi_implicit_euler', 'bdf']
+    # the adjoint methods are exactly the ones excluded
+    assert set(casadi_methods) - set(ad['casadi_integrator']) == set(_CASADI_ADJOINT_METHODS)
+
+    # fsa_suitable methods exist in the schema for their solver.
+    for solver, methods in fsa.items():
+        assert solver in SOLVER_SCHEMA['methods_by_solver'], solver
+        assert set(methods) <= set(SOLVER_SCHEMA['methods_by_solver'][solver]), (solver, methods)
+    assert fsa['CVODE_myokit'] == ['CVODE']
+
+    # a default method must be one of that solver's methods, and AD-suitable where AD applies.
+    for solver, m in default_method.items():
+        assert m in SOLVER_SCHEMA['methods_by_solver'][solver], (solver, m)
+    assert default_method['casadi_integrator'] == 'bdf'
+    assert default_method['casadi_integrator'] in ad['casadi_integrator']
+
+
+def test_gradient_sources_gates_analytic_source_on_integrator_method():
+    """gradient_sources(..., method=...) drops the analytic source when the selected integrator
+    cannot produce it -- CasADi AD for the adjoint methods (cvodes/idas), FSA for a non-CVODE
+    method -- and keeps it otherwise. This is the per-integrator gate downstream tools apply."""
+    # CasADi AD: offered for the symbolic/AD-suitable methods, gone for the adjoint ones.
+    for m in SOLVER_SCHEMA['ad_suitable_methods']['casadi_integrator']:
+        assert 'AD' in [s['value'] for s in gradient_sources('casadi_python', method=m)], m
+    for m in _CASADI_ADJOINT_METHODS:
+        assert [s['value'] for s in gradient_sources('casadi_python', method=m)] == ['FD'], m
+    # method=None (or an unknown method) leaves AD offered.
+    assert 'AD' in [s['value'] for s in gradient_sources('casadi_python')]
+    assert 'AD' in [s['value'] for s in gradient_sources('casadi_python', method='not_a_method')]
+
+    # Myokit FSA: offered for the CVODE method (the only, and FSA-suitable, method).
+    assert 'FSA' in [s['value'] for s in
+                     gradient_sources('cellml_only', 'CVODE_myokit', method='CVODE')]
+    assert 'FSA' in [s['value'] for s in gradient_sources('cellml_only', 'CVODE_myokit')]
+
+    # AADC AD has no per-integrator gate (its tape method is independent of this menu).
+    assert 'AD' in [s['value'] for s in gradient_sources('aadc_python', method='semi_implicit')]
