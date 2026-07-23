@@ -72,7 +72,7 @@ def fitzhugh_nagumo_config(base_config, resources_dir, output_dir, generated_mod
 
 
 def run_fitzhugh_nagumo(base_config, resources_dir, output_dir, generated_models_dir,
-                        mpi_comm, num_calls=2000, num_starts=16, include_aadc=None):
+                        mpi_comm, num_calls=30000, num_starts=16, include_aadc=None):
     """Run the FitzHugh-Nagumo optimiser comparison and return a BenchmarkResult.
 
     Compares GA / CMA-ES against multi-start L-BFGS-B driven by finite differences, CasADi AD,
@@ -222,7 +222,11 @@ def three_compartment_config(base_config, resources_dir, output_dir, generated_m
         'pre_time': 20,
         'sim_time': 2,
         'dt': 0.01,
-        'DEBUG': True,
+        # DEBUG must stay False for benchmarks: DEBUG shrinks the genetic-algorithm population
+        # (744 -> 28), which -- at a fixed cost budget -- changes how many generations it gets and
+        # biases the optimiser comparison. Benchmark settings go in optimiser_options, not the
+        # DEBUG-gated debug_optimiser_options.
+        'DEBUG': False,
         'do_mcmc': False,
         'plot_predictions': False,
         'do_ia': False,
@@ -230,16 +234,16 @@ def three_compartment_config(base_config, resources_dir, output_dir, generated_m
         'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
         'param_id_output_dir': output_dir,
         'generated_models_dir': generated_models_dir,
-        'debug_optimiser_options': {'num_calls_to_function': 10000, 'max_patience': 500,
-                                    'num_starts': 16, 'start_sampling': 'sobol', 'seed': 0,
-                                    # all starts run at every core count -- fair scaling comparison
-                                    'no_new_starts_on_convergence': False},
+        'optimiser_options': {'max_patience': 500,
+                              'num_starts': 16, 'start_sampling': 'sobol', 'seed': 0,
+                              # all starts run at every core count -- fair scaling comparison
+                              'no_new_starts_on_convergence': False},
     })
     return config
 
 
 def run_three_compartment(base_config, resources_dir, output_dir, generated_models_dir,
-                          mpi_comm, num_calls=10000):
+                          mpi_comm, num_calls=20000):
     """Run the STIFF 3compartment optimiser comparison and return a BenchmarkResult.
 
     GA / CMA-ES vs multi-start L-BFGS-B with the two stiff-capable gradient backends (Myokit
@@ -392,7 +396,7 @@ def goodwin_config(base_config, resources_dir, output_dir, generated_models_dir,
 
 
 def run_goodwin(base_config, resources_dir, output_dir, generated_models_dir,
-                mpi_comm, num_calls=2000, num_starts=16):
+                mpi_comm, num_calls=30000, num_starts=16):
     """Run the Goodwin-oscillator optimiser comparison and return a BenchmarkResult.
 
     Gradient-free global searches (GA, CMA-ES) vs multi-start L-BFGS-B driven by finite
