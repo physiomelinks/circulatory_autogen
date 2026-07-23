@@ -90,8 +90,9 @@ class SensitivityAnalysis():
         params_for_id_path: Optional path to a ``{prefix}_params_for_id.csv``.
     """
     def __init__(self, model_path, model_type, file_name_prefix, sa_options, DEBUG=False,
-                 param_id_output_dir=None, resources_dir=None, model_out_names=[], 
-                 solver_info={}, dt=0.01, optimiser_options={}, param_id_obs_path=None, params_for_id_path=None):
+                 param_id_output_dir=None, resources_dir=None, model_out_names=[],
+                 solver_info={}, dt=0.01, optimiser_options={}, param_id_obs_path=None, params_for_id_path=None,
+                 operation_funcs_external_path=None, cost_funcs_external_path=None):
 
         self.model_path = model_path
         self.model_type = model_type
@@ -106,11 +107,17 @@ class SensitivityAnalysis():
         self.param_id_obs_path = param_id_obs_path
         self.params_for_id_path = params_for_id_path
         self.sa_options = sa_options
+        # Optional external user-func files (issue #303), threaded into the Sobol manager and the
+        # local-sensitivity engine so their operation/cost dicts merge them alongside the built-ins.
+        self.operation_funcs_external_path = operation_funcs_external_path
+        self.cost_funcs_external_path = cost_funcs_external_path
         sa_output_dir = sa_options['output_dir']
-        
+
         self.SA_manager = sobol_SA(self.model_path, self.model_out_names, self.solver_info, sa_options, self.dt,
                             sa_output_dir, param_id_path=self.param_id_obs_path, params_for_id_path=self.params_for_id_path,
-                            verbose=False, use_MPI=True, model_type=self.model_type)
+                            verbose=False, use_MPI=True, model_type=self.model_type,
+                            operation_funcs_external_path=operation_funcs_external_path,
+                            cost_funcs_external_path=cost_funcs_external_path)
 
         # For the local (derivative-based) method, which -- unlike Sobol -- runs through a
         # backend-agnostic param-id engine (mirroring IdentifiabilityAnalysis), not the Sobol
@@ -141,7 +148,8 @@ class SensitivityAnalysis():
         arg_options = [
             'model_path', 'model_type', 'file_name_prefix', 'sa_options', 'DEBUG', 'param_id_output_dir',
             'resources_dir', 'model_out_names', 'solver_info',
-            'dt', 'optimiser_options', 'param_id_obs_path', 'params_for_id_path'
+            'dt', 'optimiser_options', 'param_id_obs_path', 'params_for_id_path',
+            'operation_funcs_external_path', 'cost_funcs_external_path',
         ]
         kwargs = {key: inp_data_dict[key] for key in arg_options if key in inp_data_dict}
 

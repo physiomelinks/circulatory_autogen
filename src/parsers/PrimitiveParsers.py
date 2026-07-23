@@ -543,17 +543,25 @@ class scriptFunctionParser(object):
     Parses scripts with functions into objects (dicts) which holds the functions
     '''
 
-    def __init__(self):
+    def __init__(self, operation_funcs_external_path=None, cost_funcs_external_path=None):
         sys.path.append(param_id_dir)
         sys.path.append(operation_funcs_user_dir)
         '''
         Constructor
+
+        ``operation_funcs_external_path`` / ``cost_funcs_external_path`` (issue #303): optional
+        paths to external Python files with additional user operation / cost funcs, merged in
+        alongside the built-ins by ``get_operation_funcs_dict`` / ``get_cost_funcs_dict`` (and
+        ``cost_func_metadata``). ``None``/empty -> only the built-in and funcs_user funcs.
         '''
+        self.operation_funcs_external_path = operation_funcs_external_path
+        self.cost_funcs_external_path = cost_funcs_external_path
 
     def get_operation_funcs_dict(self, mode="numpy"):
         import operation_funcs
 
-        return operation_funcs.get_operation_funcs_dict_for_mode(mode)
+        return operation_funcs.get_operation_funcs_dict_for_mode(
+            mode, external_path=self.operation_funcs_external_path)
 
     def get_default_user_operation_funcs(self, mode="numpy"):
         """User operations are merged in ``get_operation_funcs_dict``; this is kept for API compatibility."""
@@ -562,15 +570,24 @@ class scriptFunctionParser(object):
     def add_user_operation_func(self, operation_funcs_dict, func):
         operation_funcs_dict[func.__name__] = func
         return operation_funcs_dict
-    
+
     def add_user_cost_func(self, cost_funcs_dict, func):
         cost_funcs_dict[func.__name__] = func
         return cost_funcs_dict
-    
+
     def get_cost_funcs_dict(self, mode="numpy"):
         import cost_funcs_user
 
-        return cost_funcs_user.get_cost_funcs_dict_for_mode(mode)
+        return cost_funcs_user.get_cost_funcs_dict_for_mode(
+            mode, external_path=self.cost_funcs_external_path)
+
+    def cost_func_metadata(self, mode="numpy"):
+        """Discoverable cost metadata (see cost_funcs_user.cost_func_metadata), including any
+        external costs from ``cost_funcs_external_path``."""
+        import cost_funcs_user
+
+        return cost_funcs_user.cost_func_metadata(
+            mode, external_path=self.cost_funcs_external_path)
 
 class YamlFileParser(object):
     '''

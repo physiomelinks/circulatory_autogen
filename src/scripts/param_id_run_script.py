@@ -45,6 +45,9 @@ def run_param_id(inp_data_dict=None):
     resources_dir = inp_data_dict['resources_dir']
     param_id_output_dir = inp_data_dict['param_id_output_dir']
     do_ad = inp_data_dict['do_ad']
+    # Optional external user-func files (issue #303); None when absent.
+    operation_funcs_external_path = inp_data_dict.get('operation_funcs_external_path', None)
+    cost_funcs_external_path = inp_data_dict.get('cost_funcs_external_path', None)
 
 
     comm = MPI.COMM_WORLD
@@ -60,9 +63,11 @@ def run_param_id(inp_data_dict=None):
                             param_id_obs_path=param_id_obs_path,
                             sim_time=sim_time, pre_time=pre_time,
                             solver_info=solver_info, dt=dt,
-                            optimiser_options=optimiser_options, 
+                            optimiser_options=optimiser_options,
                             do_ad=do_ad, DEBUG=DEBUG,
-                            param_id_output_dir=param_id_output_dir, resources_dir=resources_dir)
+                            param_id_output_dir=param_id_output_dir, resources_dir=resources_dir,
+                            operation_funcs_external_path=operation_funcs_external_path,
+                            cost_funcs_external_path=cost_funcs_external_path)
 
     if inp_data_dict.get('obs_data_dict') is not None:
         param_id.set_ground_truth_data(inp_data_dict['obs_data_dict'])
@@ -120,7 +125,9 @@ def run_param_id(inp_data_dict=None):
                                 param_id_obs_path=param_id_obs_path,
                                 sim_time=sim_time, pre_time=pre_time,
                                 solver_info=solver_info, dt=dt, mcmc_options=mcmc_options, DEBUG=DEBUG,
-                                param_id_output_dir=param_id_output_dir, resources_dir=resources_dir)
+                                param_id_output_dir=param_id_output_dir, resources_dir=resources_dir,
+                                operation_funcs_external_path=operation_funcs_external_path,
+                                cost_funcs_external_path=cost_funcs_external_path)
         mcmc.set_best_param_vals(best_param_vals)
         ensure_mle_cost_type_for_bayesian_inner(mcmc_object, inp_data_dict)
         # mcmc.set_mcmc_parameters() TODO
