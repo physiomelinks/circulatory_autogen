@@ -448,9 +448,11 @@ def _cost_and_grad_bdf_newton(pid, param_vals):
             traj_sim.append(x.copy())
             S_history.append(S.copy())
 
-    # Store trajectory and compute observables
-    sim_helper.state_traj = np.array(traj_sim).T  # (n_states, n_sim_steps)
+    # Store trajectory and compute algebraic variables
+    sim_helper.state_traj = np.array(traj_sim).T
     sim_helper._compute_var_traj(traj_sim, variables_all)
+    # var_traj: (n_vars, n_sim_steps) — algebraic variables at each sim point
+    var_traj = sim_helper.var_traj if hasattr(sim_helper, 'var_traj') else None
     sim_helper._has_run = True
 
     # S_history: (n_sim_steps, n_states, n_params) — sensitivity at each sim point
@@ -500,9 +502,40 @@ def _cost_and_grad_bdf_newton(pid, param_vals):
         w = float(weights[const_idx])
         scale = 0.5 if (const_idx < len(cost_types) and cost_types[const_idx] == 'gaussian_MLE') else 1.0
 
-        if kind == 'state' and si is not None:
-            series = traj_arr[si, :]  # (n_sim,)
-            S_series = S_history[:, si, :]  # (n_sim, n_p)
+        if kind == 'var' and si is not None and var_traj is not None:
+            # Algebraic variable: var = g(states)
+            series = var_traj[si, :]
+            # dvar/dp via chain rule: dvar/dp = sum_j (dvar/dstate_j) * S[j, :]
+            n_sim_pts = len(traj_sim)
+            S_series = np.zeros((n_sim_pts, n_p))
+            eps_var = 1e-7
+            for ti in range(n_sim_pts):
+                st = traj_sim[ti]
+                rates0 = [0.0] * n; vars0 = list(variables_all)
+                sim_helper.model.compute_rates(0.0, list(st), rates0, vars0)
+                try:
+                    sim_helper.model.compute_variables(0.0, list(st), rates0, vars0)
+                except AttributeError:
+                    pass
+                base_val = float(vars0[si])
+                for j in range(n):
+                    h = max(abs(st[j]) * eps_var, eps_var)
+                    st_b = list(st); st_b[j] += h
+                    rates_b = [0.0] * n; vars_b = list(variables_all)
+                    sim_helper.model.compute_rates(0.0, st_b, rates_b, vars_b)
+                    try:
+                        sim_helper.model.compute_variables(0.0, st_b, rates_b, vars_b)
+                    except AttributeError:
+                        pass
+                    dvar_dstate_j = (float(vars_b[si]) - base_val) / h
+                    S_series[ti, :] += dvar_dstate_j * S_history[ti, j, :]
+
+        elif kind == 'state' and si is not None:
+            series = traj_arr[si, :]
+            S_series = S_history[:, si, :]
+        else:
+            const_idx += 1
+            continue
 
             if operation == 'mean':
                 obs_val = np.mean(series)
