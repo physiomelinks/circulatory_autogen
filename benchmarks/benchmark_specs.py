@@ -15,6 +15,7 @@ import numpy as np
 from scripts.script_generate_with_new_architecture import generate_with_new_architecture
 from benchmarks.compare_optimisers import OptimiserComparison
 from benchmarks.docs_results import BenchmarkResult, BenchmarkRow
+from benchmarks.registry import BENCHMARK_CI
 
 
 # FitzHugh-Nagumo ground-truth parameters (a, b, c) the obs data was generated at.
@@ -71,7 +72,7 @@ def fitzhugh_nagumo_config(base_config, resources_dir, output_dir, generated_mod
 
 
 def run_fitzhugh_nagumo(base_config, resources_dir, output_dir, generated_models_dir,
-                        mpi_comm, num_calls=2000, num_starts=8, include_aadc=None):
+                        mpi_comm, num_calls=2000, num_starts=16, include_aadc=None):
     """Run the FitzHugh-Nagumo optimiser comparison and return a BenchmarkResult.
 
     Compares GA / CMA-ES against multi-start L-BFGS-B driven by finite differences, CasADi AD,
@@ -91,6 +92,9 @@ def run_fitzhugh_nagumo(base_config, resources_dir, output_dir, generated_models
         'cost_convergence': 1e-4,
         'max_patience': 500,
         'num_starts': num_starts, 'start_sampling': 'sobol', 'seed': 0,
+        # Run every start regardless of convergence so the same work is done at every core count
+        # -- a fair parallel-scaling comparison (and a core-independent best cost).
+        'no_new_starts_on_convergence': False,
     }
 
     multi_start_casadi = {
@@ -227,7 +231,9 @@ def three_compartment_config(base_config, resources_dir, output_dir, generated_m
         'param_id_output_dir': output_dir,
         'generated_models_dir': generated_models_dir,
         'debug_optimiser_options': {'num_calls_to_function': 10000, 'max_patience': 500,
-                                    'num_starts': 5, 'start_sampling': 'sobol', 'seed': 0},
+                                    'num_starts': 16, 'start_sampling': 'sobol', 'seed': 0,
+                                    # all starts run at every core count -- fair scaling comparison
+                                    'no_new_starts_on_convergence': False},
     })
     return config
 
@@ -304,7 +310,7 @@ def run_three_compartment(base_config, resources_dir, output_dir, generated_mode
         title='3compartment cardiovascular (stiff, 20 s warmup)',
         description=('Gradient-free global searches vs multi-start L-BFGS-B with the two '
                      'stiff-capable gradient backends. AADC is not run on this stiff model.'),
-        env_note=f'{mpi_comm.Get_size()} MPI rank(s); pre_time=20 s; 5 starts for multi-start')
+        env_note=f'{mpi_comm.Get_size()} MPI rank(s); pre_time=20 s; 16 starts for multi-start')
     if rank == 0:
         for method in methods:
             result.rows.append(BenchmarkRow(
@@ -339,7 +345,8 @@ def assert_three_compartment(result, mpi_comm):
 # Both current benchmarks run on Myokit/CasADi (no OpenCOR), so both are CI-enabled; the flag
 # is kept so a future OpenCOR-only benchmark can opt out of CI.
 BENCHMARKS = {
-    'fitzhugh_nagumo': {'run': run_fitzhugh_nagumo, 'assert': assert_fitzhugh_nagumo, 'ci': True},
+    'fitzhugh_nagumo': {'run': run_fitzhugh_nagumo, 'assert': assert_fitzhugh_nagumo,
+                        'ci': BENCHMARK_CI['fitzhugh_nagumo']},
     'three_compartment': {'run': run_three_compartment, 'assert': assert_three_compartment,
-                          'ci': True},
+                          'ci': BENCHMARK_CI['three_compartment']},
 }

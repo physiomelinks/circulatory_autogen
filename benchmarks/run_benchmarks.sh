@@ -7,6 +7,10 @@
 #   ./benchmarks/run_benchmarks.sh -n 8            # all benchmarks, 8 MPI ranks
 #   ./benchmarks/run_benchmarks.sh --update-docs   # and splice results into the docs
 #   ./benchmarks/run_benchmarks.sh --set ci        # only the CI-safe (non-OpenCOR) set
+#   ./benchmarks/run_benchmarks.sh --scaling       # core-scaling study (1,2,4,8,16 cores)
+#
+# In --scaling / --cores mode run_benchmarks.py is the orchestrator and launches its own
+# `mpiexec -n C` children per core count, so this wrapper runs it WITHOUT an outer mpiexec.
 #
 # The CI workflow does NOT use this wrapper: it runs `python benchmarks/run_benchmarks.py
 # --set ci` under a plain Python with the pip-installed deps (no OpenCOR).
@@ -17,8 +21,11 @@ cd "$SCRIPT_DIR"
 source user_run_files/python_path.sh
 
 # Parse -n as the MPI rank count (default 1); everything else passes to run_benchmarks.py.
+# Detect --scaling / --cores: in that mode run_benchmarks.py orchestrates its own mpiexec
+# children, so we must NOT wrap it in an outer mpiexec.
 BENCH_ARGS=()
 NUM_PROCS=1
+SCALING=0
 while [[ $# -gt 0 ]]; do
     case $1 in
         -n)
@@ -26,6 +33,9 @@ while [[ $# -gt 0 ]]; do
             if [[ $# -gt 0 ]]; then NUM_PROCS="$1"; shift
             elif command -v nproc >/dev/null 2>&1; then NUM_PROCS=$(nproc)
             else NUM_PROCS=4; fi
+            ;;
+        --scaling|--cores|--from-cache)
+            SCALING=1; BENCH_ARGS+=("$1"); shift
             ;;
         *)
             BENCH_ARGS+=("$1"); shift
@@ -39,6 +49,18 @@ if ! command -v mpiexec >/dev/null 2>&1; then
 fi
 
 MPIEXEC_BIN="${MPIEXEC_BIN:-mpiexec}"
+export MPIEXEC_BIN
+
+if [[ "${SCALING}" -eq 1 ]]; then
+    # Orchestrator mode: run_benchmarks.py launches its own mpiexec children per core count.
+    # Export the interpreter path: the OpenCOR pythonshell leaves sys.executable empty, so the
+    # orchestrator reads BENCH_PYTHON to know what to launch the children with.
+    echo "Running core-scaling benchmarks (orchestrator launches its own mpiexec children)"
+    export BENCH_PYTHON="${python_path}"
+    "${python_path}" benchmarks/run_benchmarks.py "${BENCH_ARGS[@]}"
+    exit "$?"
+fi
+
 MPIEXEC_ARGS=()
 if "${MPIEXEC_BIN}" --version 2>/dev/null | grep -qi "Open MPI"; then
     MPIEXEC_ARGS+=(--mca orte_abort_on_non_zero_status 0)

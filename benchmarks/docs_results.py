@@ -36,6 +36,46 @@ class BenchmarkResult:
         return None
 
 
+@dataclass
+class ScalingRow:
+    """One optimiser's result in a core-scaling table: a single best cost / param error (the same
+    work is run at every core count, so these are core-independent) plus a wall-clock time per
+    core count."""
+    method: str
+    cost: Optional[float] = None
+    param_err: Optional[float] = None
+    times_by_core: dict = field(default_factory=dict)   # {n_cores: seconds}
+    skipped_reason: Optional[str] = None
+
+
+@dataclass
+class ScalingBenchmarkResult:
+    name: str
+    title: str
+    description: str
+    cores: list                     # e.g. [1, 2, 4, 8, 16]
+    env_note: str = ""
+    rows: list = field(default_factory=list)
+    true_params: Optional[list] = None
+    param_labels: Optional[list] = None
+
+
+def benchmark_result_to_dict(result):
+    """Serialise a ``BenchmarkResult`` to a plain dict (JSON-safe), so a per-core child process
+    can hand its results back to the scaling orchestrator."""
+    return {
+        'name': result.name,
+        'title': result.title,
+        'description': result.description,
+        'env_note': result.env_note,
+        'true_params': result.true_params,
+        'param_labels': result.param_labels,
+        'rows': [{'method': r.method, 'cost': r.cost, 'time_s': r.time_s,
+                  'param_err': r.param_err, 'skipped_reason': r.skipped_reason}
+                 for r in result.rows],
+    }
+
+
 DOCS_START_MARKER = "<!-- BENCHMARK_RESULTS_START -->"
 DOCS_END_MARKER = "<!-- BENCHMARK_RESULTS_END -->"
 
@@ -85,6 +125,55 @@ def results_to_markdown(results, generated_note=None):
     if generated_note:
         blocks.append(f"*{generated_note}*\n")
     blocks += [result_to_markdown(r) for r in results]
+    return "\n".join(blocks).rstrip() + "\n"
+
+
+def _core_header(n):
+    return f"{n} core{'s' if n != 1 else ''} (s)"
+
+
+def scaling_result_to_markdown(result):
+    """Render one ``ScalingBenchmarkResult`` as a Markdown table with a wall-clock column per
+    core count (the parallel-scaling view)."""
+    lines = [f"### {result.title}", "", result.description, ""]
+    if result.env_note:
+        lines += [f"*{result.env_note}.*", ""]
+
+    show_err = any(r.param_err is not None for r in result.rows)
+    core_headers = [_core_header(c) for c in result.cores]
+    header = ["method", "best cost"] + (["max param err"] if show_err else []) + core_headers
+    lines.append("| " + " | ".join(header) + " |")
+    lines.append("|" + "|".join(["---"] * len(header)) + "|")
+
+    for r in result.rows:
+        if r.skipped_reason is not None:
+            span = ["`" + r.method + "`", f"_skipped — {r.skipped_reason}_"]
+            span += [""] if show_err else []
+            span += [""] * len(result.cores)
+            lines.append("| " + " | ".join(span) + " |")
+            continue
+        cells = ["`" + r.method + "`", _fmt(r.cost, ".4e")]
+        if show_err:
+            cells.append(_fmt(r.param_err, ".4f"))
+        for c in result.cores:
+            t = r.times_by_core.get(c)
+            cells.append(_fmt(t, ".1f") if t is not None else "—")
+        lines.append("| " + " | ".join(cells) + " |")
+
+    if result.true_params is not None:
+        labels = result.param_labels or [f"p{i}" for i in range(len(result.true_params))]
+        true_str = ", ".join(f"{lab}={val:g}" for lab, val in zip(labels, result.true_params))
+        lines += ["", f"True parameters: {true_str}."]
+    lines.append("")
+    return "\n".join(lines)
+
+
+def scaling_results_to_markdown(results, generated_note=None):
+    """Render all scaling results into a single Markdown block for the docs region."""
+    blocks = []
+    if generated_note:
+        blocks.append(f"*{generated_note}*\n")
+    blocks += [scaling_result_to_markdown(r) for r in results]
     return "\n".join(blocks).rstrip() + "\n"
 
 

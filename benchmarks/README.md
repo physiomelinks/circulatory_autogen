@@ -56,6 +56,31 @@ python benchmarks/run_benchmarks.py --benchmark fitzhugh_nagumo --assert
 
 Options: `--set {all,ci}`, `--benchmark NAME`, `--update-docs`, `--assert`, `--num-calls N`.
 
+## Parallel-scaling study (cores per column)
+
+`--scaling` runs each benchmark once at each of several core counts and builds a table with one
+**wall-clock column per core count** (default `1, 2, 4, 8, 16`), so you can see how each optimiser
+speeds up with cores. Multi-start uses 16 starts and early-stopping is disabled, so every core
+count runs the *same* work — the best cost is therefore core-independent (reported once) and the
+per-core columns are pure wall-clock:
+
+```bash
+./benchmarks/run_benchmarks.sh --scaling                       # 1,2,4,8,16 cores, all benchmarks
+./benchmarks/run_benchmarks.sh --scaling --update-docs         # and splice tables into the docs
+./benchmarks/run_benchmarks.sh --cores 1,4,16 --benchmark fitzhugh_nagumo
+```
+
+How it works: in this mode `run_benchmarks.py` is an **orchestrator** — it launches its own
+`mpiexec -n C` child per core count (each child runs the benchmark and hands its numbers back as
+JSON), so it must *not* itself be under `mpiexec`. `run_benchmarks.sh` detects `--scaling`/`--cores`
+and drops the outer `mpiexec` automatically (and exports `BENCH_PYTHON`, since the OpenCOR
+`pythonshell` leaves `sys.executable` empty). Each child's numbers are cached under
+`benchmarks/_results/<name>/scaling_<C>core.json`; `--from-cache` rebuilds the tables (and can
+`--update-docs`) from those cached JSONs without re-running anything — handy when the benchmarks
+were run separately.
+
+Extra options: `--scaling`, `--cores C1,C2,...`, `--from-cache`.
+
 AADC variants run only if AADC is installed **and** licensed; otherwise they are reported as
 skipped. (The licence check must precede `import mpi4py`, which `run_benchmarks.py` handles.)
 

@@ -4095,8 +4095,11 @@ def test_compare_optimisers_on_fitzhugh_nagumo(
     ``benchmarks/benchmark_specs.py`` so the standalone benchmark runner exercises exactly the
     same comparison.
     """
+    # The benchmark runner defaults to 16 starts; the test pins 8 to keep it bounded (the
+    # assertions do not depend on the count).
     result = run_fitzhugh_nagumo(
-        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm)
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm,
+        num_starts=8)
     assert_fitzhugh_nagumo(result, mpi_comm)
 
 
