@@ -460,6 +460,93 @@ class SimulationHelper:
 
         return traj[self.pre_steps:]
 
+    def _integrate_bdf_newton(self, states, variables_all, total_steps, dt):
+        """Implicit Euler with Newton solver using AADC VFJ for exact Jacobian.
+
+        Uses VectorFunctionWithJacobian kernel for df/dy (one AADC reverse
+        pass per Newton iteration). Forward is Python compute_rates (correct
+        passive values). Sub-steps at internal_dt = solver_info['max_step']
+        (default 0.001) for stiff accuracy, matching CasADi BDF's sub-stepping.
+
+        This is the AADC analogue of CasADi's _run_symbolic_bdf: same fixed-step
+        implicit solve, same sub-stepping, but with AADC adjoint Jacobian instead
+        of CasADi symbolic Jacobian.
+        """
+        from scipy.linalg import lu_factor, lu_solve
+
+        n = self.STATE_COUNT
+        x = np.array(states[:n], dtype=float)
+        vars_all = list(variables_all)
+
+        zeta_indices = [i for i, info in enumerate(self.model.STATE_INFO)
+                        if 'zeta' in info.get('name', '').lower()]
+
+        # Sub-stepping: internal dt capped at max_step (default 0.001, same as CasADi)
+        max_step = float(self.solver_info.get('max_step', 0.001))
+        n_sub = max(1, int(np.ceil(dt / max_step)))
+        idt = dt / n_sub
+        max_newton = 4
+        newton_tol = 1e-10
+
+        # Build VFJ kernel if not already done
+        if not hasattr(self, '_bdf_vfj') or self._bdf_vfj is None:
+            rhs_f = aadc.Functions()
+            rhs_f.start_recording()
+            id_x = [aadc.idouble(float(x[i])) for i in range(n)]
+            a_x = [xi.mark_as_input() for xi in id_x]
+            id_v = [aadc.idouble(float(v) if not (isinstance(v, float) and
+                    v != v) else 0.0) for v in vars_all]
+            # Mark AD params as inputs
+            a_p_inner = []
+            if hasattr(self, '_ad_param_var_indices'):
+                for idx in self._ad_param_var_indices:
+                    id_v[idx] = aadc.idouble(float(vars_all[idx]))
+                    a_p_inner.append(id_v[idx].mark_as_input())
+            id_r = [aadc.idouble(0.0) for _ in range(n)]
+            self.model.compute_rates(aadc.idouble(0.0), id_x, id_r, list(id_v))
+            r_r = []
+            for i in range(n):
+                r_r.append((id_r[i] if hasattr(id_r[i], 'mark_as_output')
+                           else aadc.idouble(float(id_r[i]))).mark_as_output())
+            rhs_f.stop_recording()
+            self._bdf_vfj = aadc.VectorFunctionWithJacobian(
+                rhs_f, a_x, a_p_inner, r_r)
+            self._bdf_rhs_f = rhs_f
+            self._bdf_a_x = a_x
+            self._bdf_a_p = a_p_inner
+            self._bdf_r_r = r_r
+
+        if hasattr(self, '_ad_param_var_indices') and self._ad_param_var_indices:
+            param_vals = np.array([float(vars_all[idx])
+                                   for idx in self._ad_param_var_indices])
+            self._bdf_vfj.set_params(param_vals)
+
+        traj = [x.copy()]
+        for step in range(total_steps):
+            for sub in range(n_sub):
+                t = step * dt + sub * idt
+                y = x.copy()
+                for nit in range(max_newton):
+                    rates = [0.0] * n
+                    self.model.compute_rates(t + idt, list(y), rates, list(vars_all))
+                    F = y - x - idt * np.array(rates)
+                    if np.max(np.abs(F)) < newton_tol:
+                        break
+                    J_rhs = self._bdf_vfj.jac(y)
+                    J_g = np.eye(n) - idt * J_rhs
+                    try:
+                        lu_piv = lu_factor(J_g)
+                        dy = lu_solve(lu_piv, -F)
+                    except np.linalg.LinAlgError:
+                        break
+                    y += dy
+                for z in zeta_indices:
+                    y[z] = max(0.0, min(1.0, y[z]))
+                x = y.copy()
+            traj.append(x.copy())
+
+        return traj[self.pre_steps:]
+
     def _integrate_rk4(self, states, variables_all, total_steps, dt):
         """Fixed-step RK4.
 
@@ -721,6 +808,8 @@ class SimulationHelper:
             traj = self._integrate_implicit_euler_ift(self.states, variables_all, total_steps, self.dt)
         elif method == 'implicit_newton':
             traj = self._integrate_implicit_newton(self.states, variables_all, total_steps, self.dt)
+        elif method == 'bdf_newton':
+            traj = self._integrate_bdf_newton(self.states, variables_all, total_steps, self.dt)
         elif method == 'semi_implicit':
             traj = self._integrate_semi_implicit(self.states, variables_all, total_steps, self.dt)
         elif method == 'rk4':
