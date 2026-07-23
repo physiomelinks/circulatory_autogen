@@ -224,6 +224,30 @@ _OPT_MAX_PATIENCE = {
     'name': 'max_patience', 'type': 'int', 'default': 10, 'required': False,
     'description': 'Stop after this many generations without an improvement in cost.',
 }
+# Genetic-algorithm population sizing. Defaults are DEBUG-dependent (small "quick" sizes under
+# DEBUG, full production sizes otherwise), so the static schema default is None -- an omitted (or
+# null) value falls back to the DEBUG-dependent built-in. The population per generation is
+# num_survivors + num_survivors*num_mutations_per_survivor + num_cross_breed.
+_OPT_GA_NUM_ELITE = {
+    'name': 'num_elite', 'type': 'int', 'default': None, 'required': False,
+    'description': 'Genetic algorithm: top individuals carried over unchanged each generation '
+                   '(elitism). Default 12, or 4 when DEBUG.',
+}
+_OPT_GA_NUM_SURVIVORS = {
+    'name': 'num_survivors', 'type': 'int', 'default': None, 'required': False,
+    'description': 'Genetic algorithm: individuals that survive to reproduce each generation. '
+                   'Default 48, or 6 when DEBUG.',
+}
+_OPT_GA_NUM_MUTATIONS_PER_SURVIVOR = {
+    'name': 'num_mutations_per_survivor', 'type': 'int', 'default': None, 'required': False,
+    'description': 'Genetic algorithm: mutated offspring generated per survivor each generation. '
+                   'Default 12, or 2 when DEBUG.',
+}
+_OPT_GA_NUM_CROSS_BREED = {
+    'name': 'num_cross_breed', 'type': 'int', 'default': None, 'required': False,
+    'description': 'Genetic algorithm: cross-bred (recombined) offspring per generation. '
+                   'Default 120, or 10 when DEBUG.',
+}
 
 
 # Single source of truth for the parameter-identification (calibration) methods, i.e. the valid
@@ -237,7 +261,9 @@ PARAM_ID_METHODS = {
         'label': 'Genetic algorithm',
         'gradient_based': False,
         'description': 'Gradient-free population-based global search.',
-        'options': [_OPT_NUM_CALLS, _OPT_COST_CONVERGENCE, _OPT_MAX_PATIENCE],
+        'options': [_OPT_NUM_CALLS, _OPT_COST_CONVERGENCE, _OPT_MAX_PATIENCE,
+                    _OPT_GA_NUM_ELITE, _OPT_GA_NUM_SURVIVORS,
+                    _OPT_GA_NUM_MUTATIONS_PER_SURVIVOR, _OPT_GA_NUM_CROSS_BREED],
     },
     'CMA-ES': {
         'label': 'CMA-ES',

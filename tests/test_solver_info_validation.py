@@ -76,7 +76,8 @@ def test_param_id_method_options_match_optimiser_reads():
 
     # Keys each optimiser reads from optimiser_options (see param_id/optimisers.py).
     assert names('genetic_algorithm') == {'num_calls_to_function', 'cost_convergence',
-                                          'max_patience'}
+                                          'max_patience', 'num_elite', 'num_survivors',
+                                          'num_mutations_per_survivor', 'num_cross_breed'}
     assert names('CMA-ES') == {'num_calls_to_function', 'sigma0', 'cost_convergence',
                                'max_patience'}
     assert names('bayesian') == {'num_calls_to_function'}

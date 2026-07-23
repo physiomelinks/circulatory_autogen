@@ -110,24 +110,41 @@ class GeneticAlgorithmOptimiser(Optimiser):
     This is a refactored version of the original genetic algorithm implementation
     in OpencorParamID, maintaining the same functionality.
     """
-    
+
+    def _population_sizes(self):
+        """Resolve the GA population sizing from ``optimiser_options``.
+
+        Each of ``num_elite`` / ``num_survivors`` / ``num_mutations_per_survivor`` /
+        ``num_cross_breed`` is user-configurable; an omitted (or ``None``) value falls back to the
+        historical DEBUG-dependent default -- the small "quick" sizes under DEBUG, the full
+        production sizes otherwise. Advertised in ``PARAM_ID_METHODS['genetic_algorithm']`` so a
+        tool (CUFLynx) can offer them. The population per generation is
+        ``num_survivors + num_survivors*num_mutations_per_survivor + num_cross_breed``.
+        """
+        if self.DEBUG:
+            defaults = {'num_elite': 4, 'num_survivors': 6,
+                        'num_mutations_per_survivor': 2, 'num_cross_breed': 10}
+        else:
+            defaults = {'num_elite': 12, 'num_survivors': 48,
+                        'num_mutations_per_survivor': 12, 'num_cross_breed': 120}
+        sizes = {}
+        for key, default in defaults.items():
+            val = self.optimiser_options.get(key)
+            sizes[key] = default if val is None else int(val)
+        return sizes
+
     def run(self):
         """Run the genetic algorithm optimization."""
         comm = self.comm
         rank = self.rank
         num_procs = self.num_procs
         
-        if self.DEBUG:
-            num_elite = 4
-            num_survivors = 6
-            num_mutations_per_survivor = 2
-            num_cross_breed = 10
-        else:
-            num_elite = 12
-            num_survivors = 48
-            num_mutations_per_survivor = 12
-            num_cross_breed = 120
-        
+        sizes = self._population_sizes()
+        num_elite = sizes['num_elite']
+        num_survivors = sizes['num_survivors']
+        num_mutations_per_survivor = sizes['num_mutations_per_survivor']
+        num_cross_breed = sizes['num_cross_breed']
+
         num_pop = num_survivors + num_survivors*num_mutations_per_survivor + num_cross_breed
         
         if self.optimiser_options['num_calls_to_function'] < num_pop:
