@@ -115,6 +115,28 @@ def test_laplace_raises_on_information_less_parameter(tmp_path):
     assert not os.path.exists(os.path.join(str(tmp_path), 'mock_laplace_covariance.npy'))
 
 
+def test_laplace_invert_tolerates_mildly_indefinite_hessian(tmp_path, capsys):
+    # A slightly negative curvature (FD / optimiser noise at a rough optimum, e.g. the test_fft and
+    # 3compartment debug calibrations) must still give a finite covariance -- the plain inverse
+    # always did -- rather than aborting the whole identifiability run. C == inv(P) exactly; the
+    # non-positive variance is flagged, not fatal.
+    ia = _make_ia(_well_conditioned_pid(), [1.0, 1.0], str(tmp_path))
+    precision = np.array([[-2.0, 0.1], [0.1, 3.0]])  # indefinite but well-conditioned
+    cov, cond = ia._invert_precision_normalised(precision, 'FD')
+    assert np.allclose(cov, np.linalg.inv(precision))
+    assert np.all(np.isfinite(cov)) and np.isfinite(cond)
+    assert cov[0, 0] < 0  # negative variance for the negative-curvature parameter
+    assert 'non-positive variance' in capsys.readouterr().out
+
+
+def test_laplace_invert_raises_on_zero_curvature(tmp_path):
+    # Exactly-zero curvature is genuinely information-less (infinite variance): still a hard error.
+    ia = _make_ia(_well_conditioned_pid(), [1.0, 1.0], str(tmp_path))
+    precision = np.array([[2.0, 0.0], [0.0, 0.0]])
+    with pytest.raises(RuntimeError, match="no.*curvature"):
+        ia._invert_precision_normalised(precision, 'FD')
+
+
 def _quadratic_samples_and_losses(center, scale, H_true, half_frac=0.02, n=40, seed=0):
     """Latin-hypercube-ish samples of an *exact* quadratic loss 0.5 (p-c)^T H_true (p-c), with each
     parameter perturbed by ``half_frac`` of its scale. Returns (samples, losses)."""

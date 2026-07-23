@@ -196,37 +196,43 @@ class IdentifiabilityAnalysis():
 
     def _invert_precision_normalised(self, precision, gradient_source):
         """Invert the precision (Hessian) matrix to a parameter covariance, using symmetric
-        (Jacobi) diagonal normalisation so that a wide spread of *parameter magnitudes* does not,
-        by itself, make the matrix look non-invertible.
+        diagonal normalisation so that a wide spread of *parameter magnitudes* does not, by itself,
+        make the matrix look non-invertible.
 
-        The precision ``P`` is rescaled to unit diagonal, ``P_norm[i,j] = P[i,j]/sqrt(P_ii P_jj)``,
-        before inverting; the covariance is transformed straight back,
-        ``C[i,j] = C_norm[i,j]/sqrt(P_ii P_jj)``. This is a mathematical identity -- ``C`` equals
-        ``inv(P)`` exactly (in exact arithmetic) -- so it does not change the answer, it only
+        The precision ``P`` is rescaled by ``1/sqrt(|P_ii|)`` on each side (unit-magnitude
+        diagonal) before inverting; the covariance is transformed straight back,
+        ``C[i,j] = C_norm[i,j]/sqrt(|P_ii| |P_jj|)``. This is a mathematical identity -- ``C``
+        equals ``inv(P)`` exactly (in exact arithmetic) -- so it does not change the answer, it only
         removes the *scaling* part of the ill-conditioning. The condition number is then taken on
         the normalised matrix, where it reflects genuine parameter *correlations* rather than mere
         magnitude spread. Models whose parameters merely span a wide magnitude range (e.g.
         3compartment, ~1e-9..1e8) therefore succeed with a real covariance, while genuinely
         collinear (non-identifiable) parameters still trip the condition guard. Issue #293.
 
+        ``abs`` (not ``sqrt(P_ii)``) is used so a *mildly indefinite* finite-difference Hessian --
+        a slightly negative curvature from FD/optimiser noise at a rough optimum -- still yields a
+        finite covariance (as the plain inverse always did) rather than aborting the whole run; a
+        non-positive-definite result is warned about, not fatal. Only a parameter with *zero*
+        curvature (literally no information, infinite variance) is a genuine abort.
+
         Returns ``(covariance_matrix, cond)`` where ``cond`` is the normalised precision's
-        condition number. Raises ``RuntimeError`` if a diagonal entry is non-positive (a flat,
-        information-less parameter direction) or if the normalised matrix is still ill-conditioned.
+        condition number. Raises ``RuntimeError`` for a zero/non-finite-curvature parameter or if
+        the normalised matrix is still ill-conditioned (jointly non-identifiable parameters).
         """
         precision = np.asarray(precision, dtype=float)
         diag = np.diag(precision)
-        # A non-positive (or non-finite) curvature on the diagonal means that parameter is flat
-        # -- it carries no information at the best fit (or we are not at a minimum) -- so its
-        # variance is undefined and Jacobi scaling would divide by zero. Surface it clearly.
-        if not np.all(np.isfinite(diag)) or np.any(diag <= 0):
-            bad = [i for i, d in enumerate(diag) if not (np.isfinite(d) and d > 0)]
+        # Only a *zero* (or non-finite) curvature is fatal: that parameter carries no information at
+        # all, so its variance is genuinely undefined (infinite) and the normalisation would divide
+        # by zero. A merely negative curvature is kept -- see the abs() below.
+        if not np.all(np.isfinite(diag)) or np.any(diag == 0.0):
+            bad = [i for i, d in enumerate(diag) if not (np.isfinite(d) and d != 0.0)]
             raise RuntimeError(
                 f"Laplace approximation aborted: the {gradient_source} precision (Hessian) has a "
-                f"non-positive diagonal at parameter index(es) {bad}, so those parameters carry no "
-                "curvature (information) at the best fit and their variance is undefined -- they "
-                "are not identifiable from the data. Issue #293.")
+                f"zero (or non-finite) curvature on the diagonal at parameter index(es) {bad}, so "
+                "those parameters carry no curvature (information) at the best fit and their "
+                "variance is undefined -- they are not identifiable from the data. Issue #293.")
 
-        scale = 1.0 / np.sqrt(diag)  # symmetric Jacobi normalisation to unit diagonal
+        scale = 1.0 / np.sqrt(np.abs(diag))  # symmetric normalisation to unit-magnitude diagonal
         outer_scale = np.outer(scale, scale)
         precision_norm = precision * outer_scale
 
@@ -247,6 +253,17 @@ class IdentifiabilityAnalysis():
 
         covariance_norm = np.linalg.inv(precision_norm)
         covariance_matrix = covariance_norm * outer_scale  # transform back: C = inv(P), exactly
+
+        # A non-positive-definite Hessian (some negative curvature) yields a covariance with a
+        # non-positive variance somewhere. That is a real, finite result (the parameter is poorly
+        # constrained / the best fit is not a clean minimum for it), so return it, but flag it
+        # rather than pass it off as a trustworthy covariance.
+        if np.any(np.diag(covariance_matrix) <= 0):
+            neg = [i for i, v in enumerate(np.diag(covariance_matrix)) if v <= 0]
+            print(f"warning: the {gradient_source} Laplace covariance has a non-positive variance "
+                  f"at parameter index(es) {neg}; the Hessian was not positive definite at the best "
+                  "fit (curvature poorly resolved / not a clean minimum), so treat those "
+                  "uncertainties with caution.")
         return covariance_matrix, cond
 
     def run_laplace_approximation(self, ia_options):
@@ -261,8 +278,10 @@ class IdentifiabilityAnalysis():
         The normalisation makes wide-magnitude models (e.g. 3compartment, params ~1e-9..1e8)
         succeed with a real covariance where the raw inverse used to give meaningless, massively
         inflated uncertainties. Raises ``RuntimeError`` only when the *normalised* precision is
-        still ill-conditioned -- i.e. the parameters are genuinely (jointly) non-identifiable
-        rather than merely differently scaled (issue #293).
+        still ill-conditioned (jointly non-identifiable parameters) or a parameter has literally
+        zero curvature (no information). A mildly indefinite finite-difference Hessian -- a small
+        negative curvature from FD/optimiser noise at a rough optimum -- still yields a finite
+        covariance (with a logged warning), as the plain inverse always did (issue #293).
 
         Args:
             ia_options: Options dict; ``gradient_source`` ('FD'|'AD'|'FSA', default 'FD') and,
