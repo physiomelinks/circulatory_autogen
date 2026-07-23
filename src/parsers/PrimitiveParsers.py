@@ -82,7 +82,7 @@ SOLVER_SCHEMA = {
         # reached the tape. The AD tape has no bdf branch either, so do_ad silently recorded
         # rk4 instead -- cost and gradient were different functions. Use 'semi_implicit' for
         # stiff models, or model_type 'casadi_python' for a differentiable symbolic BDF.
-        'aadc_semi_implicit': ['adaptive_rk45', 'semi_implicit', 'implicit_euler_ift', 'implicit_newton', 'rk4'],
+        'aadc_semi_implicit': ['adaptive_rk45', 'semi_implicit', 'implicit_euler_ift', 'implicit_newton', 'bdf_newton', 'rk4'],
         # The user wrapper supplies the rhs; the framework integrates it with the
         # same scipy solve_ivp methods as model_type 'python'.
         'user_defined': ['RK45', 'RK23', 'DOP853', 'Radau', 'BDF', 'LSODA', 'forward_euler'],
@@ -195,6 +195,8 @@ SOLVER_INFO_FIELDS = {
          'description': 'Integration tolerance for the adaptive AADC integrator.'},
         {'name': 'threads', 'type': 'int', 'default': 4, 'required': False,
          'description': 'Number of threads for AADC evaluation.'},
+        {'name': 'max_step', 'type': 'float', 'default': 0.001, 'required': False,
+         'description': 'Internal sub-step cap for bdf_newton (default 0.001, matching CasADi BDF).'},
         # No 'gradient_method' here: nothing reads it. AD vs FD is chosen by the `do_ad` flag
         # (see SciPyMinimizeOptimiser.run, which falls back to approx_fprime when it is off),
         # and which AD backend runs follows from model_type/solver in
