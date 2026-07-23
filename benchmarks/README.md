@@ -11,7 +11,7 @@ global search vs multi-start L-BFGS-B driven by different gradient backends).
 | `compare_optimisers.py` | `OptimiserComparison` — the harness that runs each method through `run_param_id` and collects costs/runtimes. |
 | `docs_results.py` | Format `BenchmarkResult`s as Markdown and splice them into the docs. |
 | `run_benchmarks.py` | CLI runner. |
-| `run_benchmarks.sh` | Local wrapper: runs `run_benchmarks.py` under the OpenCOR Python + MPI. |
+| `run_benchmarks.sh` | Local wrapper: runs `run_benchmarks.py` under a Python venv + MPI (see *Interpreter* below). |
 
 ## Benchmarks
 
@@ -33,14 +33,27 @@ runner call the same `run_fitzhugh_nagumo` in `benchmark_specs.py`.
 
 ## Running
 
-Everything, locally under the OpenCOR Python + MPI (the wrapper just gives a consistent
-environment; the benchmarks themselves do not require OpenCOR):
+Everything, locally with MPI:
 
 ```bash
 ./benchmarks/run_benchmarks.sh                 # 1 MPI rank
 ./benchmarks/run_benchmarks.sh -n 8            # 8 MPI ranks
 ./benchmarks/run_benchmarks.sh --update-docs   # and splice results into the docs
 ```
+
+### Interpreter
+
+The benchmarks only need Myokit/CasADi (no OpenCOR), so `run_benchmarks.sh` runs under a plain
+Python venv. It picks the interpreter in this order: **`$BENCH_PYTHON`** (explicit override) →
+**`/venv/bin/python`** (the standard project venv) → OpenCOR's bundled `pythonshell` (a
+**deprecated** fallback — heavier, ~2 GB RSS per MPI rank). Point it at your venv with either:
+
+```bash
+BENCH_PYTHON=/path/to/venv/bin/python ./benchmarks/run_benchmarks.sh --scaling
+```
+
+The venv needs the deps installed (`pip install -e ".[dev]"` plus `myokit` and `casadi`), and its
+`mpi4py` must match the system `mpiexec`.
 
 Or with any Python that has the deps installed (this is what CI does):
 
