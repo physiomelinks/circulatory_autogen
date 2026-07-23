@@ -1,0 +1,4 @@
+vessel_name, param_name, min, max, name_for_plotting, prior
+Xi, ai, 20.0, 150.0, a_i, uniform
+Xi, bi, 0.5, 6.0, b_i, uniform
+Xi, Ai, 10.0, 80.0, A_i, uniform

@@ -341,12 +341,152 @@ def assert_three_compartment(result, mpi_comm):
     mpi_comm.Barrier()
 
 
+# ----------------------------------------------------------------------------------------
+# Goodwin oscillator -- an EXTERNAL CellML model (Goodwin 1965) taken straight from the
+# Physiome Model Repository, not generated from CA's CSV module arrays. Demonstrates that the
+# benchmarks (and CA's calibration) can consume any valid CellML placed at the expected path.
+# Non-stiff, oscillatory -> multimodal (a wrong rate constant puts the oscillation out of phase
+# with the data, the same trap FitzHugh-Nagumo has). CI-safe (Myokit, no OpenCOR).
+# ----------------------------------------------------------------------------------------
+
+# Ground-truth parameters the synthetic obs data was generated at (the model's own PMR values).
+GOODWIN_TRUE_PARAMS = np.array([72.0, 2.0, 36.0])
+GOODWIN_PARAM_LABELS = ['a_i', 'b_i', 'A_i']
+
+
+def _place_external_cellml(resources_dir, generated_models_dir, file_prefix):
+    """Copy a committed external CellML from resources/ to the exact path CA's loader derives
+    from file_prefix ({generated_models_dir}/{file_prefix}/{file_prefix}.cellml), so it is used
+    in place of the CSV->CellML generation step."""
+    import shutil
+    dest_dir = os.path.join(generated_models_dir, file_prefix)
+    os.makedirs(dest_dir, exist_ok=True)
+    shutil.copy(os.path.join(resources_dir, f'{file_prefix}.cellml'),
+                os.path.join(dest_dir, f'{file_prefix}.cellml'))
+
+
+def goodwin_config(base_config, resources_dir, output_dir, generated_models_dir, param_id_method):
+    config = dict(base_config)
+    config.update({
+        'file_prefix': 'Goodwin',
+        'input_param_file': 'Goodwin_parameters.csv',  # unused: x0 comes from the CellML itself
+        'params_for_id_file': 'Goodwin_params_for_id.csv',
+        'model_type': 'cellml_only',
+        'solver': 'CVODE_myokit',
+        'param_id_method': param_id_method,
+        'pre_time': 0.0,
+        'sim_time': 40.0,
+        'dt': 0.1,
+        'DEBUG': False,
+        'do_mcmc': False,
+        'plot_predictions': False,
+        'do_ia': False,
+        'cost_type': 'gaussian_MLE',
+        'solver_info': {'MaximumStep': 0.01, 'MaximumNumberOfSteps': 50000,
+                        'rtol': 1e-8, 'atol': 1e-8},
+        'param_id_obs_path': os.path.join(resources_dir, 'Goodwin_obs_data.json'),
+        'param_id_output_dir': output_dir,
+        'generated_models_dir': generated_models_dir,
+    })
+    return config
+
+
+def run_goodwin(base_config, resources_dir, output_dir, generated_models_dir,
+                mpi_comm, num_calls=2000, num_starts=16):
+    """Run the Goodwin-oscillator optimiser comparison and return a BenchmarkResult.
+
+    Gradient-free global searches (GA, CMA-ES) vs multi-start L-BFGS-B driven by finite
+    differences and by Myokit CVODES forward sensitivity (FSA). The CasADi/AADC AD backends do
+    not apply -- they need a CA-generated symbolic model, and this is an external CellML.
+    """
+    rank = mpi_comm.Get_rank()
+    models = os.path.join(generated_models_dir, 'goodwin')
+
+    config = goodwin_config(base_config, resources_dir, output_dir, models, 'genetic_algorithm')
+    config['optimiser_options'] = {
+        'cost_convergence': 1e-6,
+        'max_patience': 500,
+        'num_starts': num_starts, 'start_sampling': 'sobol', 'seed': 0,
+        # every start runs at every core count -- fair scaling comparison, core-independent cost.
+        'no_new_starts_on_convergence': False,
+    }
+
+    multi_start_fd = {
+        'param_id_method': 'multi_start_sp_minimize',
+        'model_type': 'cellml_only', 'solver': 'CVODE_myokit', 'do_ad': False,
+        'generated_models_dir': models,
+    }
+    multi_start_fsa = {
+        'param_id_method': 'multi_start_sp_minimize',
+        'model_type': 'cellml_only', 'solver': 'CVODE_myokit', 'do_ad': True,
+        'solver_info': {'MaximumStep': 0.01, 'MaximumNumberOfSteps': 50000,
+                        'rtol': 1e-9, 'atol': 1e-9},
+        'generated_models_dir': models,
+    }
+    extra = {'multi_start (FD)': multi_start_fd, 'multi_start (Myokit FSA)': multi_start_fsa}
+    methods = ['genetic_algorithm', 'CMA-ES', 'multi_start (FD)', 'multi_start (Myokit FSA)']
+
+    # Place the external PMR CellML where CA's loader expects it (no CSV generation step).
+    if rank == 0:
+        _place_external_cellml(resources_dir, models, 'Goodwin')
+    mpi_comm.Barrier()
+
+    comparison = OptimiserComparison(config, methods=methods, num_calls=num_calls,
+                                     extra_method_configs=extra)
+    for method in methods:
+        assert comparison.run_method(method) is not False, f'{method} optimisation should succeed'
+
+    result = BenchmarkResult(
+        name='goodwin',
+        title='Goodwin oscillator (external PMR CellML, non-stiff, multimodal)',
+        description=('Gradient-free global searches (genetic algorithm, CMA-ES) vs multi-start '
+                     'L-BFGS-B (finite differences and Myokit CVODES FSA) recovering rate '
+                     'constants of the Goodwin 1965 oscillator, taken directly from the Physiome '
+                     'Model Repository as external CellML. Oscillatory dynamics make the '
+                     'least-squares surface multimodal.'),
+        env_note=(f'{mpi_comm.Get_size()} MPI rank(s); {num_calls} cost evaluations for the '
+                  f'population methods; {num_starts} starts for multi-start'),
+        true_params=list(GOODWIN_TRUE_PARAMS), param_labels=GOODWIN_PARAM_LABELS)
+    if rank == 0:
+        for method in methods:
+            params = np.asarray(comparison.results[method]['params'], dtype=float)
+            result.rows.append(BenchmarkRow(
+                method=method,
+                cost=float(comparison.results[method]['cost']),
+                time_s=float(comparison.runtimes[method]),
+                param_err=float(np.max(np.abs(params - GOODWIN_TRUE_PARAMS))),
+                params=[float(p) for p in params]))
+    result._comparison = comparison
+    return result
+
+
+def assert_goodwin(result, mpi_comm):
+    """Regression assertions for the Goodwin benchmark (rank 0 only)."""
+    if mpi_comm.Get_rank() != 0:
+        mpi_comm.Barrier()
+        return
+    ran = [r for r in result.rows if r.skipped_reason is None]
+    costs = {r.method: r.cost for r in ran}
+    for r in ran:
+        assert np.isfinite(r.cost) and r.cost >= 0, \
+            f'{r.method} produced a non-finite or negative cost: {r.cost}'
+    # The multi-start methods should reach the global basin, so they must not be beaten by the
+    # gradient-free population methods (which get trapped in an out-of-phase local minimum).
+    best_pop = min(costs['genetic_algorithm'], costs['CMA-ES'])
+    for method in ('multi_start (FD)', 'multi_start (Myokit FSA)'):
+        assert costs[method] <= best_pop + 1e-9, (
+            f"{method} cost {costs[method]:.3e} is worse than the best population method "
+            f"{best_pop:.3e}")
+    mpi_comm.Barrier()
+
+
 # Registry: which benchmarks run in which context. 'ci' benchmarks must not need OpenCOR.
-# Both current benchmarks run on Myokit/CasADi (no OpenCOR), so both are CI-enabled; the flag
+# All current benchmarks run on Myokit/CasADi (no OpenCOR), so all are CI-enabled; the flag
 # is kept so a future OpenCOR-only benchmark can opt out of CI.
 BENCHMARKS = {
     'fitzhugh_nagumo': {'run': run_fitzhugh_nagumo, 'assert': assert_fitzhugh_nagumo,
                         'ci': BENCHMARK_CI['fitzhugh_nagumo']},
     'three_compartment': {'run': run_three_compartment, 'assert': assert_three_compartment,
                           'ci': BENCHMARK_CI['three_compartment']},
+    'goodwin': {'run': run_goodwin, 'assert': assert_goodwin, 'ci': BENCHMARK_CI['goodwin']},
 }

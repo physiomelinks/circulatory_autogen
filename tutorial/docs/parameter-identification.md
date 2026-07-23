@@ -491,6 +491,21 @@ Gradient-free global searches vs multi-start L-BFGS-B with the two stiff-capable
 | `multi_start (Myokit FSA)` | 2.2553e-02 | 1778.1 | 1012.6 | 758.3 | 545.4 |
 | `multi_start (CasADi bdf)` | 2.2753e-02 | 813.4 | 463.1 | 387.2 | 290.4 |
 | `multi_start (AADC AD)` | _skipped — AADC's tape cost covers only state-operand observables with a reimplemented op (max/min/mean); 3compartment's algebraic-variable observables (aortic_root/u) and its max_minus_min are dropped, so AADC would optimise a reduced cost, not the full one -- excluded until it can replicate the same cost (upstream issue #258)_ |  |  |  |  |
+
+### Goodwin oscillator (external PMR CellML, non-stiff, multimodal)
+
+Gradient-free global searches (genetic algorithm, CMA-ES) vs multi-start L-BFGS-B (finite differences and Myokit CVODES FSA) recovering rate constants of the Goodwin 1965 oscillator, taken directly from the Physiome Model Repository as external CellML. Oscillatory dynamics make the least-squares surface multimodal.
+
+*cores: 1, 2, 4, 8; wall-clock seconds per core count; best cost / max param err from the 1-core run (same work is run at every core count).*
+
+| method | best cost | max param err | 1 core (s) | 2 cores (s) | 4 cores (s) | 8 cores (s) |
+|---|---|---|---|---|---|---|
+| `genetic_algorithm` | 4.3289e-01 | 12.2519 | 2.9 | 1.8 | 1.3 | 1.6 |
+| `CMA-ES` | 1.0306e-02 | 8.1083 | 5.5 | 3.7 | 3.0 | 6.9 |
+| `multi_start (FD)` | 9.1452e-15 | 0.0000 | 12.4 | 7.1 | 4.5 | 5.5 |
+| `multi_start (Myokit FSA)` | 1.5193e-13 | 0.0000 | 10.8 | 7.5 | 5.8 | 6.8 |
+
+True parameters: a_i=72, b_i=2, A_i=36.
 <!-- BENCHMARK_RESULTS_END -->
 
 The stiff 3compartment cardiovascular benchmark (long warmup, Myokit/CasADi — no OpenCOR needed) runs in the same set; it is slower, so the workflow schedule is weekly. See `benchmarks/README.md`.

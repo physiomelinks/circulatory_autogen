@@ -11,4 +11,5 @@ is built from the same keys, and ``tests/test_benchmarks.py`` asserts the two st
 BENCHMARK_CI = {
     'fitzhugh_nagumo': True,
     'three_compartment': True,
+    'goodwin': True,
 }
