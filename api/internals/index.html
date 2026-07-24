@@ -1,0 +1,2704 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://finbarargus.github.io/circulatory_autogen/api/internals/">
+      
+      
+        <link rel="prev" href="../utilities/">
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Parsers & generators (internal) - Circulatory Autogen</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#parsers-generators-internal" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Circulatory Autogen" class="md-header__button md-logo" aria-label="Circulatory Autogen" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Circulatory Autogen
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Parsers &amp; generators (internal)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Circulatory Autogen" class="md-nav__button md-logo" aria-label="Circulatory Autogen" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Circulatory Autogen
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Welcome to Circulatory Autogen
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../model-generation-simulation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Generation and Simulation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../design-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Designing a model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../parameter-identification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parameter Identification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sensitivity-analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sensitivity Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../identifiability-analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Identifiability Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../example-3compartment-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Example: 3Compartment Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../running-on-hpc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Running on the HPC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../other-features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Other Useful Features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_11" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_11" id="__nav_11_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_11_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_11">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../generation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model generation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../solver-wrappers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Simulation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../param-id/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parameter identification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sensitivity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sensitivity analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../identifiability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Identifiability analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../protocols/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protocols
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../utilities/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Observation data &amp; utilities
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parsers &amp; generators (internal)
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parsers &amp; generators (internal)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#parsers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parsers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#parsers.ModelParsers.CSV0DModelParser" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CSV0DModelParser
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#parsers.PrimitiveParsers.YamlFileParser" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        YamlFileParser
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#generators" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Generators
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#generators.CVSCellMLGenerator.CVS0DCellMLGenerator" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CVS0DCellMLGenerator
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="CVS0DCellMLGenerator">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#generators.CVSCellMLGenerator.CVS0DCellMLGenerator.create_unit_converter_component" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        create_unit_converter_component
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#generators.CVSCellMLGenerator.CVS0DCellMLGenerator.add_converter_component" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        add_converter_component
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#generators.CVSCellMLGenerator.CVS0DCellMLGenerator.get_variable_unit_from_component" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_variable_unit_from_component
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#generators.PythonGenerator.PythonGenerator" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PythonGenerator
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="PythonGenerator">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#generators.PythonGenerator.PythonGenerator.generate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        generate
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#protocol-execution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Protocol execution
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#protocol_runners.protocol_executor.ProtocolExecutor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ProtocolExecutor
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ProtocolExecutor">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#protocol_runners.protocol_executor.ProtocolExecutor--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#protocol_runners.protocol_executor.ProtocolExecutor.run_protocol" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run_protocol
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="run_protocol">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#protocol_runners.protocol_executor.ProtocolExecutor.run_protocol--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#protocol_runners.protocol_executor.ProtocolExecutor.run_protocol--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#inner-param-id-engine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Inner param-id engine
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorParamID" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpencorParamID
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="OpencorParamID">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorParamID.save_all_outputs_per_experiment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        save_all_outputs_per_experiment
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="save_all_outputs_per_experiment">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorParamID.save_all_outputs_per_experiment--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorParamID.build_casadi_functions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        build_casadi_functions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorParamID.get_jac_cost_ca" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_jac_cost_ca
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorParamID.get_cost_ca" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_cost_ca
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorParamID.fsa_gradient_available" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        fsa_gradient_available
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorParamID.get_jac_cost_fsa" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_jac_cost_fsa
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorParamID.get_cost_and_jac_fsa" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_cost_and_jac_fsa
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorParamID.get_cost" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_cost
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorParamID.get_gradient" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_gradient
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorParamID.get_observable_sensitivities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_observable_sensitivities
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorParamID.get_cost_and_gradient" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_cost_and_gradient
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorParamID.get_cost_aadc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_cost_aadc
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorParamID.get_obs_ca" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_obs_ca
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorParamID.simulate_once" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        simulate_once
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorMCMC" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpencorMCMC
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="OpencorMCMC">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorMCMC--todo-check-the-parallelisation-for-this-mcmc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TODO check the parallelisation for this mcmc
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#parsers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parsers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#parsers.ModelParsers.CSV0DModelParser" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CSV0DModelParser
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#parsers.PrimitiveParsers.YamlFileParser" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        YamlFileParser
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#generators" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Generators
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#generators.CVSCellMLGenerator.CVS0DCellMLGenerator" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CVS0DCellMLGenerator
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="CVS0DCellMLGenerator">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#generators.CVSCellMLGenerator.CVS0DCellMLGenerator.create_unit_converter_component" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        create_unit_converter_component
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#generators.CVSCellMLGenerator.CVS0DCellMLGenerator.add_converter_component" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        add_converter_component
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#generators.CVSCellMLGenerator.CVS0DCellMLGenerator.get_variable_unit_from_component" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_variable_unit_from_component
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#generators.PythonGenerator.PythonGenerator" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PythonGenerator
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="PythonGenerator">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#generators.PythonGenerator.PythonGenerator.generate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        generate
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#protocol-execution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Protocol execution
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#protocol_runners.protocol_executor.ProtocolExecutor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ProtocolExecutor
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="ProtocolExecutor">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#protocol_runners.protocol_executor.ProtocolExecutor--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#protocol_runners.protocol_executor.ProtocolExecutor.run_protocol" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run_protocol
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="run_protocol">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#protocol_runners.protocol_executor.ProtocolExecutor.run_protocol--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#protocol_runners.protocol_executor.ProtocolExecutor.run_protocol--returns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Returns
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#inner-param-id-engine" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Inner param-id engine
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorParamID" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpencorParamID
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="OpencorParamID">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorParamID.save_all_outputs_per_experiment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        save_all_outputs_per_experiment
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="save_all_outputs_per_experiment">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorParamID.save_all_outputs_per_experiment--parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorParamID.build_casadi_functions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        build_casadi_functions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorParamID.get_jac_cost_ca" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_jac_cost_ca
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorParamID.get_cost_ca" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_cost_ca
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorParamID.fsa_gradient_available" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        fsa_gradient_available
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorParamID.get_jac_cost_fsa" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_jac_cost_fsa
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorParamID.get_cost_and_jac_fsa" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_cost_and_jac_fsa
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorParamID.get_cost" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_cost
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorParamID.get_gradient" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_gradient
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorParamID.get_observable_sensitivities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_observable_sensitivities
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorParamID.get_cost_and_gradient" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_cost_and_gradient
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorParamID.get_cost_aadc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_cost_aadc
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorParamID.get_obs_ca" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_obs_ca
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorParamID.simulate_once" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        simulate_once
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorMCMC" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpencorMCMC
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="OpencorMCMC">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.OpencorMCMC--todo-check-the-parallelisation-for-this-mcmc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TODO check the parallelisation for this mcmc
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="parsers-generators-internal">Parsers &amp; generators (internal)</h1>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>These classes are internal building blocks used by the public entry points.
+They are documented for completeness and for advanced workflows, but their
+interfaces may change between releases. Prefer the entry points on the
+<a href="../">Overview</a> page where possible.</p>
+</div>
+<h2 id="parsers">Parsers</h2>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="parsers.ModelParsers.CSV0DModelParser" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">parsers.ModelParsers.CSV0DModelParser</span>
+
+
+</h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">CSV0DModelParser</span><span class="p">(</span><span class="n">inp_data_dict</span><span class="p">,</span> <span class="n">parameter_id_dir</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents first">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="object">object</span></code></p>
+
+
+
+        <p>Creates a 0D model representation from a vessel and a parameter CSV files.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="parsers.PrimitiveParsers.YamlFileParser" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">parsers.PrimitiveParsers.YamlFileParser</span>
+
+
+</h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">YamlFileParser</span><span class="p">()</span>
+</code></pre></div>
+
+    <div class="doc doc-contents first">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="object">object</span></code></p>
+
+
+
+        <p>Parses Yaml files</p>
+
+        <p>Constructor</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div><h2 id="generators">Generators</h2>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="generators.CVSCellMLGenerator.CVS0DCellMLGenerator" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">generators.CVSCellMLGenerator.CVS0DCellMLGenerator</span>
+
+
+</h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">CVS0DCellMLGenerator</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">inp_data_dict</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents first">
+            <p class="doc doc-class-bases">
+              Bases: <code><span title="object">object</span></code></p>
+
+
+
+        <p>Generates CellML files for the 0D model represented in @</p>
+
+        <p>Constructor</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="generators.CVSCellMLGenerator.CVS0DCellMLGenerator.create_unit_converter_component" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">create_unit_converter_component</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">create_unit_converter_component</span><span class="p">(</span>
+    <span class="n">name</span><span class="p">,</span>
+    <span class="n">input_var</span><span class="p">,</span>
+    <span class="n">output_var</span><span class="p">,</span>
+    <span class="n">scale_factor</span><span class="p">,</span>
+    <span class="n">units_in</span><span class="p">,</span>
+    <span class="n">units_out</span><span class="p">,</span>
+<span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Returns a CellML component string that converts input_var (units_in) to output_var (units_out)
+using the given scale_factor.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="generators.CVSCellMLGenerator.CVS0DCellMLGenerator.add_converter_component" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">add_converter_component</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">add_converter_component</span><span class="p">(</span><span class="n">converter_component_str</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Stores the converter component string for later writing to the CellML file.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="generators.CVSCellMLGenerator.CVS0DCellMLGenerator.get_variable_unit_from_component" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_variable_unit_from_component</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_variable_unit_from_component</span><span class="p">(</span>
+    <span class="n">component_name</span><span class="p">,</span> <span class="n">variable_name</span>
+<span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Given a component (module) name and variable name, return the unit name as a string.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="generators.PythonGenerator.PythonGenerator" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">generators.PythonGenerator.PythonGenerator</span>
+
+
+</h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">PythonGenerator</span><span class="p">(</span>
+    <span class="n">cellml_path</span><span class="p">,</span>
+    <span class="n">output_dir</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">module_name</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">human_readable</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">casadi_compat</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="n">aadc_compat</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents first">
+
+
+
+        <p>Generate a Python module from a CellML file.</p>
+
+
+<details class="usage" open>
+  <summary>Usage</summary>
+  <p>gen = PythonGenerator('model.cellml', output_dir='out')
+py_path = gen.generate()</p>
+</details>
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="generators.PythonGenerator.PythonGenerator.generate" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">generate</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">generate</span><span class="p">()</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Generate Python code and return the output file path.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div><h2 id="protocol-execution">Protocol execution</h2>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="protocol_runners.protocol_executor.ProtocolExecutor" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">protocol_runners.protocol_executor.ProtocolExecutor</span>
+
+
+</h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">ProtocolExecutor</span><span class="p">(</span><span class="n">sim_helper</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents first">
+
+
+
+        <p>Core multi-experiment / multi-subexperiment protocol simulation loop.</p>
+<h4 id="protocol_runners.protocol_executor.ProtocolExecutor--parameters">Parameters</h4>
+<p>sim_helper : SimulationHelper
+    Any solver-wrapper instance (myokit, opencor, python, casadi).
+    The caller retains ownership; ProtocolExecutor does not close it.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="protocol_runners.protocol_executor.ProtocolExecutor.run_protocol" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">run_protocol</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">run_protocol</span><span class="p">(</span>
+    <span class="n">protocol_info</span><span class="p">,</span>
+    <span class="n">id_param_names</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">id_param_vals</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">result_variables</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">extra_result_variables</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">exp_indices</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">continue_on_failure</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="n">reset_after_experiment</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Run the multi-experiment / multi-subexperiment protocol loop.</p>
+<h5 id="protocol_runners.protocol_executor.ProtocolExecutor.run_protocol--parameters">Parameters</h5>
+<p>protocol_info : dict
+    Must contain:
+      - 'sim_times'       list[list[float]]  — sim duration per (exp, sub)
+      - 'pre_times'       list[float]        — pre-simulation time per exp
+      - 'params_to_change' dict              — {param_name: [[val_exp0_sub0, ...], ...]}
+    May also contain pre-computed keys added by process_protocol_and_weights:
+      - 'num_experiments'  int
+      - 'num_sub_per_exp'  list[int]
+    Both are derived from sim_times when absent.
+id_param_names : list, optional
+    Parameter names set once before each experiment (e.g. ID candidates).
+id_param_vals : list, optional
+    Values matching id_param_names.
+result_variables : list, optional
+    Variables to retrieve per sub-experiment via get_results().
+    <code>None</code> → collect all variables via get_all_results(flatten=True).
+extra_result_variables : list, optional
+    A second variable set collected in the same pass (e.g. pred_names).
+exp_indices : iterable, optional
+    Only run these experiment indices.  Other slots in the output
+    will be absent from results_by_sub / extra_by_sub, and None in
+    t_by_exp.
+continue_on_failure : bool, default False
+    If True, record None for failed sub-experiments and continue
+    rather than returning early.  If False (default), return
+    immediately on the first simulation failure.
+reset_after_experiment : bool, default True
+    If True (default), call sim_helper.reset_and_clear() after the
+    final sub-experiment of each experiment.  Pass False for AD
+    (automatic differentiation) mode where the solver state must be
+    preserved across experiments.</p>
+<h5 id="protocol_runners.protocol_executor.ProtocolExecutor.run_protocol--returns">Returns</h5>
+<p>success : bool
+    False only when a simulation failed AND continue_on_failure is False.
+results_by_sub : dict
+    Mapping <code>(exp_idx, sub_idx)</code> → result of get_results() or
+    get_all_results(flatten=True).  None for failed sub-experiments
+    when continue_on_failure is True.
+extra_by_sub : dict
+    Same structure for extra_result_variables.  Empty dict when
+    extra_result_variables is None.
+t_by_exp : list[np.ndarray | None]
+    Concatenated, pre_time-shifted time vector per experiment index.
+    None for skipped or failed experiments.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div><h2 id="inner-param-id-engine">Inner param-id engine</h2>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="param_id.paramID.OpencorParamID" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">param_id.paramID.OpencorParamID</span>
+
+
+</h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">OpencorParamID</span><span class="p">(</span>
+    <span class="n">model_path</span><span class="p">,</span>
+    <span class="n">param_id_method</span><span class="p">,</span>
+    <span class="n">obs_info</span><span class="p">,</span>
+    <span class="n">param_id_info</span><span class="p">,</span>
+    <span class="n">protocol_info</span><span class="p">,</span>
+    <span class="n">prediction_info</span><span class="p">,</span>
+    <span class="n">solver_info</span><span class="p">,</span>
+    <span class="n">dt</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+    <span class="n">optimiser_options</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">do_ad</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="n">DEBUG</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="n">model_type</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">operation_funcs_external_path</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">cost_funcs_external_path</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents first">
+
+
+
+        <p>Class for doing parameter identification on opencor models</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.OpencorParamID.save_all_outputs_per_experiment" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">save_all_outputs_per_experiment</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">save_all_outputs_per_experiment</span><span class="p">(</span><span class="n">param_vals</span><span class="p">,</span> <span class="n">suffix</span><span class="o">=</span><span class="s1">&#39;&#39;</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Simulate each experiment with <code>param_vals</code> and save all model variables to NPZ.</p>
+<h5 id="param_id.paramID.OpencorParamID.save_all_outputs_per_experiment--parameters">Parameters</h5>
+<p>param_vals : array-like
+    Parameter values to apply before each per-experiment simulation.
+suffix : str
+    Inserted before <code>.npz</code> (e.g. <code>"_plot"</code> for plot-time dumps).</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.OpencorParamID.build_casadi_functions" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">build_casadi_functions</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">build_casadi_functions</span><span class="p">(</span>
+    <span class="n">param_names</span><span class="p">,</span> <span class="n">param_vals</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">get_all_series</span><span class="o">=</span><span class="kc">False</span>
+<span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Build (and cache) the CasADi cost/gradient/observable Functions. See
+param_id.casadi_backend.build_functions.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.OpencorParamID.get_jac_cost_ca" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_jac_cost_ca</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_jac_cost_ca</span><span class="p">(</span><span class="n">param_vals</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Gradient dJ/dp from the CasADi symbolic graph. See
+param_id.casadi_backend.get_jac_cost.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.OpencorParamID.get_cost_ca" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_cost_ca</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_cost_ca</span><span class="p">(</span><span class="n">param_vals</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Cost J(p) from the CasADi symbolic graph. See param_id.casadi_backend.get_cost.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.OpencorParamID.fsa_gradient_available" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">fsa_gradient_available</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">fsa_gradient_available</span><span class="p">()</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>True when this run can produce an analytic gradient via Myokit CVODES FSA. See
+param_id.fsa_backend.gradient_available.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.OpencorParamID.get_jac_cost_fsa" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_jac_cost_fsa</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_jac_cost_fsa</span><span class="p">(</span><span class="n">param_vals</span><span class="p">,</span> <span class="n">return_cost</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Gradient dJ/dp via Myokit CVODES forward sensitivity, optionally with the cost from
+the same solve. See param_id.fsa_backend.get_jac_cost.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.OpencorParamID.get_cost_and_jac_fsa" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_cost_and_jac_fsa</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_cost_and_jac_fsa</span><span class="p">(</span><span class="n">param_vals</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>(cost, gradient) from a single Myokit CVODES FSA solve. See
+param_id.fsa_backend.get_cost_and_jac.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.OpencorParamID.get_cost" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_cost</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_cost</span><span class="p">(</span><span class="n">param_vals</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Compute cost J(p), dispatching to CasADi or AADC or numpy.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.OpencorParamID.get_gradient" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_gradient</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_gradient</span><span class="p">(</span><span class="n">param_vals</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Compute gradient ∇J(p), dispatching to CasADi, AADC, or Myokit FSA.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.OpencorParamID.get_observable_sensitivities" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_observable_sensitivities</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_observable_sensitivities</span><span class="p">(</span><span class="n">param_vals</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>d(observable feature)/d(param) for the scalar observables -- the backend-agnostic
+local-sensitivity accessor, parallel to <code>get_gradient</code>.</p>
+<p>Returns <code>{observable_label: {param_name: d(feature)/d(param)}}</code>, dispatching by
+model_type to the same analytic machinery the cost gradient uses: the CasADi jacobian
+of the observable vector, or the Myokit CVODES sensitivities with a directional
+derivative of the feature. Both arms report the identical quantity so a local
+sensitivity analysis is backend-consistent. There is no finite-difference fallback --
+backends without an analytic sensitivity raise, pointing at global Sobol SA instead.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.OpencorParamID.get_cost_and_gradient" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_cost_and_gradient</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_cost_and_gradient</span><span class="p">(</span><span class="n">param_vals</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Return <code>(cost, gradient)</code> in one evaluation.</p>
+<p>L-BFGS-B needs both J(p) and ∇J(p) at every point it visits. For the Myokit CVODES
+FSA path a single augmented solve yields both, so this avoids the separate cost solve
+the optimiser would otherwise do. Other backends fall back to separate calls (CasADi's
+reverse pass and the AADC tape are cheap, so there is little to merge there).</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.OpencorParamID.get_cost_aadc" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_cost_aadc</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_cost_aadc</span><span class="p">(</span><span class="n">param_vals</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>J(p) evaluated on the AADC tape.</p>
+<p>This must be the cost an AADC-gradient optimiser minimises. The forward solver and the
+tape do not integrate the same way -- the tape has to replay a fixed sequence of
+operations, so it uses a fixed-step scheme, while sim_helper.run() may use an adaptive
+one -- and the tape's cost is a separate implementation of the cost function. Taking
+J(p) from get_cost_from_params and dJ/dp from the tape therefore hands L-BFGS-B the
+gradient of a <em>different function</em> than the one it is minimising, which breaks the line
+search. Measured on Lotka-Volterra, that mismatch gave AD/FD ratios of
+[1.79, 1.96, 1.32, -0.067] -- the last one has the wrong sign.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.OpencorParamID.get_obs_ca" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_obs_ca</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_obs_ca</span><span class="p">(</span><span class="n">param_vals</span><span class="p">,</span> <span class="n">get_all_series</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Observables evaluated through the CasADi graph, in the same shape the numpy path
+returns. See param_id.casadi_backend.get_obs.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.OpencorParamID.simulate_once" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">simulate_once</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">simulate_once</span><span class="p">(</span>
+    <span class="n">param_vals</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">reset</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+    <span class="n">only_one_exp</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span>
+    <span class="n">return_series</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Setting reset to False and only_one_exp to the experiment number you want to use 
+allows you to use the simulation helper object to investigate all parameters.</p>
+<p>This can be used with reset=False and only_one_exp set to the experiment number
+to have the simulation helper object open and ready to investigate the parameters.</p>
+<p>if param_vals is not set, then the best_param_vals will be used.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>only_one_exp</code>
+            </td>
+            <td>
+                  <code><span title="int">int</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If the user wants to only simulate one experiment
+                          change this to the experiment number. Defaults to -1.</p>
+              </div>
+            </td>
+            <td>
+                  <code>-1</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>reset</code>
+            </td>
+            <td>
+                  <code><span title="bool">bool</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>if you want to reset the simulation after running.
+                    Gets changed to True for num_experiments &gt; 1. Defaults to True.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="param_id.paramID.OpencorMCMC" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">param_id.paramID.OpencorMCMC</span>
+
+
+</h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">OpencorMCMC</span><span class="p">(</span>
+    <span class="n">model_path</span><span class="p">,</span>
+    <span class="n">obs_info</span><span class="p">,</span>
+    <span class="n">param_id_info</span><span class="p">,</span>
+    <span class="n">protocol_info</span><span class="p">,</span>
+    <span class="n">prediction_info</span><span class="p">,</span>
+    <span class="n">solver_info</span><span class="p">,</span>
+    <span class="n">dt</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+    <span class="n">mcmc_options</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">DEBUG</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="n">model_type</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents first">
+            <p class="doc doc-class-bases">
+              Bases: <code><a class="autorefs autorefs-internal" title="param_id.paramID.OpencorParamID" href="#param_id.paramID.OpencorParamID">OpencorParamID</a></code></p>
+
+
+
+        <p>Class for doing mcmc on opencor models</p>
+<h3 id="param_id.paramID.OpencorMCMC--todo-check-the-parallelisation-for-this-mcmc">TODO check the parallelisation for this mcmc</h3>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["instant", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

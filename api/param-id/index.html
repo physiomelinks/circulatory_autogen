@@ -1,0 +1,3186 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://finbarargus.github.io/circulatory_autogen/api/param-id/">
+      
+      
+        <link rel="prev" href="../solver-wrappers/">
+      
+      
+        <link rel="next" href="../sensitivity/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Parameter identification - Circulatory Autogen</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#parameter-identification" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Circulatory Autogen" class="md-header__button md-logo" aria-label="Circulatory Autogen" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Circulatory Autogen
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Parameter identification
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Circulatory Autogen" class="md-nav__button md-logo" aria-label="Circulatory Autogen" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Circulatory Autogen
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Welcome to Circulatory Autogen
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../model-generation-simulation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Generation and Simulation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../design-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Designing a model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../parameter-identification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parameter Identification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sensitivity-analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sensitivity Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../identifiability-analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Identifiability Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../example-3compartment-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Example: 3Compartment Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../running-on-hpc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Running on the HPC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../other-features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Other Useful Features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_11" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_11" id="__nav_11_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_11_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_11">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../generation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model generation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../solver-wrappers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Simulation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parameter identification
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parameter identification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CVS0DParamID
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="CVS0DParamID">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.init_from_dict" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        init_from_dict
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.init_from_all_dicts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        init_from_all_dicts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.set_ground_truth_data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        set_ground_truth_data
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.set_params_for_id" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        set_params_for_id
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.set_param_id_method" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        set_param_id_method
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.set_optimiser_options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        set_optimiser_options
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.set_bayesian_parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        set_bayesian_parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.add_user_operation_func" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        add_user_operation_func
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.add_user_cost_func" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        add_user_cost_func
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.update_param_range" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        update_param_range
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.remove_params_by_name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        remove_params_by_name
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.remove_params_by_idx" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        remove_params_by_idx
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.run_mcmc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run_mcmc
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.simulate_with_best_param_vals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        simulate_with_best_param_vals
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.plot_outputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        plot_outputs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.plot_mcmc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        plot_mcmc
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.get_mcmc_samples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_mcmc_samples
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.get_best_param_vals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_best_param_vals
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.set_best_param_vals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        set_best_param_vals
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.get_param_names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_param_names
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.set_param_names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        set_param_names
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.get_param_importance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_param_importance
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.get_collinearity_idx" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_collinearity_idx
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.get_collinearity_idx_pairs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_collinearity_idx_pairs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.set_output_dir" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        set_output_dir
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.close_simulation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        close_simulation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sensitivity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sensitivity analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../identifiability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Identifiability analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../protocols/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protocols
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../utilities/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Observation data &amp; utilities
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../internals/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parsers &amp; generators (internal)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CVS0DParamID
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="CVS0DParamID">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.init_from_dict" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        init_from_dict
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.init_from_all_dicts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        init_from_all_dicts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.set_ground_truth_data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        set_ground_truth_data
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.set_params_for_id" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        set_params_for_id
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.set_param_id_method" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        set_param_id_method
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.set_optimiser_options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        set_optimiser_options
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.set_bayesian_parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        set_bayesian_parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.add_user_operation_func" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        add_user_operation_func
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.add_user_cost_func" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        add_user_cost_func
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.update_param_range" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        update_param_range
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.remove_params_by_name" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        remove_params_by_name
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.remove_params_by_idx" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        remove_params_by_idx
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.run_mcmc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run_mcmc
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.simulate_with_best_param_vals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        simulate_with_best_param_vals
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.plot_outputs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        plot_outputs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.plot_mcmc" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        plot_mcmc
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.get_mcmc_samples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_mcmc_samples
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.get_best_param_vals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_best_param_vals
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.set_best_param_vals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        set_best_param_vals
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.get_param_names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_param_names
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.set_param_names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        set_param_names
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.get_param_importance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_param_importance
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.get_collinearity_idx" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_collinearity_idx
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.get_collinearity_idx_pairs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_collinearity_idx_pairs
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.set_output_dir" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        set_output_dir
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#param_id.paramID.CVS0DParamID.close_simulation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        close_simulation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="parameter-identification">Parameter identification</h1>
+<p><code>CVS0DParamID</code> orchestrates calibration of a 0D CVS model against observation
+data, across the genetic-algorithm, CMA-ES, Bayesian, and <code>sp_minimize</code>
+optimisers, plus MCMC sampling.</p>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="param_id.paramID.CVS0DParamID" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">param_id.paramID.CVS0DParamID</span>
+
+
+</h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">CVS0DParamID</span><span class="p">(</span>
+    <span class="n">model_path</span><span class="p">,</span>
+    <span class="n">model_type</span><span class="p">,</span>
+    <span class="n">param_id_method</span><span class="p">,</span>
+    <span class="n">mcmc_instead</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="n">file_name_prefix</span><span class="o">=</span><span class="s2">&quot;no_name&quot;</span><span class="p">,</span>
+    <span class="n">params_for_id_path</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">param_id_obs_path</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">sim_time</span><span class="o">=</span><span class="mf">2.0</span><span class="p">,</span>
+    <span class="n">pre_time</span><span class="o">=</span><span class="mf">20.0</span><span class="p">,</span>
+    <span class="n">dt</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+    <span class="n">solver_info</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">mcmc_options</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">optimiser_options</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">do_ad</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="n">DEBUG</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="n">param_id_output_dir</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">resources_dir</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">one_rank</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+    <span class="n">operation_funcs_external_path</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">cost_funcs_external_path</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents first">
+
+
+
+        <p>Parameter identification (calibration) for a 0D CVS model.</p>
+<p>This is the main user-facing entry point for calibration. It wraps an inner
+optimisation engine (<a class="autorefs autorefs-internal" title="param_id.paramID.OpencorParamID" href="../internals/#param_id.paramID.OpencorParamID"><code>OpencorParamID</code></a>, or
+<a class="autorefs autorefs-internal" title="param_id.paramID.OpencorMCMC" href="../internals/#param_id.paramID.OpencorMCMC"><code>OpencorMCMC</code></a> when <code>mcmc_instead=True</code>) and
+coordinates loading observation data, selecting parameters, running the
+optimiser, and writing/plotting results. It is MPI-aware: rank 0 handles all
+file I/O and output directory creation.</p>
+<p>Construct it either directly, or from a config dict with
+<a class="autorefs autorefs-internal" title="init_from_dict
+
+
+  
+      classmethod
+  " href="#param_id.paramID.CVS0DParamID.init_from_dict"><code>init_from_dict</code></a>. A typical
+flow is::</p>
+<pre><code>pid = CVS0DParamID.init_from_dict(inp)
+pid.set_ground_truth_data(obs_data_dict)
+pid.set_params_for_id(params_for_id_dict)
+pid.set_param_id_method("genetic_algorithm")
+pid.run()
+pid.simulate_with_best_param_vals()
+pid.plot_outputs()
+</code></pre>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>model_path</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Path to the generated model file (CellML/Python/CasADi).</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>model_type</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>One of <code>'cellml_only'</code>, <code>'python'</code>, <code>'casadi_python'</code>.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>param_id_method</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Optimiser to use, e.g. <code>'genetic_algorithm'</code>,
+<code>'CMA-ES'</code>, <code>'bayesian'</code>, <code>'sp_minimize'</code>.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>mcmc_instead</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If True, build an MCMC sampler instead of an optimiser.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>file_name_prefix</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Model name prefix; ties together the resource files
+and names the output case directory.</p>
+              </div>
+            </td>
+            <td>
+                  <code>&#39;no_name&#39;</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>params_for_id_path</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Optional path to a <code>{prefix}_params_for_id.csv</code>.
+Alternatively call
+<a class="autorefs autorefs-internal" title="set_params_for_id" href="#param_id.paramID.CVS0DParamID.set_params_for_id"><code>set_params_for_id</code></a>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>param_id_obs_path</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Optional path to an <code>obs_data.json</code>. Alternatively
+call
+<a class="autorefs autorefs-internal" title="set_ground_truth_data" href="#param_id.paramID.CVS0DParamID.set_ground_truth_data"><code>set_ground_truth_data</code></a>.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>sim_time</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Logged simulation duration (s).</p>
+              </div>
+            </td>
+            <td>
+                  <code>2.0</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>pre_time</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Unlogged steady-state spin-up duration (s).</p>
+              </div>
+            </td>
+            <td>
+                  <code>20.0</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>dt</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Output sampling step (s); must be &lt;= every dt in the obs data.</p>
+              </div>
+            </td>
+            <td>
+                  <code>0.01</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>solver_info</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Solver config dict (defaults to <code>{"solver": "CVODE_myokit"}</code>).</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>mcmc_options</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Options dict for MCMC (used when <code>mcmc_instead=True</code>).</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>optimiser_options</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Options dict for the optimiser (e.g. <code>cost_convergence</code>,
+<code>max_patience</code>, <code>num_calls_to_function</code>, <code>cost_type</code>). Sensible
+defaults are used if omitted.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>do_ad</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Enable automatic differentiation (CasADi backend).</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>DEBUG</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Enable debug behaviour and the debug optimiser options.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>param_id_output_dir</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Root directory for results; defaults to
+<code>param_id_output/</code> in the repo.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>resources_dir</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Directory holding input resources; defaults to
+<code>resources/</code> in the repo.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>one_rank</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If True, skip the MPI barrier (single-rank usage).</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+<p><span class="doc-section-title">Attributes:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td><code><span title="param_id.paramID.CVS0DParamID.output_dir">output_dir</span></code></td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Directory (under <code>param_id_output_dir</code>) where results and
+plots for this case are written (rank 0 only).</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.CVS0DParamID.init_from_dict" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">init_from_dict</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-classmethod"><code>classmethod</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">init_from_dict</span><span class="p">(</span><span class="n">inp_data_dict</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Build a <code>CVS0DParamID</code> from a configuration dict.</p>
+<p>Only the keys relevant to the constructor are consumed. <code>file_prefix</code>
+is accepted as an alias for <code>file_name_prefix</code>.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>inp_data_dict</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Config dict, e.g. as returned by
+<a class="autorefs autorefs-internal" title="utilities.utility_funcs.get_default_inp_data_dict" href="../utilities/#utilities.utility_funcs.get_default_inp_data_dict"><code>get_default_inp_data_dict</code></a>
+and then mutated in code.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+<th>Name</th>          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+<td><code>CVS0DParamID</code></td>            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>A configured instance (observation data and parameters</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+<td></td>            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>still need to be set unless their paths were in the dict).</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.CVS0DParamID.init_from_all_dicts" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">init_from_all_dicts</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-classmethod"><code>classmethod</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">init_from_all_dicts</span><span class="p">(</span>
+    <span class="n">inp_data_dict</span><span class="p">,</span> <span class="n">obs_data_dict</span><span class="p">,</span> <span class="n">params_for_id_dict</span>
+<span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Build a fully configured <code>CVS0DParamID</code> in one call.</p>
+<p>Convenience constructor that calls
+<a class="autorefs autorefs-internal" title="init_from_dict
+
+
+  
+      classmethod
+  " href="#param_id.paramID.CVS0DParamID.init_from_dict"><code>init_from_dict</code></a> then sets
+the ground-truth data and the parameters to identify.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>inp_data_dict</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Configuration dict (see <code>init_from_dict</code>).</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>obs_data_dict</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Observation data dict (see
+<a class="autorefs autorefs-internal" title="utilities.obs_data_helpers.ObsDataCreator" href="../utilities/#utilities.obs_data_helpers.ObsDataCreator"><code>ObsDataCreator</code></a>).</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>params_for_id_dict</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>List of parameter entries to calibrate (see
+<a class="autorefs autorefs-internal" title="set_params_for_id" href="#param_id.paramID.CVS0DParamID.set_params_for_id"><code>set_params_for_id</code></a>).</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+<th>Name</th>          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+<td><code>CVS0DParamID</code></td>            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>A ready-to-run instance.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.CVS0DParamID.set_ground_truth_data" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">set_ground_truth_data</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">set_ground_truth_data</span><span class="p">(</span><span class="n">obs_data_dict</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Set the observation (ground-truth) data to calibrate against.</p>
+<p>Parses the obs-data structure into the internal ground-truth dataframe,
+protocol info, observation info and prediction info.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>obs_data_dict</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Observation data dict, e.g. built with
+<a class="autorefs autorefs-internal" title="utilities.obs_data_helpers.ObsDataCreator" href="../utilities/#utilities.obs_data_helpers.ObsDataCreator"><code>ObsDataCreator</code></a> or
+loaded from an <code>obs_data.json</code> file.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.CVS0DParamID.set_params_for_id" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">set_params_for_id</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">set_params_for_id</span><span class="p">(</span><span class="n">params_for_id_dict</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Set which parameters to identify and their bounds.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>params_for_id_dict</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>List of entries of the form
+<code>{vessel_name, param_name, min, max, name_for_plotting}</code> (the
+in-memory equivalent of <code>{prefix}_params_for_id.csv</code>).
+<code>vessel_name</code> may be a single name or a list of names to share
+one calibrated parameter across many vessels.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.CVS0DParamID.set_param_id_method" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">set_param_id_method</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">set_param_id_method</span><span class="p">(</span><span class="n">param_id_method</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Change the optimiser method.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>param_id_method</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>e.g. <code>'genetic_algorithm'</code>, <code>'CMA-ES'</code>,
+<code>'bayesian'</code>, <code>'sp_minimize'</code>.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.CVS0DParamID.set_optimiser_options" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">set_optimiser_options</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">set_optimiser_options</span><span class="p">(</span><span class="n">optimiser_options</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Set/update the optimiser options dict.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>optimiser_options</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>e.g. <code>cost_convergence</code>, <code>max_patience</code>,
+<code>num_calls_to_function</code>, <code>cost_type</code>.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.CVS0DParamID.set_bayesian_parameters" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">set_bayesian_parameters</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">set_bayesian_parameters</span><span class="p">(</span>
+    <span class="n">n_calls</span><span class="p">,</span>
+    <span class="n">n_initial_points</span><span class="p">,</span>
+    <span class="n">acq_func</span><span class="p">,</span>
+    <span class="n">random_state</span><span class="p">,</span>
+    <span class="n">acq_func_kwargs</span><span class="o">=</span><span class="p">{},</span>
+<span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Configure the Bayesian optimiser.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>n_calls</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Total number of objective evaluations.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>n_initial_points</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Number of random initial points before fitting.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>acq_func</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Acquisition function name (e.g. <code>'EI'</code>, <code>'LCB'</code>).</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>random_state</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Seed for reproducibility.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>acq_func_kwargs</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Extra keyword args for the acquisition function.</p>
+              </div>
+            </td>
+            <td>
+                  <code>{}</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.CVS0DParamID.add_user_operation_func" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">add_user_operation_func</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">add_user_operation_func</span><span class="p">(</span><span class="n">func</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Register a custom feature-extraction function.</p>
+<p>The function can then be referenced by name in a data item's
+<code>operation</code> (its operands map to the function args). Set
+<code>func.series_to_constant = True</code> for series-&gt;scalar features so that
+auto-plotting works.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>func</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>The Python callable to register.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.CVS0DParamID.add_user_cost_func" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">add_user_cost_func</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">add_user_cost_func</span><span class="p">(</span><span class="n">func</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Register a custom cost function (referenced via <code>cost_type</code>).</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.CVS0DParamID.update_param_range" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">update_param_range</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">update_param_range</span><span class="p">(</span>
+    <span class="n">params_to_update_list_of_lists</span><span class="p">,</span> <span class="n">mins</span><span class="p">,</span> <span class="n">maxs</span>
+<span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Update the min/max bounds of a subset of parameters after construction.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>params_to_update_list_of_lists</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>List of parameter-name groups to
+update; each must match an existing entry in the param-id info.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>mins</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>New lower bound for each group.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>maxs</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>New upper bound for each group.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.CVS0DParamID.remove_params_by_name" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">remove_params_by_name</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">remove_params_by_name</span><span class="p">(</span><span class="n">param_names_to_remove</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Drop parameters from the identification set by name.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.CVS0DParamID.remove_params_by_idx" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">remove_params_by_idx</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">remove_params_by_idx</span><span class="p">(</span><span class="n">param_idxs_to_remove</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Drop parameters from the identification set by index.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.CVS0DParamID.run" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">run</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">run</span><span class="p">()</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Run the parameter identification.</p>
+<p>Executes the configured optimiser. Ground-truth data and parameters to
+identify must be set first. On rank 0 the best parameters are written to
+<code>best_param_vals.npy</code> and per-experiment full-output dumps
+(<code>all_outputs_with_best_param_vals_exp_*.npz</code>) are written under
+<a class="autorefs autorefs-internal" title="param_id.paramID.CVS0DParamID" href="#param_id.paramID.CVS0DParamID"><code>output_dir</code></a>.</p>
+
+
+<p><span class="doc-section-title">Raises:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                  <code><span title="ValueError">ValueError</span></code>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If observation data or parameters for id are not set.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.CVS0DParamID.run_mcmc" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">run_mcmc</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">run_mcmc</span><span class="p">()</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Run MCMC sampling (requires the instance was built with <code>mcmc_instead=True</code>).</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.CVS0DParamID.simulate_with_best_param_vals" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">simulate_with_best_param_vals</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">simulate_with_best_param_vals</span><span class="p">(</span>
+    <span class="n">reset</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">only_one_exp</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span> <span class="n">return_series</span><span class="o">=</span><span class="kc">False</span>
+<span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Simulate the model using the best-fit parameters.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>reset</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Reset the simulation state before running.</p>
+              </div>
+            </td>
+            <td>
+                  <code>True</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>only_one_exp</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If &gt;= 0, only simulate that experiment index;
+<code>-1</code> simulates all experiments.</p>
+              </div>
+            </td>
+            <td>
+                  <code>-1</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>return_series</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If True, also return the full time-series arrays.</p>
+              </div>
+            </td>
+            <td>
+                  <code>False</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>If <code>return_series</code> is False, the observation dict of computed</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>feature values. If True, a tuple <code>(obs_dicts, obs_arrays)</code> where</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>obs_arrays</code> holds the time-series for plotting.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.CVS0DParamID.plot_outputs" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">plot_outputs</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">plot_outputs</span><span class="p">()</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Generate and save calibration result plots (under <code>output_dir/plots_param_id</code>).</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.CVS0DParamID.plot_mcmc" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">plot_mcmc</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">plot_mcmc</span><span class="p">()</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Generate MCMC trace and corner plots from the saved chain (rank 0).</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.CVS0DParamID.get_mcmc_samples" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_mcmc_samples</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_mcmc_samples</span><span class="p">()</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Load and post-process the MCMC chain (burn-in + stuck-walker removal).</p>
+
+
+    <p><span class="doc-section-title">Returns:</span></p>
+    <table>
+      <thead>
+        <tr>
+<th>Name</th>          <th>Type</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+<td><code>tuple</code></td>            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p><code>(flat_samples, samples, num_params)</code>, or None if no chain</p>
+              </div>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+<td></td>            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>has been written.</p>
+              </div>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.CVS0DParamID.get_best_param_vals" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_best_param_vals</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_best_param_vals</span><span class="p">()</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Return the best-fit parameter vector (ndarray), or None if not yet run.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.CVS0DParamID.set_best_param_vals" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">set_best_param_vals</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">set_best_param_vals</span><span class="p">(</span><span class="n">best_param_vals</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Manually supply the best-fit parameter vector (e.g. from a previous run).</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>best_param_vals</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>Array of parameter values, ordered as
+<a class="autorefs autorefs-internal" title="get_param_names" href="#param_id.paramID.CVS0DParamID.get_param_names"><code>get_param_names</code></a>.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.CVS0DParamID.get_param_names" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_param_names</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_param_names</span><span class="p">()</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Return the list of identified parameter names (order matches the param vector).</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.CVS0DParamID.set_param_names" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">set_param_names</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">set_param_names</span><span class="p">(</span><span class="n">param_names</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Override the list of parameter names.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.CVS0DParamID.get_param_importance" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_param_importance</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_param_importance</span><span class="p">()</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Return per-parameter importance scores (computed during sensitivity step).</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.CVS0DParamID.get_collinearity_idx" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_collinearity_idx</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_collinearity_idx</span><span class="p">()</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Return the collinearity index of the identified parameter set.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.CVS0DParamID.get_collinearity_idx_pairs" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_collinearity_idx_pairs</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_collinearity_idx_pairs</span><span class="p">()</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Return pairwise collinearity indices for the identified parameters.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.CVS0DParamID.set_output_dir" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">set_output_dir</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">set_output_dir</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Override the directory where results and plots are written (rank 0 only).</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="param_id.paramID.CVS0DParamID.close_simulation" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">close_simulation</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">close_simulation</span><span class="p">()</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Release the underlying simulation resources.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["instant", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
