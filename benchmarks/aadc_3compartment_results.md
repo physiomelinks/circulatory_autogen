@@ -67,9 +67,30 @@ All 4 parameters verified at nominal values with central FD (h=1e-6):
 
 AADC **16-20× faster** than both FD and CasADi on non-stiff models.
 
-### Next steps to close the gap with CasADi on stiff models
+### Tape approach: semi-implicit on AADC tape (2026-07-24, proof-of-concept)
 
-1. **Skip early warmup sensitivity**: first ~90% of warmup reaches steady state; only last few cardiac cycles matter. Could save 9× on warmup dfdp evals.
-2. **Batch VFJ**: vectorize kernel replay across sub-steps (reduce Python overhead)
-3. **C++ Newton loop**: move Newton + IFT to C++ to eliminate Python per-step overhead
-4. **AADC tape for compute_variables**: replace FD chain rule with AD for var obs
+**Key insight**: record entire BDF integration as idouble operations on one AADC tape.
+Forward+reverse replay in C++ eliminates Python loop overhead.
+
+| Metric | Python IFT | **Tape semi-implicit** | CasADi |
+|--------|-----------|----------------------|--------|
+| Per eval | 46s | **2.2s** | 2s |
+| Gradient AD/FD | 1.000 | **1.000** | 1.000 |
+| Forward error | 0% | 0.97% | 0% |
+| Recording | 0 | 10 min (one-time) | 0 |
+
+**Profiling breakdown** (Python IFT bottleneck):
+- aadc.evaluate × 22000: 19s (41%)
+- dfdp dict→numpy: 5.5s (12%)
+- Python loop overhead: 20s (43%)
+
+**Tape approach eliminates all three** — entire integration replays in compiled C++.
+
+**Sparsity**: Jacobian 10% non-zero, 6 colors → 4.5× FD speedup.
+Semi-implicit (diagonal J only) avoids GE and LU entirely.
+
+### Next steps
+
+1. **Integrate tape semi-implicit into optimizer pipeline** — record once, replay per call
+2. **Full Newton on tape** — needs pivoted GE with aadc.iif (complex but possible)
+3. **AADC tape for compute_variables**: replace FD chain rule with AD for var obs
