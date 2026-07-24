@@ -385,20 +385,34 @@ def _cost_and_grad_bdf_newton(pid, param_vals):
     # Forward + accumulated sensitivity
     x = np.array(sim_helper.states[:n], dtype=float)
     S = np.zeros((n, n_p))  # accumulated dx/dp
+
+    # Initialize S for parameters that set initial state values (*_init pattern)
+    state_name_to_idx = sim_helper.state_name_to_idx
+    for k in range(n_p):
+        pname = param_names[k]
+        # Strip component prefix, e.g. 'global/q_lv_init' → 'q_lv_init'
+        short = pname.split('/')[-1] if '/' in pname else pname
+        if short.endswith('_init'):
+            state_stem = short[:-5]  # 'q_lv_init' → 'q_lv'
+            # Find matching state
+            for sname, sidx in state_name_to_idx.items():
+                s_short = sname.split('/')[-1] if '/' in sname else sname
+                if s_short == state_stem:
+                    S[sidx, k] = 1.0
+                    break
+
     traj_sim = []
     S_history = []  # sensitivity at each sim trajectory point
 
     # Pre-build inputs template
     inputs_template = {a_p[k]: p_vals[k] for k in range(n_p)}
     request_dfdp = {r: a_p for r in r_r}
-    need_sensitivity = False
+    need_sensitivity = True  # compute sensitivity from the start (warmup affects steady state)
     eye_n = np.eye(n)
     x_prev = None  # for BDF2
+    S_prev = None  # sensitivity at step n-1 (for BDF2)
 
     for step in range(total_steps):
-        if step == pre_steps:
-            need_sensitivity = True
-            S = np.zeros((n, n_p))
 
         for sub in range(n_sub):
             y = x.copy()
@@ -424,7 +438,7 @@ def _cost_and_grad_bdf_newton(pid, param_vals):
                     break
                 y += dy
 
-            # IFT sensitivity only during sim_time
+            # IFT sensitivity: S_{n+1} = (I - c*idt*J)^{-1} * (rhs_S)
             if need_sensitivity and lu_piv is not None:
                 inputs = dict(inputs_template)
                 for i in range(n):
@@ -434,9 +448,17 @@ def _cost_and_grad_bdf_newton(pid, param_vals):
                 for i in range(n):
                     for k in range(n_p):
                         dfdp[i, k] = float(np.asarray(res_eval[1][r_r[i]][a_p[k]]).flat[0])
-                rhs_S = S + jac_coeff * idt * dfdp
+                if use_bdf2 and S_prev is not None:
+                    # BDF2: S_{n+1} = (I - (2/3)*idt*J)^{-1} * ((4/3)*S_n - (1/3)*S_{n-1} + (2/3)*idt*df/dp)
+                    rhs_S = (4.0/3.0) * S - (1.0/3.0) * S_prev + jac_coeff * idt * dfdp
+                else:
+                    # Implicit Euler: S_{n+1} = (I - idt*J)^{-1} * (S_n + idt*df/dp)
+                    rhs_S = S + jac_coeff * idt * dfdp
+                S_new = np.zeros_like(S)
                 for k in range(n_p):
-                    S[:, k] = lu_solve(lu_piv, rhs_S[:, k])
+                    S_new[:, k] = lu_solve(lu_piv, rhs_S[:, k])
+                S_prev = S.copy()
+                S = S_new
 
             for z in zeta_indices:
                 y[z] = max(0.0, min(1.0, y[z]))
@@ -468,13 +490,6 @@ def _cost_and_grad_bdf_newton(pid, param_vals):
     # d(obs_val)/dp depends on operation (mean/max/min/max_minus_min)
     obs_info = pid.obs_info
     if obs_info is None:
-        # obs_info not yet populated — run one forward eval to populate it
-        try:
-            pid.get_cost_obs_and_pred_from_params(param_vals)
-            obs_info = pid.obs_info
-        except Exception:
-            pass
-    if obs_info is None:
         return cost, np.zeros(n_p)
 
     gt_const = obs_info.get("ground_truth_const", [])
@@ -482,8 +497,6 @@ def _cost_and_grad_bdf_newton(pid, param_vals):
     operations = obs_info.get("operations", [])
     operand_names = obs_info.get("operands", [])
     data_types = obs_info.get("data_types", [])
-    # DEBUG
-    import sys
     cost_types = pid.cost_type if hasattr(pid, 'cost_type') else ['gaussian_MLE'] * len(gt_const)
     weights = pid.protocol_info["scaled_weight_const_from_exp_sub"][0][0] \
         if pid.protocol_info and "scaled_weight_const_from_exp_sub" in pid.protocol_info \
@@ -511,12 +524,51 @@ def _cost_and_grad_bdf_newton(pid, param_vals):
         scale = 0.5 if (const_idx < len(cost_types) and cost_types[const_idx] == 'gaussian_MLE') else 1.0
 
         if kind == 'var' and si is not None and var_traj is not None:
-            # Algebraic variable: use var_traj for cost, approximate gradient
+            # Algebraic variable: du/dp = (du/dx)*S + du/dp_direct
             series = var_traj[si, :]
-            # Gradient via FD of cost w.r.t. params (approximate but correct)
-            # For now: set dobs_dp = 0 (cost correct, gradient approximate)
-            # TODO: full chain rule dvar/dstate × dstate/dp
+            var_raw_idx = sim_helper.var_name_to_idx[op_name]
             S_series = np.zeros((len(traj_sim), n_p))
+            h_fd = 1e-7
+            for ti in range(len(traj_sim)):
+                st = traj_sim[ti]
+                # Reference: u at (st, p)
+                rates0 = [0.0] * n
+                v0 = list(variables_all)
+                sim_helper.model.compute_rates(0.0, st, rates0, v0)
+                try:
+                    sim_helper.model.compute_variables(0.0, st, rates0, v0)
+                except AttributeError:
+                    pass
+                u0 = v0[var_raw_idx]
+                # du/dx via FD over states
+                du_dx = np.zeros(n)
+                for j in range(n):
+                    st_p = list(st)
+                    st_p[j] += h_fd
+                    rates_p = [0.0] * n
+                    v_p = list(variables_all)
+                    sim_helper.model.compute_rates(0.0, st_p, rates_p, v_p)
+                    try:
+                        sim_helper.model.compute_variables(0.0, st_p, rates_p, v_p)
+                    except AttributeError:
+                        pass
+                    du_dx[j] = (v_p[var_raw_idx] - u0) / h_fd
+                # du/dp_direct via FD over params (relative step)
+                du_dp_direct = np.zeros(n_p)
+                for k in range(n_p):
+                    p_val = variables_all[ad_indices[k]]
+                    dp = h_fd * max(abs(p_val), 1e-15)
+                    v_pk = list(variables_all)
+                    v_pk[ad_indices[k]] = p_val + dp
+                    rates_pk = [0.0] * n
+                    sim_helper.model.compute_rates(0.0, st, rates_pk, v_pk)
+                    try:
+                        sim_helper.model.compute_variables(0.0, st, rates_pk, v_pk)
+                    except AttributeError:
+                        pass
+                    du_dp_direct[k] = (v_pk[var_raw_idx] - u0) / dp
+                # Full sensitivity: du/dp = du/dx @ S + du/dp_direct
+                S_series[ti, :] = du_dx @ S_history[ti, :, :] + du_dp_direct
 
         elif kind == 'state' and si is not None:
             series = traj_arr[si, :]
@@ -525,35 +577,34 @@ def _cost_and_grad_bdf_newton(pid, param_vals):
             const_idx += 1
             continue
 
-            if operation == 'mean':
-                obs_val = np.mean(series)
-                dobs_dp = np.mean(S_series, axis=0)  # (n_p,)
-            elif operation == 'max':
-                k_max = np.argmax(series)
-                obs_val = series[k_max]
-                dobs_dp = S_series[k_max, :]
-            elif operation == 'min':
-                k_min = np.argmin(series)
-                obs_val = series[k_min]
-                dobs_dp = S_series[k_min, :]
-            elif operation == 'max_minus_min':
-                k_max = np.argmax(series)
-                k_min = np.argmin(series)
-                obs_val = series[k_max] - series[k_min]
-                dobs_dp = S_series[k_max, :] - S_series[k_min, :]
-            else:
-                obs_val = series[-1]
-                dobs_dp = S_series[-1, :]
+        if operation == 'mean':
+            obs_val = np.mean(series)
+            dobs_dp = np.mean(S_series, axis=0)  # (n_p,)
+        elif operation == 'max':
+            k_max = np.argmax(series)
+            obs_val = series[k_max]
+            dobs_dp = S_series[k_max, :]
+        elif operation == 'min':
+            k_min = np.argmin(series)
+            obs_val = series[k_min]
+            dobs_dp = S_series[k_min, :]
+        elif operation == 'max_minus_min':
+            k_max = np.argmax(series)
+            k_min = np.argmin(series)
+            obs_val = series[k_max] - series[k_min]
+            dobs_dp = S_series[k_max, :] - S_series[k_min, :]
+        else:
+            obs_val = series[-1]
+            dobs_dp = S_series[-1, :]
 
-            # Cost contribution
-            residual = (obs_val - gt) / std
-            cost += scale * residual * residual * w / weighted_obs_denom
+        # Cost contribution
+        residual = (obs_val - gt) / std
+        cost += scale * residual * residual * w / weighted_obs_denom
 
-            # dcost/dp for this observable
-            dcost_dobs = scale * 2.0 * (obs_val - gt) / (std * std) * w / weighted_obs_denom
-            grad += dcost_dobs * dobs_dp
+        # dcost/dp for this observable
+        dcost_dobs = scale * 2.0 * (obs_val - gt) / (std * std) * w / weighted_obs_denom
+        grad += dcost_dobs * dobs_dp
 
-        # TODO: algebraic variable observables (kind == 'var') — need var sensitivity
         const_idx += 1
 
     return cost, grad
