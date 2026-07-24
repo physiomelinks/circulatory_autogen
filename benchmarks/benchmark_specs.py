@@ -533,9 +533,20 @@ def run_teusink(base_config, resources_dir, output_dir, generated_models_dir,
     """Run the Teusink yeast-glycolysis optimiser comparison and return a BenchmarkResult.
 
     Gradient-free global searches (GA, CMA-ES) vs multi-start L-BFGS-B driven by finite
-    differences and by Myokit CVODES forward sensitivity (FSA). As for Goodwin, the CasADi/AADC
-    AD backends do not apply -- they need a CA-generated symbolic model, and this is an external
-    CellML.
+    differences and by Myokit CVODES forward sensitivity (FSA).
+
+    The CasADi/AADC AD backends are not offered. They need model_type casadi_python/aadc_python,
+    which only generate_with_new_architecture produces, and that needs CA's CSV module arrays an
+    external CellML does not have. It is closer than it looks -- PythonGenerator actually consumes
+    a *CellML file* (the CSV step only exists to emit one) -- but it runs the libCellML Analyser,
+    which is far stricter than the non-strict parse the Myokit path uses: the Analyser rejects
+    these PMR files (Teusink 37 errors, Goodwin 2), starting with "W3C MathML DTD error: Syntax of
+    value for attribute id of math is not valid" from their older CellML 1.0 MathML. Offering AD
+    on external CellML would mean sanitising those files first.
+
+    Note on solver settings: MaximumStep is only a *cap* -- rtol/atol govern accuracy -- and
+    relaxing it 100x (0.005 -> 0.5) does not speed FSA up (37 -> 39 s over 4 starts, unchanged
+    cost). FSA's cost here is intrinsic: a 14-state + 14x4-sensitivity augmented system.
     """
     rank = mpi_comm.Get_rank()
     models = os.path.join(generated_models_dir, 'teusink')
