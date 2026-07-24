@@ -4099,7 +4099,7 @@ def test_compare_optimisers_on_fitzhugh_nagumo(
     # assertions do not depend on the count).
     result = run_fitzhugh_nagumo(
         base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm,
-        num_starts=8)
+        num_calls=2000, num_starts=8)
     assert_fitzhugh_nagumo(result, mpi_comm)
 
 
