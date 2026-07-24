@@ -76,7 +76,8 @@ def test_param_id_method_options_match_optimiser_reads():
 
     # Keys each optimiser reads from optimiser_options (see param_id/optimisers.py).
     assert names('genetic_algorithm') == {'num_calls_to_function', 'cost_convergence',
-                                          'max_patience'}
+                                          'max_patience', 'num_elite', 'num_survivors',
+                                          'num_mutations_per_survivor', 'num_cross_breed'}
     assert names('CMA-ES') == {'num_calls_to_function', 'sigma0', 'cost_convergence',
                                'max_patience'}
     assert names('bayesian') == {'num_calls_to_function'}
@@ -290,6 +291,15 @@ def test_statically_defaulted_options_advertise_their_default():
     # is the correct, honest descriptor -- do not give it a phantom default.
     ga = opt(param_id_method_options('genetic_algorithm'), 'num_calls_to_function')
     assert ga['default'] is None and ga['required'] is True
+
+    # The GA population settings DO have a fallback the code substitutes, so the schema must
+    # advertise it (a front-end pre-fills these). GeneticAlgorithmOptimiser._population_sizes
+    # reads these very values, so schema and code cannot drift.
+    ga_opts = param_id_method_options('genetic_algorithm')
+    for name, expected in (('num_elite', 12), ('num_survivors', 48),
+                           ('num_mutations_per_survivor', 12), ('num_cross_breed', 120)):
+        descriptor = opt(ga_opts, name)
+        assert descriptor['default'] == expected and descriptor['required'] is False, name
 
 
 def test_casadi_integrator_rejects_maximum_step_keys():

@@ -224,6 +224,32 @@ _OPT_MAX_PATIENCE = {
     'name': 'max_patience', 'type': 'int', 'default': 10, 'required': False,
     'description': 'Stop after this many generations without an improvement in cost.',
 }
+# Genetic-algorithm population sizing. These are the single source of truth for the defaults --
+# GeneticAlgorithmOptimiser._population_sizes() reads them from here rather than duplicating the
+# numbers, so the schema and the code cannot drift and a front-end can pre-fill the real values
+# (a None default would render as a blank field, see #277). DEBUG applies a documented quick-run
+# scale-down on top (GeneticAlgorithmOptimiser._DEBUG_POPULATION). The population per generation
+# is num_survivors + num_survivors*num_mutations_per_survivor + num_cross_breed.
+_OPT_GA_NUM_ELITE = {
+    'name': 'num_elite', 'type': 'int', 'default': 12, 'required': False,
+    'description': 'Genetic algorithm: top individuals carried over unchanged each generation '
+                   '(elitism). Reduced to 4 when DEBUG is on.',
+}
+_OPT_GA_NUM_SURVIVORS = {
+    'name': 'num_survivors', 'type': 'int', 'default': 48, 'required': False,
+    'description': 'Genetic algorithm: individuals that survive to reproduce each generation. '
+                   'Reduced to 6 when DEBUG is on.',
+}
+_OPT_GA_NUM_MUTATIONS_PER_SURVIVOR = {
+    'name': 'num_mutations_per_survivor', 'type': 'int', 'default': 12, 'required': False,
+    'description': 'Genetic algorithm: mutated offspring generated per survivor each generation. '
+                   'Reduced to 2 when DEBUG is on.',
+}
+_OPT_GA_NUM_CROSS_BREED = {
+    'name': 'num_cross_breed', 'type': 'int', 'default': 120, 'required': False,
+    'description': 'Genetic algorithm: cross-bred (recombined) offspring per generation. '
+                   'Reduced to 10 when DEBUG is on.',
+}
 
 
 # Single source of truth for the parameter-identification (calibration) methods, i.e. the valid
@@ -237,7 +263,9 @@ PARAM_ID_METHODS = {
         'label': 'Genetic algorithm',
         'gradient_based': False,
         'description': 'Gradient-free population-based global search.',
-        'options': [_OPT_NUM_CALLS, _OPT_COST_CONVERGENCE, _OPT_MAX_PATIENCE],
+        'options': [_OPT_NUM_CALLS, _OPT_COST_CONVERGENCE, _OPT_MAX_PATIENCE,
+                    _OPT_GA_NUM_ELITE, _OPT_GA_NUM_SURVIVORS,
+                    _OPT_GA_NUM_MUTATIONS_PER_SURVIVOR, _OPT_GA_NUM_CROSS_BREED],
     },
     'CMA-ES': {
         'label': 'CMA-ES',
