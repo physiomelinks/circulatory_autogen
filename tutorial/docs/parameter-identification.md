@@ -506,6 +506,21 @@ Gradient-free global searches (genetic algorithm, CMA-ES) vs multi-start L-BFGS-
 | `multi_start (Myokit FSA)` | 1.5193e-13 | 0.0000 | 10.3 | 7.5 | 6.1 | 5.7 |
 
 True parameters: a_i=72, b_i=2, A_i=36.
+
+### Teusink 2000 yeast glycolysis (external PMR CellML, 14 states, stiff regions)
+
+The realistic, many-parameter case: recover four enzyme v_max values from metabolite time courses of the Teusink 2000 glycolysis model, taken from the Physiome Model Repository as external CellML (originally a BioModels SBML export). 14 coupled metabolite states and 90 constants, with stiff regions in the search box -- a much harder calibration than the small oscillator benchmarks.
+
+*cores: 1, 2, 4, 8; wall-clock seconds per core count; best cost / max param err from the 1-core run (same work is run at every core count).*
+
+| method | best cost | max param err | 1 core (s) | 2 cores (s) | 4 cores (s) | 8 cores (s) |
+|---|---|---|---|---|---|---|
+| `genetic_algorithm` | 1.8364e-03 | 0.1604 | 17.6 | 13.3 | 10.8 | 14.9 |
+| `CMA-ES` | 6.9858e-09 | 0.0001 | 2.2 | 2.5 | 2.8 | 5.3 |
+| `multi_start (FD)` | 2.5485e-15 | 0.0000 | 20.7 | 10.5 | 8.4 | 13.2 |
+| `multi_start (Myokit FSA)` | 4.0186e-15 | 0.0000 | 400.1 | 191.8 | 150.1 | 133.3 |
+
+True parameters: Vmax_GLK=226.452, Vmax_PGI=339.677, Vmax_PYK=1088.71, Vmax_GAPDH_f=1184.52.
 <!-- BENCHMARK_RESULTS_END -->
 
 The stiff 3compartment cardiovascular benchmark (long warmup, Myokit/CasADi — no OpenCOR needed) runs in the same set; it is slower, so the workflow schedule is weekly. See `benchmarks/README.md`.

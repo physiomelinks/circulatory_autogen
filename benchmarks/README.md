@@ -20,6 +20,7 @@ global search vs multi-start L-BFGS-B driven by different gradient backends).
 | `fitzhugh_nagumo` | FitzHugh-Nagumo (non-stiff, multi-modal) | no | yes |
 | `three_compartment` | 3compartment cardiovascular (stiff, 20 s warmup) | no (Myokit/CasADi) | yes (slow, ~20+ min) |
 | `goodwin` | Goodwin 1965 oscillator — **external CellML from the Physiome Model Repository** (non-stiff, multimodal) | no (Myokit) | yes (fast) |
+| `teusink` | Teusink 2000 yeast glycolysis — **external PMR CellML** (14 metabolite states, 90 constants, stiff regions); recovers 4 enzyme `v_max` values | no (Myokit) | yes (fast) |
 
 ### External CellML models (Goodwin)
 
