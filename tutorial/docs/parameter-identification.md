@@ -500,10 +500,11 @@ Gradient-free global searches (genetic algorithm, CMA-ES) vs multi-start L-BFGS-
 
 | method | best cost | max param err | 1 core (s) | 2 cores (s) | 4 cores (s) | 8 cores (s) |
 |---|---|---|---|---|---|---|
-| `genetic_algorithm` | 2.2272e-03 | 1.6251 | 43.3 | 23.8 | 16.1 | 18.3 |
-| `CMA-ES` | 1.5822e-04 | 0.9326 | 32.7 | 1.2 | 24.9 | 57.1 |
-| `multi_start (FD)` | 9.1452e-15 | 0.0000 | 12.5 | 7.0 | 4.7 | 4.6 |
-| `multi_start (Myokit FSA)` | 1.5193e-13 | 0.0000 | 10.3 | 7.5 | 6.1 | 5.7 |
+| `genetic_algorithm` | 8.5746e-04 | 0.8738 | 43.7 | 23.4 | 16.2 | 17.3 |
+| `CMA-ES` | 6.5308e-05 | 0.6075 | 32.9 | 1.8 | 44.4 | 25.1 |
+| `multi_start (FD)` | 9.1452e-15 | 0.0000 | 12.0 | 7.2 | 4.7 | 4.5 |
+| `multi_start (Myokit FSA)` | 1.5193e-13 | 0.0000 | 10.3 | 7.0 | 6.1 | 6.5 |
+| `multi_start (CasADi AD)` | 1.3147e-12 | 0.0000 | 57.6 | 34.0 | 29.2 | 31.9 |
 
 True parameters: a_i=72, b_i=2, A_i=36.
 

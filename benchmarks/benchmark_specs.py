@@ -369,6 +369,23 @@ def _place_external_cellml(resources_dir, generated_models_dir, file_prefix):
                 os.path.join(dest_dir, f'{file_prefix}.cellml'))
 
 
+def _generate_casadi_from_external_cellml(resources_dir, generated_models_dir, file_prefix):
+    """Emit a casadi_python model from a committed external CellML, so the CasADi AD gradient can
+    be used on a model CA did not generate from CSV module arrays.
+
+    PythonGenerator consumes a CellML *file* (the CSV pipeline only exists to produce one), so an
+    external model works here -- provided it satisfies the libCellML Analyser, which is far
+    stricter than the non-strict parse the Myokit path uses. The vendored PMR files were sanitised
+    for exactly that (see resources/modifications.txt).
+    """
+    from generators.PythonGenerator import PythonGenerator
+    dest_dir = os.path.join(generated_models_dir, file_prefix)
+    _place_external_cellml(resources_dir, generated_models_dir, file_prefix)
+    PythonGenerator(os.path.join(dest_dir, f'{file_prefix}.cellml'), output_dir=dest_dir,
+                    module_name=file_prefix, human_readable=True,
+                    casadi_compat=True, aadc_compat=False).generate()
+
+
 def goodwin_config(base_config, resources_dir, output_dir, generated_models_dir, param_id_method):
     config = dict(base_config)
     config.update({
@@ -400,11 +417,14 @@ def run_goodwin(base_config, resources_dir, output_dir, generated_models_dir,
     """Run the Goodwin-oscillator optimiser comparison and return a BenchmarkResult.
 
     Gradient-free global searches (GA, CMA-ES) vs multi-start L-BFGS-B driven by finite
-    differences and by Myokit CVODES forward sensitivity (FSA). The CasADi/AADC AD backends do
-    not apply -- they need a CA-generated symbolic model, and this is an external CellML.
+    differences, Myokit CVODES forward sensitivity (FSA) and CasADi AD. CasADi AD works on this
+    *external* CellML because the vendored file was sanitised to satisfy the libCellML Analyser
+    (see resources/modifications.txt), which lets PythonGenerator emit a casadi_python model.
+    AADC is still not offered (its tape backend is a separate port).
     """
     rank = mpi_comm.Get_rank()
     models = os.path.join(generated_models_dir, 'goodwin')
+    casadi_models = os.path.join(generated_models_dir, 'goodwin_casadi')
 
     config = goodwin_config(base_config, resources_dir, output_dir, models, 'genetic_algorithm')
     config['optimiser_options'] = {
@@ -427,12 +447,24 @@ def run_goodwin(base_config, resources_dir, output_dir, generated_models_dir,
                         'rtol': 1e-9, 'atol': 1e-9},
         'generated_models_dir': models,
     }
-    extra = {'multi_start (FD)': multi_start_fd, 'multi_start (Myokit FSA)': multi_start_fsa}
-    methods = ['genetic_algorithm', 'CMA-ES', 'multi_start (FD)', 'multi_start (Myokit FSA)']
+    # 'bdf' (not cvodes/idas) because only the symbolic fixed-step methods are AD-suitable --
+    # the adjoint ones cannot produce a usable CasADi gradient (SOLVER_SCHEMA.ad_suitable_methods).
+    multi_start_casadi = {
+        'param_id_method': 'multi_start_sp_minimize',
+        'model_type': 'casadi_python', 'solver': 'casadi_integrator', 'do_ad': True,
+        'solver_info': {'method': 'bdf', 'max_step_size': 0.01, 'max_num_steps': 200000},
+        'generated_models_dir': casadi_models,
+    }
+    extra = {'multi_start (FD)': multi_start_fd, 'multi_start (Myokit FSA)': multi_start_fsa,
+             'multi_start (CasADi AD)': multi_start_casadi}
+    methods = ['genetic_algorithm', 'CMA-ES', 'multi_start (FD)', 'multi_start (Myokit FSA)',
+               'multi_start (CasADi AD)']
 
-    # Place the external PMR CellML where CA's loader expects it (no CSV generation step).
+    # Place the external PMR CellML where CA's loader expects it (no CSV generation step), and
+    # emit the casadi_python model beside it for the CasADi AD variant.
     if rank == 0:
         _place_external_cellml(resources_dir, models, 'Goodwin')
+        _generate_casadi_from_external_cellml(resources_dir, casadi_models, 'Goodwin')
     mpi_comm.Barrier()
 
     comparison = OptimiserComparison(config, methods=methods, num_calls=num_calls,
@@ -477,7 +509,7 @@ def assert_goodwin(result, mpi_comm):
     # The multi-start methods should reach the global basin, so they must not be beaten by the
     # gradient-free population methods (which get trapped in an out-of-phase local minimum).
     best_pop = min(costs['genetic_algorithm'], costs['CMA-ES'])
-    for method in ('multi_start (FD)', 'multi_start (Myokit FSA)'):
+    for method in ('multi_start (FD)', 'multi_start (Myokit FSA)', 'multi_start (CasADi AD)'):
         assert costs[method] <= best_pop + 1e-9, (
             f"{method} cost {costs[method]:.3e} is worse than the best population method "
             f"{best_pop:.3e}")
@@ -535,14 +567,12 @@ def run_teusink(base_config, resources_dir, output_dir, generated_models_dir,
     Gradient-free global searches (GA, CMA-ES) vs multi-start L-BFGS-B driven by finite
     differences and by Myokit CVODES forward sensitivity (FSA).
 
-    The CasADi/AADC AD backends are not offered. They need model_type casadi_python/aadc_python,
-    which only generate_with_new_architecture produces, and that needs CA's CSV module arrays an
-    external CellML does not have. It is closer than it looks -- PythonGenerator actually consumes
-    a *CellML file* (the CSV step only exists to emit one) -- but it runs the libCellML Analyser,
-    which is far stricter than the non-strict parse the Myokit path uses: the Analyser rejects
-    these PMR files (Teusink 37 errors, Goodwin 2), starting with "W3C MathML DTD error: Syntax of
-    value for attribute id of math is not valid" from their older CellML 1.0 MathML. Offering AD
-    on external CellML would mean sanitising those files first.
+    CasADi AD is *not* offered for Teusink even though the file was sanitised so PythonGenerator
+    can emit a casadi_python model (see resources/modifications.txt and run_goodwin, where CasADi
+    AD does run). The reason is numerical: CasADi's AD-suitable integrators are fixed-step, and on
+    this stiff 14-state metabolic system 'bdf' fails to converge (FastNewton error) and
+    'semi_implicit_euler' produces NaN. Myokit's adaptive CVODES handles the stiffness, so FSA is
+    the working analytic gradient here. AADC (fixed-step tape) is not offered for the same reason.
 
     Note on solver settings: MaximumStep is only a *cap* -- rtol/atol govern accuracy -- and
     relaxing it 100x (0.005 -> 0.5) does not speed FSA up (37 -> 39 s over 4 starts, unchanged

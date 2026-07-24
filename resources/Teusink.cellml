@@ -141,7 +141,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
     <variable units="flux" public_interface="in" name="v_GLT"/>
     <variable units="flux" public_interface="in" name="v_GLK"/>
     <variable units="minute" public_interface="in" name="time"/> 
-    <math xmlns="http://www.w3.org/1998/Math/MathML" id="2"> 
+    <math xmlns="http://www.w3.org/1998/Math/MathML" id="math_2"> 
       <apply>
         <eq/> 
         <apply>
@@ -173,7 +173,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
     <variable units="flux" public_interface="in" name="v_trehalose"/>
     <variable units="flux" public_interface="in" name="v_glycogen"/>
     <variable units="minute" public_interface="in" name="time"/> 
-    <math xmlns="http://www.w3.org/1998/Math/MathML" id="3"> 
+    <math xmlns="http://www.w3.org/1998/Math/MathML" id="math_3"> 
       <apply>
         <eq/> 
         <apply>
@@ -212,7 +212,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
     <variable units="flux" public_interface="in" name="v_PGI"/>
     <variable units="flux" public_interface="in" name="v_PFK"/>
     <variable units="minute" public_interface="in" name="time"/> 
-    <math xmlns="http://www.w3.org/1998/Math/MathML" id="4"> 
+    <math xmlns="http://www.w3.org/1998/Math/MathML" id="math_4"> 
       <apply>
         <eq/> 
         <apply>
@@ -242,7 +242,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
     <variable units="flux" public_interface="in" name="v_PFK"/>
     <variable units="flux" public_interface="in" name="v_ALD"/>
     <variable units="minute" public_interface="in" name="time"/> 
-    <math xmlns="http://www.w3.org/1998/Math/MathML" id="5"> 
+    <math xmlns="http://www.w3.org/1998/Math/MathML" id="math_5"> 
       <apply>
         <eq/> 
         <apply>
@@ -283,7 +283,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
     <variable units="flux" public_interface="in" name="v_GAPDH"/>
     <variable units="flux" public_interface="in" name="v_G3PDH"/>
     <variable units="minute" public_interface="in" name="time"/> 
-    <math xmlns="http://www.w3.org/1998/Math/MathML" id="6"> 
+    <math xmlns="http://www.w3.org/1998/Math/MathML" id="math_6"> 
       <apply>
         <eq/> 
         <apply>
@@ -321,7 +321,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
     <variable units="flux" public_interface="in" name="v_GAPDH"/>
     <variable units="flux" public_interface="in" name="v_PGK"/>
     <variable units="minute" public_interface="in" name="time"/> 
-    <math xmlns="http://www.w3.org/1998/Math/MathML" id="7"> 
+    <math xmlns="http://www.w3.org/1998/Math/MathML" id="math_7"> 
       <apply>
         <eq/> 
         <apply>
@@ -351,7 +351,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
     <variable units="flux" public_interface="in" name="v_PGK"/>
     <variable units="flux" public_interface="in" name="v_PGM"/>
     <variable units="minute" public_interface="in" name="time"/> 
-    <math xmlns="http://www.w3.org/1998/Math/MathML" id="8"> 
+    <math xmlns="http://www.w3.org/1998/Math/MathML" id="math_8"> 
       <apply>
         <eq/> 
         <apply>
@@ -381,7 +381,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
     <variable units="flux" public_interface="in" name="v_PGM"/>
     <variable units="flux" public_interface="in" name="v_ENO"/>
     <variable units="minute" public_interface="in" name="time"/> 
-    <math xmlns="http://www.w3.org/1998/Math/MathML" id="9"> 
+    <math xmlns="http://www.w3.org/1998/Math/MathML" id="math_9"> 
       <apply>
         <eq/> 
         <apply>
@@ -411,7 +411,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
     <variable units="flux" public_interface="in" name="v_ENO"/>
     <variable units="flux" public_interface="in" name="v_PYK"/>
     <variable units="minute" public_interface="in" name="time"/> 
-    <math xmlns="http://www.w3.org/1998/Math/MathML" id="10"> 
+    <math xmlns="http://www.w3.org/1998/Math/MathML" id="math_10"> 
       <apply>
         <eq/> 
         <apply>
@@ -441,7 +441,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
     <variable units="flux" public_interface="in" name="v_PYK"/>
     <variable units="flux" public_interface="in" name="v_PDC"/>
     <variable units="minute" public_interface="in" name="time"/> 
-    <math xmlns="http://www.w3.org/1998/Math/MathML" id="11"> 
+    <math xmlns="http://www.w3.org/1998/Math/MathML" id="math_11"> 
       <apply>
         <eq/> 
         <apply>
@@ -472,7 +472,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
     <variable units="flux" public_interface="in" name="v_ADH"/>
     <variable units="flux" public_interface="in" name="v_succinate"/>
     <variable units="minute" public_interface="in" name="time"/> 
-    <math xmlns="http://www.w3.org/1998/Math/MathML" id="12"> 
+    <math xmlns="http://www.w3.org/1998/Math/MathML" id="math_12"> 
       <apply>
         <eq/> 
         <apply>
@@ -518,7 +518,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
     <variable units="flux" public_interface="in" name="v_succinate"/>
     <variable units="minute" public_interface="in" name="time"/>
     
-	<math xmlns="http://www.w3.org/1998/Math/MathML" id="13"> 
+	<math xmlns="http://www.w3.org/1998/Math/MathML" id="math_13"> 
       <apply>
         <eq/> 
         <apply>
@@ -568,7 +568,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
     <variable units="flux" public_interface="in" name="v_G3PDH"/>
     <variable units="flux" public_interface="in" name="v_succinate"/>
     <variable units="minute" public_interface="in" name="time"/> 
-    <math xmlns="http://www.w3.org/1998/Math/MathML" id="14"> 
+    <math xmlns="http://www.w3.org/1998/Math/MathML" id="math_14"> 
       <apply>
         <eq/> 
         <apply>
@@ -614,7 +614,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
     <variable units="flux" public_interface="in" name="v_G3PDH"/>
     <variable units="flux" public_interface="in" name="v_succinate"/>
     <variable units="minute" public_interface="in" name="time"/> 
-    <math xmlns="http://www.w3.org/1998/Math/MathML" id="15"> 
+    <math xmlns="http://www.w3.org/1998/Math/MathML" id="math_15"> 
       <apply>
         <eq/> 
         <apply>
@@ -650,7 +650,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
     <variable units="dimensionless" public_interface="out" name="Keq_TPI" initial_value="0.045"/>
     <variable units="millimolar" public_interface="in" name="TRIO"/>
     
-    <math xmlns="http://www.w3.org/1998/Math/MathML" id="16">
+    <math xmlns="http://www.w3.org/1998/Math/MathML" id="math_16">
       <apply>
         <eq/> 
         <ci>DHAP</ci> 
@@ -678,7 +678,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
     <variable units="dimensionless" public_interface="in" name="Keq_TPI"/>
     <variable units="millimolar" public_interface="in" name="TRIO"/>
     
-    <math xmlns="http://www.w3.org/1998/Math/MathML" id="17">
+    <math xmlns="http://www.w3.org/1998/Math/MathML" id="math_17">
       <apply>
         <eq/> 
         <ci>GAP</ci> 
@@ -713,7 +713,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
 	
 	<variable units="millimolar" public_interface="in" name="P"/>
     
-	<math xmlns="http://www.w3.org/1998/Math/MathML" id="18"> 
+	<math xmlns="http://www.w3.org/1998/Math/MathML" id="math_18"> 
       <apply><eq/> 
         <ci>ADP</ci>
         <apply><divide/>
@@ -777,7 +777,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
     <variable units="millimolar" public_interface="in" name="P"/>
     <variable units="millimolar" public_interface="in" name="ADP"/>
     
-	<math xmlns="http://www.w3.org/1998/Math/MathML" id="19"> 
+	<math xmlns="http://www.w3.org/1998/Math/MathML" id="math_19"> 
       <apply><eq/> 
         <ci>ATP</ci> 
         <apply><divide/>
@@ -804,7 +804,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
 	<variable units="millimolar" public_interface="in" name="ADP"/>
     <variable units="millimolar" public_interface="in" name="ATP"/>
     
-	<math xmlns="http://www.w3.org/1998/Math/MathML" id="20"> 
+	<math xmlns="http://www.w3.org/1998/Math/MathML" id="math_20"> 
       <apply><eq/> 
         <ci>AMP</ci> 
         <apply><minus/>
@@ -853,7 +853,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
     <variable units="millimolar" public_interface="in" name="G6P"/>
     <variable units="millimolar" public_interface="in" name="F6P"/>
     
-    <math xmlns="http://www.w3.org/1998/Math/MathML" id="25">
+    <math xmlns="http://www.w3.org/1998/Math/MathML" id="math_25">
       <apply id="v_PGI_calculation"><eq/>
         <ci> v_PGI </ci>
         <apply><divide/>
@@ -897,7 +897,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
     <variable units="millimolar" public_interface="in" name="P2G"/>
     <variable units="millimolar" public_interface="in" name="P3G"/>
     
-    <math xmlns="http://www.w3.org/1998/Math/MathML" id="26">
+    <math xmlns="http://www.w3.org/1998/Math/MathML" id="math_26">
       <apply id="v_PGM_calculation"><eq/>
         <ci> v_PGM </ci>
         <apply><divide/>
@@ -941,7 +941,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
     <variable units="millimolar" public_interface="in" name="PEP"/>
     <variable units="millimolar" public_interface="in" name="P2G"/>
     
-    <math xmlns="http://www.w3.org/1998/Math/MathML" id="27">
+    <math xmlns="http://www.w3.org/1998/Math/MathML" id="math_27">
       <apply id="v_ENO_calculation"><eq/>
         <ci> v_ENO </ci>
         <apply><divide/>
@@ -989,7 +989,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
     <variable units="millimolar" public_interface="in" name="ATP"/>
     <variable units="millimolar" public_interface="in" name="ADP"/>
     
-    <math xmlns="http://www.w3.org/1998/Math/MathML" id="28">
+    <math xmlns="http://www.w3.org/1998/Math/MathML" id="math_28">
       <apply id="v_GLK_calculation"><eq/>
         <ci> v_GLK </ci>
         <apply><divide/>
@@ -1060,7 +1060,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
     <variable units="millimolar" public_interface="in" name="NAD"/>
     <variable units="millimolar" public_interface="in" name="NADH"/>
     
-    <math xmlns="http://www.w3.org/1998/Math/MathML" id="29">
+    <math xmlns="http://www.w3.org/1998/Math/MathML" id="math_29">
       <apply id="v_GAPDH_calculation"><eq/>
 	    <ci> v_GAPDH </ci>
         <apply><divide/>
@@ -1148,7 +1148,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
     <variable units="millimolar" public_interface="in" name="ATP"/>
     <variable units="millimolar" public_interface="in" name="ADP"/>
     
-    <math xmlns="http://www.w3.org/1998/Math/MathML" id="30">
+    <math xmlns="http://www.w3.org/1998/Math/MathML" id="math_30">
       <apply id="v_PGK_calculation"><eq/>
         <ci> v_PGK </ci>
 		<apply><divide/>
@@ -1216,7 +1216,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
     <variable units="millimolar" public_interface="in" name="ADP"/>
     <variable units="millimolar" public_interface="in" name="ATP"/>
     
-    <math xmlns="http://www.w3.org/1998/Math/MathML" id="31">
+    <math xmlns="http://www.w3.org/1998/Math/MathML" id="math_31">
        <apply id="v_PYK_calculation"><eq/>
         <ci> v_PYK </ci>
 		<apply><divide/>
@@ -1282,7 +1282,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
     <variable units="millimolar" public_interface="in" name="GLCo"/>
     <variable units="millimolar" public_interface="in" name="GLCi"/>
     
-    <math xmlns="http://www.w3.org/1998/Math/MathML" id="32">
+    <math xmlns="http://www.w3.org/1998/Math/MathML" id="math_32">
       <apply id="v_GLT_calculation"><eq/>
 	    <ci> v_GLT </ci>
         <apply><divide/>
@@ -1340,7 +1340,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
     <variable units="millimolar" public_interface="in" name="TRIO"/>
     <variable units="millimolar" public_interface="in" name="F16P"/>
     
-    <math xmlns="http://www.w3.org/1998/Math/MathML" id="33">
+    <math xmlns="http://www.w3.org/1998/Math/MathML" id="math_33">
       <apply><eq/>
         <ci> v_ALD </ci>
         <apply><divide/>
@@ -1462,7 +1462,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
     
     <variable units="millimolar" public_interface="in" name="PYR"/>
     
-    <math xmlns="http://www.w3.org/1998/Math/MathML" id="34">
+    <math xmlns="http://www.w3.org/1998/Math/MathML" id="math_34">
       <apply><eq/>
         <ci> v_PDC </ci>
         <apply><divide/>
@@ -1516,7 +1516,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
     <variable units="millimolar" public_interface="in" name="NADH"/>
     <variable units="millimolar" public_interface="in" name="NAD"/>
     
-    <math xmlns="http://www.w3.org/1998/Math/MathML" id="35">
+    <math xmlns="http://www.w3.org/1998/Math/MathML" id="math_35">
       <apply id="v_ADH_calculation"><eq/>
 	    <ci> v_ADH </ci>
         <apply><minus/>
@@ -1655,7 +1655,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
     
     <variable units="millimolar" public_interface="in" name="ATP"/> 
      
-    <math xmlns="http://www.w3.org/1998/Math/MathML" id="36">
+    <math xmlns="http://www.w3.org/1998/Math/MathML" id="math_36">
       <apply>
         <eq/>
         <ci> v_ATP </ci>
@@ -1695,7 +1695,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
     <variable units="millimolar" public_interface="in" name="ATP"/>
     <variable units="millimolar" public_interface="in" name="AMP"/>
     
-    <math xmlns="http://www.w3.org/1998/Math/MathML" id="37">
+    <math xmlns="http://www.w3.org/1998/Math/MathML" id="math_37">
       <apply id="v_PFKm_calculation"><eq/>
 	    <ci> v_PFK </ci>
         <apply><times/>
@@ -1729,7 +1729,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
       </apply>
     </math>
   
-    <math xmlns="http://www.w3.org/1998/Math/MathML" id="38"> 
+    <math xmlns="http://www.w3.org/1998/Math/MathML" id="math_38"> 
       <apply id="R_calculation"><eq/>
         <ci> R </ci>
         <apply><plus/>
@@ -1757,7 +1757,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
       </apply>
     </math>
     
-    <math xmlns="http://www.w3.org/1998/Math/MathML" id="39">  
+    <math xmlns="http://www.w3.org/1998/Math/MathML" id="math_39">  
       <apply id="L_calculation"><eq/>
         <ci> L </ci>
         <apply><times/>
@@ -1843,7 +1843,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
       </apply> 
     </math>
     
-    <math xmlns="http://www.w3.org/1998/Math/MathML" id="40"> 
+    <math xmlns="http://www.w3.org/1998/Math/MathML" id="math_40"> 
        <apply id="T_calculation"><eq/>
         <ci> T </ci>
         <apply><plus/>
@@ -1880,7 +1880,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
     <variable units="millimolar" public_interface="in" name="NADH"/>
     <variable units="millimolar" public_interface="in" name="NAD"/>
     
-    <math xmlns="http://www.w3.org/1998/Math/MathML" id="43">
+    <math xmlns="http://www.w3.org/1998/Math/MathML" id="math_43">
       <apply><eq/>
         <ci>v_G3PDH</ci>
         <apply><divide/>
@@ -1958,7 +1958,7 @@ Model simulations revealed that the orginal question posed does not have a simpl
     
     <variable units="millimolar" public_interface="in" name="ACE"/> 
     
-    <math xmlns="http://www.w3.org/1998/Math/MathML" id="44">
+    <math xmlns="http://www.w3.org/1998/Math/MathML" id="math_44">
       <apply>
         <eq/>
         <ci>v_succinate</ci>

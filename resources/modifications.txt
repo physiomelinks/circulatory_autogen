@@ -1,0 +1,104 @@
+Modifications to third-party CellML models vendored in resources/
+=================================================================
+
+This file records every change made to CellML models obtained from external repositories,
+so the vendored copies can be audited against, and regenerated from, their upstream sources.
+
+Policy: modifications are limited to changes that are *semantically inert* for the model's
+mathematics. Every change below is verified by simulating the model before and after and
+requiring a bit-identical trajectory (max absolute difference 0.0).
+
+
+-----------------------------------------------------------------------------------------
+Goodwin.cellml
+-----------------------------------------------------------------------------------------
+Source      : Physiome Model Repository (PMR)
+Exposure    : https://models.physiomeproject.org/exposure/b69b4d821f5b2996cda5f2b4a3e9ca8f
+Raw file    : https://models.physiomeproject.org/workspace/goodwin_1965/rawfile/
+              7ab656a4e5096d1341b3313d6e6a0e5efcb70442/goodwin_1965_a.cellml
+Model       : Goodwin B.C. (1965) "Oscillatory behavior in enzymatic control processes",
+              Advances in Enzyme Regulation. Variant (a) of the PMR exposure.
+CellML ver. : 1.0 (libCellML parses it non-strictly and represents it as CellML 2.0)
+Retrieved   : 2026-07 (this repository's benchmark work)
+
+Changes:
+  1. Renamed 2 invalid XML `id` attributes on <math> elements.
+     `<math ... id="1">`  ->  `<math ... id="math_1">`   (and likewise id="2")
+
+     Why: the values are bare integers. An XML `ID` value must be a valid XML Name, which
+     may not begin with a digit, so the libCellML Analyser rejected the file with
+     "W3C MathML DTD error: Syntax of value for attribute id of math is not valid."
+     That blocked PythonGenerator (and hence the CasADi/AADC model types), even though the
+     Myokit path -- which parses non-strictly and never runs the Analyser -- accepted it.
+
+     The `id` attribute on <math> is presentation/metadata only and carries no MathML
+     semantics, so renaming it cannot change the equations. The original integer is kept as
+     a suffix so the numbering remains traceable to the upstream file.
+
+  No other changes. Equations, units, components, connections and initial values are
+  untouched.
+
+Verification:
+  - libCellML Analyser errors: 2 -> 0
+  - Simulated Xi and Yi over 5 s (Myokit CVODE, rtol=atol=1e-9) before vs after:
+    maximum absolute difference 0.000e+00 (bit-identical)
+
+
+-----------------------------------------------------------------------------------------
+Teusink.cellml
+-----------------------------------------------------------------------------------------
+Source      : Physiome Model Repository (PMR)
+Exposure    : https://models.cellml.org/exposure/394d5e5463a87ce4d0eb3fde4ea16776
+Raw file    : https://models.cellml.org/workspace/teusink_passarge_reijenga_esgalhado_
+              vanderweijden_schepper_walsh_bakker_vandam_westerhoff_snoep_2000/rawfile/
+              240d7d153b3bd9c725dfb7b3f8e26b5a0a41f880/<same-name>.cellml
+Model       : Teusink B. et al. (2000) "Can yeast glycolysis be understood in terms of in
+              vitro kinetics of the constituent enzymes? Testing biochemistry",
+              Eur. J. Biochem. 267(17):5313-5329.
+              PMR notes this CellML was derived from the model's SBML in BioModels.
+CellML ver. : 1.0 (libCellML parses it non-strictly and represents it as CellML 2.0)
+Retrieved   : 2026-07 (this repository's benchmark work)
+
+Changes:
+  1. Renamed 37 invalid XML `id` attributes on <math> elements.
+     `<math ... id="2">`  ->  `<math ... id="math_2">`   (and likewise for the other 36)
+
+     Same reason, mechanism and justification as for Goodwin.cellml above.
+
+  No other changes. Equations, units, components, connections and initial values are
+  untouched.
+
+Verification:
+  - libCellML Analyser errors: 37 -> 0
+  - Simulated G6P, PYR and NADH over 5 s (Myokit CVODE, rtol=atol=1e-9) before vs after:
+    maximum absolute difference 0.000e+00 (bit-identical)
+
+Note: the sanitisation makes PythonGenerator emit a casadi_python model for Teusink too, but its
+CasADi AD gradient is NOT used in the benchmark: CasADi's AD-suitable integrators are fixed-step
+and this stiff 14-state system makes 'bdf' fail to converge and 'semi_implicit_euler' produce
+NaN (Myokit's adaptive CVODES handles it, so FSA is the analytic gradient there). The file is
+still kept Analyser-clean for hygiene and in case a stiff CasADi path is added later.
+
+
+-----------------------------------------------------------------------------------------
+Reproducing the sanitisation
+-----------------------------------------------------------------------------------------
+The change is a single regular-expression substitution applied to each file; re-download the
+raw file from the URL above and apply:
+
+    import re
+    MATH_ID = re.compile(r'(<math\b[^>]*?\bid=")(\d[^"]*)(")')
+    text = MATH_ID.sub(lambda m: m.group(1) + 'math_' + m.group(2) + m.group(3), text)
+
+Then confirm `libcellml.Analyser().analyseModel(<flattened model>).errorCount() == 0` and that
+the simulated trajectory is unchanged.
+
+
+-----------------------------------------------------------------------------------------
+Companion files (not modifications -- generated by us)
+-----------------------------------------------------------------------------------------
+`<Model>_obs_data.json` and `<Model>_params_for_id.csv` are NOT part of the upstream models.
+They are synthetic calibration problems we generated: the observed data is produced by
+simulating the unmodified model at its own published parameter values through this project's
+Myokit SimulationHelper, so the published values are the exact global minimum of the fit.
+See benchmarks/benchmark_specs.py for the parameters and observables chosen.
