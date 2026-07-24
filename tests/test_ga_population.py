@@ -25,6 +25,19 @@ def test_ga_population_defaults_match_debug_flag():
 
 
 @pytest.mark.unit
+def test_ga_non_debug_defaults_come_from_the_schema():
+    """The non-DEBUG defaults are not duplicated in the optimiser -- they are read from
+    PARAM_ID_METHODS, so what a front-end pre-fills is exactly what CA uses and the two cannot
+    drift."""
+    from parsers.PrimitiveParsers import param_id_method_options
+    schema_defaults = {o['name']: o['default'] for o in
+                       param_id_method_options('genetic_algorithm')}
+    sizes = _make_ga({}, False)._population_sizes()
+    for key in GeneticAlgorithmOptimiser._POPULATION_KEYS:
+        assert sizes[key] == schema_defaults[key], key
+
+
+@pytest.mark.unit
 def test_ga_population_user_overrides_and_none_falls_back():
     ga = _make_ga({'num_survivors': 10, 'num_cross_breed': 20, 'num_mutations_per_survivor': 3,
                    'num_elite': None}, debug=False)

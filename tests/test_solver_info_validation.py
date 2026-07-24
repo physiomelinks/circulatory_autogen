@@ -290,6 +290,15 @@ def test_statically_defaulted_options_advertise_their_default():
     ga = opt(param_id_method_options('genetic_algorithm'), 'num_calls_to_function')
     assert ga['default'] is None and ga['required'] is True
 
+    # The GA population settings DO have a fallback the code substitutes, so the schema must
+    # advertise it (a front-end pre-fills these). GeneticAlgorithmOptimiser._population_sizes
+    # reads these very values, so schema and code cannot drift.
+    ga_opts = param_id_method_options('genetic_algorithm')
+    for name, expected in (('num_elite', 12), ('num_survivors', 48),
+                           ('num_mutations_per_survivor', 12), ('num_cross_breed', 120)):
+        descriptor = opt(ga_opts, name)
+        assert descriptor['default'] == expected and descriptor['required'] is False, name
+
 
 def test_casadi_integrator_rejects_maximum_step_keys():
     with pytest.raises(ValueError, match="MaximumStep"):

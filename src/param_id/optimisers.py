@@ -111,26 +111,35 @@ class GeneticAlgorithmOptimiser(Optimiser):
     in OpencorParamID, maintaining the same functionality.
     """
 
+    #: The population settings, and the quick-run sizes DEBUG substitutes for them. The *normal*
+    #: defaults are NOT duplicated here -- they are read from the schema
+    #: (PARAM_ID_METHODS['genetic_algorithm']), which is the single source of truth so a front-end
+    #: can pre-fill the same values CA actually uses.
+    _POPULATION_KEYS = ('num_elite', 'num_survivors', 'num_mutations_per_survivor',
+                        'num_cross_breed')
+    _DEBUG_POPULATION = {'num_elite': 4, 'num_survivors': 6,
+                         'num_mutations_per_survivor': 2, 'num_cross_breed': 10}
+
     def _population_sizes(self):
         """Resolve the GA population sizing from ``optimiser_options``.
 
         Each of ``num_elite`` / ``num_survivors`` / ``num_mutations_per_survivor`` /
-        ``num_cross_breed`` is user-configurable; an omitted (or ``None``) value falls back to the
-        historical DEBUG-dependent default -- the small "quick" sizes under DEBUG, the full
-        production sizes otherwise. Advertised in ``PARAM_ID_METHODS['genetic_algorithm']`` so a
-        tool (CUFLynx) can offer them. The population per generation is
+        ``num_cross_breed`` is user-configurable. An omitted (or ``None``) value falls back to the
+        schema default advertised in ``PARAM_ID_METHODS['genetic_algorithm']`` -- so the value a
+        tool (CUFLynx) shows is exactly the one used -- except under DEBUG, which substitutes the
+        smaller quick-run sizes in ``_DEBUG_POPULATION``. The population per generation is
         ``num_survivors + num_survivors*num_mutations_per_survivor + num_cross_breed``.
         """
-        if self.DEBUG:
-            defaults = {'num_elite': 4, 'num_survivors': 6,
-                        'num_mutations_per_survivor': 2, 'num_cross_breed': 10}
-        else:
-            defaults = {'num_elite': 12, 'num_survivors': 48,
-                        'num_mutations_per_survivor': 12, 'num_cross_breed': 120}
+        # Imported lazily to keep optimisers.py importable without the parser package loaded.
+        from parsers.PrimitiveParsers import param_id_method_options
+        schema_defaults = {opt['name']: opt['default']
+                           for opt in param_id_method_options('genetic_algorithm')}
         sizes = {}
-        for key, default in defaults.items():
+        for key in self._POPULATION_KEYS:
             val = self.optimiser_options.get(key)
-            sizes[key] = default if val is None else int(val)
+            if val is None:
+                val = self._DEBUG_POPULATION[key] if self.DEBUG else schema_defaults[key]
+            sizes[key] = int(val)
         return sizes
 
     def run(self):
