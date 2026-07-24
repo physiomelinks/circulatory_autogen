@@ -670,8 +670,10 @@ def _cost_and_grad_bdf_tape(pid, param_vals):
         else np.ones(len(gt_const))
     weighted_obs_denom = sum(1 for w in weights if w > 0) if len(weights) > 0 else 1
 
-    # Resolve observables: which state indices to track
-    obs_list = []  # (state_idx, operation, gt, std, w, scale)
+    # Resolve observables: which state/var indices to track
+    # kind='state': read from x[si] directly
+    # kind='var': read from id_v[var_raw_idx] after compute_variables
+    obs_list = []  # (kind, idx, op_name, operation, gt, std, w, scale)
     const_idx = 0
     for jj in range(len(operand_names)):
         if data_types[jj] != 'constant':
@@ -686,10 +688,11 @@ def _cost_and_grad_bdf_tape(pid, param_vals):
         std = float(std_const[const_idx])
         w = float(weights[const_idx])
         scale = 0.5 if (const_idx < len(cost_types) and cost_types[const_idx] == 'gaussian_MLE') else 1.0
-        if kind == 'state' and si is not None:
-            obs_list.append((si, operation, gt, std, w, scale))
-        # TODO: var observables via compute_variables on tape
+        if kind in ('state', 'var') and si is not None:
+            var_raw_idx = sim_helper.var_name_to_idx.get(op_name) if kind == 'var' else None
+            obs_list.append((kind, si, var_raw_idx, operation, gt, std, w, scale))
         const_idx += 1
+    needs_compute_variables = any(k == 'var' for k, *_ in obs_list)
 
     # Cache key: use id of pid to avoid re-recording for same model
     cache_key = id(pid)
@@ -719,8 +722,8 @@ def _cost_and_grad_bdf_tape(pid, param_vals):
 
         # Initialize sim-time accumulators for observables
         obs_accum = {}
-        for si, op, gt, std, w, scale in obs_list:
-            key = (si, op)
+        for kind, si, var_raw_idx, op, gt, std, w, scale in obs_list:
+            key = (kind, si, op)
             if key not in obs_accum:
                 if op == 'mean':
                     obs_accum[key] = {'sum': aadc.idouble(0.0), 'count': 0}
@@ -755,9 +758,24 @@ def _cost_and_grad_bdf_tape(pid, param_vals):
             # Accumulate observables during sim_time
             if step >= pre_steps:
                 sim_step_counter += 1
-                for si, op, gt, std, w, scale in obs_list:
-                    key = (si, op)
-                    xi = x[si]
+                # Compute algebraic variables if needed
+                if needs_compute_variables:
+                    rates_cv = [aadc.idouble(0.0)] * n
+                    id_v_cv = list(id_v)
+                    model.compute_rates(aadc.idouble(0.0), x, rates_cv, id_v_cv)
+                    try:
+                        model.compute_variables(aadc.idouble(0.0), x, rates_cv, id_v_cv)
+                    except AttributeError:
+                        pass
+
+                for kind, si, var_raw_idx, op, gt, std, w, scale in obs_list:
+                    key = (kind, si, op)
+                    if kind == 'state':
+                        xi = x[si]
+                    else:  # var
+                        xi = id_v_cv[var_raw_idx]
+                        if not isinstance(xi, aadc.idouble):
+                            xi = aadc.idouble(float(xi))
                     if op == 'mean':
                         obs_accum[key]['sum'] = obs_accum[key]['sum'] + xi
                         obs_accum[key]['count'] += 1
@@ -781,8 +799,8 @@ def _cost_and_grad_bdf_tape(pid, param_vals):
 
         # Compute cost on tape
         tape_cost = aadc.idouble(0.0)
-        for si, op, gt, std, w, scale in obs_list:
-            key = (si, op)
+        for kind, si, var_raw_idx, op, gt, std, w, scale in obs_list:
+            key = (kind, si, op)
             if op == 'mean':
                 obs_val = obs_accum[key]['sum'] / aadc.idouble(float(obs_accum[key]['count']))
             elif op == 'max':
