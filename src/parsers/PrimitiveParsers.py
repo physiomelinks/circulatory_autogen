@@ -227,26 +227,31 @@ _OPT_MAX_PATIENCE = {
 # Genetic-algorithm population sizing. These are the single source of truth for the defaults --
 # GeneticAlgorithmOptimiser._population_sizes() reads them from here rather than duplicating the
 # numbers, so the schema and the code cannot drift and a front-end can pre-fill the real values
-# (a None default would render as a blank field, see #277). DEBUG applies a documented quick-run
-# scale-down on top (GeneticAlgorithmOptimiser._DEBUG_POPULATION). The population per generation
-# is num_survivors + num_survivors*num_mutations_per_survivor + num_cross_breed.
+# (a None default would render as a blank field, see #277). DEBUG substitutes a documented
+# quick-run scale-down, and that too is advertised here via `debug_default` -- the single source
+# of truth GeneticAlgorithmOptimiser._debug_population() derives from, so a front-end can show/pass
+# the exact values CA runs under DEBUG without hardcoding them (#313). An option with no DEBUG
+# variant simply omits `debug_default`. The population per generation is
+# num_survivors + num_survivors*num_mutations_per_survivor + num_cross_breed.
 _OPT_GA_NUM_ELITE = {
-    'name': 'num_elite', 'type': 'int', 'default': 12, 'required': False,
+    'name': 'num_elite', 'type': 'int', 'default': 12, 'debug_default': 4, 'required': False,
     'description': 'Genetic algorithm: top individuals carried over unchanged each generation '
                    '(elitism). Reduced to 4 when DEBUG is on.',
 }
 _OPT_GA_NUM_SURVIVORS = {
-    'name': 'num_survivors', 'type': 'int', 'default': 48, 'required': False,
+    'name': 'num_survivors', 'type': 'int', 'default': 48, 'debug_default': 6, 'required': False,
     'description': 'Genetic algorithm: individuals that survive to reproduce each generation. '
                    'Reduced to 6 when DEBUG is on.',
 }
 _OPT_GA_NUM_MUTATIONS_PER_SURVIVOR = {
-    'name': 'num_mutations_per_survivor', 'type': 'int', 'default': 12, 'required': False,
+    'name': 'num_mutations_per_survivor', 'type': 'int', 'default': 12, 'debug_default': 2,
+    'required': False,
     'description': 'Genetic algorithm: mutated offspring generated per survivor each generation. '
                    'Reduced to 2 when DEBUG is on.',
 }
 _OPT_GA_NUM_CROSS_BREED = {
-    'name': 'num_cross_breed', 'type': 'int', 'default': 120, 'required': False,
+    'name': 'num_cross_breed', 'type': 'int', 'default': 120, 'debug_default': 10,
+    'required': False,
     'description': 'Genetic algorithm: cross-bred (recombined) offspring per generation. '
                    'Reduced to 10 when DEBUG is on.',
 }
