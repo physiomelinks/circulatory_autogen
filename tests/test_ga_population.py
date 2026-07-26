@@ -38,6 +38,21 @@ def test_ga_non_debug_defaults_come_from_the_schema():
 
 
 @pytest.mark.unit
+def test_ga_debug_population_comes_from_the_schema():
+    """The DEBUG quick-run sizes are not duplicated in the optimiser either -- they are read from
+    each option's `debug_default` in PARAM_ID_METHODS (#313), so a front-end can show/pass the
+    exact values DEBUG runs and the schema and code cannot drift."""
+    from parsers.PrimitiveParsers import param_id_method_options
+    schema_debug_defaults = {o['name']: o.get('debug_default') for o in
+                             param_id_method_options('genetic_algorithm')}
+    debug_sizes = _make_ga({}, True)._population_sizes()
+    derived = GeneticAlgorithmOptimiser._debug_population()
+    for key in GeneticAlgorithmOptimiser._POPULATION_KEYS:
+        assert debug_sizes[key] == schema_debug_defaults[key], key
+        assert derived[key] == schema_debug_defaults[key], key
+
+
+@pytest.mark.unit
 def test_ga_population_user_overrides_and_none_falls_back():
     ga = _make_ga({'num_survivors': 10, 'num_cross_breed': 20, 'num_mutations_per_survivor': 3,
                    'num_elite': None}, debug=False)

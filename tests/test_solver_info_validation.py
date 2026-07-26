@@ -302,6 +302,34 @@ def test_statically_defaulted_options_advertise_their_default():
         assert descriptor['default'] == expected and descriptor['required'] is False, name
 
 
+def test_ga_population_debug_defaults_advertised_and_match_the_optimiser():
+    """DEBUG substitutes a quick-run population, so each GA population option advertises it as
+    `debug_default` (#313) -- otherwise a tool can't show/pass the DEBUG values without hardcoding
+    them. The advertised values must equal what GeneticAlgorithmOptimiser derives (and runs) under
+    DEBUG, so schema and code cannot drift."""
+    from param_id.optimisers import GeneticAlgorithmOptimiser
+
+    def opt(options, name):
+        return next(o for o in options if o['name'] == name)
+
+    ga_opts = param_id_method_options('genetic_algorithm')
+    for name, expected in (('num_elite', 4), ('num_survivors', 6),
+                           ('num_mutations_per_survivor', 2), ('num_cross_breed', 10)):
+        assert opt(ga_opts, name)['debug_default'] == expected, name
+
+    # the optimiser derives its DEBUG population from these very descriptors
+    derived = GeneticAlgorithmOptimiser._debug_population()
+    for name in GeneticAlgorithmOptimiser._POPULATION_KEYS:
+        assert derived[name] == opt(ga_opts, name)['debug_default'], name
+
+    # debug_default is confined to the GA population knobs; no other advertised option carries one
+    for method, meta in PARAM_ID_METHODS.items():
+        for o in meta['options']:
+            if 'debug_default' in o:
+                assert method == 'genetic_algorithm' and o['name'] in \
+                    GeneticAlgorithmOptimiser._POPULATION_KEYS, (method, o['name'])
+
+
 def test_casadi_integrator_rejects_maximum_step_keys():
     with pytest.raises(ValueError, match="MaximumStep"):
         validate_solver_info('casadi_integrator', {

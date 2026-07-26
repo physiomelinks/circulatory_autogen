@@ -111,14 +111,23 @@ class GeneticAlgorithmOptimiser(Optimiser):
     in OpencorParamID, maintaining the same functionality.
     """
 
-    #: The population settings, and the quick-run sizes DEBUG substitutes for them. The *normal*
-    #: defaults are NOT duplicated here -- they are read from the schema
-    #: (PARAM_ID_METHODS['genetic_algorithm']), which is the single source of truth so a front-end
-    #: can pre-fill the same values CA actually uses.
+    #: The population settings. Neither the *normal* defaults nor the DEBUG quick-run sizes are
+    #: duplicated here -- both are read from the schema (PARAM_ID_METHODS['genetic_algorithm']),
+    #: which is the single source of truth so a front-end can pre-fill the same values CA actually
+    #: uses. The normal value is each option's ``default``; the DEBUG value is its ``debug_default``
+    #: (see ``_debug_population()``).
     _POPULATION_KEYS = ('num_elite', 'num_survivors', 'num_mutations_per_survivor',
                         'num_cross_breed')
-    _DEBUG_POPULATION = {'num_elite': 4, 'num_survivors': 6,
-                         'num_mutations_per_survivor': 2, 'num_cross_breed': 10}
+
+    @classmethod
+    def _debug_population(cls):
+        """The quick-run population DEBUG substitutes, read from each option's ``debug_default``
+        in the schema (``PARAM_ID_METHODS['genetic_algorithm']``) rather than duplicated here, so
+        the schema and the code cannot drift (#313)."""
+        # Imported lazily to keep optimisers.py importable without the parser package loaded.
+        from parsers.PrimitiveParsers import param_id_method_options
+        by_name = {opt['name']: opt for opt in param_id_method_options('genetic_algorithm')}
+        return {key: by_name[key]['debug_default'] for key in cls._POPULATION_KEYS}
 
     def _population_sizes(self):
         """Resolve the GA population sizing from ``optimiser_options``.
@@ -127,18 +136,19 @@ class GeneticAlgorithmOptimiser(Optimiser):
         ``num_cross_breed`` is user-configurable. An omitted (or ``None``) value falls back to the
         schema default advertised in ``PARAM_ID_METHODS['genetic_algorithm']`` -- so the value a
         tool (CUFLynx) shows is exactly the one used -- except under DEBUG, which substitutes the
-        smaller quick-run sizes in ``_DEBUG_POPULATION``. The population per generation is
-        ``num_survivors + num_survivors*num_mutations_per_survivor + num_cross_breed``.
+        smaller quick-run sizes advertised there as ``debug_default``. The population per generation
+        is ``num_survivors + num_survivors*num_mutations_per_survivor + num_cross_breed``.
         """
         # Imported lazily to keep optimisers.py importable without the parser package loaded.
         from parsers.PrimitiveParsers import param_id_method_options
         schema_defaults = {opt['name']: opt['default']
                            for opt in param_id_method_options('genetic_algorithm')}
+        debug_population = self._debug_population() if self.DEBUG else None
         sizes = {}
         for key in self._POPULATION_KEYS:
             val = self.optimiser_options.get(key)
             if val is None:
-                val = self._DEBUG_POPULATION[key] if self.DEBUG else schema_defaults[key]
+                val = debug_population[key] if self.DEBUG else schema_defaults[key]
             sizes[key] = int(val)
         return sizes
 
