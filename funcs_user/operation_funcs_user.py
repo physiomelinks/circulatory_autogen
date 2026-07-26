@@ -9,7 +9,7 @@ except ImportError:  # optional dependency
 from scipy.signal import find_peaks
 
 from param_id.differentiable import differentiable
-from param_id.math_backend import make_math_backend
+from param_id.math_backend import make_math_backend, bind_backend
 
 mb = make_math_backend("numpy")
 """
@@ -693,8 +693,8 @@ def register_user_operations(registry, backend):
             continue
         if getattr(obj, "__module__", None) != mod:
             continue
-        registry[name] = obj
-        
+        registry[name] = bind_backend(obj, backend)
+
 
 
 

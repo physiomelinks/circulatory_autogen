@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import functools
+import sys
+
 import numpy as np
 
 try:
@@ -14,6 +17,38 @@ try:
     import aadc as _aadc
 except ImportError:
     _aadc = None
+
+
+def bind_backend(func, backend):
+    """Wrap ``func`` so it runs with its module's ``mb`` global temporarily set to ``backend``.
+
+    The built-in / user / external operation and cost funcs dispatch through a *module-level*
+    ``mb`` math backend, and each ``register_*`` hook rebinds that global. When two registries for
+    different backends must coexist -- e.g. a ``casadi_python`` model needs casadi-mode funcs for
+    the AD path AND numpy-mode funcs for the numeric (gradient-free) cost path -- building the
+    second registry would otherwise silently change the backend of the first, so numpy operands
+    reach the casadi backend (``ca.sum(x)/x.numel()`` -> ``'numpy.ndarray' has no attribute
+    'numel'``, issue #315). Binding each registered func to its backend keeps the registries
+    independent regardless of build order. Funcs that don't use a module-level ``mb`` are returned
+    unchanged.
+
+    The save/restore is safe because observable/cost evaluation is sequential within a process;
+    nested calls (an op func calling another) restore correctly via the try/finally stack.
+    """
+    module = sys.modules.get(getattr(func, "__module__", None))
+    if module is None or not hasattr(module, "mb"):
+        return func
+
+    @functools.wraps(func)  # preserves __dict__ markers (@differentiable, series_to_constant, is_MLE)
+    def bound(*args, **kwargs):
+        saved = module.mb
+        module.mb = backend
+        try:
+            return func(*args, **kwargs)
+        finally:
+            module.mb = saved
+
+    return bound
 
 
 def make_math_backend(mode: str):

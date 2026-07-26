@@ -1146,14 +1146,27 @@ class OpencorParamID():
             operation_funcs_external_path=operation_funcs_external_path,
             cost_funcs_external_path=cost_funcs_external_path)
 
+        # The operation/cost funcs are backend-dispatched (#199): the casadi-mode funcs build a
+        # symbolic graph (e.g. mean is ``ca.sum(x)/x.numel()``) while the numpy-mode funcs operate
+        # on arrays. A casadi_python model needs BOTH -- the casadi funcs for the AD-gradient
+        # (do_ad) path, whose operands are casadi symbols, and the numpy funcs for the numeric
+        # (gradient-free) cost path, whose operands are numpy arrays. Feeding numpy operands to a
+        # casadi func raises ``'numpy.ndarray' has no attribute 'numel'`` (#315), so keep one dict
+        # of each and select by ``is_symbolic`` at evaluation time (see get_obs_output_dict /
+        # cost_calc). For non-casadi models the two are the same numpy dict.
+        self.operation_funcs_dict = self.sfp.get_operation_funcs_dict("numpy")
+        self.cost_funcs_dict = self.sfp.get_cost_funcs_dict("numpy")
         if self.model_type == "casadi_python":
             mode = "casadi"
-        elif self.model_type == "aadc_python":
-            mode = "numpy"  # AADC uses numpy for passive (non-tape) cost evaluation
+            self.operation_funcs_dict_symbolic = self.sfp.get_operation_funcs_dict("casadi")
+            self.cost_funcs_dict_symbolic = self.sfp.get_cost_funcs_dict("casadi")
         else:
+            # aadc_python uses numpy for passive (non-tape) cost evaluation; all other model types
+            # are numeric only. Alias the symbolic dicts to the numpy ones so the selection below
+            # is uniform.
             mode = "numpy"
-        self.operation_funcs_dict = self.sfp.get_operation_funcs_dict(mode)
-        self.cost_funcs_dict = self.sfp.get_cost_funcs_dict(mode)
+            self.operation_funcs_dict_symbolic = self.operation_funcs_dict
+            self.cost_funcs_dict_symbolic = self.cost_funcs_dict
 
         # set up opencor simulation
         self.dt = dt
@@ -1253,7 +1266,8 @@ class OpencorParamID():
             self.cost_type = None
         if mode == "casadi":
             assert_casadi_differentiable(
-                self.obs_info, self.cost_type, self.operation_funcs_dict, self.cost_funcs_dict
+                self.obs_info, self.cost_type,
+                self.operation_funcs_dict_symbolic, self.cost_funcs_dict_symbolic
             )
         self.DEBUG = DEBUG
 
@@ -1311,14 +1325,20 @@ class OpencorParamID():
             raise ValueError(
                 f"User operation {func.__name__!r} must be decorated with @differentiable for casadi_python mode."
             )
+        # Register into both the numeric and symbolic dicts so the func is available on whichever
+        # path evaluates it (a @differentiable func dispatches through the backend in either mode).
         self.operation_funcs_dict = self.sfp.add_user_operation_func(self.operation_funcs_dict, func)
-    
+        if self.operation_funcs_dict_symbolic is not self.operation_funcs_dict:
+            self.sfp.add_user_operation_func(self.operation_funcs_dict_symbolic, func)
+
     def add_user_cost_func(self, func):
         if self.model_type == "casadi_python" and not is_circulatory_differentiable(func):
             raise ValueError(
                 f"User cost function {func.__name__!r} must be decorated with @differentiable for casadi_python mode."
             )
         self.cost_funcs_dict = self.sfp.add_user_cost_func(self.cost_funcs_dict, func)
+        if self.cost_funcs_dict_symbolic is not self.cost_funcs_dict:
+            self.sfp.add_user_cost_func(self.cost_funcs_dict_symbolic, func)
     
     def set_best_param_vals(self, best_param_vals):
         self.best_param_vals = best_param_vals
@@ -1595,7 +1615,7 @@ class OpencorParamID():
 
                 sub_cost = self.get_cost_from_operands(
                     operands_outputs_list[subexp_count],
-                    exp_idx=exp_idx, sub_idx=this_sub_idx,
+                    exp_idx=exp_idx, sub_idx=this_sub_idx, do_ad=do_ad,
                 )
                 cost += sub_cost
                 if self._num_weighted_obs_by_exp_sub is not None:
@@ -1709,12 +1729,13 @@ class OpencorParamID():
         pred_outputs = np.concatenate(pred_output_list, axis=1)
         return pred_outputs
 
-    def get_cost_from_operands(self, operands_outputs, exp_idx = 0, sub_idx = 0):
+    def get_cost_from_operands(self, operands_outputs, exp_idx = 0, sub_idx = 0, do_ad=False):
 
-        if self.model_type == 'casadi_python':
-            is_symbolic = True
-        else:
-            is_symbolic = False
+        # The operands are symbolic (casadi SX) only on the AD path of a casadi_python model; every
+        # other evaluation -- including gradient-free calibration on casadi_python -- produces numpy
+        # operands, which must go through the numpy-mode funcs (#315). model_type alone does NOT
+        # imply symbolic: casadi_python evaluated numerically is not.
+        is_symbolic = do_ad and self.model_type == 'casadi_python'
 
         obs_dict = self.get_obs_output_dict(operands_outputs, is_symbolic=is_symbolic)
         # calculate error between the observables of this set of parameters
@@ -1793,6 +1814,10 @@ class OpencorParamID():
 
     def cost_calc(self, obs_dict, exp_idx=0, sub_idx=0, is_symbolic=False):
 
+        # Symbolic cost terms use the casadi-mode cost funcs; numeric ones the numpy-mode funcs
+        # (#315). For non-casadi models both are the same numpy dict.
+        cost_funcs_dict = (self.cost_funcs_dict_symbolic if is_symbolic
+                           else self.cost_funcs_dict)
 
         const = obs_dict['const']
         series = obs_dict['series']
@@ -1836,7 +1861,7 @@ class OpencorParamID():
                 for const_idx in range(const.size1()):
                     obs_idx = self.obs_info['const_idx_to_obs_idx'][const_idx]
                     if updated_weight_const_vec[const_idx] != 0:
-                        cost += self.cost_funcs_dict[self.cost_type[obs_idx]](const[const_idx], self.obs_info["ground_truth_const"][const_idx],
+                        cost += cost_funcs_dict[self.cost_type[obs_idx]](const[const_idx], self.obs_info["ground_truth_const"][const_idx],
                                                         self.obs_info["std_const_vec"][const_idx], updated_weight_const_vec[const_idx])
 
             if series is not None:
@@ -1859,7 +1884,7 @@ class OpencorParamID():
                     obs_entry = ca.DM(obs_np.reshape(-1, 1))
                     std_entry = ca.DM(std_np.reshape(-1, 1))
 
-                    cost += self.cost_funcs_dict[self.cost_type[obs_idx]](
+                    cost += cost_funcs_dict[self.cost_type[obs_idx]](
                         series_entry, obs_entry, std_entry, weight_entry)
 
             # Silently returning a zero cost for observables we can't differentiate would look
@@ -1887,7 +1912,7 @@ class OpencorParamID():
             for const_idx in range(len(const)):
                 obs_idx = self.obs_info['const_idx_to_obs_idx'][const_idx]
                 if updated_weight_const_vec[const_idx] != 0:
-                    cost += self.cost_funcs_dict[self.cost_type[obs_idx]](const[const_idx], self.obs_info["ground_truth_const"][const_idx],
+                    cost += cost_funcs_dict[self.cost_type[obs_idx]](const[const_idx], self.obs_info["ground_truth_const"][const_idx],
                                                     self.obs_info["std_const_vec"][const_idx], updated_weight_const_vec[const_idx])
         
         # TODO debugging a strange error that occurs occasionally in GA
@@ -1922,7 +1947,7 @@ class OpencorParamID():
 
                 obs_idx = self.obs_info['series_idx_to_obs_idx'][series_idx]
                 if weight_entry != 0:
-                    series_cost += self.cost_funcs_dict[self.cost_type[obs_idx]](series_entry, obs_entry, std_entry, weight_entry)
+                    series_cost += cost_funcs_dict[self.cost_type[obs_idx]](series_entry, obs_entry, std_entry, weight_entry)
 
 
         amp_cost = 0
@@ -1945,10 +1970,10 @@ class OpencorParamID():
                 std_entry = self.obs_info["std_amp_vec"][amp_idx]
                 if hasattr(weight_entry, '__len__'):
                     if not all(val==0 for val in weight_entry):
-                        amp_cost += self.cost_funcs_dict[self.cost_type[obs_idx]](amp_entry, obs_entry, std_entry, weight_entry)
+                        amp_cost += cost_funcs_dict[self.cost_type[obs_idx]](amp_entry, obs_entry, std_entry, weight_entry)
                 else:
                     if weight_entry != 0:
-                        amp_cost += self.cost_funcs_dict[self.cost_type[obs_idx]](amp_entry, obs_entry, std_entry, weight_entry)
+                        amp_cost += cost_funcs_dict[self.cost_type[obs_idx]](amp_entry, obs_entry, std_entry, weight_entry)
 
         phase_cost = 0
         if phase is not None:
@@ -1972,17 +1997,17 @@ class OpencorParamID():
                 weight_entry = updated_weight_phase_vec[phase_idx]
                 if hasattr(weight_entry, '__len__'):
                     if not all(val==0 for val in weight_entry):
-                        phase_cost += self.cost_funcs_dict[self.cost_type[obs_idx]](phase_entry, obs_entry, std_entry, weight_entry)
+                        phase_cost += cost_funcs_dict[self.cost_type[obs_idx]](phase_entry, obs_entry, std_entry, weight_entry)
                 else:
                     if weight_entry != 0:
-                        phase_cost += self.cost_funcs_dict[self.cost_type[obs_idx]](phase_entry, obs_entry, std_entry, weight_entry)
+                        phase_cost += cost_funcs_dict[self.cost_type[obs_idx]](phase_entry, obs_entry, std_entry, weight_entry)
 
         prob_dist_cost = 0
         if val_for_prob_dist is not None:
             for prob_dist_idx in range(len(val_for_prob_dist)):
                 obs_idx = self.obs_info['prob_dist_idx_to_obs_idx'][prob_dist_idx]
                 if updated_weight_prob_dist_vec[prob_dist_idx] != 0:
-                    prob_dist_cost += self.cost_funcs_dict[self.cost_type[obs_idx]](val_for_prob_dist[prob_dist_idx], 
+                    prob_dist_cost += cost_funcs_dict[self.cost_type[obs_idx]](val_for_prob_dist[prob_dist_idx], 
                                                                     self.obs_info["ground_truth_prob_dist_params"][prob_dist_idx],
                                                                     updated_weight_prob_dist_vec[prob_dist_idx])
             
@@ -1992,7 +2017,12 @@ class OpencorParamID():
     def get_obs_output_dict(self, operands_outputs, get_all_series=False, is_symbolic=False):
         #need to added an array to save tmp data, each calibration need to updated/re-initial
         self.temp_results = {}
-        
+
+        # Symbolic (SX) operands go through the casadi-mode operation funcs; numeric operands go
+        # through the numpy-mode ones (#315). For non-casadi models both are the same numpy dict.
+        operation_funcs_dict = (self.operation_funcs_dict_symbolic if is_symbolic
+                                else self.operation_funcs_dict)
+
         if operands_outputs == None:
             if get_all_series:
                 return None, None
@@ -2028,7 +2058,7 @@ class OpencorParamID():
             elif get_all_series:
                 if self.obs_info["operations"][JJ] is None:
                     obs_series_array_all[JJ] = operands_outputs[JJ][0]
-                elif hasattr(self.operation_funcs_dict[self.obs_info["operations"][JJ]], 'series_to_constant'):
+                elif hasattr(operation_funcs_dict[self.obs_info["operations"][JJ]], 'series_to_constant'):
                     raw_kwargs = self.obs_info["operation_kwargs"][JJ]
                     kwargs = raw_kwargs.copy() if isinstance(raw_kwargs, dict) else {}
 
@@ -2039,9 +2069,9 @@ class OpencorParamID():
                                 kwargs[k] = self.temp_results[v]
                             else:
                                 raise KeyError(f"[ERROR] '{v}' not found in temp_results for key '{k}'")
-                    obs_series_array_all[JJ] = self.operation_funcs_dict[self.obs_info["operations"][JJ]](*operands_outputs[JJ],series_output=True,**kwargs)
+                    obs_series_array_all[JJ] = operation_funcs_dict[self.obs_info["operations"][JJ]](*operands_outputs[JJ],series_output=True,**kwargs)
                 else:
-                    val_or_array = self.operation_funcs_dict[
+                    val_or_array = operation_funcs_dict[
                             self.obs_info["operations"][JJ]](*operands_outputs[JJ], **self.obs_info["operation_kwargs"][JJ])
                     if type(val_or_array) == float:
                         print("an operation func that returns a float (constant) "
@@ -2074,7 +2104,7 @@ class OpencorParamID():
                             else:
                                 raise KeyError(f"[ERROR] '{v}' not found in temp_results for key '{k}'")
                     #need to replace below sentence, otherwise will be print error
-                    obs = self.operation_funcs_dict[self.obs_info["operations"][JJ]](*operands_outputs[JJ], **kwargs)
+                    obs = operation_funcs_dict[self.obs_info["operations"][JJ]](*operands_outputs[JJ], **kwargs)
                     #each predict result saved into tmp array
                     self.temp_results[key_idxt] = obs
                 else:
@@ -2116,11 +2146,11 @@ class OpencorParamID():
 
                     time_domain_obs = operands_outputs[JJ][0]
                     # operations also apply to complex numbers
-                    complex_num = self.operation_funcs_dict[self.obs_info["operations"][JJ]](*complex_operands, **self.obs_info["operation_kwargs"][JJ]) 
+                    complex_num = operation_funcs_dict[self.obs_info["operations"][JJ]](*complex_operands, **self.obs_info["operation_kwargs"][JJ]) 
                     # TODO check this works for all cases
                     # I am checking the sign of the mean operated on time domain signal to ensure 
                     # the first amplitude is negative if it is a negative signal
-                    # sign_signal = np.sign(self.operation_funcs_dict[self.obs_info["operations"][JJ]](* \
+                    # sign_signal = np.sign(operation_funcs_dict[self.obs_info["operations"][JJ]](* \
                     #                             [np.mean(entry) for entry in operands_outputs[JJ]]))
 
                     amp = np.abs(complex_num)[0:len(time_domain_obs)]
