@@ -117,12 +117,85 @@ If `obs_dt` is omitted, it is estimated from the mean step in `t_path`. For `std
     The `dt` or `sample_rate` fields are deprecated for series data. Use `obs_dt` instead.
 Not to be confused with the dt for the model simulation outputs.
 - **operation**: This defines the operation that will be done on the operands/variable. The possible operations to be done on model outputs are defined in `[CA_dir]/src/param_id/operation_funcs.py` and in `[CA_dir]/funcs_user/operation_funcs_user.py` for user defined operations.
-- **operation_kwargs**: This is a dictionary of key word arguments (kwargs) and their values that links to the kwargs in the chosen python operation function.
+- **operation_kwargs**: An optional dictionary of keyword arguments (kwargs) and their values, passed to the chosen python operation function on top of the operands. Defaults to `{}`. See [operation_kwargs](#operation_kwargs) below for the full contract.
 - **operands**: The above defined "operation" can take in multiple variables. If operands is defined, then the "variable" entry will be a placeholder name for the calculated variable and the operands will define the model variables that are used to calculate the final feature that will be compared to the observable value entry/s.
 - **experiment_idx** and **subexperiment_idx**: Optional indices to link a data item to a specific experiment/subexperiment in `protocol_info`.
 
 !!! warning
     **obs_type**: Deprecated in favor of **operation**.
+
+### operation_kwargs
+
+`operation_kwargs` is an optional, per-`data_item` dictionary of keyword arguments for that item's
+`operation` func. It is a supported public field of `obs_data.json` (it is what the
+[CUFLynx](https://github.com/physiomelinks/CUFLynx) editor writes when you tune an operation's
+options in the GUI), and it behaves identically in calibration, MCMC/UQ and sensitivity analysis.
+
+At run time Circulatory Autogen calls:
+
+```python
+operation(*operands, **operation_kwargs)
+```
+
+so the `operands` fill the operation func's leading positional arguments and `operation_kwargs`
+fills its keyword arguments. For example, with the user operation
+
+```python
+@series_to_constant
+def mean_in_range(x, start_frac=0.0, end_frac=1.0, series_output=False):
+    ...
+```
+
+a `data_item` can ask for the mean over the last 20% of the sub-experiment:
+
+```json
+{
+  "variable": "P aortic root",
+  "name_for_plotting": "u_{ARlate}",
+  "data_type": "constant",
+  "operation": "mean_in_range",
+  "operands": ["aortic_root/u"],
+  "operation_kwargs": { "start_frac": 0.8, "end_frac": 1.0 },
+  "unit": "J_per_m3",
+  "weight": 1.0,
+  "value": 12000,
+  "std": 1200
+}
+```
+
+The rules are:
+
+- **Optional, default `{}`.** Omitting `operation_kwargs` (or leaving it empty/null) calls the
+  operation func with its own defaults, exactly as before.
+- **Keys must be keyword arguments of the operation func.** An unknown or misspelled key is an
+  **error**, not silently ignored -- otherwise a stale obs_data file would quietly calibrate against
+  a different feature than you asked for. The error names the data item, the operation func, the
+  offending key and the accepted keys, and it is raised as soon as the observation data is set,
+  before any simulation runs. A func that declares `**kwargs` (like
+  `calculate_two_observable_difference`) accepts any key.
+- **Keys already filled from `operands` are rejected.** If `operands` supplies the operation's
+  first argument `x`, you cannot also pass `"x"` in `operation_kwargs`.
+- **`series_output` is reserved.** Circulatory Autogen sets it itself when it needs the trace for
+  plotting, so a `data_item` must not set it.
+- **String values can reference an earlier observable.** A string value that matches the
+  `name_for_plotting` of an earlier `data_item` is replaced, at run time, by that observable's
+  computed value. This is how an observable is built from other observables -- see
+  `calculate_two_observable_difference` in `funcs_user/operation_funcs_user.py` and
+  `resources/3compartment_extra_ops_obs_data.json`. A string that matches no earlier observable is
+  passed through unchanged, so plain string options still work. Note that the referenced item must
+  appear **earlier** in `data_items` than the item that references it.
+- **Type coercion is minimal.** JSON has a single number type, so a value written as `20.0` where
+  the func's default is the integer `20` is converted to `int`, and an integer written where the
+  default is a float is converted to `float`. Nothing else is coerced: strings, booleans, lists and
+  `null` reach the operation func as-is.
+
+User-defined operation funcs receive `operation_kwargs` exactly like the built-ins. This includes
+funcs in `funcs_user/operation_funcs_user.py`, funcs in a file pointed to by
+`operation_funcs_external_path` in `user_inputs.yaml`, and funcs registered from python with
+`add_user_operation_func()`.
+
+When building obs data in python rather than as a file, pass the same field through
+`ObsDataCreator.add_data_item({... , "operation_kwargs": {...}})`.
 
 ### prediction items (optional)
 

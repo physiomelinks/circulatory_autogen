@@ -91,7 +91,7 @@ important notice: this experimental unit must be placed after the unit from whic
 
 "operands": "", current experimental unit calculate results by extracted predicted results, so could be set as empty.
 
-"operation_kwargs", this data used to point which experiment predicted results need to be added, then convey the value to participate in the cost function calculation.
+"operation_kwargs", this data used to point which experiment predicted results need to be added, then convey the value to participate in the cost function calculation. It is the same per-`data_item` field used in calibration -- see [operation_kwargs](parameter-identification.md#operation_kwargs) for the full contract (which keys are accepted, what happens to an unknown key, and how a string value references an earlier observable).
 
 "v_{ARmean}" and "v_{ARmax}", important strings, specifies which experiment predicts results will be conveyed to the current experiment.
 
@@ -101,14 +101,12 @@ important notice: this experimental unit must be placed after the unit from whic
 
 ![Example of operation file](images/SensitivityAnalysis_Operationexample.png)
 
--Notice: sometimes will report an error similar to the following:
-
-```
-obs_series_array_all[JJ] = self.operation_funcs_dict[
-                           ^^^^^^^^^^^^^^^^^^^^^^^^^^
-TypeError: operation_funcs.mean() argument after ** must be a mapping, not float
-```
-
-please just change `**self.obs_info["operation_kwargs"][JJ]` to `**kwargs`.
+!!! note
+    Older versions could fail with `TypeError: operation_funcs.mean() argument after ** must be a
+    mapping, not float` when a `data_item` had no `operation_kwargs`. This is fixed: every place
+    that forwards `operation_kwargs` now goes through
+    `param_id.operation_funcs.resolve_operation_kwargs`, which treats a missing/null/NaN value as
+    "no kwargs" and raises a descriptive `ValueError` (naming the data item, the operation and the
+    accepted keys) for a key the operation func does not accept.
 
 If there is any other issue, please contact Changqing Dong, email: cdon822@aucklanduni.ac.nz. 

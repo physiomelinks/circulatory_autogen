@@ -65,6 +65,7 @@ from param_id.differentiable import (
     assert_mle_cost_for_bayesian,
     is_circulatory_differentiable,
 )
+from param_id.operation_funcs import resolve_operation_kwargs, validate_operation_kwargs
 from param_id.plot_outputs import ParamIDPlotOutputs
 from param_id import casadi_backend
 from param_id import fsa_backend
@@ -1269,6 +1270,8 @@ class OpencorParamID():
                 self.obs_info, self.cost_type,
                 self.operation_funcs_dict_symbolic, self.cost_funcs_dict_symbolic
             )
+        # Fail fast on a stale obs_data.json rather than part-way through an optimisation (#304).
+        validate_operation_kwargs(self.obs_info, self.operation_funcs_dict)
         self.DEBUG = DEBUG
 
         # Per (experiment, subexperiment) count of observables with non-zero weight. The sum
@@ -1364,6 +1367,7 @@ class OpencorParamID():
     def set_obs_info(self, obs_info):
         self.obs_info = obs_info
         self.cost_type = self.obs_info["cost_type"]
+        validate_operation_kwargs(self.obs_info, self.operation_funcs_dict)
         self._refresh_num_weighted_obs_tables()
 
     def set_optimiser_options(self, optimiser_options):
@@ -2014,6 +2018,28 @@ class OpencorParamID():
 
         return cost + series_cost + amp_cost + phase_cost + prob_dist_cost
 
+    def _resolve_operation_kwargs(self, JJ, operation_funcs_dict, operands_outputs,
+                                  num_operands=None):
+        """Keyword arguments for observable ``JJ``'s operation func, from its ``operation_kwargs``.
+
+        Single entry point for the ``operation_kwargs`` contract (#304) on the param-id / MCMC /
+        UQ path, so validation and the "string value naming an earlier observable" substitution
+        behave exactly as they do in sensitivity analysis. See
+        ``param_id.operation_funcs.resolve_operation_kwargs``.
+        """
+        operation_name = self.obs_info["operations"][JJ]
+        if num_operands is None:
+            operands_for_JJ = operands_outputs[JJ]
+            num_operands = len(operands_for_JJ) if hasattr(operands_for_JJ, '__len__') else 0
+        return resolve_operation_kwargs(
+            self.obs_info["operation_kwargs"][JJ],
+            operation_funcs_dict[operation_name],
+            operation_name=operation_name,
+            data_item_name=self.obs_info["names_for_plotting"][JJ],
+            temp_results=self.temp_results,
+            num_operands=num_operands,
+        )
+
     def get_obs_output_dict(self, operands_outputs, get_all_series=False, is_symbolic=False):
         #need to added an array to save tmp data, each calibration need to updated/re-initial
         self.temp_results = {}
@@ -2059,20 +2085,12 @@ class OpencorParamID():
                 if self.obs_info["operations"][JJ] is None:
                     obs_series_array_all[JJ] = operands_outputs[JJ][0]
                 elif hasattr(operation_funcs_dict[self.obs_info["operations"][JJ]], 'series_to_constant'):
-                    raw_kwargs = self.obs_info["operation_kwargs"][JJ]
-                    kwargs = raw_kwargs.copy() if isinstance(raw_kwargs, dict) else {}
-
-                    for k, v in list(kwargs.items()):
-                        if isinstance(v, str) and v in self.temp_results:
-                            #kwargs[k] = self.temp_results[v]
-                            if v in self.temp_results:
-                                kwargs[k] = self.temp_results[v]
-                            else:
-                                raise KeyError(f"[ERROR] '{v}' not found in temp_results for key '{k}'")
+                    kwargs = self._resolve_operation_kwargs(JJ, operation_funcs_dict, operands_outputs)
                     obs_series_array_all[JJ] = operation_funcs_dict[self.obs_info["operations"][JJ]](*operands_outputs[JJ],series_output=True,**kwargs)
                 else:
+                    kwargs = self._resolve_operation_kwargs(JJ, operation_funcs_dict, operands_outputs)
                     val_or_array = operation_funcs_dict[
-                            self.obs_info["operations"][JJ]](*operands_outputs[JJ], **self.obs_info["operation_kwargs"][JJ])
+                            self.obs_info["operations"][JJ]](*operands_outputs[JJ], **kwargs)
                     if type(val_or_array) == float:
                         print("an operation func that returns a float (constant) "
                               "Is present. This operation_func should have the header @series_to_constant"
@@ -2090,20 +2108,7 @@ class OpencorParamID():
             else:
                 if self.obs_info["data_types"][JJ] != 'frequency':
                     key_idxt = self.obs_info["names_for_plotting"][JJ]
-                    raw_kwargs = self.obs_info["operation_kwargs"][JJ]
-                    #every time check it and update to {} when not exist
-                    if isinstance(raw_kwargs, dict):
-                        kwargs = raw_kwargs.copy()
-                    else:
-                        kwargs = {}
-                    #if exist, extract value, convey it to participate in new cost_function
-                    for k, v in list(kwargs.items()):
-                        if isinstance(v, str) and v in self.temp_results:
-                            if v in self.temp_results:
-                                kwargs[k] = self.temp_results[v]
-                            else:
-                                raise KeyError(f"[ERROR] '{v}' not found in temp_results for key '{k}'")
-                    #need to replace below sentence, otherwise will be print error
+                    kwargs = self._resolve_operation_kwargs(JJ, operation_funcs_dict, operands_outputs)
                     obs = operation_funcs_dict[self.obs_info["operations"][JJ]](*operands_outputs[JJ], **kwargs)
                     #each predict result saved into tmp array
                     self.temp_results[key_idxt] = obs
@@ -2146,7 +2151,9 @@ class OpencorParamID():
 
                     time_domain_obs = operands_outputs[JJ][0]
                     # operations also apply to complex numbers
-                    complex_num = operation_funcs_dict[self.obs_info["operations"][JJ]](*complex_operands, **self.obs_info["operation_kwargs"][JJ]) 
+                    freq_kwargs = self._resolve_operation_kwargs(
+                        JJ, operation_funcs_dict, operands_outputs, num_operands=len(complex_operands))
+                    complex_num = operation_funcs_dict[self.obs_info["operations"][JJ]](*complex_operands, **freq_kwargs)
                     # TODO check this works for all cases
                     # I am checking the sign of the mean operated on time domain signal to ensure 
                     # the first amplitude is negative if it is a negative signal
