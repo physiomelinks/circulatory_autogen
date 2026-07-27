@@ -1,0 +1,127 @@
+name,BC_type,vessel_type,inp_vessels,out_vessels
+par,                     vp, arterial_simple,    heart,                              pcap
+pcap,                    vp, arterial_simple,    par,                                pvn pulmonary_GE
+pulmonary_GE,            nn, pulmonary_GE,       pcap venous_gas_transport,          arterial_gas_transport respiratory_gt             
+respiratory_gt,          nn, respiratory_gas_transport, pulmonary_GE,                lung 
+lung,                    nn, simple_lung_bg,     respiratory_gt,                     
+pvn,                     vp, venous,             pcap,                               heart
+heart,             vp_wCont, heart_ASD,              venous_ivc venous_svc pvn rv_elastance_effector lv_elastance_effector heart_period_effector,         ascending_aorta_A par  
+ascending_aorta_A,       vv, arterial,           heart                 ,             ascending_aorta_B    
+ascending_aorta_B,       pv, arterial,           ascending_aorta_A     ,             ascending_aorta_C    
+ascending_aorta_C,       pv, arterial,           ascending_aorta_B     ,             ascending_aorta_D arterial_gas_transport       
+ascending_aorta_D,       pv, arterial,           ascending_aorta_C     ,             aortic_arch_C2
+aortic_arch_C2,          pv, split_junction,     ascending_aorta_D     ,             aortic_arch_C46 brachiocephalic_trunk_C4
+aortic_arch_C46,         pv, split_junction,     aortic_arch_C2        ,             aortic_arch_C64 common_carotid_L48_A
+aortic_arch_C64,         pv, split_junction,     aortic_arch_C46       ,             aortic_arch_C94 subclavian_L66
+brachiocephalic_trunk_C4,pv, split_junction,     aortic_arch_C2        ,             common_carotid_R6_A subclavian_R28
+subclavian_L66,          pv, split_junction,     aortic_arch_C64       ,             subclavian_L78 vertebral_L2
+subclavian_L78,          pv, arterial,           subclavian_L66        ,             brachial_L82              
+brachial_L82,            pv, arterial,           subclavian_L78        ,             arm_L_T              
+common_carotid_L48_A,    pv, arterial,           aortic_arch_C46       ,             common_carotid_L48_B 
+common_carotid_L48_B,    pv, arterial,           common_carotid_L48_A  ,             common_carotid_L48_C 
+common_carotid_L48_C,    pv, arterial,           common_carotid_L48_B  ,             common_carotid_L48_D 
+common_carotid_L48_D,    pv, split_junction,     common_carotid_L48_C  ,             external_carotid_L62 internal_carotid_L50_A common_carotid_L_baro
+common_carotid_R6_A,     pv, arterial,           brachiocephalic_trunk_C4 ,          common_carotid_R6_B  
+common_carotid_R6_B,     pv, arterial,           common_carotid_R6_A   ,             common_carotid_R6_C 
+common_carotid_R6_C,     pv, split_junction,     common_carotid_R6_B   ,             external_carotid_R26 internal_carotid_R8_A
+external_carotid_L62,    pv, arterial,           common_carotid_L48_D  ,             external_carotid_L_T 
+external_carotid_R26,    pv, arterial,           common_carotid_R6_C   ,             external_carotid_R_T 
+internal_carotid_L50_A,  pv, arterial,           common_carotid_L48_D  ,             internal_carotid_L50_B 
+internal_carotid_L50_B,  pv, arterial,           internal_carotid_L50_A  ,           internal_carotid_L50_C 
+internal_carotid_L50_C,  pv, split_junction,     internal_carotid_L50_B  ,           internal_carotid_L112 posterior_communicating_L8
+internal_carotid_R8_A,   pv, arterial,           common_carotid_R6_C  ,              internal_carotid_R8_B 
+internal_carotid_R8_B,   pv, arterial,           internal_carotid_R8_A  ,            internal_carotid_R8_C 
+internal_carotid_R8_C,   pv, split_junction,     internal_carotid_R8_B  ,            internal_carotid_R48 posterior_communicating_R206
+posterior_communicating_L8, pp, arterial,        internal_carotid_L50_C  ,           posterior_cerebral_post_L12 
+posterior_communicating_R206,pp, arterial,       internal_carotid_R8_C  ,            posterior_cerebral_post_R208 
+internal_carotid_L112,   pv, split_junction,     internal_carotid_L50_C  ,           middle_cerebral_L114 anterior_cerebral_L110
+internal_carotid_R48,    pv, split_junction,     internal_carotid_R8_C  ,            middle_cerebral_R52 anterior_cerebral_R46
+middle_cerebral_L114,    pv, arterial,           internal_carotid_L112  ,            middle_cerebral_L_T  
+middle_cerebral_R52,     pv, arterial,           internal_carotid_R48  ,             middle_cerebral_R_T  
+anterior_cerebral_L110,  pp, arterial,           internal_carotid_L112  ,            anterior_cerebral_L42 
+anterior_cerebral_R46,   pv, split_junction,     internal_carotid_R48  ,             anterior_cerebral_R238 anterior_communicating_C44
+anterior_cerebral_R238,  pv, arterial,           anterior_cerebral_R46  ,            anterior_cerebral_R_T 
+anterior_cerebral_L42,   vv, merge_junction,     anterior_cerebral_L110 anterior_communicating_C44,             anterior_cerebral_L_T 
+anterior_communicating_C44,pp, arterial,         anterior_cerebral_R46  ,            anterior_cerebral_L42
+vertebral_L2,            pp, arterial,           subclavian_L66        ,             basilar_C4           
+subclavian_R28,          pv, split_junction,     brachiocephalic_trunk_C4  ,         subclavian_R30       vertebral_R272
+subclavian_R30,          pv, arterial,           subclavian_R28        ,             brachial_R34              
+brachial_R34,            pv, arterial,           subclavian_R30        ,             arm_R_T              
+vertebral_R272,          pp, arterial,           subclavian_R28        ,             basilar_C4           
+basilar_C4,              vv, 2in2out_junction,   vertebral_R272 vertebral_L2, posterior_cerebral_pre_L6 posterior_cerebral_pre_R204
+posterior_cerebral_pre_L6,pp,arterial,           basilar_C4            ,             posterior_cerebral_post_L12 
+posterior_cerebral_post_L12,vv,merge_junction,   posterior_cerebral_pre_L6 posterior_communicating_L8,              posterior_cerebral_L_T    
+posterior_cerebral_pre_R204,pp,arterial,         basilar_C4            ,             posterior_cerebral_post_R208 
+posterior_cerebral_post_R208,vv,merge_junction,  posterior_cerebral_pre_R204  posterior_communicating_R206,              posterior_cerebral_R_T    
+posterior_cerebral_L_T,  pp_wLocal, terminal,           posterior_cerebral_post_L12 posterior_cerebral_L_LC ,      venous_ub posterior_cerebral_L_GE                      
+posterior_cerebral_R_T,  pp_wLocal, terminal,           posterior_cerebral_post_R208 posterior_cerebral_R_LC  ,     venous_ub posterior_cerebral_R_GE                      
+external_carotid_L_T,    pp_wLocal, terminal,           external_carotid_L62 external_carotid_L_LC  ,             venous_ub external_carotid_L_GE                      
+external_carotid_R_T,    pp_wLocal, terminal,           external_carotid_R26 external_carotid_R_LC  ,            venous_ub external_carotid_R_GE                     
+middle_cerebral_L_T,     pp_wLocal, terminal,           middle_cerebral_L114 middle_cerebral_L_LC  ,             venous_ub middle_cerebral_L_GE           
+middle_cerebral_R_T,     pp_wLocal, terminal,           middle_cerebral_R52 middle_cerebral_R_LC   ,             venous_ub middle_cerebral_R_GE           
+anterior_cerebral_L_T,   pp_wLocal, terminal,           anterior_cerebral_L42 anterior_cerebral_L_LC ,            venous_ub anterior_cerebral_L_GE                     
+anterior_cerebral_R_T,   pp_wLocal, terminal,           anterior_cerebral_R238 anterior_cerebral_R_LC  ,           venous_ub anterior_cerebral_R_GE                      
+arm_L_T,                 pp_wCont, terminal,           brachial_L82 arm_leg_resistance_effector arm_L_LC,             venous_ub arm_L_GE           
+arm_R_T,                 pp_wCont, terminal,           brachial_R34 arm_leg_resistance_effector arm_R_LC,             venous_ub arm_R_GE                      
+aortic_arch_C94,         pv, arterial,           aortic_arch_C64       ,             thoracic_aorta_C96   
+thoracic_aorta_C96,      pv, arterial,           aortic_arch_C94       ,             thoracic_aorta_C100  
+thoracic_aorta_C100,     pv, arterial,           thoracic_aorta_C96    ,             thoracic_aorta_C104  
+thoracic_aorta_C104,     pv, arterial,           thoracic_aorta_C100   ,             thoracic_aorta_C108  
+thoracic_aorta_C108,     pv, arterial,           thoracic_aorta_C104   ,             thoracic_aorta_C112  
+thoracic_aorta_C112,     pv, arterial,           thoracic_aorta_C108   ,             abdominal_aorta_C114 
+abdominal_aorta_C114,    pv, split_junction,     thoracic_aorta_C112   ,             abdominal_aorta_C136 trunk_C_T
+trunk_C_T,  pp_wCont_no_local, terminal,           abdominal_aorta_C114 trunk_resistance_effector  ,             venous_lb trunk_C_GE           
+abdominal_aorta_C136,    pv, arterial,           abdominal_aorta_C114  ,             abdominal_aorta_C164 
+abdominal_aorta_C164,    pv, arterial,           abdominal_aorta_C136  ,             abdominal_aorta_C176 
+abdominal_aorta_C176,    pv, arterial,           abdominal_aorta_C164  ,             abdominal_aorta_C188 
+abdominal_aorta_C188,    pv, arterial,           abdominal_aorta_C176  ,             abdominal_aorta_C192 
+abdominal_aorta_C192,    pv, split_junction,     abdominal_aorta_C188  ,             common_iliac_L194    common_iliac_R216
+common_iliac_L194,       pv, arterial,           abdominal_aorta_C192  ,             external_iliac_L198  
+external_iliac_L198,     pv, arterial,           common_iliac_L194     ,             femoral_L200         
+common_iliac_R216,       pv, arterial,           abdominal_aorta_C192  ,             external_iliac_R220  
+external_iliac_R220,     pv, arterial,           common_iliac_R216     ,             femoral_R222         
+femoral_L200,            pv, arterial,           external_iliac_L198   ,             leg_L_T              
+femoral_R222,            pv, arterial,           external_iliac_R220   ,             leg_R_T              
+leg_L_T,                 pp_wCont, terminal,           femoral_L200 arm_leg_resistance_effector leg_L_LC,             venous_lb leg_L_GE
+leg_R_T,                 pp_wCont, terminal,           femoral_R222 arm_leg_resistance_effector leg_R_LC,             venous_lb leg_R_GE
+venous_lb,               vp_wCont, venous,             leg_L_T leg_R_T trunk_C_T venous_constriction_effector,          venous_ivc
+venous_ub,               vp_wCont, venous,             arm_L_T arm_R_T external_carotid_L_T external_carotid_R_T posterior_cerebral_L_T posterior_cerebral_R_T middle_cerebral_L_T middle_cerebral_R_T anterior_cerebral_L_T anterior_cerebral_R_T venous_constriction_effector,           venous_svc
+venous_ivc,              vp_wCont, venous,             venous_lb venous_constriction_effector ,  heart                 
+venous_svc,              vp_wCont, venous,             venous_ub venous_constriction_effector ,  heart                
+middle_cerebral_L_GE,    nn, tissue_GE_simple,   middle_cerebral_L_T arterial_gas_transport , venous_gas_transport middle_cerebral_L_LC   
+middle_cerebral_R_GE,    nn, tissue_GE_simple,   middle_cerebral_R_T arterial_gas_transport , venous_gas_transport middle_cerebral_R_LC       
+anterior_cerebral_L_GE,  nn, tissue_GE_simple,   anterior_cerebral_L_T arterial_gas_transport , venous_gas_transport anterior_cerebral_L_LC       
+anterior_cerebral_R_GE,  nn, tissue_GE_simple,   anterior_cerebral_R_T arterial_gas_transport , venous_gas_transport anterior_cerebral_R_LC       
+posterior_cerebral_L_GE, nn, tissue_GE_simple,   posterior_cerebral_L_T arterial_gas_transport , venous_gas_transport posterior_cerebral_L_LC       
+posterior_cerebral_R_GE, nn, tissue_GE_simple,   posterior_cerebral_R_T arterial_gas_transport , venous_gas_transport posterior_cerebral_R_LC       
+external_carotid_L_GE,   nn, tissue_GE_simple,   external_carotid_L_T arterial_gas_transport , venous_gas_transport external_carotid_L_LC       
+external_carotid_R_GE,   nn, tissue_GE_simple,   external_carotid_R_T arterial_gas_transport , venous_gas_transport external_carotid_R_LC       
+arm_L_GE,                nn, tissue_GE_simple,   arm_L_T arterial_gas_transport , venous_gas_transport arm_L_LC   
+arm_R_GE,                nn, tissue_GE_simple,   arm_R_T arterial_gas_transport , venous_gas_transport arm_R_LC      
+leg_L_GE,                nn, tissue_GE_simple,   leg_L_T arterial_gas_transport , venous_gas_transport leg_L_LC      
+leg_R_GE,                nn, tissue_GE_simple,   leg_R_T arterial_gas_transport , venous_gas_transport leg_R_LC      
+trunk_C_GE,              nn, tissue_GE_simple,   trunk_C_T arterial_gas_transport , venous_gas_transport
+arterial_gas_transport,  nn, gas_transport_simple, pulmonary_GE ascending_aorta_C, arm_L_GE arm_R_GE leg_L_GE leg_R_GE trunk_C_GE middle_cerebral_L_GE middle_cerebral_R_GE posterior_cerebral_L_GE posterior_cerebral_R_GE anterior_cerebral_L_GE anterior_cerebral_R_GE external_carotid_L_GE external_carotid_R_GE arm_L_LC arm_R_LC leg_L_LC leg_R_LC middle_cerebral_L_LC middle_cerebral_R_LC posterior_cerebral_L_LC posterior_cerebral_R_LC anterior_cerebral_L_LC anterior_cerebral_R_LC external_carotid_L_LC external_carotid_R_LC arterial_chemoreceptor
+venous_gas_transport,    nn, gas_transport_simple, middle_cerebral_L_GE middle_cerebral_R_GE anterior_cerebral_L_GE anterior_cerebral_R_GE posterior_cerebral_L_GE posterior_cerebral_R_GE external_carotid_L_GE external_carotid_R_GE arm_L_GE arm_R_GE leg_L_GE leg_R_GE trunk_C_GE,  pulmonary_GE 
+common_carotid_L_baro,   nn, baroreceptor,       common_carotid_L48_D, vagal_efferent sympathetic_efferent
+arterial_chemoreceptor,  nn, chemoreceptor,         arterial_gas_transport, vagal_efferent sympathetic_efferent 
+vagal_efferent,          nn, afferent_to_vagal_efferent, arterial_chemoreceptor common_carotid_L_baro, heart_period_effector
+sympathetic_efferent, nn,afferent_to_sympathetic_efferent, arterial_chemoreceptor common_carotid_L_baro, trunk_resistance_effector arm_leg_resistance_effector rv_elastance_effector lv_elastance_effector heart_period_effector venous_constriction_effector
+trunk_resistance_effector,      nn,efferent_resistance_effector,     sympathetic_efferent, trunk_C_T
+arm_leg_resistance_effector,    nn,efferent_resistance_effector,     sympathetic_efferent, arm_L_T arm_R_T leg_L_T leg_R_T
+lv_elastance_effector,  nn_lv,efferent_heart_elastance_effector,     sympathetic_efferent, heart
+rv_elastance_effector,  nn_rv,efferent_heart_elastance_effector,     sympathetic_efferent, heart
+heart_period_effector,  nn,efferent_heart_period_effector,     sympathetic_efferent vagal_efferent, heart
+venous_constriction_effector, nn, efferent_venous_us_volume_and_compliance_effector, sympathetic_efferent, venous_lb venous_ub venous_ivc venous_svc
+arm_L_LC,               nn,local_flow_control_muscle, arm_L_GE arterial_gas_transport, arm_L_T
+arm_R_LC,               nn,local_flow_control_muscle, arm_R_GE arterial_gas_transport, arm_R_T
+leg_L_LC,               nn,local_flow_control_muscle, leg_L_GE arterial_gas_transport, leg_L_T
+leg_R_LC,               nn,local_flow_control_muscle, leg_R_GE arterial_gas_transport, leg_R_T
+middle_cerebral_L_LC,   nn,local_flow_control_brain, middle_cerebral_L_GE arterial_gas_transport, middle_cerebral_L_T
+middle_cerebral_R_LC,   nn,local_flow_control_brain, middle_cerebral_R_GE arterial_gas_transport, middle_cerebral_R_T
+anterior_cerebral_L_LC, nn,local_flow_control_brain, anterior_cerebral_L_GE arterial_gas_transport, anterior_cerebral_L_T
+anterior_cerebral_R_LC, nn,local_flow_control_brain, anterior_cerebral_R_GE arterial_gas_transport, anterior_cerebral_R_T
+posterior_cerebral_L_LC,nn,local_flow_control_brain, posterior_cerebral_L_GE arterial_gas_transport, posterior_cerebral_L_T
+posterior_cerebral_R_LC,nn,local_flow_control_brain, posterior_cerebral_R_GE arterial_gas_transport, posterior_cerebral_R_T
+external_carotid_L_LC,  nn,local_flow_control_brain, external_carotid_L_GE arterial_gas_transport, external_carotid_L_T
+external_carotid_R_LC,  nn,local_flow_control_brain, external_carotid_R_GE arterial_gas_transport, external_carotid_R_T

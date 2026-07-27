@@ -144,6 +144,152 @@
         ]
     },
     {
+        "vessel_type":"heart_ASD",
+        "BC_type":"vp_wCont",
+        "module_format":"cellml",
+        "module_file":"heart_modules.cellml",
+        "module_type":"heart_simple_wCont_ASD",
+        "entrance_ports":
+        [
+          {
+            "port_type":"vessel_port",
+            "variables":["v_ivc","u_ra"]
+          },
+          {
+            "port_type":"vessel_port",
+            "variables":["v_svc","u_ra"]
+          },
+          {
+            "port_type":"vessel_port",
+            "variables":["v_pvn","u_la"]
+          },
+          {
+            "port_type":"Elastance_delta_port_rv",
+            "variables":["Delta_E_rv"]
+          },
+          {
+            "port_type":"Elastance_delta_port_lv",
+            "variables":["Delta_E_lv"]
+          },
+          {
+            "port_type":"period_delta_port",
+            "variables":["Delta_T"]
+          },
+          {
+            "port_type":"external_pressure_port",
+            "variables":["u_intraThor"]
+          }
+        ],
+        "exit_ports":
+        [
+          {
+            "port_type":"vessel_port",
+            "variables":["v_aov","u_root"]
+          },
+          {
+            "port_type":"vessel_port",
+            "variables":["v_puv","u_par"]
+          },
+          {
+            "port_type":"volume_port",
+            "variables":["q_heart"]
+          }
+        ],
+        "general_ports":[
+        ],
+        "variables_and_units":
+        [
+          ["rho", "Js2_per_m5", "access", "global_constant"],
+          ["T", "second", "access", "global_constant"],
+          ["Delta_T", "second", "access", "boundary_condition"],
+          ["T_wCont", "second", "access", "variable"],
+          ["T_min", "second", "access", "global_constant"],
+          ["mt", "dimensionless", "access", "variable"],
+          ["u_ra", "J_per_m3", "access", "variable"],
+          ["u_rv", "J_per_m3", "access", "variable"],
+          ["u_la", "J_per_m3", "access", "variable"],
+          ["u_lv", "J_per_m3", "access", "variable"],
+          ["u_intraThor", "J_per_m3", "access", "boundary_condition"],
+          ["u_root", "J_per_m3", "access", "boundary_condition"],
+          ["u_par", "J_per_m3", "access", "boundary_condition"],
+          ["q_ra", "m3", "access", "variable"],
+          ["q_rv", "m3", "access", "variable"],
+          ["q_la", "m3", "access", "variable"],
+          ["q_lv", "m3", "access", "variable"],
+          ["q_ra_us", "m3", "access", "global_constant"],
+          ["q_rv_us", "m3", "access", "global_constant"],
+          ["q_la_us", "m3", "access", "global_constant"],
+          ["q_lv_us", "m3", "access", "global_constant"],
+          ["q_ra_init", "m3", "access", "global_constant"],
+          ["q_rv_init", "m3", "access", "global_constant"],
+          ["q_la_init", "m3", "access", "global_constant"],
+          ["q_lv_init", "m3", "access", "global_constant"],
+          ["T_ac", "second", "access", "global_constant"],
+          ["T_ar", "second", "access", "global_constant"],
+          ["T_ac_wCont", "second", "access", "variable"],
+          ["T_ar_wCont", "second", "access", "variable"],
+          ["t_astart", "second", "access", "global_constant"],
+          ["t_astart_norm", "dimensionless", "access", "variable"],
+          ["chi_a", "dimensionless", "access", "variable"],
+          ["chi_afloor", "dimensionless", "access", "variable"],
+          ["T_vc", "second", "access", "global_constant"],
+          ["T_vr", "second", "access", "global_constant"],
+          ["T_vc_wCont", "second", "access", "variable"],
+          ["T_vr_wCont", "second", "access", "variable"],
+          ["t_vstart", "second", "access", "global_constant"],
+          ["t_vstart_norm", "dimensionless", "access", "variable"],
+          ["E_ra_A", "J_per_m6", "access", "global_constant"],
+          ["E_ra_B", "J_per_m6", "access", "global_constant"],
+          ["E_rv_A", "J_per_m6", "access", "global_constant"],
+          ["Delta_E_rv", "J_per_m6", "access", "boundary_condition"],
+          ["E_rv_A_wCont", "J_per_m6", "access", "variable"],
+          ["E_rv_B", "J_per_m6", "access", "global_constant"],
+          ["E_la_A", "J_per_m6", "access", "global_constant"],
+          ["E_la_B", "J_per_m6", "access", "global_constant"],
+          ["E_lv_A", "J_per_m6", "access", "global_constant"],
+          ["Delta_E_lv", "J_per_m6", "access", "boundary_condition"],
+          ["E_lv_A_wCont", "J_per_m6", "access", "variable"],
+          ["E_lv_B", "J_per_m6", "access", "global_constant"],
+          ["e_a", "dimensionless", "access", "variable"],
+          ["e_v", "dimensionless", "access", "variable"],
+          ["v_ivc", "m3_per_s", "access", "boundary_condition"],
+          ["v_svc", "m3_per_s", "access", "boundary_condition"],
+          ["v_pvn", "m3_per_s", "access", "boundary_condition"],
+          ["v_trv", "m3_per_s", "access", "variable"],
+          ["v_puv", "m3_per_s", "access", "variable"],
+          ["v_miv", "m3_per_s", "access", "variable"],
+          ["v_aov", "m3_per_s", "access", "variable"],
+          ["K_vo_trv", "m3_per_Js", "access", "global_constant"],
+          ["K_vo_puv", "m3_per_Js", "access", "global_constant"],
+          ["K_vo_miv", "m3_per_Js", "access", "global_constant"],
+          ["K_vo_aov", "m3_per_Js", "access", "global_constant"],
+          ["K_vc_trv", "m3_per_Js", "access", "global_constant"],
+          ["K_vc_puv", "m3_per_Js", "access", "global_constant"],
+          ["K_vc_miv", "m3_per_Js", "access", "global_constant"],
+          ["K_vc_aov", "m3_per_Js", "access", "global_constant"],
+          ["M_rg_trv", "dimensionless", "access", "global_constant"],
+          ["M_rg_puv", "dimensionless", "access", "global_constant"],
+          ["M_rg_miv", "dimensionless", "access", "global_constant"],
+          ["M_rg_aov", "dimensionless", "access", "global_constant"],
+          ["M_st_trv", "dimensionless", "access", "global_constant"],
+          ["M_st_puv", "dimensionless", "access", "global_constant"],
+          ["M_st_miv", "dimensionless", "access", "global_constant"],
+          ["M_st_aov", "dimensionless", "access", "global_constant"],
+          ["l_eff", "metre", "access", "global_constant"],
+          ["A_nn_trv", "m2", "access", "global_constant"],
+          ["A_nn_puv", "m2", "access", "global_constant"],
+          ["A_nn_miv", "m2", "access", "global_constant"],
+          ["A_nn_aov", "m2", "access", "global_constant"],
+          ["A_eff_trv", "m2", "access", "variable"],
+          ["A_eff_puv", "m2", "access", "variable"],
+          ["A_eff_miv", "m2", "access", "variable"],
+          ["A_eff_aov", "m2", "access", "variable"],
+          ["q_heart", "m3", "access", "variable"],
+          ["R_ASD", "Js_per_m6", "access", "global_constant"],
+          ["v_asd", "m3_per_s", "access", "variable"]
+        ]
+    },
+    {
         "vessel_type":"heart_nonstiff",
         "BC_type":"vp_wCont",
         "module_format":"cellml",
