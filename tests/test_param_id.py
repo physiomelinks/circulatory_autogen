@@ -32,6 +32,43 @@ def test_casadi_differentiability_assert_passes_for_core_ops_and_costs():
     )
 
 
+@pytest.mark.unit
+def test_operation_and_cost_dicts_are_backend_independent():
+    """#315: building a casadi-mode registry must not change the backend of a numpy-mode one.
+
+    The built-in operation/cost funcs dispatch through a module-level ``mb`` backend, and each
+    registry build used to rebind that global -- so with a ``casadi_python`` model (which needs a
+    casadi registry for AD *and* a numpy registry for the numeric cost path) the numpy funcs
+    silently used the casadi backend and ``mean`` (``ca.sum(x)/x.numel()``) crashed on numpy
+    operands. bind_backend makes each registry independent regardless of build order.
+    """
+    from param_id.differentiable import is_circulatory_differentiable
+    from parsers.PrimitiveParsers import scriptFunctionParser
+    ca = pytest.importorskip("casadi")
+
+    sfp = scriptFunctionParser()
+    numpy_ops = sfp.get_operation_funcs_dict("numpy")
+    casadi_ops = sfp.get_operation_funcs_dict("casadi")  # built second; must not corrupt numpy_ops
+
+    x = np.array([1.0, 2.0, 3.0, 4.0])
+    # numpy-mode reductions must operate on numpy arrays (the #315 crash was numel() on ndarray).
+    assert float(numpy_ops["mean"](x)) == pytest.approx(2.5)
+    assert float(numpy_ops["max_minus_min"](x)) == pytest.approx(3.0)
+    # casadi-mode reductions still take a casadi symbol and stay symbolic.
+    s = ca.SX.sym("s", 4)
+    assert casadi_ops["mean"](s).shape == (1, 1)
+    # bind_backend preserves the @differentiable / series_to_constant markers used by the AD path.
+    assert is_circulatory_differentiable(numpy_ops["mean"])
+    assert getattr(numpy_ops["mean"], "series_to_constant", False)
+
+    # cost dicts share the same mechanism.
+    numpy_costs = sfp.get_cost_funcs_dict("numpy")
+    sfp.get_cost_funcs_dict("casadi")  # built second
+    ones = np.ones_like(x)
+    cost = numpy_costs["gaussian_MLE"](x, x, ones, ones)  # output == desired -> 0, and finite
+    assert np.isfinite(float(cost))
+
+
 def test_mcmc_and_laplace_require_is_mle_cost():
     from param_id.differentiable import assert_mle_cost_for_bayesian
     from parsers.PrimitiveParsers import scriptFunctionParser
@@ -408,6 +445,64 @@ def test_param_id_3compartment_genetic_algorithm_myokit_fast(
     })
 
     _ensure_cellml_model_generated(config, mpi_comm)
+    run_param_id(config)
+
+    if rank == 0:
+        out_dir = os.path.join(temp_output_dir,
+                               'genetic_algorithm_3compartment_3compartment_obs_data')
+        best_cost = float(np.load(os.path.join(out_dir, 'best_cost.npy')))
+        assert np.isfinite(best_cost) and best_cost >= 0, \
+            f'expected a finite, non-negative best cost, got {best_cost}'
+    mpi_comm.Barrier()
+
+
+@pytest.mark.integration
+@pytest.mark.mpi
+def test_param_id_3compartment_casadi_genetic_algorithm_fast(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
+    """Regression for #315: a gradient-free method (genetic algorithm) on a ``casadi_python``
+    model whose obs_data uses a backend-dispatched reduction (``mean`` / ``max_minus_min`` in
+    3compartment_obs_data.json).
+
+    The numeric cost path feeds numpy operands to the operation funcs; before the fix these were
+    built in casadi mode for casadi_python, so ``mean`` (``ca.sum(x)/x.numel()``) raised
+    ``'numpy.ndarray' object has no attribute 'numel'`` and the run crashed. The numeric path now
+    uses the numpy-mode funcs, so the run completes with a finite, non-negative best cost.
+
+    Deliberately small (short times, DEBUG population, few calls) so it stays in the fast
+    (`-m "not slow"`) suite alongside the Myokit variant above.
+    """
+    rank = mpi_comm.Get_rank()
+
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': '3compartment',
+        'input_param_file': '3compartment_parameters.csv',
+        'model_type': 'casadi_python',
+        'solver': 'casadi_integrator',
+        'param_id_method': 'genetic_algorithm',
+        'do_ad': False,
+        'pre_time': 2,
+        'sim_time': 1,
+        'dt': 0.01,
+        'DEBUG': True,
+        'do_mcmc': False,
+        'plot_predictions': False,
+        'do_ia': False,
+        'solver_info': {'method': 'bdf'},
+        'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
+        'param_id_output_dir': temp_output_dir,
+        'generated_models_dir': temp_generated_models_dir,
+        # num_calls must exceed the DEBUG genetic-algorithm population (28 for these 4 params).
+        'debug_optimiser_options': {'num_calls_to_function': 40, 'max_patience': 500},
+    })
+
+    # Generate the CasADi Python model on rank 0 (the numpy/casadi split is what #315 exercises).
+    if rank == 0:
+        success = generate_with_new_architecture(False, config)
+        assert success, "CasADi Python model generation should succeed for 3compartment"
+    mpi_comm.Barrier()
+
     run_param_id(config)
 
     if rank == 0:

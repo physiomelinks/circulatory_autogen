@@ -8,7 +8,7 @@ if _opp_dir not in sys.path:
     sys.path.insert(0, _opp_dir)
 
 from differentiable import differentiable
-from math_backend import make_math_backend
+from math_backend import make_math_backend, bind_backend
 
 
 def series_to_constant(func):
@@ -78,7 +78,8 @@ def division(x1, x2):
 
 def register_core_operations(registry, backend):
     """
-    Bind ``mb`` to ``backend`` and register every operation callable defined in this module.
+    Register every operation callable defined in this module, each bound to ``backend`` (so
+    registries for different backends stay independent -- see math_backend.bind_backend, #315).
 
     Skips private names (``_`` prefix), ``series_to_constant``, and the dict builders.
     Imported callables are skipped via ``__module__`` checks.
@@ -102,7 +103,7 @@ def register_core_operations(registry, backend):
             continue
         if getattr(obj, "__module__", None) != mod:
             continue
-        registry[name] = obj
+        registry[name] = bind_backend(obj, backend)
 
 
 # Decorator/hook helper names an external operation-funcs file might define locally (mirroring

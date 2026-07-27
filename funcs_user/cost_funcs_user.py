@@ -1,7 +1,7 @@
 import numpy as np
 
 from param_id.differentiable import differentiable
-from param_id.math_backend import make_math_backend
+from param_id.math_backend import make_math_backend, bind_backend
 
 """
 These functions can be used as cost functions. Specify a name of one of these functions as the "cost_type" in obs_data.json to
@@ -127,7 +127,8 @@ def norm_additive(costs):
 ##
 
 def register_cost_funcs(registry, backend):
-    """Bind ``mb`` to ``backend`` and register all cost callables defined in this module."""
+    """Register all cost callables defined in this module, each bound to ``backend`` (so
+    registries for different backends stay independent -- see math_backend.bind_backend, #315)."""
     global mb
     mb = backend
     g = globals()
@@ -149,7 +150,7 @@ def register_cost_funcs(registry, backend):
             continue
         if getattr(obj, "__module__", None) != mod:
             continue
-        registry[name] = obj
+        registry[name] = bind_backend(obj, backend)
 
 
 # Decorator/hook helper names an external cost-funcs file might define locally; excluded so they

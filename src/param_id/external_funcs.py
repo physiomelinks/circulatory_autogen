@@ -12,6 +12,8 @@ import hashlib
 import importlib.util
 import os
 
+from param_id.math_backend import bind_backend
+
 
 def _load_module_from_path(path):
     """Import an arbitrary ``.py`` file as a module (module name derived from the absolute path,
@@ -53,5 +55,7 @@ def register_funcs_from_file(path, registry, backend, exclude=frozenset()):
             continue
         if getattr(obj, "__module__", None) != modname:
             continue
-        registry[name] = obj
+        # Bind each func to this backend so registries for different backends stay independent
+        # even though the funcs read the file's module-level ``mb`` (see bind_backend, #315).
+        registry[name] = bind_backend(obj, backend)
     return registry
