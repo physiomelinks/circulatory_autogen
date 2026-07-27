@@ -137,12 +137,26 @@ class ObsDataCreator:
         """
         Add a data item to the dictionary.
         entry: dictionary containing the data item
+
+        ``operation_kwargs`` (optional, default ``{}``) is a dict of keyword arguments passed to
+        the ``operation`` func, on top of the ``operands`` it receives positionally, i.e.
+        ``operation(*operands, **operation_kwargs)``. Keys must be keyword arguments of that func
+        (an unknown key raises), and ``series_output`` is reserved for circulatory_autogen. A
+        string value that matches the ``name_for_plotting`` of an earlier data item is replaced at
+        run time by that observable's computed value. See issue #304 and the
+        parameter-identification tutorial page.
         """
-        required_keys = ['variable', 'name_for_plotting', 'operands', 
+        required_keys = ['variable', 'name_for_plotting', 'operands',
                          'unit', 'value', 'std']
         required_series_keys = ['obs_dt']
-        optional_keys = ['name_for_plotting', 'operation', 'weight', 'std', 'experiment_idx', 'subexperiment_idx']
-                         
+        optional_keys = ['name_for_plotting', 'operation', 'operation_kwargs', 'weight', 'std',
+                         'experiment_idx', 'subexperiment_idx']
+
+        if 'operation_kwargs' in entry and not isinstance(entry['operation_kwargs'], dict):
+            raise ValueError(
+                f"'operation_kwargs' must be a dict of keyword arguments for the 'operation' "
+                f"func, got {type(entry['operation_kwargs']).__name__}.")
+
         if 'name_for_plotting' not in entry:
             entry['name_for_plotting'] = entry['variable']
         # check that name_for_plotting only has one _ in it and remove if not

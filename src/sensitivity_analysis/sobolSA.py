@@ -41,6 +41,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from parsers.PrimitiveParsers import scriptFunctionParser
+from param_id.operation_funcs import resolve_operation_kwargs, validate_operation_kwargs
 from mpi4py import MPI
 from parsers.PrimitiveParsers import CSVFileParser, ObsAndParamDataParser
 import csv
@@ -125,6 +126,8 @@ class sobol_SA():
             self.prediction_info = parsed_data["prediction_info"]
 
             self.obs_info = self.obs_and_param_parser.process_obs_info(gt_df=self.gt_df, output_dir=self.output_dir, dt=self.dt)
+            # Fail fast on a stale obs_data.json rather than part-way through the SA sweep (#304).
+            validate_operation_kwargs(self.obs_info, self.operation_funcs_dict)
             self.protocol_info = self.obs_and_param_parser.process_protocol_and_weights(
                 gt_df=self.gt_df,
                 protocol_info=self.protocol_info,
@@ -191,6 +194,7 @@ class sobol_SA():
         self.prediction_info = parsed_data["prediction_info"]
 
         self.obs_info = self.obs_and_param_parser.process_obs_info(gt_df=self.gt_df, output_dir=self.output_dir, dt=self.dt)
+        validate_operation_kwargs(self.obs_info, self.operation_funcs_dict)
         self.protocol_info = self.obs_and_param_parser.process_protocol_and_weights(
             gt_df=self.gt_df,
             protocol_info=self.protocol_info,
@@ -351,16 +355,16 @@ class sobol_SA():
                     operands_outputs = operands_outputs_dict.get((exp_idx, subexp_idx), None)
                     if operands_outputs is not None:
                         key_idxt = self.obs_info["names_for_plotting"][j]
-                        raw_kwargs = self.obs_info["operation_kwargs"][j]
-                        #every time check it and update to {} when not exist
-                        if isinstance(raw_kwargs, dict):
-                            kwargs = raw_kwargs.copy()
-                        else:
-                            kwargs = {}
-                        for k, v in list(kwargs.items()):
-                            if isinstance(v, str) and v in self.temp_results:
-                                kwargs[k] = self.temp_results[v]
-                        #also need to replace below sentence
+                        # Shared operation_kwargs contract (#304): same validation and
+                        # earlier-observable substitution as the param-id path.
+                        kwargs = resolve_operation_kwargs(
+                            self.obs_info["operation_kwargs"][j],
+                            func,
+                            operation_name=self.obs_info["operations"][j],
+                            data_item_name=key_idxt,
+                            temp_results=self.temp_results,
+                            num_operands=len(operands_outputs[j]),
+                        )
                         feature = func(*operands_outputs[j], **kwargs)
                         self.temp_results[key_idxt] = feature
                         if feature is None or (isinstance(feature, (float, int)) and np.isnan(feature)):
