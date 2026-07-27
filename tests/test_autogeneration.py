@@ -30,6 +30,7 @@ from scripts.script_generate_with_new_architecture import generate_with_new_arch
     ('physiological', 'physiological_parameters.csv', 'cellml_only', 'CVODE'),
     ('control_phys', 'control_phys_parameters.csv', 'cellml_only', 'CVODE'),
     ('control_parasymp', 'control_parasymp_parameters.csv', 'cellml_only', 'CVODE'),
+    ('control_phys_asd', 'control_phys_asd_parameters.csv', 'cellml_only', 'CVODE'),
 ])
 def test_generate_cellml_model_succeeds(file_prefix, input_param_file, model_type, solver, base_user_inputs, resources_dir, temp_generated_models_dir):
     """
