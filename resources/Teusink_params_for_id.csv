@@ -1,0 +1,5 @@
+vessel_name, param_name, min, max, name_for_plotting, prior
+v_GLK, v_max, 75.0, 680.0, Vmax_GLK, uniform
+v_PGI, v_max, 113.0, 1020.0, Vmax_PGI, uniform
+v_PYK, v_max, 360.0, 3270.0, Vmax_PYK, uniform
+v_GAPDH, v_max_f, 395.0, 3550.0, Vmax_GAPDH_f, uniform

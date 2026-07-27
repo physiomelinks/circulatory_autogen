@@ -12,4 +12,5 @@ BENCHMARK_CI = {
     'fitzhugh_nagumo': True,
     'three_compartment': True,
     'goodwin': True,
+    'teusink': True,
 }

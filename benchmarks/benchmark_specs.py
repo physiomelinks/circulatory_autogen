@@ -369,6 +369,23 @@ def _place_external_cellml(resources_dir, generated_models_dir, file_prefix):
                 os.path.join(dest_dir, f'{file_prefix}.cellml'))
 
 
+def _generate_casadi_from_external_cellml(resources_dir, generated_models_dir, file_prefix):
+    """Emit a casadi_python model from a committed external CellML, so the CasADi AD gradient can
+    be used on a model CA did not generate from CSV module arrays.
+
+    PythonGenerator consumes a CellML *file* (the CSV pipeline only exists to produce one), so an
+    external model works here -- provided it satisfies the libCellML Analyser, which is far
+    stricter than the non-strict parse the Myokit path uses. The vendored PMR files were sanitised
+    for exactly that (see resources/modifications.txt).
+    """
+    from generators.PythonGenerator import PythonGenerator
+    dest_dir = os.path.join(generated_models_dir, file_prefix)
+    _place_external_cellml(resources_dir, generated_models_dir, file_prefix)
+    PythonGenerator(os.path.join(dest_dir, f'{file_prefix}.cellml'), output_dir=dest_dir,
+                    module_name=file_prefix, human_readable=True,
+                    casadi_compat=True, aadc_compat=False).generate()
+
+
 def goodwin_config(base_config, resources_dir, output_dir, generated_models_dir, param_id_method):
     config = dict(base_config)
     config.update({
@@ -400,11 +417,14 @@ def run_goodwin(base_config, resources_dir, output_dir, generated_models_dir,
     """Run the Goodwin-oscillator optimiser comparison and return a BenchmarkResult.
 
     Gradient-free global searches (GA, CMA-ES) vs multi-start L-BFGS-B driven by finite
-    differences and by Myokit CVODES forward sensitivity (FSA). The CasADi/AADC AD backends do
-    not apply -- they need a CA-generated symbolic model, and this is an external CellML.
+    differences, Myokit CVODES forward sensitivity (FSA) and CasADi AD. CasADi AD works on this
+    *external* CellML because the vendored file was sanitised to satisfy the libCellML Analyser
+    (see resources/modifications.txt), which lets PythonGenerator emit a casadi_python model.
+    AADC is still not offered (its tape backend is a separate port).
     """
     rank = mpi_comm.Get_rank()
     models = os.path.join(generated_models_dir, 'goodwin')
+    casadi_models = os.path.join(generated_models_dir, 'goodwin_casadi')
 
     config = goodwin_config(base_config, resources_dir, output_dir, models, 'genetic_algorithm')
     config['optimiser_options'] = {
@@ -427,12 +447,24 @@ def run_goodwin(base_config, resources_dir, output_dir, generated_models_dir,
                         'rtol': 1e-9, 'atol': 1e-9},
         'generated_models_dir': models,
     }
-    extra = {'multi_start (FD)': multi_start_fd, 'multi_start (Myokit FSA)': multi_start_fsa}
-    methods = ['genetic_algorithm', 'CMA-ES', 'multi_start (FD)', 'multi_start (Myokit FSA)']
+    # 'bdf' (not cvodes/idas) because only the symbolic fixed-step methods are AD-suitable --
+    # the adjoint ones cannot produce a usable CasADi gradient (SOLVER_SCHEMA.ad_suitable_methods).
+    multi_start_casadi = {
+        'param_id_method': 'multi_start_sp_minimize',
+        'model_type': 'casadi_python', 'solver': 'casadi_integrator', 'do_ad': True,
+        'solver_info': {'method': 'bdf', 'max_step_size': 0.01, 'max_num_steps': 200000},
+        'generated_models_dir': casadi_models,
+    }
+    extra = {'multi_start (FD)': multi_start_fd, 'multi_start (Myokit FSA)': multi_start_fsa,
+             'multi_start (CasADi AD)': multi_start_casadi}
+    methods = ['genetic_algorithm', 'CMA-ES', 'multi_start (FD)', 'multi_start (Myokit FSA)',
+               'multi_start (CasADi AD)']
 
-    # Place the external PMR CellML where CA's loader expects it (no CSV generation step).
+    # Place the external PMR CellML where CA's loader expects it (no CSV generation step), and
+    # emit the casadi_python model beside it for the CasADi AD variant.
     if rank == 0:
         _place_external_cellml(resources_dir, models, 'Goodwin')
+        _generate_casadi_from_external_cellml(resources_dir, casadi_models, 'Goodwin')
     mpi_comm.Barrier()
 
     comparison = OptimiserComparison(config, methods=methods, num_calls=num_calls,
@@ -477,10 +509,165 @@ def assert_goodwin(result, mpi_comm):
     # The multi-start methods should reach the global basin, so they must not be beaten by the
     # gradient-free population methods (which get trapped in an out-of-phase local minimum).
     best_pop = min(costs['genetic_algorithm'], costs['CMA-ES'])
+    for method in ('multi_start (FD)', 'multi_start (Myokit FSA)', 'multi_start (CasADi AD)'):
+        assert costs[method] <= best_pop + 1e-9, (
+            f"{method} cost {costs[method]:.3e} is worse than the best population method "
+            f"{best_pop:.3e}")
+    mpi_comm.Barrier()
+
+
+# ----------------------------------------------------------------------------------------
+# Teusink 2000 yeast glycolysis -- the "realistic model, many parameters" case. An EXTERNAL
+# CellML model from the Physiome Model Repository (itself exported there from the BioModels
+# SBML), and by far the most complex benchmark: 41 components / 238 variables / 14 coupled
+# metabolite states / 90 constants, vs Goodwin's 2 states. Recovers four enzyme v_max values
+# from metabolite time courses -- the classic glycolysis calibration problem. CI-safe (Myokit).
+# ----------------------------------------------------------------------------------------
+
+# Ground-truth v_max values the synthetic obs data was generated at (the model's published PMR
+# values), in the order of Teusink_params_for_id.csv.
+TEUSINK_TRUE_PARAMS = np.array([226.452, 339.677, 1088.71, 1184.52])
+TEUSINK_PARAM_LABELS = ['Vmax_GLK', 'Vmax_PGI', 'Vmax_PYK', 'Vmax_GAPDH_f']
+
+
+def teusink_config(base_config, resources_dir, output_dir, generated_models_dir, param_id_method):
+    config = dict(base_config)
+    config.update({
+        'file_prefix': 'Teusink',
+        'input_param_file': 'Teusink_parameters.csv',  # unused: x0 comes from the CellML itself
+        'params_for_id_file': 'Teusink_params_for_id.csv',
+        'model_type': 'cellml_only',
+        'solver': 'CVODE_myokit',
+        'param_id_method': param_id_method,
+        'pre_time': 0.0,
+        'sim_time': 5.0,
+        'dt': 0.05,
+        'DEBUG': False,
+        'do_mcmc': False,
+        'plot_predictions': False,
+        'do_ia': False,
+        'cost_type': 'gaussian_MLE',
+        # Tight tolerances: the same settings the synthetic obs data was generated with, so the
+        # true parameters really are the global minimum. Glycolysis goes stiff for some parameter
+        # combinations in the search box, so allow plenty of internal steps -- the few that still
+        # fail return an infinite cost and the optimiser simply avoids that region.
+        'solver_info': {'MaximumStep': 0.005, 'MaximumNumberOfSteps': 200000,
+                        'rtol': 1e-9, 'atol': 1e-9},
+        'param_id_obs_path': os.path.join(resources_dir, 'Teusink_obs_data.json'),
+        'param_id_output_dir': output_dir,
+        'generated_models_dir': generated_models_dir,
+    })
+    return config
+
+
+def run_teusink(base_config, resources_dir, output_dir, generated_models_dir,
+                mpi_comm, num_calls=5000, num_starts=16):
+    """Run the Teusink yeast-glycolysis optimiser comparison and return a BenchmarkResult.
+
+    Gradient-free global searches (GA, CMA-ES) vs multi-start L-BFGS-B driven by finite
+    differences and by Myokit CVODES forward sensitivity (FSA).
+
+    CasADi AD is *not* offered for Teusink even though the file was sanitised so PythonGenerator
+    can emit a casadi_python model (see resources/modifications.txt and run_goodwin, where CasADi
+    AD does run). The reason is numerical: CasADi's AD-suitable integrators are fixed-step, and on
+    this stiff 14-state metabolic system 'bdf' fails to converge (FastNewton error) and
+    'semi_implicit_euler' produces NaN. Myokit's adaptive CVODES handles the stiffness, so FSA is
+    the working analytic gradient here. AADC (fixed-step tape) is not offered for the same reason.
+
+    Note on solver settings: MaximumStep is only a *cap* -- rtol/atol govern accuracy -- and
+    relaxing it 100x (0.005 -> 0.5) does not speed FSA up (37 -> 39 s over 4 starts, unchanged
+    cost). FSA's cost here is intrinsic: a 14-state + 14x4-sensitivity augmented system.
+    """
+    rank = mpi_comm.Get_rank()
+    models = os.path.join(generated_models_dir, 'teusink')
+
+    config = teusink_config(base_config, resources_dir, output_dir, models, 'genetic_algorithm')
+    config['optimiser_options'] = {
+        'cost_convergence': 1e-8,
+        'max_patience': 500,
+        'num_starts': num_starts, 'start_sampling': 'sobol', 'seed': 0,
+        # every start runs at every core count -- fair scaling comparison, core-independent cost.
+        'no_new_starts_on_convergence': False,
+        # A population sized for this evaluation budget (~180 generations at num_calls=5000)
+        # instead of the 744-member production default, which would only get ~7 generations here
+        # and leave the GA barely evolved. Configurable since the GA population landed in the
+        # schema; DEBUG stays off.
+        'num_elite': 4, 'num_survivors': 6, 'num_mutations_per_survivor': 2,
+        'num_cross_breed': 10,
+    }
+
+    multi_start_fd = {
+        'param_id_method': 'multi_start_sp_minimize',
+        'model_type': 'cellml_only', 'solver': 'CVODE_myokit', 'do_ad': False,
+        'generated_models_dir': models,
+    }
+    multi_start_fsa = {
+        'param_id_method': 'multi_start_sp_minimize',
+        'model_type': 'cellml_only', 'solver': 'CVODE_myokit', 'do_ad': True,
+        'generated_models_dir': models,
+    }
+    extra = {'multi_start (FD)': multi_start_fd, 'multi_start (Myokit FSA)': multi_start_fsa}
+    methods = ['genetic_algorithm', 'CMA-ES', 'multi_start (FD)', 'multi_start (Myokit FSA)']
+
+    # Place the external PMR CellML where CA's loader expects it (no CSV generation step).
+    if rank == 0:
+        _place_external_cellml(resources_dir, models, 'Teusink')
+    mpi_comm.Barrier()
+
+    comparison = OptimiserComparison(config, methods=methods, num_calls=num_calls,
+                                     extra_method_configs=extra)
+    for method in methods:
+        assert comparison.run_method(method) is not False, f'{method} optimisation should succeed'
+
+    result = BenchmarkResult(
+        name='teusink',
+        title='Teusink 2000 yeast glycolysis (external PMR CellML, 14 states, stiff regions)',
+        description=('The realistic, many-parameter case: recover four enzyme v_max values from '
+                     'metabolite time courses of the Teusink 2000 glycolysis model, taken from '
+                     'the Physiome Model Repository as external CellML (originally a BioModels '
+                     'SBML export). 14 coupled metabolite states and 90 constants, with stiff '
+                     'regions in the search box -- a much harder calibration than the small '
+                     'oscillator benchmarks.'),
+        env_note=(f'{mpi_comm.Get_size()} MPI rank(s); {num_calls} cost evaluations for the '
+                  f'population methods; {num_starts} starts for multi-start'),
+        true_params=list(TEUSINK_TRUE_PARAMS), param_labels=TEUSINK_PARAM_LABELS)
+    if rank == 0:
+        for method in methods:
+            params = np.asarray(comparison.results[method]['params'], dtype=float)
+            result.rows.append(BenchmarkRow(
+                method=method,
+                cost=float(comparison.results[method]['cost']),
+                time_s=float(comparison.runtimes[method]),
+                # relative error: the v_max values span 226..1185, so an absolute max would be
+                # dominated by the largest parameter.
+                param_err=float(np.max(np.abs(params - TEUSINK_TRUE_PARAMS)
+                                       / TEUSINK_TRUE_PARAMS)),
+                params=[float(p) for p in params]))
+    result._comparison = comparison
+    return result
+
+
+def assert_teusink(result, mpi_comm):
+    """Regression assertions for the Teusink benchmark (rank 0 only)."""
+    if mpi_comm.Get_rank() != 0:
+        mpi_comm.Barrier()
+        return
+    ran = [r for r in result.rows if r.skipped_reason is None]
+    costs = {r.method: r.cost for r in ran}
+    errs = {r.method: r.param_err for r in ran}
+    for r in ran:
+        assert np.isfinite(r.cost) and r.cost >= 0, \
+            f'{r.method} produced a non-finite or negative cost: {r.cost}'
+    # The gradient-based multi-starts should reach the true parameters on this smooth (if stiff)
+    # problem, so they must not be beaten by the gradient-free population methods.
+    best_pop = min(costs['genetic_algorithm'], costs['CMA-ES'])
     for method in ('multi_start (FD)', 'multi_start (Myokit FSA)'):
         assert costs[method] <= best_pop + 1e-9, (
             f"{method} cost {costs[method]:.3e} is worse than the best population method "
             f"{best_pop:.3e}")
+        assert errs[method] < 0.05, (
+            f"{method} did not recover the v_max values (max relative error "
+            f"{errs[method]:.3f})")
     mpi_comm.Barrier()
 
 
@@ -493,4 +680,5 @@ BENCHMARKS = {
     'three_compartment': {'run': run_three_compartment, 'assert': assert_three_compartment,
                           'ci': BENCHMARK_CI['three_compartment']},
     'goodwin': {'run': run_goodwin, 'assert': assert_goodwin, 'ci': BENCHMARK_CI['goodwin']},
+    'teusink': {'run': run_teusink, 'assert': assert_teusink, 'ci': BENCHMARK_CI['teusink']},
 }

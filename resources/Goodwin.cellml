@@ -83,7 +83,7 @@ s, 3, 425-438. (An abstract and a PDF version of the article are available to su
 	<variable name="Yi" public_interface="in" units="nanomolar"/>
 	<variable name="time" public_interface="in" units="second"/>
 	
-	<math xmlns="http://www.w3.org/1998/Math/MathML" id="1"> 
+	<math xmlns="http://www.w3.org/1998/Math/MathML" id="math_1"> 
       <apply>
         <eq/>
         <apply>
@@ -129,7 +129,7 @@ s, 3, 425-438. (An abstract and a PDF version of the article are available to su
 	<variable name="Xi" public_interface="in" units="nanomolar"/>
 	<variable name="time" public_interface="in" units="second"/>
 	
-	<math xmlns="http://www.w3.org/1998/Math/MathML" id="2"> 
+	<math xmlns="http://www.w3.org/1998/Math/MathML" id="math_2"> 
       <apply>
         <eq/>
         <apply>
