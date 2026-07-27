@@ -3664,6 +3664,178 @@ def test_multi_start_no_new_starts_on_convergence_false_runs_every_start(temp_ou
                 f'converged starts should be in the -1 well, got {cluster["params"]}'
 
 
+# ---------------------------------------------------------------------------
+# best_param_vals.npy must be kept current DURING a gradient run (issue #300), so a
+# calibration that is cancelled partway still leaves a recoverable best-so-far -- the way
+# GA / CMA-ES / Bayesian already behave. best_param_vals_history.csv is not a substitute:
+# it stores normalised values.
+# ---------------------------------------------------------------------------
+
+class _RunCancelled(Exception):
+    """Stands in for a user cancelling a calibration partway through."""
+
+
+class _CancellingTwoWellParamId(_TwoWellParamId):
+    """Two-well cost that aborts the run after a fixed number of cost evaluations."""
+
+    def __init__(self, cancel_after, **kwargs):
+        super().__init__(**kwargs)
+        self.cancel_after = cancel_after
+
+    def get_cost(self, p):
+        if self.num_cost_calls >= self.cancel_after:
+            raise _RunCancelled(f'cancelled after {self.num_cost_calls} cost evaluations')
+        return super().get_cost(p)
+
+
+def _read_history_rows(path):
+    """Rows of a plain numeric history csv (no header), as a list of float lists."""
+    rows = []
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            rows.append([float(v) for v in line.split(',')])
+    return rows
+
+
+def _read_keyed_stream_rows(path):
+    """Rows of a multi_start_*_history.csv (header + 'start_idx, iteration, values...')."""
+    rows = []
+    with open(path) as f:
+        next(f, None)  # header
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            vals = [float(v) for v in line.split(',')]
+            rows.append((int(vals[0]), int(vals[1]), vals[2:]))
+    return rows
+
+
+@pytest.mark.unit
+def test_sp_minimize_saves_best_params_before_the_run_finishes(temp_output_dir):
+    """A cancelled sp_minimize run must leave a best_param_vals.npy holding the best-so-far in
+    ACTUAL (unnormalised) parameter space, not just write one at the very end (issue #300)."""
+    from param_id.optimisers import SciPyMinimizeOptimiser
+
+    # The full descent from (1.9, 1.9) takes ~13 cost evaluations, so cancelling after 8 lands
+    # partway through, several accepted L-BFGS-B iterations in.
+    param_id_obj = _CancellingTwoWellParamId(cancel_after=8, param_init=(1.9, 1.9))
+    init_cost = _two_well_cost(param_id_obj.param_init)
+
+    opt = SciPyMinimizeOptimiser(
+        param_id_obj=param_id_obj, param_id_info=_two_well_param_id_info(),
+        param_norm_obj=_TwoWellNorm(), num_params=2, output_dir=temp_output_dir,
+        optimiser_options={'cost_convergence': 1e-12}, do_ad=True, DEBUG=False,
+    )
+
+    # The cancellation propagates as the RuntimeError run() raises on every rank for a rank-0
+    # failure -- i.e. run() never reaches its end-of-run _save_best_params().
+    with pytest.raises(RuntimeError):
+        opt.run()
+
+    if MPI.COMM_WORLD.Get_rank() != 0:
+        return
+
+    cost_path = os.path.join(temp_output_dir, 'best_cost.npy')
+    params_path = os.path.join(temp_output_dir, 'best_param_vals.npy')
+    assert os.path.isfile(cost_path), \
+        'a cancelled sp_minimize run left no best_cost.npy to continue from'
+    assert os.path.isfile(params_path), \
+        'a cancelled sp_minimize run left no best_param_vals.npy to continue from'
+
+    saved_cost = float(np.load(cost_path))
+    saved_params = np.load(params_path)
+    assert saved_params.shape == (2,)
+    assert np.all(np.isfinite(saved_params))
+
+    # The descent got somewhere before it was cancelled, and that progress was saved -- not
+    # merely the starting point.
+    assert saved_cost < init_cost, \
+        (f'saved best cost {saved_cost} should improve on the initial cost {init_cost}, '
+         f'i.e. the mid-run best must be kept up to date')
+
+    # It is up to date with the streamed history: the saved cost is the best cost recorded so
+    # far, and the saved parameters are that iterate in ACTUAL parameter space (the history csv
+    # holds normalised values, which is why it cannot stand in for this file).
+    cost_rows = _read_history_rows(os.path.join(temp_output_dir, 'best_cost_history.csv'))
+    param_rows = _read_history_rows(os.path.join(temp_output_dir,
+                                                 'best_param_vals_history.csv'))
+    assert len(cost_rows) == len(param_rows) >= 2
+    costs = [row[0] for row in cost_rows]
+    best_idx = int(np.argmin(costs))
+    assert saved_cost == pytest.approx(costs[best_idx], rel=1e-6, abs=1e-9)
+    expected_params = _TwoWellNorm().unnormalise(np.asarray(param_rows[best_idx]))
+    assert saved_params == pytest.approx(expected_params, rel=1e-4, abs=1e-6)
+    # and they really are unnormalised (the two differ for this best iterate)
+    assert not np.allclose(saved_params, np.asarray(param_rows[best_idx])), \
+        'best_param_vals.npy must hold actual parameter values, not normalised ones'
+
+    # the cost really is the same quantity the optimiser is minimising
+    assert saved_cost == pytest.approx(_two_well_cost(saved_params), rel=1e-6, abs=1e-9)
+
+
+@pytest.mark.unit
+def test_multi_start_sp_minimize_saves_best_params_before_the_run_finishes(temp_output_dir):
+    """A cancelled multi_start_sp_minimize run must likewise leave the running global best in
+    best_param_vals.npy / best_cost.npy (issue #300)."""
+    # Start 0 is the initial point and is always run by rank 0; on its own it takes ~18 cost
+    # evaluations, so cancelling after 8 always lands inside it, past its first accepted
+    # iteration -- whatever the rank count.
+    param_id_obj = _CancellingTwoWellParamId(cancel_after=8, param_init=(1.9, 1.9))
+    init_cost = _two_well_cost(param_id_obj.param_init)
+
+    opt = _make_multi_start_optimiser(
+        temp_output_dir, param_id_obj,
+        {'num_starts': 8, 'start_sampling': 'sobol', 'seed': 0, 'include_init_point': True,
+         'cost_convergence': 1e-12})
+
+    # Every rank runs starts, so every rank hits the cancellation and run() raises before its
+    # end-of-run _save_best_params().
+    with pytest.raises(RuntimeError):
+        opt.run()
+
+    if MPI.COMM_WORLD.Get_rank() != 0:
+        return
+
+    cost_path = os.path.join(temp_output_dir, 'best_cost.npy')
+    params_path = os.path.join(temp_output_dir, 'best_param_vals.npy')
+    assert os.path.isfile(cost_path), \
+        'a cancelled multi_start_sp_minimize run left no best_cost.npy to continue from'
+    assert os.path.isfile(params_path), \
+        'a cancelled multi_start_sp_minimize run left no best_param_vals.npy to continue from'
+
+    saved_cost = float(np.load(cost_path))
+    saved_params = np.load(params_path)
+    assert saved_params.shape == (2,)
+    assert np.all(np.isfinite(saved_params))
+
+    # start 0 is the initial point (include_init_point), and it is run by rank 0, so the saved
+    # best must have improved on it before the run was cancelled.
+    assert saved_cost < init_cost, \
+        (f'saved best cost {saved_cost} should improve on the initial cost {init_cost}, '
+         f'i.e. the running global best must be kept up to date')
+
+    # The saved pair matches an iterate that was actually streamed by this rank, in ACTUAL
+    # parameter space, and is the best of the ones rank 0 saw (only rank 0 writes the file).
+    cost_rows = _read_keyed_stream_rows(
+        os.path.join(temp_output_dir, 'multi_start_cost_history.csv'))
+    param_rows = _read_keyed_stream_rows(
+        os.path.join(temp_output_dir, 'multi_start_param_vals_history.csv'))
+    assert cost_rows and param_rows
+    match = [(s, it) for s, it, vals in cost_rows
+             if vals[0] == pytest.approx(saved_cost, rel=1e-6, abs=1e-9)]
+    assert match, \
+        f'saved best cost {saved_cost} is not one of the streamed per-start costs'
+    key = match[0]
+    streamed_params = [vals for s, it, vals in param_rows if (s, it) == key]
+    assert streamed_params
+    assert saved_params == pytest.approx(np.asarray(streamed_params[0]), rel=1e-4, abs=1e-6)
+    assert saved_cost == pytest.approx(_two_well_cost(saved_params), rel=1e-6, abs=1e-9)
+
+
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.mpi

@@ -839,6 +839,11 @@ class SciPyMinimizeOptimiser(Optimiser):
         comm = self.comm
         rank = self.rank
 
+        # Fresh running best (updated and saved incrementally by the callback below), so a
+        # re-run on the same object isn't gated by the previous run's best.
+        self.best_cost = np.inf
+        self.best_param_vals = None
+
         best_param_vals = np.empty(self.num_params, dtype=float)
         best_gradient_vals = np.empty(self.num_params, dtype=float)
         best_cost_array = np.empty(1, dtype=float)
@@ -954,10 +959,29 @@ class SciPyMinimizeOptimiser(Optimiser):
                         np.savetxt(file, np.asarray(grad_real, dtype=float).reshape(1, -1),
                                    fmt='%.9e', delimiter=', ')
 
+                def _update_running_best(cost_val, param_vals):
+                    # Keep best_cost.npy / best_param_vals.npy current *during* the run, the way
+                    # the population-based optimisers (GA, CMA-ES, Bayesian) do, so a run that is
+                    # cancelled partway still leaves a recoverable best-so-far (issue #300).
+                    # best_param_vals_history.csv is no substitute: it stores NORMALISED values.
+                    # param_vals is therefore the actual (unnormalised) parameter vector, and
+                    # cost_val comes from the same cost the minimiser is driving (min_cost_fun),
+                    # so it is directly comparable to the final res.fun recorded at the end.
+                    cost_val = float(cost_val)
+                    if not np.isfinite(cost_val) or cost_val >= self.best_cost:
+                        return
+                    self.best_cost = cost_val
+                    self.best_param_vals = np.asarray(param_vals, dtype=float).flatten()
+                    # rank-0-guarded inside; only rank 0 gets here anyway.
+                    self._save_best_params()
+
                 # Record the starting point so the progress curves begin at the
                 # pre-optimisation cost and gradient.
                 _append_history(init_cost, self.param_norm_obj.normalise(init_param_vals),
                                 init_gradient)
+                # ... and as the initial best-so-far, so even a run stopped before the first
+                # accepted iterate leaves a usable best_param_vals.npy.
+                _update_running_best(init_cost, init_param_vals)
 
                 step_counter = [0]
                 last_iterate = {"x_norm": None, "cost": None}
@@ -979,6 +1003,8 @@ class SciPyMinimizeOptimiser(Optimiser):
                     grad_real = _grad_real_at(x_norm)
                     # Live progress: one history row per accepted iteration.
                     _append_history(cost_val, x_norm, grad_real)
+                    # ... and keep the saved best-so-far (actual parameter values) current.
+                    _update_running_best(cost_val, param_vals)
                     if self.DEBUG:
                         print(f'[sp_minimize] step {step_counter[0]}: cost = {cost_val:.6e}')
                         for i, names in enumerate(self.param_id_info["param_names"]):
@@ -1336,6 +1362,31 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
         except OSError:
             pass
 
+    def _update_running_best(self, cost_val, x_norm):
+        """Update the running *global* best across all starts and persist it immediately.
+
+        Mirrors the incremental saves of the population-based optimisers (GA, CMA-ES, Bayesian)
+        so a multi-start run that is cancelled partway still leaves a recoverable
+        best_param_vals.npy / best_cost.npy (issue #300). The per-start streams are no
+        substitute for the cost/params pair, and best_param_vals_history.csv stores NORMALISED
+        values, so the actual (unnormalised) parameter vector is written here.
+
+        cost_val comes from the same cost_fun the descents minimise (so it is directly
+        comparable to the final best_result['final_cost'] recorded at the end of run()).
+        Only rank 0 writes -- _save_best_params is rank-0-guarded -- so a best found on another
+        rank is only persisted at the end of the run, when the results are gathered.
+        """
+        cost_val = float(cost_val)
+        if not np.isfinite(cost_val) or cost_val >= self.best_cost:
+            return
+        self.best_cost = cost_val
+        self.best_param_vals = np.asarray(
+            self.param_norm_obj.unnormalise(np.asarray(x_norm, dtype=float)),
+            dtype=float).flatten()
+        # No output dir configured at all (as for the live streams) -> nothing to save.
+        if self.output_dir is not None:
+            self._save_best_params()
+
     def _run_one_start(self, start_idx, x0_norm, cost_fun, gradient_func, bounds_norm):
         """Run a single bounded L-BFGS-B descent. Returns a result dict (never raises for a
         cost-converged early stop)."""
@@ -1366,6 +1417,9 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
         self._append_start_cost(start_idx, 0, init_cost)
         self._append_start_params(start_idx, 0, x0_norm)
         self._append_start_gradient(start_idx, 0, grad_real_at(x0_norm))
+        # The start point itself is a candidate for the running global best, so even a run
+        # cancelled before the first accepted iterate leaves a usable best_param_vals.npy.
+        self._update_running_best(init_cost, x0_norm)
 
         last_iterate = {"x_norm": None, "cost": None}
 
@@ -1379,6 +1433,8 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
             self._append_start_cost(start_idx, len(iterates) - 1, cost_val)
             self._append_start_params(start_idx, len(iterates) - 1, x_norm)
             self._append_start_gradient(start_idx, len(iterates) - 1, grad_real_at(x_norm))
+            # Keep the saved best-so-far (actual parameter values) current across all starts.
+            self._update_running_best(cost_val, x_norm)
             if self.DEBUG:
                 print(f'[multi_start_sp_minimize] rank {self.rank} start {start_idx}: '
                       f'cost = {cost_val:.6e}')
@@ -1419,6 +1475,11 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
         comm = self.comm
         rank = self.rank
         num_procs = self.num_procs
+
+        # Fresh running global best (updated and saved incrementally by _update_running_best as
+        # the starts run), so a re-run on the same object isn't gated by the previous run's best.
+        self.best_cost = np.inf
+        self.best_param_vals = None
 
         # Live per-start streams: cost (multi_start_cost_history.csv), parameter values
         # (multi_start_param_vals_history.csv) and gradient (multi_start_gradient_history.csv), one
