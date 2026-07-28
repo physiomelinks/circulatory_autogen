@@ -110,7 +110,10 @@ def test_solver_integrator_keys_derived_from_schema():
         assert _SOLVER_INTEGRATOR_KEYS[solver] == {f['name'] for f in fields}
     cvode = {'MaximumStep', 'MaximumNumberOfSteps', 'rtol', 'atol'}
     assert _SOLVER_INTEGRATOR_KEYS['CVODE_opencor'] == cvode
-    assert _SOLVER_INTEGRATOR_KEYS['CVODE_myokit'] == cvode
+    # CVODE_myokit is deliberately not in that family: myokit.Simulation exposes only
+    # set_max_step_size / set_min_step_size / set_tolerance, so myokit_helper never reads
+    # MaximumNumberOfSteps and advertising it would render a dead control downstream.
+    assert _SOLVER_INTEGRATOR_KEYS['CVODE_myokit'] == {'MaximumStep', 'rtol', 'atol'}
     assert _SOLVER_INTEGRATOR_KEYS['solve_ivp'] == {
         'rtol', 'atol', 'max_step', 'vectorized', 'dense_output', 'jac'}
     assert _SOLVER_INTEGRATOR_KEYS['casadi_integrator'] == {
@@ -131,9 +134,17 @@ def test_schema_settings_are_actually_read_by_the_code():
     it). Check the schema against the source instead.
 
     The search is deliberately repo-wide rather than per-solver-file, because a setting is not
-    always consumed by its own helper: CVODE_myokit's MaximumNumberOfSteps is read in
-    protocol_runner.py, not myokit_helper.py. PrimitiveParsers.py is excluded because that is
-    where the schema declares the names in the first place.
+    always consumed by its own helper. PrimitiveParsers.py is excluded because that is where the
+    schema declares the names in the first place.
+
+    KNOWN LIMITATION -- this check is per *setting*, not per *solver*, and a name that merely
+    passes through counts as "read". Both together let CVODE_myokit advertise
+    MaximumNumberOfSteps for a long time: the name appears in protocol_runner.py, but only to be
+    relayed into get_simulation_helper's solver_info, and myokit_helper drops it on the floor
+    (myokit.Simulation exposes only set_max_step_size / set_min_step_size / set_tolerance). This
+    docstring previously cited that relay as proof the setting was read, which is exactly the
+    reasoning to distrust. Tightening this to per-solver, consumption-aware checking is the real
+    fix; until then, a name appearing in the corpus is necessary but NOT sufficient.
     """
     src_dir = pathlib.Path(__file__).resolve().parent.parent / 'src'
     corpus = '\n'.join(
@@ -374,8 +385,23 @@ def test_cellml_solver_accepts_maximum_step_keys():
         'solver': 'CVODE_myokit',
         'method': 'CVODE',
         'MaximumStep': 0.001,
+    })
+    validate_solver_info('CVODE_opencor', {
+        'solver': 'CVODE_opencor',
+        'method': 'CVODE',
+        'MaximumStep': 0.001,
         'MaximumNumberOfSteps': 5000,
     })
+
+
+def test_myokit_rejects_maximum_number_of_steps_after_migration():
+    """It has no such knob, so a config that still carries it is migrated (with a
+    warning) rather than validated -- reaching validation means it was set anew."""
+    with pytest.raises(ValueError, match='MaximumNumberOfSteps'):
+        validate_solver_info('CVODE_myokit', {
+            'solver': 'CVODE_myokit',
+            'MaximumNumberOfSteps': 5000,
+        })
 
 
 def test_cpp_rk4_accepts_maximum_number_of_steps():
@@ -418,6 +444,70 @@ def test_migrate_legacy_solver_info_keys_for_casadi_integrator():
         'max_num_steps': 5000,
     }
     validate_solver_info('casadi_integrator', {'solver': 'casadi_integrator', **migrated})
+
+
+def test_migrate_drops_maximum_number_of_steps_for_myokit(capsys):
+    """myokit has no max-step-count knob, so the key is dropped rather than renamed --
+    but never in silence: a setting that stops taking effect must say so."""
+    migrated = migrate_legacy_solver_info_keys('CVODE_myokit', {
+        'MaximumStep': 0.0001,
+        'MaximumNumberOfSteps': 5000,
+        'rtol': 1e-8,
+    })
+    assert migrated == {'MaximumStep': 0.0001, 'rtol': 1e-8}
+    validate_solver_info('CVODE_myokit', {'solver': 'CVODE_myokit', **migrated})
+
+    warning = capsys.readouterr().out
+    assert 'WARNING' in warning
+    assert 'MaximumNumberOfSteps' in warning
+    assert 'CVODE_myokit' in warning
+    # Names what to use instead, since there is no direct replacement.
+    assert 'MaximumStep' in warning
+    assert 'rtol' in warning
+
+
+def test_migrate_is_silent_when_there_is_nothing_to_migrate(capsys):
+    """A config already using the right keys must not be nagged."""
+    migrate_legacy_solver_info_keys('CVODE_myokit', {'MaximumStep': 0.0001, 'atol': 1e-8})
+    assert capsys.readouterr().out == ''
+
+
+def test_migrate_names_the_replacement_key_when_renaming(capsys):
+    migrate_legacy_solver_info_keys('solve_ivp', {'MaximumStep': 0.0001})
+    out = capsys.readouterr().out
+    assert 'MaximumStep' in out and 'max_step' in out
+
+    migrate_legacy_solver_info_keys('casadi_integrator', {'MaximumNumberOfSteps': 500})
+    out = capsys.readouterr().out
+    assert 'MaximumNumberOfSteps' in out and 'max_num_steps' in out
+
+
+def test_an_explicit_new_key_wins_over_the_legacy_one(capsys):
+    """And the user is told which of the two took effect, rather than one being
+    dropped silently."""
+    migrated = migrate_legacy_solver_info_keys('casadi_integrator', {
+        'MaximumNumberOfSteps': 500,
+        'max_num_steps': 999,
+    })
+    assert migrated == {'max_num_steps': 999}
+    out = capsys.readouterr().out
+    assert 'max_num_steps' in out and 'was kept' in out
+
+
+def test_myokit_default_solver_info_needs_no_migration():
+    """CA's own cellml_only default must validate for myokit, not just opencor --
+    otherwise the default config would be rejected by its own validator."""
+    from parsers.PrimitiveParsers import _solver_info_default_for
+
+    defaults = _solver_info_default_for('cellml_only', 'CVODE_myokit')
+    assert 'MaximumNumberOfSteps' not in defaults
+    assert defaults['MaximumStep'] == 0.001
+    validate_solver_info('CVODE_myokit', defaults)
+
+    # opencor keeps it: it is a real setting there.
+    opencor = _solver_info_default_for('cellml_only', 'CVODE_opencor')
+    assert opencor['MaximumNumberOfSteps'] == 5000
+    validate_solver_info('CVODE_opencor', opencor)
 
 
 def test_parse_user_inputs_migrates_legacy_keys_for_python_model():

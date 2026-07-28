@@ -28,6 +28,21 @@ from solver_wrappers import get_simulation_helper
 from protocol_runners.protocol_executor import ProtocolExecutor
 
 
+def _solver_accepts(solver, key):
+    """Whether ``solver``'s backend honours the solver_info ``key``.
+
+    Imported lazily so this module keeps working if the parsers package is
+    unavailable; an unknown solver is assumed to accept the key, which preserves
+    the previous behaviour rather than silently dropping a setting.
+    """
+    try:
+        from parsers.PrimitiveParsers import solver_info_fields
+    except Exception:
+        return True
+    fields = solver_info_fields(solver)
+    return True if not fields else any(f['name'] == key for f in fields)
+
+
 class ProtocolRunner:
     """Standalone, user-facing runner for model protocols.
 
@@ -81,8 +96,15 @@ class ProtocolRunner:
         # Preserve all solver_info keys (e.g. rtol/atol/method) and only fill in
         # MaximumStep / MaximumNumberOfSteps defaults — previously the extra keys
         # were silently dropped, so tight tolerances passed by callers were ignored.
+        #
+        # The MaximumNumberOfSteps default is conditional: this relays solver_info
+        # to the backend rather than consuming it, so seeding it unconditionally
+        # put the key back for solvers whose helper ignores it (CVODE_myokit) --
+        # undoing migrate_legacy_solver_info_keys and re-creating a setting that
+        # looks live but does nothing.
         full_solver_info = dict(solver_info)
-        full_solver_info.setdefault('MaximumNumberOfSteps', self.MaximumNumberOfSteps)
+        if _solver_accepts(solver, 'MaximumNumberOfSteps'):
+            full_solver_info.setdefault('MaximumNumberOfSteps', self.MaximumNumberOfSteps)
         full_solver_info.setdefault('MaximumStep', self.MaximumStep)
         # sim_time=1.0 is a placeholder — overridden per protocol_info in run_protocols
         self.sim_helper = get_simulation_helper(
