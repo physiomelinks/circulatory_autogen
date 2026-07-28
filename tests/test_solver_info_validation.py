@@ -482,16 +482,46 @@ def test_migrate_names_the_replacement_key_when_renaming(capsys):
     assert 'MaximumNumberOfSteps' in out and 'max_num_steps' in out
 
 
-def test_an_explicit_new_key_wins_over_the_legacy_one(capsys):
-    """And the user is told which of the two took effect, rather than one being
-    dropped silently."""
-    migrated = migrate_legacy_solver_info_keys('casadi_integrator', {
-        'MaximumNumberOfSteps': 500,
-        'max_num_steps': 999,
+def test_setting_both_names_for_one_setting_is_an_error():
+    """Not a warning: preferring either value would hide the other from a user who
+    believes it is in effect, and nothing can tell which one they meant."""
+    with pytest.raises(ValueError) as exc:
+        migrate_legacy_solver_info_keys('casadi_integrator', {
+            'MaximumNumberOfSteps': 500,
+            'max_num_steps': 999,
+        })
+    msg = str(exc.value)
+    # Both names, both values, and which one to delete.
+    assert 'MaximumNumberOfSteps' in msg and 'max_num_steps' in msg
+    assert '500' in msg and '999' in msg
+    assert 'Remove' in msg
+
+    with pytest.raises(ValueError, match='MaximumStep'):
+        migrate_legacy_solver_info_keys('solve_ivp', {
+            'MaximumStep': 0.001,
+            'max_step': 0.002,
+        })
+
+
+def test_duplicate_names_error_even_when_the_values_agree():
+    """The config still says one thing twice; leaving it means the next edit to
+    either name silently does nothing."""
+    with pytest.raises(ValueError):
+        migrate_legacy_solver_info_keys('casadi_integrator', {
+            'MaximumNumberOfSteps': 500,
+            'max_num_steps': 500,
+        })
+
+
+def test_dt_solver_alongside_the_new_key_is_not_a_duplicate(capsys):
+    """dt_solver is a framework key used only as a *fallback* source, not another
+    spelling of max_step, so pairing the two is legitimate and silent."""
+    migrated = migrate_legacy_solver_info_keys('solve_ivp', {
+        'dt_solver': 0.01,
+        'max_step': 0.002,
     })
-    assert migrated == {'max_num_steps': 999}
-    out = capsys.readouterr().out
-    assert 'max_num_steps' in out and 'was kept' in out
+    assert migrated == {'dt_solver': 0.01, 'max_step': 0.002}
+    assert capsys.readouterr().out == ''
 
 
 def test_myokit_default_solver_info_needs_no_migration():

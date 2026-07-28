@@ -872,9 +872,15 @@ class YamlFileParser(object):
         
 
         if 'solver_info' in inp_data_dict:
-            inp_data_dict['solver_info'] = migrate_legacy_solver_info_keys(
-                solver_name, inp_data_dict['solver_info']
-            )
+            try:
+                inp_data_dict['solver_info'] = migrate_legacy_solver_info_keys(
+                    solver_name, inp_data_dict['solver_info']
+                )
+            except ValueError as exc:
+                # Same failure mode as validate_solver_info below: the config is
+                # wrong and no guess about which value was meant is safe.
+                print(exc)
+                exit()
 
         if 'solver_info' not in inp_data_dict.keys():
             inp_data_dict['solver_info'] = _solver_info_default_for(
@@ -1203,24 +1209,33 @@ _SOLVER_INTEGRATOR_KEYS = {
 }
 
 
-def _warn_renamed_solver_info_key(solver_name, old_key, new_key, renamed):
-    """Tell the user which key to use instead, and whether the value carried over.
+def _warn_renamed_solver_info_key(solver_name, old_key, new_key):
+    """Tell the user which key the value was moved to, and to rename it.
 
     Migration used to be silent, so a config could keep a key that had quietly
     stopped doing anything and nothing said which key had replaced it.
     """
-    if renamed:
-        print(
-            f'WARNING: solver_info key {old_key!r} is not used by solver '
-            f'{solver_name!r}; its value was applied to {new_key!r} instead. '
-            f'Rename it in your user_inputs to silence this.'
-        )
-    else:
-        print(
-            f'WARNING: solver_info key {old_key!r} is not used by solver '
-            f'{solver_name!r} and was ignored; use {new_key!r} instead. '
-            f'(Your {new_key!r} setting was kept.)'
-        )
+    print(
+        f'WARNING: solver_info key {old_key!r} is not used by solver '
+        f'{solver_name!r}; its value was applied to {new_key!r} instead. '
+        f'Rename it in your user_inputs to silence this.'
+    )
+
+
+def _raise_duplicate_solver_info_key(solver_name, old_key, new_key, solver_info):
+    """One setting, specified twice, under two names.
+
+    Not a warning: picking a winner would silently discard the other value, and
+    there is no way to tell which one the user meant -- if the two disagree, one
+    of them is what they think the run is using. Refuse and make them delete one.
+    """
+    raise ValueError(
+        f'solver_info sets both {old_key!r} ({solver_info[old_key]!r}) and '
+        f'{new_key!r} ({solver_info[new_key]!r}) for solver {solver_name!r}. '
+        f'These are the same setting: {old_key!r} is the legacy name for '
+        f'{new_key!r}, which is the one this solver uses. Remove {old_key!r} '
+        f'(keeping {new_key!r}) so there is one value, not two.'
+    )
 
 
 def _warn_dropped_solver_info_key(solver_name, key, reason):
@@ -1239,6 +1254,10 @@ def migrate_legacy_solver_info_keys(solver_name, solver_info):
     that there is none), so a setting can never stop taking effect silently.
     Migrating rather than rejecting keeps configs written for another backend --
     or for an older CA -- working.
+
+    Raises ValueError when a config sets both names for one setting: that is not
+    a stale key to migrate but a contradiction, and no choice between the two
+    values can be made on the user's behalf.
     """
     solver_info = dict(solver_info)
 
@@ -1246,14 +1265,15 @@ def migrate_legacy_solver_info_keys(solver_name, solver_info):
         """Move ``old_key`` onto ``new_key`` (unless already set), then drop it."""
         if old_key not in solver_info and fallback_key not in solver_info:
             return
+        if new_key in solver_info and old_key in solver_info:
+            # One setting under two names. Silently preferring either would hide
+            # the other value from a user who believes it is in effect.
+            _raise_duplicate_solver_info_key(solver_name, old_key, new_key, solver_info)
         if new_key not in solver_info:
             source = old_key if old_key in solver_info else fallback_key
             solver_info[new_key] = solver_info[source]
             if source == old_key:
-                _warn_renamed_solver_info_key(solver_name, old_key, new_key, True)
-        elif old_key in solver_info:
-            # An explicit new_key wins; say so rather than dropping in silence.
-            _warn_renamed_solver_info_key(solver_name, old_key, new_key, False)
+                _warn_renamed_solver_info_key(solver_name, old_key, new_key)
         solver_info.pop(old_key, None)
 
     if solver_name == 'solve_ivp':
