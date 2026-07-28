@@ -235,7 +235,27 @@ class SimulationHelper:
             vals.append(sub if len(sub) > 1 else sub[0])
         return vals
 
-    def set_param_vals(self, param_names, param_vals):
+    def set_param_vals(self, param_names, param_vals, change_states=True):
+        """Set parameter values, by default including any state initial values they drive.
+
+        ``change_states=False`` is for mid-protocol updates that must preserve the state the
+        previous sub-experiment evolved into; naming a state there is an error.
+        """
+        if not change_states:
+            offenders = []
+            for _n_or_l in param_names:
+                for _n in (_n_or_l if isinstance(_n_or_l, (list, tuple)) else [_n_or_l]):
+                    try:
+                        _kind, _ = self._resolve_name(_n)
+                    except Exception:
+                        continue
+                    if _kind == "state":
+                        offenders.append(str(_n))
+            if offenders:
+                raise ValueError(
+                    "set_param_vals(change_states=False) cannot set states directly, but was "
+                    f"given: {', '.join(offenders)}. change_states=False exists for mid-protocol "
+                    "updates that must preserve the evolved state.")
         for idx, name_or_list in enumerate(param_names):
             vals = param_vals[idx]
             if not isinstance(name_or_list, (list, tuple)):
@@ -261,7 +281,7 @@ class SimulationHelper:
                     self.variables[self._var_idx_to_const_pos(idx_res)] = val
                     var_name = self.var_idx_to_name.get(idx_res, "")
                     var_part = var_name.split("/")[-1] if "/" in var_name else var_name
-                    if var_part.endswith("_init"):
+                    if change_states and var_part.endswith("_init"):
                         state_var = var_part[:-5]
                         state_kind, state_idx = self._resolve_name(state_var)
                         if state_kind == "state":

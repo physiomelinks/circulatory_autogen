@@ -294,7 +294,7 @@ class SimulationHelper:
             vals.append(sub if len(sub) > 1 else sub[0])
         return vals
 
-    def set_param_vals(self, param_names, param_vals):
+    def set_param_vals(self, param_names, param_vals, change_states=True):
         """Set the values of the named parameters.
 
         Args:
@@ -302,6 +302,21 @@ class SimulationHelper:
                 names sharing a value).
             param_vals: Matching list of values to assign.
         """
+        if not change_states:
+            offenders = []
+            for _n_or_l in param_names:
+                for _n in (_n_or_l if isinstance(_n_or_l, (list, tuple)) else [_n_or_l]):
+                    try:
+                        _kind, _ = self._resolve_name(_n)
+                    except Exception:
+                        continue
+                    if _kind == "state":
+                        offenders.append(str(_n))
+            if offenders:
+                raise ValueError(
+                    "set_param_vals(change_states=False) cannot set states directly, but was "
+                    f"given: {', '.join(offenders)}. change_states=False exists for mid-protocol "
+                    "updates that must preserve the evolved state.")
         for idx, name_or_list in enumerate(param_names):
             vals = param_vals[idx]
 
@@ -340,7 +355,7 @@ class SimulationHelper:
                     # keep the corresponding state/default-init synchronized.
                     # Use just the variable part (after '/') for the _init lookup.
                     var_part = resolved_name.split("/")[-1] if "/" in resolved_name else resolved_name
-                    if var_part.endswith("_init"):
+                    if change_states and var_part.endswith("_init"):
                         state_var = var_part[:-5]
                         # Try component/state_var first, then bare state_var
                         state_idx = self.state_name_to_idx.get(state_var)

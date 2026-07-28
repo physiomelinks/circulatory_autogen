@@ -1648,3 +1648,66 @@ def test_van_der_pol_stiff_semi_implicit_euler_convergence(
     assert errors[0] > errors[1] > errors[2], f"not converging with dt: {errors}"
     # And the finest dt is well-converged (so the scheme is correct, just dt-sensitive).
     assert errors[-1] < 2.0, f"finest-dt error {errors[-1]:.3f}% too high"
+
+
+@pytest.mark.integration
+@pytest.mark.solver
+def test_set_param_vals_changes_state_init_without_explicit_reset(generated_cellml_model_factory):
+    """set_param_vals(change_states=True) must move a state-init parameter's state on its own.
+
+    Before change_states existed, a Myokit Simulation kept the state/default_state arrays it was
+    built with: set_constant updated the *model* (so the symbolic initial value q_lv -> q_lv_init
+    re-evaluated) but nothing pushed that into the simulation, and reset() restored the stale
+    default_state. Only reset_states() closed the gap, so `set_param_vals(); run()` -- the
+    documented programmatic API -- silently simulated the old initial condition.
+    """
+    model_path = generated_cellml_model_factory(
+        "3compartment", "3compartment_parameters.csv", solver="CVODE_myokit")
+    helper = get_simulation_helper(
+        model_path=model_path, model_type="cellml_only", solver="CVODE_myokit",
+        dt=0.01, sim_time=0.1, pre_time=0.0,
+        solver_info={"MaximumStep": 0.001, "MaximumNumberOfSteps": 5000})
+    q_name = _find_state_series_name(helper, "q_lv")
+
+    # NOTE: deliberately no reset_states() call -- that is the whole point of this test.
+    helper.set_param_vals(["global/q_lv_init"], [2e-4])
+    q0_lo = _run_and_get_initial_state(helper, q_name)
+    helper.set_param_vals(["global/q_lv_init"], [8e-4])
+    q0_hi = _run_and_get_initial_state(helper, q_name)
+
+    assert np.isclose(q0_lo, 2e-4, rtol=0.0, atol=1e-10), f"expected q_lv(0)=2e-4, got {q0_lo}"
+    assert np.isclose(q0_hi, 8e-4, rtol=0.0, atol=1e-10), f"expected q_lv(0)=8e-4, got {q0_hi}"
+    # the helper's bookkeeping and the simulation must agree, not silently diverge
+    idx = helper.state_index[_resolve_state_qname(helper, "q_lv")]
+    assert np.isclose(helper.default_states[idx], 8e-4, rtol=0.0, atol=1e-10)
+    assert np.isclose(helper.simulation.default_state()[idx], 8e-4, rtol=0.0, atol=1e-10)
+
+
+@pytest.mark.integration
+@pytest.mark.solver
+def test_set_param_vals_change_states_false_rejects_states(generated_cellml_model_factory):
+    """change_states=False promises not to touch the state vector, so naming a state must raise.
+
+    Mid-protocol updates rely on that promise to preserve sub-experiment continuity; silently
+    skipping the write (or applying it anyway) would both be worse than failing loudly.
+    """
+    model_path = generated_cellml_model_factory(
+        "3compartment", "3compartment_parameters.csv", solver="CVODE_myokit")
+    helper = get_simulation_helper(
+        model_path=model_path, model_type="cellml_only", solver="CVODE_myokit",
+        dt=0.01, sim_time=0.1, pre_time=0.0,
+        solver_info={"MaximumStep": 0.001, "MaximumNumberOfSteps": 5000})
+
+    state_name = _resolve_state_qname(helper, "q_lv")
+    with pytest.raises(ValueError, match="cannot set states directly"):
+        helper.set_param_vals([state_name], [3e-4], change_states=False)
+
+    # a plain constant is still settable with change_states=False
+    helper.set_param_vals(["global/q_lv_init"], [3e-4], change_states=False)
+
+
+def _resolve_state_qname(helper, basename):
+    for qname in helper.state_index:
+        if qname.endswith(f".{basename}") or qname == basename:
+            return qname
+    raise AssertionError(f"state '{basename}' not found in {list(helper.state_index)[:10]}")

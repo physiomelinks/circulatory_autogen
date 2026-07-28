@@ -207,8 +207,31 @@ class SimulationHelper():
 
         return param_init
 
-    def set_param_vals(self, param_names, param_vals):
-            
+    def set_param_vals(self, param_names, param_vals, change_states=True):
+        """Set parameter values, by default including any state initial values they drive.
+
+        ``change_states=False`` is for mid-protocol updates that must preserve the state the
+        previous sub-experiment evolved into; naming a state there is an error (see the Myokit
+        backend for the full rationale).
+        """
+        if not change_states:
+            offenders = []
+            for param_name_or_list in param_names:
+                names = (param_name_or_list if isinstance(param_name_or_list, list)
+                         else [param_name_or_list])
+                for param_name in names:
+                    try:
+                        kind, _ = self._resolve_name(param_name)
+                    except Exception:
+                        continue
+                    if kind == "state":
+                        offenders.append(param_name)
+            if offenders:
+                raise ValueError(
+                    "set_param_vals(change_states=False) cannot set states directly, but was "
+                    f"given: {', '.join(offenders)}. change_states=False exists for mid-protocol "
+                    "updates that must preserve the evolved state.")
+
         # ensure param_vals stores state values first, then constant values
         for JJ, param_name_or_list in enumerate(param_names):
             if type(param_vals[JJ]) == str:
@@ -226,10 +249,35 @@ class SimulationHelper():
                     self.data.states()[resolved] = param_vals[JJ]
                 elif kind == "const":
                     self.data.constants()[resolved] = param_vals[JJ]
+                    # A constant following the "<state>_init" convention initialises a state;
+                    # keep that state in step so setting it actually moves the trajectory.
+                    if change_states:
+                        self._sync_state_for_init_const(param_name, param_vals[JJ])
                 else:
                     raise ValueError(
                         f"parameter name {param_name} not found in OpenCOR states/constants"
                     )
+
+    def _sync_state_for_init_const(self, param_name, val):
+        """If ``param_name`` is a ``<state>_init`` constant, write ``val`` to that state too.
+
+        Mirrors the python/CasADi/AADC backends, which already do this. Silently does nothing
+        when the name does not follow the convention or the state cannot be resolved -- the
+        constant has still been set either way.
+        """
+        var_part = param_name.split("/")[-1] if "/" in param_name else param_name
+        if not var_part.endswith("_init"):
+            return
+        state_var = var_part[:-len("_init")]
+        for candidate in (state_var, param_name.rsplit("/", 1)[0] + "/" + state_var
+                          if "/" in param_name else state_var):
+            try:
+                kind, resolved = self._resolve_name(candidate)
+            except Exception:
+                continue
+            if kind == "state":
+                self.data.states()[resolved] = val
+                return
 
     def modify_params_and_run_and_get_results(self, param_names, mod_factors, obs_names, absolute=False):
 
