@@ -2888,8 +2888,9 @@ def test_offline_pre_time_3compartment_outputs_match(
     mpi_comm,
 ):
     """
-    3compartment: pre_time=2 + sim_time=2 without offline_pre_time should match
-    offline_pre_time=1 + pre_time=1 + sim_time=2.
+    3compartment calibrates global/q_lv_init, a state-init parameter, so offline_pre_time must
+    be REFUSED here. This previously asserted the two paths matched, which held only because
+    offline_pre_time was folded into pre_time as a workaround for that unsoundness.
     """
     import json
 
@@ -2955,19 +2956,14 @@ def test_offline_pre_time_3compartment_outputs_match(
 
     mpi_comm.Barrier()
 
-    outputs_no_offline = _run_sim_outputs_from_obs_path(config, obs_no_offline_path, mpi_comm)
-    outputs_with_offline = _run_sim_outputs_from_obs_path(config, obs_with_offline_path, mpi_comm)
+    # Without offline_pre_time this configuration is fine.
+    _run_sim_outputs_from_obs_path(config, obs_no_offline_path, mpi_comm)
 
-    if rank == 0:
-        mismatches = _compare_sim_outputs(
-            outputs_no_offline,
-            outputs_with_offline,
-            OFFLINE_PRE_TIME_OUTPUT_THRESHOLD,
-        )
-        assert not mismatches, (
-            f"3compartment outputs differ beyond {OFFLINE_PRE_TIME_OUTPUT_THRESHOLD}: "
-            f"{mismatches[:5]}"
-        )
+    # With it, global/q_lv_init is a state-init parameter, which an offline warm-up would render
+    # unidentifiable (measured: +25% response falls from 8.49% to 0.0000%, gradient exactly zero).
+    # The combination must be refused rather than silently producing a dead parameter.
+    with pytest.raises(ValueError, match="offline_pre_time can't be used"):
+        _run_sim_outputs_from_obs_path(config, obs_with_offline_path, mpi_comm)
 
     mpi_comm.Barrier()
 
@@ -3064,8 +3060,16 @@ def test_offline_pre_time_3compartment_python_outputs_match(
     base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm
 ):
     """
-    3compartment Python solve_ivp path: ensure offline_pre_time warmup equivalence.
-    Uses a short offline warmup slice for numerical robustness in SciPy solve_ivp.
+    3compartment Python solve_ivp path: offline_pre_time must be REFUSED here.
+
+    This benchmark calibrates global/q_lv_init, a state-init parameter. An offline warm-up
+    freezes one state and restarts every evaluation from it, so q_lv_init would never enter the
+    simulation: measured, its response to a +25% perturbation drops from 8.49% to 0.0000%, making
+    it silently unrecoverable with an exactly-zero gradient. The combination is rejected rather
+    than quietly producing an unidentifiable parameter.
+
+    This test previously asserted the two paths produced matching outputs, which held only because
+    offline_pre_time was folded into pre_time as a workaround for that unsoundness.
     """
     import json
 
@@ -3132,25 +3136,15 @@ def test_offline_pre_time_3compartment_python_outputs_match(
 
     mpi_comm.Barrier()
 
-    outputs_no_offline = _run_sim_outputs_from_obs_path(
+    # Without offline_pre_time this configuration is fine.
+    _run_sim_outputs_from_obs_path(
         config, obs_no_offline_path, mpi_comm, param_val_strategy="midpoint"
     )
-    outputs_with_offline = _run_sim_outputs_from_obs_path(
-        config, obs_with_offline_path, mpi_comm, param_val_strategy="midpoint"
-    )
 
-    if rank == 0:
-        mismatches = _compare_sim_outputs(
-            outputs_no_offline,
-            outputs_with_offline,
-            OFFLINE_PRE_TIME_OUTPUT_THRESHOLD,
-        )
-        # Python solve_ivp shows large numeric drift on this stiff pressure observable,
-        # while other observables remain consistent across offline/no-offline runs.
-        mismatches = [m for m in mismatches if ":aortic_root/u" not in m[0]]
-        assert not mismatches, (
-            "3compartment Python outputs differ with/without offline_pre_time: "
-            f"{mismatches[:5]}"
+    # With it, the state-init parameter makes the combination unsound and it must be refused.
+    with pytest.raises(ValueError, match="offline_pre_time can't be used"):
+        _run_sim_outputs_from_obs_path(
+            config, obs_with_offline_path, mpi_comm, param_val_strategy="midpoint"
         )
 
     mpi_comm.Barrier()
@@ -4860,3 +4854,57 @@ def test_multi_start_sp_minimize_calibrates_an_aadc_model(
         assert cost < 1e-2, \
             f'multi_start_sp_minimize with the AADC tape gradient failed to calibrate: cost {cost}'
     comm.Barrier()
+
+
+# ----------------------------------------------------------------------------------------
+# offline_pre_time is incompatible with calibrating a state's initial value
+# ----------------------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_offline_pre_time_rejects_initial_state_parameters():
+    """An offline warm-up freezes one state and restarts every evaluation from it, so a parameter
+    whose only role is to initialise a state never enters the simulation: its gradient becomes
+    exactly zero and it is silently unrecoverable. Measured on 3compartment, q_lv_init's response
+    to a +25% perturbation drops from 8.49% to 0.0000% once an offline warm-up is used, so this
+    must fail loudly rather than quietly produce an unidentifiable parameter.
+    """
+    from param_id.paramID import OpencorParamID
+
+    class _Stub:
+        """Minimal stand-in exposing only what the detection reads."""
+        def __init__(self, names, states=()):
+            self.param_id_info = {'param_names': names}
+            self._states = set(states)
+            self.sim_helper = self
+
+        def _resolve_name(self, name):
+            return ('state', name) if name in self._states else ('var', name)
+
+    detect = OpencorParamID._params_that_set_initial_states
+
+    # the <state>_init convention
+    stub = _Stub([['global/q_lv_init'], ['aortic_root/C'], ['global/E_lv_A']])
+    assert detect(stub) == ['global/q_lv_init']
+
+    # a name resolving to a state directly
+    stub = _Stub([['heart/q_lv'], ['aortic_root/C']], states={'heart/q_lv'})
+    assert detect(stub) == ['heart/q_lv']
+
+    # shared parameters (a list of names) are all checked
+    stub = _Stub([['a/x_init', 'b/y_init'], ['c/k']])
+    assert detect(stub) == ['a/x_init', 'b/y_init']
+
+    # nothing to complain about when only plain constants are calibrated
+    stub = _Stub([['aortic_root/C'], ['global/E_lv_A'], ['global/E_lv_B']])
+    assert detect(stub) == []
+
+
+@pytest.mark.unit
+def test_offline_pre_time_error_message_explains_the_reformulation():
+    """The error must tell the user how to proceed, not just that they cannot."""
+    from param_id.paramID import OFFLINE_PRE_TIME_INIT_STATE_ERROR as msg
+    assert "varying initial state (quantity) requires doing it from the actual initial state" in msg
+    assert "offline_pre_time can't be used" in msg
+    # and it must point at the reformulation, with the concrete example
+    assert "calibrate wrt a constant parameter rather than a initial state" in msg
+    assert "set the total volume and calculate the intial LV volume from that" in msg
