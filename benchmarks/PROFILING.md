@@ -13,6 +13,10 @@ python benchmarks/profile_benchmark.py --root /path/to/old/worktree --tag old \
     --benchmark three_compartment --num-calls 744
 ```
 
+Times in the tables are **CPU time** by default (`time.process_time`), so unrelated load on the
+machine does not inflate them; `--wall-clock` restores wall-clock. The summary header reports both
+totals either way.
+
 `--root` points the import path at an arbitrary source tree, so two commits can be profiled by the
 same code rather than by two hand-written scripts. Run it at a **single MPI rank**: with several
 ranks, rank 0's profile is dominated by time spent waiting on the others and the real hot path is
@@ -25,6 +29,11 @@ Wall-clock on a developer laptop cannot resolve sub-2x differences. Measuring th
 twice at 8 ranks gave 87.5 s and 186.3 s — a **2.1x spread on identical code**. A heterogeneous CPU
 (e.g. the i7-12700H's 6 performance + 8 efficiency cores) is a plausible cause: which physical cores
 the ranks land on varies per launch, and every MPI barrier runs at the speed of the slowest rank.
+
+CPU time helps but does not solve this. It excludes time the process spends descheduled while
+other work runs, which removes contention noise -- but it does **not** normalise for core speed
+(the same work on a slower efficiency core costs *more* CPU-seconds), and under MPI it would count
+busy-wait spinning at barriers, which is a further reason this harness profiles a single rank.
 
 cProfile **call counts are deterministic**. They are unaffected by core placement, thermal state or
 scheduling, so they answer "does this commit do more work?" at n=1, which no amount of wall-clock

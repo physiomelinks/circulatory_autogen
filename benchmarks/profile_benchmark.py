@@ -1,4 +1,4 @@
-"""Profile a benchmark's calibration to find where the wall-clock actually goes.
+"""Profile a benchmark's calibration to find where the time actually goes.
 
 Runs one optimiser leg of one benchmark under ``cProfile`` and writes both a ``.prof`` file (for
 ``snakeviz`` / ``pstats``) and a plain-text summary. Two uses:
@@ -12,6 +12,11 @@ Runs one optimiser leg of one benchmark under ``cProfile`` and writes both a ``.
 
 * **Speedup hunting** -- read the cumulative-time table to see which layer (integrator, observable
   extraction, cost assembly, MPI) dominates a calibration.
+
+Times are **CPU time** by default (``time.process_time``), so unrelated load on the machine
+does not inflate them; pass ``--wall-clock`` for the old behaviour. CPU time does not normalise
+for core speed, so on a heterogeneous CPU it is still perturbed -- for questions that must be
+immune to that, compare call counts (see PROFILING.md).
 
 Deliberately defaults to ``--num-calls`` far below a real benchmark budget: a profile only needs
 enough cost evaluations for the hot path to dominate the fixed setup cost, and cProfile adds
@@ -94,13 +99,15 @@ def build_comparison(root, benchmark, method, num_calls, work_dir, comm):
     return OptimiserComparison(config, methods=[method], num_calls=num_calls)
 
 
-def summarise(profiler, out_prefix, tag, wall, meta, top=40):
+def summarise(profiler, out_prefix, tag, wall, cpu, meta, top=40, unit="CPU"):
     """Write ``<prefix>.prof`` and ``<prefix>.txt``; return the text summary."""
     profiler.dump_stats(out_prefix + ".prof")
 
     buf = io.StringIO()
     stats = pstats.Stats(profiler, stream=buf)
-    header = [f"# profile tag={tag}", f"# {meta}", f"# total wall: {wall:.1f}s", ""]
+    header = [f"# profile tag={tag}", f"# {meta}",
+              f"# table times are {unit} time",
+              f"# total wall: {wall:.1f}s   total CPU: {cpu:.1f}s", ""]
 
     buf.write("\n".join(header))
     buf.write(f"\n=== top {top} by CUMULATIVE time ===\n")
@@ -133,6 +140,9 @@ def main(argv=None):
     parser.add_argument("--work-dir", default=None,
                         help="scratch dir for the generated model and param-id output")
     parser.add_argument("--top", type=int, default=40, help="rows per table (default: %(default)s)")
+    parser.add_argument("--wall-clock", action="store_true",
+                        help="measure wall-clock instead of CPU time (default is CPU time, which "
+                             "is not inflated by unrelated load on the machine)")
     args = parser.parse_args(argv)
 
     root = os.path.abspath(args.root or os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -154,12 +164,21 @@ def main(argv=None):
     comparison = build_comparison(root, args.benchmark, args.method, args.num_calls,
                                   work_dir, comm)
 
-    profiler = cProfile.Profile()
-    t0 = time.time()
+    # CPU time by default: time.process_time counts only cycles this process was actually ON a
+    # CPU, so unrelated load on the machine no longer inflates the numbers. It does NOT normalise
+    # for core speed -- the same work on a slower core costs more CPU-seconds, so a heterogeneous
+    # CPU still perturbs it -- and under MPI it would count busy-wait spinning at barriers, which
+    # is why this harness profiles a single rank. For questions that must be immune to all of
+    # that, compare call counts (see PROFILING.md).
+    if args.wall_clock:
+        profiler = cProfile.Profile()
+    else:
+        profiler = cProfile.Profile(timer=time.process_time_ns, timeunit=1e-9)
+    t0, c0 = time.time(), time.process_time()
     profiler.enable()
     comparison.run_method(args.method)
     profiler.disable()
-    wall = time.time() - t0
+    wall, cpu = time.time() - t0, time.process_time() - c0
 
     if rank != 0:
         return 0
@@ -169,9 +188,11 @@ def main(argv=None):
             f"num_calls={args.num_calls} ranks={1 if comm is None else comm.Get_size()} "
             f"cost={cost}")
     prefix = os.path.join(out_dir, f"{tag}_{args.benchmark}_{args.method.replace(' ', '_')}")
-    text = summarise(profiler, prefix, tag, wall, meta, top=args.top)
+    unit = "wall-clock" if args.wall_clock else "CPU"
+    text = summarise(profiler, prefix, tag, wall, cpu, meta, top=args.top, unit=unit)
 
-    print(f"PROFILE_DONE tag={tag} wall={wall:.1f}s cost={cost} out={prefix}.txt")
+    print(f"PROFILE_DONE tag={tag} wall={wall:.1f}s cpu={cpu:.1f}s cost={cost} "
+          f"out={prefix}.txt")
     # Echo just the cumulative table so a driver script can capture it from stdout.
     print(text.split("=== top")[1][:4000] if "=== top" in text else text[:4000])
     return 0
