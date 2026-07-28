@@ -27,15 +27,34 @@ integration itself; items 3-4 are the worthwhile Python-side wins; item 5 is the
 evaluations in a full GA run integrates 22 s of model time, of which 20 s is unlogged warmup
 discarded before the observables are computed.
 
-CA already has the mechanism for this: `offline_pre_time` reaches a generic steady state once and
-reuses it (`run_offline_pre_and_set_default_state`; see the obs_data docs). It can only absorb the
-*parameter-independent* part of the settling — the calibrated parameters here (`q_lv_init`,
-`aortic_root/C`, `E_lv_A`, `E_lv_B`) all move the steady state, so some per-evaluation warmup
-remains. But even partial coverage attacks the dominant 91%.
+**`offline_pre_time` does not currently help.** It is documented as an offline warmup reused across
+evaluations, and the backend primitive works (`run_offline_pre_and_set_default_state`, now covered
+by tests), but `paramID.py` deliberately **folds it into `pre_time`** rather than running it once:
+freezing one offline state made every evaluation start from the steady state of the *initial*
+parameter guess, biasing the cost surface, and silently dropped the d(steady state)/d(p) term from
+the gradient — invisible to AD-vs-FD checks, since both perturb the same frozen state. Reinstating
+a correct offline optimisation is issue #269. Until that lands, setting `offline_pre_time: X`
+during calibration *adds* X to `pre_time` and makes every evaluation **slower**.
 
-Worth measuring: how much warmup is genuinely parameter-dependent. If the model settles in, say,
-5 s from a generic steady state rather than 20 s from the CSV initial conditions, that alone is a
-~3x cut to the whole benchmark.
+**How much warmup is actually needed varies enormously with the parameters.** Measured on
+`aortic_root/u`, as the deviation of each cardiac cycle from the final cycle (1% threshold):
+
+| parameters | time to periodic steady state |
+|---|---|
+| baseline (model defaults) | **6 s** |
+| box corner (low) | **24 s** |
+| box corner (high) | **22 s** |
+
+So the current `pre_time: 20` is simultaneously *too long* for baseline-like parameters (which
+settle in 6 s) and **too short at the low corner**, where evaluations are scored before the model
+has settled — a transient contamination whose size varies with the parameters, which is exactly
+the kind of bias that distorts an optimiser's search.
+
+A fixed `pre_time` cannot be right for both. The fix is a convergence-based warmup that stops when
+the cycle-to-cycle change falls below a tolerance, tracked in issue #328. That would make every
+evaluation correct *and* cheaper on average. Note it must be checked for differentiability: a
+warmup whose duration depends on the parameters introduces a d(duration)/d(p) term, the same class
+of trap as #269.
 
 ## 2. `MaximumStep: 0.001` with no tolerances set
 
@@ -47,6 +66,13 @@ The FSA variant in the *same* benchmark uses `MaximumStep: 0.005` with `rtol/ato
 commit `9fe78d8` already documents that MaximumStep is a **cap, not an accuracy control** — rtol
 and atol govern accuracy. The base config therefore pays for a tight cap without getting the
 accuracy guarantee that tolerances would give.
+
+There is direct evidence the missing tolerances already cost accuracy: splitting a 3 s warmup into
+2 s + 1 s (which only changes the integrator's step sequence, not the problem) moves the resulting
+trace by **0.26%** at Myokit's default tolerances. That falls to 0.016% at `rtol=atol=1e-8`,
+8e-6% at 1e-10 and 0 at 1e-12. In other words the benchmark's current results are reproducible to
+roughly 0.3%, purely from integrator settings — comparable to some of the cost differences between
+optimisers it is used to rank.
 
 Worth testing: raise `MaximumStep` and set explicit `rtol`/`atol`, then check the cost surface is
 unchanged. This is a config change, not a code change, and it applies to the GA and CMA-ES legs
