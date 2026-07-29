@@ -4,6 +4,7 @@ import json
 import os
 import sys
 
+import numpy as np
 import pytest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -194,3 +195,47 @@ def test_scaling_table_reads_the_per_core_cache_and_computes_speedup(tmp_path):
 @pytest.mark.unit
 def test_tex_escape_covers_the_specials_that_appear_in_method_names():
     assert tex_escape('multi_start (FD) & 100%') == r'multi\_start (FD) \& 100\%'
+
+@pytest.mark.unit
+def test_three_compartment_ground_truth_is_inside_the_identification_bounds():
+    """The synthetic ground truth must be recoverable, i.e. inside the search box.
+
+    The model's own q_lv_init default (2e-3) is OUTSIDE 3compartment_params_for_id.csv's bounds
+    of [2e-4, 1.5e-3], so the CSV defaults cannot be used wholesale as a ground truth -- an
+    optimiser could never reach it and the reported error would never go to zero.
+    """
+    from benchmarks.benchmark_specs import (
+        THREE_COMPARTMENT_TRUE_PARAMS, THREE_COMPARTMENT_PARAM_LABELS,
+        THREE_COMPARTMENT_PARAM_NAMES)
+
+    bounds = {  # from resources/3compartment_params_for_id.csv
+        'global/q_lv_init': (200e-6, 1500e-6),
+        'aortic_root/C': (1e-9, 5e-8),
+        'global/E_lv_A': (1e8, 5e8),
+        'global/E_lv_B': (1e6, 5e7),
+    }
+    assert len(THREE_COMPARTMENT_TRUE_PARAMS) == len(THREE_COMPARTMENT_PARAM_LABELS)
+    assert len(THREE_COMPARTMENT_TRUE_PARAMS) == len(THREE_COMPARTMENT_PARAM_NAMES)
+    for name, value in zip(THREE_COMPARTMENT_PARAM_NAMES, THREE_COMPARTMENT_TRUE_PARAMS):
+        lo, hi = bounds[name]
+        assert lo < value < hi, f'{name} ground truth {value:g} outside bounds [{lo:g}, {hi:g}]'
+
+
+@pytest.mark.unit
+def test_obs_reducers_cover_the_shipped_operations():
+    """Every operation in the 3compartment obs template must have a reducer, or the synthetic
+    ground truth silently cannot be generated for that observable."""
+    import json as _json
+    from benchmarks.benchmark_specs import _OBS_REDUCERS
+
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(root, 'resources', '3compartment_obs_data.json')) as f:
+        items = _json.load(f)
+    missing = sorted({it['operation'] for it in items} - set(_OBS_REDUCERS))
+    assert not missing, f'no reducer for obs operation(s): {missing}'
+
+    y = np.array([1.0, 5.0, 3.0])
+    assert _OBS_REDUCERS['mean'](y) == pytest.approx(3.0)
+    assert _OBS_REDUCERS['max'](y) == pytest.approx(5.0)
+    assert _OBS_REDUCERS['min'](y) == pytest.approx(1.0)
+    assert _OBS_REDUCERS['max_minus_min'](y) == pytest.approx(4.0)
