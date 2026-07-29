@@ -917,6 +917,7 @@ def _cost_and_grad_bdf_kernel(pid, param_vals):
     n_sub = max(1, int(np.ceil(dt / max_step)))
     idt = dt / n_sub
     jac_lag = int(sim_helper.solver_info.get('jac_lag', 10))
+    newton_iters = int(sim_helper.solver_info.get('newton_iters', 0))
 
     param_names_raw = pid.param_id_info["param_names"]
     param_names = [pn[0] if isinstance(pn, (list, tuple)) else pn for pn in param_names_raw]
@@ -977,7 +978,7 @@ def _cost_and_grad_bdf_kernel(pid, param_vals):
         states, variables_all,
         list(ad_indices), param_values,
         total_steps, pre_steps, n_sub, idt,
-        obs_list, None, jac_lag
+        obs_list, None, jac_lag, newton_iters
     )
 
     grad = np.array([float(g) for g in grad_list])
