@@ -22,14 +22,13 @@ Scaling data is read from the per-core cache the scaling orchestrator leaves beh
 
 Examples
 --------
-    # from the Markdown a normal run wrote out
-    python benchmarks/create_CUFLynx_paper_tables.py \
-        --results result_*.md --out CUFLynx_tables.tex
+    # from the Markdown a normal run wrote out; writes to
+    # benchmarks/results/figs_tables/CUFLynx_paper_tables.tex by default
+    python benchmarks/create_CUFLynx_paper_tables.py --results result_*.md
 
     # from JSON, expanding every optimiser, and a compilable preview document
     python benchmarks/create_CUFLynx_paper_tables.py \
-        --results-dir benchmarks/_results --all-methods --standalone \
-        --out CUFLynx_tables.tex
+        --results-dir benchmarks/_results --all-methods --standalone
 
 The emitted tables need ``booktabs``. ``--standalone`` wraps them in a minimal document so the
 file compiles on its own for previewing.
@@ -43,6 +42,10 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RESULTS_DIR = os.path.join(ROOT, "benchmarks", "_results")
+# Generated tables land here, next to the (gitignored) raw run output but tracked themselves, so
+# the exact tables a paper cites are versioned alongside the code that produced them.
+FIGS_TABLES_DIR = os.path.join(ROOT, "benchmarks", "results", "figs_tables")
+DEFAULT_OUT = os.path.join(FIGS_TABLES_DIR, "CUFLynx_paper_tables.tex")
 
 # Short, paper-friendly names. Falls back to the part of the harness title before " (".
 DISPLAY_NAMES = {
@@ -387,7 +390,10 @@ def table_scaling(result, per_core, label="tab:ca-scaling"):
     ref = min(cores)
     methods = [r["method"] for r in per_core[ref].get("rows", [])]
 
-    col_spec = "l" + "r" * len(cores) + "r"
+    # A speedup column needs at least two core counts to compare; with one (e.g. a scaling sweep
+    # still in progress) it would read "speedup at 8 cores relative to 8" over a column of dashes.
+    show_speedup = len(cores) > 1
+    col_spec = "l" + "r" * len(cores) + ("r" if show_speedup else "")
     core_headers = " & ".join(rf"{c}" for c in cores)
     lines = [r"% ---------------------------------------------------------------------------",
              r"% Table 2: parallel scaling of the slowest benchmark model.",
@@ -396,14 +402,16 @@ def table_scaling(result, per_core, label="tab:ca-scaling"):
              r"  \centering",
              r"  \caption{Parallel scaling of CUFLynx calibration on the "
              f"{display_name(result)} model, the most expensive benchmark. "
-             r"Entries are wall-clock seconds; the final column is the speedup at "
-             rf"{max(cores)} cores relative to {ref}.}}",
+             r"Entries are wall-clock seconds"
+             + (rf"; the final column is the speedup at {max(cores)} cores relative to {ref}.}}"
+                if show_speedup else ".}"),
              rf"  \label{{{label}}}",
              rf"  \begin{{tabular}}{{{col_spec}}}",
              r"    \toprule",
-             rf"    & \multicolumn{{{len(cores)}}}{{c}}{{Wall-clock time (s) by core count}} & \\",
+             rf"    & \multicolumn{{{len(cores)}}}{{c}}{{Wall-clock time (s) by core count}}"
+             + (r" & \\" if show_speedup else r" \\"),
              rf"    \cmidrule(lr){{2-{len(cores) + 1}}}",
-             rf"    Optimiser & {core_headers} & Speedup \\",
+             rf"    Optimiser & {core_headers}" + (r" & Speedup \\" if show_speedup else r" \\"),
              r"    \midrule"]
 
     for method in methods:
@@ -415,9 +423,12 @@ def table_scaling(result, per_core, label="tab:ca-scaling"):
         if not times:
             continue
         cells = [fmt_time(times.get(c)) for c in cores]
-        lo, hi = min(times), max(times)
-        speedup = f"{times[lo] / times[hi]:.2f}$\\times$" if hi != lo and times[hi] else "---"
-        lines.append(f"    {fmt_method(method)} & " + " & ".join(cells) + f" & {speedup} \\\\")
+        row = f"    {fmt_method(method)} & " + " & ".join(cells)
+        if show_speedup:
+            lo, hi = min(times), max(times)
+            speedup = f"{times[lo] / times[hi]:.2f}$\\times$" if hi != lo and times[hi] else "---"
+            row += f" & {speedup}"
+        lines.append(row + " \\\\")
 
     lines += [r"    \bottomrule", r"  \end{tabular}", r"\end{table}"]
     return "\n".join(lines)
@@ -463,8 +474,9 @@ def main(argv=None):
                         help="wrap the tables in a minimal compilable LaTeX document")
     parser.add_argument("--order", default=None,
                         help="comma-separated benchmark ids fixing the row order of table 1")
-    parser.add_argument("--out", default="CUFLynx_paper_tables.tex",
-                        help="output .tex path (default: %(default)s)")
+    parser.add_argument("--out", default=DEFAULT_OUT,
+                        help="output .tex path (default: benchmarks/results/figs_tables/"
+                             "CUFLynx_paper_tables.tex)")
     args = parser.parse_args(argv)
 
     paths = []
@@ -513,6 +525,9 @@ def main(argv=None):
               f"    ./benchmarks/run_benchmarks.sh --scaling --benchmark {scaling_name}",
               file=sys.stderr)
 
+    out_dir = os.path.dirname(os.path.abspath(args.out))
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
     with open(args.out, "w") as f:
         f.write(build_document(tables, standalone=args.standalone, provenance=paths))
     print(f"[tables] wrote {args.out} ({len(tables)} table(s))")
