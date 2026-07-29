@@ -12,31 +12,31 @@
 % ---------------------------------------------------------------------------
 \begin{table}[htbp]
   \centering
-  \caption{Calibration performance of CUFLynx across the benchmark models. Wall-clock time is the full parameter-identification run; the maximum parameter error is the largest absolute deviation of a recovered parameter from its known true value.}
+  \caption{Calibration performance of CUFLynx across the benchmark models. Wall-clock time is the full parameter-identification run; the maximum parameter error is the largest deviation of a recovered parameter from its known true value (absolute, except 3CVS whose parameters span five orders of magnitude and which reports relative error). Models --- GO: Goodwin oscillator; TG: Teusink 2000 yeast glycolysis; FHN: FitzHugh--Nagumo; 3CVS: 3-compartment cardiovascular.}
   \label{tab:ca-calibration}
   \begin{tabular}{llrrr}
     \toprule
     Model & Optimiser & Best cost & Time (s) & Max param.\ err. \\
     \midrule
-    Goodwin oscillator & \texttt{genetic\_algorithm} & $1.53\times 10^{-3}$ & 23.2 & 1.2677 \\
+    GO & \texttt{genetic\_algorithm} & $1.53\times 10^{-3}$ & 23.2 & 1.2677 \\
      & \texttt{CMA-ES} & $4.49\times 10^{-5}$ & 35.8 & 0.5026 \\
      & \texttt{multi\_start (FD)} & $9.15\times 10^{-15}$ & 8.25 & 0 \\
      & \texttt{multi\_start (Myokit FSA)} & $1.52\times 10^{-13}$ & 11.4 & $5.82\times 10^{-9}$ \\
      & \texttt{multi\_start (CasADi AD)} & $1.31\times 10^{-12}$ & 31.7 & $9.61\times 10^{-8}$ \\
     \midrule
-    Teusink glycolysis & \texttt{genetic\_algorithm} & $1.84\times 10^{-3}$ & 14.7 & 0.0952 \\
+    TG & \texttt{genetic\_algorithm} & $1.84\times 10^{-3}$ & 14.7 & 0.0952 \\
      & \texttt{CMA-ES} & $9.14\times 10^{-9}$ & 3.77 & 0.0002 \\
      & \texttt{multi\_start (FD)} & $3.28\times 10^{-15}$ & 10.7 & $5.72\times 10^{-11}$ \\
      & \texttt{multi\_start (Myokit FSA)} & $3.56\times 10^{-15}$ & 205 & 0 \\
     \midrule
-    FitzHugh--Nagumo & \texttt{genetic\_algorithm} & $3.55\times 10^{-3}$ & 352 & 0.0033 \\
+    FHN & \texttt{genetic\_algorithm} & $3.55\times 10^{-3}$ & 352 & 0.0033 \\
      & \texttt{CMA-ES} & $1.44\times 10^{2}$ & 20.7 & 0.9267 \\
      & \texttt{multi\_start (FD)} & $2.52\times 10^{-3}$ & 76.2 & 0.0086 \\
      & \texttt{multi\_start (CasADi AD)} & $5.23\times 10^{-6}$ & 60.3 & 0.0004 \\
      & \texttt{multi\_start (Myokit FSA)} & $3.83\times 10^{-6}$ & 16.6 & 0.0006 \\
      & \texttt{multi\_start (AADC AD)} & $1.38\times 10^{-6}$ & 3.65 & 0.0002 \\
     \midrule
-    3-compartment CVS & \texttt{genetic\_algorithm} & $3.74\times 10^{-5}$ & 418 & 0.1748 \\
+    3CVS & \texttt{genetic\_algorithm} & $3.74\times 10^{-5}$ & 418 & 0.1748 \\
      & \texttt{CMA-ES} & $3.85\times 10^{-5}$ & 14.5 & 0.1510 \\
      & \texttt{multi\_start (Myokit FSA)} & $4.76\times 10^{-5}$ & 876 & 0.3076 \\
      & \texttt{multi\_start (CasADi bdf)} & $6.61\times 10^{-5}$ & 214 & 0.4164 \\
@@ -49,18 +49,18 @@
 % ---------------------------------------------------------------------------
 \begin{table}[htbp]
   \centering
-  \caption{Parallel scaling of CUFLynx calibration on the 3-compartment CVS model, the most expensive benchmark. Entries are wall-clock seconds.}
+  \caption{Parallel scaling of CUFLynx calibration on the 3CVS (3-compartment cardiovascular) model, the most expensive benchmark. Entries are wall-clock seconds; the final column is the speedup at 8 cores relative to 4.}
   \label{tab:ca-scaling}
-  \begin{tabular}{lr}
+  \begin{tabular}{lrrr}
     \toprule
-    & \multicolumn{1}{c}{Wall-clock time (s) by core count} \\
-    \cmidrule(lr){2-2}
-    Optimiser & 8 \\
+    & \multicolumn{2}{c}{Wall-clock time (s) by core count} & \\
+    \cmidrule(lr){2-3}
+    Optimiser & 4 & 8 & Speedup \\
     \midrule
-    \texttt{genetic\_algorithm} & 535 \\
-    \texttt{CMA-ES} & 9.36 \\
-    \texttt{multi\_start (Myokit FSA)} & 828 \\
-    \texttt{multi\_start (CasADi bdf)} & 234 \\
+    \texttt{genetic\_algorithm} & 711 & 535 & 1.33$\times$ \\
+    \texttt{CMA-ES} & 30.8 & 9.36 & 3.29$\times$ \\
+    \texttt{multi\_start (Myokit FSA)} & 857 & 828 & 1.04$\times$ \\
+    \texttt{multi\_start (CasADi bdf)} & 195 & 234 & 0.83$\times$ \\
     \bottomrule
   \end{tabular}
 \end{table}

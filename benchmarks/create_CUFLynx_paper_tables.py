@@ -47,13 +47,28 @@ RESULTS_DIR = os.path.join(ROOT, "benchmarks", "_results")
 FIGS_TABLES_DIR = os.path.join(ROOT, "benchmarks", "results", "figs_tables")
 DEFAULT_OUT = os.path.join(FIGS_TABLES_DIR, "CUFLynx_paper_tables.tex")
 
-# Short, paper-friendly names. Falls back to the part of the harness title before " (".
+# Acronyms used in the table body, kept short so the Model column stays narrow. The captions
+# expand whichever ones actually appear, so each table stays self-contained.
 DISPLAY_NAMES = {
-    "fitzhugh_nagumo": "FitzHugh--Nagumo",
-    "three_compartment": "3-compartment CVS",
-    "goodwin": "Goodwin oscillator",
-    "teusink": "Teusink glycolysis",
+    "fitzhugh_nagumo": "FHN",
+    "three_compartment": "3CVS",
+    "goodwin": "GO",
+    "teusink": "TG",
 }
+
+FULL_NAMES = {
+    "fitzhugh_nagumo": "FitzHugh--Nagumo",
+    "three_compartment": "3-compartment cardiovascular",
+    "goodwin": "Goodwin oscillator",
+    "teusink": "Teusink 2000 yeast glycolysis",
+}
+
+
+def acronym_legend(names):
+    """'GO: Goodwin oscillator; TG: ...' for the models present, in the given order."""
+    parts = [f"{DISPLAY_NAMES[n]}: {FULL_NAMES[n]}" for n in names
+             if n in DISPLAY_NAMES and n in FULL_NAMES]
+    return "; ".join(parts)
 
 
 # ------------------------------------------------------------------------------------------
@@ -346,8 +361,11 @@ def table_calibration(by_name, order, all_methods=False, label="tab:ca-calibrati
              r"  \centering",
              r"  \caption{Calibration performance of CUFLynx across the benchmark models. "
              r"Wall-clock time is the full parameter-identification run; the maximum parameter "
-             r"error is the largest absolute deviation of a recovered parameter from its known "
-             r"true value.}",
+             r"error is the largest deviation of a recovered parameter from its known true "
+             r"value (absolute, except 3CVS whose parameters span five orders of magnitude and "
+             r"which reports relative error). "
+             + (rf"Models --- {acronym_legend(order)}." if acronym_legend(order) else "")
+             + r"}",
              rf"  \label{{{label}}}",
              rf"  \begin{{tabular}}{{{cols}}}",
              r"    \toprule"]
@@ -401,7 +419,8 @@ def table_scaling(result, per_core, label="tab:ca-scaling"):
              r"\begin{table}[htbp]",
              r"  \centering",
              r"  \caption{Parallel scaling of CUFLynx calibration on the "
-             f"{display_name(result)} model, the most expensive benchmark. "
+             f"{display_name(result)} ({FULL_NAMES.get(result.get('name'), '')}) model, "
+             r"the most expensive benchmark. "
              r"Entries are wall-clock seconds"
              + (rf"; the final column is the speedup at {max(cores)} cores relative to {ref}.}}"
                 if show_speedup else ".}"),
