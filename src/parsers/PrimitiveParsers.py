@@ -138,12 +138,25 @@ _SI_RTOL = {'name': 'rtol', 'type': 'float', 'default': 1e-8, 'required': False,
             'description': 'Relative integration tolerance.'}
 _SI_ATOL = {'name': 'atol', 'type': 'float', 'default': 1e-8, 'required': False,
             'description': 'Absolute integration tolerance.'}
-# CVODE-family backends (opencor/myokit, and the cpp CVODE/RK4/PETSC) share the same fields.
+# CVODE-family backends (opencor, and the cpp CVODE/RK4/PETSC) share the same fields.
 _CVODE_FAMILY_SOLVER_INFO = [
     {'name': 'MaximumStep', 'type': 'float', 'default': 0.001, 'required': False,
      'description': 'Maximum integrator step size.'},
     {'name': 'MaximumNumberOfSteps', 'type': 'int', 'default': 5000, 'required': False,
      'description': 'Maximum number of internal integrator steps per output step.'},
+    _SI_RTOL, _SI_ATOL,
+]
+
+# CVODE_myokit is deliberately NOT in that family. myokit.Simulation exposes only
+# set_max_step_size / set_min_step_size / set_tolerance -- there is no max-step-count
+# knob, so myokit_helper never reads MaximumNumberOfSteps. Advertising a setting the
+# code never reads makes a downstream tool (e.g. CUFLynx) render a control that
+# silently does nothing -- the same reasoning as the note on 'aadc_semi_implicit'
+# below. Configs that already set it are migrated with a warning, not rejected; see
+# migrate_legacy_solver_info_keys.
+_MYOKIT_SOLVER_INFO = [
+    {'name': 'MaximumStep', 'type': 'float', 'default': 0.001, 'required': False,
+     'description': 'Maximum integrator step size (myokit Simulation.set_max_step_size).'},
     _SI_RTOL, _SI_ATOL,
 ]
 
@@ -164,7 +177,7 @@ _SOLVE_IVP_SOLVER_INFO = [
 
 SOLVER_INFO_FIELDS = {
     'CVODE_opencor': _CVODE_FAMILY_SOLVER_INFO,
-    'CVODE_myokit': _CVODE_FAMILY_SOLVER_INFO,
+    'CVODE_myokit': _MYOKIT_SOLVER_INFO,
     'CVODE': _CVODE_FAMILY_SOLVER_INFO,
     'RK4': _CVODE_FAMILY_SOLVER_INFO,
     'PETSC': _CVODE_FAMILY_SOLVER_INFO,
@@ -859,14 +872,22 @@ class YamlFileParser(object):
         
 
         if 'solver_info' in inp_data_dict:
-            inp_data_dict['solver_info'] = migrate_legacy_solver_info_keys(
-                solver_name, inp_data_dict['solver_info']
-            )
+            try:
+                inp_data_dict['solver_info'] = migrate_legacy_solver_info_keys(
+                    solver_name, inp_data_dict['solver_info']
+                )
+            except ValueError as exc:
+                # Same failure mode as validate_solver_info below: the config is
+                # wrong and no guess about which value was meant is safe.
+                print(exc)
+                exit()
 
-        if 'solver_info' not in inp_data_dict.keys(): 
-            inp_data_dict['solver_info'] = get_solver_info_default(inp_data_dict['model_type'])
+        if 'solver_info' not in inp_data_dict.keys():
+            inp_data_dict['solver_info'] = _solver_info_default_for(
+                inp_data_dict['model_type'], solver_name
+            )
         else:
-            defaults = get_solver_info_default(inp_data_dict['model_type'])
+            defaults = _solver_info_default_for(inp_data_dict['model_type'], solver_name)
             if inp_data_dict.get('model_type') == 'casadi_python':
                 if 'max_num_steps' not in inp_data_dict['solver_info']:
                     inp_data_dict['solver_info']['max_num_steps'] = defaults.get('max_num_steps', 5000)
@@ -877,7 +898,8 @@ class YamlFileParser(object):
                 pass  # AADC solver handles its own defaults
             elif inp_data_dict.get('model_type') == 'python_user_defined':
                 pass  # user wrapper handles its own integration
-            elif 'MaximumNumberOfSteps' not in inp_data_dict['solver_info']:
+            elif ('MaximumNumberOfSteps' in defaults
+                  and 'MaximumNumberOfSteps' not in inp_data_dict['solver_info']):
                 inp_data_dict['solver_info']['MaximumNumberOfSteps'] = defaults['MaximumNumberOfSteps']
         if 'solver' not in inp_data_dict['solver_info'].keys():
             inp_data_dict['solver_info']['solver'] = solver_name
@@ -1187,31 +1209,95 @@ _SOLVER_INTEGRATOR_KEYS = {
 }
 
 
+def _warn_renamed_solver_info_key(solver_name, old_key, new_key):
+    """Tell the user which key the value was moved to, and to rename it.
+
+    Migration used to be silent, so a config could keep a key that had quietly
+    stopped doing anything and nothing said which key had replaced it.
+    """
+    print(
+        f'WARNING: solver_info key {old_key!r} is not used by solver '
+        f'{solver_name!r}; its value was applied to {new_key!r} instead. '
+        f'Rename it in your user_inputs to silence this.'
+    )
+
+
+def _raise_duplicate_solver_info_key(solver_name, old_key, new_key, solver_info):
+    """One setting, specified twice, under two names.
+
+    Not a warning: picking a winner would silently discard the other value, and
+    there is no way to tell which one the user meant -- if the two disagree, one
+    of them is what they think the run is using. Refuse and make them delete one.
+    """
+    raise ValueError(
+        f'solver_info sets both {old_key!r} ({solver_info[old_key]!r}) and '
+        f'{new_key!r} ({solver_info[new_key]!r}) for solver {solver_name!r}. '
+        f'These are the same setting: {old_key!r} is the legacy name for '
+        f'{new_key!r}, which is the one this solver uses. Remove {old_key!r} '
+        f'(keeping {new_key!r}) so there is one value, not two.'
+    )
+
+
+def _warn_dropped_solver_info_key(solver_name, key, reason):
+    print(
+        f'WARNING: solver_info key {key!r} is not supported by solver '
+        f'{solver_name!r} and was ignored. {reason}'
+    )
+
+
 def migrate_legacy_solver_info_keys(solver_name, solver_info):
     """
     Map legacy CVODE-style solver_info keys to backend-specific names and drop
     keys that the selected integrator does not accept.
+
+    Every rename and every drop warns, naming the key to use instead (or saying
+    that there is none), so a setting can never stop taking effect silently.
+    Migrating rather than rejecting keeps configs written for another backend --
+    or for an older CA -- working.
+
+    Raises ValueError when a config sets both names for one setting: that is not
+    a stale key to migrate but a contradiction, and no choice between the two
+    values can be made on the user's behalf.
     """
     solver_info = dict(solver_info)
 
+    def migrate(old_key, new_key, fallback_key=None):
+        """Move ``old_key`` onto ``new_key`` (unless already set), then drop it."""
+        if old_key not in solver_info and fallback_key not in solver_info:
+            return
+        if new_key in solver_info and old_key in solver_info:
+            # One setting under two names. Silently preferring either would hide
+            # the other value from a user who believes it is in effect.
+            _raise_duplicate_solver_info_key(solver_name, old_key, new_key, solver_info)
+        if new_key not in solver_info:
+            source = old_key if old_key in solver_info else fallback_key
+            solver_info[new_key] = solver_info[source]
+            if source == old_key:
+                _warn_renamed_solver_info_key(solver_name, old_key, new_key)
+        solver_info.pop(old_key, None)
+
     if solver_name == 'solve_ivp':
-        if 'max_step' not in solver_info:
-            if 'MaximumStep' in solver_info:
-                solver_info['max_step'] = solver_info['MaximumStep']
-            elif 'dt_solver' in solver_info:
-                solver_info['max_step'] = solver_info['dt_solver']
-        solver_info.pop('MaximumStep', None)
-        solver_info.pop('MaximumNumberOfSteps', None)
+        migrate('MaximumStep', 'max_step', fallback_key='dt_solver')
+        if 'MaximumNumberOfSteps' in solver_info:
+            _warn_dropped_solver_info_key(
+                solver_name, 'MaximumNumberOfSteps',
+                'scipy.integrate.solve_ivp has no step-count limit.',
+            )
+            solver_info.pop('MaximumNumberOfSteps', None)
     elif solver_name == 'casadi_integrator':
-        if 'max_step_size' not in solver_info:
-            if 'MaximumStep' in solver_info:
-                solver_info['max_step_size'] = solver_info['MaximumStep']
-            elif 'dt_solver' in solver_info:
-                solver_info['max_step_size'] = solver_info['dt_solver']
-        if 'max_num_steps' not in solver_info and 'MaximumNumberOfSteps' in solver_info:
-            solver_info['max_num_steps'] = solver_info['MaximumNumberOfSteps']
-        solver_info.pop('MaximumStep', None)
-        solver_info.pop('MaximumNumberOfSteps', None)
+        migrate('MaximumStep', 'max_step_size', fallback_key='dt_solver')
+        migrate('MaximumNumberOfSteps', 'max_num_steps')
+    elif solver_name == 'CVODE_myokit':
+        # No equivalent to migrate onto: myokit.Simulation exposes only
+        # set_max_step_size / set_min_step_size / set_tolerance.
+        if 'MaximumNumberOfSteps' in solver_info:
+            _warn_dropped_solver_info_key(
+                solver_name, 'MaximumNumberOfSteps',
+                "Myokit's integrator has no maximum-step-count setting; use "
+                "'MaximumStep' to bound the step size, or 'rtol'/'atol' to "
+                'control accuracy.',
+            )
+            solver_info.pop('MaximumNumberOfSteps', None)
 
     return solver_info
 
@@ -1264,6 +1350,24 @@ def validate_solver_info(solver_name, solver_info):
         f'Allowed framework keys: {framework_keys}. '
         f'Allowed integrator keys for {solver_name}: {integrator_keys}.{hint_text}'
     )
+
+
+def _solver_info_default_for(model_type, solver_name):
+    """``get_solver_info_default`` narrowed to the keys ``solver_name`` accepts.
+
+    The defaults are per model_type, but a model_type can host backends with
+    different settings: cellml_only covers both CVODE_opencor (which takes
+    MaximumNumberOfSteps) and CVODE_myokit (which has no such knob). Seeding the
+    whole default set would put back exactly what
+    migrate_legacy_solver_info_keys just removed, and validate_solver_info would
+    then reject CA's own default.
+    """
+    defaults = get_solver_info_default(model_type)
+    allowed = _SOLVER_INTEGRATOR_KEYS.get(solver_name)
+    if allowed is None:
+        return defaults
+    allowed = allowed | _FRAMEWORK_SOLVER_INFO_KEYS
+    return {k: v for k, v in defaults.items() if k in allowed}
 
 
 def get_solver_info_default(model_type):
