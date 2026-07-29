@@ -4908,3 +4908,181 @@ def test_offline_pre_time_error_message_explains_the_reformulation():
     # and it must point at the reformulation, with the concrete example
     assert "calibrate wrt a constant parameter rather than a initial state" in msg
     assert "set the total volume and calculate the intial LV volume from that" in msg
+
+
+# ----------------------------------------------------------------------------------------
+# offline_pre_time + multi-sub-experiment protocols, with analytic gradients
+# ----------------------------------------------------------------------------------------
+
+def _build_lotka_offline_gradient_runner(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir,
+        model_type, solver, solver_info, offline_pre_time=1.0, pre_time=1.0,
+        offline_calls=None):
+    """Lotka-Volterra over TWO sub-experiments with an offline warm-up, set up for an analytic
+    gradient.
+
+    Lotka-Volterra calibrates alpha/beta/delta/gamma -- all plain constants, none of which sets a
+    state initial value -- so the offline warm-up is legitimate here: the frozen state really is
+    constant with respect to the parameters being fitted, its sensitivity is zero, and FSA/AD
+    accumulate d/dp across the per-evaluation pre_time and both sub-experiments.
+    """
+    import json
+
+    with open(os.path.join(resources_dir, 'Lotka_Volterra_multisub_obs_data.json')) as f:
+        obs_data = json.load(f)
+    obs_data = copy.deepcopy(obs_data)
+    obs_data['protocol_info']['offline_pre_time'] = offline_pre_time
+    obs_data['protocol_info']['pre_times'] = [pre_time]
+
+    obs_path = os.path.join(temp_output_dir,
+                            f'Lotka_Volterra_multisub_offline_{model_type}.json')
+    with open(obs_path, 'w') as f:
+        json.dump(obs_data, f, indent=2)
+
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': 'Lotka_Volterra',
+        'input_param_file': 'Lotka_Volterra_parameters.csv',
+        'params_for_id_file': 'Lotka_Volterra_params_for_id.csv',
+        'model_type': model_type,
+        'solver': solver,
+        'param_id_method': 'sp_minimize',
+        'do_ad': True,
+        'pre_time': pre_time,
+        'sim_time': 3.0,
+        'dt': 0.01,
+        'DEBUG': False,
+        'do_mcmc': False,
+        'plot_predictions': False,
+        'do_ia': False,
+        'solver_info': solver_info,
+        'param_id_obs_path': obs_path,
+        'param_id_output_dir': temp_output_dir,
+        'generated_models_dir': temp_generated_models_dir,
+        'resources_dir': resources_dir,
+    })
+
+    assert generate_with_new_architecture(False, config), \
+        f'{model_type} model generation should succeed for Lotka_Volterra'
+
+    parsed = YamlFileParser().parse_user_inputs_file(
+        config, obs_path_needed=True, do_generation_with_fit_parameters=False)
+    parsed['one_rank'] = True
+
+    # Spy on the offline warm-up so callers can assert it really ran (see the tests below).
+    import solver_wrappers.myokit_helper as _mh
+    import solver_wrappers.casadi_python_solver_helper as _ch
+    backend = _mh.SimulationHelper if model_type == 'cellml_only' else _ch.SimulationHelper
+    original = backend.run_offline_pre_and_set_default_state
+
+    def _spy(self, t, _orig=original):
+        if offline_calls is not None:
+            offline_calls.append(float(t))
+        return _orig(self, t)
+
+    backend.run_offline_pre_and_set_default_state = _spy
+    try:
+        runner = CVS0DParamID.init_from_dict(parsed)
+    finally:
+        backend.run_offline_pre_and_set_default_state = original
+    runner.set_ground_truth_data(obs_data)
+    baseline = runner.param_id.sim_helper.get_init_param_vals(
+        runner.param_id.param_id_info['param_names'])
+    return runner, np.asarray(baseline, dtype=float)
+
+
+def _assert_gradient_matches_fd(inner, p, rel=0.10, step_rel=1e-4):
+    """Analytic gradient at p must match central finite differences of the same cost."""
+    gradient = np.asarray(inner.get_gradient(p), dtype=float).ravel()
+    assert gradient.shape == p.shape, (gradient.shape, p.shape)
+    assert np.all(np.isfinite(gradient)), gradient
+    assert not np.all(gradient == 0), 'analytic gradient is identically zero'
+
+    fd = np.zeros_like(p)
+    for i in range(len(p)):
+        dp = max(abs(p[i]) * step_rel, 1e-14)
+        p_plus, p_minus = p.copy(), p.copy()
+        p_plus[i] += dp
+        p_minus[i] -= dp
+        fd[i] = (float(inner.get_cost(p_plus)) - float(inner.get_cost(p_minus))) / (2 * dp)
+
+    compared = 0
+    for i in range(len(p)):
+        if abs(fd[i]) > 1e-8:
+            compared += 1
+            assert gradient[i] == pytest.approx(fd[i], rel=rel), (
+                f'gradient[{i}] = {gradient[i]:.6e} != FD {fd[i]:.6e} '
+                f'(ratio {gradient[i] / fd[i]:.4f})')
+    assert compared > 0, 'no finite-difference component was large enough to compare'
+    return gradient
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_offline_pre_time_multisub_fsa_gradient(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir):
+    """Myokit CVODES FSA gradient stays correct across sub-experiments with an offline warm-up.
+
+    The offline pass freezes a state and every evaluation restarts from it. For parameters that
+    do not set a state initial value that frozen state is a genuine constant, so its sensitivity
+    is zero and FSA must still accumulate d/dp correctly through pre_time and both
+    sub-experiments. If the offline state were wrongly treated as parameter-dependent (or its
+    sensitivity rows left stale across the sub-experiment boundary) this comparison against
+    finite differences is what catches it -- note FD is only a valid reference here *because*
+    both paths start from the same frozen state.
+    """
+    offline_calls = []
+    runner, baseline = _build_lotka_offline_gradient_runner(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir,
+        model_type='cellml_only', solver='CVODE_myokit',
+        solver_info={'MaximumStep': 0.005, 'MaximumNumberOfSteps': 50000,
+                     'rtol': 1e-10, 'atol': 1e-10},
+        offline_calls=offline_calls)
+    inner = runner.param_id
+
+    # two sub-experiments really are configured
+    assert inner.protocol_info['sim_times'][0] == [3.0, 3.0], inner.protocol_info['sim_times']
+    assert float(inner.protocol_info['offline_pre_time']) == 1.0
+    # The offline pass must actually have run, otherwise this test would pass vacuously as an
+    # ordinary gradient check with no warm-up involved. Backends store the warm state under
+    # different names, so count the call rather than probing backend internals.
+    assert offline_calls == [1.0], f'offline warm-up was not run once: {offline_calls}'
+
+    mins = np.asarray(inner.param_id_info['param_mins'], dtype=float)
+    maxs = np.asarray(inner.param_id_info['param_maxs'], dtype=float)
+    p = mins + 0.4 * (maxs - mins)      # interior point, so the cost is not at a minimum
+
+    _assert_gradient_matches_fd(inner, p)
+    runner.close_simulation()
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_offline_pre_time_multisub_casadi_ad_gradient(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir):
+    """Same as the FSA case, for the CasADi AD gradient path.
+
+    Uses method 'bdf': the symbolic fixed-step methods are differentiated by reverse mode and
+    support nonzero warm-up, whereas the adjoint integrators (cvodes/idas) do not.
+    """
+    offline_calls = []
+    runner, baseline = _build_lotka_offline_gradient_runner(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir,
+        model_type='casadi_python', solver='casadi_integrator',
+        solver_info={'method': 'bdf', 'max_step_size': 0.01, 'max_num_steps': 200000},
+        offline_calls=offline_calls)
+    inner = runner.param_id
+
+    assert inner.protocol_info['sim_times'][0] == [3.0, 3.0], inner.protocol_info['sim_times']
+    assert float(inner.protocol_info['offline_pre_time']) == 1.0
+    # The offline pass must actually have run, otherwise this test would pass vacuously as an
+    # ordinary gradient check with no warm-up involved. Backends store the warm state under
+    # different names, so count the call rather than probing backend internals.
+    assert offline_calls == [1.0], f'offline warm-up was not run once: {offline_calls}'
+
+    mins = np.asarray(inner.param_id_info['param_mins'], dtype=float)
+    maxs = np.asarray(inner.param_id_info['param_maxs'], dtype=float)
+    p = mins + 0.4 * (maxs - mins)
+
+    _assert_gradient_matches_fd(inner, p)
+    runner.close_simulation()
