@@ -49,18 +49,18 @@
 % ---------------------------------------------------------------------------
 \begin{table}[htbp]
   \centering
-  \caption{Parallel scaling of CUFLynx calibration on the 3CVS (3-compartment cardiovascular) model, the most expensive benchmark. Entries are wall-clock seconds; the final column is the speedup at 8 cores relative to 4.}
+  \caption{Parallel scaling of CUFLynx calibration on the 3CVS (3-compartment cardiovascular) model, the most expensive benchmark. Entries are wall-clock seconds; the final column is the speedup at 8 cores relative to 1.}
   \label{tab:ca-scaling}
-  \begin{tabular}{lrrr}
+  \begin{tabular}{lrrrrr}
     \toprule
-    & \multicolumn{2}{c}{Wall-clock time (s) by core count} & \\
-    \cmidrule(lr){2-3}
-    Optimiser & 4 & 8 & Speedup \\
+    & \multicolumn{4}{c}{Wall-clock time (s) by core count} & \\
+    \cmidrule(lr){2-5}
+    Optimiser & 1 & 2 & 4 & 8 & Speedup \\
     \midrule
-    \texttt{genetic\_algorithm} & 711 & 535 & 1.33$\times$ \\
-    \texttt{CMA-ES} & 30.8 & 9.36 & 3.29$\times$ \\
-    \texttt{multi\_start (Myokit FSA)} & 857 & 828 & 1.04$\times$ \\
-    \texttt{multi\_start (CasADi bdf)} & 195 & 234 & 0.83$\times$ \\
+    \texttt{genetic\_algorithm} & 1943 & 1140 & 711 & 535 & 3.63$\times$ \\
+    \texttt{CMA-ES} & 213 & 62.7 & 30.8 & 9.36 & 22.81$\times$ \\
+    \texttt{multi\_start (Myokit FSA)} & 4704 & 2801 & 857 & 828 & 5.68$\times$ \\
+    \texttt{multi\_start (CasADi bdf)} & 818 & 443 & 195 & 234 & 3.50$\times$ \\
     \bottomrule
   \end{tabular}
 \end{table}
