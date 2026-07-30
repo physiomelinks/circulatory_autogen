@@ -695,3 +695,55 @@ def test_gradient_sources_gates_analytic_source_on_integrator_method():
 
     # AADC AD has no per-integrator gate (its tape method is independent of this menu).
     assert 'AD' in [s['value'] for s in gradient_sources('aadc_python', method='semi_implicit')]
+
+
+@pytest.mark.unit
+def test_aadc_ad_suitable_methods_match_what_the_tape_enforces():
+    """The advertised AD-suitable AADC methods must be exactly those aadc_backend accepts.
+
+    Before issue #336 the schema had no aadc_semi_implicit entry at all, so a tool reading it
+    could not tell which methods the tape can record -- and since methods_by_solver lists
+    'adaptive_rk45' first, a front-end defaulting to "first offered" picked the one method AD can
+    never use, failing only once a calibration had started.
+    """
+    from parsers.PrimitiveParsers import AADC_TAPE_CONSISTENT_METHODS
+
+    all_methods = SOLVER_SCHEMA['methods_by_solver']['aadc_semi_implicit']
+    advertised = SOLVER_SCHEMA['ad_suitable_methods']['aadc_semi_implicit']
+
+    # derived from the enforced tuple, so the two cannot drift
+    assert advertised == [m for m in all_methods if m in AADC_TAPE_CONSISTENT_METHODS]
+    assert set(advertised) <= set(all_methods), (advertised, all_methods)
+    # the adaptive integrator is the one that must NOT be advertised
+    assert 'adaptive_rk45' in all_methods and 'adaptive_rk45' not in advertised
+
+    # and the runtime check enforces precisely this set
+    from param_id.aadc_backend import TAPE_CONSISTENT_METHODS
+    assert tuple(TAPE_CONSISTENT_METHODS) == tuple(AADC_TAPE_CONSISTENT_METHODS)
+
+
+@pytest.mark.unit
+def test_aadc_default_method_is_ad_suitable():
+    """A default the AD path cannot use is a poor default for a tape-gradient backend."""
+    default = SOLVER_SCHEMA['default_method_by_solver']['aadc_semi_implicit']
+    assert default in SOLVER_SCHEMA['ad_suitable_methods']['aadc_semi_implicit'], default
+    assert default in SOLVER_SCHEMA['methods_by_solver']['aadc_semi_implicit'], default
+
+
+@pytest.mark.unit
+def test_gradient_sources_gates_aadc_ad_on_a_tape_consistent_method():
+    """AD must not be offered for an AADC method the tape cannot record."""
+    from parsers.PrimitiveParsers import gradient_sources
+
+    def values(method):
+        return [s['value'] for s in gradient_sources('aadc_python', 'aadc_semi_implicit',
+                                                     method=method)]
+
+    # the adaptive integrator: FD only, no AD
+    assert values('adaptive_rk45') == ['FD']
+    # every tape-consistent method still offers AD
+    for m in SOLVER_SCHEMA['ad_suitable_methods']['aadc_semi_implicit']:
+        assert 'AD' in values(m), m
+    # unspecified or unknown method leaves AD offered, matching the casadi branch
+    assert 'AD' in values(None)
+    assert 'AD' in values('some_unknown_method')

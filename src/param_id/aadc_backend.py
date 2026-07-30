@@ -17,10 +17,11 @@ machine without AADC.
 """
 import numpy as np
 
-# AADC solver methods whose forward integration the tape can record step-for-step. An adaptive
-# integrator picks its step sizes from the state, so the sequence of operations changes with the
-# parameters and cannot be replayed from a tape.
-TAPE_CONSISTENT_METHODS = ('rk4', 'implicit_euler_ift', 'semi_implicit')
+# The methods whose forward integration the tape can record step-for-step. Defined in
+# parsers.PrimitiveParsers alongside SOLVER_SCHEMA['ad_suitable_methods'], which is derived from
+# it, so the advertised menu and the check enforced here cannot drift (issue #336). Re-exported
+# under the original name for callers that already import it from this module.
+from parsers.PrimitiveParsers import AADC_TAPE_CONSISTENT_METHODS as TAPE_CONSISTENT_METHODS
 
 
 def cost_and_grad(pid, param_vals):
