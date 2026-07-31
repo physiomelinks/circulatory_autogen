@@ -452,3 +452,36 @@ def test_the_runner_reports_the_variables_it_returns_after_a_pace_rebind(paced_c
     # itself only ever sits between 0 and 1, so reading the wrong row is obvious.
     assert np.min(v) < -1.0
     assert np.max(v) > 1.0
+
+
+# ---------------------------------------------------------------------------
+# ramp -- the one editor shape that is not a square event
+# ---------------------------------------------------------------------------
+def test_a_ramp_sweeps_across_the_subexperiment():
+    info = materialise_shapes(_protocol({"type": "ramp", "from": 0.0, "to": 5.0}))
+    trace = info["protocol_traces"]["stim"]
+    assert trace == {"t": [0.0, 2000.0], "values": [0.0, 5.0]}
+
+
+def test_a_ramp_is_sized_by_its_subexperiment_too():
+    info = materialise_shapes(
+        _protocol({"type": "ramp", "from": 1.0, "to": 2.0}, sim_times=[[7.5]])
+    )
+    assert info["protocol_traces"]["stim"]["t"] == [0.0, 7.5]
+
+
+def test_a_ramp_can_go_downwards():
+    info = materialise_shapes(_protocol({"type": "ramp", "from": 10.0, "to": -10.0}))
+    assert _levels_at(info["protocol_traces"]["stim"], [0, 1000, 2000]) == [10.0, 0.0, -10.0]
+
+
+def test_a_ramp_needs_both_ends():
+    with pytest.raises(ProtocolShapeError, match="needs 'to'"):
+        normalise_shape({"type": "ramp", "from": 0.0}, name="s")
+
+
+def test_a_ramp_rejects_the_pacing_fields_rather_than_ignoring_them():
+    """Silently dropping 'events' would give a ramp where the user wrote a
+    stimulus and expected one."""
+    with pytest.raises(ProtocolShapeError, match="does not apply"):
+        normalise_shape({"type": "ramp", "from": 0.0, "to": 1.0, "events": [STIM]}, name="s")

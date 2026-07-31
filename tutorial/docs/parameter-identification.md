@@ -100,6 +100,16 @@ the shape its own `duration` if you want to override that, which is also how a s
 subexperiments of different lengths is disambiguated. Overlapping events are rejected, as they are in
 Myokit, and so is a stimulus that never fires inside the time it is run over.
 
+A step and a single pulse are just pacing events that do not repeat: a step is `{"level": v, "start": ts,
+"length": <rest of the subexperiment>, "period": 0}` over a `baseline`, and a pulse is the same with a
+shorter `length`. A linear sweep is not a square event, so it has its own type:
+
+```json
+"protocol_shapes": { "load": {"type": "ramp", "from": 0.0, "to": 5.0} }
+```
+
+which runs from `from` at the start of the subexperiment to `to` at its end.
+
 The expansion happens when the file is read, so everything downstream -- the solvers, the plots -- sees an
 ordinary `protocol_traces` entry and behaves exactly as it would have if you had written the points out.
 

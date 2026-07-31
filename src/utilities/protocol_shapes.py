@@ -32,17 +32,20 @@ not have to learn a second name for ``Length``.
 
 from __future__ import annotations
 
-# Recognised shape types. Only pacing today; the key exists so a later shape
-# (ramp, sine) is an addition rather than a breaking change to the format.
+# Recognised shape types. `pacing` covers everything built from square events --
+# a stimulus train, a step, a single pulse -- because those differ only in how
+# many times the event repeats. `ramp` is separate because a linear sweep is not
+# a square event and cannot be written as one.
 PACING = "pacing"
-SHAPE_TYPES = (PACING,)
+RAMP = "ramp"
+SHAPE_TYPES = (PACING, RAMP)
 
 # `Length` in a .mmt's column header, `duration` in Myokit's Python API. Both are
 # accepted: a user coming from either should not have to look this up.
 LENGTH_KEYS = ("length", "duration")
 
 EVENT_KEYS = {"level", "start", "period", "multiplier", *LENGTH_KEYS}
-SHAPE_KEYS = {"type", "events", "baseline", "duration"}
+SHAPE_KEYS = {"type", "events", "baseline", "duration", "from", "to"}
 
 # A generated trace is square, but myokit.TimeSeriesProtocol interpolates
 # linearly between the points it is given -- so an edge is a very short ramp
@@ -92,6 +95,9 @@ def normalise_shape(shape, *, name):
             f"protocol_shapes['{name}'] has type '{shape_type}'; "
             f"expected one of {list(SHAPE_TYPES)}"
         )
+
+    if shape_type == RAMP:
+        return _normalise_ramp(shape, name=name)
 
     events = shape.get("events")
     if not isinstance(events, (list, tuple)) or not events:
@@ -172,6 +178,40 @@ def normalise_shape(shape, *, name):
     return canonical
 
 
+def _normalise_ramp(shape, *, name):
+    """A linear sweep across the sub-experiment: ``from`` at its start, ``to`` at
+    its end.
+
+    Kept deliberately plain. A ramp holding at a value before it starts, or
+    sweeping only part of the way through, is a ramp plus a step -- and the
+    format already has a way to say that, by giving the parameter its own
+    sub-experiments.
+    """
+    for key in ("from", "to"):
+        if key not in shape:
+            raise ProtocolShapeError(
+                f"protocol_shapes['{name}'] is a ramp, so it needs '{key}'"
+            )
+    unused = sorted({"events", "baseline"} & set(shape))
+    if unused:
+        raise ProtocolShapeError(
+            f"protocol_shapes['{name}'] is a ramp, so {unused} does not apply to it"
+        )
+    canonical = {
+        "type": RAMP,
+        "from": _number(shape["from"], f"protocol_shapes['{name}']['from']"),
+        "to": _number(shape["to"], f"protocol_shapes['{name}']['to']"),
+    }
+    if "duration" in shape:
+        duration = _number(shape["duration"], f"protocol_shapes['{name}']['duration']")
+        if duration <= 0:
+            raise ProtocolShapeError(
+                f"protocol_shapes['{name}'] has duration {duration}; it must be positive"
+            )
+        canonical["duration"] = duration
+    return canonical
+
+
 def _occurrences(event, duration):
     """When the event fires, within ``[0, duration)``.
 
@@ -224,6 +264,9 @@ def expand_shape(shape, duration, *, name):
             f"protocol_shapes['{name}'] is used over a sub-experiment of length "
             f"{duration:g}; there is no time to pace anything in"
         )
+
+    if shape["type"] == RAMP:
+        return {"t": [0.0, duration], "values": [shape["from"], shape["to"]]}
 
     baseline = shape["baseline"]
     spans = _intervals(shape["events"], duration, name=name)
