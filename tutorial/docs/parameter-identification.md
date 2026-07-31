@@ -64,6 +64,44 @@ is mainly used to simulate for an amout of time to reach steady state or periodi
 - **params_to_change**: A dictionary where the key is a parameter name and the entry is the assigned value of that parameter in each (experiment_idx, subexperiment_idx).
 - **experiment_colors**: The line color for the plots of each experiment. 
 - **experiment_labels**: The label for each experiment, which is used for plotting and naming plots.
+- **protocol_traces** (optional): Named `{"t": [...], "values": [...]}` waveforms. A `params_to_change`
+entry may be the *name* of one instead of a number, and the parameter then follows that waveform over the
+subexperiment rather than being held constant.
+- **protocol_shapes** (optional): The same thing written as events rather than as a table of points --
+see below. A name is defined in `protocol_traces` **or** in `protocol_shapes`, whichever suits; both are
+referred to from `params_to_change` the same way.
+
+#### Time-varying inputs: protocol_shapes
+
+A stimulus is easier to write as "1 unit, 2 ms long, every 1000 ms" than as the forty numbers that
+describes. `protocol_shapes` takes the first form, using the same five fields as a Myokit `.mmt`
+`[[protocol]]` table, so a protocol imported from Myokit needs no translation:
+
+```
+# .mmt                                  # obs_data.json
+# Level  Start  Length  Period  Mult    "protocol_shapes": {
+  1.0    100    2       1000    0           "stim": {"events": [{"level": 1.0, "start": 100,
+                                                                "length": 2, "period": 1000,
+                                                                "multiplier": 0}]}
+                                        },
+                                        "params_to_change": {"membrane/stim": [["stim"]]}
+```
+
+- **level** — the value the parameter takes during the event; outside every event it takes **baseline**
+(default `0`).
+- **start**, **length** — when the event begins and how long it lasts. `duration` is accepted as a synonym
+for `length` (it is what Myokit's Python API calls it).
+- **period** — how often it repeats; `0` means it happens once.
+- **multiplier** — how many times it repeats; `0` means "for as long as the subexperiment runs", so the
+number of beats follows `sim_times` rather than having to be counted out by hand.
+
+A shape is expanded over the subexperiment that refers to it, so its length comes from `sim_times`. Give
+the shape its own `duration` if you want to override that, which is also how a shape shared between
+subexperiments of different lengths is disambiguated. Overlapping events are rejected, as they are in
+Myokit, and so is a stimulus that never fires inside the time it is run over.
+
+The expansion happens when the file is read, so everything downstream -- the solvers, the plots -- sees an
+ordinary `protocol_traces` entry and behaves exactly as it would have if you had written the points out.
 
 ### data items
 Examples of `obs_data.json`, `data_item` entries are shown in below figures for constant, constant with operation_kwargs, series, and frequency data types, respectively. 

@@ -157,6 +157,22 @@ class ProtocolRunner:
                 json_obj = json.load(fh)
             protocol_info = json_obj['protocol_info']
 
+        # Hand the protocol to the helper before running it. Without this a
+        # params_to_change entry naming a trace (or a shape) failed here with
+        # "protocol_traces not found in protocol_info" -- the helper had never
+        # been told the protocol it was executing. Guarded on identity because
+        # for the Myokit backend this rebinds `pace` and recreates the
+        # simulation, which is not something to redo on every call.
+        if hasattr(self.sim_helper, 'set_protocol_info'):
+            if getattr(self, '_applied_protocol_info', None) is not protocol_info:
+                self.sim_helper.set_protocol_info(protocol_info)
+                self._applied_protocol_info = protocol_info
+                # Binding `pace` rebuilds the simulation, and the result rows are
+                # ordered by the rebuilt model's variables -- so the map captured
+                # in __init__ no longer indexes what get_results returns. Left
+                # stale, every variable silently reads as its neighbour.
+                self.variable_names = self.sim_helper.get_all_variable_names()
+
         sim_times = protocol_info['sim_times']
         pre_times = protocol_info['pre_times']
         num_experiments = len(sim_times)
