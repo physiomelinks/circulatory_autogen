@@ -42,6 +42,13 @@ sys.path.append(os.path.join(root_dir, 'src'))
 # and SOLVER_SCHEMA['ad_suitable_methods'] below, so the two cannot drift.
 _CASADI_ADJOINT_METHODS = ('cvodes', 'idas')
 
+# AADC solver methods whose forward integration the tape can record step-for-step. An adaptive
+# integrator picks its step sizes from the state, so the sequence of operations changes with the
+# parameters and cannot be replayed from a tape. Lives here (not in param_id/aadc_backend.py,
+# which imports it) so the schema and the check that enforces it cannot drift, and so the
+# dependency points one way: the backend depends on the schema, not the reverse.
+AADC_TAPE_CONSISTENT_METHODS = ('rk4', 'implicit_euler_ift', 'semi_implicit')
+
 # Single source of truth for which generated model_types exist, which solvers are
 # valid for each, and which methods/plugins are valid for each solver. Used for
 # input validation here AND surfaced to downstream tools (e.g. the CUFLynx
@@ -105,9 +112,15 @@ SOLVER_SCHEMA = {
 # (cvodes/idas), whose adjoint integration fails on a long warmup (CV_TOO_MUCH_WORK); the symbolic
 # methods (collocation, rk, semi_implicit_euler, bdf) are differentiated by reverse mode and fully
 # support CasADi AD. Derived from _CASADI_ADJOINT_METHODS so the flag and the warning cannot drift.
+# AD-suitable aadc_semi_implicit methods are exactly the fixed-step ones the tape can replay;
+# 'adaptive_rk45' chooses its steps from the state, so the forward solve and the gradient would
+# integrate different systems. Derived from AADC_TAPE_CONSISTENT_METHODS, which aadc_backend
+# enforces, so the schema and the runtime check cannot drift (issue #336).
 SOLVER_SCHEMA['ad_suitable_methods'] = {
     'casadi_integrator': [m for m in SOLVER_SCHEMA['methods_by_solver']['casadi_integrator']
                           if m not in _CASADI_ADJOINT_METHODS],
+    'aadc_semi_implicit': [m for m in SOLVER_SCHEMA['methods_by_solver']['aadc_semi_implicit']
+                           if m in AADC_TAPE_CONSISTENT_METHODS],
 }
 # Myokit CVODES forward-sensitivity (FSA) is the analytic gradient for stiff cellml_only models;
 # its method is 'CVODE' on the CVODE solvers. (CA's get_gradient currently produces FSA only for
@@ -123,6 +136,10 @@ SOLVER_SCHEMA['fsa_suitable_methods'] = {
 # internal fallback (a plain run without a method still uses the helper's default).
 SOLVER_SCHEMA['default_method_by_solver'] = {
     'casadi_integrator': 'bdf',
+    # 'rk4' rather than the first entry in methods_by_solver ('adaptive_rk45'): a tool defaulting
+    # to "first offered" would pick the one method the tape can never record, on a backend whose
+    # whole purpose is tape-based gradients (issue #336).
+    'aadc_semi_implicit': 'rk4',
 }
 
 
@@ -429,6 +446,12 @@ def gradient_sources(model_type, solver=None, method=None):
                                 'model to be differentiable.'),
             })
     elif model_type == 'aadc_python':
+        aadc_methods = SOLVER_SCHEMA['methods_by_solver']['aadc_semi_implicit']
+        aadc_ad_suitable = SOLVER_SCHEMA['ad_suitable_methods']['aadc_semi_implicit']
+        # Gate only a *known* aadc method the tape cannot record (adaptive_rk45); an unknown or
+        # unspecified method leaves AD offered, matching the casadi branch above.
+        if method is not None and method in aadc_methods and method not in aadc_ad_suitable:
+            return sources
         sources.append({
             'value': 'AD', 'label': 'Automatic differentiation (AADC)', 'do_ad': True,
             'requires_all_differentiable': False,
