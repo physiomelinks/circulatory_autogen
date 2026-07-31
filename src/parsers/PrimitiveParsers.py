@@ -20,6 +20,8 @@ except Exception:
 import re
 from datetime import date
 
+from utilities.protocol_shapes import materialise_shapes, validate_trace_references
+
 try:
     from mpi4py import MPI
     mpi_available = True
@@ -1982,6 +1984,9 @@ class ObsAndParamDataParser(object):
                 "experiment_colors": {"types": (list, tuple, np.ndarray), "default": None},
                 "comment": {"types": (str,), "default": None},
                 "protocol_traces": {"types": (dict,), "default": {}},
+                # The same waveforms written as Myokit-style events rather than
+                # point tables; expanded into protocol_traces below.
+                "protocol_shapes": {"types": (dict,), "default": {}},
             }
 
             unknown_protocol_keys = sorted(set(protocol_info.keys()) - set(protocol_schema.keys()))
@@ -2018,6 +2023,11 @@ class ObsAndParamDataParser(object):
                 )
 
             validate_params_to_change(protocol_info)
+            # Shapes become traces here, once, so every consumer downstream --
+            # solver helpers, plotting, anything added later -- keeps seeing only
+            # protocol_traces and needs no knowledge of shapes.
+            materialise_shapes(protocol_info)
+            validate_trace_references(protocol_info)
 
             # Load Prediction Info
             if 'prediction_items' in json_obj.keys():
@@ -2128,7 +2138,13 @@ class ObsAndParamDataParser(object):
 
             type_errors = []
             missing_required_cols = []
-            for col, rules in schema.items():
+            # No data items at all is a valid obs_data: a protocol-only file says
+            # how to drive the model without yet saying what to measure, which is
+            # what an obs_data generated from a model's own protocol looks like
+            # before its targets are added. There is nothing to validate, and the
+            # column defaults below are derived from other columns -- so on an
+            # empty frame they raised KeyError: 'variable' instead.
+            for col, rules in ({} if len(gt_df) == 0 else schema).items():
                 allowed = rules["types"]
                 default = rules["default"]
 

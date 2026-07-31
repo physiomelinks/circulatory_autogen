@@ -112,13 +112,18 @@ User-extensible (kept outside `src/`): `module_config_user/` (custom CellML modu
     "pre_times":  [0.0, 0.0],
     "sim_times":  [[5], [5]],
     "params_to_change": { "component/param": [[exp0_sub0, …], [exp1_sub0, …]] },
-    "protocol_traces": { "trace_key": {"t": [...], "values": [...]} }
+    "protocol_traces": { "trace_key": {"t": [...], "values": [...]} },
+    "protocol_shapes": { "trace_key": {"events": [{"level": 1.0, "start": 100,
+                                                   "length": 2, "period": 1000,
+                                                   "multiplier": 0}]} }
   },
   "data_items": [...],
   "prediction_items": [...]
 }
 ```
 A `params_to_change` value is a **float** (constant) or a **string** (trace key into `protocol_traces`). Series entries currently must have a `std` set (single-likelihood assumption — see commit history).
+
+`protocol_shapes` is the **same waveform written as Myokit `[[protocol]]` events** rather than as a table of points, in Myokit's own field names (`level` / `start` / `length` / `period` / `multiplier`, plus an optional `baseline`) — so a protocol imported from a `.mmt` needs no translation. `utilities/protocol_shapes.materialise_shapes` expands them **into `protocol_traces`** at parse time (and again, idempotently, in `set_protocol_info`), so **nothing downstream needs to know shapes exist** — keep it that way and add new shape types there rather than teaching the solvers about them. A shape is sized by the sub-experiment that references it unless it names its own `duration`; a name belongs to `protocol_traces` **or** `protocol_shapes`, not both.
 
 **Timeline conventions** (subtle — get these right):
 - `pre_times[j]` is the **unlogged pre-pass** before the first sub-experiment of experiment `j`; `sim_times[j][k]` is the duration of sub-experiment `(j, k)`.

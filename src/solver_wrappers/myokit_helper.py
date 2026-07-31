@@ -7,6 +7,7 @@ from myokit.formats import cellml as cellml_format
 # sys.path.append(src_dir)
 import utilities.libcellml_helper_funcs as cellml
 from solver_wrappers.name_resolver import VariableNameResolver
+from utilities.protocol_shapes import materialise_shapes, validate_trace_references
 import xml.etree.ElementTree as ET
 import tempfile
 import re
@@ -77,6 +78,13 @@ class SimulationHelper:
         """
         Store protocol metadata and (if needed) recreate Simulation with pace binding.
         """
+        # Any protocol_shapes become protocol_traces here, so the trace lookup
+        # further down sees one representation regardless of which the user
+        # wrote. In place and idempotent: the caller keeps the dict it passed
+        # (plot_outputs reads protocol_info back off the helper), and a
+        # protocol_info that came through the parser is already expanded.
+        materialise_shapes(protocol_info)
+        validate_trace_references(protocol_info)
         self.protocol_info = protocol_info
         paced_param_name = self._find_paced_parameter_name(protocol_info)
         if paced_param_name is None:
