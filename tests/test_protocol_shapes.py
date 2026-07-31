@@ -485,3 +485,108 @@ def test_a_ramp_rejects_the_pacing_fields_rather_than_ignoring_them():
     stimulus and expected one."""
     with pytest.raises(ProtocolShapeError, match="does not apply"):
         normalise_shape({"type": "ramp", "from": 0.0, "to": 1.0, "events": [STIM]}, name="s")
+
+
+# ----------------------------------------------------------------------------------------
+# Mixing a hand-written trace and a shape, and the one-paced-variable limit
+# ----------------------------------------------------------------------------------------
+
+def test_a_trace_and_a_shape_can_drive_different_variables():
+    """One variable driven by a hand-written trace, another by a shape, in one protocol.
+
+    The two forms are alternatives *per name*, not mutually exclusive per file: a name is
+    defined in protocol_traces or protocol_shapes, but a protocol may use both for different
+    variables. Expansion merges the shape-derived traces into whatever traces are already
+    there, so params_to_change can refer to either kind the same way.
+    """
+    info = {
+        "pre_times": [0.0],
+        "sim_times": [[2000.0], [2000.0]],
+        "params_to_change": {
+            "engine/pace": [["stim"], [0.0]],        # sub-exp 0: shape-derived
+            "membrane/i_ext": [[0.0], ["ramp"]],     # sub-exp 1: hand-written trace
+        },
+        "protocol_shapes": {"stim": _shape()},
+        "protocol_traces": {"ramp": {"t": [0.0, 1000.0, 2000.0],
+                                     "values": [0.0, 1.0, 0.0]}},
+    }
+    out = materialise_shapes(info)
+    traces = out["protocol_traces"]
+
+    assert set(traces) == {"stim", "ramp"}
+    # the hand-written one is untouched
+    assert traces["ramp"] == {"t": [0.0, 1000.0, 2000.0], "values": [0.0, 1.0, 0.0]}
+    # the shape expanded into a real waveform, distinct from it
+    assert traces["stim"]["t"] and traces["stim"] != traces["ramp"]
+    # and neither reference is reported as dangling
+    validate_trace_references(out)
+
+
+def test_a_shape_and_a_trace_may_drive_the_same_variable_in_different_subexperiments():
+    """Switching which waveform drives one variable between sub-experiments is allowed.
+
+    Only *concurrent* pacing of two different variables is limited (see the Myokit test
+    below); driving one variable from a shape in one sub-experiment and a hand-written trace
+    in the next is a single paced variable at any moment.
+    """
+    info = {
+        "pre_times": [0.0],
+        "sim_times": [[2000.0, 2000.0]],
+        "params_to_change": {"engine/pace": [["stim", "ramp"]]},
+        "protocol_shapes": {"stim": _shape()},
+        "protocol_traces": {"ramp": {"t": [0.0, 2000.0], "values": [0.0, 1.0]}},
+    }
+    out = materialise_shapes(info)
+    assert set(out["protocol_traces"]) == {"stim", "ramp"}
+    validate_trace_references(out)
+
+
+@pytest.mark.integration
+@pytest.mark.solver
+def test_myokit_refuses_two_paced_variables_in_one_subexperiment(
+        generated_cellml_model_factory):
+    """Myokit binds a single 'pace' label per simulation segment, so two variables cannot be
+    driven from time series at the same instant. Driving different variables in *different*
+    sub-experiments is fine; this is only about one sub-experiment."""
+    import sys, os
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'src'))
+    from solver_wrappers import get_simulation_helper
+
+    model_path = generated_cellml_model_factory(
+        "Lotka_Volterra", "Lotka_Volterra_parameters.csv", solver="CVODE_myokit")
+    h = get_simulation_helper(
+        model_path=model_path, model_type="cellml_only", solver="CVODE_myokit",
+        dt=0.01, sim_time=1.0, pre_time=0.0,
+        solver_info={"MaximumStep": 0.01, "MaximumNumberOfSteps": 5000})
+    h.set_protocol_info({
+        "pre_times": [0.0], "sim_times": [[1.0]],
+        "params_to_change": {"Lotka_Volterra/alpha": [["a"]],
+                             "Lotka_Volterra/beta": [["b"]]},
+        "protocol_traces": {"a": {"t": [0.0, 1.0], "values": [1.0, 1.0]},
+                            "b": {"t": [0.0, 1.0], "values": [1.0, 1.0]}},
+    })
+    with pytest.raises(ValueError, match="only one paced variable"):
+        h.set_param_vals([["Lotka_Volterra/alpha"], ["Lotka_Volterra/beta"]], [["a"], ["b"]])
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("module_name,backend_label", [
+    ("solver_wrappers.casadi_python_solver_helper", "CasADi"),
+    ("solver_wrappers.aadc_python_solver_helper", "AADC"),
+    ("solver_wrappers.python_solver_helper", "python"),
+])
+def test_non_myokit_backends_refuse_protocol_traces_explicitly(module_name, backend_label):
+    """Only the Myokit backend implements protocol_traces.
+
+    The others previously assigned the trace *name* straight into their numeric parameter
+    vector (CasADi and AADC) or named the wrong backend in the error (python said 'OpenCOR').
+    A silently corrupted parameter vector surfaces somewhere numeric, far from the protocol
+    that caused it, so each backend now refuses a string value where the mistake is made.
+    """
+    import importlib, inspect
+    src = inspect.getsource(importlib.import_module(module_name).SimulationHelper.set_param_vals)
+    assert "isinstance(val, str)" in src or "type(val) == str" in src, (
+        f"{backend_label} backend does not check for a protocol trace name")
+    assert "NotImplementedError" in src
+    assert "CVODE_myokit" in src, (
+        f"{backend_label} error should point at the solver that does support traces")

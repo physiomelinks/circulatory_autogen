@@ -312,6 +312,18 @@ class SimulationHelper:
             vals = _to_list(vals)
 
             for name, val in zip(name_or_list, vals):
+                if isinstance(val, str):
+                    # Without this the string is assigned straight into self.variables and
+                    # corrupts the parameter vector silently -- the failure then surfaces
+                    # somewhere numeric, far from the protocol that caused it.
+                    raise NotImplementedError(
+                        f"'{name}' was given the protocol trace name '{val}', but the "
+                        f"CasADi backend cannot drive a variable from a time series. "
+                        f"protocol_traces (and the protocol_shapes that expand into them) are "
+                        f"only implemented for solver 'CVODE_myokit'. Use that solver for a "
+                        f"paced model, or replace the trace with a per-sub-experiment constant "
+                        f"in params_to_change."
+                    )
                 kind, idx_res = self._resolver.resolve(name)
                 if kind == "state":
                     self.states[idx_res] = val
