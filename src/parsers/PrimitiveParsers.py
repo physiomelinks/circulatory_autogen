@@ -49,7 +49,18 @@ _CASADI_ADJOINT_METHODS = ('cvodes', 'idas')
 # parameters and cannot be replayed from a tape. Lives here (not in param_id/aadc_backend.py,
 # which imports it) so the schema and the check that enforces it cannot drift, and so the
 # dependency points one way: the backend depends on the schema, not the reverse.
-AADC_TAPE_CONSISTENT_METHODS = ('rk4', 'implicit_euler_ift', 'semi_implicit')
+AADC_TAPE_CONSISTENT_METHODS = ('rk4', 'implicit_euler_ift', 'semi_implicit', 'implicit_newton')
+
+# The stiff BDF methods do not go through the standard replay tape at all: aadc_backend.
+# cost_and_grad dispatches each to its own gradient implementation *before* the
+# AADC_TAPE_CONSISTENT_METHODS check, so they are AD-capable without being members of it. Kept
+# as a separate tuple rather than folded into the one above, because that one means "the standard
+# tape can replay this step sequence" and these are not that -- but both are AD-capable, which is
+# what ad_suitable_methods advertises.
+AADC_BDF_AD_METHODS = ('bdf_newton', 'bdf_tape', 'bdf_kernel')
+
+# Every AADC method that can produce an analytic gradient, by either route.
+AADC_AD_METHODS = AADC_TAPE_CONSISTENT_METHODS + AADC_BDF_AD_METHODS
 
 # Single source of truth for which generated model_types exist, which solvers are
 # valid for each, and which methods/plugins are valid for each solver. Used for
@@ -91,7 +102,7 @@ SOLVER_SCHEMA = {
         # reached the tape. The AD tape has no bdf branch either, so do_ad silently recorded
         # rk4 instead -- cost and gradient were different functions. Use 'semi_implicit' for
         # stiff models, or model_type 'casadi_python' for a differentiable symbolic BDF.
-        'aadc_semi_implicit': ['adaptive_rk45', 'semi_implicit', 'implicit_euler_ift', 'rk4'],
+        'aadc_semi_implicit': ['adaptive_rk45', 'semi_implicit', 'implicit_euler_ift', 'implicit_newton', 'bdf_newton', 'bdf_tape', 'bdf_kernel', 'rk4'],
         # The user wrapper supplies the rhs; the framework integrates it with the
         # same scipy solve_ivp methods as model_type 'python'.
         'user_defined': ['RK45', 'RK23', 'DOP853', 'Radau', 'BDF', 'LSODA', 'forward_euler'],
@@ -122,7 +133,7 @@ SOLVER_SCHEMA['ad_suitable_methods'] = {
     'casadi_integrator': [m for m in SOLVER_SCHEMA['methods_by_solver']['casadi_integrator']
                           if m not in _CASADI_ADJOINT_METHODS],
     'aadc_semi_implicit': [m for m in SOLVER_SCHEMA['methods_by_solver']['aadc_semi_implicit']
-                           if m in AADC_TAPE_CONSISTENT_METHODS],
+                           if m in AADC_AD_METHODS],
 }
 # Myokit CVODES forward-sensitivity (FSA) is the analytic gradient for stiff cellml_only models;
 # its method is 'CVODE' on the CVODE solvers. (CA's get_gradient currently produces FSA only for
@@ -227,6 +238,8 @@ SOLVER_INFO_FIELDS = {
          'description': 'Integration tolerance for the adaptive AADC integrator.'},
         {'name': 'threads', 'type': 'int', 'default': 4, 'required': False,
          'description': 'Number of threads for AADC evaluation.'},
+        {'name': 'max_step', 'type': 'float', 'default': 0.001, 'required': False,
+         'description': 'Internal sub-step cap for bdf_newton (default 0.001, matching CasADi BDF).'},
         # No 'gradient_method' here: nothing reads it. AD vs FD is chosen by the `do_ad` flag
         # (see SciPyMinimizeOptimiser.run, which falls back to approx_fprime when it is off),
         # and which AD backend runs follows from model_type/solver in

@@ -29,6 +29,11 @@ try:
 except ImportError:
     aadc = None
 
+# Shared FD step for Jacobian diagonal (damping). Used by both the forward
+# solve (_integrate_semi_implicit) and the tape (compute_cost_and_gradient_tape).
+# Must be identical in both paths so they integrate the same discrete system.
+_DAMPING_FD_EPS = 1e-8
+
 # Reuse the shared name resolver from circulatory_autogen
 try:
     from .name_resolver import VariableNameResolver
@@ -349,7 +354,7 @@ class SimulationHelper:
         n = self.STATE_COUNT
         x = np.array(states[:n], dtype=float)
         vars_all = list(variables_all)
-        eps_fd = 1e-8
+        eps_fd = _DAMPING_FD_EPS
 
         # Identify zeta indices (valve states to clamp to [0,1])
         zeta_indices = [i for i, info in enumerate(self.model.STATE_INFO)
@@ -387,6 +392,171 @@ class SimulationHelper:
         # the same dt as update_times, so traj[pre_steps:] lines up with self.tSim.
         # Do NOT overwrite self.tSim — that would re-introduce the pre-time region
         # and produce a different output length/origin than the RK45 integrator.
+        return traj[self.pre_steps:]
+
+    def _integrate_implicit_newton(self, states, variables_all, total_steps, dt):
+        """Implicit Euler with full Newton iteration and FD Jacobian.
+
+        Solves F(y) = y - y_n - dt*f(y) = 0 at each step via Newton's method
+        with a full n×n Jacobian computed by finite differences.
+
+        More accurate than semi_implicit on stiff systems because:
+        - Semi_implicit uses diagonal Jacobian (1 perturbation per state)
+        - This uses full Jacobian (n perturbations per state per Newton iter)
+        - Semi_implicit does 1 implicit step; this iterates to convergence
+
+        Cost: ~n² compute_rates per step (vs ~n for semi_implicit).
+        For n=27: 27×(3-4 Newton iters) ≈ 80-110 compute_rates/step.
+        """
+        n = self.STATE_COUNT
+        x = np.array(states[:n], dtype=float)
+        vars_all = list(variables_all)
+        eps_fd = _DAMPING_FD_EPS
+
+        zeta_indices = [i for i, info in enumerate(self.model.STATE_INFO)
+                        if 'zeta' in info.get('name', '').lower()]
+
+        traj = [x.copy()]
+        max_newton = 4
+        newton_tol = 1e-10
+
+        for step in range(total_steps):
+            t = step * dt
+            y = x.copy()  # initial guess: explicit Euler or previous state
+
+            for newton_iter in range(max_newton):
+                # Compute residual F(y) = y - x - dt*f(y)
+                rates = [0.0] * n
+                self.model.compute_rates(t + dt, list(y), rates, list(vars_all))
+                F = y - x - dt * np.array(rates)
+
+                if np.max(np.abs(F)) < newton_tol:
+                    break
+
+                # Compute full Jacobian J = I - dt * df/dy via FD
+                J = np.eye(n)
+                for j in range(n):
+                    h = max(abs(y[j]) * eps_fd, eps_fd)
+                    y_bump = y.copy()
+                    y_bump[j] += h
+                    rates_bump = [0.0] * n
+                    self.model.compute_rates(t + dt, list(y_bump), rates_bump, list(vars_all))
+                    for i in range(n):
+                        J[i, j] -= dt * (rates_bump[i] - rates[i]) / h
+
+                # Newton step: dy = -J^{-1} F
+                try:
+                    dy = np.linalg.solve(J, -F)
+                except np.linalg.LinAlgError:
+                    break  # singular Jacobian — keep current y
+                y = y + dy
+
+            # Clamp zeta to [0, 1]
+            for z in zeta_indices:
+                y[z] = max(0.0, min(1.0, y[z]))
+
+            x = y.copy()
+            traj.append(x.copy())
+
+        return traj[self.pre_steps:]
+
+    def _integrate_bdf_newton(self, states, variables_all, total_steps, dt):
+        """Implicit Euler with Newton solver using AADC VFJ for exact Jacobian.
+
+        Uses VectorFunctionWithJacobian kernel for df/dy (one AADC reverse
+        pass per Newton iteration). Forward is Python compute_rates (correct
+        passive values). Sub-steps at internal_dt = solver_info['max_step']
+        (default 0.001) for stiff accuracy, matching CasADi BDF's sub-stepping.
+
+        This is the AADC analogue of CasADi's _run_symbolic_bdf: same fixed-step
+        implicit solve, same sub-stepping, but with AADC adjoint Jacobian instead
+        of CasADi symbolic Jacobian.
+        """
+        from scipy.linalg import lu_factor, lu_solve
+
+        n = self.STATE_COUNT
+        x = np.array(states[:n], dtype=float)
+        vars_all = list(variables_all)
+
+        zeta_indices = [i for i, info in enumerate(self.model.STATE_INFO)
+                        if 'zeta' in info.get('name', '').lower()]
+
+        # Sub-stepping: internal dt capped at max_step (default 0.001, same as CasADi)
+        max_step = float(self.solver_info.get('max_step', 0.001))
+        n_sub = max(1, int(np.ceil(dt / max_step)))
+        idt = dt / n_sub
+        max_newton = 4
+        newton_tol = 1e-10
+
+        # Build VFJ kernel if not already done
+        if not hasattr(self, '_bdf_vfj') or self._bdf_vfj is None:
+            rhs_f = aadc.Functions()
+            rhs_f.start_recording()
+            id_x = [aadc.idouble(float(x[i])) for i in range(n)]
+            a_x = [xi.mark_as_input() for xi in id_x]
+            id_v = [aadc.idouble(float(v) if not (isinstance(v, float) and
+                    v != v) else 0.0) for v in vars_all]
+            # Mark AD params as inputs
+            a_p_inner = []
+            if hasattr(self, '_ad_param_var_indices'):
+                for idx in self._ad_param_var_indices:
+                    id_v[idx] = aadc.idouble(float(vars_all[idx]))
+                    a_p_inner.append(id_v[idx].mark_as_input())
+            id_r = [aadc.idouble(0.0) for _ in range(n)]
+            self.model.compute_rates(aadc.idouble(0.0), id_x, id_r, list(id_v))
+            r_r = []
+            for i in range(n):
+                r_r.append((id_r[i] if hasattr(id_r[i], 'mark_as_output')
+                           else aadc.idouble(float(id_r[i]))).mark_as_output())
+            rhs_f.stop_recording()
+            self._bdf_vfj = aadc.VectorFunctionWithJacobian(
+                rhs_f, a_x, a_p_inner, r_r)
+            self._bdf_rhs_f = rhs_f
+            self._bdf_a_x = a_x
+            self._bdf_a_p = a_p_inner
+            self._bdf_r_r = r_r
+
+        if hasattr(self, '_ad_param_var_indices') and self._ad_param_var_indices:
+            param_vals = np.array([float(vars_all[idx])
+                                   for idx in self._ad_param_var_indices])
+            self._bdf_vfj.set_params(param_vals)
+
+        vfj = self._bdf_vfj
+        eye_n = np.eye(n)
+        traj = [x.copy()]
+        x_prev = None  # for BDF2: need x_{n-1}
+
+        for step in range(total_steps):
+            for sub in range(n_sub):
+                y = x.copy()
+                use_bdf2 = x_prev is not None
+
+                for nit in range(max_newton):
+                    rates_arr = vfj.func(y)
+                    if use_bdf2:
+                        # BDF2: x_{n+1} - 4/3 x_n + 1/3 x_{n-1} - 2/3 dt f(x_{n+1}) = 0
+                        F = y - (4.0/3.0) * x + (1.0/3.0) * x_prev - (2.0/3.0) * idt * rates_arr
+                        jac_coeff = 2.0 / 3.0
+                    else:
+                        # BDF1 (startup): x_{n+1} - x_n - dt f(x_{n+1}) = 0
+                        F = y - x - idt * rates_arr
+                        jac_coeff = 1.0
+                    if np.max(np.abs(F)) < newton_tol:
+                        break
+                    J_rhs = vfj.jac(y)
+                    J_g = eye_n - jac_coeff * idt * J_rhs
+                    try:
+                        lu_piv = lu_factor(J_g)
+                        dy = lu_solve(lu_piv, -F)
+                    except np.linalg.LinAlgError:
+                        break
+                    y += dy
+                for z in zeta_indices:
+                    y[z] = max(0.0, min(1.0, y[z]))
+                x_prev = x.copy()
+                x = y.copy()
+            traj.append(x.copy())
+
         return traj[self.pre_steps:]
 
     def _integrate_rk4(self, states, variables_all, total_steps, dt):
@@ -648,6 +818,10 @@ class SimulationHelper:
         method = self.solver_info.get('method', 'adaptive_rk45')
         if method == 'implicit_euler_ift':
             traj = self._integrate_implicit_euler_ift(self.states, variables_all, total_steps, self.dt)
+        elif method == 'implicit_newton':
+            traj = self._integrate_implicit_newton(self.states, variables_all, total_steps, self.dt)
+        elif method == 'bdf_newton':
+            traj = self._integrate_bdf_newton(self.states, variables_all, total_steps, self.dt)
         elif method == 'semi_implicit':
             traj = self._integrate_semi_implicit(self.states, variables_all, total_steps, self.dt)
         elif method == 'rk4':
@@ -1013,6 +1187,102 @@ class SimulationHelper:
             if tape_method == 'implicit_euler_ift':
                 st = self._integrate_implicit_euler_ift_on_tape(
                     st, vars_rec, total_steps, dt, n)
+            elif tape_method == 'implicit_newton':
+                zeta_idx = [i for i, info in enumerate(self.model.STATE_INFO)
+                            if 'zeta' in info.get('name', '').lower()]
+                _eps = aadc.idouble(_DAMPING_FD_EPS)
+                _dt = aadc.idouble(dt)
+                _zero = aadc.idouble(0.0)
+                _one = aadc.idouble(1.0)
+                max_newton = 4
+
+                self._tape_trajectory = []
+                self._tape_var_trajectory = []
+                _needed_vars = getattr(self, '_needed_var_indices', [])
+
+                for step in range(total_steps):
+                    t_step = step * dt
+                    if step >= self.pre_steps:
+                        self._tape_trajectory.append(list(st))
+                        if _needed_vars:
+                            rates_cv = [aadc.idouble(0.0) for _ in range(n)]
+                            vars_cv = list(vars_rec)
+                            self.model.compute_rates(t_step, st, rates_cv, vars_cv)
+                            try:
+                                self.model.compute_variables(t_step, st, rates_cv, vars_cv)
+                            except AttributeError:
+                                pass
+                            self._tape_var_trajectory.append([vars_cv[vi] for vi in _needed_vars])
+
+                    y = list(st)  # Newton initial guess = current state
+                    for nit in range(max_newton):
+                        # Rates at y
+                        rates = [aadc.idouble(0.0) for _ in range(n)]
+                        self.model.compute_rates(t_step + dt, y, rates, list(vars_rec))
+
+                        # Residual F[i] = y[i] - st[i] - dt * rates[i]
+                        F = [y[i] - st[i] - _dt * rates[i] for i in range(n)]
+
+                        # Full Jacobian J[i][j] = delta_ij - dt * drates_i/dy_j  (via FD)
+                        J = [[aadc.idouble(0.0)] * n for _ in range(n)]
+                        for i in range(n):
+                            J[i][i] = _one
+                        for j in range(n):
+                            abs_yj = aadc.iif(y[j] >= _zero, y[j], -y[j])
+                            h_j = aadc.iif(abs_yj * _eps >= _eps, abs_yj * _eps, _eps)
+                            y_bump = list(y)
+                            y_bump[j] = y[j] + h_j
+                            rates_bump = [aadc.idouble(0.0) for _ in range(n)]
+                            self.model.compute_rates(t_step + dt, y_bump, rates_bump, list(vars_rec))
+                            for i in range(n):
+                                J[i][j] = J[i][j] - _dt * (rates_bump[i] - rates[i]) / h_j
+
+                        # Gaussian elimination with partial pivoting (idouble)
+                        # Augmented matrix [J | F]
+                        aug = [J[i] + [F[i]] for i in range(n)]
+                        for col in range(n):
+                            # Pivot: find max |aug[row][col]| for row >= col
+                            # With idouble we can't compare easily, skip pivoting
+                            # (works if diagonal dominant, which J = I - dt*df/dy usually is)
+                            pivot = aug[col][col]
+                            for row in range(col + 1, n):
+                                factor = aug[row][col] / pivot
+                                for k in range(col + 1, n + 1):
+                                    aug[row][k] = aug[row][k] - factor * aug[col][k]
+                                aug[row][col] = _zero
+
+                        # Back substitution
+                        dy = [aadc.idouble(0.0)] * n
+                        for i in range(n - 1, -1, -1):
+                            s = aug[i][n]
+                            for j in range(i + 1, n):
+                                s = s - aug[i][j] * dy[j]
+                            dy[i] = s / aug[i][i]
+
+                        # Newton update: y -= dy  (we solved J*dy = F, so y_new = y - dy)
+                        for i in range(n):
+                            y[i] = y[i] - dy[i]
+
+                    # Clamp zeta
+                    for z in zeta_idx:
+                        y[z] = aadc.iif(y[z] >= _zero, y[z], _zero)
+                        y[z] = aadc.iif(y[z] <= _one, y[z], _one)
+
+                    st = y
+
+                # Final trajectory point
+                self._tape_trajectory.append(list(st))
+                if _needed_vars:
+                    t_final = total_steps * dt
+                    rates_cv = [aadc.idouble(0.0) for _ in range(n)]
+                    vars_cv = list(vars_rec)
+                    self.model.compute_rates(t_final, st, rates_cv, vars_cv)
+                    try:
+                        self.model.compute_variables(t_final, st, rates_cv, vars_cv)
+                    except AttributeError:
+                        pass
+                    self._tape_var_trajectory.append([vars_cv[vi] for vi in _needed_vars])
+
             elif tape_method == 'semi_implicit':
                 zeta_idx = [i for i, info in enumerate(self.model.STATE_INFO)
                             if 'zeta' in info.get('name', '').lower()]
@@ -1023,22 +1293,42 @@ class SimulationHelper:
                 # This puts lam on the same tape as rates → exact AD gradient.
                 # (Previous version used a separate inner kernel → passive
                 # floats → AD/FD ≈ 0.79 on stiff models.)
-                FD_EPS = 1e-6
+                # Same FD step as forward solve (_integrate_semi_implicit):
+                #   h_i = max(|x_i| * eps, eps)
+                # Using the shared _DAMPING_FD_EPS constant.
+                _eps = aadc.idouble(_DAMPING_FD_EPS)
 
-                self._tape_trajectory = [list(st)]
+                self._tape_trajectory = []
+                self._tape_var_trajectory = []
+                _needed_vars = getattr(self, '_needed_var_indices', [])
                 for step in range(total_steps):
                     t_step = step * dt
+                    # Collect trajectory BEFORE the step (matches forward solve)
+                    if step >= self.pre_steps:
+                        self._tape_trajectory.append(list(st))
+                        # Compute algebraic variables on tape if needed
+                        if _needed_vars:
+                            rates_cv = [aadc.idouble(0.0) for _ in range(n)]
+                            vars_cv = list(vars_rec)
+                            self.model.compute_rates(t_step, st, rates_cv, vars_cv)
+                            try:
+                                self.model.compute_variables(t_step, st, rates_cv, vars_cv)
+                            except AttributeError:
+                                pass
+                            self._tape_var_trajectory.append([vars_cv[vi] for vi in _needed_vars])
+
                     # Rates at current state (on tape)
                     rates_id = [aadc.idouble(0.0) for _ in range(n)]
                     self.model.compute_rates(t_step, st, rates_id, list(vars_rec))
 
                     # Jacobian diagonal via on-tape FD: lam[i] = |df_i/dy_i|
+                    # Formula identical to forward: h = max(|x|*eps, eps)
                     lam = [aadc.idouble(0.0)] * n
                     for i in range(n):
-                        h_i = aadc.iif(st[i] >= aadc.idouble(0.0), st[i], -st[i])
-                        h_i = aadc.iif(h_i >= aadc.idouble(1e-8),
-                                       h_i * aadc.idouble(FD_EPS),
-                                       aadc.idouble(FD_EPS))
+                        abs_st = aadc.iif(st[i] >= aadc.idouble(0.0), st[i], -st[i])
+                        h_i = aadc.iif(abs_st * _eps >= _eps,
+                                       abs_st * _eps,
+                                       _eps)
                         st_bump = list(st)
                         st_bump[i] = st[i] + h_i
                         rates_bump = [aadc.idouble(0.0) for _ in range(n)]
@@ -1053,12 +1343,34 @@ class SimulationHelper:
                         st[z] = aadc.iif(st[z] >= aadc.idouble(0.0), st[z], aadc.idouble(0.0))
                         st[z] = aadc.iif(st[z] <= aadc.idouble(1.0), st[z], aadc.idouble(1.0))
 
-                    if step >= self.pre_steps:
-                        self._tape_trajectory.append(list(st))
+                # Append final state (matches forward: traj includes endpoint)
+                self._tape_trajectory.append(list(st))
+                if _needed_vars:
+                    t_final = total_steps * dt
+                    rates_cv = [aadc.idouble(0.0) for _ in range(n)]
+                    vars_cv = list(vars_rec)
+                    self.model.compute_rates(t_final, st, rates_cv, vars_cv)
+                    try:
+                        self.model.compute_variables(t_final, st, rates_cv, vars_cv)
+                    except AttributeError:
+                        pass
+                    self._tape_var_trajectory.append([vars_cv[vi] for vi in _needed_vars])
             else:
                 # RK4 on tape (for non-stiff models)
                 # Collect trajectory for trajectory-based cost functions (max, min, mean)
+                _needed_vars = getattr(self, '_needed_var_indices', [])
                 self._tape_trajectory = [list(st)]  # initial state
+                self._tape_var_trajectory = []
+                if _needed_vars:
+                    # Initial algebraic variables
+                    rates_cv = [aadc.idouble(0.0) for _ in range(n)]
+                    vars_cv = list(vars_rec)
+                    self.model.compute_rates(0.0, st, rates_cv, vars_cv)
+                    try:
+                        self.model.compute_variables(0.0, st, rates_cv, vars_cv)
+                    except AttributeError:
+                        pass
+                    self._tape_var_trajectory.append([vars_cv[vi] for vi in _needed_vars])
                 for step in range(total_steps):
                     t = aadc.idouble(step * dt)
                     k1 = [aadc.idouble(0.0) for _ in range(n)]
@@ -1077,11 +1389,27 @@ class SimulationHelper:
                     # Store post-pre_time trajectory on tape
                     if step >= self.pre_steps:
                         self._tape_trajectory.append(list(st))
+                        if _needed_vars:
+                            t_now = (step + 1) * dt
+                            rates_cv = [aadc.idouble(0.0) for _ in range(n)]
+                            vars_cv = list(vars_rec)
+                            self.model.compute_rates(t_now, st, rates_cv, vars_cv)
+                            try:
+                                self.model.compute_variables(t_now, st, rates_cv, vars_cv)
+                            except AttributeError:
+                                pass
+                            self._tape_var_trajectory.append([vars_cv[vi] for vi in _needed_vars])
 
             # Cost — pass trajectory if cost function accepts it, else final state only
             import inspect
             sig = inspect.signature(cost_func_idouble)
-            if len(sig.parameters) >= 3:
+            n_params = len(sig.parameters)
+            if n_params >= 4:
+                # cost_func(final_state, params, trajectory, var_trajectory)
+                cost = cost_func_idouble(st, id_p,
+                                         getattr(self, '_tape_trajectory', None),
+                                         getattr(self, '_tape_var_trajectory', None))
+            elif n_params >= 3:
                 # cost_func(final_state, params, trajectory)
                 cost = cost_func_idouble(st, id_p, getattr(self, '_tape_trajectory', None))
             else:

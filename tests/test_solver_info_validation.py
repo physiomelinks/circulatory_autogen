@@ -119,7 +119,8 @@ def test_solver_integrator_keys_derived_from_schema():
     assert _SOLVER_INTEGRATOR_KEYS['casadi_integrator'] == {
         'reltol', 'abstol', 'rtol', 'atol', 'max_num_steps', 'max_step_size', 'max_step',
         'options'}
-    assert _SOLVER_INTEGRATOR_KEYS['aadc_semi_implicit'] == {'tol', 'threads'}
+    # 'max_step' comes with the stiff BDF methods (bdf_newton / bdf_tape / bdf_kernel).
+    assert _SOLVER_INTEGRATOR_KEYS['aadc_semi_implicit'] == {'tol', 'threads', 'max_step'}
 
 
 def test_schema_settings_are_actually_read_by_the_code():
@@ -711,8 +712,13 @@ def test_aadc_ad_suitable_methods_match_what_the_tape_enforces():
     all_methods = SOLVER_SCHEMA['methods_by_solver']['aadc_semi_implicit']
     advertised = SOLVER_SCHEMA['ad_suitable_methods']['aadc_semi_implicit']
 
-    # derived from the enforced tuple, so the two cannot drift
-    assert advertised == [m for m in all_methods if m in AADC_TAPE_CONSISTENT_METHODS]
+    # Derived from AADC_AD_METHODS -- the tape-replayable methods PLUS the stiff BDF methods,
+    # which reach a gradient by their own dispatch rather than the standard tape. Asserting
+    # against AADC_TAPE_CONSISTENT_METHODS alone would exclude the BDF methods, which is exactly
+    # the gap this replaced.
+    from parsers.PrimitiveParsers import AADC_AD_METHODS
+    assert advertised == [m for m in all_methods if m in AADC_AD_METHODS]
+    assert set(AADC_TAPE_CONSISTENT_METHODS) <= set(advertised)
     assert set(advertised) <= set(all_methods), (advertised, all_methods)
     # the adaptive integrator is the one that must NOT be advertised
     assert 'adaptive_rk45' in all_methods and 'adaptive_rk45' not in advertised
@@ -747,3 +753,36 @@ def test_gradient_sources_gates_aadc_ad_on_a_tape_consistent_method():
     # unspecified or unknown method leaves AD offered, matching the casadi branch
     assert 'AD' in values(None)
     assert 'AD' in values('some_unknown_method')
+
+
+@pytest.mark.unit
+def test_aadc_bdf_methods_are_advertised_as_ad_suitable():
+    """The stiff BDF methods are AD-capable and must be advertised as such.
+
+    They do not go through the standard replay tape: aadc_backend.cost_and_grad dispatches each
+    to its own gradient implementation *before* the AADC_TAPE_CONSISTENT_METHODS check, so they
+    are AD-capable without being members of that tuple. Deriving ad_suitable_methods from the
+    tuple alone left a tool refusing AD for exactly the stiff-model methods, which is the
+    combination the BDF work exists to enable.
+    """
+    from parsers.PrimitiveParsers import (
+        AADC_AD_METHODS, AADC_BDF_AD_METHODS, AADC_TAPE_CONSISTENT_METHODS)
+    import inspect
+    from param_id import aadc_backend
+
+    advertised = SOLVER_SCHEMA['ad_suitable_methods']['aadc_semi_implicit']
+    all_methods = SOLVER_SCHEMA['methods_by_solver']['aadc_semi_implicit']
+
+    # both routes to a gradient are advertised, and nothing else is invented
+    assert AADC_AD_METHODS == AADC_TAPE_CONSISTENT_METHODS + AADC_BDF_AD_METHODS
+    assert advertised == [m for m in all_methods if m in AADC_AD_METHODS]
+    for m in AADC_BDF_AD_METHODS:
+        assert m in advertised, f"{m} has a gradient implementation but is not advertised"
+    # the adaptive integrator still must not be offered
+    assert 'adaptive_rk45' not in advertised
+
+    # each advertised BDF method really is dispatched to its own gradient path
+    src = inspect.getsource(aadc_backend.cost_and_grad)
+    for m in AADC_BDF_AD_METHODS:
+        assert m.upper() + "_METHOD" in src or repr(m) in src, (
+            f"{m} is advertised as AD-suitable but cost_and_grad does not dispatch it")

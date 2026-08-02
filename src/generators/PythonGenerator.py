@@ -113,19 +113,24 @@ class _AadcCompatTransformer(ast.NodeTransformer):
                                      attr='math', ctx=ast.Load()),
                 attr=node.func.attr, ctx=ast.Load())
             return node
-        # bare floor(x) → math.floor(_aadc_passive(x))
+        # bare floor(x) → aadc.math.floor(x)
+        # aadc.math.floor works with both float and idouble, and updates
+        # correctly on tape replay (unlike math.floor(_aadc_passive(x))
+        # which baked the value at recording time).
         if isinstance(node.func, ast.Name) and node.func.id == 'floor':
-            node.func = ast.Attribute(value=ast.Name(id='math', ctx=ast.Load()),
-                                       attr='floor', ctx=ast.Load())
-            node.args = [ast.Call(func=ast.Name(id='_aadc_passive', ctx=ast.Load()),
-                                  args=node.args, keywords=[])]
+            node.func = ast.Attribute(
+                value=ast.Attribute(value=ast.Name(id='aadc', ctx=ast.Load()),
+                                    attr='math', ctx=ast.Load()),
+                attr='floor', ctx=ast.Load())
             return node
-        # math.floor(x) → math.floor(_aadc_passive(x))
+        # math.floor(x) → aadc.math.floor(x)
         if (isinstance(node.func, ast.Attribute) and
             isinstance(node.func.value, ast.Name) and
             node.func.value.id == 'math' and node.func.attr == 'floor'):
-            node.args = [ast.Call(func=ast.Name(id='_aadc_passive', ctx=ast.Load()),
-                                  args=node.args, keywords=[])]
+            node.func = ast.Attribute(
+                value=ast.Attribute(value=ast.Name(id='aadc', ctx=ast.Load()),
+                                    attr='math', ctx=ast.Load()),
+                attr='floor', ctx=ast.Load())
             return node
         # pow(x, 2.0) → x * x
         if isinstance(node.func, ast.Name) and node.func.id == 'pow' and len(node.args) == 2:
