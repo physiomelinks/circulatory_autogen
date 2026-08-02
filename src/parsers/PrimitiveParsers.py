@@ -51,6 +51,17 @@ _CASADI_ADJOINT_METHODS = ('cvodes', 'idas')
 # dependency points one way: the backend depends on the schema, not the reverse.
 AADC_TAPE_CONSISTENT_METHODS = ('rk4', 'implicit_euler_ift', 'semi_implicit', 'implicit_newton')
 
+# The stiff BDF methods do not go through the standard replay tape at all: aadc_backend.
+# cost_and_grad dispatches each to its own gradient implementation *before* the
+# AADC_TAPE_CONSISTENT_METHODS check, so they are AD-capable without being members of it. Kept
+# as a separate tuple rather than folded into the one above, because that one means "the standard
+# tape can replay this step sequence" and these are not that -- but both are AD-capable, which is
+# what ad_suitable_methods advertises.
+AADC_BDF_AD_METHODS = ('bdf_newton', 'bdf_tape', 'bdf_kernel')
+
+# Every AADC method that can produce an analytic gradient, by either route.
+AADC_AD_METHODS = AADC_TAPE_CONSISTENT_METHODS + AADC_BDF_AD_METHODS
+
 # Single source of truth for which generated model_types exist, which solvers are
 # valid for each, and which methods/plugins are valid for each solver. Used for
 # input validation here AND surfaced to downstream tools (e.g. the CUFLynx
@@ -122,7 +133,7 @@ SOLVER_SCHEMA['ad_suitable_methods'] = {
     'casadi_integrator': [m for m in SOLVER_SCHEMA['methods_by_solver']['casadi_integrator']
                           if m not in _CASADI_ADJOINT_METHODS],
     'aadc_semi_implicit': [m for m in SOLVER_SCHEMA['methods_by_solver']['aadc_semi_implicit']
-                           if m in AADC_TAPE_CONSISTENT_METHODS],
+                           if m in AADC_AD_METHODS],
 }
 # Myokit CVODES forward-sensitivity (FSA) is the analytic gradient for stiff cellml_only models;
 # its method is 'CVODE' on the CVODE solvers. (CA's get_gradient currently produces FSA only for
