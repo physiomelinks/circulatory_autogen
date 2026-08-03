@@ -297,6 +297,7 @@ class CVS0DCellMLGenerator(object):
         return line
 
     def __generate_CellML_file(self):
+        self._reset_connections()
         print("Generating CellML file {}.cellml".format(self.file_prefix))
         output_path = os.path.join(self.output_dir, f'{self.file_prefix}.cellml')
 
@@ -390,6 +391,10 @@ class CVS0DCellMLGenerator(object):
 
                 # write the converter components
                 self.__write_unit_converter(wf)
+
+                # One <connection> per component pair, emitted after every writer has had its
+                # say -- see _add_connection for why this cannot be done as we go.
+                self.__flush_connections(wf)
 
                 # Finalise the file
                 wf.write('</model>\n')
@@ -2262,6 +2267,56 @@ class CVS0DCellMLGenerator(object):
             print(f'downstream module general ports: {[general_port["port_type"] for general_port in input_general_ports]}')
             exit()
 
+    def _reset_connections(self):
+        """Start a fresh connection accumulator for one CellML file."""
+        # key: frozenset({comp1, comp2}) -> {'components': (c1, c2), 'pairs': [(v1, v2), ...]}
+        # A dict keeps insertion order, so connections appear in the order they were first
+        # requested and the output stays diffable against previous generations.
+        self._pending_connections = {}
+
+    def _add_connection(self, comp_1, comp_2, var_pairs):
+        """Record variable mappings between two components, to be emitted as one <connection>.
+
+        CellML 2.0 allows at most one <connection> per component pair (spec 2.15.4) and at most
+        one <map_variables> per variable pair within it (2.16.3). Both are violated easily by a
+        generator that writes as it goes: a pair connected from two module rows produces two
+        blocks, and the pair is *unordered* to CellML, so writing (A, B) from one row and (B, A)
+        from the other is still a duplicate. Accumulating here -- keyed on a frozenset, with the
+        pairs deduplicated -- means every call site gets uniqueness for free, rather than each of
+        the ~27 of them having to know the rule.
+        """
+        if not hasattr(self, "_pending_connections"):
+            self._reset_connections()
+        key = frozenset((comp_1, comp_2))
+        entry = self._pending_connections.get(key)
+        if entry is None:
+            entry = {"components": (comp_1, comp_2), "pairs": []}
+            self._pending_connections[key] = entry
+        # Orientation is fixed by whichever call created the entry; a later call arriving with the
+        # components the other way round must have its variable pairs swapped to match, or the
+        # mapping would silently connect the wrong variables.
+        swapped = entry["components"] != (comp_1, comp_2)
+        for v_1, v_2 in var_pairs:
+            if not v_1 or not v_2:
+                continue
+            pair = (v_2, v_1) if swapped else (v_1, v_2)
+            if pair not in entry["pairs"]:
+                entry["pairs"].append(pair)
+
+    def __flush_connections(self, wf):
+        """Emit one <connection> per component pair, then clear the accumulator."""
+        for entry in getattr(self, "_pending_connections", {}).values():
+            if not entry["pairs"]:
+                continue
+            comp_1, comp_2 = entry["components"]
+            lines = ['<connection>\n',
+                     f'   <map_components component_1="{comp_1}" component_2="{comp_2}"/>\n']
+            for v_1, v_2 in entry["pairs"]:
+                lines.append(f'   <map_variables variable_1="{v_1}" variable_2="{v_2}"/>\n')
+            lines.append('</connection>\n')
+            wf.writelines(lines)
+        self._reset_connections()
+
     def __write_mapping(self, wf, inp_name, out_name, inp_vars_list, out_vars_list, check_unit=False):    # add kwargs for units given out_module_row
         # print(input(f"mapping {inp_name} to {out_name}"))
 
@@ -2339,40 +2394,24 @@ class CVS0DCellMLGenerator(object):
                 self.__write_unit_converter_component(wf, converter_info)  
             
             # Write direct mappings (single connection)  
-            if direct_mappings:  
-                mapping = ['<connection>\n', f'   <map_components component_1="{inp_name}" component_2="{out_name}"/>\n']  
-                for inp_var, out_var in direct_mappings:  
-                    mapping.append(f'   <map_variables variable_1="{inp_var}" variable_2="{out_var}"/>\n')  
-                mapping.append('</connection>\n')  
-                wf.writelines(mapping)  
+            if direct_mappings:
+                self._add_connection(inp_name, out_name, direct_mappings)
             
             # Write converter mappings (one connection per converter)  
             for converter_info in converter_mappings.values():  
                 converter_name = converter_info['converter_name']  
                 
                 # Input to converter connection  
-                mapping = ['<connection>\n', f'   <map_components component_1="{inp_name}" component_2="{converter_name}"/>\n']  
-                for inp_var in converter_info['inp_vars']:  
-                    mapping.append(f'   <map_variables variable_1="{inp_var}" variable_2="{inp_var}"/>\n')  
-                mapping.append('</connection>\n')  
-                wf.writelines(mapping)  
+                self._add_connection(inp_name, converter_name,
+                                     [(v, v) for v in converter_info['inp_vars']])
                 
                 # Converter to output connection  
-                mapping = ['<connection>\n', f'   <map_components component_1="{converter_name}" component_2="{out_name}"/>\n']  
-                for out_var in converter_info['out_vars']:  
-                    mapping.append(f'   <map_variables variable_1="{out_var}" variable_2="{out_var}"/>\n')  
-                mapping.append('</connection>\n')  
-                wf.writelines(mapping)  
+                self._add_connection(converter_name, out_name,
+                                     [(v, v) for v in converter_info['out_vars']])
 
         else:
-            mapping = ['<connection>\n', f'   <map_components component_1="{inp_name}" component_2="{out_name}"/>\n']
-            for inp_var, out_var in zip(inp_vars_list, out_vars_list):
-                if inp_var and out_var:
-                    mapping.append(f'   <map_variables variable_1="{inp_var}" variable_2="{out_var}"/>\n')
-
-            mapping.append('</connection>\n')
-            if len(mapping) > 3:
-                wf.writelines(mapping)
+            self._add_connection(inp_name, out_name,
+                                 list(zip(inp_vars_list, out_vars_list)))
         
 
     def __write_variable_declarations(self, wf, variables, units, in_outs):
