@@ -604,17 +604,9 @@ class SimulationHelper:
         # NOTE: if an offline warm-up using pre() is ever reinstated, that pollution returns and
         # this restore must come back with it (see run_offline_pre_and_set_default_state).
         self.simulation.reset()
-        if self._offline_default_state is not None:
-            self.simulation.set_state(self._offline_default_state)
-        else:
-            updated_initial_state = self._get_simulation_model().initial_values(as_floats=True)
-            self.simulation.set_state(updated_initial_state)
-        for qname, val in self._state_overrides.items():
-            if qname in self.state_index:
-                self._set_state_value(qname, float(val))
-        state = list(self.simulation.state())
-        self.simulation.set_default_state(state)
-        self.default_states = state
+        # Same refresh set_param_vals(change_states=True) performs -- kept in one place so the
+        # two paths cannot drift (offline warm-up precedence, state overrides, default_state).
+        self._refresh_initial_states_from_model()
         self.last_log = None
 
     def get_all_variable_names(self):
@@ -722,7 +714,111 @@ class SimulationHelper:
         state[idx] = float(val)
         self.simulation.set_state(state)
 
-    def set_param_vals(self, param_names, param_vals):
+    def _refresh_initial_states_from_model(self):
+        """Push the model's (re-evaluated) initial values into the Simulation.
+
+        A Myokit ``Simulation`` keeps its own ``state``/``default_state`` arrays, snapshotted at
+        construction. ``set_constant()`` updates the *model* -- so a state whose CellML
+        ``initial_value`` references a constant (``q_lv`` -> ``q_lv_init``) re-evaluates
+        correctly there -- but it never touches those arrays, and ``reset()`` restores *from*
+        ``default_state``. Without this refresh the simulation keeps the initial condition it was
+        built with, silently ignoring any change to a state-init parameter.
+
+        Mirrors ``reset_states()``: an offline warm-up state, when present, still wins over the
+        model's initial values, and explicit state overrides are re-applied on top.
+        """
+        if self._offline_default_state is not None:
+            self.simulation.set_state(list(self._offline_default_state))
+        else:
+            self.simulation.set_state(self._get_simulation_model().initial_values(as_floats=True))
+        for qname, val in self._state_overrides.items():
+            if qname in self.state_index:
+                self._set_state_value(qname, float(val))
+        state = list(self.simulation.state())
+        self.simulation.set_default_state(state)
+        self.default_states = state
+
+    def _states_initialised_by(self, changed_qnames):
+        """States whose CellML initial value references any of ``changed_qnames``.
+
+        Only these can be affected by the constants just written, so only these are refreshed --
+        re-deriving *every* state would reset the whole vector and destroy the state a running
+        multi-sub-experiment protocol has evolved into.
+        """
+        affected = []
+        if not changed_qnames:
+            return affected
+        for s in self._get_simulation_model().states():
+            initial = s.initial_value()
+            if initial is None:
+                continue
+            try:
+                refs = {n.var().qname() for n in initial.references()}
+            except Exception:
+                continue  # a literal initial value has nothing to depend on
+            if refs & changed_qnames:
+                affected.append(s)
+        return affected
+
+    def _refresh_initial_states_for(self, changed_qnames):
+        """Re-evaluate and apply the initial values driven by ``changed_qnames``.
+
+        A Myokit ``Simulation`` keeps its own ``state``/``default_state`` arrays, snapshotted at
+        construction. ``set_constant()`` updates the *model* -- so a state whose CellML
+        ``initial_value`` references a constant (``q_lv`` -> ``q_lv_init``) re-evaluates correctly
+        there -- but never touches those arrays, and ``reset()`` restores *from* ``default_state``.
+        Without this the simulation silently keeps the initial condition it was built with.
+        """
+        affected = self._states_initialised_by(changed_qnames)
+        if not affected:
+            return
+        state = list(self.simulation.state())
+        for s in affected:
+            try:
+                state[self.state_index[s.qname()]] = float(s.initial_value().eval())
+            except Exception:
+                continue
+        for qname, val in self._state_overrides.items():
+            if qname in self.state_index:
+                state[self.state_index[qname]] = float(val)
+        self.simulation.set_state(state)
+        self.simulation.set_default_state(list(state))
+        self.default_states = list(state)
+
+    def set_param_vals(self, param_names, param_vals, change_states=True):
+        """Set parameter values, by default including any state initial values they drive.
+
+        Args:
+            param_names: names to set; each entry may be a list sharing one value.
+            param_vals: matching values.
+            change_states: when True (default), state initial values are re-derived from the
+                model after the parameters are applied, so setting a state-init parameter
+                (``q_lv_init``) actually moves the state it initialises. Set False for
+                mid-protocol updates, where re-deriving initial values would discard the state
+                the previous sub-experiment evolved into and break continuity. With
+                ``change_states=False`` it is an error to name a state directly, since that
+                request cannot be honoured without disturbing exactly that continuity.
+        """
+        # Phase 0: with change_states=False the caller is asserting "do not touch the state
+        # vector". Naming a state contradicts that, so fail loudly rather than half-applying.
+        if not change_states:
+            offenders = []
+            for name_or_list in param_names:
+                for name in (name_or_list if isinstance(name_or_list, list) else [name_or_list]):
+                    try:
+                        kind, qname = self._resolve_name(name)
+                    except Exception:
+                        continue
+                    if kind == "state":
+                        offenders.append(f"{name} (state {qname})")
+            if offenders:
+                raise ValueError(
+                    "set_param_vals(change_states=False) cannot set states directly, but was "
+                    f"given: {', '.join(offenders)}. change_states=False exists for mid-protocol "
+                    "updates that must preserve the evolved state; writing a state there would "
+                    "destroy sub-experiment continuity. Either call with change_states=True (the "
+                    "default) or remove the state from this call.")
+
         # Phase 1: Pre-scan for any string trace value and rebind pace if the target
         # variable differs from the currently bound one.  This ensures set_constant
         # calls made later in the same invocation are not lost to a mid-loop recreate.
@@ -730,7 +826,9 @@ class SimulationHelper:
         if new_paced_qname is not None and new_paced_qname != self.paced_parameter_qname:
             self._rebind_pace_to(new_paced_qname)
 
-        # Phase 2: Apply all parameter values.
+        # Phase 2: Apply all parameter values, recording which constants changed so only the
+        # states they initialise are refreshed afterwards.
+        changed_var_qnames = set()
         for idx, name_or_list in enumerate(param_names):
             names = name_or_list if isinstance(name_or_list, list) else [name_or_list]
             vals = param_vals[idx]
@@ -800,6 +898,7 @@ class SimulationHelper:
                             self.simulation.set_protocol(protocol, label='pace')
                         else:
                             self.simulation.set_constant(qname, float(val))
+                            changed_var_qnames.add(qname)
                             # Keep self.model in sync with every set_constant call.
                             # _rebind_pace_to calls _recreate_simulation(), which clones
                             # self.model fresh (Myokit docs: "changes to the original model
@@ -816,8 +915,13 @@ class SimulationHelper:
                                 pass
                 else:
                     raise ValueError(f"parameter {name} not found")
-        # Keep state defaults consistent with model-defined initial values.
-        self.default_states = list(self._get_simulation_model().initial_values(as_floats=True))
+        # Keep state defaults consistent with model-defined initial values. With change_states
+        # the re-derived values are pushed into the Simulation too, not just recorded here --
+        # otherwise self.default_states and simulation.default_state() silently disagree.
+        if change_states:
+            self._refresh_initial_states_for(changed_var_qnames)
+        self.default_states = list(
+            self._get_simulation_model().initial_values(as_floats=True))
 
     def _find_required_paced_qname(self, param_names, param_vals):
         """

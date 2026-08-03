@@ -135,10 +135,18 @@ class ProtocolExecutor:
                     )
 
                 if params_to_change:
+                    # change_states re-derives every state initial value from the model. That is
+                    # right for the first sub-experiment (reset_states() above has just put the
+                    # states at their initial values anyway, so a state-init parameter here must
+                    # take effect), but for every later sub-experiment it would throw away the
+                    # state the previous one evolved into and break continuity -- so the flag is
+                    # off there. A params_to_change entry naming a state directly is therefore
+                    # only honoured in the first sub-experiment and raises after that.
                     self.sim_helper.set_param_vals(
                         list(params_to_change.keys()),
                         [params_to_change[k][exp_idx][sub_idx]
                          for k in params_to_change],
+                        change_states=(sub_idx == 0),
                     )
 
                 success = self.sim_helper.run()

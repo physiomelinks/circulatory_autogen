@@ -293,7 +293,27 @@ class SimulationHelper:
             vals.append(sub if len(sub) > 1 else sub[0])
         return vals
 
-    def set_param_vals(self, param_names, param_vals):
+    def set_param_vals(self, param_names, param_vals, change_states=True):
+        """Set parameter values, by default including any state initial values they drive.
+
+        ``change_states=False`` is for mid-protocol updates that must preserve the state the
+        previous sub-experiment evolved into; naming a state there is an error.
+        """
+        if not change_states:
+            offenders = []
+            for _n_or_l in param_names:
+                for _n in (_n_or_l if isinstance(_n_or_l, (list, tuple)) else [_n_or_l]):
+                    try:
+                        _kind, _ = self._resolver.resolve(_n)
+                    except Exception:
+                        continue
+                    if _kind == "state":
+                        offenders.append(str(_n))
+            if offenders:
+                raise ValueError(
+                    "set_param_vals(change_states=False) cannot set states directly, but was "
+                    f"given: {', '.join(offenders)}. change_states=False exists for mid-protocol "
+                    "updates that must preserve the evolved state.")
         for idx, name_or_list in enumerate(param_names):
             vals = param_vals[idx]
 
@@ -330,7 +350,8 @@ class SimulationHelper:
                 elif kind == "var":
                     self.variables[self._var_idx_to_const_pos(idx_res)] = val
                     self.variables_model[idx_res] = val
-                    self._sync_numeric_state_for_init_var(idx_res, val)
+                    if change_states:
+                        self._sync_numeric_state_for_init_var(idx_res, val)
                 else:
                     raise ValueError(f"parameter name {name} not found in states or variables")
         self.model.compute_computed_constants(self.variables_model)
