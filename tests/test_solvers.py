@@ -1702,7 +1702,7 @@ def test_offline_pre_time_equals_the_same_total_warmup(generated_cellml_model_fa
     # moves the trace by ~0.26%. The difference is pure integration accuracy, not a semantic
     # difference -- it falls to ~1e-8 relative at 1e-10 and vanishes at 1e-12.
     solver_info = {"MaximumStep": 0.001, "MaximumNumberOfSteps": 500000,
-                   "rtol": 1e-10, "atol": 1e-10}
+                   "rtol": 1e-12, "atol": 1e-12}
 
     def helper(pre_time):
         return get_simulation_helper(
