@@ -5031,6 +5031,15 @@ def test_offline_pre_time_multisub_fsa_gradient(
     finite differences is what catches it -- note FD is only a valid reference here *because*
     both paths start from the same frozen state.
     """
+    # These build a CVS0DParamID with one_rank=True and drive the gradient directly, so they are
+    # single-rank by construction. Under mpiexec -n >1 every rank enters the test and the
+    # param-id internals deadlock waiting on collectives the other rank never reaches -- observed
+    # as a 6-hour CI hang with orphaned mpiexec/python processes. The comparable pre-existing
+    # test (test_fsa_multisub_gradient_matches_fd) avoids this only incidentally, by being
+    # marked need_opencor and thus skipped in CI. Skip explicitly instead of relying on that.
+    if MPI.COMM_WORLD.Get_size() > 1:
+        pytest.skip("single-rank gradient check; run with one MPI rank")
+
     offline_calls = []
     runner, baseline = _build_lotka_offline_gradient_runner(
         base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir,
@@ -5065,6 +5074,15 @@ def test_offline_pre_time_multisub_casadi_ad_gradient(
     Uses method 'bdf': the symbolic fixed-step methods are differentiated by reverse mode and
     support nonzero warm-up, whereas the adjoint integrators (cvodes/idas) do not.
     """
+    # These build a CVS0DParamID with one_rank=True and drive the gradient directly, so they are
+    # single-rank by construction. Under mpiexec -n >1 every rank enters the test and the
+    # param-id internals deadlock waiting on collectives the other rank never reaches -- observed
+    # as a 6-hour CI hang with orphaned mpiexec/python processes. The comparable pre-existing
+    # test (test_fsa_multisub_gradient_matches_fd) avoids this only incidentally, by being
+    # marked need_opencor and thus skipped in CI. Skip explicitly instead of relying on that.
+    if MPI.COMM_WORLD.Get_size() > 1:
+        pytest.skip("single-rank gradient check; run with one MPI rank")
+
     offline_calls = []
     runner, baseline = _build_lotka_offline_gradient_runner(
         base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir,
