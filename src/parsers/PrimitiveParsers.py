@@ -69,10 +69,9 @@ AADC_LEGACY_METHOD_ALIASES = {
     'bdf_kernel': ('semi_implicit_signed', 'kernel'),
 }
 
-# The methods aadc_python_solver_helper.run() can actually integrate. 'semi_implicit_signed'
-# is deliberately absent: its stepping lives inside the tape recording, so there is no
-# forward-only path yet. A tool building a "run a simulation" menu must use this, not
-# methods_by_solver, or it offers a method that raises on a plain solve (issue #346).
+# The methods aadc_python_solver_helper.run() can actually integrate. A tool building a
+# "run a simulation" menu must use this rather than methods_by_solver, which is a superset
+# (issue #346).
 AADC_FORWARD_METHODS = ('adaptive_rk45', 'semi_implicit', 'implicit_euler_ift',
                         'implicit_newton', 'bdf_newton', 'rk4')
 
@@ -171,6 +170,40 @@ SOLVER_SCHEMA['fsa_suitable_methods'] = {
 # casadi_python -> 'bdf' (stable and AD-suitable) rather than the adjoint 'cvodes'. This is the
 # value a tool (CUFLynx) should default its menu to; it is advisory and does not change CA's own
 # internal fallback (a plain run without a method still uses the helper's default).
+# Which integrators can be trusted on a STIFF model. A tool offering a method menu for a stiff
+# model (the cardiovascular ones are stiff) should restrict to these: the others either fail
+# outright or, worse, return a plausible-looking trace that is badly wrong.
+#
+# The aadc_semi_implicit entry is measured, not assumed -- 3compartment, sim_time=0.2,
+# pre_time=0, output heart/u_lv, against CVODE_myokit (7294 ... 7.171e4), from issue #346:
+#
+#   rk4                  OverflowError at dt 1e-3, 1e-4 and 1e-5
+#   adaptive_rk45        no return; killed at 180 s for a 0.01 s horizon
+#   semi_implicit        OK, +6.7%
+#   implicit_newton      OK, -1.9%
+#   implicit_euler_ift   OK but -84%  <- the dangerous one: it completes and looks plausible
+#   bdf_newton           fails on floor() over an active idouble
+#   semi_implicit_signed measured ~4.4x high on the same setup; unexplained, so not listed
+#
+# implicit_euler_ift is deliberately excluded despite completing. It is still in
+# ad_suitable_methods, so a gradient-based calibration will use it without complaint -- being
+# wrong by a factor of six while returning a smooth trace is worse than raising. Why it is wrong
+# is not yet established (issue #346).
+#
+# The others follow from the integrators themselves: CVODE is BDF-based; solve_ivp's stiff
+# solvers are Radau/BDF/LSODA; CasADi's implicit methods (cvodes/idas/bdf/semi_implicit_euler)
+# are stable where its explicit rk is not.
+SOLVER_SCHEMA['stiff_suitable_methods'] = {
+    'CVODE_myokit': ['CVODE'],
+    'CVODE_opencor': ['CVODE'],
+    'CVODE': ['CVODE'],
+    'solve_ivp': ['Radau', 'BDF', 'LSODA'],
+    'user_defined': ['Radau', 'BDF', 'LSODA'],
+    'casadi_integrator': ['cvodes', 'idas', 'bdf', 'semi_implicit_euler'],
+    'aadc_semi_implicit': ['semi_implicit', 'implicit_newton'],
+}
+
+
 SOLVER_SCHEMA['default_method_by_solver'] = {
     'casadi_integrator': 'bdf',
     # 'implicit_newton', not 'rk4'. rk4 was chosen in #336 for being tape-consistent, without

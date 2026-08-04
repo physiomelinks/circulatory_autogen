@@ -794,9 +794,9 @@ def test_aadc_bdf_methods_are_advertised_as_ad_suitable():
 def test_forward_methods_are_exactly_what_the_aadc_dispatch_can_integrate():
     """methods_by_solver is a superset: not every method can run a plain forward solve.
 
-    'semi_implicit_signed' steps inside the tape recording, so there is no forward-only path for
-    it and run() raises. A GUI building a "run a simulation" menu from methods_by_solver offers a
-    method that cannot solve -- issue #346, where picking it broke every interactive simulation.
+    A GUI building a "run a simulation" menu from methods_by_solver can offer a method that
+    cannot solve -- issue #346, where picking one broke every interactive simulation. This key
+    lists only what run() dispatches, and the loop below checks that claim against the source.
     forward_methods_by_solver is the list to build that menu from.
     """
     import inspect
@@ -868,3 +868,47 @@ def test_the_aadc_default_method_can_actually_integrate():
     assert default in AADC_FORWARD_METHODS, "the default must be forward-solvable"
     assert default in SOLVER_SCHEMA['ad_suitable_methods']['aadc_semi_implicit']
     assert default != 'rk4', "rk4 cannot integrate a stiff model; see issue #346"
+
+
+@pytest.mark.unit
+def test_stiff_suitable_methods_are_real_methods_and_exclude_the_measured_failures():
+    """Which integrators can be trusted on a stiff model.
+
+    Measured on 3compartment against CVODE_myokit (issue #346): rk4 overflows at three step
+    sizes, adaptive_rk45 does not return, implicit_euler_ift completes but is 84% low, while
+    semi_implicit (+6.7%) and implicit_newton (-1.9%) are usable.
+
+    implicit_euler_ift is the entry worth defending: it is excluded *despite* completing,
+    because returning a smooth trace that is wrong by a factor of six is worse than raising --
+    and it remains in ad_suitable_methods, so a gradient calibration would use it silently.
+    """
+    stiff = SOLVER_SCHEMA['stiff_suitable_methods']
+
+    # every entry must be a method that solver actually offers
+    for solver, methods in stiff.items():
+        known = SOLVER_SCHEMA['methods_by_solver'].get(solver)
+        assert known is not None, f"{solver} is not in methods_by_solver"
+        for m in methods:
+            assert m in known, f"{solver}: {m!r} is not one of its methods"
+
+    aadc = stiff['aadc_semi_implicit']
+    assert aadc == ['semi_implicit', 'implicit_newton']
+    for excluded in ('rk4', 'adaptive_rk45', 'implicit_euler_ift'):
+        assert excluded not in aadc, f"{excluded} is not usable on a stiff model; see issue #346"
+
+    # explicit solve_ivp methods must not be advertised as stiff-capable
+    for excluded in ('RK45', 'RK23', 'DOP853', 'forward_euler'):
+        assert excluded not in stiff['solve_ivp']
+    # nor CasADi's explicit rk
+    assert 'rk' not in stiff['casadi_integrator']
+
+
+@pytest.mark.unit
+def test_every_default_method_is_stiff_suitable_where_the_solver_has_a_stiff_set():
+    """A default lands on whatever a user gets without choosing, and the models this framework
+    generates are stiff -- so the default must be one of the trustworthy ones."""
+    stiff = SOLVER_SCHEMA['stiff_suitable_methods']
+    for solver, default in SOLVER_SCHEMA['default_method_by_solver'].items():
+        if solver in stiff:
+            assert default in stiff[solver], (
+                f"default for {solver} is {default!r}, which is not stiff-suitable")
