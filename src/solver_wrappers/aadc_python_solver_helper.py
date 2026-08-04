@@ -24,6 +24,8 @@ import copy
 import warnings
 import numpy as np
 
+from parsers.PrimitiveParsers import AADC_FORWARD_METHODS
+
 try:
     import aadc
 except ImportError:
@@ -857,7 +859,11 @@ class SimulationHelper:
             # models bdf was being used for -- with no indication anything had changed.
             raise ValueError(
                 f"Unknown AADC solver_info method {method!r}. Valid methods are "
-                "'adaptive_rk45', 'semi_implicit', 'implicit_euler_ift', 'rk4'. "
+                # Derived from AADC_FORWARD_METHODS, which mirrors the dispatch above, rather
+                # than written out here: the hand-written list had gone stale and omitted
+                # 'implicit_newton' and 'bdf_newton', so the message matched an older checkout
+                # and sent a user hunting an environment problem that did not exist (#346).
+                + ", ".join(repr(m) for m in AADC_FORWARD_METHODS) + ". "
                 + ("Method 'bdf' was removed: it ran the solve in scipy with AADC supplying "
                    "only the RHS and Jacobian, so the trajectory never reached the tape, and "
                    "do_ad silently taped rk4 instead -- the cost and the gradient were "
