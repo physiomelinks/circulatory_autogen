@@ -227,6 +227,59 @@ def _flatten_operand_series(operand_results, operand_names):
     return outputs
 
 
+def _expect_offline_pre_time_refused(config, obs_path, mpi_comm):
+    """Assert _run_sim_outputs_from_obs_path refuses this config, without deadlocking.
+
+    _run_sim_outputs_from_obs_path does its work under `if rank == 0` and then calls bcast +
+    Barrier on every rank. Wrapping it in pytest.raises therefore hangs under mpiexec -n >1:
+    rank 0 unwinds out of the function on the exception while every other rank is still blocked
+    in bcast waiting for a root that has gone. That is a 6-hour CI timeout from a one-line
+    raise, so the outcome is captured on rank 0 and broadcast, keeping the collective sequence
+    identical on all ranks whether or not the error fires.
+    """
+    rank = mpi_comm.Get_rank()
+    message = None
+    if rank == 0:
+        try:
+            _run_sim_outputs_from_obs_path(config, obs_path, mpi_comm_serial_stub(mpi_comm))
+        except ValueError as exc:
+            message = str(exc)
+        except Exception as exc:            # noqa: BLE001 - surfaced below on every rank
+            message = f"UNEXPECTED:{type(exc).__name__}: {exc}"
+    message = mpi_comm.bcast(message, root=0)
+    mpi_comm.Barrier()
+    assert message is not None, "offline_pre_time with a state-init parameter should be refused"
+    assert not message.startswith("UNEXPECTED:"), message
+    assert "offline_pre_time can't be used" in message, message
+
+
+class _SerialCommStub:
+    """A single-rank stand-in, so the helper's bcast/Barrier stay inside one rank.
+
+    The helper is only called here to provoke the error; letting it run its real collectives
+    while other ranks are elsewhere is what deadlocks.
+    """
+
+    def __init__(self, real):
+        self._real = real
+
+    def Get_rank(self):
+        return 0
+
+    def Get_size(self):
+        return 1
+
+    def bcast(self, obj, root=0):
+        return obj
+
+    def Barrier(self):
+        return None
+
+
+def mpi_comm_serial_stub(real):
+    return _SerialCommStub(real)
+
+
 def _run_sim_outputs_from_obs_path(config, obs_path, mpi_comm, param_val_strategy="model_default"):
     """Run one experiment with midpoint ID params; return operand time-series outputs."""
     rank = mpi_comm.Get_rank()
@@ -2962,8 +3015,7 @@ def test_offline_pre_time_3compartment_outputs_match(
     # With it, global/q_lv_init is a state-init parameter, which an offline warm-up would render
     # unidentifiable (measured: +25% response falls from 8.49% to 0.0000%, gradient exactly zero).
     # The combination must be refused rather than silently producing a dead parameter.
-    with pytest.raises(ValueError, match="offline_pre_time can't be used"):
-        _run_sim_outputs_from_obs_path(config, obs_with_offline_path, mpi_comm)
+    _expect_offline_pre_time_refused(config, obs_with_offline_path, mpi_comm)
 
     mpi_comm.Barrier()
 
@@ -3142,10 +3194,7 @@ def test_offline_pre_time_3compartment_python_outputs_match(
     )
 
     # With it, the state-init parameter makes the combination unsound and it must be refused.
-    with pytest.raises(ValueError, match="offline_pre_time can't be used"):
-        _run_sim_outputs_from_obs_path(
-            config, obs_with_offline_path, mpi_comm, param_val_strategy="midpoint"
-        )
+    _expect_offline_pre_time_refused(config, obs_with_offline_path, mpi_comm)
 
     mpi_comm.Barrier()
 
