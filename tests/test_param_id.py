@@ -227,6 +227,59 @@ def _flatten_operand_series(operand_results, operand_names):
     return outputs
 
 
+def _expect_offline_pre_time_refused(config, obs_path, mpi_comm):
+    """Assert _run_sim_outputs_from_obs_path refuses this config, without deadlocking.
+
+    _run_sim_outputs_from_obs_path does its work under `if rank == 0` and then calls bcast +
+    Barrier on every rank. Wrapping it in pytest.raises therefore hangs under mpiexec -n >1:
+    rank 0 unwinds out of the function on the exception while every other rank is still blocked
+    in bcast waiting for a root that has gone. That is a 6-hour CI timeout from a one-line
+    raise, so the outcome is captured on rank 0 and broadcast, keeping the collective sequence
+    identical on all ranks whether or not the error fires.
+    """
+    rank = mpi_comm.Get_rank()
+    message = None
+    if rank == 0:
+        try:
+            _run_sim_outputs_from_obs_path(config, obs_path, mpi_comm_serial_stub(mpi_comm))
+        except ValueError as exc:
+            message = str(exc)
+        except Exception as exc:            # noqa: BLE001 - surfaced below on every rank
+            message = f"UNEXPECTED:{type(exc).__name__}: {exc}"
+    message = mpi_comm.bcast(message, root=0)
+    mpi_comm.Barrier()
+    assert message is not None, "offline_pre_time with a state-init parameter should be refused"
+    assert not message.startswith("UNEXPECTED:"), message
+    assert "offline_pre_time can't be used" in message, message
+
+
+class _SerialCommStub:
+    """A single-rank stand-in, so the helper's bcast/Barrier stay inside one rank.
+
+    The helper is only called here to provoke the error; letting it run its real collectives
+    while other ranks are elsewhere is what deadlocks.
+    """
+
+    def __init__(self, real):
+        self._real = real
+
+    def Get_rank(self):
+        return 0
+
+    def Get_size(self):
+        return 1
+
+    def bcast(self, obj, root=0):
+        return obj
+
+    def Barrier(self):
+        return None
+
+
+def mpi_comm_serial_stub(real):
+    return _SerialCommStub(real)
+
+
 def _run_sim_outputs_from_obs_path(config, obs_path, mpi_comm, param_val_strategy="model_default"):
     """Run one experiment with midpoint ID params; return operand time-series outputs."""
     rank = mpi_comm.Get_rank()
@@ -2888,8 +2941,9 @@ def test_offline_pre_time_3compartment_outputs_match(
     mpi_comm,
 ):
     """
-    3compartment: pre_time=2 + sim_time=2 without offline_pre_time should match
-    offline_pre_time=1 + pre_time=1 + sim_time=2.
+    3compartment calibrates global/q_lv_init, a state-init parameter, so offline_pre_time must
+    be REFUSED here. This previously asserted the two paths matched, which held only because
+    offline_pre_time was folded into pre_time as a workaround for that unsoundness.
     """
     import json
 
@@ -2955,19 +3009,13 @@ def test_offline_pre_time_3compartment_outputs_match(
 
     mpi_comm.Barrier()
 
-    outputs_no_offline = _run_sim_outputs_from_obs_path(config, obs_no_offline_path, mpi_comm)
-    outputs_with_offline = _run_sim_outputs_from_obs_path(config, obs_with_offline_path, mpi_comm)
+    # Without offline_pre_time this configuration is fine.
+    _run_sim_outputs_from_obs_path(config, obs_no_offline_path, mpi_comm)
 
-    if rank == 0:
-        mismatches = _compare_sim_outputs(
-            outputs_no_offline,
-            outputs_with_offline,
-            OFFLINE_PRE_TIME_OUTPUT_THRESHOLD,
-        )
-        assert not mismatches, (
-            f"3compartment outputs differ beyond {OFFLINE_PRE_TIME_OUTPUT_THRESHOLD}: "
-            f"{mismatches[:5]}"
-        )
+    # With it, global/q_lv_init is a state-init parameter, which an offline warm-up would render
+    # unidentifiable (measured: +25% response falls from 8.49% to 0.0000%, gradient exactly zero).
+    # The combination must be refused rather than silently producing a dead parameter.
+    _expect_offline_pre_time_refused(config, obs_with_offline_path, mpi_comm)
 
     mpi_comm.Barrier()
 
@@ -3064,8 +3112,16 @@ def test_offline_pre_time_3compartment_python_outputs_match(
     base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm
 ):
     """
-    3compartment Python solve_ivp path: ensure offline_pre_time warmup equivalence.
-    Uses a short offline warmup slice for numerical robustness in SciPy solve_ivp.
+    3compartment Python solve_ivp path: offline_pre_time must be REFUSED here.
+
+    This benchmark calibrates global/q_lv_init, a state-init parameter. An offline warm-up
+    freezes one state and restarts every evaluation from it, so q_lv_init would never enter the
+    simulation: measured, its response to a +25% perturbation drops from 8.49% to 0.0000%, making
+    it silently unrecoverable with an exactly-zero gradient. The combination is rejected rather
+    than quietly producing an unidentifiable parameter.
+
+    This test previously asserted the two paths produced matching outputs, which held only because
+    offline_pre_time was folded into pre_time as a workaround for that unsoundness.
     """
     import json
 
@@ -3132,26 +3188,13 @@ def test_offline_pre_time_3compartment_python_outputs_match(
 
     mpi_comm.Barrier()
 
-    outputs_no_offline = _run_sim_outputs_from_obs_path(
+    # Without offline_pre_time this configuration is fine.
+    _run_sim_outputs_from_obs_path(
         config, obs_no_offline_path, mpi_comm, param_val_strategy="midpoint"
     )
-    outputs_with_offline = _run_sim_outputs_from_obs_path(
-        config, obs_with_offline_path, mpi_comm, param_val_strategy="midpoint"
-    )
 
-    if rank == 0:
-        mismatches = _compare_sim_outputs(
-            outputs_no_offline,
-            outputs_with_offline,
-            OFFLINE_PRE_TIME_OUTPUT_THRESHOLD,
-        )
-        # Python solve_ivp shows large numeric drift on this stiff pressure observable,
-        # while other observables remain consistent across offline/no-offline runs.
-        mismatches = [m for m in mismatches if ":aortic_root/u" not in m[0]]
-        assert not mismatches, (
-            "3compartment Python outputs differ with/without offline_pre_time: "
-            f"{mismatches[:5]}"
-        )
+    # With it, the state-init parameter makes the combination unsound and it must be refused.
+    _expect_offline_pre_time_refused(config, obs_with_offline_path, mpi_comm)
 
     mpi_comm.Barrier()
 
@@ -4860,3 +4903,253 @@ def test_multi_start_sp_minimize_calibrates_an_aadc_model(
         assert cost < 1e-2, \
             f'multi_start_sp_minimize with the AADC tape gradient failed to calibrate: cost {cost}'
     comm.Barrier()
+
+
+# ----------------------------------------------------------------------------------------
+# offline_pre_time is incompatible with calibrating a state's initial value
+# ----------------------------------------------------------------------------------------
+
+@pytest.mark.unit
+def test_offline_pre_time_rejects_initial_state_parameters():
+    """An offline warm-up freezes one state and restarts every evaluation from it, so a parameter
+    whose only role is to initialise a state never enters the simulation: its gradient becomes
+    exactly zero and it is silently unrecoverable. Measured on 3compartment, q_lv_init's response
+    to a +25% perturbation drops from 8.49% to 0.0000% once an offline warm-up is used, so this
+    must fail loudly rather than quietly produce an unidentifiable parameter.
+    """
+    from param_id.paramID import OpencorParamID
+
+    class _Stub:
+        """Minimal stand-in exposing only what the detection reads."""
+        def __init__(self, names, states=()):
+            self.param_id_info = {'param_names': names}
+            self._states = set(states)
+            self.sim_helper = self
+
+        def _resolve_name(self, name):
+            return ('state', name) if name in self._states else ('var', name)
+
+    detect = OpencorParamID._params_that_set_initial_states
+
+    # the <state>_init convention
+    stub = _Stub([['global/q_lv_init'], ['aortic_root/C'], ['global/E_lv_A']])
+    assert detect(stub) == ['global/q_lv_init']
+
+    # a name resolving to a state directly
+    stub = _Stub([['heart/q_lv'], ['aortic_root/C']], states={'heart/q_lv'})
+    assert detect(stub) == ['heart/q_lv']
+
+    # shared parameters (a list of names) are all checked
+    stub = _Stub([['a/x_init', 'b/y_init'], ['c/k']])
+    assert detect(stub) == ['a/x_init', 'b/y_init']
+
+    # nothing to complain about when only plain constants are calibrated
+    stub = _Stub([['aortic_root/C'], ['global/E_lv_A'], ['global/E_lv_B']])
+    assert detect(stub) == []
+
+
+@pytest.mark.unit
+def test_offline_pre_time_error_message_explains_the_reformulation():
+    """The error must tell the user how to proceed, not just that they cannot."""
+    from param_id.paramID import OFFLINE_PRE_TIME_INIT_STATE_ERROR as msg
+    assert "varying initial state (quantity) requires doing it from the actual initial state" in msg
+    assert "offline_pre_time can't be used" in msg
+    # and it must point at the reformulation, with the concrete example
+    assert "calibrate wrt a constant parameter rather than a initial state" in msg
+    assert "set the total volume and calculate the intial LV volume from that" in msg
+
+
+# ----------------------------------------------------------------------------------------
+# offline_pre_time + multi-sub-experiment protocols, with analytic gradients
+# ----------------------------------------------------------------------------------------
+
+def _build_lotka_offline_gradient_runner(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir,
+        model_type, solver, solver_info, offline_pre_time=1.0, pre_time=1.0,
+        offline_calls=None):
+    """Lotka-Volterra over TWO sub-experiments with an offline warm-up, set up for an analytic
+    gradient.
+
+    Lotka-Volterra calibrates alpha/beta/delta/gamma -- all plain constants, none of which sets a
+    state initial value -- so the offline warm-up is legitimate here: the frozen state really is
+    constant with respect to the parameters being fitted, its sensitivity is zero, and FSA/AD
+    accumulate d/dp across the per-evaluation pre_time and both sub-experiments.
+    """
+    import json
+
+    with open(os.path.join(resources_dir, 'Lotka_Volterra_multisub_obs_data.json')) as f:
+        obs_data = json.load(f)
+    obs_data = copy.deepcopy(obs_data)
+    obs_data['protocol_info']['offline_pre_time'] = offline_pre_time
+    obs_data['protocol_info']['pre_times'] = [pre_time]
+
+    obs_path = os.path.join(temp_output_dir,
+                            f'Lotka_Volterra_multisub_offline_{model_type}.json')
+    with open(obs_path, 'w') as f:
+        json.dump(obs_data, f, indent=2)
+
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': 'Lotka_Volterra',
+        'input_param_file': 'Lotka_Volterra_parameters.csv',
+        'params_for_id_file': 'Lotka_Volterra_params_for_id.csv',
+        'model_type': model_type,
+        'solver': solver,
+        'param_id_method': 'sp_minimize',
+        'do_ad': True,
+        'pre_time': pre_time,
+        'sim_time': 3.0,
+        'dt': 0.01,
+        'DEBUG': False,
+        'do_mcmc': False,
+        'plot_predictions': False,
+        'do_ia': False,
+        'solver_info': solver_info,
+        'param_id_obs_path': obs_path,
+        'param_id_output_dir': temp_output_dir,
+        'generated_models_dir': temp_generated_models_dir,
+        'resources_dir': resources_dir,
+    })
+
+    assert generate_with_new_architecture(False, config), \
+        f'{model_type} model generation should succeed for Lotka_Volterra'
+
+    parsed = YamlFileParser().parse_user_inputs_file(
+        config, obs_path_needed=True, do_generation_with_fit_parameters=False)
+    parsed['one_rank'] = True
+
+    # Spy on the offline warm-up so callers can assert it really ran (see the tests below).
+    import solver_wrappers.myokit_helper as _mh
+    import solver_wrappers.casadi_python_solver_helper as _ch
+    backend = _mh.SimulationHelper if model_type == 'cellml_only' else _ch.SimulationHelper
+    original = backend.run_offline_pre_and_set_default_state
+
+    def _spy(self, t, _orig=original):
+        if offline_calls is not None:
+            offline_calls.append(float(t))
+        return _orig(self, t)
+
+    backend.run_offline_pre_and_set_default_state = _spy
+    try:
+        runner = CVS0DParamID.init_from_dict(parsed)
+    finally:
+        backend.run_offline_pre_and_set_default_state = original
+    runner.set_ground_truth_data(obs_data)
+    baseline = runner.param_id.sim_helper.get_init_param_vals(
+        runner.param_id.param_id_info['param_names'])
+    return runner, np.asarray(baseline, dtype=float)
+
+
+def _assert_gradient_matches_fd(inner, p, rel=0.10, step_rel=1e-4):
+    """Analytic gradient at p must match central finite differences of the same cost."""
+    gradient = np.asarray(inner.get_gradient(p), dtype=float).ravel()
+    assert gradient.shape == p.shape, (gradient.shape, p.shape)
+    assert np.all(np.isfinite(gradient)), gradient
+    assert not np.all(gradient == 0), 'analytic gradient is identically zero'
+
+    fd = np.zeros_like(p)
+    for i in range(len(p)):
+        dp = max(abs(p[i]) * step_rel, 1e-14)
+        p_plus, p_minus = p.copy(), p.copy()
+        p_plus[i] += dp
+        p_minus[i] -= dp
+        fd[i] = (float(inner.get_cost(p_plus)) - float(inner.get_cost(p_minus))) / (2 * dp)
+
+    compared = 0
+    for i in range(len(p)):
+        if abs(fd[i]) > 1e-8:
+            compared += 1
+            assert gradient[i] == pytest.approx(fd[i], rel=rel), (
+                f'gradient[{i}] = {gradient[i]:.6e} != FD {fd[i]:.6e} '
+                f'(ratio {gradient[i] / fd[i]:.4f})')
+    assert compared > 0, 'no finite-difference component was large enough to compare'
+    return gradient
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_offline_pre_time_multisub_fsa_gradient(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir):
+    """Myokit CVODES FSA gradient stays correct across sub-experiments with an offline warm-up.
+
+    The offline pass freezes a state and every evaluation restarts from it. For parameters that
+    do not set a state initial value that frozen state is a genuine constant, so its sensitivity
+    is zero and FSA must still accumulate d/dp correctly through pre_time and both
+    sub-experiments. If the offline state were wrongly treated as parameter-dependent (or its
+    sensitivity rows left stale across the sub-experiment boundary) this comparison against
+    finite differences is what catches it -- note FD is only a valid reference here *because*
+    both paths start from the same frozen state.
+    """
+    # These build a CVS0DParamID with one_rank=True and drive the gradient directly, so they are
+    # single-rank by construction. Under mpiexec -n >1 every rank enters the test and the
+    # param-id internals deadlock waiting on collectives the other rank never reaches -- observed
+    # as a 6-hour CI hang with orphaned mpiexec/python processes. The comparable pre-existing
+    # test (test_fsa_multisub_gradient_matches_fd) avoids this only incidentally, by being
+    # marked need_opencor and thus skipped in CI. Skip explicitly instead of relying on that.
+    if MPI.COMM_WORLD.Get_size() > 1:
+        pytest.skip("single-rank gradient check; run with one MPI rank")
+
+    offline_calls = []
+    runner, baseline = _build_lotka_offline_gradient_runner(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir,
+        model_type='cellml_only', solver='CVODE_myokit',
+        solver_info={'MaximumStep': 0.005, 'MaximumNumberOfSteps': 50000,
+                     'rtol': 1e-10, 'atol': 1e-10},
+        offline_calls=offline_calls)
+    inner = runner.param_id
+
+    # two sub-experiments really are configured
+    assert inner.protocol_info['sim_times'][0] == [3.0, 3.0], inner.protocol_info['sim_times']
+    assert float(inner.protocol_info['offline_pre_time']) == 1.0
+    # The offline pass must actually have run, otherwise this test would pass vacuously as an
+    # ordinary gradient check with no warm-up involved. Backends store the warm state under
+    # different names, so count the call rather than probing backend internals.
+    assert offline_calls == [1.0], f'offline warm-up was not run once: {offline_calls}'
+
+    mins = np.asarray(inner.param_id_info['param_mins'], dtype=float)
+    maxs = np.asarray(inner.param_id_info['param_maxs'], dtype=float)
+    p = mins + 0.4 * (maxs - mins)      # interior point, so the cost is not at a minimum
+
+    _assert_gradient_matches_fd(inner, p)
+    runner.close_simulation()
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_offline_pre_time_multisub_casadi_ad_gradient(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir):
+    """Same as the FSA case, for the CasADi AD gradient path.
+
+    Uses method 'bdf': the symbolic fixed-step methods are differentiated by reverse mode and
+    support nonzero warm-up, whereas the adjoint integrators (cvodes/idas) do not.
+    """
+    # These build a CVS0DParamID with one_rank=True and drive the gradient directly, so they are
+    # single-rank by construction. Under mpiexec -n >1 every rank enters the test and the
+    # param-id internals deadlock waiting on collectives the other rank never reaches -- observed
+    # as a 6-hour CI hang with orphaned mpiexec/python processes. The comparable pre-existing
+    # test (test_fsa_multisub_gradient_matches_fd) avoids this only incidentally, by being
+    # marked need_opencor and thus skipped in CI. Skip explicitly instead of relying on that.
+    if MPI.COMM_WORLD.Get_size() > 1:
+        pytest.skip("single-rank gradient check; run with one MPI rank")
+
+    offline_calls = []
+    runner, baseline = _build_lotka_offline_gradient_runner(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir,
+        model_type='casadi_python', solver='casadi_integrator',
+        solver_info={'method': 'bdf', 'max_step_size': 0.01, 'max_num_steps': 200000},
+        offline_calls=offline_calls)
+    inner = runner.param_id
+
+    assert inner.protocol_info['sim_times'][0] == [3.0, 3.0], inner.protocol_info['sim_times']
+    assert float(inner.protocol_info['offline_pre_time']) == 1.0
+    # The offline pass must actually have run, otherwise this test would pass vacuously as an
+    # ordinary gradient check with no warm-up involved. Backends store the warm state under
+    # different names, so count the call rather than probing backend internals.
+    assert offline_calls == [1.0], f'offline warm-up was not run once: {offline_calls}'
+
+    mins = np.asarray(inner.param_id_info['param_mins'], dtype=float)
+    maxs = np.asarray(inner.param_id_info['param_maxs'], dtype=float)
+    p = mins + 0.4 * (maxs - mins)
+
+    _assert_gradient_matches_fd(inner, p)
+    runner.close_simulation()

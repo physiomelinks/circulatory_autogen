@@ -1682,6 +1682,59 @@ def test_set_param_vals_changes_state_init_without_explicit_reset(generated_cell
     assert np.isclose(helper.default_states[idx], 8e-4, rtol=0.0, atol=1e-10)
     assert np.isclose(helper.simulation.default_state()[idx], 8e-4, rtol=0.0, atol=1e-10)
 
+def test_offline_pre_time_equals_the_same_total_warmup(generated_cellml_model_factory):
+    """An offline warmup of X followed by a logged pre_time of Y must equal a pre_time of X+Y.
+
+    This is the equivalence the parameter-identification docs promise for offline_pre_time
+    ("offline_pre_time: 19.0 with pre_times: [1.0] ... equivalent to pre_times: [20.0]"), and it
+    is what makes reusing an offline warmup sound in the first place. Nothing covered it.
+
+    Note the calibration path does NOT currently take this route: paramID folds offline_pre_time
+    into each experiment's first-sub warmup instead, because freezing one offline state biased the
+    cost surface and dropped d(steady state)/d(p) from the gradient (issue #269). This test pins
+    the backend primitive that a corrected offline optimisation would be rebuilt on.
+    """
+    model_path = generated_cellml_model_factory(
+        "3compartment", "3compartment_parameters.csv", solver="CVODE_myokit")
+    dt, sim_time, offline, logged_pre = 0.01, 0.5, 2.0, 1.0
+    # Tight tolerances matter here. Splitting the warmup restarts the integrator at the boundary,
+    # so the two paths take different step sequences; at Myokit's default tolerances that alone
+    # moves the trace by ~0.26%. The difference is pure integration accuracy, not a semantic
+    # difference -- it falls to ~1e-8 relative at 1e-10 and vanishes at 1e-12.
+    solver_info = {"MaximumStep": 0.001, "MaximumNumberOfSteps": 500000,
+                   "rtol": 1e-12, "atol": 1e-12}
+
+    def helper(pre_time):
+        return get_simulation_helper(
+            model_path=model_path, model_type="cellml_only", solver="CVODE_myokit",
+            dt=dt, sim_time=sim_time, pre_time=pre_time, solver_info=solver_info)
+
+    # Reference: all warmup as a single logged pre_time.
+    h_ref = helper(offline + logged_pre)
+    h_ref.reset_states()
+    assert h_ref.run(), "reference run failed"
+    ref = np.asarray(h_ref.get_results(["aortic_root/u"], flatten=True), dtype=float).ravel()
+
+    # Split: an offline unlogged warmup, then the remaining warmup as pre_time.
+    h_split = helper(logged_pre)
+    h_split.run_offline_pre_and_set_default_state(offline)
+    h_split.reset_states()
+    assert h_split.run(), "offline-warmup run failed"
+    split = np.asarray(h_split.get_results(["aortic_root/u"], flatten=True), dtype=float).ravel()
+
+    assert ref.shape == split.shape, f"grid mismatch {ref.shape} vs {split.shape}"
+    scale = float(np.max(np.abs(ref)))
+    max_rel = float(np.max(np.abs(split - ref)) / scale)
+    # Must agree to better than 1e-3 %. The residual is integrator truncation error, not a
+    # semantic difference: CVODE is a multistep method, so restarting at the split point drops it
+    # back to order 1 with a small step and it re-grows a different step sequence. The two
+    # sequences accumulate different local truncation errors, which is why the gap tracks the
+    # tolerance -- measured 0.26 % at Myokit defaults, 0.016 % at 1e-8, 8e-6 % at 1e-10, 0 at
+    # 1e-12 -- rather than staying fixed as a genuine state difference would.
+    assert max_rel < 1e-5, (
+        f"offline_pre_time + pre_time deviates from the same total warmup done inline by "
+        f"{max_rel * 100:.6f} %, above the 1e-3 % budget")
+
 
 @pytest.mark.integration
 @pytest.mark.solver
@@ -1711,3 +1764,15 @@ def _resolve_state_qname(helper, basename):
         if qname.endswith(f".{basename}") or qname == basename:
             return qname
     raise AssertionError(f"state '{basename}' not found in {list(helper.state_index)[:10]}")
+
+def test_offline_pre_time_zero_is_a_noop(generated_cellml_model_factory):
+    """A zero/negative offline warmup must leave the default state untouched."""
+    model_path = generated_cellml_model_factory(
+        "3compartment", "3compartment_parameters.csv", solver="CVODE_myokit")
+    h = get_simulation_helper(
+        model_path=model_path, model_type="cellml_only", solver="CVODE_myokit",
+        dt=0.01, sim_time=0.5, pre_time=0.0,
+        solver_info={"MaximumStep": 0.001, "MaximumNumberOfSteps": 50000})
+    before = list(h.simulation.default_state())
+    h.run_offline_pre_and_set_default_state(0.0)
+    assert list(h.simulation.default_state()) == before
