@@ -57,7 +57,23 @@ AADC_TAPE_CONSISTENT_METHODS = ('rk4', 'implicit_euler_ift', 'semi_implicit', 'i
 # as a separate tuple rather than folded into the one above, because that one means "the standard
 # tape can replay this step sequence" and these are not that -- but both are AD-capable, which is
 # what ad_suitable_methods advertises.
-AADC_BDF_AD_METHODS = ('bdf_newton', 'bdf_tape', 'bdf_kernel')
+AADC_BDF_AD_METHODS = ('bdf_newton', 'semi_implicit_signed')
+
+# 'bdf_tape' and 'bdf_kernel' were never two integrators: both step the same signed
+# semi-implicit scheme, differing only in where the loop runs (one AADC tape, or a C++ kernel
+# replay that falls back to the tape when the extension is absent). They are now one method,
+# 'semi_implicit_signed', with the execution choice in solver_info['gradient_strategy'].
+# Accepted for configs written before the split (issue #346).
+AADC_LEGACY_METHOD_ALIASES = {
+    'bdf_tape': ('semi_implicit_signed', 'tape'),
+    'bdf_kernel': ('semi_implicit_signed', 'kernel'),
+}
+
+# The methods aadc_python_solver_helper.run() can actually integrate. A tool building a
+# "run a simulation" menu must use this rather than methods_by_solver, which is a superset
+# (issue #346).
+AADC_FORWARD_METHODS = ('adaptive_rk45', 'semi_implicit', 'implicit_euler_ift',
+                        'implicit_newton', 'bdf_newton', 'rk4')
 
 # Every AADC method that can produce an analytic gradient, by either route.
 AADC_AD_METHODS = AADC_TAPE_CONSISTENT_METHODS + AADC_BDF_AD_METHODS
@@ -102,7 +118,8 @@ SOLVER_SCHEMA = {
         # reached the tape. The AD tape has no bdf branch either, so do_ad silently recorded
         # rk4 instead -- cost and gradient were different functions. Use 'semi_implicit' for
         # stiff models, or model_type 'casadi_python' for a differentiable symbolic BDF.
-        'aadc_semi_implicit': ['adaptive_rk45', 'semi_implicit', 'implicit_euler_ift', 'implicit_newton', 'bdf_newton', 'bdf_tape', 'bdf_kernel', 'rk4'],
+        'aadc_semi_implicit': ['adaptive_rk45', 'semi_implicit', 'semi_implicit_signed',
+                               'implicit_euler_ift', 'implicit_newton', 'bdf_newton', 'rk4'],
         # The user wrapper supplies the rhs; the framework integrates it with the
         # same scipy solve_ivp methods as model_type 'python'.
         'user_defined': ['RK45', 'RK23', 'DOP853', 'Radau', 'BDF', 'LSODA', 'forward_euler'],
@@ -139,6 +156,12 @@ SOLVER_SCHEMA['ad_suitable_methods'] = {
 # its method is 'CVODE' on the CVODE solvers. (CA's get_gradient currently produces FSA only for
 # CVODE_myokit; the CVODE_opencor entry records that its FSA-capable method would likewise be
 # CVODE, so a tool gating a method menu stays correct if/when it is wired up.)
+# Which methods each solver can run as a plain forward solve. Only aadc_semi_implicit currently
+# differs from methods_by_solver -- see AADC_FORWARD_METHODS.
+SOLVER_SCHEMA['forward_methods_by_solver'] = {
+    solver: (list(AADC_FORWARD_METHODS) if solver == 'aadc_semi_implicit' else list(methods))
+    for solver, methods in SOLVER_SCHEMA['methods_by_solver'].items()
+}
 SOLVER_SCHEMA['fsa_suitable_methods'] = {
     'CVODE_myokit': ['CVODE'],
     'CVODE_opencor': ['CVODE'],
@@ -147,12 +170,47 @@ SOLVER_SCHEMA['fsa_suitable_methods'] = {
 # casadi_python -> 'bdf' (stable and AD-suitable) rather than the adjoint 'cvodes'. This is the
 # value a tool (CUFLynx) should default its menu to; it is advisory and does not change CA's own
 # internal fallback (a plain run without a method still uses the helper's default).
+# Which integrators can be trusted on a STIFF model. A tool offering a method menu for a stiff
+# model (the cardiovascular ones are stiff) should restrict to these: the others either fail
+# outright or, worse, return a plausible-looking trace that is badly wrong.
+#
+# The aadc_semi_implicit entry is measured, not assumed -- 3compartment, sim_time=0.2,
+# pre_time=0, output heart/u_lv, against CVODE_myokit (7294 ... 7.171e4), from issue #346:
+#
+#   rk4                  OverflowError at dt 1e-3, 1e-4 and 1e-5
+#   adaptive_rk45        no return; killed at 180 s for a 0.01 s horizon
+#   semi_implicit        OK, +6.7%
+#   implicit_newton      OK, -1.9%
+#   implicit_euler_ift   OK but -84%  <- the dangerous one: it completes and looks plausible
+#   bdf_newton           fails on floor() over an active idouble
+#   semi_implicit_signed measured ~4.4x high on the same setup; unexplained, so not listed
+#
+# implicit_euler_ift is deliberately excluded despite completing. It is still in
+# ad_suitable_methods, so a gradient-based calibration will use it without complaint -- being
+# wrong by a factor of six while returning a smooth trace is worse than raising. Why it is wrong
+# is not yet established (issue #346).
+#
+# The others follow from the integrators themselves: CVODE is BDF-based; solve_ivp's stiff
+# solvers are Radau/BDF/LSODA; CasADi's implicit methods (cvodes/idas/bdf/semi_implicit_euler)
+# are stable where its explicit rk is not.
+SOLVER_SCHEMA['stiff_suitable_methods'] = {
+    'CVODE_myokit': ['CVODE'],
+    'CVODE_opencor': ['CVODE'],
+    'CVODE': ['CVODE'],
+    'solve_ivp': ['Radau', 'BDF', 'LSODA'],
+    'user_defined': ['Radau', 'BDF', 'LSODA'],
+    'casadi_integrator': ['cvodes', 'idas', 'bdf', 'semi_implicit_euler'],
+    'aadc_semi_implicit': ['semi_implicit', 'implicit_newton'],
+}
+
+
 SOLVER_SCHEMA['default_method_by_solver'] = {
     'casadi_integrator': 'bdf',
-    # 'rk4' rather than the first entry in methods_by_solver ('adaptive_rk45'): a tool defaulting
-    # to "first offered" would pick the one method the tape can never record, on a backend whose
-    # whole purpose is tape-based gradients (issue #336).
-    'aadc_semi_implicit': 'rk4',
+    # 'implicit_newton', not 'rk4'. rk4 was chosen in #336 for being tape-consistent, without
+    # checking it could integrate anything: on 3compartment it raises OverflowError at dt 1e-3,
+    # 1e-4 and 1e-5, while implicit_newton lands within 2% of CVODE_myokit. A default has to be
+    # able to produce a number first and be AD-friendly second (issue #346).
+    'aadc_semi_implicit': 'implicit_newton',
 }
 
 
@@ -240,6 +298,14 @@ SOLVER_INFO_FIELDS = {
          'description': 'Number of threads for AADC evaluation.'},
         {'name': 'max_step', 'type': 'float', 'default': 0.001, 'required': False,
          'description': 'Internal sub-step cap for bdf_newton (default 0.001, matching CasADi BDF).'},
+        {'name': 'gradient_strategy', 'type': 'enum', 'default': 'tape', 'required': False,
+         'choices': ['tape', 'kernel'],
+         'description': "How method 'semi_implicit_signed' evaluates its gradient: 'tape' "
+                        "records the whole integration on one AADC tape and replays it; "
+                        "'kernel' replays a recorded kernel from C++ (faster, and falls back "
+                        "to 'tape' when the C++ extension is not built). Same integration "
+                        "either way -- this chooses where the loop runs, not what it solves. "
+                        "Ignored by every other method."},
         # No 'gradient_method' here: nothing reads it. AD vs FD is chosen by the `do_ad` flag
         # (see SciPyMinimizeOptimiser.run, which falls back to approx_fprime when it is off),
         # and which AD backend runs follows from model_type/solver in

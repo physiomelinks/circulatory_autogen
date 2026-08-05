@@ -23,6 +23,9 @@ import numpy as np
 # under the original name for callers that already import it from this module.
 from parsers.PrimitiveParsers import AADC_TAPE_CONSISTENT_METHODS as TAPE_CONSISTENT_METHODS
 BDF_NEWTON_METHOD = 'bdf_newton'
+SEMI_IMPLICIT_SIGNED_METHOD = 'semi_implicit_signed'
+# Legacy names kept so configs written before the split still run; both now select a
+# gradient_strategy of the one method rather than naming an integrator (issue #346).
 BDF_TAPE_METHOD = 'bdf_tape'
 BDF_KERNEL_METHOD = 'bdf_kernel'
 
@@ -63,10 +66,23 @@ def cost_and_grad(pid, param_vals):
     method = pid.sim_helper.solver_info.get('method', 'adaptive_rk45')
     if method == BDF_NEWTON_METHOD:
         return _cost_and_grad_bdf_newton(pid, param_vals)
-    if method == BDF_TAPE_METHOD:
+    if method in (SEMI_IMPLICIT_SIGNED_METHOD, BDF_TAPE_METHOD, BDF_KERNEL_METHOD):
+        # One method, two execution strategies. The legacy names carried the strategy in the
+        # method itself; they still select it, so old configs keep working (issue #346).
+        strategy = pid.sim_helper.solver_info.get('gradient_strategy')
+        if method == BDF_TAPE_METHOD:
+            strategy = 'tape'
+        elif method == BDF_KERNEL_METHOD:
+            strategy = 'kernel'
+        strategy = strategy or 'tape'
+        if strategy not in ('tape', 'kernel'):
+            raise ValueError(
+                f"solver_info['gradient_strategy'] must be 'tape' or 'kernel', got "
+                f"{strategy!r}. It selects how '{SEMI_IMPLICIT_SIGNED_METHOD}' evaluates its "
+                f"gradient; the integration is the same either way.")
+        if strategy == 'kernel':
+            return _cost_and_grad_bdf_kernel(pid, param_vals)
         return _cost_and_grad_bdf_tape(pid, param_vals)
-    if method == BDF_KERNEL_METHOD:
-        return _cost_and_grad_bdf_kernel(pid, param_vals)
     if method not in TAPE_CONSISTENT_METHODS:
         raise ValueError(
             f"solver method '{method}' cannot be recorded on an AADC tape, so the forward "

@@ -120,7 +120,9 @@ def test_solver_integrator_keys_derived_from_schema():
         'reltol', 'abstol', 'rtol', 'atol', 'max_num_steps', 'max_step_size', 'max_step',
         'options'}
     # 'max_step' comes with the stiff BDF methods (bdf_newton / bdf_tape / bdf_kernel).
-    assert _SOLVER_INTEGRATOR_KEYS['aadc_semi_implicit'] == {'tol', 'threads', 'max_step'}
+    # 'gradient_strategy' selects tape vs kernel for semi_implicit_signed (issue #346).
+    assert _SOLVER_INTEGRATOR_KEYS['aadc_semi_implicit'] == {
+        'tol', 'threads', 'max_step', 'gradient_strategy'}
 
 
 def test_schema_settings_are_actually_read_by_the_code():
@@ -786,3 +788,127 @@ def test_aadc_bdf_methods_are_advertised_as_ad_suitable():
     for m in AADC_BDF_AD_METHODS:
         assert m.upper() + "_METHOD" in src or repr(m) in src, (
             f"{m} is advertised as AD-suitable but cost_and_grad does not dispatch it")
+
+
+@pytest.mark.unit
+def test_forward_methods_are_exactly_what_the_aadc_dispatch_can_integrate():
+    """methods_by_solver is a superset: not every method can run a plain forward solve.
+
+    A GUI building a "run a simulation" menu from methods_by_solver can offer a method that
+    cannot solve -- issue #346, where picking one broke every interactive simulation. This key
+    lists only what run() dispatches, and the loop below checks that claim against the source.
+    forward_methods_by_solver is the list to build that menu from.
+    """
+    import inspect
+    from parsers.PrimitiveParsers import AADC_FORWARD_METHODS
+    from solver_wrappers import aadc_python_solver_helper as helper
+
+    advertised = SOLVER_SCHEMA['forward_methods_by_solver']['aadc_semi_implicit']
+    assert advertised == list(AADC_FORWARD_METHODS)
+    assert 'semi_implicit_signed' not in advertised
+    assert set(advertised) <= set(SOLVER_SCHEMA['methods_by_solver']['aadc_semi_implicit'])
+
+    # every advertised forward method really has a branch in run()
+    run_src = inspect.getsource(helper.SimulationHelper.run)
+    for method in AADC_FORWARD_METHODS:
+        assert repr(method) in run_src or f"'{method}'" in run_src, (
+            f"{method} is advertised as forward-capable but run() does not dispatch it")
+
+
+@pytest.mark.unit
+def test_the_unknown_method_error_lists_what_the_dispatch_accepts():
+    """The hand-written list had gone stale, omitting implicit_newton and bdf_newton.
+
+    That cost real debugging time downstream: the stale text matched an older checkout exactly,
+    so a genuine finding looked like a local environment problem (issue #346).
+    """
+    import inspect
+    from solver_wrappers import aadc_python_solver_helper as helper
+
+    src = inspect.getsource(helper.SimulationHelper.run)
+    assert "AADC_FORWARD_METHODS" in src, "error text should be derived, not hand-written"
+
+
+@pytest.mark.unit
+def test_semi_implicit_signed_replaces_the_two_bdf_gradient_names():
+    """bdf_tape and bdf_kernel were one integrator with two execution strategies.
+
+    Both step x += dt*f/(1 - dt*diag J); they differ only in where the loop runs (an AADC tape,
+    or a C++ kernel replay that falls back to the tape). Advertising them as separate integrators
+    made a GUI offer two 'methods' that no forward solve accepts.
+    """
+    from parsers.PrimitiveParsers import (
+        AADC_BDF_AD_METHODS, AADC_LEGACY_METHOD_ALIASES)
+
+    methods = SOLVER_SCHEMA['methods_by_solver']['aadc_semi_implicit']
+    assert 'semi_implicit_signed' in methods
+    for gone in ('bdf_tape', 'bdf_kernel'):
+        assert gone not in methods, f"{gone} is a gradient strategy, not a method"
+        assert gone in AADC_LEGACY_METHOD_ALIASES, "old configs must keep working"
+    # still AD-capable, by its own gradient path
+    assert 'semi_implicit_signed' in AADC_BDF_AD_METHODS
+    assert 'semi_implicit_signed' in SOLVER_SCHEMA['ad_suitable_methods']['aadc_semi_implicit']
+
+    strategy = [f for f in SOLVER_INFO_FIELDS['aadc_semi_implicit']
+                if f['name'] == 'gradient_strategy']
+    assert strategy and strategy[0]['choices'] == ['tape', 'kernel']
+
+
+@pytest.mark.unit
+def test_the_aadc_default_method_can_actually_integrate():
+    """A default has to produce a number before it is AD-friendly.
+
+    'rk4' was chosen in #336 for tape-consistency without checking it could integrate: on
+    3compartment it raises OverflowError at dt 1e-3, 1e-4 and 1e-5, while implicit_newton lands
+    within 2% of CVODE_myokit (issue #346).
+    """
+    from parsers.PrimitiveParsers import AADC_FORWARD_METHODS
+
+    default = SOLVER_SCHEMA['default_method_by_solver']['aadc_semi_implicit']
+    assert default in AADC_FORWARD_METHODS, "the default must be forward-solvable"
+    assert default in SOLVER_SCHEMA['ad_suitable_methods']['aadc_semi_implicit']
+    assert default != 'rk4', "rk4 cannot integrate a stiff model; see issue #346"
+
+
+@pytest.mark.unit
+def test_stiff_suitable_methods_are_real_methods_and_exclude_the_measured_failures():
+    """Which integrators can be trusted on a stiff model.
+
+    Measured on 3compartment against CVODE_myokit (issue #346): rk4 overflows at three step
+    sizes, adaptive_rk45 does not return, implicit_euler_ift completes but is 84% low, while
+    semi_implicit (+6.7%) and implicit_newton (-1.9%) are usable.
+
+    implicit_euler_ift is the entry worth defending: it is excluded *despite* completing,
+    because returning a smooth trace that is wrong by a factor of six is worse than raising --
+    and it remains in ad_suitable_methods, so a gradient calibration would use it silently.
+    """
+    stiff = SOLVER_SCHEMA['stiff_suitable_methods']
+
+    # every entry must be a method that solver actually offers
+    for solver, methods in stiff.items():
+        known = SOLVER_SCHEMA['methods_by_solver'].get(solver)
+        assert known is not None, f"{solver} is not in methods_by_solver"
+        for m in methods:
+            assert m in known, f"{solver}: {m!r} is not one of its methods"
+
+    aadc = stiff['aadc_semi_implicit']
+    assert aadc == ['semi_implicit', 'implicit_newton']
+    for excluded in ('rk4', 'adaptive_rk45', 'implicit_euler_ift'):
+        assert excluded not in aadc, f"{excluded} is not usable on a stiff model; see issue #346"
+
+    # explicit solve_ivp methods must not be advertised as stiff-capable
+    for excluded in ('RK45', 'RK23', 'DOP853', 'forward_euler'):
+        assert excluded not in stiff['solve_ivp']
+    # nor CasADi's explicit rk
+    assert 'rk' not in stiff['casadi_integrator']
+
+
+@pytest.mark.unit
+def test_every_default_method_is_stiff_suitable_where_the_solver_has_a_stiff_set():
+    """A default lands on whatever a user gets without choosing, and the models this framework
+    generates are stiff -- so the default must be one of the trustworthy ones."""
+    stiff = SOLVER_SCHEMA['stiff_suitable_methods']
+    for solver, default in SOLVER_SCHEMA['default_method_by_solver'].items():
+        if solver in stiff:
+            assert default in stiff[solver], (
+                f"default for {solver} is {default!r}, which is not stiff-suitable")
