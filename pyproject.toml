@@ -69,6 +69,13 @@ dev = [
     "flake8>=4.0.0",
     "mypy>=0.950",
 ]
+# The calisim calibration backends (param_id/calisim_wrapper.py, param_id_method: calisim_*).
+# Optional: CA imports and runs without it, and only a calisim_* method needs it.
+# NOTE calisim 1.0.0 pins numpy<2 and scipy<1.12 and requires python >=3.10,<3.13, so it cannot
+# currently be installed alongside a numpy 2.x environment. See issue #288.
+calisim = [
+    "calisim>=1.0.0",
+]
 docs = [
     "mkdocs-material>=9.0",
     "mkdocstrings[python]>=0.24",
