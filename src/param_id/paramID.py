@@ -57,7 +57,8 @@ import csv
 import shutil
 from datetime import date, datetime
 # from skopt import gp_minimize, Optimizer
-from parsers.PrimitiveParsers import CSVFileParser, ObsAndParamDataParser, PARAM_ID_METHODS
+from parsers.PrimitiveParsers import (CSVFileParser, ObsAndParamDataParser, PARAM_ID_METHODS,
+                                      PARAM_PRIOR_TYPES)
 from param_id.optimisers import GeneticAlgorithmOptimiser, BayesianOptimiser, CMAESOptimiser, \
     SciPyMinimizeOptimiser, MultiStartSciPyMinimizeOptimiser
 from param_id.differentiable import (
@@ -1719,6 +1720,15 @@ class OpencorParamID():
                     mean = 0.5*(self.param_id_info["param_maxs"][idx] + self.param_id_info["param_mins"][idx])
                     lnprior += -0.5*((param_val - mean)/std)**2
 
+            else:
+                # Unreachable via params_for_id, which validates the column against
+                # PARAM_PRIOR_TYPES. Kept because falling through silently is what made a
+                # mis-spelled prior drop this parameter's range check -- the walker then
+                # left [min, max] with a finite lnprior instead of -inf, and nothing said so.
+                raise ValueError(
+                    f"unknown prior '{prior_dist}' for parameter index {idx}. "
+                    f"Valid priors are: {', '.join(sorted(PARAM_PRIOR_TYPES))}."
+                )
 
         return lnprior
 
