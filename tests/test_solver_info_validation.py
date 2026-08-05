@@ -783,10 +783,13 @@ def test_aadc_bdf_methods_are_advertised_as_ad_suitable():
     # the adaptive integrator still must not be offered
     assert 'adaptive_rk45' not in advertised
 
-    # each advertised BDF method really is dispatched to its own gradient path
+    # each advertised BDF method really is dispatched to its own gradient path: the signed
+    # scheme through the strategy resolver, anything else by name in cost_and_grad itself
     src = inspect.getsource(aadc_backend.cost_and_grad)
     for m in AADC_BDF_AD_METHODS:
-        assert m.upper() + "_METHOD" in src or repr(m) in src, (
+        routed = aadc_backend.resolve_gradient_strategy(m, {}) is not None
+        named = m.upper() + "_METHOD" in src or repr(m) in src
+        assert routed or named, (
             f"{m} is advertised as AD-suitable but cost_and_grad does not dispatch it")
 
 
@@ -855,6 +858,50 @@ def test_semi_implicit_signed_replaces_the_two_bdf_gradient_names():
 
 
 @pytest.mark.unit
+def test_legacy_bdf_names_resolve_through_the_dispatch_not_just_the_alias_table():
+    """"Old configs keep working" has to be checked against the code that runs them.
+
+    Asserting only that 'bdf_tape' appears in AADC_LEGACY_METHOD_ALIASES tests a declaration:
+    the table could stay correct while the dispatch that consumes it was rewritten to ignore a
+    name, and the guarantee would break with every test still green. So drive the resolver.
+    """
+    from param_id.aadc_backend import resolve_gradient_strategy
+
+    assert resolve_gradient_strategy('bdf_tape', {}) == ('semi_implicit_signed', 'tape')
+    assert resolve_gradient_strategy('bdf_kernel', {}) == ('semi_implicit_signed', 'kernel')
+
+    # the canonical name honours the setting, and defaults to the tape
+    assert resolve_gradient_strategy('semi_implicit_signed', {}) == ('semi_implicit_signed', 'tape')
+    assert resolve_gradient_strategy(
+        'semi_implicit_signed', {'gradient_strategy': 'kernel'}) == ('semi_implicit_signed', 'kernel')
+
+    # anything else is not this scheme, and must fall through to the other gradient paths
+    for other in ('bdf_newton', 'rk4', 'semi_implicit', 'adaptive_rk45'):
+        assert resolve_gradient_strategy(other, {}) is None
+
+    with pytest.raises(ValueError, match='gradient_strategy'):
+        resolve_gradient_strategy('semi_implicit_signed', {'gradient_strategy': 'nonsense'})
+
+
+@pytest.mark.unit
+def test_a_legacy_name_warns_rather_than_silently_dropping_a_conflicting_strategy():
+    """'bdf_kernel' fixes the strategy, so gradient_strategy='tape' alongside it cannot be
+    honoured. The name wins (it is the more specific statement of intent), but silently
+    discarding a setting the user wrote is the failure mode this whole change is fixing."""
+    from param_id.aadc_backend import resolve_gradient_strategy
+
+    with pytest.warns(UserWarning, match='ignored'):
+        resolved = resolve_gradient_strategy('bdf_kernel', {'gradient_strategy': 'tape'})
+    assert resolved == ('semi_implicit_signed', 'kernel')
+
+    # no warning when they agree
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')
+        assert resolve_gradient_strategy(
+            'bdf_tape', {'gradient_strategy': 'tape'}) == ('semi_implicit_signed', 'tape')
+
+
+@pytest.mark.unit
 def test_the_aadc_default_method_can_actually_integrate():
     """A default has to produce a number before it is AD-friendly.
 
@@ -890,6 +937,12 @@ def test_stiff_suitable_methods_are_real_methods_and_exclude_the_measured_failur
         assert known is not None, f"{solver} is not in methods_by_solver"
         for m in methods:
             assert m in known, f"{solver}: {m!r} is not one of its methods"
+
+    # and every solver must have an entry, so a consumer can tell "assessed, nothing qualifies"
+    # (an empty list) from "not in the table at all" -- a missing key would otherwise read as
+    # "no stiff-safe method" and silently hide the solver from a stiff-model menu
+    assert set(stiff) == set(SOLVER_SCHEMA['methods_by_solver']), (
+        "every solver needs a stiff_suitable_methods entry, empty if nothing qualifies")
 
     aadc = stiff['aadc_semi_implicit']
     assert aadc == ['semi_implicit', 'implicit_newton']
