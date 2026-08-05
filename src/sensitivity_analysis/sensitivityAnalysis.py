@@ -322,7 +322,11 @@ class SensitivityAnalysis():
             [float(v[0]) if isinstance(v, (list, tuple, np.ndarray)) else float(v)
              for v in nominal], dtype=float)
 
-        sens = engine.get_observable_sensitivities(nominal)  # {obs_label: {param: d(feat)/dp}}
+        # 'analytic' (the default) keeps the backend's own sensitivity; 'FD' opts into
+        # central finite differences, the only local SA available on a backend with no
+        # analytic arm (issue #338).
+        sens = engine.get_observable_sensitivities(  # {obs_label: {param: d(feat)/dp}}
+            nominal, gradient_method=(self.sa_options or {}).get('gradient_method'))
 
         output_names = list(sens.keys())
         n_out, n_par = len(output_names), len(param_names)
@@ -333,7 +337,15 @@ class SensitivityAnalysis():
         for i, oname in enumerate(output_names):
             fmag = feat_mag.get(oname, 0.0)
             for jj, pname in enumerate(param_names):
-                d = float(sens[oname].get(pname, 0.0))
+                raw = sens[oname].get(pname, 0.0)
+                # None means the arm could not produce this one -- an FD parameter whose
+                # perturbed runs did not converge. NaN, not 0.0: zero is a real answer
+                # ("this parameter does not matter") and would be indistinguishable from
+                # a failed evaluation in the saved CSV.
+                if raw is None:
+                    absolute[i, jj] = relative[i, jj] = np.nan
+                    continue
+                d = float(raw)
                 absolute[i, jj] = d
                 relative[i, jj] = d * abs(nominal[jj]) / fmag if fmag > 1e-30 else 0.0
 

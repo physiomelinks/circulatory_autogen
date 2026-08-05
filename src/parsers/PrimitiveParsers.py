@@ -565,8 +565,20 @@ ANALYSIS_OPTIONS = {
             {'name': 'method', 'type': 'enum', 'default': 'sobol', 'required': False,
              'choices': ['sobol', 'local'],
              'description': ('Sensitivity method: global variance-based Sobol indices, or '
-                             '"local" derivative-based sensitivities from the Myokit CVODES '
-                             'forward sensitivities (cellml_only + CVODE_myokit only).')},
+                             '"local" derivative-based sensitivities (see gradient_method '
+                             'for which backends can produce them).')},
+            # Only read by method 'local'. Declared so downstream tools offer the choice
+            # rather than hardcoding it, and so FD is something the user picks by name: it
+            # costs 2M simulations and its accuracy depends on a step size the analytic arms
+            # do not have, so it must never stand in silently for them.
+            {'name': 'gradient_method', 'type': 'enum', 'default': 'analytic', 'required': False,
+             'choices': ['analytic', 'FD'],
+             'description': ('For method "local": how to differentiate. "analytic" uses the '
+                             "backend's own sensitivity (the CasADi jacobian, or Myokit "
+                             'CVODES forward sensitivities) and fails where there is none; '
+                             '"FD" uses central finite differences and works on any backend '
+                             'that runs a forward simulation, at 2M simulations for M '
+                             'parameters.')},
             # enum, not str: sobol_SA.generate_samples dispatches on exactly these two
             # and raises ValueError on anything else, so a free string only lets a
             # typo through to run time.
