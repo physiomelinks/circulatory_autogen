@@ -239,3 +239,31 @@ def test_obs_reducers_cover_the_shipped_operations():
     assert _OBS_REDUCERS['max'](y) == pytest.approx(5.0)
     assert _OBS_REDUCERS['min'](y) == pytest.approx(1.0)
     assert _OBS_REDUCERS['max_minus_min'](y) == pytest.approx(4.0)
+
+
+@pytest.mark.unit
+def test_every_benchmark_reports_relative_parameter_error():
+    """The max param err column must mean the same thing in every row.
+
+    Parameters within one model span orders of magnitude (3compartment ~8e-4 to ~3.7e8, Teusink
+    226 to 1185), so an absolute maximum reports only the largest parameter. It also makes the
+    column incomparable between benchmarks -- 0.01 on FitzHugh-Nagumo and 0.01 on 3compartment
+    would describe different qualities of fit. FitzHugh-Nagumo and Goodwin previously reported
+    absolute error while Teusink and 3compartment reported relative.
+    """
+    import inspect
+    from benchmarks import benchmark_specs
+    from benchmarks.benchmark_specs import max_relative_param_err
+
+    # a 10% miss is 0.1 whatever the parameter's magnitude
+    assert max_relative_param_err([1.1], [1.0]) == pytest.approx(0.1)
+    assert max_relative_param_err([1.1e8], [1.0e8]) == pytest.approx(0.1)
+    # the largest *relative* miss wins, not the largest absolute one
+    assert max_relative_param_err([1.01, 2.0e8], [1.0, 1.0e8]) == pytest.approx(1.0)
+
+    # no benchmark computes its own error any more
+    src = inspect.getsource(benchmark_specs)
+    assert "param_err=float(np.max(np.abs(" not in src, (
+        "a benchmark is still computing param_err by hand; use max_relative_param_err")
+    assert src.count("param_err=max_relative_param_err(") == 4, (
+        "all four benchmarks should report error through the shared helper")
