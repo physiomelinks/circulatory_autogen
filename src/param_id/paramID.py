@@ -1420,6 +1420,13 @@ class OpencorParamID():
             self.param_id_info["param_mins"] = np.delete(self.param_id_info["param_mins"], param_idxs_to_remove)
             self.param_id_info["param_maxs"] = np.delete(self.param_id_info["param_maxs"], param_idxs_to_remove)
             self.param_id_info["param_prior_types"] = np.delete(self.param_id_info["param_prior_types"], param_idxs_to_remove)
+            # Kept in step with the types, or every remaining parameter would read the
+            # hyper-parameters of whichever one used to sit at its index.
+            if self.param_id_info.get("param_prior_params") is not None:
+                self.param_id_info["param_prior_params"] = [
+                    p for II, p in enumerate(self.param_id_info["param_prior_params"])
+                    if II not in param_idxs_to_remove
+                ]
             self.param_norm_obj = Normalise_class(self.param_id_info["param_mins"], self.param_id_info["param_maxs"])
             self.param_init = None
 
@@ -1688,6 +1695,24 @@ class OpencorParamID():
         cost = self.get_cost_and_obs_from_params(param_vals, reset=reset)[0]
         return cost
     
+    def _prior_param(self, idx, name):
+        """One prior hyper-parameter for parameter ``idx``, or its declared default.
+
+        Tolerates a param_id_info built without ``param_prior_params`` -- assembled by
+        hand, or unpickled from before these columns existed -- by falling back to the
+        schema default, so an older config keeps the behaviour it had.
+        """
+        per_param = self.param_id_info.get("param_prior_params")
+        if per_param is not None and idx < len(per_param):
+            values = per_param[idx] or {}
+            if name in values:
+                return values[name]
+        for meta in PARAM_PRIOR_TYPES.values():
+            for spec in meta['params']:
+                if spec['name'] == name:
+                    return spec['default']
+        return None
+
     def get_lnprior_from_params(self, param_vals):
         lnprior = 0
         for idx, param_val in enumerate(param_vals):
@@ -1704,7 +1729,7 @@ class OpencorParamID():
                     pass
             
             elif prior_dist == 'exponential':
-                lamb = 1.0 # TODO make this user modifiable
+                lamb = self._prior_param(idx, 'prior_lambda')
                 if param_val < self.param_id_info["param_mins"][idx] or param_val > self.param_id_info["param_maxs"][idx]:
                     return -np.inf
                 else:
@@ -1716,9 +1741,17 @@ class OpencorParamID():
                 if param_val < self.param_id_info["param_mins"][idx] or param_val > self.param_id_info["param_maxs"][idx]:
                     return -np.inf
                 else:
-                    # temporarily make the std 1/6 of the user defined range and the mean the centre of the range
-                    std = 1/6*(self.param_id_info["param_maxs"][idx] - self.param_id_info["param_mins"][idx])
-                    mean = 0.5*(self.param_id_info["param_maxs"][idx] + self.param_id_info["param_mins"][idx])
+                    # Defaults when the user states neither: the centre of the range, and a
+                    # sixth of it, which puts [min, max] at +/- 3 sigma. Both are now
+                    # params_for_id columns (prior_mean / prior_std), because a prior whose
+                    # centre is fixed to the middle of the bounds cannot express most of
+                    # what a prior is for.
+                    std = self._prior_param(idx, 'prior_std')
+                    if std is None:
+                        std = 1/6*(self.param_id_info["param_maxs"][idx] - self.param_id_info["param_mins"][idx])
+                    mean = self._prior_param(idx, 'prior_mean')
+                    if mean is None:
+                        mean = 0.5*(self.param_id_info["param_maxs"][idx] + self.param_id_info["param_mins"][idx])
                     lnprior += -0.5*((param_val - mean)/std)**2
 
             else:

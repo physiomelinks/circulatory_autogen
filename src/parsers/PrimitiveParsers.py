@@ -384,21 +384,47 @@ _OPT_GA_NUM_CROSS_BREED = {
 # through skips that parameter's own range check, so a mis-spelled prior -- 'Normal', say --
 # silently stopped bounding the parameter at all, and an MCMC walker could leave [min, max]
 # with a finite lnprior instead of -inf. A typo must not quietly unbound a parameter.
+# Each prior also declares the values it takes, in `params`. Those were previously hardcoded
+# in get_lnprior_from_params -- the exponential's rate behind a "TODO make this user
+# modifiable", the normal's mean and std behind a "temporarily" -- so a user who wanted a
+# prior centred anywhere other than the middle of the range had no way to say so, and no way
+# to discover that the number was fixed. Each entry names a params_for_id column, with the
+# previous hardcoded value as its default so existing files are unaffected.
 PARAM_PRIOR_TYPES = {
     'uniform': {
         'label': 'Uniform',
         'description': 'Flat across [min, max]. The default when no prior is given.',
+        'params': [],
     },
     'exponential': {
         'label': 'Exponential',
-        'description': 'Decays across [min, max] at rate 1/max, favouring smaller values.',
+        'description': ('Decays across [min, max] at rate prior_lambda / max, favouring '
+                        'smaller values.'),
+        'params': [
+            {'name': 'prior_lambda', 'type': 'float', 'default': 1.0, 'positive': True,
+             'description': ('Decay rate, scaled by the parameter maximum. Larger values '
+                             'concentrate the prior harder towards min.')},
+        ],
     },
     'normal': {
         'label': 'Normal',
-        'description': ('Gaussian centred on the middle of [min, max], with a standard '
-                        'deviation of one sixth of the range.'),
+        'description': 'Gaussian, truncated to [min, max].',
+        'params': [
+            {'name': 'prior_mean', 'type': 'float', 'default': None, 'positive': False,
+             'description': 'Centre of the Gaussian. Defaults to the centre of [min, max].'},
+            {'name': 'prior_std', 'type': 'float', 'default': None, 'positive': True,
+             'description': ('Standard deviation. Defaults to one sixth of the range, which '
+                             'puts [min, max] at +/- 3 sigma.')},
+        ],
     },
 }
+
+# Every `params` entry above names a params_for_id column. Collected once so the parser can
+# tell a prior hyper-parameter column from an unrelated one, and so a downstream tool can
+# render exactly the fields the chosen prior uses.
+PARAM_PRIOR_PARAM_NAMES = tuple(
+    spec['name'] for meta in PARAM_PRIOR_TYPES.values() for spec in meta['params']
+)
 
 # What an absent, blank or NaN `prior` entry means -- and what the whole column defaults to
 # when params_for_id has no `prior` at all.
@@ -427,6 +453,54 @@ def normalise_prior_type(value, row_idx=None):
             f"{', '.join(sorted(PARAM_PRIOR_TYPES))}."
         )
     return key
+
+
+def normalise_prior_params(prior_type, row, row_idx=None):
+    """The hyper-parameters for one row's prior, validated against its declaration.
+
+    ``row`` is anything supporting ``.get(name)`` -- a DataFrame row or a plain
+    dict. Returns ``{name: float or None}`` for exactly the values this prior
+    declares; None means "not stated", which the likelihood turns into the
+    documented default (the centre of the range, a sixth of the range) since
+    those depend on bounds this function does not own.
+
+    A value supplied for a prior that does not take it is an error, not something
+    to ignore: `prior_std` on a uniform row means the user believes they set a
+    width, and silently dropping it gives them a different posterior than the one
+    they asked for.
+    """
+    where = '' if row_idx is None else f' (params_for_id row {row_idx})'
+    declared = {spec['name']: spec for spec in PARAM_PRIOR_TYPES[prior_type]['params']}
+
+    for name in PARAM_PRIOR_PARAM_NAMES:
+        if name in declared:
+            continue
+        raw = row.get(name) if hasattr(row, 'get') else None
+        if raw is None or (isinstance(raw, float) and np.isnan(raw)) or str(raw).strip() == '':
+            continue
+        raise ValueError(
+            f"'{name}' was given{where}, but the prior is '{prior_type}', which does not use "
+            f"it. {prior_type} takes: {', '.join(declared) if declared else 'no parameters'}."
+        )
+
+    out = {}
+    for name, spec in declared.items():
+        raw = row.get(name) if hasattr(row, 'get') else None
+        if raw is None or (isinstance(raw, float) and np.isnan(raw)) or str(raw).strip() == '':
+            out[name] = spec['default']
+            continue
+        try:
+            value = float(raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"'{name}'{where} must be a number, got {raw!r}.") from exc
+        if not np.isfinite(value):
+            raise ValueError(f"'{name}'{where} must be finite, got {raw!r}.")
+        if spec['positive'] and value <= 0:
+            raise ValueError(
+                f"'{name}'{where} must be greater than zero, got {value}.")
+        out[name] = value
+    return out
 
 
 # Single source of truth for the parameter-identification (calibration) methods, i.e. the valid
@@ -2780,6 +2854,16 @@ class ObsAndParamDataParser(object):
             ])
         else:
             param_id_info["param_prior_types"] = np.array([DEFAULT_PARAM_PRIOR_TYPE] * N_params)
+
+        # The values each prior takes (the exponential's rate, the normal's mean and std),
+        # one dict per parameter. Validated against what that row's prior actually declares,
+        # so a hyper-parameter set on a prior that ignores it is a parse error rather than a
+        # silently different posterior.
+        param_id_info["param_prior_params"] = [
+            normalise_prior_params(
+                param_id_info["param_prior_types"][II], filtered_params.iloc[II], row_idx=II)
+            for II in range(N_params)
+        ]
 
         param_id_info["param_names_for_gen"] = param_names_for_gen
 
