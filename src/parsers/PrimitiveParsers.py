@@ -411,6 +411,7 @@ PARAM_PRIOR_TYPES = {
         'description': 'Gaussian, truncated to [min, max].',
         'params': [
             {'name': 'prior_mean', 'type': 'float', 'default': None, 'positive': False,
+             'within_bounds': True,
              'description': 'Centre of the Gaussian. Defaults to the centre of [min, max].'},
             {'name': 'prior_std', 'type': 'float', 'default': None, 'positive': True,
              'description': ('Standard deviation. Defaults to one sixth of the range, which '
@@ -468,6 +469,12 @@ def normalise_prior_params(prior_type, row, row_idx=None):
     to ignore: `prior_std` on a uniform row means the user believes they set a
     width, and silently dropping it gives them a different posterior than the one
     they asked for.
+
+    A value declared ``within_bounds`` is checked against the row's own min/max
+    when the row carries them. Every prior is truncated to [min, max], so a centre
+    outside it describes a peak the sampler can never reach: every draw sits on a
+    tail and is pulled to the nearer bound. That is legal arithmetic and almost
+    never what was meant, so it is refused here rather than run.
     """
     where = '' if row_idx is None else f' (params_for_id row {row_idx})'
     declared = {spec['name']: spec for spec in PARAM_PRIOR_TYPES[prior_type]['params']}
@@ -499,8 +506,36 @@ def normalise_prior_params(prior_type, row, row_idx=None):
         if spec['positive'] and value <= 0:
             raise ValueError(
                 f"'{name}'{where} must be greater than zero, got {value}.")
+        if spec.get('within_bounds'):
+            bounds = _row_bounds(row)
+            if bounds is not None and not (bounds[0] <= value <= bounds[1]):
+                raise ValueError(
+                    f"'{name}'{where} must lie within the parameter's range "
+                    f"[{bounds[0]}, {bounds[1]}], got {value}. Every prior is truncated to "
+                    f"that range, so a centre outside it is a peak the sampler can never "
+                    f"reach.")
         out[name] = value
     return out
+
+
+def _row_bounds(row):
+    """``(min, max)`` for a params_for_id row, or None when it does not carry them.
+
+    None rather than an error: this function is also called with a bare dict of
+    hyper-parameters (a downstream editor validating one row's fields), and a
+    caller that cannot supply bounds should still get every other check.
+    """
+    try:
+        lo = row.get('min') if hasattr(row, 'get') else None
+        hi = row.get('max') if hasattr(row, 'get') else None
+        if lo is None or hi is None:
+            return None
+        lo, hi = float(lo), float(hi)
+    except (TypeError, ValueError):
+        return None
+    if not (np.isfinite(lo) and np.isfinite(hi)):
+        return None
+    return (lo, hi)
 
 
 # Single source of truth for the parameter-identification (calibration) methods, i.e. the valid
