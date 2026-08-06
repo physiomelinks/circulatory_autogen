@@ -2379,16 +2379,48 @@ class OpencorParamID():
         else:
             raise ValueError(f"Gradient not available for model_type={self.model_type}")
 
-    def _observable_label(self, obs_idx):
-        """Human-readable, disambiguating label for observable ``obs_idx`` (used as the row key
-        of the local-sensitivity matrices). names_for_plotting can repeat across observables that
-        share a variable but differ by operation (e.g. mean vs max of the same trace), so the
-        operation and operand are folded in."""
+    def _observable_base_label(self, obs_idx):
         name = self.obs_info["names_for_plotting"][obs_idx]
         op = self.obs_info["operations"][obs_idx]
         operands = self.obs_info["operands"][obs_idx]
         operand = operands[0] if operands else ''
         return f"{name} ({op} {operand})" if op else f"{name} ({operand})"
+
+    def _ambiguous_observable_labels(self):
+        """Base labels shared by more than one observable. Computed once per obs_info."""
+        obs_info = self.obs_info
+        cached = getattr(self, '_ambiguous_labels_cache', None)
+        if cached is not None and cached[0] is obs_info:
+            return cached[1]
+        counts = {}
+        for II in range(obs_info["num_obs"]):
+            base = self._observable_base_label(II)
+            counts[base] = counts.get(base, 0) + 1
+        ambiguous = {base for base, n in counts.items() if n > 1}
+        self._ambiguous_labels_cache = (obs_info, ambiguous)
+        return ambiguous
+
+    def _observable_label(self, obs_idx):
+        """Human-readable, disambiguating label for observable ``obs_idx`` (used as the row key
+        of the local-sensitivity matrices). names_for_plotting can repeat across observables that
+        share a variable but differ by operation (e.g. mean vs max of the same trace), so the
+        operation and operand are folded in.
+
+        The experiment and sub-experiment are folded in too, but only when even that repeats.
+        A data_item names both, and two experiments measuring the same feature of the same
+        variable is an ordinary obs_data -- SN_simple has exactly that. These labels are the
+        keys of the dict get_observable_sensitivities returns, so without this the two share
+        one key and the second silently overwrites the first: one experiment's local
+        sensitivity reported for both, with nothing to show anything was lost.
+
+        Only when needed, so every unambiguous label -- all of them in a single-experiment
+        study -- keeps the spelling it already had."""
+        base = self._observable_base_label(obs_idx)
+        if base not in self._ambiguous_observable_labels():
+            return base
+        exp = self.obs_info["experiment_idxs"][obs_idx]
+        sub = self.obs_info["subexperiment_idxs"][obs_idx]
+        return f"{base} [exp {exp}, sub {sub}]"
 
     def get_observable_sensitivities(self, param_vals, gradient_method=None, fd_rel_step=None):
         """d(observable feature)/d(param) for the scalar observables -- the backend-agnostic

@@ -42,12 +42,44 @@ def _features(pid, param_vals):
 
     Evaluated through the same path the cost uses, so a feature here is the
     feature the calibration is fitting -- not a second implementation of it.
+
+    Each observable is evaluated in **its own** experiment and sub-experiment. A
+    data_item names both, and the cost scores it against that segment, so
+    evaluating every observable against one segment differentiates the wrong
+    trace. Reading experiment 0 for all of them gave every observable outside
+    experiment 0 the same near-zero sensitivity -- wrong in a way visible only if
+    you already knew what to expect.
+
+    ``operands_list`` is flat over sub-experiments in CA's order, so the segment
+    for (exp, sub) is ``sum(num_sub_per_exp[:exp]) + sub``.
     """
     _, operands_list, _ = pid.get_cost_obs_and_pred_from_params(
-        np.asarray(param_vals, dtype=float), reset=True, only_one_exp=0)
-    if not operands_list or operands_list[0] is None:
+        np.asarray(param_vals, dtype=float), reset=True)
+    if not operands_list:
         return None
-    return np.asarray(pid.get_obs_output_dict(operands_list[0])['const'], dtype=float)
+
+    obs = pid.obs_info
+    const_to_obs = obs["const_idx_to_obs_idx"]
+    num_sub_per_exp = pid.protocol_info["num_sub_per_exp"]
+
+    # One get_obs_output_dict call per distinct segment rather than per observable:
+    # it evaluates every data item against whatever operands it is handed, so the
+    # segment is what varies and the const index picks the observable out of it.
+    by_segment = {}
+    out = np.full(len(const_to_obs), np.nan)
+    for k, obs_idx in enumerate(const_to_obs):
+        exp = int(obs["experiment_idxs"][obs_idx])
+        sub = int(obs["subexperiment_idxs"][obs_idx])
+        flat = sum(num_sub_per_exp[:exp]) + sub
+        if flat >= len(operands_list) or operands_list[flat] is None:
+            return None
+        if flat not in by_segment:
+            by_segment[flat] = np.asarray(
+                pid.get_obs_output_dict(operands_list[flat])['const'], dtype=float)
+        consts = by_segment[flat]
+        if k < len(consts):
+            out[k] = consts[k]
+    return out
 
 
 def observable_feature_sensitivities(pid, param_vals, h=1e-3):
