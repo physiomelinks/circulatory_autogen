@@ -140,11 +140,13 @@ def _lnprior(csv, vals):
 
 
 def test_every_declared_prior_param_is_a_known_column():
-    assert set(PARAM_PRIOR_PARAM_NAMES) == {"prior_lambda", "prior_mean", "prior_std"}
+    assert set(PARAM_PRIOR_PARAM_NAMES) == {
+        "prior_lambda", "prior_origin", "prior_scale", "prior_mean", "prior_std"}
 
 
 def test_each_prior_declares_the_values_it_takes():
-    assert [s["name"] for s in PARAM_PRIOR_TYPES["exponential"]["params"]] == ["prior_lambda"]
+    assert [s["name"] for s in PARAM_PRIOR_TYPES["exponential"]["params"]] == [
+        "prior_lambda", "prior_origin", "prior_scale"]
     assert [s["name"] for s in PARAM_PRIOR_TYPES["normal"]["params"]] == ["prior_mean", "prior_std"]
     assert PARAM_PRIOR_TYPES["uniform"]["params"] == []
 
@@ -365,9 +367,11 @@ def test_a_bounded_parameter_is_still_truncated():
 def test_unbounded_needs_a_prior_with_a_centre_and_a_width():
     """A uniform is *defined* by the range, and an exponential has a rate but no
     centre, so neither can stand in for one."""
+    # Both priors that carry a location and a scale qualify; a uniform is *defined*
+    # by its range and so cannot stand in for one.
     assert prior_supports_unbounded("normal") is True
+    assert prior_supports_unbounded("exponential") is True
     assert prior_supports_unbounded("uniform") is False
-    assert prior_supports_unbounded("exponential") is False
 
     with pytest.raises(ValueError, match="no centre and width"):
         _info("vessel_name,param_name,min,max,prior,unbounded\na,k,,,uniform,true\n")
@@ -413,3 +417,104 @@ def test_no_unbounded_column_leaves_everything_bounded():
 def test_derive_bounds_is_span_times_the_scale():
     assert derive_bounds_from_prior("normal", {"prior_mean": 2.0, "prior_std": 0.5}) == (
         2.0 - 0.5 * UNBOUNDED_SIGMA_SPAN, 2.0 + 0.5 * UNBOUNDED_SIGMA_SPAN)
+
+
+# ---------------------------------------------------------------------------
+# Derived defaults are declared once
+#
+# The formulas used to be written twice: in get_lnprior_from_params, and in
+# whatever prose a UI chose to describe them. `default_expr` states each once, CA
+# computes from it, and a downstream editor shows the same number in the blank
+# field's placeholder -- so the two cannot drift.
+# ---------------------------------------------------------------------------
+from parsers.PrimitiveParsers import eval_prior_default, prior_param_default
+
+
+def test_the_normal_defaults_are_the_documented_ones():
+    assert prior_param_default("normal", "prior_mean", {"min": 1.0, "max": 2.0}) == 1.5
+    assert prior_param_default("normal", "prior_std", {"min": 0.0, "max": 6.0}) == 1.0
+
+
+def test_a_derived_default_needs_the_bounds_it_names():
+    """An unbounded row has no max, so nothing is invented from one."""
+    assert prior_param_default("normal", "prior_mean", {"min": 1.0}) is None
+
+
+def test_the_evaluator_does_arithmetic_and_nothing_else():
+    """It reads CA's own schema, but an evaluator that can only add and divide
+    cannot grow into something else later."""
+    assert eval_prior_default("(min + max) / 2", {"min": 2.0, "max": 4.0}) == 3.0
+    for hostile in ("__import__('os')", "open('/etc/passwd')", "[x for x in (1,2)]", "min.__class__"):
+        assert eval_prior_default(hostile, {"min": 1.0, "max": 2.0}) is None
+
+
+def test_a_division_by_zero_yields_no_default():
+    assert eval_prior_default("max / prior_lambda", {"max": 1.0}, {"prior_lambda": 0.0}) is None
+
+
+# ---------------------------------------------------------------------------
+# The exponential's scale, and its unbounded form
+# ---------------------------------------------------------------------------
+def test_the_exponential_is_unchanged_when_nothing_is_stated():
+    """origin 0 and scale max/lambda reproduce the original -lambda*x/max exactly."""
+    from param_id.paramID import OpencorParamID
+
+    info = _info("vessel_name,param_name,min,max,prior\na,k,0,10,exponential\n")
+    pid = OpencorParamID.__new__(OpencorParamID)
+    pid.param_id_info = info
+    # -1.0 * 5 / 10
+    assert pid.get_lnprior_from_params([5.0]) == pytest.approx(-0.5)
+
+
+def test_a_stated_rate_still_steepens_it():
+    from param_id.paramID import OpencorParamID
+
+    info = _info(
+        "vessel_name,param_name,min,max,prior,prior_lambda\na,k,0,10,exponential,4.0\n")
+    pid = OpencorParamID.__new__(OpencorParamID)
+    pid.param_id_info = info
+    assert pid.get_lnprior_from_params([5.0]) == pytest.approx(-2.0)
+
+
+def test_a_stated_scale_is_in_the_parameters_own_units():
+    from param_id.paramID import OpencorParamID
+
+    info = _info(
+        "vessel_name,param_name,min,max,prior,prior_scale\na,k,0,10,exponential,2.0\n")
+    pid = OpencorParamID.__new__(OpencorParamID)
+    pid.param_id_info = info
+    assert pid.get_lnprior_from_params([4.0]) == pytest.approx(-2.0)
+
+
+def test_an_unbounded_exponential_derives_a_one_sided_range():
+    """It decays away from its origin in one direction, so a range centred on the
+    origin would put half the box where the prior has no mass."""
+    info = _info(
+        "vessel_name,param_name,min,max,prior,prior_origin,prior_scale,unbounded\n"
+        "a,k,,,exponential,2.0,3.0,true\n"
+    )
+    assert info["param_mins"][0] == pytest.approx(2.0)
+    assert info["param_maxs"][0] == pytest.approx(2.0 + UNBOUNDED_SIGMA_SPAN * 3.0)
+
+
+def test_an_unbounded_exponential_needs_a_scale():
+    """Its original rate is defined relative to max, and an unbounded parameter
+    has no max, so the scale must be given in the parameter's own units."""
+    with pytest.raises(ValueError, match="must be given"):
+        _info(
+            "vessel_name,param_name,min,max,prior,prior_origin,unbounded\n"
+            "a,k,,,exponential,0.0,true\n"
+        )
+
+
+def test_an_unbounded_exponential_is_not_truncated():
+    from param_id.paramID import OpencorParamID
+
+    info = _info(
+        "vessel_name,param_name,min,max,prior,prior_origin,prior_scale,unbounded\n"
+        "a,k,,,exponential,0.0,1.0,true\n"
+    )
+    pid = OpencorParamID.__new__(OpencorParamID)
+    pid.param_id_info = info
+    # Far past the derived [0, 5]: finite, and the exponential's own value.
+    assert pid.get_lnprior_from_params([40.0]) == pytest.approx(-40.0)
