@@ -1427,6 +1427,9 @@ class OpencorParamID():
                     p for II, p in enumerate(self.param_id_info["param_prior_params"])
                     if II not in param_idxs_to_remove
                 ]
+            if self.param_id_info.get("param_unbounded") is not None:
+                self.param_id_info["param_unbounded"] = np.delete(
+                    self.param_id_info["param_unbounded"], param_idxs_to_remove)
             self.param_norm_obj = Normalise_class(self.param_id_info["param_mins"], self.param_id_info["param_maxs"])
             self.param_init = None
 
@@ -1695,6 +1698,18 @@ class OpencorParamID():
         cost = self.get_cost_and_obs_from_params(param_vals, reset=reset)[0]
         return cost
     
+    def _is_unbounded(self, idx):
+        """Whether parameter ``idx`` was marked unbounded in params_for_id.
+
+        Tolerates a param_id_info without the key -- assembled by hand, or from
+        before the column existed -- by answering False, which is the behaviour
+        every parameter had then.
+        """
+        flags = self.param_id_info.get("param_unbounded")
+        if flags is None or idx >= len(flags):
+            return False
+        return bool(flags[idx])
+
     def _prior_param(self, idx, name):
         """One prior hyper-parameter for parameter ``idx``, or its declared default.
 
@@ -1721,8 +1736,14 @@ class OpencorParamID():
             else:
                 prior_dist = None
 
+            # An unbounded parameter has no range of its own -- the range in
+            # param_id_info was derived from this very prior, purely so the
+            # optimiser and the normalisation have a finite box. Truncating the
+            # prior at it would re-impose the bounds the user said were absent.
+            bounded = not self._is_unbounded(idx)
+
             if not prior_dist or prior_dist == 'uniform':
-                if param_val < self.param_id_info["param_mins"][idx] or param_val > self.param_id_info["param_maxs"][idx]:
+                if bounded and (param_val < self.param_id_info["param_mins"][idx] or param_val > self.param_id_info["param_maxs"][idx]):
                     return -np.inf
                 else:
                     #prior += 0
@@ -1730,7 +1751,7 @@ class OpencorParamID():
             
             elif prior_dist == 'exponential':
                 lamb = self._prior_param(idx, 'prior_lambda')
-                if param_val < self.param_id_info["param_mins"][idx] or param_val > self.param_id_info["param_maxs"][idx]:
+                if bounded and (param_val < self.param_id_info["param_mins"][idx] or param_val > self.param_id_info["param_maxs"][idx]):
                     return -np.inf
                 else:
                     # the normalisation isnt needed here but might be nice to
@@ -1738,7 +1759,7 @@ class OpencorParamID():
                     lnprior += -lamb*param_val/self.param_id_info["param_maxs"][idx]
 
             elif prior_dist == 'normal':
-                if param_val < self.param_id_info["param_mins"][idx] or param_val > self.param_id_info["param_maxs"][idx]:
+                if bounded and (param_val < self.param_id_info["param_mins"][idx] or param_val > self.param_id_info["param_maxs"][idx]):
                     return -np.inf
                 else:
                     # Defaults when the user states neither: the centre of the range, and a

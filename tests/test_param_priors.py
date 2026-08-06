@@ -303,3 +303,113 @@ def test_bounds_supplied_in_a_bare_dict_are_honoured():
     """So a downstream editor that does pass them gets the same verdict."""
     with pytest.raises(ValueError, match="must lie within"):
         normalise_prior_params("normal", {"prior_mean": 999.0, "min": 0, "max": 10})
+
+
+# ---------------------------------------------------------------------------
+# Unbounded parameters
+#
+# min/max are not only the prior's truncation: they are the optimiser's search
+# box, the Sobol sampling range, the denominator of the parameter normalisation
+# and the fallback FD step. An actually infinite range makes the normalisation
+# NaN and every calibration with it, so "unbounded" means the range is derived
+# from the prior rather than typed -- wide enough not to bind, and finite.
+# ---------------------------------------------------------------------------
+from parsers.PrimitiveParsers import (PARAM_UNBOUNDED_COLUMN, UNBOUNDED_SIGMA_SPAN,
+                                      derive_bounds_from_prior, prior_supports_unbounded)
+
+
+def test_the_range_is_derived_from_the_prior():
+    info = _info(
+        "vessel_name,param_name,min,max,prior,prior_mean,prior_std,unbounded\n"
+        "a,k,,,normal,7.0,1.5,true\n"
+    )
+    half = UNBOUNDED_SIGMA_SPAN * 1.5
+    assert info["param_mins"][0] == pytest.approx(7.0 - half)
+    assert info["param_maxs"][0] == pytest.approx(7.0 + half)
+
+
+def test_the_derived_range_is_finite():
+    """The whole reason it is derived rather than infinite: an infinite range
+    makes the parameter normalisation NaN, and the GA with it."""
+    info = _info(
+        "vessel_name,param_name,min,max,prior,prior_mean,prior_std,unbounded\n"
+        "a,k,,,normal,7.0,1.5,true\n"
+    )
+    assert np.isfinite(info["param_mins"][0]) and np.isfinite(info["param_maxs"][0])
+
+
+def test_an_unbounded_prior_is_not_truncated():
+    """The derived range exists for the optimiser, not as a bound the user asked
+    for, so the prior must not cut off at it."""
+    from param_id.paramID import OpencorParamID
+
+    info = _info(
+        "vessel_name,param_name,min,max,prior,prior_mean,prior_std,unbounded\n"
+        "a,k,,,normal,0.0,1.0,true\n"
+    )
+    pid = OpencorParamID.__new__(OpencorParamID)
+    pid.param_id_info = info
+    # Far outside the derived [-5, 5]: finite, and exactly the Gaussian's value.
+    assert pid.get_lnprior_from_params([20.0]) == pytest.approx(-200.0)
+
+
+def test_a_bounded_parameter_is_still_truncated():
+    from param_id.paramID import OpencorParamID
+
+    info = _info("vessel_name,param_name,min,max,prior\na,k,0,10,normal\n")
+    pid = OpencorParamID.__new__(OpencorParamID)
+    pid.param_id_info = info
+    assert pid.get_lnprior_from_params([999.0]) == -np.inf
+
+
+def test_unbounded_needs_a_prior_with_a_centre_and_a_width():
+    """A uniform is *defined* by the range, and an exponential has a rate but no
+    centre, so neither can stand in for one."""
+    assert prior_supports_unbounded("normal") is True
+    assert prior_supports_unbounded("uniform") is False
+    assert prior_supports_unbounded("exponential") is False
+
+    with pytest.raises(ValueError, match="no centre and width"):
+        _info("vessel_name,param_name,min,max,prior,unbounded\na,k,,,uniform,true\n")
+
+
+def test_unbounded_requires_the_centre_and_width_to_be_stated():
+    """Their usual defaults come *from* the range, so leaving them out here would
+    be circular."""
+    with pytest.raises(ValueError, match="must be given"):
+        _info(
+            "vessel_name,param_name,min,max,prior,prior_mean,unbounded\n"
+            "a,k,,,normal,7.0,true\n"
+        )
+
+
+def test_a_bounded_row_still_requires_min_and_max():
+    with pytest.raises(ValueError, match="required unless"):
+        _info("vessel_name,param_name,min,max,prior\na,k,,,normal\n")
+
+
+@pytest.mark.parametrize("flag,expected_unbounded", [
+    ("true", True), ("TRUE", True), ("1", True), ("yes", True),
+    ("false", False), ("0", False), ("", False),
+])
+def test_the_flag_is_read_the_ways_it_is_written(flag, expected_unbounded):
+    csv = ("vessel_name,param_name,min,max,prior,prior_mean,prior_std,unbounded\n"
+           f"a,k,0,10,normal,7.0,1.5,{flag}\n")
+    info = _info(csv)
+    assert bool(info["param_unbounded"][0]) is expected_unbounded
+
+
+def test_an_unreadable_flag_is_an_error_not_a_quiet_false():
+    """A cell the user filled in must not be ignored."""
+    with pytest.raises(ValueError, match="must be true/false"):
+        _info("vessel_name,param_name,min,max,prior,unbounded\na,k,0,10,normal,maybe\n")
+
+
+def test_no_unbounded_column_leaves_everything_bounded():
+    info = _info("vessel_name,param_name,min,max,prior\na,k,0,10,normal\n")
+    assert not any(info["param_unbounded"])
+
+
+def test_derive_bounds_is_span_times_the_scale():
+    assert derive_bounds_from_prior("normal", {"prior_mean": 2.0, "prior_std": 0.5}) == (
+        2.0 - 0.5 * UNBOUNDED_SIGMA_SPAN, 2.0 + 0.5 * UNBOUNDED_SIGMA_SPAN)

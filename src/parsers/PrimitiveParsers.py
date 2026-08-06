@@ -402,23 +402,108 @@ PARAM_PRIOR_TYPES = {
                         'smaller values.'),
         'params': [
             {'name': 'prior_lambda', 'type': 'float', 'default': 1.0, 'positive': True,
+             'role': 'rate',
              'description': ('Decay rate, scaled by the parameter maximum. Larger values '
                              'concentrate the prior harder towards min.')},
         ],
     },
     'normal': {
         'label': 'Normal',
-        'description': 'Gaussian, truncated to [min, max].',
+        'description': 'Gaussian, truncated to [min, max] unless the parameter is unbounded.',
         'params': [
             {'name': 'prior_mean', 'type': 'float', 'default': None, 'positive': False,
-             'within_bounds': True,
+             'within_bounds': True, 'role': 'location',
              'description': 'Centre of the Gaussian. Defaults to the centre of [min, max].'},
             {'name': 'prior_std', 'type': 'float', 'default': None, 'positive': True,
+             'role': 'scale',
              'description': ('Standard deviation. Defaults to one sixth of the range, which '
                              'puts [min, max] at +/- 3 sigma.')},
         ],
     },
 }
+
+# The params_for_id column that marks a parameter as unbounded, i.e. having no min/max of its
+# own: the prior defines where it lives, and the range CA needs for everything else is derived
+# from that prior instead of typed.
+PARAM_UNBOUNDED_COLUMN = 'unbounded'
+
+# How wide the derived range is, in standard deviations either side of the prior's centre.
+# Five puts ~1 sample in 3.5 million outside it, so the box is not meaningfully constraining
+# while staying finite -- which it must be. min/max are not only the prior's truncation: they
+# are the optimiser's search box, the Sobol sampling range, the denominator of the parameter
+# normalisation, and the fallback finite-difference step. An actually infinite range makes the
+# normalisation NaN and every calibration with it, so "unbounded" has to mean "wide enough not
+# to bind", not "absent".
+UNBOUNDED_SIGMA_SPAN = 5.0
+
+
+def _truthy_flag(value):
+    """Whether a params_for_id boolean cell is set.
+
+    Spelled several ways in the wild -- 1, true, TRUE, yes, y -- and blank/NaN is
+    not set. Anything unrecognised is an error rather than a quiet False: a cell
+    the user filled in must not be ignored.
+    """
+    if value is None or (isinstance(value, float) and np.isnan(value)):
+        return False
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in ('', 'nan'):
+        return False
+    if text in ('1', '1.0', 'true', 'yes', 'y'):
+        return True
+    if text in ('0', '0.0', 'false', 'no', 'n'):
+        return False
+    raise ValueError(
+        f"'{PARAM_UNBOUNDED_COLUMN}' must be true/false (or 1/0, yes/no), got {value!r}.")
+
+
+def _prior_param_by_role(prior_type, role):
+    for spec in PARAM_PRIOR_TYPES.get(prior_type, {}).get('params', []):
+        if spec.get('role') == role:
+            return spec['name']
+    return None
+
+
+def prior_supports_unbounded(prior_type):
+    """Whether a prior can stand in for a parameter's range.
+
+    It can when it declares both where it sits and how wide it is -- a location
+    and a scale -- because those are what the derived range is built from. A
+    uniform has neither and is *defined* by the range, so it cannot; an
+    exponential has a rate but no location, so there is no centre to build
+    around.
+    """
+    return bool(_prior_param_by_role(prior_type, 'location')
+                and _prior_param_by_role(prior_type, 'scale'))
+
+
+def derive_bounds_from_prior(prior_type, params, row_idx=None):
+    """``(min, max)`` for an unbounded parameter, from its prior's own centre and width.
+
+    ``params`` is the validated output of :func:`normalise_prior_params`. Both the
+    location and the scale must be stated: their usual defaults are derived *from*
+    the range, so leaving them out here would be circular.
+    """
+    where = '' if row_idx is None else f' (params_for_id row {row_idx})'
+    if not prior_supports_unbounded(prior_type):
+        supported = ', '.join(sorted(p for p in PARAM_PRIOR_TYPES if prior_supports_unbounded(p)))
+        raise ValueError(
+            f"'{PARAM_UNBOUNDED_COLUMN}' is set{where}, but the prior is '{prior_type}', which "
+            f"has no centre and width to derive a range from. Priors that do: {supported}.")
+
+    loc_name = _prior_param_by_role(prior_type, 'location')
+    scale_name = _prior_param_by_role(prior_type, 'scale')
+    loc, scale = params.get(loc_name), params.get(scale_name)
+    missing = [n for n, v in ((loc_name, loc), (scale_name, scale)) if v is None]
+    if missing:
+        raise ValueError(
+            f"'{PARAM_UNBOUNDED_COLUMN}' is set{where}, so {' and '.join(missing)} must be "
+            f"given: without a range there is nothing left to derive them from.")
+
+    half = UNBOUNDED_SIGMA_SPAN * float(scale)
+    return (float(loc) - half, float(loc) + half)
 
 # Every `params` entry above names a params_for_id column. Collected once so the parser can
 # tell a prior hyper-parameter column from an unrelated one, and so a downstream tool can
@@ -2879,8 +2964,10 @@ class ObsAndParamDataParser(object):
                 param_names_for_gen.append(param_gen_names)
 
         # --- 3. Set Arrays using the filtered DataFrame ---
-        param_id_info["param_mins"] = filtered_params["min"].to_numpy(dtype=float)
-        param_id_info["param_maxs"] = filtered_params["max"].to_numpy(dtype=float)
+        param_id_info["param_mins"] = pd.to_numeric(
+            filtered_params["min"], errors="coerce").to_numpy(dtype=float)
+        param_id_info["param_maxs"] = pd.to_numeric(
+            filtered_params["max"], errors="coerce").to_numpy(dtype=float)
 
         if "name_for_plotting" in filtered_params.columns:
             param_id_info["param_names_for_plotting"] = filtered_params["name_for_plotting"].to_numpy()
@@ -2908,6 +2995,30 @@ class ObsAndParamDataParser(object):
                 param_id_info["param_prior_types"][II], filtered_params.iloc[II], row_idx=II)
             for II in range(N_params)
         ]
+
+        # An unbounded parameter has no range of its own: its prior says where it lives, and
+        # the range CA needs for everything else is derived from that prior. Done after the
+        # priors are parsed, because that is what it is derived from.
+        param_id_info["param_unbounded"] = np.array([
+            _truthy_flag(filtered_params.iloc[II].get(PARAM_UNBOUNDED_COLUMN)
+                         if PARAM_UNBOUNDED_COLUMN in filtered_params.columns else None)
+            for II in range(N_params)
+        ])
+        for II in range(N_params):
+            if not param_id_info["param_unbounded"][II]:
+                if not np.isfinite(param_id_info["param_mins"][II]) or \
+                        not np.isfinite(param_id_info["param_maxs"][II]):
+                    raise ValueError(
+                        f"params_for_id row {II}: min and max are required unless "
+                        f"'{PARAM_UNBOUNDED_COLUMN}' is set.")
+                continue
+            lo, hi = derive_bounds_from_prior(
+                param_id_info["param_prior_types"][II],
+                param_id_info["param_prior_params"][II],
+                row_idx=II,
+            )
+            param_id_info["param_mins"][II] = lo
+            param_id_info["param_maxs"][II] = hi
 
         param_id_info["param_names_for_gen"] = param_names_for_gen
 
