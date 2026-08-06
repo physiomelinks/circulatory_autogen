@@ -675,12 +675,33 @@ class ParamIDPlotOutputs:
         out = self.client.output_dir
         np.save(os.path.join(out, "percent_error_vec.npy"), percent_error_vec)
         np.save(os.path.join(out, "std_error_vec.npy"), std_error_vec)
+        # The error vectors are positional: entry i belongs to data_items[i]. Every
+        # consumer therefore re-derives the labels by reading obs_data.json in the
+        # same order, so reordering that file silently relabels every bar -- a wrong
+        # plot that looks entirely right. These artefacts are an interface now, not an
+        # implementation detail (#341), so the names CA itself used are saved beside
+        # them and the data identifies itself.
+        #
+        # Raw names, not the '$...$' mathtext the bar plots wrap them in: this is data
+        # for whoever reads it. A consumer wanting mathtext can add the delimiters; one
+        # wanting the plain name could not reliably strip them, since a name may
+        # legitimately contain '$'.
+        np.save(os.path.join(out, "error_vec_names.npy"), self.observable_names())
 
-    def _observable_names_for_error_plots(self) -> np.ndarray:
+    def observable_names(self) -> np.ndarray:
+        """The per-observable labels, in the order the error vectors use.
+
+        Public because it defines the meaning of ``error_vec_names.npy``: this is
+        the ordering an external consumer binds to.
+        """
         obs_info = self.client.obs_info
         return np.array(
-            [f'${obs_info["names_for_plotting"][II]}$' for II in range(obs_info["num_obs"])]
+            [str(obs_info["names_for_plotting"][II]) for II in range(obs_info["num_obs"])]
         )
+
+    def _observable_names_for_error_plots(self) -> np.ndarray:
+        """The same labels wrapped for matplotlib mathtext, for the bar plots."""
+        return np.array([f"${name}$" for name in self.observable_names()])
 
     def plot_percent_error_bar_pages(
         self, obs_names_for_plot: np.ndarray, percent_error_vec: np.ndarray
