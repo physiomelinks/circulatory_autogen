@@ -2390,7 +2390,7 @@ class OpencorParamID():
         operand = operands[0] if operands else ''
         return f"{name} ({op} {operand})" if op else f"{name} ({operand})"
 
-    def get_observable_sensitivities(self, param_vals, gradient_method=None):
+    def get_observable_sensitivities(self, param_vals, gradient_method=None, fd_rel_step=None):
         """d(observable feature)/d(param) for the scalar observables -- the backend-agnostic
         local-sensitivity accessor, parallel to ``get_gradient``.
 
@@ -2409,10 +2409,18 @@ class OpencorParamID():
         * ``'FD'`` -- central finite differences (``param_id.fd_backend``). Works on any
           backend that runs a forward simulation, which is how AADC and the plain scipy
           backend get a local SA at all (issue #338). Costs 2M simulations for M parameters.
+
+        ``fd_rel_step`` is the FD step, relative to each parameter, and is ignored by the
+        analytic arms. It matters more than it looks: on Lotka-Volterra, moving it from
+        1e-3 to 1e-2 changes a sensitivity coefficient by up to 48%, because `max` of an
+        oscillating trace is a rough functional. So it is the caller's to choose, not a
+        constant buried in the backend -- the same reason the prior hyper-parameters
+        stopped being hardcoded.
         """
         method = (gradient_method or '').strip().upper()
         if method == 'FD':
-            return fd_backend.observable_feature_sensitivities(self, param_vals)
+            kwargs = {} if fd_rel_step is None else {'h': float(fd_rel_step)}
+            return fd_backend.observable_feature_sensitivities(self, param_vals, **kwargs)
         if method not in ('', 'ANALYTIC', 'AUTO'):
             raise ValueError(
                 f"unknown gradient_method '{gradient_method}' for local sensitivity analysis. "
