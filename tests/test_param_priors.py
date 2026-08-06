@@ -239,3 +239,67 @@ def test_a_config_without_the_new_key_keeps_its_behaviour():
         "param_maxs": np.array([6.0]),
     }
     assert pid.get_lnprior_from_params([4.0]) == pytest.approx(-0.5)
+
+
+# ---------------------------------------------------------------------------
+# A centre outside the range is refused
+#
+# Every prior is truncated to [min, max], so a mean outside it describes a peak
+# the sampler can never reach: every draw sits on a tail and is pulled to the
+# nearer bound. Legal arithmetic, silent, and almost never intended.
+# ---------------------------------------------------------------------------
+def test_a_mean_outside_the_range_is_rejected():
+    with pytest.raises(ValueError, match="must lie within the parameter's range"):
+        _info("vessel_name,param_name,min,max,prior,prior_mean\na,k,0,10,normal,20\n")
+
+
+def test_a_mean_below_the_range_is_rejected():
+    with pytest.raises(ValueError, match=r"\[0.0, 10.0\]"):
+        _info("vessel_name,param_name,min,max,prior,prior_mean\na,k,0,10,normal,-5\n")
+
+
+def test_the_offending_row_and_value_are_named():
+    with pytest.raises(ValueError, match="row 1"):
+        _info(
+            "vessel_name,param_name,min,max,prior,prior_mean\n"
+            "a,k,0,10,normal,5\n"
+            "b,j,0,10,normal,99\n"
+        )
+
+
+@pytest.mark.parametrize("mean", [0, 5, 10])
+def test_a_mean_on_or_inside_the_bounds_is_accepted(mean):
+    """The bounds themselves are legal centres -- a prior peaked at an endpoint is
+    a half-Gaussian, which is a reasonable thing to ask for."""
+    info = _info(
+        f"vessel_name,param_name,min,max,prior,prior_mean\na,k,0,10,normal,{mean}\n")
+    assert info["param_prior_params"][0]["prior_mean"] == float(mean)
+
+
+def test_a_negative_range_still_admits_a_negative_mean():
+    """The check is against the row's own bounds, not against zero."""
+    info = _info(
+        "vessel_name,param_name,min,max,prior,prior_mean\na,k,-10,-1,normal,-4\n")
+    assert info["param_prior_params"][0]["prior_mean"] == -4.0
+
+
+def test_the_std_is_not_bounds_checked():
+    """Only values declared within_bounds are. A std larger than the range is a
+    deliberately weak prior, not an error."""
+    info = _info(
+        "vessel_name,param_name,min,max,prior,prior_std\na,k,0,10,normal,500\n")
+    assert info["param_prior_params"][0]["prior_std"] == 500.0
+
+
+def test_bounds_are_skipped_when_the_caller_cannot_supply_them():
+    """normalise_prior_params is also called with a bare dict of fields (a
+    downstream editor validating one row); it must still run every other check."""
+    assert normalise_prior_params("normal", {"prior_mean": 999.0})["prior_mean"] == 999.0
+    with pytest.raises(ValueError, match="greater than zero"):
+        normalise_prior_params("normal", {"prior_std": -1.0})
+
+
+def test_bounds_supplied_in_a_bare_dict_are_honoured():
+    """So a downstream editor that does pass them gets the same verdict."""
+    with pytest.raises(ValueError, match="must lie within"):
+        normalise_prior_params("normal", {"prior_mean": 999.0, "min": 0, "max": 10})
