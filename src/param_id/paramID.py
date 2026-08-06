@@ -71,6 +71,7 @@ from param_id.plot_outputs import ParamIDPlotOutputs
 from param_id import casadi_backend
 from param_id import fsa_backend
 from param_id import aadc_backend
+from param_id import fd_backend
 import pandas as pd
 try:
     import casadi as ca
@@ -2389,24 +2390,42 @@ class OpencorParamID():
         operand = operands[0] if operands else ''
         return f"{name} ({op} {operand})" if op else f"{name} ({operand})"
 
-    def get_observable_sensitivities(self, param_vals):
+    def get_observable_sensitivities(self, param_vals, gradient_method=None):
         """d(observable feature)/d(param) for the scalar observables -- the backend-agnostic
         local-sensitivity accessor, parallel to ``get_gradient``.
 
         Returns ``{observable_label: {param_name: d(feature)/d(param)}}``, dispatching by
         model_type to the same analytic machinery the cost gradient uses: the CasADi jacobian
         of the observable vector, or the Myokit CVODES sensitivities with a directional
-        derivative of the feature. Both arms report the identical quantity so a local
-        sensitivity analysis is backend-consistent. There is no finite-difference fallback --
-        backends without an analytic sensitivity raise, pointing at global Sobol SA instead.
+        derivative of the feature. Every arm reports the identical quantity, so a local
+        sensitivity analysis is comparable across backends whichever computed it.
+
+        ``gradient_method`` selects how:
+
+        * ``None`` (default) -- the analytic arm for this backend, raising when there is
+          none. Unchanged behaviour, and deliberately still not a silent fall back to FD:
+          a result quietly computed a different way, at a different cost and accuracy, is
+          not the same result.
+        * ``'FD'`` -- central finite differences (``param_id.fd_backend``). Works on any
+          backend that runs a forward simulation, which is how AADC and the plain scipy
+          backend get a local SA at all (issue #338). Costs 2M simulations for M parameters.
         """
+        method = (gradient_method or '').strip().upper()
+        if method == 'FD':
+            return fd_backend.observable_feature_sensitivities(self, param_vals)
+        if method not in ('', 'ANALYTIC', 'AUTO'):
+            raise ValueError(
+                f"unknown gradient_method '{gradient_method}' for local sensitivity analysis. "
+                "Valid values are None/'analytic' (this backend's analytic sensitivity) or 'FD'.")
+
         if self.model_type == 'casadi_python':
             return casadi_backend.get_observable_sensitivities(self, param_vals)
         elif self.model_type == 'aadc_python':
             raise NotImplementedError(
                 "Local (derivative-based) sensitivity analysis is not yet implemented for the "
-                "AADC backend. Use model_type 'casadi_python', or 'cellml_only' with solver "
-                "'CVODE_myokit', or global Sobol SA (sa_options method 'sobol').")
+                "AADC backend. Use sa_options gradient_method 'FD', or model_type "
+                "'casadi_python', or 'cellml_only' with solver 'CVODE_myokit', or global "
+                "Sobol SA (sa_options method 'sobol').")
         elif fsa_backend.gradient_available(self):
             return fsa_backend.observable_feature_sensitivities(self, param_vals)
         else:
@@ -2414,8 +2433,9 @@ class OpencorParamID():
                 "Local (derivative-based) sensitivity analysis needs an analytic sensitivity "
                 f"backend, not available for model_type={self.model_type} / solver="
                 f"{self.solver_info.get('solver') if isinstance(self.solver_info, dict) else None}. "
-                "Use model_type 'casadi_python', or 'cellml_only' with solver 'CVODE_myokit' and "
-                "do_ad true, or global Sobol SA (sa_options method 'sobol').")
+                "Use sa_options gradient_method 'FD', or model_type 'casadi_python', or "
+                "'cellml_only' with solver 'CVODE_myokit' and do_ad true, or global Sobol SA "
+                "(sa_options method 'sobol').")
 
     def get_cost_and_gradient(self, param_vals):
         """Return ``(cost, gradient)`` in one evaluation.
