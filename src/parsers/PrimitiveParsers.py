@@ -368,6 +368,62 @@ _OPT_GA_NUM_CROSS_BREED = {
 }
 
 
+# Single source of truth for the prior distributions a params_for_id `prior` column may name,
+# i.e. the valid values of that column. Surfaced to downstream tools (e.g. the CUFLynx
+# params_for_id editor) the same way PARAM_ID_METHODS is, so they can populate a prior picker
+# without hardcoding the list. Keep in sync with OpencorParamID.get_lnprior_from_params().
+#
+# Declared rather than left implicit because an unrecognised value used to be *accepted*: the
+# column was read straight to a numpy array, and get_lnprior_from_params matched it against
+# 'uniform'/'exponential'/'normal' and fell through every branch when it matched none. Falling
+# through skips that parameter's own range check, so a mis-spelled prior -- 'Normal', say --
+# silently stopped bounding the parameter at all, and an MCMC walker could leave [min, max]
+# with a finite lnprior instead of -inf. A typo must not quietly unbound a parameter.
+PARAM_PRIOR_TYPES = {
+    'uniform': {
+        'label': 'Uniform',
+        'description': 'Flat across [min, max]. The default when no prior is given.',
+    },
+    'exponential': {
+        'label': 'Exponential',
+        'description': 'Decays across [min, max] at rate 1/max, favouring smaller values.',
+    },
+    'normal': {
+        'label': 'Normal',
+        'description': ('Gaussian centred on the middle of [min, max], with a standard '
+                        'deviation of one sixth of the range.'),
+    },
+}
+
+# What an absent, blank or NaN `prior` entry means -- and what the whole column defaults to
+# when params_for_id has no `prior` at all.
+DEFAULT_PARAM_PRIOR_TYPE = 'uniform'
+
+
+def normalise_prior_type(value, row_idx=None):
+    """The canonical ``PARAM_PRIOR_TYPES`` key for one ``prior`` cell.
+
+    Blank/NaN means the default. Surrounding whitespace and letter case are
+    normalised, so a hand-written 'Normal' resolves to 'normal' instead of
+    unbounding the parameter. Anything genuinely unrecognised raises, because
+    the alternative -- the historical behaviour -- was to accept it and silently
+    drop that parameter's range check.
+    """
+    if value is None or (isinstance(value, float) and np.isnan(value)):
+        return DEFAULT_PARAM_PRIOR_TYPE
+    text = str(value).strip()
+    if not text or text.lower() == 'nan':
+        return DEFAULT_PARAM_PRIOR_TYPE
+    key = text.lower()
+    if key not in PARAM_PRIOR_TYPES:
+        where = '' if row_idx is None else f' (params_for_id row {row_idx})'
+        raise ValueError(
+            f"unknown prior '{text}'{where}. Valid priors are: "
+            f"{', '.join(sorted(PARAM_PRIOR_TYPES))}."
+        )
+    return key
+
+
 # Single source of truth for the parameter-identification (calibration) methods, i.e. the valid
 # values of `param_id_method`. Surfaced to downstream tools (e.g. the CUFLynx settings UI) the
 # same way SOLVER_SCHEMA is, so they can populate a calibration-method menu AND the per-method
@@ -2698,9 +2754,15 @@ class ObsAndParamDataParser(object):
                                                                   for p_names in param_id_info["param_names"]])
 
         if "prior" in filtered_params.columns:
-            param_id_info["param_prior_types"] = filtered_params["prior"].to_numpy()
+            # Validated and canonicalised here, at the one place the column is read, so an
+            # unusable prior is a parse error naming the row rather than a parameter that
+            # quietly stops being bounded once the sampler starts.
+            param_id_info["param_prior_types"] = np.array([
+                normalise_prior_type(filtered_params["prior"].iloc[II], row_idx=II)
+                for II in range(N_params)
+            ])
         else:
-            param_id_info["param_prior_types"] = np.array(["uniform"] * N_params)
+            param_id_info["param_prior_types"] = np.array([DEFAULT_PARAM_PRIOR_TYPE] * N_params)
 
         param_id_info["param_names_for_gen"] = param_names_for_gen
 
