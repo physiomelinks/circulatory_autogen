@@ -416,6 +416,78 @@ class SimulationHelper:
         # and produce a different output length/origin than the RK45 integrator.
         return traj[self.pre_steps:]
 
+    def _integrate_semi_implicit_signed(self, states, variables_all, total_steps, dt):
+        """Forward twin of the scheme the AADC tape records for 'semi_implicit_signed'.
+
+        ``x += idt * f / (1 - idt * diag(J))`` -- the *signed* diagonal, where
+        ``_integrate_semi_implicit`` damps unconditionally with ``1 + dt*|diag J|``. The two
+        agree exactly wherever the Jacobian diagonal is negative and diverge only where it is
+        positive: the damped form suppresses a growing mode, this one linearises it faithfully.
+
+        This exists so the forward cost and the taped gradient integrate the *identical* discrete
+        system. Every other AD-suitable method already has that property (see
+        AADC_TAPE_CONSISTENT_METHODS); until this method had a forward branch it was the one
+        exception, so a calibration using it could not simulate or plot its own best fit.
+
+        It therefore mirrors ``_cost_and_grad_bdf_tape`` deliberately, including the parts that
+        look like omissions:
+
+        * **No valve-state clamp.** ``_integrate_semi_implicit`` clamps zeta states to [0,1];
+          the tape does not, so neither does this. Measured on 3compartment, the clamp changes
+          max(heart/u_lv) by less than the printed precision either way -- it is not what keeps
+          the scheme stable.
+        * **Lagged Jacobian.** The diagonal is refreshed every ``jac_lag`` sub-steps (default 10)
+          rather than every step. This is only safe *together with* sub-stepping: measured at
+          dt=0.01 with jac_lag=10 and no sub-stepping, the integration diverges within 15 steps,
+          while the same lag at ``n_sub=10`` lands within 2% of CVODE_myokit. Do not raise
+          ``max_step`` to dt without also setting ``jac_lag`` to 1.
+
+        The one place it does *not* mirror the tape is the time argument: the tape calls
+        ``compute_rates`` at a hardcoded 0.0, this passes the real ``t``, as every other
+        integrator here does. For a CA-generated model the two are equivalent -- time enters
+        through a clock *state*, not through the variable of integration -- but they would differ
+        for a genuinely non-autonomous model, which is a latent bug on the tape side rather than
+        something to reproduce here.
+        """
+        n = self.STATE_COUNT
+        x = np.array(states[:n], dtype=float)
+        vars_all = list(variables_all)
+        eps_fd = _DAMPING_FD_EPS
+
+        jac_lag = max(1, int(self.solver_info.get('jac_lag', 10)))
+        max_step = float(self.solver_info.get('max_step', 0.001))
+        n_sub = max(1, int(np.ceil(dt / max_step)))
+        idt = dt / n_sub
+
+        diag_J = np.zeros(n)
+        sub_counter = 0
+        traj = [x.copy()]
+
+        for step in range(total_steps):
+            for sub in range(n_sub):
+                t = step * dt + sub * idt
+                rates = [0.0] * n
+                self.model.compute_rates(t, list(x), rates, list(vars_all))
+
+                if sub_counter % jac_lag == 0:
+                    for i in range(n):
+                        x_bump = list(x)
+                        h_i = max(abs(x[i]) * eps_fd, eps_fd)
+                        x_bump[i] += h_i
+                        r_bump = [0.0] * n
+                        self.model.compute_rates(t, x_bump, r_bump, list(vars_all))
+                        diag_J[i] = (r_bump[i] - rates[i]) / h_i
+                sub_counter += 1
+
+                for i in range(n):
+                    x[i] = x[i] + idt * rates[i] / (1.0 - idt * diag_J[i])
+
+            traj.append(x.copy())
+
+        # Same alignment as the other fixed-step integrators: drop the unlogged pre_time region
+        # so the result lines up with self.tSim. See _integrate_semi_implicit.
+        return traj[self.pre_steps:]
+
     def _integrate_implicit_newton(self, states, variables_all, total_steps, dt):
         """Implicit Euler with full Newton iteration and FD Jacobian.
 
@@ -846,6 +918,9 @@ class SimulationHelper:
             traj = self._integrate_bdf_newton(self.states, variables_all, total_steps, self.dt)
         elif method == 'semi_implicit':
             traj = self._integrate_semi_implicit(self.states, variables_all, total_steps, self.dt)
+        elif method == 'semi_implicit_signed':
+            # the forward twin of the taped gradient scheme -- see the method's docstring
+            traj = self._integrate_semi_implicit_signed(self.states, variables_all, total_steps, self.dt)
         elif method == 'rk4':
             # fixed-step, and identical to what the tape records -- the method to use when the
             # cost and the AD gradient have to be of the same function

@@ -72,8 +72,8 @@ AADC_LEGACY_METHOD_ALIASES = {
 # The methods aadc_python_solver_helper.run() can actually integrate. A tool building a
 # "run a simulation" menu must use this rather than methods_by_solver, which is a superset
 # (issue #346).
-AADC_FORWARD_METHODS = ('adaptive_rk45', 'semi_implicit', 'implicit_euler_ift',
-                        'implicit_newton', 'bdf_newton', 'rk4')
+AADC_FORWARD_METHODS = ('adaptive_rk45', 'semi_implicit', 'semi_implicit_signed',
+                        'implicit_euler_ift', 'implicit_newton', 'bdf_newton', 'rk4')
 
 # Every AADC method that can produce an analytic gradient, by either route.
 AADC_AD_METHODS = AADC_TAPE_CONSISTENT_METHODS + AADC_BDF_AD_METHODS
@@ -179,7 +179,16 @@ SOLVER_SCHEMA['fsa_suitable_methods'] = {
 #   implicit_newton      OK, -1.9%
 #   implicit_euler_ift   OK but -84%  <- the dangerous one: it completes and looks plausible
 #   bdf_newton           fails on floor() over an active idouble
-#   semi_implicit_signed measured ~4.4x high on the same setup; unexplained, so not listed
+#   semi_implicit_signed OK, +2%  (at its defaults: max_step 0.001, jac_lag 10)
+#
+# semi_implicit_signed was previously withheld from this list after measuring ~4.4x high while
+# its forward integrator was being written. That measurement was taken from the model's own cold
+# initial conditions with pre_time=0, where the whole window is a startup transient: every
+# variant of the scheme -- and CVODE itself -- peaks near 3.1e5 there, so it showed a difference
+# between two setups rather than between two integrators. Re-measured after a 5 s spin-up, the
+# scheme's four distinguishing features (signed diagonal, lagged Jacobian, sub-stepping, no valve
+# clamp) land it within 2% of CVODE_myokit, which is better than semi_implicit's +16% at dt=0.01.
+# Its stability depends on max_step and jac_lag together, so both are documented above.
 #
 # implicit_euler_ift is deliberately excluded despite completing. It is still in
 # ad_suitable_methods, so a gradient-based calibration will use it without complaint -- being
@@ -196,7 +205,7 @@ SOLVER_SCHEMA['stiff_suitable_methods'] = {
     'solve_ivp': ['Radau', 'BDF', 'LSODA'],
     'user_defined': ['Radau', 'BDF', 'LSODA'],
     'casadi_integrator': ['cvodes', 'idas', 'bdf', 'semi_implicit_euler'],
-    'aadc_semi_implicit': ['semi_implicit', 'implicit_newton'],
+    'aadc_semi_implicit': ['semi_implicit', 'semi_implicit_signed', 'implicit_newton'],
     # Explicitly empty rather than absent: the cpp RK4 solver offers only a fixed-step explicit
     # method, and PETSC's plugin choice is not yet assessed against a stiff model. A consumer
     # must be able to tell "assessed, nothing qualifies" from "not in the table at all", so
@@ -302,7 +311,18 @@ SOLVER_INFO_FIELDS = {
         {'name': 'threads', 'type': 'int', 'default': 4, 'required': False,
          'description': 'Number of threads for AADC evaluation.'},
         {'name': 'max_step', 'type': 'float', 'default': 0.001, 'required': False,
-         'description': 'Internal sub-step cap for bdf_newton (default 0.001, matching CasADi BDF).'},
+         'description': "Internal sub-step cap for bdf_newton and semi_implicit_signed (default "
+                        "0.001, matching CasADi BDF). The number of sub-steps per output step is "
+                        "ceil(dt/max_step); raising it towards dt removes the sub-stepping that "
+                        "makes a lagged Jacobian safe -- see jac_lag."},
+        {'name': 'jac_lag', 'type': 'int', 'default': 10, 'required': False,
+         'description': "How many sub-steps the signed scheme reuses one diagonal Jacobian for "
+                        "before recomputing it (semi_implicit_signed, and the tape/kernel "
+                        "gradients of the same scheme). Higher is faster and less stable, and "
+                        "it is only safe in combination with sub-stepping: measured on "
+                        "3compartment at dt=0.01, jac_lag=10 with no sub-stepping diverges "
+                        "within 15 steps, while the same lag at max_step=0.001 (10 sub-steps) "
+                        "stays within 2% of CVODE_myokit. Set to 1 to recompute every sub-step."},
         {'name': 'gradient_strategy', 'type': 'enum', 'default': 'tape', 'required': False,
          'choices': ['tape', 'kernel'],
          'description': "How method 'semi_implicit_signed' evaluates its gradient: 'tape' "

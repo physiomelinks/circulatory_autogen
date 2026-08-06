@@ -1776,3 +1776,72 @@ def test_offline_pre_time_zero_is_a_noop(generated_cellml_model_factory):
     before = list(h.simulation.default_state())
     h.run_offline_pre_and_set_default_state(0.0)
     assert list(h.simulation.default_state()) == before
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_aadc_semi_implicit_signed_forward_tracks_cvode(temp_model_dir,
+                                                       generated_cellml_model_factory):
+    """The forward twin of the taped signed scheme must track CVODE, and its lagged Jacobian
+    must be shown to depend on sub-stepping.
+
+    ``semi_implicit_signed`` was the one AD-suitable method with no forward branch, so a
+    calibration using it could not simulate or plot its own best fit. It was withheld after an
+    earlier measurement put it ~4.4x above CVODE -- but that was taken from the model's own cold
+    initial conditions with ``pre_time=0``, where the entire window is a startup transient and
+    *every* scheme, CVODE included, peaks near 3.1e5. Spin up first and the scheme lands within
+    a couple of percent, which is what this asserts.
+
+    The second half is the part worth having a test for: the default ``jac_lag`` of 10 is only
+    safe *because* of sub-stepping. Take the sub-stepping away (``max_step = dt``) and the same
+    lag diverges within a handful of steps, so the two settings cannot be tuned independently.
+    """
+    pytest.importorskip("aadc")
+
+    dt, sim_time, pre_time = 0.01, 1.0, 5.0
+    cellml_path = generated_cellml_model_factory("3compartment", "3compartment_parameters.csv")
+
+    # Only the two backends being compared are built here. _run_all_solvers_and_compare would
+    # also run solve_ivp_BDF, which cannot take a 5 s spin-up on this stiff model, so using it
+    # would fail the test for a reason that has nothing to do with the integrator under test.
+    aadc_dir = os.path.join(temp_model_dir, "aadc_signed")
+    os.makedirs(aadc_dir, exist_ok=True)
+    aadc_model_path = PythonGenerator(
+        cellml_path, output_dir=aadc_dir, module_name="3compartment", aadc_compat=True,
+    ).generate()
+
+    cvode = get_simulation_helper(
+        model_path=cellml_path, model_type="cellml_only", solver="CVODE_myokit",
+        dt=dt, sim_time=sim_time, pre_time=pre_time,
+        solver_info={"MaximumStep": 0.0001, "rtol": 1e-8, "atol": 1e-10})
+    assert cvode.run(), "CVODE_myokit reference did not run"
+
+    try:
+        helper = get_simulation_helper(
+            model_path=aadc_model_path, model_type="aadc_python", solver="aadc_semi_implicit",
+            dt=dt, sim_time=sim_time, pre_time=pre_time,
+            solver_info={"method": "semi_implicit_signed"})
+        assert helper.run(), "semi_implicit_signed forward solve failed"
+    except (ImportError, RuntimeError) as e:
+        pytest.skip(f"AADC backend unavailable: {e}")
+
+    ref = float(np.max(cvode.get_results(["heart/u_lv"])[0]))
+    got = float(np.max(helper.get_results(["heart/u_lv"])[0]))
+    rel = abs(got - ref) / abs(ref)
+    assert rel < 0.05, (
+        f"semi_implicit_signed max(heart/u_lv)={got:.4e} vs CVODE_myokit {ref:.4e} "
+        f"({100 * rel:.1f}% apart, tolerance 5%)")
+
+    # A lagged Jacobian with no sub-stepping to justify it must not be quietly accepted.
+    variables_all = list(helper._numeric_variables_all)
+    for pos, idx in enumerate(helper.constant_indices):
+        variables_all[idx] = helper.variables[pos]
+
+    helper.solver_info["jac_lag"] = 10
+    helper.solver_info["max_step"] = helper.dt  # -> n_sub = 1, i.e. no sub-stepping
+    helper.reset_states()
+    traj = helper._integrate_semi_implicit_signed(
+        helper.states, variables_all, helper.pre_steps + helper.n_steps, helper.dt)
+    assert not np.all(np.isfinite(np.array(traj, dtype=float))), (
+        "jac_lag=10 without sub-stepping is expected to diverge on this stiff model; if it no "
+        "longer does, the coupling documented on solver_info['jac_lag'] has changed")

@@ -122,7 +122,7 @@ def test_solver_integrator_keys_derived_from_schema():
     # 'max_step' comes with the stiff BDF methods (bdf_newton / bdf_tape / bdf_kernel).
     # 'gradient_strategy' selects tape vs kernel for semi_implicit_signed (issue #346).
     assert _SOLVER_INTEGRATOR_KEYS['aadc_semi_implicit'] == {
-        'tol', 'threads', 'max_step', 'gradient_strategy'}
+        'tol', 'threads', 'max_step', 'gradient_strategy', 'jac_lag'}
 
 
 def test_schema_settings_are_actually_read_by_the_code():
@@ -808,8 +808,10 @@ def test_forward_methods_are_exactly_what_the_aadc_dispatch_can_integrate():
 
     advertised = SOLVER_SCHEMA['forward_methods_by_solver']['aadc_semi_implicit']
     assert advertised == list(AADC_FORWARD_METHODS)
-    assert 'semi_implicit_signed' not in advertised
     assert set(advertised) <= set(SOLVER_SCHEMA['methods_by_solver']['aadc_semi_implicit'])
+    # semi_implicit_signed was the one method with a gradient but no forward branch, so a
+    # calibration using it could not simulate its own best fit. It has one now.
+    assert 'semi_implicit_signed' in advertised
 
     # every advertised forward method really has a branch in run()
     run_src = inspect.getsource(helper.SimulationHelper.run)
@@ -945,7 +947,7 @@ def test_stiff_suitable_methods_are_real_methods_and_exclude_the_measured_failur
         "every solver needs a stiff_suitable_methods entry, empty if nothing qualifies")
 
     aadc = stiff['aadc_semi_implicit']
-    assert aadc == ['semi_implicit', 'implicit_newton']
+    assert aadc == ['semi_implicit', 'semi_implicit_signed', 'implicit_newton']
     for excluded in ('rk4', 'adaptive_rk45', 'implicit_euler_ift'):
         assert excluded not in aadc, f"{excluded} is not usable on a stiff model; see issue #346"
 
