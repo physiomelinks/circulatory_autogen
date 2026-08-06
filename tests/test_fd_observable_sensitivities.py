@@ -28,7 +28,15 @@ class _Pid:
             "param_mins": np.array(mins, dtype=float),
             "param_maxs": np.array(maxs, dtype=float),
         }
-        self.obs_info = {"const_idx_to_obs_idx": [0]}
+        # A single experiment of a single sub-experiment. The real object always
+        # carries these -- each observable names the experiment it belongs to, and
+        # the backend needs them to read the right segment -- so the double does too.
+        self.obs_info = {
+            "const_idx_to_obs_idx": [0],
+            "experiment_idxs": [0],
+            "subexperiment_idxs": [0],
+        }
+        self.protocol_info = {"num_sub_per_exp": [1]}
         self._feature_fn = feature_fn
         self._fail_at = fail_at
         self.calls = 0
@@ -123,7 +131,7 @@ def test_fd_is_selected_by_name():
 
     pid = OpencorParamID.__new__(OpencorParamID)
     stub = _Pid(lambda p: 3.0 * p[0])
-    for attr in ("param_id_info", "obs_info"):
+    for attr in ("param_id_info", "obs_info", "protocol_info"):
         setattr(pid, attr, getattr(stub, attr))
     pid._observable_label = stub._observable_label
     pid.get_cost_obs_and_pred_from_params = stub.get_cost_obs_and_pred_from_params
@@ -223,6 +231,7 @@ def test_the_accessor_forwards_the_step():
     stub = _Recording(lambda p: p[0], names=("a/x",), mins=(0.0,), maxs=(10.0,))
     pid = OpencorParamID.__new__(OpencorParamID)
     pid.param_id_info, pid.obs_info = stub.param_id_info, stub.obs_info
+    pid.protocol_info = stub.protocol_info
     pid._observable_label = stub._observable_label
     pid.get_cost_obs_and_pred_from_params = stub.get_cost_obs_and_pred_from_params
     pid.get_obs_output_dict = stub.get_obs_output_dict
@@ -245,6 +254,7 @@ def test_omitting_the_step_keeps_the_backend_default():
     stub = _Recording(lambda p: p[0], names=("a/x",), mins=(0.0,), maxs=(10.0,))
     pid = OpencorParamID.__new__(OpencorParamID)
     pid.param_id_info, pid.obs_info = stub.param_id_info, stub.obs_info
+    pid.protocol_info = stub.protocol_info
     pid._observable_label = stub._observable_label
     pid.get_cost_obs_and_pred_from_params = stub.get_cost_obs_and_pred_from_params
     pid.get_obs_output_dict = stub.get_obs_output_dict
@@ -259,3 +269,98 @@ def test_fd_rel_step_is_in_the_analysis_schema():
 
     opts = {o["name"]: o for o in ANALYSIS_OPTIONS["sensitivity_analysis"]["options"]}
     assert opts["fd_rel_step"]["default"] == 1e-3
+
+
+# ---------------------------------------------------------------------------
+# Each observable is differentiated in its own experiment
+#
+# A data_item names both an experiment and a sub-experiment, and the cost scores
+# it against that segment. Evaluating every observable against experiment 0
+# differentiates the wrong trace: on SN_simple that gave the two `max` observables
+# an identical, near-zero sensitivity, when one of them is the largest in the set.
+# ---------------------------------------------------------------------------
+class _MultiExpPid(_Pid):
+    """Two experiments of one sub-experiment each; observable k lives in experiment k.
+
+    ``get_cost_obs_and_pred_from_params`` returns one entry per segment, and the
+    feature of an observable is only right when read from its own.
+    """
+
+    def __init__(self):
+        super().__init__(lambda p: p, names=("a/x",), mins=(0.0,), maxs=(10.0,))
+        self.obs_info = {
+            "const_idx_to_obs_idx": [0, 1],
+            "experiment_idxs": [0, 1],
+            "subexperiment_idxs": [0, 0],
+        }
+        self.protocol_info = {"num_sub_per_exp": [1, 1]}
+
+    def get_cost_obs_and_pred_from_params(self, param_vals, reset=True, only_one_exp=-1):
+        self.calls += 1
+        x = float(np.asarray(param_vals, dtype=float)[0])
+        if only_one_exp == 0:  # the bug: only experiment 0 was ever simulated
+            return 0.0, [("exp0", x), None], []
+        return 0.0, [("exp0", x), ("exp1", x)], []
+
+    def get_obs_output_dict(self, operands):
+        tag, x = operands
+        # Experiment 1 responds ten times as strongly as experiment 0.
+        return {"const": [x, 10.0 * x] if tag == "exp1" else [x, x]}
+
+
+def test_each_observable_is_differentiated_in_its_own_experiment():
+    pid = _MultiExpPid()
+    out = fd_backend.observable_feature_sensitivities(pid, [1.0])
+    # obs0 lives in experiment 0 (slope 1); obs1 in experiment 1 (slope 10).
+    assert out["obs0"]["a/x"] == pytest.approx(1.0, rel=1e-6)
+    assert out["obs1"]["a/x"] == pytest.approx(10.0, rel=1e-6)
+
+
+def test_observables_in_different_experiments_are_not_forced_equal():
+    """The shape of the old bug: every observable read experiment 0, so any two
+    measuring the same feature came back identical."""
+    pid = _MultiExpPid()
+    out = fd_backend.observable_feature_sensitivities(pid, [1.0])
+    assert out["obs0"]["a/x"] != out["obs1"]["a/x"]
+
+
+def test_all_experiments_are_run():
+    """only_one_exp is left at its default so every segment is simulated."""
+    pid = _MultiExpPid()
+    fd_backend.observable_feature_sensitivities(pid, [1.0])
+    assert pid.calls == 3  # nominal + 2 for the single parameter
+
+
+# ---------------------------------------------------------------------------
+# Labels identify one observable each
+# ---------------------------------------------------------------------------
+def _labeller(names, ops, operands, exps, subs):
+    from param_id.paramID import OpencorParamID
+
+    pid = OpencorParamID.__new__(OpencorParamID)
+    pid.obs_info = {
+        "names_for_plotting": names, "operations": ops, "operands": operands,
+        "experiment_idxs": exps, "subexperiment_idxs": subs, "num_obs": len(names),
+    }
+    return pid
+
+
+def test_two_experiments_measuring_the_same_feature_get_distinct_labels():
+    """These labels are the keys of the returned dict, so a collision silently
+    drops one observable's sensitivities and reports the other's for both."""
+    pid = _labeller(["V_max", "V_max"], ["max", "max"], [["a/V"], ["a/V"]], [0, 2], [1, 1])
+    labels = [pid._observable_label(0), pid._observable_label(1)]
+    assert len(set(labels)) == 2
+    assert "exp 0" in labels[0] and "exp 2" in labels[1]
+
+
+def test_an_unambiguous_label_is_left_alone():
+    """A single-experiment study keeps the spelling it already had."""
+    pid = _labeller(["V_max", "V_mean"], ["max", "mean"], [["a/V"], ["a/V"]], [0, 0], [0, 0])
+    assert pid._observable_label(0) == "V_max (max a/V)"
+
+
+def test_the_operation_still_disambiguates_before_the_experiment():
+    pid = _labeller(["V", "V"], ["max", "mean"], [["a/V"], ["a/V"]], [0, 1], [0, 0])
+    assert pid._observable_label(0) == "V (max a/V)"
+    assert pid._observable_label(1) == "V (mean a/V)"
