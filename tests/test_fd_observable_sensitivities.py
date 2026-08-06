@@ -183,3 +183,79 @@ def test_gradient_method_is_in_the_analysis_schema():
     assert "gradient_method" in opts
     assert opts["gradient_method"]["choices"] == ["analytic", "FD"]
     assert opts["gradient_method"]["default"] == "analytic"
+
+
+# ---------------------------------------------------------------------------
+# The step size belongs to the caller
+#
+# It is not a tuning detail: on Lotka-Volterra, moving it from 1e-3 to 1e-2
+# changes a sensitivity coefficient by up to 48%, because `max` of an oscillating
+# trace is a rough functional. A number that swings the answer that far must not
+# be a constant buried in the backend -- which is also why a downstream tool
+# passing its own step must be able to get its own numbers.
+# ---------------------------------------------------------------------------
+def test_the_step_size_reaches_the_backend():
+    """f = x^2: the central difference is exact for any h, so a changed h must be
+    visible somewhere other than the result -- check the evaluated points."""
+    seen = []
+
+    class _Recording(_Pid):
+        def get_cost_obs_and_pred_from_params(self, param_vals, reset=True, only_one_exp=-1):
+            seen.append(float(np.asarray(param_vals, dtype=float)[0]))
+            return super().get_cost_obs_and_pred_from_params(param_vals, reset, only_one_exp)
+
+    pid = _Recording(lambda p: p[0] ** 2, names=("a/x",), mins=(0.0,), maxs=(10.0,))
+    fd_backend.observable_feature_sensitivities(pid, [2.0], h=0.25)
+    # nominal, then 2 +/- 0.25*2
+    assert sorted(seen) == pytest.approx([1.5, 2.0, 2.5])
+
+
+def test_the_accessor_forwards_the_step():
+    from param_id.paramID import OpencorParamID
+
+    seen = []
+
+    class _Recording(_Pid):
+        def get_cost_obs_and_pred_from_params(self, param_vals, reset=True, only_one_exp=-1):
+            seen.append(float(np.asarray(param_vals, dtype=float)[0]))
+            return super().get_cost_obs_and_pred_from_params(param_vals, reset, only_one_exp)
+
+    stub = _Recording(lambda p: p[0], names=("a/x",), mins=(0.0,), maxs=(10.0,))
+    pid = OpencorParamID.__new__(OpencorParamID)
+    pid.param_id_info, pid.obs_info = stub.param_id_info, stub.obs_info
+    pid._observable_label = stub._observable_label
+    pid.get_cost_obs_and_pred_from_params = stub.get_cost_obs_and_pred_from_params
+    pid.get_obs_output_dict = stub.get_obs_output_dict
+    pid.model_type = "aadc_python"
+
+    pid.get_observable_sensitivities([4.0], gradient_method="FD", fd_rel_step=0.5)
+    assert sorted(seen) == pytest.approx([2.0, 4.0, 6.0])
+
+
+def test_omitting_the_step_keeps_the_backend_default():
+    from param_id.paramID import OpencorParamID
+
+    seen = []
+
+    class _Recording(_Pid):
+        def get_cost_obs_and_pred_from_params(self, param_vals, reset=True, only_one_exp=-1):
+            seen.append(float(np.asarray(param_vals, dtype=float)[0]))
+            return super().get_cost_obs_and_pred_from_params(param_vals, reset, only_one_exp)
+
+    stub = _Recording(lambda p: p[0], names=("a/x",), mins=(0.0,), maxs=(10.0,))
+    pid = OpencorParamID.__new__(OpencorParamID)
+    pid.param_id_info, pid.obs_info = stub.param_id_info, stub.obs_info
+    pid._observable_label = stub._observable_label
+    pid.get_cost_obs_and_pred_from_params = stub.get_cost_obs_and_pred_from_params
+    pid.get_obs_output_dict = stub.get_obs_output_dict
+    pid.model_type = "aadc_python"
+
+    pid.get_observable_sensitivities([1.0], gradient_method="FD")
+    assert sorted(seen) == pytest.approx([0.999, 1.0, 1.001])
+
+
+def test_fd_rel_step_is_in_the_analysis_schema():
+    from parsers.PrimitiveParsers import ANALYSIS_OPTIONS
+
+    opts = {o["name"]: o for o in ANALYSIS_OPTIONS["sensitivity_analysis"]["options"]}
+    assert opts["fd_rel_step"]["default"] == 1e-3

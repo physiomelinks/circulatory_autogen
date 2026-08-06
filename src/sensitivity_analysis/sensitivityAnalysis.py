@@ -326,7 +326,9 @@ class SensitivityAnalysis():
         # central finite differences, the only local SA available on a backend with no
         # analytic arm (issue #338).
         sens = engine.get_observable_sensitivities(  # {obs_label: {param: d(feat)/dp}}
-            nominal, gradient_method=(self.sa_options or {}).get('gradient_method'))
+            nominal,
+            gradient_method=(self.sa_options or {}).get('gradient_method'),
+            fd_rel_step=(self.sa_options or {}).get('fd_rel_step'))
 
         output_names = list(sens.keys())
         n_out, n_par = len(output_names), len(param_names)

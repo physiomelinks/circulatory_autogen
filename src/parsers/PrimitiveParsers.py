@@ -640,6 +640,15 @@ ANALYSIS_OPTIONS = {
                              '"FD" uses central finite differences and works on any backend '
                              'that runs a forward simulation, at 2M simulations for M '
                              'parameters.')},
+            # Only read by method 'local' with gradient_method 'FD'. Declared because it is
+            # not a tuning detail: on Lotka-Volterra, moving it from 1e-3 to 1e-2 changes a
+            # sensitivity coefficient by up to 48%, since `max` of an oscillating trace is a
+            # rough functional. A number that swings the answer that far belongs to the user.
+            {'name': 'fd_rel_step', 'type': 'float', 'default': 1e-3, 'required': False,
+             'description': ('For method "local" with gradient_method "FD": the finite-'
+                             'difference step, relative to each parameter. Too large and it '
+                             'measures curvature rather than the derivative; too small and '
+                             'solver noise dominates.')},
             # enum, not str: sobol_SA.generate_samples dispatches on exactly these two
             # and raises ValueError on anything else, so a free string only lets a
             # typo through to run time.
