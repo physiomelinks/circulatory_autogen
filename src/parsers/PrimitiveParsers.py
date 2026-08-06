@@ -152,24 +152,20 @@ SOLVER_SCHEMA['ad_suitable_methods'] = {
     'aadc_semi_implicit': [m for m in SOLVER_SCHEMA['methods_by_solver']['aadc_semi_implicit']
                            if m in AADC_AD_METHODS],
 }
-# Myokit CVODES forward-sensitivity (FSA) is the analytic gradient for stiff cellml_only models;
-# its method is 'CVODE' on the CVODE solvers. (CA's get_gradient currently produces FSA only for
-# CVODE_myokit; the CVODE_opencor entry records that its FSA-capable method would likewise be
-# CVODE, so a tool gating a method menu stays correct if/when it is wired up.)
 # Which methods each solver can run as a plain forward solve. Only aadc_semi_implicit currently
 # differs from methods_by_solver -- see AADC_FORWARD_METHODS.
 SOLVER_SCHEMA['forward_methods_by_solver'] = {
     solver: (list(AADC_FORWARD_METHODS) if solver == 'aadc_semi_implicit' else list(methods))
     for solver, methods in SOLVER_SCHEMA['methods_by_solver'].items()
 }
+# Myokit CVODES forward-sensitivity (FSA) is the analytic gradient for stiff cellml_only models;
+# its method is 'CVODE' on the CVODE solvers. (CA's get_gradient currently produces FSA only for
+# CVODE_myokit; the CVODE_opencor entry records that its FSA-capable method would likewise be
+# CVODE, so a tool gating a method menu stays correct if/when it is wired up.)
 SOLVER_SCHEMA['fsa_suitable_methods'] = {
     'CVODE_myokit': ['CVODE'],
     'CVODE_opencor': ['CVODE'],
 }
-# Recommended default integrator per solver, for a front-end to pre-select an AD-friendly method:
-# casadi_python -> 'bdf' (stable and AD-suitable) rather than the adjoint 'cvodes'. This is the
-# value a tool (CUFLynx) should default its menu to; it is advisory and does not change CA's own
-# internal fallback (a plain run without a method still uses the helper's default).
 # Which integrators can be trusted on a STIFF model. A tool offering a method menu for a stiff
 # model (the cardiovascular ones are stiff) should restrict to these: the others either fail
 # outright or, worse, return a plausible-looking trace that is badly wrong.
@@ -201,9 +197,18 @@ SOLVER_SCHEMA['stiff_suitable_methods'] = {
     'user_defined': ['Radau', 'BDF', 'LSODA'],
     'casadi_integrator': ['cvodes', 'idas', 'bdf', 'semi_implicit_euler'],
     'aadc_semi_implicit': ['semi_implicit', 'implicit_newton'],
+    # Explicitly empty rather than absent: the cpp RK4 solver offers only a fixed-step explicit
+    # method, and PETSC's plugin choice is not yet assessed against a stiff model. A consumer
+    # must be able to tell "assessed, nothing qualifies" from "not in the table at all", so
+    # every solver in methods_by_solver has an entry here (enforced by the schema tests).
+    'RK4': [],
+    'PETSC': [],
 }
 
-
+# Recommended default integrator per solver, for a front-end to pre-select an AD-friendly method:
+# casadi_python -> 'bdf' (stable and AD-suitable) rather than the adjoint 'cvodes'. This is the
+# value a tool (CUFLynx) should default its menu to; it is advisory and does not change CA's own
+# internal fallback (a plain run without a method still uses the helper's default).
 SOLVER_SCHEMA['default_method_by_solver'] = {
     'casadi_integrator': 'bdf',
     # 'implicit_newton', not 'rk4'. rk4 was chosen in #336 for being tape-consistent, without
