@@ -146,3 +146,38 @@ def test_a_global_only_row_is_unchanged():
 def test_a_row_without_global_is_unchanged():
     info = _info("vessel_name,param_name,min,max\na b,k,1,2\n")
     assert info["param_names_for_gen"] == [["k_a", "k_b"]]
+
+
+def test_a_series_is_scored_too(tmp_path):
+    """Exercises the *series* branch of cost_calc, which the constant tests leave
+    at None.
+
+    Its absence is what let a mistake through: the numeric series loop assigned
+    obs_idx one line *after* the weight read, so changing the read to use obs_idx
+    raised UnboundLocalError on the first iteration -- or, worse, silently reused
+    the const loop's stale obs_idx when a constant came first. CI's param_id job
+    caught it; nothing here did.
+    """
+    from param_id.paramID import OpencorParamID
+    from parsers.PrimitiveParsers import scriptFunctionParser
+
+    # A constant first, so a stale obs_idx would be in scope and plausible.
+    items = [_const_item("c1", value=5.0, weight=0.0),
+             _series_item("s1", value=2.0, weight=1.0)]
+    obs_info, protocol_info = _parsed(items, tmp_path)
+
+    pid = OpencorParamID.__new__(OpencorParamID)
+    pid.obs_info = obs_info
+    pid.protocol_info = protocol_info
+    pid.cost_type = obs_info["cost_type"]
+    pid._num_weighted_obs_by_exp_sub = None
+    pid.dt = 0.01
+    pid.cost_funcs_dict = scriptFunctionParser().get_cost_funcs_dict("numpy")
+    pid.cost_funcs_dict_symbolic = pid.cost_funcs_dict
+
+    # Model says 4.0 where the series says 2.0 -> a real, non-zero cost.
+    obs_dict = {"const": np.array([5.0]), "series": [np.array([4.0, 4.0])],
+                "amp": None, "phase": None, "val_for_prob_dist": None}
+    cost = pid.cost_calc(obs_dict, exp_idx=0, sub_idx=0)
+
+    assert cost > 0.0, "the series contributed nothing"

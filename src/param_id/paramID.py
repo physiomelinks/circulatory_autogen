@@ -2087,9 +2087,8 @@ class OpencorParamID():
                 series_entry, obs_entry, std_entry = self._align_series_to_ground_truth(
                     np.asarray(series[series_idx], dtype=float).flatten(), series_idx)
 
-                weight_entry = updated_weight_series_vec[obs_idx]
-
                 obs_idx = self.obs_info['series_idx_to_obs_idx'][series_idx]
+                weight_entry = updated_weight_series_vec[obs_idx]
                 if weight_entry != 0:
                     series_cost += cost_funcs_dict[self.cost_type[obs_idx]](series_entry, obs_entry, std_entry, weight_entry)
 
