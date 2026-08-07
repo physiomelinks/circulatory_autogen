@@ -1,74 +1,92 @@
 [
-  { "variable": "flow aortic root",
+  {
+    "variable": "flow aortic root",
     "name_for_plotting": "v_{AR}",
     "data_type": "constant",
     "operation": "mean",
-    "operands":["aortic_root/v"],
+    "operands": [
+      "aortic_root/v"
+    ],
     "unit": "m3_per_s",
     "weight": 1.0,
-    "value": 1e-4,
-    "std": 1e-5,
-    "cost_type":"gaussian_MLE",
-    "plot_type":"horizontal"
+    "value": 0.00010731181019893536,
+    "std": 1.0731181019893536e-05,
+    "cost_type": "gaussian_MLE",
+    "plot_type": "horizontal"
   },
-  { "variable": "flow aortic root",
+  {
+    "variable": "flow aortic root",
     "name_for_plotting": "v_{AR}",
     "data_type": "constant",
     "operation": "max",
-    "operands":["aortic_root/v"],
+    "operands": [
+      "aortic_root/v"
+    ],
     "unit": "m3_per_s",
     "weight": 1.0,
-    "value": 5e-4,
-    "std": 5e-5,
-    "cost_type":"gaussian_MLE",
-    "plot_type":"horizontal"
+    "value": 0.0005763680492202098,
+    "std": 5.763680492202098e-05,
+    "cost_type": "gaussian_MLE",
+    "plot_type": "horizontal"
   },
-  { "variable": "stroke volume",
+  {
+    "variable": "stroke volume",
     "name_for_plotting": "q_{lv}",
     "data_type": "constant",
     "operation": "max_minus_min",
-    "operands":["heart/q_lv"],
+    "operands": [
+      "heart/q_lv"
+    ],
     "unit": "m3",
     "weight": 2.0,
-    "value": 1.04e-4,
-    "std": 5e-5,
-    "cost_type":"gaussian_MLE",
-    "plot_type":"horizontal_from_min"
+    "value": 0.00011555802894448981,
+    "std": 5.555674468485088e-05,
+    "cost_type": "gaussian_MLE",
+    "plot_type": "horizontal_from_min"
   },
-  { "variable": "pressure aortic root",
+  {
+    "variable": "pressure aortic root",
     "name_for_plotting": "u_{AR}",
     "data_type": "constant",
     "operation": "mean",
-    "operands":["aortic_root/u"],
-    "unit": "J_per_m3",
-    "weight": 0.0,
-    "value": 12000,
-    "std": 1200,
-    "cost_type":"gaussian_MLE",
-    "plot_type":"horizontal"
-  },
-  { "variable": "pressure aortic root",
-    "name_for_plotting": "u_{AR}",
-    "data_type": "constant",
-    "operation": "max",
-    "operands":["aortic_root/u"],
+    "operands": [
+      "aortic_root/u"
+    ],
     "unit": "J_per_m3",
     "weight": 5.0,
-    "value": 16000,
-    "std": 1600,
-    "cost_type":"gaussian_MLE",
-    "plot_type":"horizontal"
+    "value": 12992.117795909371,
+    "std": 1299.211779590937,
+    "cost_type": "gaussian_MLE",
+    "plot_type": "horizontal"
   },
-  { "variable": "pressure aortic root",
+  {
+    "variable": "pressure aortic root",
     "name_for_plotting": "u_{AR}",
     "data_type": "constant",
-    "operation": "min",
-    "operands":["aortic_root/u"],
+    "operation": "max_minus_min",
+    "operands": [
+      "aortic_root/u"
+    ],
     "unit": "J_per_m3",
     "weight": 5.0,
-    "value": 10500,
-    "std": 1050,
-    "cost_type":"gaussian_MLE",
-    "plot_type":"horizontal"
+    "value": 7399.7513168775895,
+    "std": 739.975131687759,
+    "cost_type": "gaussian_MLE",
+    "plot_type": "horizontal_from_min"
+  },
+  {
+    "variable": "pressure left atrium",
+    "name_for_plotting": "u_{AR}",
+    "data_type": "constant",
+    "operation": "mean",
+    "operands": [
+      "heart/u_la"
+    ],
+    "unit": "J_per_m3",
+    "weight": 5.0,
+    "value": 1491.470665656303,
+    "std": 149.1470665656303,
+    "cost_type": "gaussian_MLE",
+    "plot_type": "horizontal"
   }
 ]

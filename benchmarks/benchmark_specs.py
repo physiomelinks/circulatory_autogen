@@ -8,6 +8,7 @@ the same ``BenchmarkResult``s into the documentation.
 Keeping the run logic here (not in the tests) is what lets the fast FitzHugh-Nagumo benchmark
 stay a normal test AND be invoked from the benchmark runner without duplicating the setup.
 """
+import json
 import os
 
 import numpy as np
@@ -16,6 +17,21 @@ from scripts.script_generate_with_new_architecture import generate_with_new_arch
 from benchmarks.compare_optimisers import OptimiserComparison
 from benchmarks.docs_results import BenchmarkResult, BenchmarkRow
 from benchmarks.registry import BENCHMARK_CI
+
+
+def max_relative_param_err(params, true_params):
+    """Largest RELATIVE deviation of a recovered parameter from its true value.
+
+    Relative, not absolute, and uniformly so across every benchmark: parameters within a single
+    model routinely span orders of magnitude (3compartment's run from ~8e-4 to ~3.7e8, Teusink's
+    v_max values from 226 to 1185), so an absolute maximum reports only the largest parameter and
+    says nothing about the rest. It also makes the column comparable between benchmarks, which an
+    absolute error is not -- a 0.01 on FitzHugh-Nagumo and a 0.01 on 3compartment would otherwise
+    describe completely different qualities of fit.
+    """
+    params = np.asarray(params, dtype=float)
+    true_params = np.asarray(true_params, dtype=float)
+    return float(np.max(np.abs((params - true_params) / true_params)))
 
 
 # FitzHugh-Nagumo ground-truth parameters (a, b, c) the obs data was generated at.
@@ -161,7 +177,7 @@ def run_fitzhugh_nagumo(base_config, resources_dir, output_dir, generated_models
                 method=method,
                 cost=float(comparison.results[method]['cost']),
                 time_s=float(comparison.runtimes[method]),
-                param_err=float(np.max(np.abs(params - FHN_TRUE_PARAMS))),
+                param_err=max_relative_param_err(params, FHN_TRUE_PARAMS),
                 params=[float(p) for p in params]))
         if not include_aadc:
             result.rows.append(BenchmarkRow(
@@ -211,7 +227,76 @@ def assert_fitzhugh_nagumo(result, mpi_comm):
 # 3compartment (slow, STIFF, long pre_time) -- local only, NOT run in CI
 # ----------------------------------------------------------------------------------------
 
-def three_compartment_config(base_config, resources_dir, output_dir, generated_models_dir):
+# Ground-truth parameters the synthetic 3compartment obs data is generated at, by forward
+# simulating the model. All four lie inside the identification bounds in
+# 3compartment_params_for_id.csv -- note the model's own q_lv_init default (2e-3) does NOT, so the
+# CSV defaults cannot be used wholesale as a ground truth.
+THREE_COMPARTMENT_TRUE_PARAMS = np.array([8.0e-4, 1.2028e-8, 3.66575e8, 1.0664e7])
+THREE_COMPARTMENT_PARAM_LABELS = ['q_lv_init', 'C_ao', 'E_lv_A', 'E_lv_B']
+THREE_COMPARTMENT_PARAM_NAMES = ['global/q_lv_init', 'aortic_root/C',
+                                 'global/E_lv_A', 'global/E_lv_B']
+
+# operation -> how to reduce a logged series to the scalar the obs data records.
+_OBS_REDUCERS = {
+    'mean': lambda y: float(np.mean(y)),
+    'max': lambda y: float(np.max(y)),
+    'min': lambda y: float(np.min(y)),
+    'max_minus_min': lambda y: float(np.max(y) - np.min(y)),
+}
+
+
+def _write_three_compartment_synthetic_obs(config, model_path, template_path, out_path):
+    """Forward simulate at THREE_COMPARTMENT_TRUE_PARAMS and write obs data with those values.
+
+    Keeps the template's structure (variables, operations, weights, cost types) and only replaces
+    each item's ``value``, so the cost function and its weighting are unchanged. ``std`` is scaled
+    to preserve each item's std/value ratio, so the relative weighting between observables also
+    survives -- an absolute std carried over onto a different value would silently re-weight the
+    cost.
+
+    Returns the ground-truth parameter vector actually used.
+    """
+    from solver_wrappers import get_simulation_helper
+
+    with open(template_path) as f:
+        items = json.load(f)
+
+    # generate_with_new_architecture() runs the config through the parser, which moves 'solver'
+    # into solver_info -- so accept it from either place.
+    solver_info = config.get('solver_info') or {}
+    solver = config.get('solver') or solver_info.get('solver')
+    sim = get_simulation_helper(
+        model_path=model_path, model_type=config['model_type'], solver=solver,
+        dt=config['dt'], sim_time=config['sim_time'], pre_time=config['pre_time'],
+        solver_info=solver_info)
+    sim.set_param_vals(THREE_COMPARTMENT_PARAM_NAMES, THREE_COMPARTMENT_TRUE_PARAMS)
+    sim.reset_states()
+    if not sim.run():
+        raise RuntimeError('3compartment ground-truth simulation failed')
+
+    out_items = []
+    for item in items:
+        item = dict(item)
+        operand = item['operands'][0]
+        reducer = _OBS_REDUCERS.get(item['operation'])
+        if reducer is None:
+            raise RuntimeError(f"no reducer for obs operation {item['operation']!r}")
+        y = np.asarray(sim.get_results([operand], flatten=True), dtype=float).ravel()
+        new_value = reducer(y)
+        old_value, old_std = float(item['value']), float(item['std'])
+        item['value'] = new_value
+        # preserve std as the same fraction of the value
+        item['std'] = abs(new_value) * (old_std / abs(old_value)) if old_value else old_std
+        out_items.append(item)
+    sim.close_simulation()
+
+    with open(out_path, 'w') as f:
+        json.dump(out_items, f, indent=2)
+    return THREE_COMPARTMENT_TRUE_PARAMS
+
+
+def three_compartment_config(base_config, resources_dir, output_dir, generated_models_dir,
+                             obs_path=None):
     config = dict(base_config)
     config.update({
         'file_prefix': '3compartment',
@@ -231,7 +316,7 @@ def three_compartment_config(base_config, resources_dir, output_dir, generated_m
         'plot_predictions': False,
         'do_ia': False,
         'solver_info': {'MaximumStep': 0.001, 'MaximumNumberOfSteps': 5000},
-        'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
+        'param_id_obs_path': obs_path or os.path.join(resources_dir, '3compartment_obs_data.json'),
         'param_id_output_dir': output_dir,
         'generated_models_dir': generated_models_dir,
         'optimiser_options': {'max_patience': 500,
@@ -258,6 +343,7 @@ def run_three_compartment(base_config, resources_dir, output_dir, generated_mode
     # generated below, or that method fails at load with FileNotFoundError.
     myokit_models = os.path.join(generated_models_dir, 'myokit')
 
+    synthetic_obs_path = os.path.join(output_dir, '3compartment_synthetic_obs_data.json')
     config = three_compartment_config(base_config, resources_dir, output_dir, myokit_models)
 
     multi_start_fsa = {
@@ -300,7 +386,17 @@ def run_three_compartment(base_config, resources_dir, output_dir, generated_mode
         casadi_cfg = config.copy(); casadi_cfg.update(multi_start_casadi)
         assert generate_with_new_architecture(False, casadi_cfg), \
             'CasADi bdf model generation should succeed for 3compartment'
+        # Ground truth by forward simulation: the shipped obs data is a set of hand-picked
+        # physiological targets with no known parameter vector behind it, so a parameter error
+        # cannot be reported against it. Simulating at a known parameter vector and recording the
+        # resulting observables gives a benchmark where recovery error is meaningful.
+        _write_three_compartment_synthetic_obs(
+            config, os.path.join(myokit_models, '3compartment', '3compartment.cellml'),
+            os.path.join(resources_dir, '3compartment_obs_data.json'), synthetic_obs_path)
     mpi_comm.Barrier()
+    config['param_id_obs_path'] = synthetic_obs_path
+    for _cfg in (multi_start_fsa, multi_start_casadi):
+        _cfg['param_id_obs_path'] = synthetic_obs_path
 
     methods = ['genetic_algorithm', 'CMA-ES',
                'multi_start (Myokit FSA)', 'multi_start (CasADi bdf)']
@@ -313,14 +409,22 @@ def run_three_compartment(base_config, resources_dir, output_dir, generated_mode
         name='three_compartment',
         title='3compartment cardiovascular (stiff, 20 s warmup)',
         description=('Gradient-free global searches vs multi-start L-BFGS-B with the two '
-                     'stiff-capable gradient backends. AADC is not run on this stiff model.'),
-        env_note=f'{mpi_comm.Get_size()} MPI rank(s); pre_time=20 s; 16 starts for multi-start')
+                     'stiff-capable gradient backends. AADC is not run on this stiff model. '
+                     'Observations are synthetic, generated by forward simulating at a known '
+                     'parameter vector, so parameter recovery is measurable; the reported error '
+                     'is the max relative deviation, as for every benchmark.'),
+        env_note=f'{mpi_comm.Get_size()} MPI rank(s); pre_time=20 s; 16 starts for multi-start',
+        true_params=list(THREE_COMPARTMENT_TRUE_PARAMS),
+        param_labels=THREE_COMPARTMENT_PARAM_LABELS)
     if rank == 0:
         for method in methods:
+            params = np.asarray(comparison.results[method]['params'], dtype=float)
             result.rows.append(BenchmarkRow(
                 method=method,
                 cost=float(comparison.results[method]['cost']),
-                time_s=float(comparison.runtimes[method])))
+                time_s=float(comparison.runtimes[method]),
+                param_err=max_relative_param_err(params, THREE_COMPARTMENT_TRUE_PARAMS),
+                params=[float(p) for p in params]))
         for method, reason in skipped.items():
             result.rows.append(BenchmarkRow(method=method, skipped_reason=reason))
     result._comparison = comparison
@@ -490,7 +594,7 @@ def run_goodwin(base_config, resources_dir, output_dir, generated_models_dir,
                 method=method,
                 cost=float(comparison.results[method]['cost']),
                 time_s=float(comparison.runtimes[method]),
-                param_err=float(np.max(np.abs(params - GOODWIN_TRUE_PARAMS))),
+                param_err=max_relative_param_err(params, GOODWIN_TRUE_PARAMS),
                 params=[float(p) for p in params]))
     result._comparison = comparison
     return result
@@ -638,10 +742,7 @@ def run_teusink(base_config, resources_dir, output_dir, generated_models_dir,
                 method=method,
                 cost=float(comparison.results[method]['cost']),
                 time_s=float(comparison.runtimes[method]),
-                # relative error: the v_max values span 226..1185, so an absolute max would be
-                # dominated by the largest parameter.
-                param_err=float(np.max(np.abs(params - TEUSINK_TRUE_PARAMS)
-                                       / TEUSINK_TRUE_PARAMS)),
+                param_err=max_relative_param_err(params, TEUSINK_TRUE_PARAMS),
                 params=[float(p) for p in params]))
     result._comparison = comparison
     return result
