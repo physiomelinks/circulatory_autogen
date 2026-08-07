@@ -188,7 +188,10 @@ def test_analysis_options_schema_well_formed():
     # option names the analysis code actually reads (sensitivityAnalysis.py / paramID.py / IA)
     def names(mode):
         return {o['name'] for o in analysis_options(mode)}
-    assert names('sensitivity_analysis') == {'method', 'sample_type', 'num_samples'}
+    # gradient_method and fd_rel_step are read by run_local_sensitivity for method
+    # 'local' (#338): which arm differentiates, and the finite-difference step.
+    assert names('sensitivity_analysis') == {
+        'method', 'sample_type', 'num_samples', 'gradient_method', 'fd_rel_step'}
     assert names('mcmc') == {'num_steps', 'num_walkers'}
     assert names('identifiability_analysis') == {'method', 'gradient_source', 'sub_method'}
     assert analysis_options('not_a_mode') == []
