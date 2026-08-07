@@ -3061,14 +3061,15 @@ class ObsAndParamDataParser(object):
             param_id_info["param_names"].append(param_full_names)
 
             # B. Build the simplified names for generator/code
-            if row["vessel_name"][0] == 'global':
-                param_names_for_gen.append([row["param_name"]])
-            else:
-                param_gen_names = [
-                    row["param_name"] + '_' + row["vessel_name"][JJ]
-                    for JJ in range(len(row["vessel_name"]))
-                ]
-                param_names_for_gen.append(param_gen_names)
+            # Per vessel, not per row. Deciding the whole row from vessel_name[0] meant a
+            # row mixing 'global' with named vessels emitted a single gen name and dropped
+            # every vessel after the first -- while param_names above kept all of them, so
+            # the two positional lists stopped describing the same parameters (#350).
+            param_names_for_gen.append([
+                row["param_name"] if vessel == 'global'
+                else row["param_name"] + '_' + vessel
+                for vessel in row["vessel_name"]
+            ])
 
         # --- 3. Set Arrays using the filtered DataFrame ---
         param_id_info["param_mins"] = pd.to_numeric(
