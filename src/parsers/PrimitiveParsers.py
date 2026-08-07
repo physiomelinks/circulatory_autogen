@@ -418,24 +418,37 @@ PARAM_PRIOR_TYPES = {
     },
     'exponential': {
         'label': 'Exponential',
-        'description': ('Decays across [min, max] at rate prior_lambda / max, favouring '
-                        'smaller values.'),
+        'description': ('Decays from prior_origin with scale prior_scale, favouring smaller '
+                        'values. Truncated to [min, max] unless the parameter is unbounded.'),
+        # One-sided: it decays away from its origin in one direction, so an unbounded
+        # exponential's derived range runs from the origin rather than straddling it.
+        'support': 'one_sided',
         'params': [
             {'name': 'prior_lambda', 'type': 'float', 'default': 1.0, 'positive': True,
              'role': 'rate',
-             'description': ('Decay rate, scaled by the parameter maximum. Larger values '
-                             'concentrate the prior harder towards min.')},
+             'description': ('Decay rate relative to max, the original parameterisation. '
+                             'Only used when prior_scale is not given.')},
+            {'name': 'prior_origin', 'type': 'float', 'default': 0.0, 'positive': False,
+             'role': 'location', 'default_expr': '0',
+             'description': 'Where the decay starts. Defaults to zero, as it always was.'},
+            {'name': 'prior_scale', 'type': 'float', 'default': None, 'positive': True,
+             'role': 'scale', 'default_expr': 'max / prior_lambda',
+             'description': ('Decay scale, in the parameter\'s own units. Defaults to '
+                             'max / prior_lambda, which reproduces the original rate. '
+                             'Required when unbounded, since there is then no max.')},
         ],
     },
     'normal': {
         'label': 'Normal',
         'description': 'Gaussian, truncated to [min, max] unless the parameter is unbounded.',
+        'support': 'symmetric',
         'params': [
             {'name': 'prior_mean', 'type': 'float', 'default': None, 'positive': False,
              'within_bounds': True, 'role': 'location',
+             'default_expr': '(min + max) / 2',
              'description': 'Centre of the Gaussian. Defaults to the centre of [min, max].'},
             {'name': 'prior_std', 'type': 'float', 'default': None, 'positive': True,
-             'role': 'scale',
+             'role': 'scale', 'default_expr': '(max - min) / 6',
              'description': ('Standard deviation. Defaults to one sixth of the range, which '
                              'puts [min, max] at +/- 3 sigma.')},
         ],
@@ -455,6 +468,75 @@ PARAM_UNBOUNDED_COLUMN = 'unbounded'
 # normalisation NaN and every calibration with it, so "unbounded" has to mean "wide enough not
 # to bind", not "absent".
 UNBOUNDED_SIGMA_SPAN = 5.0
+
+
+def eval_prior_default(expr, bounds=None, params=None):
+    """Evaluate a ``default_expr`` against a row's bounds and its other prior params.
+
+    The expressions live in PARAM_PRIOR_TYPES so there is one statement of what a
+    blank field means -- CA computes the default from it, and a downstream editor
+    shows the same number in the field's placeholder. Previously the formulas were
+    written twice: once in get_lnprior_from_params and once in whatever prose a UI
+    chose, which is how "the centre of the range" and the value actually used drift
+    apart.
+
+    Deliberately tiny: names (min/max/other params), numbers, and arithmetic. No
+    calls, no attributes, no comprehensions -- these come from CA's own schema, but
+    an evaluator that can only do arithmetic cannot become something else later.
+    Returns None when a name it needs is unavailable (an unbounded row has no max).
+    """
+    import ast as _ast
+
+    names = dict(bounds or {})
+    names.update({k: v for k, v in (params or {}).items() if v is not None})
+
+    def _ev(node):
+        if isinstance(node, _ast.Expression):
+            return _ev(node.body)
+        if isinstance(node, _ast.Constant):
+            if isinstance(node.value, (int, float)) and not isinstance(node.value, bool):
+                return float(node.value)
+            raise ValueError('non-numeric constant')
+        if isinstance(node, _ast.Name):
+            if node.id not in names or names[node.id] is None:
+                raise KeyError(node.id)
+            return float(names[node.id])
+        if isinstance(node, _ast.UnaryOp) and isinstance(node.op, (_ast.UAdd, _ast.USub)):
+            v = _ev(node.operand)
+            return v if isinstance(node.op, _ast.UAdd) else -v
+        if isinstance(node, _ast.BinOp) and isinstance(
+                node.op, (_ast.Add, _ast.Sub, _ast.Mult, _ast.Div)):
+            a, b = _ev(node.left), _ev(node.right)
+            if isinstance(node.op, _ast.Add):
+                return a + b
+            if isinstance(node.op, _ast.Sub):
+                return a - b
+            if isinstance(node.op, _ast.Mult):
+                return a * b
+            if b == 0:
+                raise ZeroDivisionError
+            return a / b
+        raise ValueError(f'unsupported expression node {type(node).__name__}')
+
+    try:
+        value = _ev(_ast.parse(str(expr), mode='eval'))
+    except (KeyError, ZeroDivisionError, ValueError, SyntaxError, TypeError):
+        return None
+    return value if np.isfinite(value) else None
+
+
+def prior_param_default(prior_type, name, bounds=None, params=None):
+    """The value a blank ``name`` takes for ``prior_type``: its literal default, or
+    the one derived from the row's bounds. None when it cannot be derived."""
+    for spec in PARAM_PRIOR_TYPES.get(prior_type, {}).get('params', []):
+        if spec['name'] != name:
+            continue
+        if spec.get('default_expr'):
+            derived = eval_prior_default(spec['default_expr'], bounds, params)
+            if derived is not None:
+                return derived
+        return spec.get('default')
+    return None
 
 
 def _truthy_flag(value):
@@ -522,8 +604,13 @@ def derive_bounds_from_prior(prior_type, params, row_idx=None):
             f"'{PARAM_UNBOUNDED_COLUMN}' is set{where}, so {' and '.join(missing)} must be "
             f"given: without a range there is nothing left to derive them from.")
 
-    half = UNBOUNDED_SIGMA_SPAN * float(scale)
-    return (float(loc) - half, float(loc) + half)
+    span = UNBOUNDED_SIGMA_SPAN * float(scale)
+    # A symmetric prior straddles its centre; a one-sided one decays away from its
+    # origin in a single direction, so a range centred on that origin would put half
+    # the box where the prior has no mass at all.
+    if PARAM_PRIOR_TYPES[prior_type].get('support') == 'one_sided':
+        return (float(loc), float(loc) + span)
+    return (float(loc) - span, float(loc) + span)
 
 # Every `params` entry above names a params_for_id column. Collected once so the parser can
 # tell a prior hyper-parameter column from an unrelated one, and so a downstream tool can

@@ -58,7 +58,7 @@ import shutil
 from datetime import date, datetime
 # from skopt import gp_minimize, Optimizer
 from parsers.PrimitiveParsers import (CSVFileParser, ObsAndParamDataParser, PARAM_ID_METHODS,
-                                      PARAM_PRIOR_TYPES)
+                                      PARAM_PRIOR_TYPES, prior_param_default)
 from param_id.optimisers import GeneticAlgorithmOptimiser, BayesianOptimiser, CMAESOptimiser, \
     SciPyMinimizeOptimiser, MultiStartSciPyMinimizeOptimiser
 from param_id.differentiable import (
@@ -1710,6 +1710,35 @@ class OpencorParamID():
             return False
         return bool(flags[idx])
 
+    def _resolved_prior_param(self, idx, prior_type, name):
+        """A prior hyper-parameter with its default resolved from the schema.
+
+        A stated value wins; otherwise the schema's default_expr is evaluated
+        against this parameter's bounds and its sibling values. Raises when the
+        result is unusable -- an unbounded exponential with no scale has nothing
+        to decay by, and guessing one would silently invent a prior.
+        """
+        stated = self._prior_param(idx, name)
+        if stated is not None:
+            return stated
+        bounds = {}
+        lo = self.param_id_info["param_mins"][idx]
+        hi = self.param_id_info["param_maxs"][idx]
+        if np.isfinite(lo):
+            bounds['min'] = float(lo)
+        if np.isfinite(hi):
+            bounds['max'] = float(hi)
+        siblings = dict(self.param_id_info.get("param_prior_params", [{}] * (idx + 1))[idx] or {})
+        for spec in PARAM_PRIOR_TYPES.get(prior_type, {}).get('params', []):
+            siblings.setdefault(spec['name'], spec.get('default'))
+        value = prior_param_default(prior_type, name, bounds, siblings)
+        if value is None:
+            raise ValueError(
+                f"'{name}' is needed for the {prior_type} prior on parameter index {idx} "
+                f"and could not be derived from the parameter's range. State it in "
+                f"params_for_id.")
+        return value
+
     def _prior_param(self, idx, name):
         """One prior hyper-parameter for parameter ``idx``, or its declared default.
 
@@ -1750,13 +1779,18 @@ class OpencorParamID():
                     pass
             
             elif prior_dist == 'exponential':
-                lamb = self._prior_param(idx, 'prior_lambda')
                 if bounded and (param_val < self.param_id_info["param_mins"][idx] or param_val > self.param_id_info["param_maxs"][idx]):
                     return -np.inf
                 else:
-                    # the normalisation isnt needed here but might be nice to
-                    # make sure prior for each param is between 0 and 1
-                    lnprior += -lamb*param_val/self.param_id_info["param_maxs"][idx]
+                    # -(x - origin)/scale. With both left blank this is exactly the
+                    # original -lambda*x/max: origin defaults to 0 and scale to
+                    # max/lambda. Stating a scale gives the decay a size in the
+                    # parameter's own units, which is what makes an unbounded
+                    # exponential meaningful -- the original rate is defined
+                    # *relative to max*, and an unbounded parameter has no max.
+                    origin = self._resolved_prior_param(idx, 'exponential', 'prior_origin')
+                    scale = self._resolved_prior_param(idx, 'exponential', 'prior_scale')
+                    lnprior += -(param_val - origin) / scale
 
             elif prior_dist == 'normal':
                 if bounded and (param_val < self.param_id_info["param_mins"][idx] or param_val > self.param_id_info["param_maxs"][idx]):
@@ -1767,12 +1801,11 @@ class OpencorParamID():
                     # params_for_id columns (prior_mean / prior_std), because a prior whose
                     # centre is fixed to the middle of the bounds cannot express most of
                     # what a prior is for.
-                    std = self._prior_param(idx, 'prior_std')
-                    if std is None:
-                        std = 1/6*(self.param_id_info["param_maxs"][idx] - self.param_id_info["param_mins"][idx])
-                    mean = self._prior_param(idx, 'prior_mean')
-                    if mean is None:
-                        mean = 0.5*(self.param_id_info["param_maxs"][idx] + self.param_id_info["param_mins"][idx])
+                    # Both defaults come from the schema's default_expr, so the
+                    # number used here and the one a UI shows in the blank field
+                    # are the same statement rather than two copies of it.
+                    std = self._resolved_prior_param(idx, 'normal', 'prior_std')
+                    mean = self._resolved_prior_param(idx, 'normal', 'prior_mean')
                     lnprior += -0.5*((param_val - mean)/std)**2
 
             else:
