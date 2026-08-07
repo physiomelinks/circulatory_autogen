@@ -67,6 +67,7 @@ from param_id.differentiable import (
     is_circulatory_differentiable,
 )
 from param_id.operation_funcs import resolve_operation_kwargs, validate_operation_kwargs
+from param_id.cost_kwargs import call_cost_func, validate_cost_kwargs
 from param_id.plot_outputs import ParamIDPlotOutputs
 from param_id import casadi_backend
 from param_id import fsa_backend
@@ -1276,6 +1277,7 @@ class OpencorParamID():
             )
         # Fail fast on a stale obs_data.json rather than part-way through an optimisation (#304).
         validate_operation_kwargs(self.obs_info, self.operation_funcs_dict)
+        validate_cost_kwargs(self.obs_info, self.cost_funcs_dict, self.cost_type)
         self.DEBUG = DEBUG
 
         # Per (experiment, subexperiment) count of observables with non-zero weight. The sum
@@ -1403,6 +1405,7 @@ class OpencorParamID():
         self.obs_info = obs_info
         self.cost_type = self.obs_info["cost_type"]
         validate_operation_kwargs(self.obs_info, self.operation_funcs_dict)
+        validate_cost_kwargs(self.obs_info, self.cost_funcs_dict, self.cost_type)
         self._refresh_num_weighted_obs_tables()
 
     def set_optimiser_options(self, optimiser_options):
@@ -1947,6 +1950,17 @@ class OpencorParamID():
 
         return series_entry, ground_truth[:num_in_range], std[:num_in_range]
 
+    def _cost_kwargs_for(self, obs_idx):
+        """The data_item's ``cost_kwargs`` for observable ``obs_idx`` (issue #84).
+
+        Indexed by *observable*, matching cost_type and the weight vectors, so it stays correct
+        when the const/series/amp vectors are compacted to their own index spaces.
+        """
+        raw = self.obs_info.get("cost_kwargs") if self.obs_info else None
+        if not raw or obs_idx >= len(raw):
+            return None
+        return raw[obs_idx] or None
+
     def cost_calc(self, obs_dict, exp_idx=0, sub_idx=0, is_symbolic=False):
 
         # Symbolic cost terms use the casadi-mode cost funcs; numeric ones the numpy-mode funcs
@@ -2005,8 +2019,11 @@ class OpencorParamID():
                 for const_idx in range(const.size1()):
                     obs_idx = self.obs_info['const_idx_to_obs_idx'][const_idx]
                     if updated_weight_const_vec[obs_idx] != 0:
-                        cost += cost_funcs_dict[self.cost_type[obs_idx]](const[const_idx], self.obs_info["ground_truth_const"][const_idx],
-                                                        self.obs_info["std_const_vec"][const_idx], updated_weight_const_vec[obs_idx])
+                        cost += call_cost_func(cost_funcs_dict[self.cost_type[obs_idx]],
+                                               const[const_idx], self.obs_info["ground_truth_const"][const_idx],
+                                               std=self.obs_info["std_const_vec"][const_idx],
+                                               weight=updated_weight_const_vec[obs_idx],
+                                               cost_kwargs=self._cost_kwargs_for(obs_idx))
 
             if series is not None:
                 for series_idx in range(len(series)):
@@ -2028,8 +2045,9 @@ class OpencorParamID():
                     obs_entry = ca.DM(obs_np.reshape(-1, 1))
                     std_entry = ca.DM(std_np.reshape(-1, 1))
 
-                    cost += cost_funcs_dict[self.cost_type[obs_idx]](
-                        series_entry, obs_entry, std_entry, weight_entry)
+                    cost += call_cost_func(cost_funcs_dict[self.cost_type[obs_idx]],
+                        series_entry, obs_entry, std=std_entry, weight=weight_entry,
+                        cost_kwargs=self._cost_kwargs_for(obs_idx))
 
             # Silently returning a zero cost for observables we can't differentiate would look
             # like a perfectly converged fit, so fail loudly instead.
@@ -2056,8 +2074,11 @@ class OpencorParamID():
             for const_idx in range(len(const)):
                 obs_idx = self.obs_info['const_idx_to_obs_idx'][const_idx]
                 if updated_weight_const_vec[obs_idx] != 0:
-                    cost += cost_funcs_dict[self.cost_type[obs_idx]](const[const_idx], self.obs_info["ground_truth_const"][const_idx],
-                                                    self.obs_info["std_const_vec"][const_idx], updated_weight_const_vec[obs_idx])
+                    cost += call_cost_func(cost_funcs_dict[self.cost_type[obs_idx]],
+                                           const[const_idx], self.obs_info["ground_truth_const"][const_idx],
+                                           std=self.obs_info["std_const_vec"][const_idx],
+                                           weight=updated_weight_const_vec[obs_idx],
+                                           cost_kwargs=self._cost_kwargs_for(obs_idx))
         
         # TODO debugging a strange error that occurs occasionally in GA
         # assert not np.isnan(cost), 'cost is nan'
@@ -2090,7 +2111,8 @@ class OpencorParamID():
                 obs_idx = self.obs_info['series_idx_to_obs_idx'][series_idx]
                 weight_entry = updated_weight_series_vec[obs_idx]
                 if weight_entry != 0:
-                    series_cost += cost_funcs_dict[self.cost_type[obs_idx]](series_entry, obs_entry, std_entry, weight_entry)
+                    series_cost += call_cost_func(cost_funcs_dict[self.cost_type[obs_idx]], series_entry, obs_entry,
+                                                  std=std_entry, weight=weight_entry, cost_kwargs=self._cost_kwargs_for(obs_idx))
 
 
         amp_cost = 0
@@ -2113,10 +2135,12 @@ class OpencorParamID():
                 std_entry = self.obs_info["std_amp_vec"][amp_idx]
                 if hasattr(weight_entry, '__len__'):
                     if not all(val==0 for val in weight_entry):
-                        amp_cost += cost_funcs_dict[self.cost_type[obs_idx]](amp_entry, obs_entry, std_entry, weight_entry)
+                        amp_cost += call_cost_func(cost_funcs_dict[self.cost_type[obs_idx]], amp_entry, obs_entry,
+                                                   std=std_entry, weight=weight_entry, cost_kwargs=self._cost_kwargs_for(obs_idx))
                 else:
                     if weight_entry != 0:
-                        amp_cost += cost_funcs_dict[self.cost_type[obs_idx]](amp_entry, obs_entry, std_entry, weight_entry)
+                        amp_cost += call_cost_func(cost_funcs_dict[self.cost_type[obs_idx]], amp_entry, obs_entry,
+                                                   std=std_entry, weight=weight_entry, cost_kwargs=self._cost_kwargs_for(obs_idx))
 
         phase_cost = 0
         if phase is not None:
@@ -2140,19 +2164,23 @@ class OpencorParamID():
                 weight_entry = updated_weight_phase_vec[obs_idx]
                 if hasattr(weight_entry, '__len__'):
                     if not all(val==0 for val in weight_entry):
-                        phase_cost += cost_funcs_dict[self.cost_type[obs_idx]](phase_entry, obs_entry, std_entry, weight_entry)
+                        phase_cost += call_cost_func(cost_funcs_dict[self.cost_type[obs_idx]], phase_entry, obs_entry,
+                                                     std=std_entry, weight=weight_entry, cost_kwargs=self._cost_kwargs_for(obs_idx))
                 else:
                     if weight_entry != 0:
-                        phase_cost += cost_funcs_dict[self.cost_type[obs_idx]](phase_entry, obs_entry, std_entry, weight_entry)
+                        phase_cost += call_cost_func(cost_funcs_dict[self.cost_type[obs_idx]], phase_entry, obs_entry,
+                                                     std=std_entry, weight=weight_entry, cost_kwargs=self._cost_kwargs_for(obs_idx))
 
         prob_dist_cost = 0
         if val_for_prob_dist is not None:
             for prob_dist_idx in range(len(val_for_prob_dist)):
                 obs_idx = self.obs_info['prob_dist_idx_to_obs_idx'][prob_dist_idx]
                 if updated_weight_prob_dist_vec[obs_idx] != 0:
-                    prob_dist_cost += cost_funcs_dict[self.cost_type[obs_idx]](val_for_prob_dist[prob_dist_idx], 
-                                                                    self.obs_info["ground_truth_prob_dist_params"][prob_dist_idx],
-                                                                    updated_weight_prob_dist_vec[obs_idx])
+                    prob_dist_cost += call_cost_func(cost_funcs_dict[self.cost_type[obs_idx]],
+                                                      val_for_prob_dist[prob_dist_idx],
+                                                      self.obs_info["ground_truth_prob_dist_params"][prob_dist_idx],
+                                                      weight=updated_weight_prob_dist_vec[obs_idx],
+                                                      cost_kwargs=self._cost_kwargs_for(obs_idx))
             
 
         return cost + series_cost + amp_cost + phase_cost + prob_dist_cost
