@@ -140,14 +140,8 @@ def test_schema_settings_are_actually_read_by_the_code():
     always consumed by its own helper. PrimitiveParsers.py is excluded because that is where the
     schema declares the names in the first place.
 
-    KNOWN LIMITATION -- this check is per *setting*, not per *solver*, and a name that merely
-    passes through counts as "read". Both together let CVODE_myokit advertise
-    MaximumNumberOfSteps for a long time: the name appears in protocol_runner.py, but only to be
-    relayed into get_simulation_helper's solver_info, and myokit_helper drops it on the floor
-    (myokit.Simulation exposes only set_max_step_size / set_min_step_size / set_tolerance). This
-    docstring previously cited that relay as proof the setting was read, which is exactly the
-    reasoning to distrust. Tightening this to per-solver, consumption-aware checking is the real
-    fix; until then, a name appearing in the corpus is necessary but NOT sufficient.
+    This is the weak, repo-wide half of the check; the per-solver half is
+    test_each_solver_setting_is_read_by_that_solvers_consumer below (issue #330).
     """
     src_dir = pathlib.Path(__file__).resolve().parent.parent / 'src'
     corpus = '\n'.join(
@@ -176,6 +170,71 @@ def test_schema_settings_are_actually_read_by_the_code():
     assert not unread_method, (
         f'optimiser options advertised to CUFLynx but read nowhere in src/: {unread_method}. '
         'Either wire the option up or remove it from PARAM_ID_METHODS.')
+
+
+# Which module actually consumes each solver's solver_info. A setting must appear in *its own*
+# solver's consumer, not merely somewhere in src/: protocol_runner.py relays every key into
+# get_simulation_helper's solver_info whether or not the backend does anything with it, so a
+# repo-wide search counts a pass-through as a read (issue #330).
+_SOLVER_CONSUMERS = {
+    'CVODE_myokit': ['solver_wrappers/myokit_helper.py'],
+    'CVODE_opencor': ['solver_wrappers/opencor_helper.py'],
+    'solve_ivp': ['solver_wrappers/python_solver_helper.py'],
+    'user_defined': ['solver_wrappers/python_solver_helper.py'],
+    'casadi_integrator': ['solver_wrappers/casadi_python_solver_helper.py'],
+    # AADC settings are split: integrator knobs in the helper, gradient knobs (jac_lag,
+    # gradient_strategy) in the tape/kernel paths of aadc_backend.
+    'aadc_semi_implicit': ['solver_wrappers/aadc_python_solver_helper.py',
+                           'param_id/aadc_backend.py'],
+}
+
+_RELAY_FILES = ('protocol_runners/protocol_runner.py', 'parsers/PrimitiveParsers.py')
+
+
+@pytest.mark.unit
+def test_each_solver_setting_is_read_by_that_solvers_consumer():
+    """Per-solver, consumption-aware version of the check above (issue #330).
+
+    A solver_info setting is CUFLynx's contract: it renders a control for it. If the backend that
+    owns the solver never reads the key, the user gets a control that silently does nothing --
+    and the repo-wide check cannot see that, because it only asks whether the *name* appears
+    anywhere in src/, and every key appears in the relay in protocol_runner.py. That is how
+    CVODE_myokit came to advertise MaximumNumberOfSteps: myokit.Simulation exposes only
+    set_max_step_size / set_min_step_size / set_tolerance, so the value went nowhere.
+
+    The cpp solvers (CVODE/RK4/PETSC) are deliberately not mapped: their solver_info is consumed
+    by generated C++ rather than a Python backend, so there is no module to grep. They remain
+    covered by the repo-wide check only, and that gap is recorded here rather than hidden.
+    """
+    src_dir = pathlib.Path(__file__).resolve().parent.parent / 'src'
+
+    phantom = {}
+    for solver, consumers in _SOLVER_CONSUMERS.items():
+        text = ''
+        for rel in consumers:
+            path = src_dir / rel
+            assert path.exists(), 'consumer file missing for ' + solver + ': ' + rel
+            text += path.read_text(errors='ignore')
+        missing = [f['name'] for f in SOLVER_INFO_FIELDS[solver]
+                   if '"' + f['name'] + '"' not in text and "'" + f['name'] + "'" not in text]
+        if missing:
+            phantom[solver] = missing
+
+    assert not phantom, (
+        'solver_info settings advertised to CUFLynx that their own backend never reads: '
+        + str(phantom) + '. CUFLynx renders a control for each, so an unread one is a knob the '
+        'user can turn with no effect and no way to tell. Either wire it up in the consumer, or '
+        'drop it from SOLVER_INFO_FIELDS.')
+
+
+@pytest.mark.unit
+def test_the_relay_does_not_count_as_reading_a_setting():
+    """Guard on the guard: if protocol_runner ever became a mapped consumer, the per-solver check
+    above would silently degrade back into the repo-wide one it replaced."""
+    for relay in _RELAY_FILES:
+        for consumers in _SOLVER_CONSUMERS.values():
+            assert relay not in consumers, (
+                relay + ' relays solver_info wholesale and must never be treated as a consumer')
 
 
 def test_analysis_options_schema_well_formed():

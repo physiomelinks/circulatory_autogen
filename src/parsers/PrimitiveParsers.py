@@ -2568,6 +2568,10 @@ class ObsAndParamDataParser(object):
                 "operands": {"types": (list, tuple, np.ndarray), "default": REQUIRED},
                 "operation": {"types": (str,), "default": None},
                 "operation_kwargs": {"types": (dict,), "default": lambda df: [{} for _ in range(len(df))]},
+                # Extra keyword arguments for the data_item's cost_type func (issue #84), the
+                # cost-side counterpart of operation_kwargs. std and weight are supplied by CA
+                # from the fields above and are rejected here -- see param_id.cost_kwargs.
+                "cost_kwargs": {"types": (dict,), "default": lambda df: [{} for _ in range(len(df))]},
                 "value": {"types": (int, float, np.integer, np.floating, list, np.ndarray), "default": REQUIRED},
                 "std": {"types": (int, float, np.integer, np.floating, list, np.ndarray), "default": REQUIRED},
                 "experiment_idx": {"types": (int, np.integer), "default": 0},
@@ -2715,6 +2719,7 @@ class ObsAndParamDataParser(object):
         obs_info["operations"] = []
         obs_info["operands"] = []
         obs_info["operation_kwargs"] = [gt_df.iloc[II].get("operation_kwargs", {}) for II in range(N)]
+        obs_info["cost_kwargs"] = [gt_df.iloc[II].get("cost_kwargs", {}) for II in range(N)]
         obs_info["freqs"] = [gt_df.iloc[II].get("frequencies") for II in range(N)]
         obs_info["names_for_plotting"] = [gt_df.iloc[II].get("name_for_plotting", obs_info["obs_names"][II]) for II in range(N)]
 

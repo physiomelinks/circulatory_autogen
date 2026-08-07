@@ -149,13 +149,18 @@ class ObsDataCreator:
         required_keys = ['variable', 'name_for_plotting', 'operands',
                          'unit', 'value', 'std']
         required_series_keys = ['obs_dt']
-        optional_keys = ['name_for_plotting', 'operation', 'operation_kwargs', 'weight', 'std',
-                         'experiment_idx', 'subexperiment_idx']
+        optional_keys = ['name_for_plotting', 'operation', 'operation_kwargs', 'cost_kwargs',
+                         'weight', 'std', 'experiment_idx', 'subexperiment_idx']
 
         if 'operation_kwargs' in entry and not isinstance(entry['operation_kwargs'], dict):
             raise ValueError(
                 f"'operation_kwargs' must be a dict of keyword arguments for the 'operation' "
                 f"func, got {type(entry['operation_kwargs']).__name__}.")
+
+        if 'cost_kwargs' in entry and not isinstance(entry['cost_kwargs'], dict):
+            raise ValueError(
+                f"'cost_kwargs' must be a dict of keyword arguments for the 'cost_type' "
+                f"func, got {type(entry['cost_kwargs']).__name__}.")
 
         if 'name_for_plotting' not in entry:
             entry['name_for_plotting'] = entry['variable']
