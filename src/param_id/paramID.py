@@ -1960,7 +1960,16 @@ class OpencorParamID():
         phase = obs_dict['phase']
         val_for_prob_dist = obs_dict['val_for_prob_dist']
 
-        # update cost weights for this experiment and subexperiment
+        # update cost weights for this experiment and subexperiment.
+        #
+        # These are indexed by *data_item row*, not by the per-type compacted counter:
+        # process_protocol_and_weights builds each one full length over all data_items and
+        # zeroes the rows that are not its type. So every read below uses obs_idx, the row
+        # the observable actually came from, the way cost_type already did. Reading them by
+        # const_idx / series_idx / ... only agreed when the items of a type happened to
+        # occupy the leading rows; interleave the types and an observable picked up another
+        # row's weight -- usually a zero, which dropped it from the cost while
+        # _refresh_num_weighted_obs_tables still counted it in the denominator (#349).
         updated_weight_const_vec = self.protocol_info["scaled_weight_const_from_exp_sub"][exp_idx][sub_idx]
         updated_weight_series_vec = self.protocol_info["scaled_weight_series_from_exp_sub"][exp_idx][sub_idx]
         updated_weight_amp_vec = self.protocol_info["scaled_weight_amp_from_exp_sub"][exp_idx][sub_idx]
@@ -1995,14 +2004,14 @@ class OpencorParamID():
             if const is not None:
                 for const_idx in range(const.size1()):
                     obs_idx = self.obs_info['const_idx_to_obs_idx'][const_idx]
-                    if updated_weight_const_vec[const_idx] != 0:
+                    if updated_weight_const_vec[obs_idx] != 0:
                         cost += cost_funcs_dict[self.cost_type[obs_idx]](const[const_idx], self.obs_info["ground_truth_const"][const_idx],
-                                                        self.obs_info["std_const_vec"][const_idx], updated_weight_const_vec[const_idx])
+                                                        self.obs_info["std_const_vec"][const_idx], updated_weight_const_vec[obs_idx])
 
             if series is not None:
                 for series_idx in range(len(series)):
                     obs_idx = self.obs_info['series_idx_to_obs_idx'][series_idx]
-                    weight_entry = updated_weight_series_vec[series_idx]
+                    weight_entry = updated_weight_series_vec[obs_idx]
                     if weight_entry == 0:
                         continue
 
@@ -2046,9 +2055,9 @@ class OpencorParamID():
         if const is not None:
             for const_idx in range(len(const)):
                 obs_idx = self.obs_info['const_idx_to_obs_idx'][const_idx]
-                if updated_weight_const_vec[const_idx] != 0:
+                if updated_weight_const_vec[obs_idx] != 0:
                     cost += cost_funcs_dict[self.cost_type[obs_idx]](const[const_idx], self.obs_info["ground_truth_const"][const_idx],
-                                                    self.obs_info["std_const_vec"][const_idx], updated_weight_const_vec[const_idx])
+                                                    self.obs_info["std_const_vec"][const_idx], updated_weight_const_vec[obs_idx])
         
         # TODO debugging a strange error that occurs occasionally in GA
         # assert not np.isnan(cost), 'cost is nan'
@@ -2078,7 +2087,7 @@ class OpencorParamID():
                 series_entry, obs_entry, std_entry = self._align_series_to_ground_truth(
                     np.asarray(series[series_idx], dtype=float).flatten(), series_idx)
 
-                weight_entry = updated_weight_series_vec[series_idx]
+                weight_entry = updated_weight_series_vec[obs_idx]
 
                 obs_idx = self.obs_info['series_idx_to_obs_idx'][series_idx]
                 if weight_entry != 0:
@@ -2101,7 +2110,7 @@ class OpencorParamID():
                 obs_idx = self.obs_info['freq_idx_to_obs_idx'][amp_idx]
                 amp_entry = amp[amp_idx]
                 obs_entry = self.obs_info["ground_truth_amp"][amp_idx]
-                weight_entry = updated_weight_amp_vec[amp_idx]
+                weight_entry = updated_weight_amp_vec[obs_idx]
                 std_entry = self.obs_info["std_amp_vec"][amp_idx]
                 if hasattr(weight_entry, '__len__'):
                     if not all(val==0 for val in weight_entry):
@@ -2129,7 +2138,7 @@ class OpencorParamID():
                 phase_entry = phase[phase_idx]
                 std_entry = np.ones(len(phase_entry))
                 obs_entry = self.obs_info["ground_truth_phase"][phase_idx]
-                weight_entry = updated_weight_phase_vec[phase_idx]
+                weight_entry = updated_weight_phase_vec[obs_idx]
                 if hasattr(weight_entry, '__len__'):
                     if not all(val==0 for val in weight_entry):
                         phase_cost += cost_funcs_dict[self.cost_type[obs_idx]](phase_entry, obs_entry, std_entry, weight_entry)
@@ -2141,10 +2150,10 @@ class OpencorParamID():
         if val_for_prob_dist is not None:
             for prob_dist_idx in range(len(val_for_prob_dist)):
                 obs_idx = self.obs_info['prob_dist_idx_to_obs_idx'][prob_dist_idx]
-                if updated_weight_prob_dist_vec[prob_dist_idx] != 0:
+                if updated_weight_prob_dist_vec[obs_idx] != 0:
                     prob_dist_cost += cost_funcs_dict[self.cost_type[obs_idx]](val_for_prob_dist[prob_dist_idx], 
                                                                     self.obs_info["ground_truth_prob_dist_params"][prob_dist_idx],
-                                                                    updated_weight_prob_dist_vec[prob_dist_idx])
+                                                                    updated_weight_prob_dist_vec[obs_idx])
             
 
         return cost + series_cost + amp_cost + phase_cost + prob_dist_cost
