@@ -140,6 +140,15 @@ class SimulationHelper:
         )
         # Full-length array for model function calls (compute_computed_constants, etc.)
         self.variables_model = list(self._numeric_variables_all)
+        # A frozen copy of the constants array as the model was loaded, taken here rather than in
+        # _store_constants_defaults because self.variables only becomes the constants-only array
+        # (the one _var_idx_to_const_pos indexes) on the line above.
+        #
+        # get_init_param_vals reads the *live* array, so once set_param_vals has written it
+        # reports the current value, not the model default -- unlike the Myokit backend, which
+        # keeps default_values. Anything needing a stable baseline (a scale modifier's
+        # theta * baseline_i) must read this, or the factor compounds across iterations.
+        self.default_variables = list(self.variables)
 
     def _compute_states_symb(self):
         states = self.states.copy()
@@ -276,6 +285,28 @@ class SimulationHelper:
             self.states = list(self._sub_carry_state)
 
     # ---- parameter helpers ----
+    def get_default_param_vals(self, param_names):
+        """The model's values as loaded, regardless of what has been written since.
+
+        Same shape as get_init_param_vals, but read from the frozen snapshot rather than the live
+        arrays. See the note in _store_constants_defaults.
+        """
+        vals = []
+        for name_or_list in param_names:
+            if not isinstance(name_or_list, list):
+                name_or_list = [name_or_list]
+            sub = []
+            for name in name_or_list:
+                kind, idx = self._resolver.resolve(name)
+                if kind == "state":
+                    sub.append(self.default_state_inits[idx])
+                elif kind == "var":
+                    sub.append(self.default_variables[self._var_idx_to_const_pos(idx)])
+                else:
+                    raise ValueError(f"Parameter {name!r} not found (resolved kind={kind!r})")
+            vals.append(sub[0] if len(sub) == 1 else sub)
+        return vals
+
     def get_init_param_vals(self, param_names):
         vals = []
         for name_or_list in param_names:

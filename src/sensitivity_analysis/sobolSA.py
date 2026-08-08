@@ -40,6 +40,7 @@ from SALib.analyze import sobol
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+from parsers.PrimitiveParsers import expand_modifier_param_vals
 from parsers.PrimitiveParsers import scriptFunctionParser
 from param_id.operation_funcs import resolve_operation_kwargs, validate_operation_kwargs
 from mpi4py import MPI
@@ -236,8 +237,11 @@ class sobol_SA():
         SA_info = {
             "sample_type": sample_type,
             "param_names": grouped_names,
-            "param_labels": ['+'.join(n) if isinstance(n, (list, tuple)) else n
-                             for n in grouped_names],
+            # param_id_info already computes one label per variable, and knows that a modifier
+            # is labelled by its own name rather than a join of the parameters it modifies.
+            "param_labels": list(self.param_id_info.get("param_labels") or
+                                 ['+'.join(n) if isinstance(n, (list, tuple)) else n
+                                  for n in grouped_names]),
             "num_samples": num_samples,
             "param_mins": list(self.param_id_info["param_mins"]),
             "param_maxs": list(self.param_id_info["param_maxs"])
@@ -315,7 +319,9 @@ class sobol_SA():
         return samples
     
     def run_model_and_get_results(self, param_vals):
-        self.sim_helper.set_param_vals(self.SA_info["param_names"], param_vals)
+        self.sim_helper.set_param_vals(
+            self.SA_info["param_names"],
+            expand_modifier_param_vals(self.param_id_info, param_vals))
         self.sim_helper.reset_states()
         success = self.sim_helper.run()
         if not success:
@@ -362,7 +368,7 @@ class sobol_SA():
                 _success, operands_outputs_dict, _, _ = self._protocol_executor.run_protocol(
                     self.protocol_info,
                     id_param_names=self.param_id_info["param_names"],
-                    id_param_vals=param_vals,
+                    id_param_vals=expand_modifier_param_vals(self.param_id_info, param_vals),
                     result_variables=self.obs_info["operands"],
                     continue_on_failure=True,
                 )

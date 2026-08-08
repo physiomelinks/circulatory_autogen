@@ -471,12 +471,112 @@ PARAM_UNBOUNDED_COLUMN = 'unbounded'
 # the second arrives with modifier entries in a follow-up.
 PARAMS_FOR_ID_JSON_VERSION = 1
 
+# What a modifier parameter can do to the parameters it names. Exported as data, not hardcoded
+# downstream: a front-end builds its menu by reading this, the same way it reads PARAM_PRIOR_TYPES
+# and the cost-func registry, so adding an operation here is the only edit needed.
+#
+# `default_min`/`default_max` are advisory bounds for the UI. A scale multiplier is
+# dimensionless, so unlike every other parameter its bounds are not physical values -- which is
+# the most likely user error, and the reason the UI should be able to offer sane ones.
+PARAM_MODIFIER_OPERATIONS = {
+    'scale': {
+        'description': 'one calibrated multiplier applied to every target\'s default value',
+        'applies_to': 'value',
+        'dimensionless': True,
+        'default_min': 0.5,
+        'default_max': 2.0,
+    },
+}
+DEFAULT_PARAM_MODIFIER_OPERATION = 'scale'
+
+
+def resolve_modifier_baselines(param_id_info, sim_helper):
+    """Fill in each modifier's `baselines` from the model, once.
+
+    Resolved once at setup and never re-derived, because on some backends
+    ``get_init_param_vals`` reads the live parameter array: after ``set_param_vals`` has written,
+    it returns the value just written, not the model default. Re-deriving a scale baseline from
+    it mid-calibration would apply theta to an already-scaled value and compound the factor every
+    iteration -- theta=1.2 twice giving 1.44x. ``get_default_param_vals`` reads the frozen
+    snapshot instead, and this runs before any parameter has been set.
+
+    Idempotent: a modifier whose baselines are already resolved is left alone.
+    """
+    modifiers = param_id_info.get("modifiers") or []
+    if not modifiers:
+        return param_id_info
+
+    if not hasattr(sim_helper, 'get_default_param_vals'):
+        raise NotImplementedError(
+            f"{type(sim_helper).__name__} does not implement get_default_param_vals, which a "
+            f"modifier parameter needs to resolve its baselines. A modifier applies "
+            f"theta * baseline_i, and reading the baseline from the live parameter array would "
+            f"compound the factor across calibration iterations.")
+
+    for mod in modifiers:
+        if mod.get("baselines") is not None:
+            continue
+        raw = sim_helper.get_default_param_vals([[q] for q in mod["targets"]])
+        baselines = []
+        for value in raw:
+            if isinstance(value, (list, tuple)):
+                value = value[0]
+            baselines.append(float(value))
+        mod["baselines"] = baselines
+    return param_id_info
+
+
+def expand_modifier_param_vals(param_id_info, param_vals):
+    """Turn the optimiser's parameter vector into the values set_param_vals receives.
+
+    A modifier occupies one slot in the vector (its theta) but names N model parameters, so its
+    slot expands to N values, one per target. Everything else passes through untouched.
+
+    The expansion is the whole of the modifier's arithmetic:
+        scale ->  p_i = theta * baseline_i
+
+    N names against N values is paired positionally by pair_names_with_values (#376), which is
+    why no backend needs to know modifiers exist.
+    """
+    modifiers = param_id_info.get("modifiers") or []
+    if not modifiers:
+        return list(param_vals)
+
+    by_index = {mod["index"]: mod for mod in modifiers}
+    out = []
+    for idx, value in enumerate(param_vals):
+        mod = by_index.get(idx)
+        if mod is None:
+            out.append(value)
+            continue
+        baselines = mod.get("baselines")
+        if baselines is None:
+            raise ValueError(
+                f"modifier '{mod['name']}' has no resolved baselines. Call "
+                f"resolve_modifier_baselines(param_id_info, sim_helper) once at setup, before "
+                f"any parameter has been written.")
+        if mod["operation"] != 'scale':
+            raise NotImplementedError(
+                f"modifier operation {mod['operation']!r} is declared but not implemented.")
+        out.append([float(value) * b for b in baselines])
+    return out
+
+
+def param_modifier_operations():
+    """The modifier operations this version of circulatory_autogen implements."""
+    return {name: dict(meta) for name, meta in PARAM_MODIFIER_OPERATIONS.items()}
+
+
 # Keys an entry may carry. Anything else is a typo and is refused, on the same reasoning as
 # operation_kwargs/cost_kwargs: a key nothing reads changes nothing and gives no sign it was
 # ignored.
 PARAMS_FOR_ID_ENTRY_KEYS = frozenset({
     'name', 'targets', 'param_type', 'min', 'max', 'name_for_plotting',
     'prior', 'prior_params', PARAM_UNBOUNDED_COLUMN, 'comment',
+    # A modifier entry names the parameters it acts on with `modifies` instead of `targets`, and
+    # says what it does to them with `operation`. min/max/prior belong to the modifier's own
+    # calibrated value, not to the parameters it modifies.
+    'modifies', 'operation',
 })
 
 
@@ -3137,18 +3237,56 @@ class ObsAndParamDataParser(object):
             if merged_prior:
                 entry['prior_params'] = merged_prior
 
-            targets = entry.get('targets')
-            if isinstance(targets, str):
-                targets = [targets]
-            if not targets or not isinstance(targets, list):
+            has_targets = entry.get('targets') is not None
+            has_modifies = entry.get('modifies') is not None
+            if has_targets and has_modifies:
+                raise ValueError(
+                    f'params_for_id entry {idx} sets both "targets" and "modifies". An entry is '
+                    f'either a parameter (targets) or a modifier of parameters (modifies), not '
+                    f'both.')
+            if not has_targets and not has_modifies:
                 raise ValueError(
                     f'params_for_id entry {idx} needs a non-empty "targets" list of '
-                    f'component/param names.')
-            entry['targets'] = [str(t).strip() for t in targets]
-            for qname in entry['targets']:
-                cls._qname_to_vessel_and_param(qname)
+                    f'component/param names (or "modifies" for a modifier entry).')
 
-            entry.setdefault('name', entry['targets'][0])
+            key = 'modifies' if has_modifies else 'targets'
+            names = entry.get(key)
+            if isinstance(names, str):
+                names = [names]
+            if not names or not isinstance(names, list):
+                raise ValueError(
+                    f'params_for_id entry {idx} needs a non-empty "{key}" list of '
+                    f'component/param names.')
+            names = [str(t).strip() for t in names]
+            for qname in names:
+                cls._qname_to_vessel_and_param(qname)
+            entry[key] = names
+
+            if has_modifies:
+                operation = entry.get('operation') or DEFAULT_PARAM_MODIFIER_OPERATION
+                if operation not in PARAM_MODIFIER_OPERATIONS:
+                    raise ValueError(
+                        f'params_for_id entry {idx} has unknown operation {operation!r}. '
+                        f'Implemented operations: {sorted(PARAM_MODIFIER_OPERATIONS)}.')
+                entry['operation'] = operation
+                # A multiplier range that straddles zero flips the sign of every target
+                # somewhere inside it. That is legal arithmetic and almost never intended.
+                try:
+                    lo, hi = float(entry.get('min')), float(entry.get('max'))
+                except (TypeError, ValueError):
+                    lo = hi = None
+                if lo is not None and operation == 'scale' and lo <= 0 < hi:
+                    warnings.warn(
+                        f'params_for_id entry {idx} ({entry.get("name", "?")}) is a scale '
+                        f'modifier with min={lo} and max={hi}, a range crossing zero. Every '
+                        f'target changes sign inside it; scale bounds are multipliers, not '
+                        f'physical values.')
+            elif entry.get('operation') is not None:
+                raise ValueError(
+                    f'params_for_id entry {idx} sets "operation" but has no "modifies". '
+                    f'operation only applies to a modifier entry.')
+
+            entry.setdefault('name', entry[key][0])
             name = str(entry['name'])
             if name in seen_names:
                 raise ValueError(
@@ -3158,7 +3296,58 @@ class ObsAndParamDataParser(object):
             entry['name'] = name
             resolved.append(entry)
 
+        cls._validate_modifier_relationships(resolved)
         return resolved
+
+    @staticmethod
+    def _validate_modifier_relationships(entries):
+        """Cross-entry rules that only make sense once every entry is known.
+
+        Both are refusals rather than warnings because both produce a calibration that runs,
+        converges and means nothing.
+        """
+        free_owner = {}
+        for entry in entries:
+            for qname in entry.get('targets', []):
+                free_owner.setdefault(qname, entry['name'])
+
+        modifier_names = {e['name'] for e in entries if e.get('modifies')}
+
+        # 3. Two modifiers on the same parameter multiply: p = theta_1 * theta_2 * baseline, so
+        #    only the product is identifiable and each factor alone is meaningless -- the same
+        #    flat ridge as rule 1, reached a different way.
+        modified_by = {}
+        for entry in entries:
+            for qname in entry.get('modifies', []):
+                if qname in modified_by:
+                    raise ValueError(
+                        f"params_for_id: '{qname}' is modified by both "
+                        f"'{modified_by[qname]}' and '{entry['name']}'. Two modifiers on one "
+                        f"parameter multiply, so only their product is identifiable and neither "
+                        f"factor means anything on its own. Combine them into one modifier.")
+                modified_by[qname] = entry['name']
+
+        for entry in entries:
+            modifies = entry.get('modifies')
+            if not modifies:
+                continue
+            for qname in modifies:
+                # 1. A modified parameter must not also be calibrated freely. (theta, p) and
+                #    (theta*k, p/k) give an identical cost, so the optimiser wanders a flat
+                #    ridge and both reported values are meaningless.
+                if qname in free_owner:
+                    raise ValueError(
+                        f"params_for_id: '{qname}' is modified by '{entry['name']}' and is also "
+                        f"a free parameter in entry '{free_owner[qname]}'. That is structurally "
+                        f"unidentifiable -- scaling the modifier and dividing the free parameter "
+                        f"by the same factor gives an identical cost, so neither value means "
+                        f"anything. Remove one of the two entries.")
+                # 2. One level, no chains: a modifier of a modifier has no defined baseline.
+                if qname in modifier_names:
+                    raise ValueError(
+                        f"params_for_id: '{entry['name']}' modifies '{qname}', which is itself a "
+                        f"modifier. Modifiers apply to model parameters only -- chains are not "
+                        f"supported.")
 
     def get_param_id_info(self, params_for_id_path, idxs_to_ignore= None):
     
@@ -3218,16 +3407,21 @@ class ObsAndParamDataParser(object):
 
         N_params = len(entries)
         param_id_info = {}
-        param_id_info["param_names"] = [list(e["targets"]) for e in entries]
+        # A modifier looks exactly like a grouped row to every consumer: one variable to the
+        # sampler and to the optimiser, N parameters to set. The only difference is what value
+        # each of the N receives, which is resolved when the values are expanded (see
+        # expand_modifier_param_vals) rather than here.
+        param_id_info["param_names"] = [
+            list(e["modifies"]) if e.get("modifies") else list(e["targets"]) for e in entries]
 
         # Simplified names for the generator, per target rather than per entry. Deciding the whole
         # row from the first vessel meant a row mixing 'global' with named vessels emitted one gen
         # name and dropped the rest, while param_names kept all of them, so the two positional
         # lists stopped describing the same parameters (#350).
         param_names_for_gen = []
-        for entry in entries:
+        for entry, qnames in zip(entries, param_id_info["param_names"]):
             gen = []
-            for qname in entry["targets"]:
+            for qname in qnames:
                 vessel, param = self._qname_to_vessel_and_param(qname)
                 gen.append(param if vessel == 'global' else f'{param}_{vessel}')
             param_names_for_gen.append(gen)
@@ -3248,7 +3442,10 @@ class ObsAndParamDataParser(object):
         def _plot_name(entry):
             raw = entry.get("name_for_plotting")
             if raw is None or (isinstance(raw, float) and np.isnan(raw)) or str(raw).strip() == '':
-                return entry["targets"][0]
+                # A modifier falls back to its own name, not to one of the parameters it
+                # modifies -- theta is its own quantity (dimensionless for scale) and labelling
+                # it with a target's name would misreport what was calibrated.
+                return entry["name"] if entry.get("modifies") else entry["targets"][0]
             return raw
 
         param_id_info["param_names_for_plotting"] = np.array(
@@ -3295,6 +3492,32 @@ class ObsAndParamDataParser(object):
 
         param_id_info["param_names_for_gen"] = param_names_for_gen
         param_id_info["param_entry_names"] = [e["name"] for e in entries]
+
+        # One display label per calibrated variable. A grouped row joins its qnames; a modifier
+        # uses its own name. Downstream (the SALib problem, plots) reads this rather than
+        # rebuilding it, so the two cannot drift.
+        param_id_info["param_labels"] = [
+            str(param_id_info["param_names_for_plotting"][II]) if entries[II].get("modifies")
+            else '+'.join(param_id_info["param_names"][II])
+            for II in range(N_params)
+        ]
+
+        # The modifier record downstream tools code against. `index` is a position in
+        # param_names/param_labels and is computed *after* idxs_to_ignore filtering, so it is
+        # always valid for the param_id_info it ships with -- but match on `name` if you carry a
+        # modifier between two different builds. `baselines` is filled in once a simulation
+        # helper is available (resolve_modifier_baselines); it is None until then rather than
+        # absent, so a consumer can tell "not resolved yet" from "no baseline".
+        param_id_info["modifiers"] = [
+            {
+                "index": II,
+                "name": entries[II]["name"],
+                "operation": entries[II].get("operation", DEFAULT_PARAM_MODIFIER_OPERATION),
+                "targets": list(entries[II]["modifies"]),
+                "baselines": None,
+            }
+            for II in range(N_params) if entries[II].get("modifies")
+        ]
 
         return param_id_info
 
@@ -3381,6 +3604,16 @@ class ObsAndParamDataParser(object):
             with open(param_gen_path, 'w', newline='') as f:
                 wr = csv.writer(f)
                 wr.writerows(param_id_info["param_names_for_gen"])
+
+            # 3. Save the modifier records, baselines included. A scale result is
+            #    uninterpretable without them -- best_param_vals holds theta, and theta alone
+            #    does not say what any model parameter ended up at. Recording them here means
+            #    reproducing a result does not depend on the model file being unchanged.
+            modifiers = param_id_info.get("modifiers") or []
+            if modifiers:
+                modifiers_path = os.path.join(output_dir, 'param_modifiers.json')
+                with open(modifiers_path, 'w') as f:
+                    json.dump(modifiers, f, indent=2)
         return
 
 

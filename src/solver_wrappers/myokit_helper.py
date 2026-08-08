@@ -687,6 +687,12 @@ class SimulationHelper:
 
         raise RuntimeError("Unable to determine time series key from Myokit log.")
 
+    def get_default_param_vals(self, param_names):
+        """The model's values as loaded. On this backend get_init_param_vals already reads the
+        default_values snapshot rather than the live simulation, so the two agree -- but the name
+        says which is meant, and other backends do not have that property."""
+        return self.get_init_param_vals(param_names)
+
     def get_init_param_vals(self, param_names):
         param_init = []
         for name_or_list in param_names:
