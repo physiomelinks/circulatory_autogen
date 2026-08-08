@@ -2561,25 +2561,28 @@ class OpencorParamID():
         return f"{base} [exp {exp}, sub {sub}]"
 
     def _refuse_sensitivities_for_modifiers(self):
-        """A modifier's derivative is a weighted chain rule, not the plain sum a shared-value
-        group needs:
+        """A modifier's derivative is a weighted chain rule over its targets:
 
             shared-value group   dO/dtheta = sum_i  dO/dp_i
             scale modifier       dO/dtheta = sum_i (dO/dp_i) * baseline_i
 
-        Neither arm implements the weighted form yet, and both currently flatten a group to its
-        first member -- so a modifier would silently report one target's derivative as though it
-        were theta's. Refuse instead, on the same reasoning as the CasADi grouped-row refusal.
+        The Myokit FSA arm implements exactly that (fsa_backend.combined_entry_sensitivities),
+        but the CasADi arm cannot reach it: _create_param_subset refuses any grouped row, of
+        which a modifier is one. Refuse with the modifier-specific message rather than let the
+        grouped-row error report a different problem. Removing this means implementing symbolic
+        substitution of theta (or theta * baseline_i) into every member's slot -- see the
+        grouped-calibration refusal in casadi_python_solver_helper.
         """
         modifiers = (getattr(self, "param_id_info", None) or {}).get("modifiers") or []
         if modifiers:
             names = [m["name"] for m in modifiers]
             raise NotImplementedError(
-                f"Local sensitivity analysis does not yet support modifier parameters {names}. "
-                f"A scale modifier's derivative is sum_i (dO/dp_i) * baseline_i, a weighted "
-                f"chain rule over its targets, which is not implemented -- reporting the first "
-                f"target's derivative instead would silently answer a different question. Use "
-                f"global Sobol SA, which handles modifiers, or remove the modifier entries.")
+                f"The CasADi local sensitivity arm does not yet support modifier parameters "
+                f"{names}. A scale modifier's derivative is sum_i (dO/dp_i) * baseline_i, a "
+                f"weighted chain rule over its targets, which the CasADi backend cannot express "
+                f"until grouped rows are substituted symbolically. Use model_type 'cellml_only' "
+                f"with solver 'CVODE_myokit' (the FSA arm implements the chain rule), global "
+                f"Sobol SA, or remove the modifier entries.")
 
     def get_observable_sensitivities(self, param_vals, gradient_method=None, fd_rel_step=None):
         """d(observable feature)/d(param) for the scalar observables -- the backend-agnostic
@@ -2617,8 +2620,8 @@ class OpencorParamID():
                 f"unknown gradient_method '{gradient_method}' for local sensitivity analysis. "
                 "Valid values are None/'analytic' (this backend's analytic sensitivity) or 'FD'.")
 
-        self._refuse_sensitivities_for_modifiers()
         if self.model_type == 'casadi_python':
+            self._refuse_sensitivities_for_modifiers()
             return casadi_backend.get_observable_sensitivities(self, param_vals)
         elif self.model_type == 'aadc_python':
             raise NotImplementedError(

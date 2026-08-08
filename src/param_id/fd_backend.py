@@ -21,6 +21,8 @@ always something they chose.
 """
 import numpy as np
 
+from parsers.PrimitiveParsers import param_entry_labels
+
 
 def _step(pj, pmin, pmax, h):
     """The central-difference step for one parameter.
@@ -85,9 +87,12 @@ def _features(pid, param_vals):
 def observable_feature_sensitivities(pid, param_vals, h=1e-3):
     """d(observable feature)/d(param) by central finite differences.
 
-    Returns ``{observable_label: {param_name: d(feature)/d(param)}}`` -- the same
-    shape and the same quantity as the CasADi and CVODES arms, so a local
-    sensitivity analysis is comparable across backends whichever computed it.
+    Returns ``{observable_label: {param_label: d(feature)/d(param)}}`` -- the same
+    shape and the same quantity as the CasADi and CVODES arms, keyed by
+    ``param_entry_labels``, so a local sensitivity analysis is comparable across
+    backends whichever computed it. The perturbation is in theta, which
+    ``get_cost_obs_and_pred_from_params`` expands to every member of a grouped or
+    modifier entry, so those derivatives are d(feature)/d(theta) already.
 
     Costs ``2M`` simulations for M parameters. A parameter whose perturbed runs
     do not both converge is reported as None rather than as a number derived
@@ -95,8 +100,7 @@ def observable_feature_sensitivities(pid, param_vals, h=1e-3):
     instead of reading a plausible-looking zero.
     """
     param_vals = np.asarray(param_vals, dtype=float)
-    names = [n[0] if isinstance(n, (list, tuple)) else n
-             for n in pid.param_id_info["param_names"]]
+    names = param_entry_labels(pid.param_id_info)
     mins = np.asarray(pid.param_id_info["param_mins"], dtype=float)
     maxs = np.asarray(pid.param_id_info["param_maxs"], dtype=float)
 

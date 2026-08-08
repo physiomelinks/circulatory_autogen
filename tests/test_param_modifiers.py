@@ -50,10 +50,14 @@ def test_the_operation_vocabulary_is_exported_as_data():
     assert 'scale' in ops
     assert DEFAULT_PARAM_MODIFIER_OPERATION in ops
     meta = ops['scale']
-    for key in ('description', 'applies_to', 'dimensionless', 'default_min', 'default_max'):
+    for key in ('description', 'applies_to', 'dimensionless', 'default_min', 'default_max',
+                'identity'):
         assert key in meta, key
     assert meta['dimensionless'] is True
     assert meta['default_min'] < meta['default_max']
+    # The identity is what local SA evaluates at: for scale, theta=1 leaves every target at
+    # its baseline.
+    assert meta['identity'] == 1.0
 
 
 @pytest.mark.unit

@@ -172,8 +172,10 @@ class IdentifiabilityAnalysis():
                 "'FD' for finite differences.)")
 
         sens = pid.get_observable_sensitivities(np.asarray(self.best_param_vals, dtype=float))
-        param_names = [n[0] if isinstance(n, (list, tuple)) else n
-                       for n in pid.param_id_info['param_names']]
+        # The arms key their result dicts by entry label (one per calibrated theta, matching
+        # best_param_vals); first-member qnames would miss every grouped column and read 0.0.
+        from parsers.PrimitiveParsers import param_entry_labels
+        param_names = param_entry_labels(pid.param_id_info)
         obs_info = pid.obs_info
         const_to_obs = obs_info['const_idx_to_obs_idx']
         stds = np.asarray(obs_info['std_const_vec'], dtype=float)
