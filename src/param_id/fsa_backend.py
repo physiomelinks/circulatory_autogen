@@ -68,7 +68,7 @@ def observable_feature_sensitivities(pid, param_vals):
     """d(observable feature)/d(param) for the scalar (const) observables, via the Myokit CVODES
     sensitivities and a directional derivative.
 
-    Returns ``{observable_label: {param_name: d(feature)/d(param)}}`` -- the same shape as the
+    Returns ``{observable_label: {param_label: d(feature)/d(param)}}`` -- the same shape as the
     CasADi arm -- so the two backends report the identical quantity. FSA gives the exact operand
     sensitivity S = d(operand)/d(param); the feature (max/min/mean/...) is re-evaluated on
     ``operands +/- h*S`` and central-differenced, so d(feature)/d(param) reuses the existing

@@ -5153,3 +5153,100 @@ def test_offline_pre_time_multisub_casadi_ad_gradient(
 
     _assert_gradient_matches_fd(inner, p)
     runner.close_simulation()
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.mpi
+def test_param_id_3compartment_modifier_calibration_fsa(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
+    """A modifier parameter driven through a real calibration (#378 shipped unit tests only).
+
+    One theta scales both compliances (aortic_root/C, par/C) while q_lv_init calibrates
+    normally, on cellml_only + CVODE_myokit + sp_minimize + do_ad -- so the L-BFGS-B gradient
+    comes from the CVODES FSA chain rule over the modifier's members (a column per member,
+    combined with baseline weights). Checks the end-to-end contract:
+    param_modifiers.json lands in the output dir with the model-default baselines, and the
+    reported theta is a dimensionless value inside its own bounds -- interpretable against
+    those baselines, not a raw compliance.
+    """
+    import json
+
+    rank = mpi_comm.Get_rank()
+
+    params_doc = {
+        'version': 1,
+        'params': [
+            {'name': 'q_lv_init', 'targets': ['global/q_lv_init'],
+             'min': 200e-6, 'max': 1500e-6, 'name_for_plotting': 'q_{sbv}'},
+            {'name': 'C_scale', 'modifies': ['aortic_root/C', 'par/C'],
+             'operation': 'scale', 'min': 0.5, 'max': 2.0,
+             'name_for_plotting': r'\theta_{C}'},
+        ],
+    }
+    params_path = os.path.join(temp_output_dir, '3compartment_modifier_params_for_id.json')
+    if rank == 0:
+        with open(params_path, 'w') as f:
+            json.dump(params_doc, f)
+    mpi_comm.Barrier()
+
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': '3compartment',
+        'input_param_file': '3compartment_parameters.csv',
+        'model_type': 'cellml_only',
+        'solver': 'CVODE_myokit',
+        'param_id_method': 'sp_minimize',
+        'do_ad': True,
+        'pre_time': 2,
+        'sim_time': 1,
+        'dt': 0.01,
+        'DEBUG': True,
+        'do_mcmc': False,
+        'plot_predictions': False,
+        'do_ia': False,
+        'solver_info': {'MaximumStep': 0.001, 'MaximumNumberOfSteps': 5000},
+        'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
+        # os.path.join(resources_dir, <absolute path>) resolves to the absolute path, the same
+        # way every test's absolute param_id_obs_path passes through its own join.
+        'params_for_id_file': params_path,
+        'param_id_output_dir': temp_output_dir,
+        'generated_models_dir': temp_generated_models_dir,
+        # A loose tolerance: the point is the path through the FSA chain rule and the output
+        # contract, not the optimum. L-BFGS-B stops after a few iterations.
+        'debug_optimiser_options': {'cost_convergence': 1e-2},
+    })
+
+    _ensure_cellml_model_generated(config, mpi_comm)
+    run_param_id(config)
+
+    if rank == 0:
+        out_dir = os.path.join(temp_output_dir, 'sp_minimize_3compartment_3compartment_obs_data')
+        best_cost = float(np.load(os.path.join(out_dir, 'best_cost.npy')))
+        assert np.isfinite(best_cost) and best_cost >= 0, \
+            f'expected a finite, non-negative best cost, got {best_cost}'
+
+        best_params = np.load(os.path.join(out_dir, 'best_param_vals.npy')).ravel()
+        assert best_params.shape[0] == 2, best_params
+        q_lv, theta = float(best_params[0]), float(best_params[1])
+        assert 200e-6 <= q_lv <= 1500e-6, f'q_lv_init out of bounds: {q_lv}'
+        # theta is dimensionless; a raw compliance (~1e-8) landing here would mean the
+        # modifier slot was treated as a model value.
+        assert 0.5 <= theta <= 2.0, f'theta out of bounds: {theta}'
+
+        # The record that makes theta interpretable: without baselines, best_param_vals alone
+        # does not say what any compliance ended up at.
+        modifiers_path = os.path.join(out_dir, 'param_modifiers.json')
+        assert os.path.exists(modifiers_path), \
+            f'param_modifiers.json should land in the output dir: {modifiers_path}'
+        with open(modifiers_path) as f:
+            modifiers = json.load(f)
+        assert len(modifiers) == 1
+        mod = modifiers[0]
+        assert mod['name'] == 'C_scale'
+        assert mod['operation'] == 'scale'
+        assert mod['targets'] == ['aortic_root/C', 'par/C']
+        # Model defaults from 3compartment_parameters.csv (C_aortic_root, C_par).
+        assert mod['baselines'] == pytest.approx([1.2028e-8, 3.09077e-10], rel=1e-6), \
+            f'baselines should be the model defaults, got {mod["baselines"]}'
+    mpi_comm.Barrier()
