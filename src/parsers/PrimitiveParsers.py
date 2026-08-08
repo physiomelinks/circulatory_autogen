@@ -460,6 +460,26 @@ PARAM_PRIOR_TYPES = {
 # from that prior instead of typed.
 PARAM_UNBOUNDED_COLUMN = 'unbounded'
 
+# ---------------------------------------------------------------------------------------------
+# params_for_id as JSON.
+#
+# The CSV is still readable and always will be, but it is converted to this structure on read, so
+# there is exactly one code path behind the front door. The JSON shape exists because the CSV
+# cannot express two things the user asked for: a group of parameters with *different* names
+# (a CSV row has one param_name for all its vessels), and a parameter that modifies other
+# parameters. `targets` -- a list of full component/param qnames -- removes the first restriction;
+# the second arrives with modifier entries in a follow-up.
+PARAMS_FOR_ID_JSON_VERSION = 1
+
+# Keys an entry may carry. Anything else is a typo and is refused, on the same reasoning as
+# operation_kwargs/cost_kwargs: a key nothing reads changes nothing and gives no sign it was
+# ignored.
+PARAMS_FOR_ID_ENTRY_KEYS = frozenset({
+    'name', 'targets', 'param_type', 'min', 'max', 'name_for_plotting',
+    'prior', 'prior_params', PARAM_UNBOUNDED_COLUMN, 'comment',
+})
+
+
 # How wide the derived range is, in standard deviations either side of the prior's centre.
 # Five puts ~1 sample in 3.5 million outside it, so the box is not meaningfully constraining
 # while staying finite -- which it must be. min/max are not only the prior's truncation: they
@@ -618,6 +638,11 @@ def derive_bounds_from_prior(prior_type, params, row_idx=None):
 PARAM_PRIOR_PARAM_NAMES = tuple(
     spec['name'] for meta in PARAM_PRIOR_TYPES.values() for spec in meta['params']
 )
+
+# The CSV columns that become prior_params entries in the JSON structure rather than top-level
+# keys. Derived from the prior declarations so the converter cannot miss a newly added
+# hyper-parameter (params_for_id JSON, issue #355 follow-up).
+PARAMS_FOR_ID_CSV_PRIOR_COLUMNS = tuple(PARAM_PRIOR_PARAM_NAMES)
 
 # What an absent, blank or NaN `prior` entry means -- and what the whole column defaults to
 # when params_for_id has no `prior` at all.
@@ -2980,15 +3005,176 @@ class ObsAndParamDataParser(object):
         
         return protocol
     
+    @staticmethod
+    def _qname_to_vessel_and_param(qname):
+        """Split a 'component/param' qname. rsplit so a component containing '/' still works."""
+        if '/' not in qname:
+            raise ValueError(
+                f"params_for_id target {qname!r} is not a 'component/param' name. Targets are "
+                f"full qualified names, e.g. 'aortic_root/C' or 'global/q_lv_init'.")
+        vessel, param = qname.rsplit('/', 1)
+        return vessel.strip(), param.strip()
+
+    @classmethod
+    def params_for_id_csv_to_json(cls, csv_text_or_path):
+        """Convert a legacy params_for_id CSV into the canonical JSON structure.
+
+        Pure: text (or a path) in, dict out. No model, no solver, no simulation helper -- so a
+        front-end can show a user's existing CSV as JSON in an editor without loading anything.
+        The mapping is documented in the tutorial as well as implemented here, because a tool
+        without circulatory_autogen on sys.path has to be able to reproduce it.
+
+        Per row:
+            vessel_name='a b', param_name='C'  ->  targets: ['a/C', 'b/C']
+            min/max/param_type/name_for_plotting/comment  ->  same keys
+            prior + prior_mean/prior_std/...   ->  prior + prior_params: {...}
+            unbounded                          ->  unbounded (bool)
+            (none)                             ->  name, defaulting to the first target
+        """
+        import io
+
+        if isinstance(csv_text_or_path, str) and ('\n' in csv_text_or_path
+                                                  or ',' in csv_text_or_path.split('\n')[0]) \
+                and not os.path.exists(csv_text_or_path):
+            handle = io.StringIO(csv_text_or_path)
+        else:
+            handle = csv_text_or_path
+
+        df = pd.read_csv(handle, dtype=str)
+        df = df.rename(columns=lambda c: c.strip())
+        for column in df.columns:
+            df[column] = df[column].apply(lambda v: v.strip() if isinstance(v, str) else v)
+
+        def _present(value):
+            if value is None:
+                return False
+            if isinstance(value, float) and np.isnan(value):
+                return False
+            return str(value).strip() != ''
+
+        params = []
+        for idx in range(df.shape[0]):
+            row = df.iloc[idx]
+            vessels = [v for v in str(row.get('vessel_name', '') or '').split() if v]
+            param_name = str(row.get('param_name', '') or '').strip()
+            if not vessels or not param_name:
+                raise ValueError(
+                    f'params_for_id CSV row {idx}: both vessel_name and param_name are required '
+                    f'(got vessel_name={row.get("vessel_name")!r}, param_name={param_name!r}).')
+
+            entry = {'targets': [f'{v}/{param_name}' for v in vessels]}
+            entry['name'] = entry['targets'][0]
+
+            for key in ('param_type', 'name_for_plotting', 'comment', 'prior'):
+                if key in df.columns and _present(row.get(key)):
+                    entry[key] = str(row[key]).strip()
+            for key in ('min', 'max'):
+                if key in df.columns and _present(row.get(key)):
+                    entry[key] = str(row[key]).strip()
+            if PARAM_UNBOUNDED_COLUMN in df.columns and _present(row.get(PARAM_UNBOUNDED_COLUMN)):
+                entry[PARAM_UNBOUNDED_COLUMN] = _truthy_flag(row[PARAM_UNBOUNDED_COLUMN])
+
+            prior_params = {name: str(row[name]).strip()
+                            for name in PARAMS_FOR_ID_CSV_PRIOR_COLUMNS
+                            if name in df.columns and _present(row.get(name))}
+            if prior_params:
+                entry['prior_params'] = prior_params
+
+            params.append(entry)
+
+        return {'version': PARAMS_FOR_ID_JSON_VERSION, 'defaults': {}, 'params': params}
+
+    @classmethod
+    def resolve_params_for_id_doc(cls, doc):
+        """Validate a params_for_id document and fold `defaults` into each entry.
+
+        Resolution is a shallow per-key override -- an entry's own key wins over `defaults`, which
+        wins over whatever circulatory_autogen derives later (the prior machinery's default_expr).
+        `prior_params` merges per key too, so a defaults block setting prior_std does not wipe an
+        entry's prior_mean.
+        """
+        if not isinstance(doc, dict):
+            raise ValueError(
+                f'params_for_id JSON must be an object with a "params" list, got '
+                f'{type(doc).__name__}.')
+
+        version = doc.get('version', PARAMS_FOR_ID_JSON_VERSION)
+        if int(version) != PARAMS_FOR_ID_JSON_VERSION:
+            raise ValueError(
+                f'params_for_id JSON version {version} is not supported by this version of '
+                f'circulatory_autogen (expected {PARAMS_FOR_ID_JSON_VERSION}).')
+
+        params = doc.get('params')
+        if not isinstance(params, list) or not params:
+            raise ValueError('params_for_id JSON needs a non-empty "params" list.')
+
+        defaults = doc.get('defaults') or {}
+        if not isinstance(defaults, dict):
+            raise ValueError(
+                f'params_for_id "defaults" must be an object, got {type(defaults).__name__}.')
+        unknown_defaults = set(defaults) - PARAMS_FOR_ID_ENTRY_KEYS
+        if unknown_defaults:
+            raise ValueError(
+                f'params_for_id "defaults" has unknown key(s) {sorted(unknown_defaults)}. '
+                f'Valid keys are the entry keys: {sorted(PARAMS_FOR_ID_ENTRY_KEYS)}.')
+
+        resolved = []
+        seen_names = {}
+        for idx, raw in enumerate(params):
+            if not isinstance(raw, dict):
+                raise ValueError(
+                    f'params_for_id entry {idx} must be an object, got {type(raw).__name__}.')
+            unknown = set(raw) - PARAMS_FOR_ID_ENTRY_KEYS
+            if unknown:
+                raise ValueError(
+                    f'params_for_id entry {idx} has unknown key(s) {sorted(unknown)}. Valid '
+                    f'keys: {sorted(PARAMS_FOR_ID_ENTRY_KEYS)}.')
+
+            entry = {k: v for k, v in defaults.items() if k != 'prior_params'}
+            entry.update({k: v for k, v in raw.items() if k != 'prior_params'})
+            merged_prior = dict(defaults.get('prior_params') or {})
+            merged_prior.update(raw.get('prior_params') or {})
+            if merged_prior:
+                entry['prior_params'] = merged_prior
+
+            targets = entry.get('targets')
+            if isinstance(targets, str):
+                targets = [targets]
+            if not targets or not isinstance(targets, list):
+                raise ValueError(
+                    f'params_for_id entry {idx} needs a non-empty "targets" list of '
+                    f'component/param names.')
+            entry['targets'] = [str(t).strip() for t in targets]
+            for qname in entry['targets']:
+                cls._qname_to_vessel_and_param(qname)
+
+            entry.setdefault('name', entry['targets'][0])
+            name = str(entry['name'])
+            if name in seen_names:
+                raise ValueError(
+                    f'params_for_id entry {idx} reuses the name {name!r}, already used by entry '
+                    f'{seen_names[name]}. Entry names identify a parameter and must be unique.')
+            seen_names[name] = idx
+            entry['name'] = name
+            resolved.append(entry)
+
+        return resolved
+
     def get_param_id_info(self, params_for_id_path, idxs_to_ignore= None):
     
         if not params_for_id_path:
             print(f'params_for_id_path cannot be None, exiting')
             return None
 
-        csv_parser = CSVFileParser()
-        input_params = csv_parser.get_data_as_dataframe_multistrings(params_for_id_path)
-        return self._build_param_id_info_from_df(input_params, idxs_to_ignore=idxs_to_ignore)
+        # One code path behind the front door: a .csv is converted to the JSON structure on read,
+        # and everything downstream sees only resolved JSON entries.
+        if str(params_for_id_path).lower().endswith('.json'):
+            with open(params_for_id_path, 'r') as f:
+                doc = json.load(f)
+        else:
+            doc = self.params_for_id_csv_to_json(params_for_id_path)
+        entries = self.resolve_params_for_id_doc(doc)
+        return self._build_param_id_info_from_entries(entries, idxs_to_ignore=idxs_to_ignore)
 
     def get_param_id_info_from_entries(self, params_for_id_entries, idxs_to_ignore=None):
         """
@@ -3013,109 +3199,83 @@ class ObsAndParamDataParser(object):
         input_params = pd.DataFrame(params_for_id_entries)
         return self._build_param_id_info_from_df(input_params, idxs_to_ignore=idxs_to_ignore)
 
-    def _build_param_id_info_from_df(self, input_params, idxs_to_ignore=None):
-        if input_params is None or input_params.empty:
+    def _build_param_id_info_from_entries(self, entries, idxs_to_ignore=None):
+        """Build param_id_info from resolved params_for_id entries (the canonical JSON shape).
+
+        This is the single builder; the CSV and the programmatic dict API both convert to entries
+        first. Output shape is unchanged from the CSV-driven builder it replaces -- param_names is
+        still a list of qname lists, one per calibrated variable -- so every consumer, including
+        #376's grouped set_param_vals and the Sobol split, keeps working untouched.
+        """
+        if not entries:
             raise ValueError("No parameter entries provided")
 
-        required_cols = {"vessel_name", "param_name", "min", "max"}
-        missing = required_cols - set(input_params.columns)
-        if missing:
-            raise ValueError(f"params_for_id is missing required columns: {sorted(list(missing))}")
-
-        input_params = input_params.copy()
-
-        def _to_list(val):
-            if isinstance(val, list):
-                return val
-            if val is None:
-                return []
-            if isinstance(val, float) and np.isnan(val):
-                return []
-            val_str = str(val).strip()
-            if val_str == "":
-                return []
-            return [entry.strip() for entry in val_str.split()]
-
-        input_params["vessel_name"] = input_params["vessel_name"].apply(_to_list)
-
-        # --- 1. Filter the DataFrame first ---
-        # Create a mask for indices to KEEP (not ignore)
         if idxs_to_ignore is not None:
-            all_indices = set(range(input_params.shape[0]))
-            valid_indices = sorted(list(all_indices - set(idxs_to_ignore)))
-            filtered_params = input_params.iloc[valid_indices].reset_index(drop=True)
-        else:
-            filtered_params = input_params.reset_index(drop=True)
+            ignore = set(idxs_to_ignore)
+            entries = [e for i, e in enumerate(entries) if i not in ignore]
+            if not entries:
+                raise ValueError("No parameter entries provided")
 
-        N_params = filtered_params.shape[0]
-
+        N_params = len(entries)
         param_id_info = {}
+        param_id_info["param_names"] = [list(e["targets"]) for e in entries]
+
+        # Simplified names for the generator, per target rather than per entry. Deciding the whole
+        # row from the first vessel meant a row mixing 'global' with named vessels emitted one gen
+        # name and dropped the rest, while param_names kept all of them, so the two positional
+        # lists stopped describing the same parameters (#350).
         param_names_for_gen = []
-        param_id_info["param_names"] = []
+        for entry in entries:
+            gen = []
+            for qname in entry["targets"]:
+                vessel, param = self._qname_to_vessel_and_param(qname)
+                gen.append(param if vessel == 'global' else f'{param}_{vessel}')
+            param_names_for_gen.append(gen)
 
-        # --- 2. Iterate ONLY over the filtered data ---
-        for II in range(N_params):
-            # Current row data from the filtered DataFrame
-            row = filtered_params.iloc[II]
+        def _numeric(key):
+            out = np.empty(N_params, dtype=float)
+            for II, entry in enumerate(entries):
+                raw = entry.get(key)
+                try:
+                    out[II] = float(raw) if raw is not None and str(raw).strip() != '' else np.nan
+                except (TypeError, ValueError):
+                    out[II] = np.nan
+            return out
 
-            # A. Build the full, complex names (e.g., 'vessel_name/param_name')
-            param_full_names = [
-                row["vessel_name"][JJ] + '/' + row["param_name"]
-                for JJ in range(len(row["vessel_name"]))
-            ]
-            param_id_info["param_names"].append(param_full_names)
+        param_id_info["param_mins"] = _numeric("min")
+        param_id_info["param_maxs"] = _numeric("max")
 
-            # B. Build the simplified names for generator/code
-            # Per vessel, not per row. Deciding the whole row from vessel_name[0] meant a
-            # row mixing 'global' with named vessels emitted a single gen name and dropped
-            # every vessel after the first -- while param_names above kept all of them, so
-            # the two positional lists stopped describing the same parameters (#350).
-            param_names_for_gen.append([
-                row["param_name"] if vessel == 'global'
-                else row["param_name"] + '_' + vessel
-                for vessel in row["vessel_name"]
-            ])
+        def _plot_name(entry):
+            raw = entry.get("name_for_plotting")
+            if raw is None or (isinstance(raw, float) and np.isnan(raw)) or str(raw).strip() == '':
+                return entry["targets"][0]
+            return raw
 
-        # --- 3. Set Arrays using the filtered DataFrame ---
-        param_id_info["param_mins"] = pd.to_numeric(
-            filtered_params["min"], errors="coerce").to_numpy(dtype=float)
-        param_id_info["param_maxs"] = pd.to_numeric(
-            filtered_params["max"], errors="coerce").to_numpy(dtype=float)
+        param_id_info["param_names_for_plotting"] = np.array(
+            [_plot_name(entry) for entry in entries])
 
-        if "name_for_plotting" in filtered_params.columns:
-            param_id_info["param_names_for_plotting"] = filtered_params["name_for_plotting"].to_numpy()
-        else:
-            param_id_info["param_names_for_plotting"] = np.array([p_names[0]
-                                                                  for p_names in param_id_info["param_names"]])
+        param_id_info["param_prior_types"] = np.array([
+            normalise_prior_type(entries[II].get("prior"), row_idx=II) for II in range(N_params)
+        ])
 
-        if "prior" in filtered_params.columns:
-            # Validated and canonicalised here, at the one place the column is read, so an
-            # unusable prior is a parse error naming the row rather than a parameter that
-            # quietly stops being bounded once the sampler starts.
-            param_id_info["param_prior_types"] = np.array([
-                normalise_prior_type(filtered_params["prior"].iloc[II], row_idx=II)
-                for II in range(N_params)
-            ])
-        else:
-            param_id_info["param_prior_types"] = np.array([DEFAULT_PARAM_PRIOR_TYPE] * N_params)
-
-        # The values each prior takes (the exponential's rate, the normal's mean and std),
-        # one dict per parameter. Validated against what that row's prior actually declares,
-        # so a hyper-parameter set on a prior that ignores it is a parse error rather than a
-        # silently different posterior.
+        # normalise_prior_params takes anything with .get(), so the entry's prior_params mapping
+        # is passed straight in -- the hyper-parameters live under their own key in JSON, but the
+        # validation that owns which prior takes which is unchanged.
+        # min/max travel with the hyper-parameters: normalise_prior_params checks a centre
+        # declared `within_bounds` against the row's own range, and every prior is truncated to
+        # [min, max], so a mean outside it describes a peak the sampler can never reach. Passing
+        # prior_params alone silently disabled that check (#365).
         param_id_info["param_prior_params"] = [
             normalise_prior_params(
-                param_id_info["param_prior_types"][II], filtered_params.iloc[II], row_idx=II)
+                param_id_info["param_prior_types"][II],
+                {**dict(entries[II].get("prior_params") or {}),
+                 'min': entries[II].get('min'), 'max': entries[II].get('max')},
+                row_idx=II)
             for II in range(N_params)
         ]
 
-        # An unbounded parameter has no range of its own: its prior says where it lives, and
-        # the range CA needs for everything else is derived from that prior. Done after the
-        # priors are parsed, because that is what it is derived from.
         param_id_info["param_unbounded"] = np.array([
-            _truthy_flag(filtered_params.iloc[II].get(PARAM_UNBOUNDED_COLUMN)
-                         if PARAM_UNBOUNDED_COLUMN in filtered_params.columns else None)
-            for II in range(N_params)
+            _truthy_flag(entries[II].get(PARAM_UNBOUNDED_COLUMN)) for II in range(N_params)
         ])
         for II in range(N_params):
             if not param_id_info["param_unbounded"][II]:
@@ -3134,8 +3294,75 @@ class ObsAndParamDataParser(object):
             param_id_info["param_maxs"][II] = hi
 
         param_id_info["param_names_for_gen"] = param_names_for_gen
+        param_id_info["param_entry_names"] = [e["name"] for e in entries]
 
         return param_id_info
+
+    def _build_param_id_info_from_df(self, input_params, idxs_to_ignore=None):
+        """Adapter for the programmatic entries API (vessel_name / param_name dicts).
+
+        The documented in-code form of params_for_id is a list of
+        {vessel_name, param_name, min, max, name_for_plotting}, and vessel_name may be a list
+        sharing one calibrated value. That is converted to canonical entries here so it goes
+        through the same builder as the CSV and the JSON -- one code path, three front doors.
+        """
+        if input_params is None or getattr(input_params, 'empty', False):
+            raise ValueError("No parameter entries provided")
+
+        required_cols = {"vessel_name", "param_name", "min", "max"}
+        missing = required_cols - set(input_params.columns)
+        if missing:
+            raise ValueError(f"params_for_id is missing required columns: {sorted(list(missing))}")
+
+        def _vessels(val):
+            if isinstance(val, list):
+                return [str(v).strip() for v in val]
+            if val is None or (isinstance(val, float) and np.isnan(val)):
+                return []
+            return [v.strip() for v in str(val).strip().split() if v.strip()]
+
+        def _present(value):
+            if value is None:
+                return False
+            if isinstance(value, float) and np.isnan(value):
+                return False
+            return str(value).strip() != ''
+
+        entries = []
+        for II in range(input_params.shape[0]):
+            row = input_params.iloc[II]
+            vessels = _vessels(row["vessel_name"])
+            param_name = str(row["param_name"]).strip()
+            if not vessels or not param_name:
+                raise ValueError(
+                    f'params_for_id entry {II}: both vessel_name and param_name are required.')
+            entry = {'targets': [f'{v}/{param_name}' for v in vessels]}
+            entry['name'] = entry['targets'][0]
+            for key in ('param_type', 'name_for_plotting', 'comment', 'prior', 'min', 'max'):
+                if key in input_params.columns and _present(row.get(key)):
+                    entry[key] = row[key]
+            if PARAM_UNBOUNDED_COLUMN in input_params.columns \
+                    and _present(row.get(PARAM_UNBOUNDED_COLUMN)):
+                entry[PARAM_UNBOUNDED_COLUMN] = _truthy_flag(row[PARAM_UNBOUNDED_COLUMN])
+            prior_params = {name: row[name] for name in PARAMS_FOR_ID_CSV_PRIOR_COLUMNS
+                            if name in input_params.columns and _present(row.get(name))}
+            if prior_params:
+                entry['prior_params'] = prior_params
+            entries.append(entry)
+
+        # Names come from the first target here, so duplicates are possible in a way the JSON
+        # front door forbids; de-duplicate positionally rather than refusing a form that has
+        # always been legal.
+        seen = {}
+        for entry in entries:
+            base = entry['name']
+            if base in seen:
+                seen[base] += 1
+                entry['name'] = f'{base}#{seen[base]}'
+            else:
+                seen[base] = 0
+
+        return self._build_param_id_info_from_entries(entries, idxs_to_ignore=idxs_to_ignore)
 
     def save_param_names(self, param_id_info, output_dir):
         """
