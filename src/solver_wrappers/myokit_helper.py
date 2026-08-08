@@ -1,6 +1,8 @@
 import os
 import copy
 import numpy as np
+
+from solver_wrappers.param_grouping import pair_names_with_values
 import myokit
 from myokit.formats import cellml as cellml_format
 # src_dir = os.path.join(os.path.dirname(__file__), '..')
@@ -830,11 +832,8 @@ class SimulationHelper:
         # states they initialise are refreshed afterwards.
         changed_var_qnames = set()
         for idx, name_or_list in enumerate(param_names):
-            names = name_or_list if isinstance(name_or_list, list) else [name_or_list]
-            vals = param_vals[idx]
-            if not isinstance(vals, (list, tuple, np.ndarray)):
-                vals = [vals]
-            for name, val in zip(names, vals):
+            for name, val in pair_names_with_values(name_or_list, param_vals[idx],
+                                                   'set_param_vals'):
                 kind, qname = self._resolve_name(name)
 
                 if kind == "state":
@@ -933,11 +932,8 @@ class SimulationHelper:
         """
         found_qname = None
         for idx, name_or_list in enumerate(param_names):
-            names = name_or_list if isinstance(name_or_list, list) else [name_or_list]
-            vals = param_vals[idx]
-            if not isinstance(vals, (list, tuple, np.ndarray)):
-                vals = [vals]
-            for name, val in zip(names, vals):
+            for name, val in pair_names_with_values(name_or_list, param_vals[idx],
+                                                   'paced-variable scan'):
                 if isinstance(val, str):
                     kind, qname = self._resolve_name(name)
                     if kind != "var":

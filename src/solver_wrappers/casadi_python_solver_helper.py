@@ -655,7 +655,25 @@ class SimulationHelper:
         return {name: val for name, val in zip(variable_names, values)}
 
     def _create_param_subset(self, param_names, param_vals=None):
-        param_names = [x[0] for x in param_names]
+        # A grouped params_for_id row ("one calibrated value drives these N vessels") cannot be
+        # honoured here yet. This builds the *symbolic* subset that the cost jacobian is taken
+        # against, so it needs one SX symbol per group substituted into every member's slot --
+        # otherwise the derivative is with respect to the first member alone.
+        #
+        # Refusing rather than dropping the extra members: silently calibrating only the first
+        # vessel is what this backend did before, and it produced a cost curve bit-identical to
+        # the ungrouped one, so nothing downstream could tell. Broadcasting on the numeric side
+        # only would be worse still -- the cost would move all members while the gradient
+        # tracked one, so the optimiser would descend a different function than it evaluates.
+        grouped = [x for x in param_names if isinstance(x, (list, tuple)) and len(x) > 1]
+        if grouped:
+            raise NotImplementedError(
+                f"Grouped parameters are not yet supported by the CasADi backend: {grouped}. "
+                f"The symbolic parameter subset takes one symbol per params_for_id row, so the "
+                f"gradient would be with respect to the first vessel only. Use model_type "
+                f"'cellml_only' with solver 'CVODE_myokit' for grouped calibration, or give "
+                f"each vessel its own row. See issue #355.")
+        param_names = [x[0] if isinstance(x, (list, tuple)) else x for x in param_names]
 
         # Resolve each param to its VARIABLE_INFO index, then find its SX symbol
         var_indices = []   # VARIABLE_INFO indices

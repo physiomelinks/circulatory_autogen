@@ -224,9 +224,20 @@ class sobol_SA():
         if not hasattr(self, "param_id_info") or not self.param_id_info:
             raise ValueError("param_id_info is not set. Please run __set_and_save_param_names() first.")
 
+        # A params_for_id row naming several vessels means "one calibrated value drives all of
+        # these", so it is *one* variable to the sampler and must be set on *every* member.
+        # Those are two different things and need two different lists (issue #355):
+        #   param_names   -- kept grouped, handed to set_param_vals, which broadcasts the shared
+        #                    sampled value across the group
+        #   param_labels  -- flattened to one name per variable, for the SALib problem and plots
+        # Collapsing to the first name for both is what made a grouped SA vary one vessel while
+        # calibration varied all of them, silently answering a different question.
+        grouped_names = list(self.param_id_info["param_names"])
         SA_info = {
             "sample_type": sample_type,
-            "param_names": [name[0] if isinstance(name, list) else name for name in self.param_id_info["param_names"]],
+            "param_names": grouped_names,
+            "param_labels": ['+'.join(n) if isinstance(n, (list, tuple)) else n
+                             for n in grouped_names],
             "num_samples": num_samples,
             "param_mins": list(self.param_id_info["param_mins"]),
             "param_maxs": list(self.param_id_info["param_maxs"])
@@ -236,9 +247,22 @@ class sobol_SA():
         #     print("Sensitivity Analysis Configuration:")
         #     print(json.dumps(SA_info, indent=4))
 
-        self.num_params = len(SA_info["param_names"])
+        self.num_params = len(SA_info["param_labels"])
 
         return SA_info
+
+    def _param_labels(self):
+        """One display label per sampled variable.
+
+        Derived from param_names when 'param_labels' is absent, so an SA_info built by hand or
+        loaded from an older run still works -- the key was added with grouped-parameter support
+        (issue #355) and SA_info is a semi-public structure.
+        """
+        labels = self.SA_info.get("param_labels")
+        if labels is not None:
+            return labels
+        return ['+'.join(n) if isinstance(n, (list, tuple)) else n
+                for n in self.SA_info["param_names"]]
 
     def create_SA_info(self, sample_type, num_samples):
         # Backwards compatibility alias
@@ -274,7 +298,7 @@ class sobol_SA():
 
         problem = {
             'num_vars': self.num_params,
-            'names': self.SA_info["param_names"],
+            'names': self._param_labels(),
             'bounds': list(zip(self.SA_info["param_mins"], self.SA_info["param_maxs"]))
         }
         self.problem = problem
@@ -463,12 +487,12 @@ class sobol_SA():
             # output_name = self.obs_info["names_for_plotting"][i] if hasattr(self, "obs_info") else f"Output_{i}"
 
             # Set figure width adaptively based on number of parameters (xticks)
-            fig_width = max(12, 1.0 * len(self.SA_info["param_names"]))
+            fig_width = max(12, 1.0 * len(self._param_labels()))
             plt.figure(figsize=(fig_width, 5))
             plt.bar(x - 0.2, S1, width=0.4, label='First-order', color='blue', alpha=0.7)
             plt.bar(x + 0.2, ST, width=0.4, label='Total-order', color='red', alpha=0.7)
 
-            plt.xticks(x, self.SA_info["param_names"], rotation=45, fontsize=8)
+            plt.xticks(x, self._param_labels(), rotation=45, fontsize=8)
             plt.ylabel('Sensitivity Index')
             plt.title(rf'Sobol Sensitivity - {output_name}')
             plt.legend()
@@ -496,9 +520,9 @@ class sobol_SA():
             output_name = rf"{self.obs_info['names_for_plotting'][i]} - experiment{self.obs_info['experiment_idxs'][i]}, subexperiment{self.obs_info['subexperiment_idxs'][i]}"
 
             # plt.figure(figsize=(6, 5))
-            fig_width = max(6, 1.0 * len(self.SA_info["param_names"]))
+            fig_width = max(6, 1.0 * len(self._param_labels()))
             plt.figure(figsize=(fig_width, fig_width))
-            sns.heatmap(S2, annot=True, fmt=".2f", xticklabels=self.SA_info["param_names"], yticklabels=self.SA_info["param_names"], cmap="coolwarm")
+            sns.heatmap(S2, annot=True, fmt=".2f", xticklabels=self._param_labels(), yticklabels=self._param_labels(), cmap="coolwarm")
             plt.title(rf"2nd order Sobol Indices - {output_name}")
             plt.tight_layout()
 
@@ -557,7 +581,7 @@ class sobol_SA():
         Generates 2D heatmaps for first-order (S1) and total-order (ST) Sobol indices.
         
         The heatmaps show:
-        Y-axis: Input Parameters (self.SA_info["param_names"])
+        Y-axis: Input Parameters (self._param_labels())
         X-axis: Model Outputs (concatenated names from self.obs_info)
         Color: Sobol Index Value
         
@@ -655,7 +679,7 @@ class sobol_SA():
             S2_all (np.ndarray): Second-order Sobol indices, shape (n_outputs, n_params, n_params)
         """
         n_outputs = S1_all.shape[0]
-        param_names = self.SA_info["param_names"]
+        param_names = self._param_labels()
 
         # Prepare output/feature names. Two data_items that resolve to the same
         # (name_for_plotting, experiment, subexperiment) produce identical column
