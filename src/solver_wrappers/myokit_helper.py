@@ -1,5 +1,7 @@
 import os
 import copy
+import warnings
+
 import numpy as np
 
 from solver_wrappers.param_grouping import pair_names_with_values
@@ -36,16 +38,32 @@ def apply_cvodes_tolerances(simulation, solver_info, fsa_enabled):
     CVODES forward sensitivities are only as accurate as the state integration, and the default
     tolerance leaves a noise floor that swamps small sensitivities, so tighten to 1e-8/1e-8
     (unless the user set explicit tolerances) when FSA is active.
+
+    Returns the effective ``(abs_tol, rel_tol)`` -- what the simulation will actually integrate
+    with, Myokit's own defaults included -- so failure diagnostics can report real values
+    rather than re-deriving them.
     """
     rtol = solver_info.get("rtol", None)
     atol = solver_info.get("atol", None)
     if (rtol is None and atol is None) and fsa_enabled:
         rtol, atol = 1e-8, 1e-8
-    if rtol is not None or atol is not None:
-        simulation.set_tolerance(
-            abs_tol=atol if atol is not None else MYOKIT_DEFAULT_ABS_TOL,
-            rel_tol=rtol if rtol is not None else MYOKIT_DEFAULT_REL_TOL,
-        )
+    if rtol is None and atol is None:
+        return MYOKIT_DEFAULT_ABS_TOL, MYOKIT_DEFAULT_REL_TOL
+    abs_tol = atol if atol is not None else MYOKIT_DEFAULT_ABS_TOL
+    rel_tol = rtol if rtol is not None else MYOKIT_DEFAULT_REL_TOL
+    simulation.set_tolerance(abs_tol=abs_tol, rel_tol=rel_tol)
+    return abs_tol, rel_tol
+
+
+def stability_hint(solver_info, effective_tolerances):
+    """The one-line hint a failed solve carries: the three solver_info knobs that govern CVODES
+    stability, with their *effective* values (Myokit defaults included, so 'unset' still reads
+    as a number a user can decrease)."""
+    max_step = solver_info.get("MaximumStep")
+    abs_tol, rel_tol = effective_tolerances
+    max_step_str = "unset (unbounded)" if max_step is None else f"{max_step}"
+    return (f"MaximumStep is {max_step_str}, atol is {abs_tol}, rtol is {rel_tol}; "
+            f"decreasing these (solver_info MaximumStep / atol / rtol) may help stability.")
 
 
 class SimulationHelper:
@@ -309,7 +327,8 @@ class SimulationHelper:
                 self.simulation.set_max_step_size(self.solver_info["MaximumStep"])
             except Exception:
                 pass
-        apply_cvodes_tolerances(self.simulation, self.solver_info, self._fsa_enabled)
+        self._effective_tolerances = apply_cvodes_tolerances(
+            self.simulation, self.solver_info, self._fsa_enabled)
         self.last_log = None
         if hasattr(self, "all_vars"):
             self._init_defaults()
@@ -568,6 +587,15 @@ class SimulationHelper:
                 )
             else:
                 print(f"Myokit simulation failed: {e}")
+            # The three solver_info knobs that govern CVODES stability, with their effective
+            # values -- so a failed solve tells the user which numbers to turn, not just that
+            # it failed.
+            warnings.warn(
+                "Myokit simulation failed: "
+                + stability_hint(
+                    self.solver_info,
+                    getattr(self, '_effective_tolerances',
+                            (MYOKIT_DEFAULT_ABS_TOL, MYOKIT_DEFAULT_REL_TOL))))
             return False
         return True
 

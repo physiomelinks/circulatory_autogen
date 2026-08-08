@@ -1052,8 +1052,8 @@ class _RecordingSimulation:
 def _apply(solver_info, fsa_enabled=False):
     from solver_wrappers.myokit_helper import apply_cvodes_tolerances
     sim = _RecordingSimulation()
-    apply_cvodes_tolerances(sim, solver_info, fsa_enabled)
-    return sim.tolerance_calls
+    effective = apply_cvodes_tolerances(sim, solver_info, fsa_enabled)
+    return sim.tolerance_calls, effective
 
 
 @pytest.mark.unit
@@ -1061,27 +1061,33 @@ def test_asymmetric_tolerances_reach_the_right_myokit_arguments():
     """rtol must arrive as rel_tol and atol as abs_tol. Swapped, this call would apply
     abs 1e-4 / rel 1e-6 -- measured bit-identical to Myokit's own defaults on 3compartment,
     which is how the swap stayed invisible."""
-    calls = _apply({'rtol': 1e-4, 'atol': 1e-6})
+    calls, effective = _apply({'rtol': 1e-4, 'atol': 1e-6})
     assert calls == [{'abs_tol': 1e-6, 'rel_tol': 1e-4}]
+    assert effective == (1e-6, 1e-4)
 
 
 @pytest.mark.unit
 def test_no_tolerances_means_myokits_own_defaults():
     """With neither set (and no FSA), set_tolerance is not called at all -- the simulation
-    keeps whatever Myokit chose, and CA does not restate it."""
-    assert _apply({}) == []
+    keeps whatever Myokit chose, and CA does not restate it. The effective values are still
+    reported, so failure diagnostics have real numbers."""
+    calls, effective = _apply({})
+    assert calls == []
+    assert effective == (1e-6, 1e-4)
 
 
 @pytest.mark.unit
 def test_fsa_tightens_to_1e8_when_the_user_set_none():
     """CVODES sensitivities are only as accurate as the state solve; the default tolerance's
     noise floor swamps small sensitivities."""
-    assert _apply({}, fsa_enabled=True) == [{'abs_tol': 1e-8, 'rel_tol': 1e-8}]
+    calls, effective = _apply({}, fsa_enabled=True)
+    assert calls == [{'abs_tol': 1e-8, 'rel_tol': 1e-8}]
+    assert effective == (1e-8, 1e-8)
 
 
 @pytest.mark.unit
 def test_explicit_tolerances_win_over_the_fsa_tightening():
-    calls = _apply({'rtol': 1e-5, 'atol': 1e-7}, fsa_enabled=True)
+    calls, _ = _apply({'rtol': 1e-5, 'atol': 1e-7}, fsa_enabled=True)
     assert calls == [{'abs_tol': 1e-7, 'rel_tol': 1e-5}]
 
 
@@ -1090,8 +1096,29 @@ def test_a_partial_setting_fills_the_partner_with_myokits_default():
     """set_tolerance takes both values, so setting only one needs a partner: Myokit's own
     default for the other, not 1e-8 (which would silently tighten a knob the user never
     touched)."""
-    assert _apply({'rtol': 1e-5}) == [{'abs_tol': 1e-6, 'rel_tol': 1e-5}]
-    assert _apply({'atol': 1e-9}) == [{'abs_tol': 1e-9, 'rel_tol': 1e-4}]
+    assert _apply({'rtol': 1e-5})[0] == [{'abs_tol': 1e-6, 'rel_tol': 1e-5}]
+    assert _apply({'atol': 1e-9})[0] == [{'abs_tol': 1e-9, 'rel_tol': 1e-4}]
+
+
+@pytest.mark.unit
+def test_a_failed_solve_names_the_stability_knobs_and_their_values():
+    """A failed solve must tell the user which numbers to turn: the effective MaximumStep,
+    atol and rtol, and that decreasing them may help stability."""
+    from solver_wrappers.myokit_helper import stability_hint
+    hint = stability_hint({'MaximumStep': 0.001}, (1e-6, 1e-4))
+    assert 'MaximumStep is 0.001' in hint
+    assert 'atol is 1e-06' in hint
+    assert 'rtol is 0.0001' in hint
+    assert 'decreasing these' in hint and 'stability' in hint
+
+
+@pytest.mark.unit
+def test_the_stability_hint_reports_an_unset_maximum_step_honestly():
+    """No MaximumStep in solver_info means the integrator step is unbounded -- say so, rather
+    than inventing a number the user never set."""
+    from solver_wrappers.myokit_helper import stability_hint
+    hint = stability_hint({}, (1e-6, 1e-4))
+    assert 'MaximumStep is unset (unbounded)' in hint
 
 
 @pytest.mark.unit
