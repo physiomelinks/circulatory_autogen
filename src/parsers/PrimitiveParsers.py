@@ -259,7 +259,16 @@ _CVODE_FAMILY_SOLVER_INFO = [
 _MYOKIT_SOLVER_INFO = [
     {'name': 'MaximumStep', 'type': 'float', 'default': 0.001, 'required': False,
      'description': 'Maximum integrator step size (myokit Simulation.set_max_step_size).'},
-    _SI_RTOL, _SI_ATOL,
+    # Myokit's own set_tolerance defaults (rel 1e-4, abs 1e-6), not the 1e-8/1e-8 the rest of
+    # the CVODE family declares. Front-ends seed interactive solves from these declared
+    # defaults, and 1e-8/1e-8 costs ~2.3x per solve on 3compartment (209 ms vs 92 ms) with no
+    # accuracy need on the plain forward path -- tighter is a deliberate user choice. FSA is
+    # unaffected: it still forces 1e-8/1e-8 when the user set none, because a sloppy forward
+    # solve makes a poor gradient (see myokit_helper.apply_cvodes_tolerances).
+    {**_SI_RTOL, 'default': 1e-4,
+     'description': "Relative integration tolerance (default: Myokit's own, 1e-4)."},
+    {**_SI_ATOL, 'default': 1e-6,
+     'description': "Absolute integration tolerance (default: Myokit's own, 1e-6)."},
 ]
 
 # Shared by 'solve_ivp' and 'user_defined': the user wrapper supplies only the RHS and is

@@ -16,6 +16,38 @@ import re
 import os
 
 
+# Myokit's own Simulation.set_tolerance defaults. Used to fill in whichever of rtol/atol the
+# user left unset (set_tolerance takes both, so a partial setting needs a partner value), and
+# mirrored by the CVODE_myokit schema defaults in PrimitiveParsers.SOLVER_INFO_FIELDS.
+MYOKIT_DEFAULT_ABS_TOL = 1e-6
+MYOKIT_DEFAULT_REL_TOL = 1e-4
+
+
+def apply_cvodes_tolerances(simulation, solver_info, fsa_enabled):
+    """Apply solver_info's ``rtol``/``atol`` to a myokit Simulation.
+
+    Myokit's signature is ``set_tolerance(abs_tol, rel_tol)`` -- absolute *first*, the reverse
+    of the rtol-then-atol order CA's schema lists. They were passed positionally in that schema
+    order, so each reached the other argument: invisible while CA's declared default was a
+    symmetric 1e-8/1e-8, and measurable the moment they differ. Keyword arguments make the
+    mapping explicit so it cannot silently swap again.
+
+    With neither tolerance set the simulation keeps Myokit's own defaults -- except under FSA:
+    CVODES forward sensitivities are only as accurate as the state integration, and the default
+    tolerance leaves a noise floor that swamps small sensitivities, so tighten to 1e-8/1e-8
+    (unless the user set explicit tolerances) when FSA is active.
+    """
+    rtol = solver_info.get("rtol", None)
+    atol = solver_info.get("atol", None)
+    if (rtol is None and atol is None) and fsa_enabled:
+        rtol, atol = 1e-8, 1e-8
+    if rtol is not None or atol is not None:
+        simulation.set_tolerance(
+            abs_tol=atol if atol is not None else MYOKIT_DEFAULT_ABS_TOL,
+            rel_tol=rtol if rtol is not None else MYOKIT_DEFAULT_REL_TOL,
+        )
+
+
 class SimulationHelper:
     """
     Myokit-based solver wrapper matching the OpenCOR SimulationHelper interface.
@@ -277,18 +309,7 @@ class SimulationHelper:
                 self.simulation.set_max_step_size(self.solver_info["MaximumStep"])
             except Exception:
                 pass
-        rtol = self.solver_info.get("rtol", None)
-        atol = self.solver_info.get("atol", None)
-        if (rtol is None and atol is None) and self._fsa_enabled:
-            # CVODES forward sensitivities are only as accurate as the state integration;
-            # the default tolerance leaves a noise floor that swamps small sensitivities,
-            # so tighten it (unless the user set explicit tolerances) when FSA is active.
-            rtol, atol = 1e-8, 1e-8
-        if rtol is not None or atol is not None:
-            self.simulation.set_tolerance(
-                rtol if rtol is not None else 1e-8,
-                atol if atol is not None else 1e-8,
-            )
+        apply_cvodes_tolerances(self.simulation, self.solver_info, self._fsa_enabled)
         self.last_log = None
         if hasattr(self, "all_vars"):
             self._init_defaults()
