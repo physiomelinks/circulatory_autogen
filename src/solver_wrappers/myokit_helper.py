@@ -1,6 +1,8 @@
 import os
 import copy
 import numpy as np
+
+from solver_wrappers.param_grouping import pair_names_with_values
 import myokit
 from myokit.formats import cellml as cellml_format
 # src_dir = os.path.join(os.path.dirname(__file__), '..')
@@ -685,6 +687,12 @@ class SimulationHelper:
 
         raise RuntimeError("Unable to determine time series key from Myokit log.")
 
+    def get_default_param_vals(self, param_names):
+        """The model's values as loaded. On this backend get_init_param_vals already reads the
+        default_values snapshot rather than the live simulation, so the two agree -- but the name
+        says which is meant, and other backends do not have that property."""
+        return self.get_init_param_vals(param_names)
+
     def get_init_param_vals(self, param_names):
         param_init = []
         for name_or_list in param_names:
@@ -830,11 +838,8 @@ class SimulationHelper:
         # states they initialise are refreshed afterwards.
         changed_var_qnames = set()
         for idx, name_or_list in enumerate(param_names):
-            names = name_or_list if isinstance(name_or_list, list) else [name_or_list]
-            vals = param_vals[idx]
-            if not isinstance(vals, (list, tuple, np.ndarray)):
-                vals = [vals]
-            for name, val in zip(names, vals):
+            for name, val in pair_names_with_values(name_or_list, param_vals[idx],
+                                                   'set_param_vals'):
                 kind, qname = self._resolve_name(name)
 
                 if kind == "state":
@@ -933,11 +938,8 @@ class SimulationHelper:
         """
         found_qname = None
         for idx, name_or_list in enumerate(param_names):
-            names = name_or_list if isinstance(name_or_list, list) else [name_or_list]
-            vals = param_vals[idx]
-            if not isinstance(vals, (list, tuple, np.ndarray)):
-                vals = [vals]
-            for name, val in zip(names, vals):
+            for name, val in pair_names_with_values(name_or_list, param_vals[idx],
+                                                   'paced-variable scan'):
                 if isinstance(val, str):
                     kind, qname = self._resolve_name(name)
                     if kind != "var":

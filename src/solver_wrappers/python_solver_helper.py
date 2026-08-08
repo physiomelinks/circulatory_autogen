@@ -1,5 +1,7 @@
 import importlib.util
 import numpy as np
+
+from solver_wrappers.param_grouping import pair_names_with_values
 from scipy.integrate import solve_ivp
 import copy
 import sys
@@ -331,10 +333,7 @@ class SimulationHelper:
                     pass
                 return [x]
 
-            name_or_list = _to_list(name_or_list)
-            vals = _to_list(vals)
-
-            for name, val in zip(name_or_list, vals):
+            for name, val in pair_names_with_values(name_or_list, vals, 'set_param_vals'):
                 if type(val) == str:
                     raise NotImplementedError(
                         f"'{name}' was given the protocol trace name '{val}', but the "

@@ -68,6 +68,8 @@ from param_id.differentiable import (
 )
 from param_id.operation_funcs import resolve_operation_kwargs, validate_operation_kwargs
 from param_id.cost_kwargs import call_cost_func, validate_cost_kwargs
+from parsers.PrimitiveParsers import (expand_modifier_param_vals,
+                                      resolve_modifier_baselines)
 from param_id.plot_outputs import ParamIDPlotOutputs
 from param_id import casadi_backend
 from param_id import fsa_backend
@@ -1209,6 +1211,11 @@ class OpencorParamID():
         self.sim_helper = self.initialise_sim_helper()
         self._protocol_executor = ProtocolExecutor(self.sim_helper)
 
+        # Resolve modifier baselines here and nowhere else: the helper exists and nothing has
+        # written a parameter yet. Deriving them later would read values the optimiser had
+        # already scaled, and theta would compound every iteration.
+        resolve_modifier_baselines(self.param_id_info, self.sim_helper)
+
         if self.sim_time is not None and self.pre_time is not None:
             self.sim_helper.update_times(self.dt, 0.0, self.sim_time, self.pre_time)
             self.n_steps = int(self.sim_time/self.dt)
@@ -1391,6 +1398,11 @@ class OpencorParamID():
         self.param_id_info = param_id_info
         self.num_params = len(self.param_id_info["param_names"])
         self.param_norm_obj = Normalise_class(self.param_id_info["param_mins"], self.param_id_info["param_maxs"])
+        # The constructor resolves baselines when param_id_info is already known; entry points
+        # that set it afterwards resolve here instead. Idempotent, and still before any
+        # parameter has been written, which is the property that stops theta compounding.
+        if getattr(self, 'sim_helper', None) is not None:
+            resolve_modifier_baselines(self.param_id_info, self.sim_helper)
     
     def set_protocol_info(self, protocol_info):
         self.protocol_info = protocol_info
@@ -1623,7 +1635,10 @@ class OpencorParamID():
         sim_success, results_by_sub, extra_by_sub, _ = self._protocol_executor.run_protocol(
             self.protocol_info,
             id_param_names=self.param_id_info["param_names"],
-            id_param_vals=param_vals,
+            # A modifier occupies one slot in the optimiser's vector but names N model
+            # parameters, so its slot expands to theta * baseline_i here. Everything else passes
+            # through, and set_param_vals pairs N names with N values positionally (#376).
+            id_param_vals=expand_modifier_param_vals(self.param_id_info, param_vals),
             result_variables=self.obs_info["operands"],
             extra_result_variables=pred_names,
             exp_indices=exp_idxs_to_run,
@@ -2545,6 +2560,27 @@ class OpencorParamID():
         sub = self.obs_info["subexperiment_idxs"][obs_idx]
         return f"{base} [exp {exp}, sub {sub}]"
 
+    def _refuse_sensitivities_for_modifiers(self):
+        """A modifier's derivative is a weighted chain rule, not the plain sum a shared-value
+        group needs:
+
+            shared-value group   dO/dtheta = sum_i  dO/dp_i
+            scale modifier       dO/dtheta = sum_i (dO/dp_i) * baseline_i
+
+        Neither arm implements the weighted form yet, and both currently flatten a group to its
+        first member -- so a modifier would silently report one target's derivative as though it
+        were theta's. Refuse instead, on the same reasoning as the CasADi grouped-row refusal.
+        """
+        modifiers = (getattr(self, "param_id_info", None) or {}).get("modifiers") or []
+        if modifiers:
+            names = [m["name"] for m in modifiers]
+            raise NotImplementedError(
+                f"Local sensitivity analysis does not yet support modifier parameters {names}. "
+                f"A scale modifier's derivative is sum_i (dO/dp_i) * baseline_i, a weighted "
+                f"chain rule over its targets, which is not implemented -- reporting the first "
+                f"target's derivative instead would silently answer a different question. Use "
+                f"global Sobol SA, which handles modifiers, or remove the modifier entries.")
+
     def get_observable_sensitivities(self, param_vals, gradient_method=None, fd_rel_step=None):
         """d(observable feature)/d(param) for the scalar observables -- the backend-agnostic
         local-sensitivity accessor, parallel to ``get_gradient``.
@@ -2581,6 +2617,7 @@ class OpencorParamID():
                 f"unknown gradient_method '{gradient_method}' for local sensitivity analysis. "
                 "Valid values are None/'analytic' (this backend's analytic sensitivity) or 'FD'.")
 
+        self._refuse_sensitivities_for_modifiers()
         if self.model_type == 'casadi_python':
             return casadi_backend.get_observable_sensitivities(self, param_vals)
         elif self.model_type == 'aadc_python':
