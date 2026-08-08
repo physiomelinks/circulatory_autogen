@@ -18,11 +18,14 @@ import re
 import os
 
 
-# Myokit's own Simulation.set_tolerance defaults. Used to fill in whichever of rtol/atol the
-# user left unset (set_tolerance takes both, so a partial setting needs a partner value), and
-# mirrored by the CVODE_myokit schema defaults in PrimitiveParsers.SOLVER_INFO_FIELDS.
-MYOKIT_DEFAULT_ABS_TOL = 1e-6
-MYOKIT_DEFAULT_REL_TOL = 1e-4
+# CA's default CVODES tolerances for the Myokit backend, mirrored by the CVODE_myokit schema
+# defaults in PrimitiveParsers.SOLVER_INFO_FIELDS (a test pins the two equal). abs 1e-8 keeps
+# the absolute floor previous users ran at (the long-standing declared default was 1e-8/1e-8),
+# so existing models do not start failing; rel 1e-6 relaxes only the relative knob, which is
+# where most of the 1e-8/1e-8 solve cost was. Applied whenever the user sets neither value, and
+# used to fill in the partner when only one is set (set_tolerance takes both).
+CA_DEFAULT_ABS_TOL = 1e-8
+CA_DEFAULT_REL_TOL = 1e-6
 
 
 def apply_cvodes_tolerances(simulation, solver_info, fsa_enabled):
@@ -34,31 +37,30 @@ def apply_cvodes_tolerances(simulation, solver_info, fsa_enabled):
     symmetric 1e-8/1e-8, and measurable the moment they differ. Keyword arguments make the
     mapping explicit so it cannot silently swap again.
 
-    With neither tolerance set the simulation keeps Myokit's own defaults -- except under FSA:
-    CVODES forward sensitivities are only as accurate as the state integration, and the default
-    tolerance leaves a noise floor that swamps small sensitivities, so tighten to 1e-8/1e-8
-    (unless the user set explicit tolerances) when FSA is active.
+    With neither tolerance set, CA's own defaults apply (CA_DEFAULT_ABS_TOL /
+    CA_DEFAULT_REL_TOL) -- the declared schema default and the applied value are the same
+    thing, whichever front door the run came through. Under FSA the unset case tightens
+    further to 1e-8/1e-8: CVODES forward sensitivities are only as accurate as the state
+    integration, and a looser tolerance leaves a noise floor that swamps small sensitivities.
+    Explicit user values always win.
 
     Returns the effective ``(abs_tol, rel_tol)`` -- what the simulation will actually integrate
-    with, Myokit's own defaults included -- so failure diagnostics can report real values
-    rather than re-deriving them.
+    with -- so failure diagnostics can report real values rather than re-deriving them.
     """
     rtol = solver_info.get("rtol", None)
     atol = solver_info.get("atol", None)
     if (rtol is None and atol is None) and fsa_enabled:
         rtol, atol = 1e-8, 1e-8
-    if rtol is None and atol is None:
-        return MYOKIT_DEFAULT_ABS_TOL, MYOKIT_DEFAULT_REL_TOL
-    abs_tol = atol if atol is not None else MYOKIT_DEFAULT_ABS_TOL
-    rel_tol = rtol if rtol is not None else MYOKIT_DEFAULT_REL_TOL
+    abs_tol = atol if atol is not None else CA_DEFAULT_ABS_TOL
+    rel_tol = rtol if rtol is not None else CA_DEFAULT_REL_TOL
     simulation.set_tolerance(abs_tol=abs_tol, rel_tol=rel_tol)
     return abs_tol, rel_tol
 
 
 def stability_hint(solver_info, effective_tolerances):
     """The one-line hint a failed solve carries: the three solver_info knobs that govern CVODES
-    stability, with their *effective* values (Myokit defaults included, so 'unset' still reads
-    as a number a user can decrease)."""
+    stability, with their *effective* values (CA defaults included, so 'unset' still reads as
+    a number a user can decrease)."""
     max_step = solver_info.get("MaximumStep")
     abs_tol, rel_tol = effective_tolerances
     max_step_str = "unset (unbounded)" if max_step is None else f"{max_step}"
@@ -595,7 +597,7 @@ class SimulationHelper:
                 + stability_hint(
                     self.solver_info,
                     getattr(self, '_effective_tolerances',
-                            (MYOKIT_DEFAULT_ABS_TOL, MYOKIT_DEFAULT_REL_TOL))))
+                            (CA_DEFAULT_ABS_TOL, CA_DEFAULT_REL_TOL))))
             return False
         return True
 

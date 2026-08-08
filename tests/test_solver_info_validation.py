@@ -1067,13 +1067,14 @@ def test_asymmetric_tolerances_reach_the_right_myokit_arguments():
 
 
 @pytest.mark.unit
-def test_no_tolerances_means_myokits_own_defaults():
-    """With neither set (and no FSA), set_tolerance is not called at all -- the simulation
-    keeps whatever Myokit chose, and CA does not restate it. The effective values are still
-    reported, so failure diagnostics have real numbers."""
+def test_no_tolerances_means_cas_own_defaults_are_applied():
+    """With neither set (and no FSA), CA's declared defaults are applied -- abs stays at the
+    1e-8 floor previous users ran at (so existing models do not start failing), rel relaxes
+    to 1e-6. Declared and effective are the same thing, whichever front door the run came
+    through."""
     calls, effective = _apply({})
-    assert calls == []
-    assert effective == (1e-6, 1e-4)
+    assert calls == [{'abs_tol': 1e-8, 'rel_tol': 1e-6}]
+    assert effective == (1e-8, 1e-6)
 
 
 @pytest.mark.unit
@@ -1092,12 +1093,11 @@ def test_explicit_tolerances_win_over_the_fsa_tightening():
 
 
 @pytest.mark.unit
-def test_a_partial_setting_fills_the_partner_with_myokits_default():
-    """set_tolerance takes both values, so setting only one needs a partner: Myokit's own
-    default for the other, not 1e-8 (which would silently tighten a knob the user never
-    touched)."""
-    assert _apply({'rtol': 1e-5})[0] == [{'abs_tol': 1e-6, 'rel_tol': 1e-5}]
-    assert _apply({'atol': 1e-9})[0] == [{'abs_tol': 1e-9, 'rel_tol': 1e-4}]
+def test_a_partial_setting_fills_the_partner_with_cas_default():
+    """set_tolerance takes both values, so setting only one needs a partner: CA's declared
+    default for the other, the same value the schema advertises."""
+    assert _apply({'rtol': 1e-5})[0] == [{'abs_tol': 1e-8, 'rel_tol': 1e-5}]
+    assert _apply({'atol': 1e-9})[0] == [{'abs_tol': 1e-9, 'rel_tol': 1e-6}]
 
 
 @pytest.mark.unit
@@ -1105,10 +1105,10 @@ def test_a_failed_solve_names_the_stability_knobs_and_their_values():
     """A failed solve must tell the user which numbers to turn: the effective MaximumStep,
     atol and rtol, and that decreasing them may help stability."""
     from solver_wrappers.myokit_helper import stability_hint
-    hint = stability_hint({'MaximumStep': 0.001}, (1e-6, 1e-4))
+    hint = stability_hint({'MaximumStep': 0.001}, (1e-8, 1e-6))
     assert 'MaximumStep is 0.001' in hint
-    assert 'atol is 1e-06' in hint
-    assert 'rtol is 0.0001' in hint
+    assert 'atol is 1e-08' in hint
+    assert 'rtol is 1e-06' in hint
     assert 'decreasing these' in hint and 'stability' in hint
 
 
@@ -1117,7 +1117,7 @@ def test_the_stability_hint_reports_an_unset_maximum_step_honestly():
     """No MaximumStep in solver_info means the integrator step is unbounded -- say so, rather
     than inventing a number the user never set."""
     from solver_wrappers.myokit_helper import stability_hint
-    hint = stability_hint({}, (1e-6, 1e-4))
+    hint = stability_hint({}, (1e-8, 1e-6))
     assert 'MaximumStep is unset (unbounded)' in hint
 
 
@@ -1132,13 +1132,12 @@ def test_myokit_set_tolerance_still_takes_abs_and_rel_keywords():
 
 
 @pytest.mark.unit
-def test_cvode_myokit_schema_declares_myokits_own_defaults():
+def test_cvode_myokit_schema_declares_cas_defaults():
     """Front-ends seed interactive solves from these declared defaults (they deliberately do
-    not restate them), so the declaration is the one place the default is decided. 1e-8/1e-8
-    measured ~2.3x slower per solve on 3compartment with no accuracy need on the plain
-    forward path."""
-    from solver_wrappers.myokit_helper import (
-        MYOKIT_DEFAULT_ABS_TOL, MYOKIT_DEFAULT_REL_TOL)
+    not restate them), so the declaration is the one place the default is decided -- and it
+    must equal what the helper applies when the user sets neither, or declared and effective
+    drift apart. abs keeps the 1e-8 floor previous users ran at; rel relaxes to 1e-6."""
+    from solver_wrappers.myokit_helper import CA_DEFAULT_ABS_TOL, CA_DEFAULT_REL_TOL
     fields = {f['name']: f for f in solver_info_fields('CVODE_myokit')}
-    assert fields['rtol']['default'] == MYOKIT_DEFAULT_REL_TOL == 1e-4
-    assert fields['atol']['default'] == MYOKIT_DEFAULT_ABS_TOL == 1e-6
+    assert fields['rtol']['default'] == CA_DEFAULT_REL_TOL == 1e-6
+    assert fields['atol']['default'] == CA_DEFAULT_ABS_TOL == 1e-8
