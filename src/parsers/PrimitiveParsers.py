@@ -632,6 +632,22 @@ def modifier_weights_by_index(param_id_info):
     return out
 
 
+def save_param_modifiers(param_id_info, output_dir):
+    """Write ``param_modifiers.json`` to ``output_dir`` (rank 0 only; no-op without modifiers).
+
+    A scale result is uninterpretable without this record -- best_param_vals holds theta, and
+    theta alone does not say what any model parameter ended up at. Recording the baselines
+    means reproducing a result does not depend on the model file being unchanged. Callable at
+    any point (idempotent overwrite): the parse-time save happens before baselines can be
+    resolved, so the calibration run saves again once they are.
+    """
+    modifiers = param_id_info.get("modifiers") or []
+    if modifiers and rank == 0:
+        modifiers_path = os.path.join(output_dir, 'param_modifiers.json')
+        with open(modifiers_path, 'w') as f:
+            json.dump(modifiers, f, indent=2)
+
+
 def param_modifier_operations():
     """The modifier operations this version of circulatory_autogen implements."""
     return {name: dict(meta) for name, meta in PARAM_MODIFIER_OPERATIONS.items()}
@@ -3675,15 +3691,10 @@ class ObsAndParamDataParser(object):
                 wr = csv.writer(f)
                 wr.writerows(param_id_info["param_names_for_gen"])
 
-            # 3. Save the modifier records, baselines included. A scale result is
-            #    uninterpretable without them -- best_param_vals holds theta, and theta alone
-            #    does not say what any model parameter ended up at. Recording them here means
-            #    reproducing a result does not depend on the model file being unchanged.
-            modifiers = param_id_info.get("modifiers") or []
-            if modifiers:
-                modifiers_path = os.path.join(output_dir, 'param_modifiers.json')
-                with open(modifiers_path, 'w') as f:
-                    json.dump(modifiers, f, indent=2)
+            # 3. Save the modifier records (see save_param_modifiers). At this point the
+            #    baselines may still be None -- parsing happens before a simulation helper
+            #    exists -- so the calibration run re-saves once they are resolved.
+            save_param_modifiers(param_id_info, output_dir)
         return
 
 

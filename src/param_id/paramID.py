@@ -68,8 +68,10 @@ from param_id.differentiable import (
 )
 from param_id.operation_funcs import resolve_operation_kwargs, validate_operation_kwargs
 from param_id.cost_kwargs import call_cost_func, validate_cost_kwargs
-from parsers.PrimitiveParsers import (expand_modifier_param_vals,
-                                      resolve_modifier_baselines)
+from parsers.PrimitiveParsers import (apply_modifier_identity_nominals,
+                                      expand_modifier_param_vals,
+                                      resolve_modifier_baselines,
+                                      save_param_modifiers)
 from param_id.plot_outputs import ParamIDPlotOutputs
 from param_id import casadi_backend
 from param_id import fsa_backend
@@ -1518,7 +1520,23 @@ class OpencorParamID():
         # ________ Do parameter identification ________
 
         # Don't remove the get_init_param_vals, this also checks the parameters names are correct.
-        self.param_init = self.sim_helper.get_init_param_vals(self.param_id_info["param_names"])
+        raw_init = self.sim_helper.get_init_param_vals(self.param_id_info["param_names"])
+        # One x0 slot per calibrated variable (theta), flat. get_init_param_vals returns a
+        # *list* of member values for a multi-name entry, and np.asarray over that ragged
+        # structure is a crash in every optimiser's x0 handling -- a grouped row starts at its
+        # first member's default (the shared value). A modifier's slot is theta, not a model
+        # value, so it starts at the operation's identity (scale -> 1.0), where every target
+        # sits at its baseline; a member's raw default there (~1e-8 for a compliance) would be
+        # taken as a scale factor.
+        self.param_init = apply_modifier_identity_nominals(
+            self.param_id_info,
+            np.array([v[0] if isinstance(v, (list, tuple)) else v for v in raw_init],
+                     dtype=float))
+
+        # The param_modifiers.json written at parse time has baselines: None -- no simulation
+        # helper existed yet. Re-save now they are resolved; without baselines the recorded
+        # theta is uninterpretable, which is the file's whole purpose.
+        save_param_modifiers(self.param_id_info, self.output_dir)
 
         # C_T min and max was 1e-9 and 1e-5 before
 
