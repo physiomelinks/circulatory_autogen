@@ -625,7 +625,10 @@ class CMAESOptimiser(Optimiser):
                 for i in out_of_bounds:
                     param_name = param_names[i] if i < len(param_names) else f'Parameter {i}'
                     print(f'  Parameter: {param_name}')
-                    print(f'    Value from CSV: {self.param_id_obj.param_init[i] if self.param_id_obj.param_init else "N/A"}')
+                    # param_init is an ndarray (one flat theta slot per calibrated variable),
+                    # so guard with `is not None` -- bare truthiness on an array raises.
+                    print(f'    Value from CSV: '
+                          f'{self.param_id_obj.param_init[i] if self.param_id_obj.param_init is not None else "N/A"}')
                     print(f'    Bounds: [{self.param_mins[i]:.6e}, {self.param_maxs[i]:.6e}]')
                     print(f'    Setting to mean: {x0[i]:.6e}')
                 print('='*80 + '\n')
