@@ -1029,3 +1029,115 @@ def test_every_default_method_is_stiff_suitable_where_the_solver_has_a_stiff_set
         if solver in stiff:
             assert default in stiff[solver], (
                 f"default for {solver} is {default!r}, which is not stiff-suitable")
+
+
+# --------------------------------------------------------- Myokit CVODES tolerance mapping
+#
+# Myokit's signature is set_tolerance(abs_tol, rel_tol) -- absolute FIRST, the reverse of the
+# rtol-then-atol order CA's schema lists. The helper passed them positionally in schema order,
+# so each reached the other argument. A symmetric pair cannot catch that, so every test here
+# uses asymmetric values and asserts which value reached which keyword.
+
+
+class _RecordingSimulation:
+    """Stands in for myokit.Simulation; records what reached set_tolerance."""
+
+    def __init__(self):
+        self.tolerance_calls = []
+
+    def set_tolerance(self, abs_tol=1e-6, rel_tol=1e-4):
+        self.tolerance_calls.append({'abs_tol': abs_tol, 'rel_tol': rel_tol})
+
+
+def _apply(solver_info, fsa_enabled=False):
+    from solver_wrappers.myokit_helper import apply_cvodes_tolerances
+    sim = _RecordingSimulation()
+    effective = apply_cvodes_tolerances(sim, solver_info, fsa_enabled)
+    return sim.tolerance_calls, effective
+
+
+@pytest.mark.unit
+def test_asymmetric_tolerances_reach_the_right_myokit_arguments():
+    """rtol must arrive as rel_tol and atol as abs_tol. Swapped, this call would apply
+    abs 1e-4 / rel 1e-6 -- measured bit-identical to Myokit's own defaults on 3compartment,
+    which is how the swap stayed invisible."""
+    calls, effective = _apply({'rtol': 1e-4, 'atol': 1e-6})
+    assert calls == [{'abs_tol': 1e-6, 'rel_tol': 1e-4}]
+    assert effective == (1e-6, 1e-4)
+
+
+@pytest.mark.unit
+def test_no_tolerances_means_cas_own_defaults_are_applied():
+    """With neither set (and no FSA), CA's declared defaults are applied -- abs stays at the
+    1e-8 floor previous users ran at (so existing models do not start failing), rel relaxes
+    to 1e-6. Declared and effective are the same thing, whichever front door the run came
+    through."""
+    calls, effective = _apply({})
+    assert calls == [{'abs_tol': 1e-8, 'rel_tol': 1e-6}]
+    assert effective == (1e-8, 1e-6)
+
+
+@pytest.mark.unit
+def test_fsa_tightens_to_1e8_when_the_user_set_none():
+    """CVODES sensitivities are only as accurate as the state solve; the default tolerance's
+    noise floor swamps small sensitivities."""
+    calls, effective = _apply({}, fsa_enabled=True)
+    assert calls == [{'abs_tol': 1e-8, 'rel_tol': 1e-8}]
+    assert effective == (1e-8, 1e-8)
+
+
+@pytest.mark.unit
+def test_explicit_tolerances_win_over_the_fsa_tightening():
+    calls, _ = _apply({'rtol': 1e-5, 'atol': 1e-7}, fsa_enabled=True)
+    assert calls == [{'abs_tol': 1e-7, 'rel_tol': 1e-5}]
+
+
+@pytest.mark.unit
+def test_a_partial_setting_fills_the_partner_with_cas_default():
+    """set_tolerance takes both values, so setting only one needs a partner: CA's declared
+    default for the other, the same value the schema advertises."""
+    assert _apply({'rtol': 1e-5})[0] == [{'abs_tol': 1e-8, 'rel_tol': 1e-5}]
+    assert _apply({'atol': 1e-9})[0] == [{'abs_tol': 1e-9, 'rel_tol': 1e-6}]
+
+
+@pytest.mark.unit
+def test_a_failed_solve_names_the_stability_knobs_and_their_values():
+    """A failed solve must tell the user which numbers to turn: the effective MaximumStep,
+    atol and rtol, and that decreasing them may help stability."""
+    from solver_wrappers.myokit_helper import stability_hint
+    hint = stability_hint({'MaximumStep': 0.001}, (1e-8, 1e-6))
+    assert 'MaximumStep is 0.001' in hint
+    assert 'atol is 1e-08' in hint
+    assert 'rtol is 1e-06' in hint
+    assert 'decreasing these' in hint and 'stability' in hint
+
+
+@pytest.mark.unit
+def test_the_stability_hint_reports_an_unset_maximum_step_honestly():
+    """No MaximumStep in solver_info means the integrator step is unbounded -- say so, rather
+    than inventing a number the user never set."""
+    from solver_wrappers.myokit_helper import stability_hint
+    hint = stability_hint({}, (1e-8, 1e-6))
+    assert 'MaximumStep is unset (unbounded)' in hint
+
+
+@pytest.mark.unit
+def test_myokit_set_tolerance_still_takes_abs_and_rel_keywords():
+    """The keyword call is the whole fix; a Myokit rename must break loudly here, not revert
+    the helper to positional guessing."""
+    myokit = pytest.importorskip('myokit')
+    import inspect
+    params = inspect.signature(myokit.Simulation.set_tolerance).parameters
+    assert 'abs_tol' in params and 'rel_tol' in params
+
+
+@pytest.mark.unit
+def test_cvode_myokit_schema_declares_cas_defaults():
+    """Front-ends seed interactive solves from these declared defaults (they deliberately do
+    not restate them), so the declaration is the one place the default is decided -- and it
+    must equal what the helper applies when the user sets neither, or declared and effective
+    drift apart. abs keeps the 1e-8 floor previous users ran at; rel relaxes to 1e-6."""
+    from solver_wrappers.myokit_helper import CA_DEFAULT_ABS_TOL, CA_DEFAULT_REL_TOL
+    fields = {f['name']: f for f in solver_info_fields('CVODE_myokit')}
+    assert fields['rtol']['default'] == CA_DEFAULT_REL_TOL == 1e-6
+    assert fields['atol']['default'] == CA_DEFAULT_ABS_TOL == 1e-8
