@@ -200,8 +200,12 @@ def get_observable_sensitivities(pid, param_vals):
     output instead of the aggregated cost.
     """
     import casadi as ca
+    from parsers.PrimitiveParsers import param_entry_labels
     param_names = pid.param_id_info["param_names"]
-    flat_names = [n[0] if isinstance(n, list) else n for n in param_names]
+    # Grouped rows never reach here (_create_param_subset refuses them), so each label is its
+    # entry's single qname today -- but keying by param_entry_labels keeps the report shape
+    # identical to the Myokit FSA arm, which does handle groups and modifiers.
+    flat_names = param_entry_labels(pid.param_id_info)
     build_functions(pid, param_names, param_vals)
 
     # jacobian of the flattened observable vector w.r.t. the differentiated parameter subset.

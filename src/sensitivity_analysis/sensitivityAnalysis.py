@@ -314,13 +314,24 @@ class SensitivityAnalysis():
         if sa_options is not None:
             self.set_sa_options(sa_options)
 
+        from parsers.PrimitiveParsers import (apply_modifier_identity_nominals,
+                                              param_entry_labels)
+
         engine = self._build_local_engine().param_id
-        param_names = [n[0] if isinstance(n, list) else n
-                       for n in engine.param_id_info["param_names"]]
-        nominal = engine.sim_helper.get_init_param_vals(param_names)
+        # One column per calibrated variable (theta). Labels, not first-member qnames: a
+        # grouped or modifier entry's sensitivity is d/dtheta over all its members, and the
+        # arms key their result dicts the same way -- a mismatched key here would silently
+        # read 0.0 for every grouped column.
+        param_names = param_entry_labels(engine.param_id_info)
+        first_member_names = [n[0] if isinstance(n, list) else n
+                              for n in engine.param_id_info["param_names"]]
+        nominal = engine.sim_helper.get_init_param_vals(first_member_names)
         nominal = np.asarray(
             [float(v[0]) if isinstance(v, (list, tuple, np.ndarray)) else float(v)
              for v in nominal], dtype=float)
+        # A modifier's slot is theta, not a model value: evaluate at the operation's
+        # identity (scale -> 1.0), where every target sits at its resolved baseline.
+        apply_modifier_identity_nominals(engine.param_id_info, nominal)
 
         # 'analytic' (the default) keeps the backend's own sensitivity; 'FD' opts into
         # central finite differences, the only local SA available on a backend with no

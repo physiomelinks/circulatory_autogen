@@ -68,8 +68,10 @@ from param_id.differentiable import (
 )
 from param_id.operation_funcs import resolve_operation_kwargs, validate_operation_kwargs
 from param_id.cost_kwargs import call_cost_func, validate_cost_kwargs
-from parsers.PrimitiveParsers import (expand_modifier_param_vals,
-                                      resolve_modifier_baselines)
+from parsers.PrimitiveParsers import (apply_modifier_identity_nominals,
+                                      expand_modifier_param_vals,
+                                      resolve_modifier_baselines,
+                                      save_param_modifiers)
 from param_id.plot_outputs import ParamIDPlotOutputs
 from param_id import casadi_backend
 from param_id import fsa_backend
@@ -1518,7 +1520,23 @@ class OpencorParamID():
         # ________ Do parameter identification ________
 
         # Don't remove the get_init_param_vals, this also checks the parameters names are correct.
-        self.param_init = self.sim_helper.get_init_param_vals(self.param_id_info["param_names"])
+        raw_init = self.sim_helper.get_init_param_vals(self.param_id_info["param_names"])
+        # One x0 slot per calibrated variable (theta), flat. get_init_param_vals returns a
+        # *list* of member values for a multi-name entry, and np.asarray over that ragged
+        # structure is a crash in every optimiser's x0 handling -- a grouped row starts at its
+        # first member's default (the shared value). A modifier's slot is theta, not a model
+        # value, so it starts at the operation's identity (scale -> 1.0), where every target
+        # sits at its baseline; a member's raw default there (~1e-8 for a compliance) would be
+        # taken as a scale factor.
+        self.param_init = apply_modifier_identity_nominals(
+            self.param_id_info,
+            np.array([v[0] if isinstance(v, (list, tuple)) else v for v in raw_init],
+                     dtype=float))
+
+        # The param_modifiers.json written at parse time has baselines: None -- no simulation
+        # helper existed yet. Re-save now they are resolved; without baselines the recorded
+        # theta is uninterpretable, which is the file's whole purpose.
+        save_param_modifiers(self.param_id_info, self.output_dir)
 
         # C_T min and max was 1e-9 and 1e-5 before
 
@@ -2561,25 +2579,28 @@ class OpencorParamID():
         return f"{base} [exp {exp}, sub {sub}]"
 
     def _refuse_sensitivities_for_modifiers(self):
-        """A modifier's derivative is a weighted chain rule, not the plain sum a shared-value
-        group needs:
+        """A modifier's derivative is a weighted chain rule over its targets:
 
             shared-value group   dO/dtheta = sum_i  dO/dp_i
             scale modifier       dO/dtheta = sum_i (dO/dp_i) * baseline_i
 
-        Neither arm implements the weighted form yet, and both currently flatten a group to its
-        first member -- so a modifier would silently report one target's derivative as though it
-        were theta's. Refuse instead, on the same reasoning as the CasADi grouped-row refusal.
+        The Myokit FSA arm implements exactly that (fsa_backend.combined_entry_sensitivities),
+        but the CasADi arm cannot reach it: _create_param_subset refuses any grouped row, of
+        which a modifier is one. Refuse with the modifier-specific message rather than let the
+        grouped-row error report a different problem. Removing this means implementing symbolic
+        substitution of theta (or theta * baseline_i) into every member's slot -- see the
+        grouped-calibration refusal in casadi_python_solver_helper.
         """
         modifiers = (getattr(self, "param_id_info", None) or {}).get("modifiers") or []
         if modifiers:
             names = [m["name"] for m in modifiers]
             raise NotImplementedError(
-                f"Local sensitivity analysis does not yet support modifier parameters {names}. "
-                f"A scale modifier's derivative is sum_i (dO/dp_i) * baseline_i, a weighted "
-                f"chain rule over its targets, which is not implemented -- reporting the first "
-                f"target's derivative instead would silently answer a different question. Use "
-                f"global Sobol SA, which handles modifiers, or remove the modifier entries.")
+                f"The CasADi local sensitivity arm does not yet support modifier parameters "
+                f"{names}. A scale modifier's derivative is sum_i (dO/dp_i) * baseline_i, a "
+                f"weighted chain rule over its targets, which the CasADi backend cannot express "
+                f"until grouped rows are substituted symbolically. Use model_type 'cellml_only' "
+                f"with solver 'CVODE_myokit' (the FSA arm implements the chain rule), global "
+                f"Sobol SA, or remove the modifier entries.")
 
     def get_observable_sensitivities(self, param_vals, gradient_method=None, fd_rel_step=None):
         """d(observable feature)/d(param) for the scalar observables -- the backend-agnostic
@@ -2591,12 +2612,20 @@ class OpencorParamID():
         derivative of the feature. Every arm reports the identical quantity, so a local
         sensitivity analysis is comparable across backends whichever computed it.
 
-        ``gradient_method`` selects how:
+        ``gradient_method`` selects how, in the same FD/AD/FSA vocabulary as
+        ``gradient_sources()`` and the Laplace ``gradient_source`` -- the arm's own name, so a
+        front-end can offer it, disable it, and report back which one ran:
 
-        * ``None`` (default) -- the analytic arm for this backend, raising when there is
-          none. Unchanged behaviour, and deliberately still not a silent fall back to FD:
-          a result quietly computed a different way, at a different cost and accuracy, is
-          not the same result.
+        * ``None`` / ``'auto'`` / ``'analytic'`` (default) -- the analytic arm for this
+          backend, raising when there is none. Deliberately still not a silent fall back to
+          FD: a result quietly computed a different way, at a different cost and accuracy,
+          is not the same result.
+        * ``'AD'`` -- the exact CasADi jacobian; requires ``model_type='casadi_python'``
+          (``aadc_python`` names its arm AD too, but its local SA is not implemented yet and
+          says so). Any other backend raises naming the mismatch rather than silently
+          reinterpreting.
+        * ``'FSA'`` -- Myokit CVODES forward sensitivities; requires ``cellml_only`` +
+          ``CVODE_myokit`` + ``do_ad``. Raises naming exactly what is missing otherwise.
         * ``'FD'`` -- central finite differences (``param_id.fd_backend``). Works on any
           backend that runs a forward simulation, which is how AADC and the plain scipy
           backend get a local SA at all (issue #338). Costs 2M simulations for M parameters.
@@ -2612,13 +2641,39 @@ class OpencorParamID():
         if method == 'FD':
             kwargs = {} if fd_rel_step is None else {'h': float(fd_rel_step)}
             return fd_backend.observable_feature_sensitivities(self, param_vals, **kwargs)
-        if method not in ('', 'ANALYTIC', 'AUTO'):
+        if method not in ('', 'ANALYTIC', 'AUTO', 'AD', 'FSA'):
             raise ValueError(
                 f"unknown gradient_method '{gradient_method}' for local sensitivity analysis. "
-                "Valid values are None/'analytic' (this backend's analytic sensitivity) or 'FD'.")
+                "Valid values are 'AD' (exact CasADi jacobian, casadi_python), 'FSA' (Myokit "
+                "CVODES forward sensitivities, cellml_only + CVODE_myokit + do_ad), 'FD' "
+                "(central finite differences, any backend), or None/'auto'/'analytic' (this "
+                "backend's analytic arm).")
 
-        self._refuse_sensitivities_for_modifiers()
+        solver_info = getattr(self, 'solver_info', None)
+        solver = solver_info.get('solver') if isinstance(solver_info, dict) else None
+        # An explicit arm name validates against the backend instead of being silently
+        # reinterpreted -- a caller that asked for FSA must get FSA or an error, never a
+        # different arm with plausible numbers (the same reason FD never stands in above).
+        if method == 'AD' and self.model_type not in ('casadi_python', 'aadc_python'):
+            raise ValueError(
+                f"gradient_method 'AD' needs model_type 'casadi_python' (the exact CasADi "
+                f"jacobian); this run is model_type='{self.model_type}', solver='{solver}'. "
+                "Use 'FSA' for cellml_only + CVODE_myokit + do_ad, or 'FD'.")
+        if method == 'FSA' and not fsa_backend.gradient_available(self):
+            missing = []
+            if self.model_type != 'cellml_only':
+                missing.append(f"model_type is '{self.model_type}', needs 'cellml_only'")
+            if not hasattr(getattr(self, 'sim_helper', None), 'enable_fsa'):
+                missing.append(f"solver is '{solver}', needs 'CVODE_myokit' (its helper "
+                               "provides CVODES forward sensitivities)")
+            if not getattr(self, 'do_ad', False):
+                missing.append("do_ad must be true")
+            raise ValueError(
+                "gradient_method 'FSA' is not available for this run: "
+                + "; ".join(missing) + ". Use 'AD' for casadi_python, or 'FD'.")
+
         if self.model_type == 'casadi_python':
+            self._refuse_sensitivities_for_modifiers()
             return casadi_backend.get_observable_sensitivities(self, param_vals)
         elif self.model_type == 'aadc_python':
             raise NotImplementedError(
