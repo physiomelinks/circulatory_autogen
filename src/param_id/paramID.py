@@ -2612,12 +2612,20 @@ class OpencorParamID():
         derivative of the feature. Every arm reports the identical quantity, so a local
         sensitivity analysis is comparable across backends whichever computed it.
 
-        ``gradient_method`` selects how:
+        ``gradient_method`` selects how, in the same FD/AD/FSA vocabulary as
+        ``gradient_sources()`` and the Laplace ``gradient_source`` -- the arm's own name, so a
+        front-end can offer it, disable it, and report back which one ran:
 
-        * ``None`` (default) -- the analytic arm for this backend, raising when there is
-          none. Unchanged behaviour, and deliberately still not a silent fall back to FD:
-          a result quietly computed a different way, at a different cost and accuracy, is
-          not the same result.
+        * ``None`` / ``'auto'`` / ``'analytic'`` (default) -- the analytic arm for this
+          backend, raising when there is none. Deliberately still not a silent fall back to
+          FD: a result quietly computed a different way, at a different cost and accuracy,
+          is not the same result.
+        * ``'AD'`` -- the exact CasADi jacobian; requires ``model_type='casadi_python'``
+          (``aadc_python`` names its arm AD too, but its local SA is not implemented yet and
+          says so). Any other backend raises naming the mismatch rather than silently
+          reinterpreting.
+        * ``'FSA'`` -- Myokit CVODES forward sensitivities; requires ``cellml_only`` +
+          ``CVODE_myokit`` + ``do_ad``. Raises naming exactly what is missing otherwise.
         * ``'FD'`` -- central finite differences (``param_id.fd_backend``). Works on any
           backend that runs a forward simulation, which is how AADC and the plain scipy
           backend get a local SA at all (issue #338). Costs 2M simulations for M parameters.
@@ -2633,10 +2641,36 @@ class OpencorParamID():
         if method == 'FD':
             kwargs = {} if fd_rel_step is None else {'h': float(fd_rel_step)}
             return fd_backend.observable_feature_sensitivities(self, param_vals, **kwargs)
-        if method not in ('', 'ANALYTIC', 'AUTO'):
+        if method not in ('', 'ANALYTIC', 'AUTO', 'AD', 'FSA'):
             raise ValueError(
                 f"unknown gradient_method '{gradient_method}' for local sensitivity analysis. "
-                "Valid values are None/'analytic' (this backend's analytic sensitivity) or 'FD'.")
+                "Valid values are 'AD' (exact CasADi jacobian, casadi_python), 'FSA' (Myokit "
+                "CVODES forward sensitivities, cellml_only + CVODE_myokit + do_ad), 'FD' "
+                "(central finite differences, any backend), or None/'auto'/'analytic' (this "
+                "backend's analytic arm).")
+
+        solver_info = getattr(self, 'solver_info', None)
+        solver = solver_info.get('solver') if isinstance(solver_info, dict) else None
+        # An explicit arm name validates against the backend instead of being silently
+        # reinterpreted -- a caller that asked for FSA must get FSA or an error, never a
+        # different arm with plausible numbers (the same reason FD never stands in above).
+        if method == 'AD' and self.model_type not in ('casadi_python', 'aadc_python'):
+            raise ValueError(
+                f"gradient_method 'AD' needs model_type 'casadi_python' (the exact CasADi "
+                f"jacobian); this run is model_type='{self.model_type}', solver='{solver}'. "
+                "Use 'FSA' for cellml_only + CVODE_myokit + do_ad, or 'FD'.")
+        if method == 'FSA' and not fsa_backend.gradient_available(self):
+            missing = []
+            if self.model_type != 'cellml_only':
+                missing.append(f"model_type is '{self.model_type}', needs 'cellml_only'")
+            if not hasattr(getattr(self, 'sim_helper', None), 'enable_fsa'):
+                missing.append(f"solver is '{solver}', needs 'CVODE_myokit' (its helper "
+                               "provides CVODES forward sensitivities)")
+            if not getattr(self, 'do_ad', False):
+                missing.append("do_ad must be true")
+            raise ValueError(
+                "gradient_method 'FSA' is not available for this run: "
+                + "; ".join(missing) + ". Use 'AD' for casadi_python, or 'FD'.")
 
         if self.model_type == 'casadi_python':
             self._refuse_sensitivities_for_modifiers()

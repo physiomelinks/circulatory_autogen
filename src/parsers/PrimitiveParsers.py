@@ -1143,15 +1143,21 @@ ANALYSIS_OPTIONS = {
             # Only read by method 'local'. Declared so downstream tools offer the choice
             # rather than hardcoding it, and so FD is something the user picks by name: it
             # costs 2M simulations and its accuracy depends on a step size the analytic arms
-            # do not have, so it must never stand in silently for them.
-            {'name': 'gradient_method', 'type': 'enum', 'default': 'analytic', 'required': False,
-             'choices': ['analytic', 'FD'],
-             'description': ('For method "local": how to differentiate. "analytic" uses the '
-                             "backend's own sensitivity (the CasADi jacobian, or Myokit "
-                             'CVODES forward sensitivities) and fails where there is none; '
-                             '"FD" uses central finite differences and works on any backend '
-                             'that runs a forward simulation, at 2M simulations for M '
-                             'parameters.')},
+            # do not have, so it must never stand in silently for them. The arms carry their
+            # own names -- AD / FSA, the same vocabulary as gradient_sources() and the Laplace
+            # gradient_source -- because only an explicit name can be offered, disabled, or
+            # reported back by a UI; each validates against the backend rather than being
+            # silently reinterpreted. 'analytic' remains accepted in code as a legacy spelling
+            # of 'auto' but is no longer advertised.
+            {'name': 'gradient_method', 'type': 'enum', 'default': 'auto', 'required': False,
+             'choices': ['auto', 'AD', 'FSA', 'FD'],
+             'description': ('For method "local": how to differentiate. "auto" picks the '
+                             "backend's own analytic arm and fails where there is none; "
+                             '"AD" is the exact CasADi jacobian (casadi_python); "FSA" is '
+                             'Myokit CVODES forward sensitivities (cellml_only + '
+                             'CVODE_myokit + do_ad); "FD" is central finite differences, '
+                             'which works on any backend that runs a forward simulation, at '
+                             '2M simulations for M parameters.')},
             # Only read by method 'local' with gradient_method 'FD'. Declared because it is
             # not a tuning detail: on Lotka-Volterra, moving it from 1e-3 to 1e-2 changes a
             # sensitivity coefficient by up to 48%, since `max` of an oscillating trace is a
