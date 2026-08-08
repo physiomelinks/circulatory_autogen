@@ -1398,6 +1398,11 @@ class OpencorParamID():
         self.param_id_info = param_id_info
         self.num_params = len(self.param_id_info["param_names"])
         self.param_norm_obj = Normalise_class(self.param_id_info["param_mins"], self.param_id_info["param_maxs"])
+        # The constructor resolves baselines when param_id_info is already known; entry points
+        # that set it afterwards resolve here instead. Idempotent, and still before any
+        # parameter has been written, which is the property that stops theta compounding.
+        if getattr(self, 'sim_helper', None) is not None:
+            resolve_modifier_baselines(self.param_id_info, self.sim_helper)
     
     def set_protocol_info(self, protocol_info):
         self.protocol_info = protocol_info

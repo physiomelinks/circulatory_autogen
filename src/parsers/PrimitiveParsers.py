@@ -502,6 +502,12 @@ def resolve_modifier_baselines(param_id_info, sim_helper):
 
     Idempotent: a modifier whose baselines are already resolved is left alone.
     """
+    # param_id_info is not always set by the time a simulation helper exists -- several entry
+    # points build the helper first and call set_param_id_info afterwards -- so this has to be a
+    # no-op rather than an error when there is nothing to resolve yet. The later call from
+    # set_param_id_info does the work in that case.
+    if not param_id_info:
+        return param_id_info
     modifiers = param_id_info.get("modifiers") or []
     if not modifiers:
         return param_id_info
