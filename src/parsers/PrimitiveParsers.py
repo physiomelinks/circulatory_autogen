@@ -495,6 +495,10 @@ PARAM_MODIFIER_OPERATIONS = {
         'dimensionless': True,
         'default_min': 0.5,
         'default_max': 2.0,
+        # The theta at which the operation leaves every target at its baseline. Local
+        # sensitivity analysis evaluates there: theta's model-default is not a model value
+        # (reading a target's default as theta would scale every target by it).
+        'identity': 1.0,
     },
 }
 DEFAULT_PARAM_MODIFIER_OPERATION = 'scale'
@@ -576,6 +580,82 @@ def expand_modifier_param_vals(param_id_info, param_vals):
                 f"modifier operation {mod['operation']!r} is declared but not implemented.")
         out.append([float(value) * b for b in baselines])
     return out
+
+
+def param_entry_labels(param_id_info):
+    """One reporting label per calibrated variable (theta), for anything keyed by parameter.
+
+    Reads ``param_labels`` (a grouped row joins its qnames, a modifier uses its own name), with
+    the same fallback as ``sobolSA._param_labels`` for a param_id_info built by hand or loaded
+    from before the key existed (#355). Sensitivities and their consumers key on this rather
+    than on a row's first member: a grouped derivative is d/dtheta over all members, and
+    labelling it with one member's qname would report it as a different quantity.
+    """
+    labels = param_id_info.get("param_labels")
+    if labels is not None:
+        return list(labels)
+    return ['+'.join(n) if isinstance(n, (list, tuple)) else str(n)
+            for n in param_id_info["param_names"]]
+
+
+def apply_modifier_identity_nominals(param_id_info, nominal_vals):
+    """Overwrite each modifier's slot in ``nominal_vals`` with its operation's identity theta.
+
+    A nominal parameter vector read from the model (``get_init_param_vals`` over first members)
+    is right for ordinary and grouped rows, but a modifier's slot is theta, not a model value --
+    the first target's default there would scale every target by it. The identity (scale -> 1.0)
+    is the theta at which every target sits at its baseline, which is what "nominal" means.
+    Returns ``nominal_vals``, modified in place.
+    """
+    for mod in param_id_info.get("modifiers") or []:
+        operation = mod.get("operation", DEFAULT_PARAM_MODIFIER_OPERATION)
+        meta = PARAM_MODIFIER_OPERATIONS.get(operation)
+        if meta is None or 'identity' not in meta:
+            raise NotImplementedError(
+                f"modifier operation {operation!r} has no identity value; cannot choose a "
+                f"nominal theta for '{mod['name']}'.")
+        nominal_vals[mod["index"]] = meta['identity']
+    return nominal_vals
+
+
+def modifier_weights_by_index(param_id_info):
+    """Per-entry chain-rule weights: ``{entry_index: [w_i per member]}`` for modifier entries.
+
+    A calibrated theta that governs several model parameters has
+    ``d(anything)/d(theta) = sum_i w_i * d(anything)/d(p_i)`` with ``w_i = dp_i/dtheta``. For a
+    scale modifier ``p_i = theta * baseline_i`` so ``w_i = baseline_i``. Shared-value groups
+    (``w_i = 1``) are not in the map -- absence means unit weights. Raises if a modifier's
+    baselines have not been resolved, because a weight guessed at is a gradient silently wrong.
+    """
+    out = {}
+    for mod in param_id_info.get("modifiers") or []:
+        baselines = mod.get("baselines")
+        if baselines is None:
+            raise ValueError(
+                f"modifier '{mod['name']}' has no resolved baselines. Call "
+                f"resolve_modifier_baselines(param_id_info, sim_helper) once at setup, before "
+                f"any parameter has been written.")
+        if mod.get("operation", DEFAULT_PARAM_MODIFIER_OPERATION) != 'scale':
+            raise NotImplementedError(
+                f"modifier operation {mod['operation']!r} is declared but not implemented.")
+        out[mod["index"]] = [float(b) for b in baselines]
+    return out
+
+
+def save_param_modifiers(param_id_info, output_dir):
+    """Write ``param_modifiers.json`` to ``output_dir`` (rank 0 only; no-op without modifiers).
+
+    A scale result is uninterpretable without this record -- best_param_vals holds theta, and
+    theta alone does not say what any model parameter ended up at. Recording the baselines
+    means reproducing a result does not depend on the model file being unchanged. Callable at
+    any point (idempotent overwrite): the parse-time save happens before baselines can be
+    resolved, so the calibration run saves again once they are.
+    """
+    modifiers = param_id_info.get("modifiers") or []
+    if modifiers and rank == 0:
+        modifiers_path = os.path.join(output_dir, 'param_modifiers.json')
+        with open(modifiers_path, 'w') as f:
+            json.dump(modifiers, f, indent=2)
 
 
 def param_modifier_operations():
@@ -1073,15 +1153,21 @@ ANALYSIS_OPTIONS = {
             # Only read by method 'local'. Declared so downstream tools offer the choice
             # rather than hardcoding it, and so FD is something the user picks by name: it
             # costs 2M simulations and its accuracy depends on a step size the analytic arms
-            # do not have, so it must never stand in silently for them.
-            {'name': 'gradient_method', 'type': 'enum', 'default': 'analytic', 'required': False,
-             'choices': ['analytic', 'FD'],
-             'description': ('For method "local": how to differentiate. "analytic" uses the '
-                             "backend's own sensitivity (the CasADi jacobian, or Myokit "
-                             'CVODES forward sensitivities) and fails where there is none; '
-                             '"FD" uses central finite differences and works on any backend '
-                             'that runs a forward simulation, at 2M simulations for M '
-                             'parameters.')},
+            # do not have, so it must never stand in silently for them. The arms carry their
+            # own names -- AD / FSA, the same vocabulary as gradient_sources() and the Laplace
+            # gradient_source -- because only an explicit name can be offered, disabled, or
+            # reported back by a UI; each validates against the backend rather than being
+            # silently reinterpreted. 'analytic' remains accepted in code as a legacy spelling
+            # of 'auto' but is no longer advertised.
+            {'name': 'gradient_method', 'type': 'enum', 'default': 'auto', 'required': False,
+             'choices': ['auto', 'AD', 'FSA', 'FD'],
+             'description': ('For method "local": how to differentiate. "auto" picks the '
+                             "backend's own analytic arm and fails where there is none; "
+                             '"AD" is the exact CasADi jacobian (casadi_python); "FSA" is '
+                             'Myokit CVODES forward sensitivities (cellml_only + '
+                             'CVODE_myokit + do_ad); "FD" is central finite differences, '
+                             'which works on any backend that runs a forward simulation, at '
+                             '2M simulations for M parameters.')},
             # Only read by method 'local' with gradient_method 'FD'. Declared because it is
             # not a tuning detail: on Lotka-Volterra, moving it from 1e-3 to 1e-2 changes a
             # sensitivity coefficient by up to 48%, since `max` of an oscillating trace is a
@@ -3621,15 +3707,10 @@ class ObsAndParamDataParser(object):
                 wr = csv.writer(f)
                 wr.writerows(param_id_info["param_names_for_gen"])
 
-            # 3. Save the modifier records, baselines included. A scale result is
-            #    uninterpretable without them -- best_param_vals holds theta, and theta alone
-            #    does not say what any model parameter ended up at. Recording them here means
-            #    reproducing a result does not depend on the model file being unchanged.
-            modifiers = param_id_info.get("modifiers") or []
-            if modifiers:
-                modifiers_path = os.path.join(output_dir, 'param_modifiers.json')
-                with open(modifiers_path, 'w') as f:
-                    json.dump(modifiers, f, indent=2)
+            # 3. Save the modifier records (see save_param_modifiers). At this point the
+            #    baselines may still be None -- parsing happens before a simulation helper
+            #    exists -- so the calibration run re-saves once they are resolved.
+            save_param_modifiers(param_id_info, output_dir)
         return
 
 

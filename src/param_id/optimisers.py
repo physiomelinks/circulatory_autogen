@@ -625,7 +625,10 @@ class CMAESOptimiser(Optimiser):
                 for i in out_of_bounds:
                     param_name = param_names[i] if i < len(param_names) else f'Parameter {i}'
                     print(f'  Parameter: {param_name}')
-                    print(f'    Value from CSV: {self.param_id_obj.param_init[i] if self.param_id_obj.param_init else "N/A"}')
+                    # param_init is an ndarray (one flat theta slot per calibrated variable),
+                    # so guard with `is not None` -- bare truthiness on an array raises.
+                    print(f'    Value from CSV: '
+                          f'{self.param_id_obj.param_init[i] if self.param_id_obj.param_init is not None else "N/A"}')
                     print(f'    Bounds: [{self.param_mins[i]:.6e}, {self.param_maxs[i]:.6e}]')
                     print(f'    Setting to mean: {x0[i]:.6e}')
                 print('='*80 + '\n')
@@ -1309,10 +1312,12 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
             pass
 
     def _param_labels(self):
-        """Column labels for the parameters (a param shared across vessels uses its first name),
-        with '/' replaced by ' ' -- matching multi_start_summary.csv so both files line up."""
-        return [(names[0] if isinstance(names, (list, tuple)) else str(names)).replace('/', ' ')
-                for names in self.param_id_info["param_names"]]
+        """Column labels for the parameters (one per calibrated variable: a grouped row joins
+        its qnames, a modifier uses its own name), with '/' replaced by ' ' -- matching
+        multi_start_summary.csv so both files line up."""
+        from parsers.PrimitiveParsers import param_entry_labels
+        return [label.replace('/', ' ')
+                for label in param_entry_labels(self.param_id_info)]
 
     def _append_start_params(self, start_idx, iteration, x_norm):
         """Append one ``start_idx, iteration, <param values>`` row to the live per-start parameter
@@ -1733,8 +1738,8 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
 
     def _write_start_summary(self, all_results):
         """One row per start, so the basins the starts fell into can be inspected."""
-        param_labels = [names[0] if isinstance(names, (list, tuple)) else str(names)
-                        for names in self.param_id_info["param_names"]]
+        from parsers.PrimitiveParsers import param_entry_labels
+        param_labels = param_entry_labels(self.param_id_info)
 
         summary_path = os.path.join(self.output_dir, 'multi_start_summary.csv')
         with open(summary_path, 'w') as file:
@@ -1787,8 +1792,8 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
         clusters.sort(key=lambda c: c['count'], reverse=True)
         self.convergence_clusters = clusters
 
-        param_labels = [names[0] if isinstance(names, (list, tuple)) else str(names)
-                        for names in self.param_id_info["param_names"]]
+        from parsers.PrimitiveParsers import param_entry_labels
+        param_labels = param_entry_labels(self.param_id_info)
         path = os.path.join(self.output_dir, 'multi_start_convergence_clusters.csv')
         with open(path, 'w') as file:
             writer = csv.writer(file)
