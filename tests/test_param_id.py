@@ -5180,7 +5180,7 @@ def test_param_id_3compartment_modifier_calibration_fsa(
             {'name': 'q_lv_init', 'targets': ['global/q_lv_init'],
              'min': 200e-6, 'max': 1500e-6, 'name_for_plotting': 'q_{sbv}'},
             {'name': 'C_scale', 'modifies': ['aortic_root/C', 'par/C'],
-             'operation': 'scale', 'min': 0.5, 'max': 2.0,
+             'modifier': 'scale', 'min': 0.5, 'max': 2.0,
              'name_for_plotting': r'\theta_{C}'},
         ],
     }
@@ -5244,7 +5244,7 @@ def test_param_id_3compartment_modifier_calibration_fsa(
         assert len(modifiers) == 1
         mod = modifiers[0]
         assert mod['name'] == 'C_scale'
-        assert mod['operation'] == 'scale'
+        assert mod['modifier'] == 'scale'
         assert mod['targets'] == ['aortic_root/C', 'par/C']
         # Model defaults from 3compartment_parameters.csv (C_aortic_root, C_par).
         assert mod['baselines'] == pytest.approx([1.2028e-8, 3.09077e-10], rel=1e-6), \
@@ -5308,7 +5308,7 @@ def test_param_id_3compartment_remainder_calibration_fsa(
         'version': 1,
         'params': [
             {'name': 'q_tot', 'modifies': ['global/q_lv_init'],
-             'operation': 'remainder',
+             'modifier': 'remainder',
              'inputs': {'subtract': sorted(_3COMP_OTHER_VOLUMES)},
              # A box around the baseline total; q_lv_init = theta - 3.868e-3 stays positive
              # everywhere inside it.
@@ -5368,7 +5368,7 @@ def test_param_id_3compartment_remainder_calibration_fsa(
         with open(os.path.join(out_dir, 'param_modifiers.json')) as f:
             (mod,) = json.load(f)
         assert mod['name'] == 'q_tot'
-        assert mod['operation'] == 'remainder'
+        assert mod['modifier'] == 'remainder'
         assert mod['targets'] == ['global/q_lv_init']
         assert mod['inputs'] == {'subtract': sorted(_3COMP_OTHER_VOLUMES)}
         assert mod['baselines'] == pytest.approx([_3COMP_Q_LV_DEFAULT], rel=1e-6)

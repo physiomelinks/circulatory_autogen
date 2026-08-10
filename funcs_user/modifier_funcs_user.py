@@ -1,7 +1,8 @@
 """User-defined modifier functions for params_for_id entries (issue #383).
 
 A modifier function maps one calibrated value (theta) to each model parameter its entry
-names in ``modifies``:
+names in ``modifies``. (An *operation* acts on an output and belongs in obs_data; a *modifier*
+acts on a parameter and belongs in params_for_id.)
 
     p_i = fn(theta, baseline_i, **inputs)
 
@@ -18,7 +19,7 @@ theta's starting value is derived by inverting the mapping at the baseline.
 Every top-level function carrying the ``@modifier_func`` decorator is registered
 automatically; undecorated helpers are ignored. A params_for_id entry uses one by name:
 
-    {"name": "q_tot", "modifies": ["heart/q_lv_init"], "operation": "remainder",
+    {"name": "q_tot", "modifies": ["heart/q_lv_init"], "modifier": "remainder",
      "inputs": {"subtract": ["pvn/q_init", "par/q_init"]}, "min": 4e-3, "max": 6e-3}
 
 (``scale`` and ``remainder`` are built in -- see src/param_id/modifier_funcs.py. Redefining a

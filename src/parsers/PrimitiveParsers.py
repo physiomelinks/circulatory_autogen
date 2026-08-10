@@ -490,7 +490,7 @@ PARAMS_FOR_ID_JSON_VERSION = 1
 # `default_min`/`default_max` are advisory bounds for the UI. A scale multiplier is
 # dimensionless, so unlike every other parameter its bounds are not physical values -- which is
 # the most likely user error, and the reason the UI should be able to offer sane ones.
-PARAM_MODIFIER_OPERATIONS = {
+PARAM_MODIFIERS = {
     'scale': {
         'description': 'one calibrated multiplier applied to every target\'s default value',
         'applies_to': 'value',
@@ -503,7 +503,20 @@ PARAM_MODIFIER_OPERATIONS = {
         'identity': 1.0,
     },
 }
-DEFAULT_PARAM_MODIFIER_OPERATION = 'scale'
+DEFAULT_PARAM_MODIFIER = 'scale'
+# Legacy spellings (issue #383 review): "operations" act on *outputs* (obs_data); what acts on
+# *parameters* is a modifier. Kept as aliases so #378-era importers keep working.
+PARAM_MODIFIER_OPERATIONS = PARAM_MODIFIERS
+DEFAULT_PARAM_MODIFIER_OPERATION = DEFAULT_PARAM_MODIFIER
+
+
+def _modifier_name(mod):
+    """The modifier function's name from a modifiers record.
+
+    Reads the legacy 'operation' field too, so a param_modifiers.json saved by a #378-era run
+    still resolves.
+    """
+    return mod.get("modifier") or mod.get("operation") or DEFAULT_PARAM_MODIFIER
 
 
 def resolve_modifier_baselines(param_id_info, sim_helper):
@@ -553,11 +566,11 @@ def resolve_modifier_baselines(param_id_info, sim_helper):
                 baselines.append(float(value))
             mod["baselines"] = baselines
 
-        fn = funcs.get(mod["operation"])
+        fn = funcs.get(_modifier_name(mod))
         if fn is None:
             raise ValueError(
-                f"modifier '{mod['name']}' uses operation {mod['operation']!r}, which is not "
-                f"in the modifier-function registry. Registered: {sorted(funcs)}.")
+                f"modifier '{mod['name']}' uses modifier function {_modifier_name(mod)!r}, "
+                f"which is not in the registry. Registered: {sorted(funcs)}.")
 
         # Declared inputs resolve to model defaults exactly once, like the baselines -- a
         # value read mid-calibration would already have been written by the optimiser.
@@ -576,7 +589,8 @@ def resolve_modifier_baselines(param_id_info, sim_helper):
         if mod.get("affine") is None:
             a_list, b_list = [], []
             for baseline in mod["baselines"]:
-                a, b = probe_affine(fn, baseline, mod["resolved_inputs"], mod["operation"])
+                a, b = probe_affine(fn, baseline, mod["resolved_inputs"],
+                                    _modifier_name(mod))
                 a_list.append(a)
                 b_list.append(b)
             mod["affine"] = {"a": a_list, "b": b_list}
@@ -614,11 +628,11 @@ def expand_modifier_param_vals(param_id_info, param_vals):
                 f"modifier '{mod['name']}' has no resolved baselines. Call "
                 f"resolve_modifier_baselines(param_id_info, sim_helper) once at setup, before "
                 f"any parameter has been written.")
-        fn = funcs.get(mod["operation"])
+        fn = funcs.get(_modifier_name(mod))
         if fn is None:
             raise NotImplementedError(
-                f"modifier operation {mod['operation']!r} is declared but not in the "
-                f"modifier-function registry. Registered: {sorted(funcs)}.")
+                f"modifier function {_modifier_name(mod)!r} is declared but not in the "
+                f"registry. Registered: {sorted(funcs)}.")
         declared = getattr(fn, 'modifier_inputs', {}) or {}
         resolved = mod.get("resolved_inputs")
         if declared and resolved is None:
@@ -661,22 +675,22 @@ def apply_modifier_identity_nominals(param_id_info, nominal_vals):
     saved before the probe existed). Returns ``nominal_vals``, modified in place.
     """
     for mod in param_id_info.get("modifiers") or []:
-        operation = mod.get("operation", DEFAULT_PARAM_MODIFIER_OPERATION)
+        modifier = _modifier_name(mod)
         affine = mod.get("affine")
         baselines = mod.get("baselines")
         if affine is not None and baselines:
             a0, b0 = float(affine["a"][0]), float(affine["b"][0])
             if a0 == 0.0:
                 raise ValueError(
-                    f"modifier '{mod['name']}' ({operation!r}) has dp/dtheta = 0 at its first "
+                    f"modifier '{mod['name']}' ({modifier!r}) has dp/dtheta = 0 at its first "
                     f"target -- theta does not move it, so no nominal theta exists and "
                     f"calibrating it is meaningless.")
             nominal_vals[mod["index"]] = (float(baselines[0]) - b0) / a0
             continue
-        meta = PARAM_MODIFIER_OPERATIONS.get(operation)
+        meta = PARAM_MODIFIERS.get(modifier)
         if meta is None or 'identity' not in meta:
             raise NotImplementedError(
-                f"modifier operation {operation!r} has no affine coefficients resolved and no "
+                f"modifier function {modifier!r} has no affine coefficients resolved and no "
                 f"identity value; cannot choose a nominal theta for '{mod['name']}'. Call "
                 f"resolve_modifier_baselines(param_id_info, sim_helper) first.")
         nominal_vals[mod["index"]] = meta['identity']
@@ -704,13 +718,13 @@ def modifier_weights_by_index(param_id_info):
         affine = mod.get("affine")
         if affine is not None:
             out[mod["index"]] = [float(a) for a in affine["a"]]
-        elif mod.get("operation", DEFAULT_PARAM_MODIFIER_OPERATION) == 'scale':
+        elif _modifier_name(mod) == 'scale':
             # A record from before the affine probe existed (or built by hand): for scale,
             # dp_i/dtheta is the baseline itself, so the old behaviour is still exact.
             out[mod["index"]] = [float(b) for b in baselines]
         else:
             raise ValueError(
-                f"modifier '{mod['name']}' ({mod['operation']!r}) has no affine coefficients. "
+                f"modifier '{mod['name']}' ({_modifier_name(mod)!r}) has no affine coefficients. "
                 f"Call resolve_modifier_baselines(param_id_info, sim_helper) once at setup.")
     return out
 
@@ -731,8 +745,8 @@ def save_param_modifiers(param_id_info, output_dir):
             json.dump(modifiers, f, indent=2)
 
 
-def param_modifier_operations(external_path=None):
-    """The modifier operations available to params_for_id entries, as introspectable data.
+def param_modifiers(external_path=None):
+    """The modifier functions available to params_for_id entries, as introspectable data.
 
     One record per registered modifier function -- built-ins, ``funcs_user`` and (when
     ``external_path`` is given) an external file -- each carrying ``description``,
@@ -750,12 +764,16 @@ def param_modifier_operations(external_path=None):
             'inputs': dict(getattr(fn, 'modifier_inputs', {}) or {}),
             'user_defined': BUILTIN_MODIFIER_FUNCS.get(name) is not fn,
         }
-        static = PARAM_MODIFIER_OPERATIONS.get(name)
+        static = PARAM_MODIFIERS.get(name)
         if static is not None and BUILTIN_MODIFIER_FUNCS.get(name) is fn:
             meta = {**static, **meta, 'description': static.get('description',
                                                                meta['description'])}
         out[name] = meta
     return out
+
+
+# Legacy name (#378): "operations" act on outputs; these are modifiers. Same callable.
+param_modifier_operations = param_modifiers
 
 
 # Keys an entry may carry. Anything else is a typo and is refused, on the same reasoning as
@@ -765,12 +783,13 @@ PARAMS_FOR_ID_ENTRY_KEYS = frozenset({
     'name', 'targets', 'param_type', 'min', 'max', 'name_for_plotting',
     'prior', 'prior_params', PARAM_UNBOUNDED_COLUMN, 'comment',
     # A modifier entry names the parameters it acts on with `modifies` instead of `targets`, and
-    # says what it does to them with `operation` -- the name of a registered modifier function
+    # says what it does to them with `modifier` -- the name of a registered modifier function
     # (built-in, funcs_user, or modifier_funcs_external_path). `inputs` supplies the model
     # qname(s) for each input the function declares; their *default* values are what the
     # function receives. min/max/prior belong to the modifier's own calibrated value, not to
-    # the parameters it modifies.
-    'modifies', 'operation', 'inputs',
+    # the parameters it modifies. ("Operations" act on *outputs*, in obs_data; what acts on
+    # parameters is a modifier -- 'operation' is accepted as a deprecated alias of 'modifier'.)
+    'modifies', 'modifier', 'operation', 'inputs',
 })
 
 
@@ -3447,6 +3466,19 @@ class ObsAndParamDataParser(object):
             if merged_prior:
                 entry['prior_params'] = merged_prior
 
+            # 'operation' is the #378 spelling; operations act on outputs (obs_data), so the
+            # key acting on parameters is now 'modifier'. Normalise before any other check.
+            if entry.get('operation') is not None:
+                if entry.get('modifier') is not None:
+                    raise ValueError(
+                        f'params_for_id entry {idx} sets both "modifier" and "operation" '
+                        f'(the deprecated alias). Set only "modifier".')
+                warnings.warn(
+                    f'params_for_id entry {idx}: "operation" is deprecated for modifier '
+                    f'entries; use "modifier" (operations act on outputs, modifiers act on '
+                    f'parameters).')
+                entry['modifier'] = entry.pop('operation')
+
             has_targets = entry.get('targets') is not None
             has_modifies = entry.get('modifies') is not None
             if has_targets and has_modifies:
@@ -3473,32 +3505,32 @@ class ObsAndParamDataParser(object):
             entry[key] = names
 
             if has_modifies:
-                operation = entry.get('operation') or DEFAULT_PARAM_MODIFIER_OPERATION
-                if operation not in modifier_funcs:
+                modifier = entry.get('modifier') or DEFAULT_PARAM_MODIFIER
+                if modifier not in modifier_funcs:
                     raise ValueError(
-                        f'params_for_id entry {idx} has unknown operation {operation!r}. '
+                        f'params_for_id entry {idx} has unknown modifier {modifier!r}. '
                         f'Registered modifier functions: {sorted(modifier_funcs)} (built-ins '
                         f'plus funcs_user/modifier_funcs_user.py and '
                         f'modifier_funcs_external_path).')
-                entry['operation'] = operation
+                entry['modifier'] = modifier
                 entry['inputs'] = cls._validate_modifier_inputs(
-                    idx, operation, modifier_funcs[operation], entry.get('inputs'))
+                    idx, modifier, modifier_funcs[modifier], entry.get('inputs'))
                 # A multiplier range that straddles zero flips the sign of every target
                 # somewhere inside it. That is legal arithmetic and almost never intended.
                 try:
                     lo, hi = float(entry.get('min')), float(entry.get('max'))
                 except (TypeError, ValueError):
                     lo = hi = None
-                if lo is not None and operation == 'scale' and lo <= 0 < hi:
+                if lo is not None and modifier == 'scale' and lo <= 0 < hi:
                     warnings.warn(
                         f'params_for_id entry {idx} ({entry.get("name", "?")}) is a scale '
                         f'modifier with min={lo} and max={hi}, a range crossing zero. Every '
                         f'target changes sign inside it; scale bounds are multipliers, not '
                         f'physical values.')
-            elif entry.get('operation') is not None:
+            elif entry.get('modifier') is not None:
                 raise ValueError(
-                    f'params_for_id entry {idx} sets "operation" but has no "modifies". '
-                    f'operation only applies to a modifier entry.')
+                    f'params_for_id entry {idx} sets "modifier" but has no "modifies". '
+                    f'modifier only applies to a modifier entry.')
             elif entry.get('inputs') is not None:
                 raise ValueError(
                     f'params_for_id entry {idx} sets "inputs" but has no "modifies". '
@@ -3518,7 +3550,7 @@ class ObsAndParamDataParser(object):
         return resolved
 
     @classmethod
-    def _validate_modifier_inputs(cls, idx, operation, fn, raw_inputs):
+    def _validate_modifier_inputs(cls, idx, modifier, fn, raw_inputs):
         """Normalise and validate a modifier entry's ``inputs`` against the function's
         declaration.
 
@@ -3534,12 +3566,12 @@ class ObsAndParamDataParser(object):
         unknown = set(raw_inputs) - set(declared)
         if unknown:
             raise ValueError(
-                f'params_for_id entry {idx}: operation {operation!r} does not take input(s) '
+                f'params_for_id entry {idx}: modifier {modifier!r} does not take input(s) '
                 f'{sorted(unknown)}. Declared inputs: {declared or "none"}.')
         missing = set(declared) - set(raw_inputs)
         if missing:
             raise ValueError(
-                f'params_for_id entry {idx}: operation {operation!r} requires input(s) '
+                f'params_for_id entry {idx}: modifier {modifier!r} requires input(s) '
                 f'{sorted(missing)} ({ {k: declared[k] for k in sorted(missing)} }), naming '
                 f'the model constant(s) whose default values the function receives.')
 
@@ -3549,8 +3581,8 @@ class ObsAndParamDataParser(object):
             if kind == 'float':
                 if not isinstance(value, str) or not value.strip():
                     raise ValueError(
-                        f'params_for_id entry {idx}: input {name!r} of operation '
-                        f'{operation!r} is type "float" and takes a single component/param '
+                        f'params_for_id entry {idx}: input {name!r} of modifier '
+                        f'{modifier!r} is type "float" and takes a single component/param '
                         f'qname string, got {value!r}.')
                 qnames = [value.strip()]
                 normalised[name] = qnames[0]
@@ -3559,8 +3591,8 @@ class ObsAndParamDataParser(object):
                     value = [value]
                 if not isinstance(value, list) or not value:
                     raise ValueError(
-                        f'params_for_id entry {idx}: input {name!r} of operation '
-                        f'{operation!r} is type "list" and takes a non-empty list of '
+                        f'params_for_id entry {idx}: input {name!r} of modifier '
+                        f'{modifier!r} is type "list" and takes a non-empty list of '
                         f'component/param qnames, got {value!r}.')
                 qnames = [str(q).strip() for q in value]
                 normalised[name] = qnames
@@ -3782,7 +3814,7 @@ class ObsAndParamDataParser(object):
             {
                 "index": II,
                 "name": entries[II]["name"],
-                "operation": entries[II].get("operation", DEFAULT_PARAM_MODIFIER_OPERATION),
+                "modifier": entries[II].get("modifier", DEFAULT_PARAM_MODIFIER),
                 "targets": list(entries[II]["modifies"]),
                 "baselines": None,
                 # The model constants the modifier function's declared inputs name (qnames);

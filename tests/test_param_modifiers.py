@@ -8,8 +8,8 @@ import numpy as np
 import pytest
 
 from parsers.PrimitiveParsers import (
-    DEFAULT_PARAM_MODIFIER_OPERATION, ObsAndParamDataParser, PARAM_MODIFIER_OPERATIONS,
-    expand_modifier_param_vals, param_modifier_operations, resolve_modifier_baselines)
+    DEFAULT_PARAM_MODIFIER, ObsAndParamDataParser, PARAM_MODIFIERS,
+    expand_modifier_param_vals, param_modifiers, resolve_modifier_baselines)
 
 
 def _parser():
@@ -18,7 +18,7 @@ def _parser():
 
 def _doc(**overrides):
     entry = {'name': 'compliance_scale', 'modifies': ['aortic_root/C', 'par/C'],
-             'operation': 'scale', 'min': 0.5, 'max': 2.0}
+             'modifier': 'scale', 'min': 0.5, 'max': 2.0}
     entry.update(overrides)
     return {'version': 1, 'params': [entry]}
 
@@ -46,9 +46,9 @@ class _FakeHelper:
 @pytest.mark.unit
 def test_the_operation_vocabulary_is_exported_as_data():
     """A front-end builds its menu by reading this rather than hardcoding CA's vocabulary."""
-    ops = param_modifier_operations()
+    ops = param_modifiers()
     assert 'scale' in ops
-    assert DEFAULT_PARAM_MODIFIER_OPERATION in ops
+    assert DEFAULT_PARAM_MODIFIER in ops
     meta = ops['scale']
     for key in ('description', 'applies_to', 'dimensionless', 'default_min', 'default_max',
                 'identity'):
@@ -63,8 +63,8 @@ def test_the_operation_vocabulary_is_exported_as_data():
 @pytest.mark.unit
 def test_the_exported_vocabulary_is_a_copy():
     """A consumer mutating what it introspected must not change CA's own table."""
-    param_modifier_operations()['scale']['default_min'] = 999
-    assert PARAM_MODIFIER_OPERATIONS['scale']['default_min'] != 999
+    param_modifiers()['scale']['default_min'] = 999
+    assert PARAM_MODIFIERS['scale']['default_min'] != 999
 
 
 # ------------------------------------------------------------------ parsing
@@ -98,7 +98,7 @@ def test_the_modifiers_record_carries_what_a_downstream_tool_needs():
     mod = info['modifiers'][0]
     assert mod['index'] == 0
     assert mod['name'] == 'compliance_scale'
-    assert mod['operation'] == 'scale'
+    assert mod['modifier'] == 'scale'
     assert mod['targets'] == ['aortic_root/C', 'par/C']
     # unresolved is None rather than absent, so a consumer can tell it apart from "no baseline"
     assert mod['baselines'] is None
@@ -107,8 +107,8 @@ def test_the_modifiers_record_carries_what_a_downstream_tool_needs():
 @pytest.mark.unit
 def test_operation_defaults_to_scale():
     doc = _doc()
-    del doc['params'][0]['operation']
-    assert _info(doc)['modifiers'][0]['operation'] == DEFAULT_PARAM_MODIFIER_OPERATION
+    del doc['params'][0]['modifier']
+    assert _info(doc)['modifiers'][0]['modifier'] == DEFAULT_PARAM_MODIFIER
 
 
 @pytest.mark.unit
@@ -188,15 +188,15 @@ def test_operation_without_modifies_is_refused():
     parser = _parser()
     with pytest.raises(ValueError, match='no "modifies"'):
         parser.resolve_params_for_id_doc({'version': 1, 'params': [
-            {'name': 'x', 'targets': ['a/C'], 'operation': 'scale', 'min': 1, 'max': 2}]})
+            {'name': 'x', 'targets': ['a/C'], 'modifier': 'scale', 'min': 1, 'max': 2}]})
 
 
 @pytest.mark.unit
 def test_an_unknown_operation_is_refused():
     parser = _parser()
-    with pytest.raises(ValueError, match='unknown operation'):
+    with pytest.raises(ValueError, match='unknown modifier'):
         parser.resolve_params_for_id_doc({'version': 1, 'params': [
-            {'name': 'x', 'modifies': ['a/C'], 'operation': 'offset', 'min': 1, 'max': 2}]})
+            {'name': 'x', 'modifies': ['a/C'], 'modifier': 'offset', 'min': 1, 'max': 2}]})
 
 
 @pytest.mark.unit
