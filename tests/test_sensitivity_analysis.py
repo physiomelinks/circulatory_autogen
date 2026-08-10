@@ -434,3 +434,25 @@ def test_sobolSA_generate_samples_supports_both_sample_types():
         assert samples.ndim == 2 and samples.shape[1] == 2, (sample_type, samples.shape)
         assert samples.shape[0] > 0, sample_type
         assert np.all(np.isfinite(samples)), sample_type
+
+
+@pytest.mark.unit
+def test_init_from_all_dicts_is_a_classmethod(monkeypatch):
+    """Regression for #369: the decorator was missing, so the method was an *instance* method
+    and calling it on the class -- its only sensible use -- raised a TypeError before any of
+    its body ran."""
+    from types import SimpleNamespace
+    from sensitivity_analysis.sensitivityAnalysis import SensitivityAnalysis
+
+    received = {}
+    stub = SimpleNamespace(
+        set_ground_truth_data=lambda v: received.setdefault('obs', v),
+        set_params_for_id=lambda v: received.setdefault('params', v),
+        set_sa_options=lambda v: received.setdefault('sa', v),
+    )
+    monkeypatch.setattr(SensitivityAnalysis, 'init_from_dict',
+                        classmethod(lambda cls, d: received.setdefault('inp', d) and stub or stub))
+
+    out = SensitivityAnalysis.init_from_all_dicts({'file_prefix': 'x'}, 'obs', 'params', 'sa')
+    assert out is stub
+    assert received == {'inp': {'file_prefix': 'x'}, 'obs': 'obs', 'params': 'params', 'sa': 'sa'}

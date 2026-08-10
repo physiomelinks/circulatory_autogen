@@ -162,7 +162,11 @@ class SensitivityAnalysis():
         sa._inp_data_dict = inp_data_dict
         return sa
 
+    @classmethod
     def init_from_all_dicts(cls, inp_data_dict, obs_data_dict, params_for_id_dict, sa_options):
+        """Build a fully-configured `SensitivityAnalysis` from the four input dicts (issue #369:
+        without the decorator this was an instance method, so calling it on the class -- its only
+        sensible use -- raised a TypeError)."""
         sa = cls.init_from_dict(inp_data_dict)
         sa.set_ground_truth_data(obs_data_dict)
         sa.set_params_for_id(params_for_id_dict)
