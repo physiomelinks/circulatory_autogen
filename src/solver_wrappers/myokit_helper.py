@@ -54,7 +54,48 @@ def apply_cvodes_tolerances(simulation, solver_info, fsa_enabled):
     abs_tol = atol if atol is not None else CA_DEFAULT_ABS_TOL
     rel_tol = rtol if rtol is not None else CA_DEFAULT_REL_TOL
     simulation.set_tolerance(abs_tol=abs_tol, rel_tol=rel_tol)
+    if fsa_enabled:
+        warn_if_sensitivities_are_under_resolved(rel_tol)
     return abs_tol, rel_tol
+
+
+# Below this relative tolerance the CVODES *sensitivities* get worse, not better -- see
+# warn_if_sensitivities_are_under_resolved. Measured on an analytically-solvable model
+# (tests/test_fsa_analytic_accuracy.py): rel 1e-8 gives a cost gradient accurate to ~1e-7,
+# rel 1e-12 to only ~3e-3.
+FSA_MIN_SAFE_REL_TOL = 1e-9
+
+
+def warn_if_sensitivities_are_under_resolved(rel_tol):
+    """Warn when a tightened `rtol` will *degrade* the FSA gradient (issue #387).
+
+    Myokit configures CVODES with a finite-difference (DQ) sensitivity right-hand side
+    (``CVodeSensInit(..., NULL, ...)``) and never calls ``CVodeSetSensErrCon``, so the
+    sensitivity variables are **excluded from the local error test**: the step size is chosen
+    to control the states alone, and nothing controls the sensitivities. CVODES sizes the DQ
+    perturbation as ``sqrt(max(rtol, uround)) * pbar``, so tightening rtol shrinks that
+    perturbation (more cancellation noise per evaluation) *and* takes more steps (more
+    evaluations to accumulate it) -- the two effects compound and the sensitivities drift.
+
+    Measured on ``affine_native.cellml``, one parameter, cost gradient vs a finite difference
+    of the cost: rel 1e-8 -> 9e-8, rel 1e-10 -> 3e-7, rel 1e-12 -> 3e-3. The states over the
+    same sweep stay accurate to ~1e-11 throughout, which is why this is so easy to miss: the
+    trajectory looks better and better while the gradient quietly gets worse.
+
+    Warn rather than clamp: an explicitly-set tolerance is a deliberate user choice, and a
+    forward-only run at rel 1e-12 is perfectly reasonable. Bounding ``MaximumStep`` recovers
+    much of the loss when a tight tolerance is genuinely needed (1e-12 with MaximumStep 1e-3
+    measured 1.7e-5).
+    """
+    if rel_tol is not None and rel_tol < FSA_MIN_SAFE_REL_TOL:
+        warnings.warn(
+            f"FSA (do_ad) gradients with solver_info rtol={rel_tol:g}: below "
+            f"{FSA_MIN_SAFE_REL_TOL:g} the CVODES sensitivities get *less* accurate as rtol "
+            f"tightens, because Myokit excludes them from the local error test and sizes its "
+            f"finite-difference sensitivity RHS by sqrt(rtol). The states stay accurate, so "
+            f"this is invisible in the trajectory. Prefer rtol >= "
+            f"{FSA_MIN_SAFE_REL_TOL:g} for gradient-based calibration, or bound "
+            f"solver_info MaximumStep to compensate (issue #387).")
 
 
 def stability_hint(solver_info, effective_tolerances):

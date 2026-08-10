@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+The *native* half of the modifier-equivalence pair (CUFLynx #208).
+
+One constant, theta, drives two rate constants through an affine combination
+written into the model's own math:
+
+    k1 = theta * c1        c1 = 0.7314
+    k2 = theta * c2        c2 = 0.1129
+    dx/dt = -k1 * x        x(0) = 2.0
+    dy/dt = -k2 * y        y(0) = 3.0
+
+So d(anything)/d(theta) here is computed by the solver directly, with no
+modifier machinery involved at all. `affine_modifier.cellml` is the same system
+with k1 and k2 as independent constants defaulting to exactly c1 and c2, driven
+by a params_for_id scale modifier instead. At theta = 1 the two are the same
+point of the same system, so every sensitivity must agree.
+
+The pair is deliberately solvable in closed form:
+
+    x(T) = x0 * exp(-theta*c1*T)   =>   d ln(x)/d ln(theta) = -c1*T exactly
+    y(T) = y0 * exp(-theta*c2*T)   =>   d ln(y)/d ln(theta) = -c2*T exactly
+
+independent of x0, y0 and of the solver, so the tests can assert the true
+answer rather than only that the two paths agree with each other.
+-->
+<model xmlns="http://www.cellml.org/cellml/2.0#" name="affine_native">
+
+  <component name="environment">
+    <variable name="time" units="second" interface="public"/>
+  </component>
+
+  <component name="affine">
+    <variable name="t"     units="second"        interface="public"/>
+    <!-- the one calibrated quantity -->
+    <variable name="theta" units="dimensionless" initial_value="1"/>
+    <!-- the affine coefficients -->
+    <variable name="c1"    units="dimensionless" initial_value="0.7314"/>
+    <variable name="c2"    units="dimensionless" initial_value="0.1129"/>
+    <!-- the rate constants theta computes -->
+    <variable name="k1"    units="dimensionless"/>
+    <variable name="k2"    units="dimensionless"/>
+    <!-- states -->
+    <variable name="x"     units="dimensionless" initial_value="2.0" interface="public"/>
+    <variable name="y"     units="dimensionless" initial_value="3.0" interface="public"/>
+
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+
+      <!-- k1 = theta * c1 -->
+      <apply>
+        <eq/>
+        <ci>k1</ci>
+        <apply><times/><ci>theta</ci><ci>c1</ci></apply>
+      </apply>
+
+      <!-- k2 = theta * c2 -->
+      <apply>
+        <eq/>
+        <ci>k2</ci>
+        <apply><times/><ci>theta</ci><ci>c2</ci></apply>
+      </apply>
+
+      <!-- dx/dt = -k1*x -->
+      <apply>
+        <eq/>
+        <apply><diff/><bvar><ci>t</ci></bvar><ci>x</ci></apply>
+        <apply>
+          <minus/>
+          <apply><times/><ci>k1</ci><ci>x</ci></apply>
+        </apply>
+      </apply>
+
+      <!-- dy/dt = -k2*y -->
+      <apply>
+        <eq/>
+        <apply><diff/><bvar><ci>t</ci></bvar><ci>y</ci></apply>
+        <apply>
+          <minus/>
+          <apply><times/><ci>k2</ci><ci>y</ci></apply>
+        </apply>
+      </apply>
+
+    </math>
+  </component>
+
+  <connection component_1="environment" component_2="affine">
+    <map_variables variable_1="time" variable_2="t"/>
+  </connection>
+
+</model>
