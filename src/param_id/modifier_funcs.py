@@ -27,6 +27,7 @@ User-defined functions live in ``funcs_user/modifier_funcs_user.py`` (kept outsi
 users edit it freely), or in an external file named by the ``modifier_funcs_external_path``
 config key -- mirroring the operation/cost func registries.
 """
+import functools
 import importlib
 import os
 
@@ -89,6 +90,19 @@ def _collect_decorated(module):
             and not name.startswith('_')}
 
 
+@functools.lru_cache(maxsize=8)
+def _external_funcs_cached(abspath):
+    """Load-and-collect an external modifier-funcs file once per process.
+
+    ``expand_modifier_param_vals`` looks the registry up on every cost evaluation, and
+    ``_load_module_from_path`` re-executes the file each call -- uncached, an external-path
+    calibration would hit the disk and re-exec user code thousands of times per run. Cached by
+    absolute path: edits to the file during a running process are not picked up, the same
+    resolve-once semantics as the baselines.
+    """
+    return _collect_decorated(_load_module_from_path(abspath))
+
+
 def get_modifier_funcs(external_path=None):
     """The full modifier-function registry: built-ins, then ``funcs_user``, then external.
 
@@ -115,7 +129,7 @@ def get_modifier_funcs(external_path=None):
         if not os.path.exists(external_path):
             raise FileNotFoundError(
                 f"modifier_funcs_external_path not found: {external_path}")
-        funcs.update(_collect_decorated(_load_module_from_path(external_path)))
+        funcs.update(_external_funcs_cached(os.path.abspath(external_path)))
     return funcs
 
 
