@@ -5260,8 +5260,10 @@ def test_param_id_3compartment_modifier_calibration_fsa(
 #                                              adding it would double-count)
 #   arterial_simple  q(0) = q_0               (q = q_C + q_C_d + q_0, states start at 0)
 #   terminal         q(0) = q_init            (q_us only shapes pressure, (q - q_us)/C_T)
-#   venous (vp)      q(0) = q_C_init + q_us_0 (stressed init + unstressed constant; exact
-#                                              while Delta_q_us = 0, as in this model)
+#   venous (vp)      q(0) = q_C_init + q_us_0 (exact for ANY Delta_q_us: the module's total
+#                                              is q = q_C_change + q_us_0 -- q_us_wCont
+#                                              cancels, venoconstriction only re-partitions
+#                                              stressed vs unstressed, never the total)
 _3COMP_OTHER_VOLUMES = {
     'global/q_ra_init': 4e-6,
     'global/q_rv_init': 1e-5,
