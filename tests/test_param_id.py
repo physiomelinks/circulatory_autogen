@@ -5252,15 +5252,27 @@ def test_param_id_3compartment_modifier_calibration_fsa(
     mpi_comm.Barrier()
 
 
-# Every initial volume in 3compartment_parameters.csv (issue #383: q_tot is only a total if
-# nothing is left out). global/q_lv_init is the remainder's target; these six are subtracted.
+# Every constant that carries blood volume at t=0 in 3compartment (issue #383: q_tot is only
+# a total if nothing is left out). global/q_lv_init is the remainder's target; the rest are
+# subtracted. Derived from each module's own convention, per BG_modules.cellml /
+# heart_modules.cellml:
+#   heart chambers   q(0) = q_*_init          (q_*_us only shapes pressure, E*(q - q_us):
+#                                              adding it would double-count)
+#   arterial_simple  q(0) = q_0               (q = q_C + q_C_d + q_0, states start at 0)
+#   terminal         q(0) = q_init            (q_us only shapes pressure, (q - q_us)/C_T)
+#   venous (vp)      q(0) = q_C_init + q_us_0 (stressed init + unstressed constant; exact
+#                                              while Delta_q_us = 0, as in this model)
 _3COMP_OTHER_VOLUMES = {
     'global/q_ra_init': 4e-6,
     'global/q_rv_init': 1e-5,
     'global/q_la_init': 4e-6,
-    'pvn/q_C_init': 1e-4,
+    'aortic_root/q_0': 6.94e-6,
+    'par/q_0': 0.0,
     'systemic_T/q_init': 2.45e-3,
+    'pvn/q_C_init': 1e-4,
+    'pvn/q_us_0': 0.0,
     'venous_svc/q_C_init': 1.3e-3,
+    'venous_svc/q_us_0': 0.0,
 }
 _3COMP_Q_LV_DEFAULT = 2e-3
 
@@ -5274,11 +5286,14 @@ def test_param_id_3compartment_remainder_calibration_fsa(
     volume q_tot and derive q_lv_init = q_tot - sum(every other initial volume) through the
     built-in ``remainder`` modifier function, on the FSA gradient path.
 
-    All six non-LV initial volumes in the model are subtracted -- q_tot is only a total if
-    nothing is left out. Checks the end-to-end contract: the run starts with q_lv_init at its
-    model default (theta x0 auto-inverts to q_lv_default + sum(others)), param_modifiers.json
-    records the inputs, their resolved default values and the probed affine coefficients, and
-    the reported theta is a volume interpretable against them.
+    Every non-LV constant carrying blood volume at t=0 is subtracted -- chamber inits,
+    arterial reference volumes (q_0), the terminal q_init, and the venous stressed inits plus
+    their unstressed constants (q_us_0) -- so theta is the volume the volume_sum module would
+    report at init; q_tot is only a total if nothing is left out (see _3COMP_OTHER_VOLUMES for
+    each module family's convention). Checks the end-to-end contract: the run starts with
+    q_lv_init at its model default (theta x0 auto-inverts to q_lv_default + sum(others)),
+    param_modifiers.json records the inputs, their resolved default values and the probed
+    affine coefficients, and the reported theta is a volume interpretable against them.
     """
     import json
 
