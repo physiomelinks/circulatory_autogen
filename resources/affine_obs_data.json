@@ -1,0 +1,38 @@
+{
+  "protocol_info": {
+    "pre_times": [0.0],
+    "sim_times": [[4]],
+    "params_to_change": {}
+  },
+  "prediction_items": [],
+  "data_items": [
+    {
+      "variable": "x_end",
+      "name_for_plotting": "x_{end}",
+      "data_type": "constant",
+      "operation": "min",
+      "operands": ["affine/x"],
+      "unit": "dimensionless",
+      "weight": 1.0,
+      "value": 0.15,
+      "std": 0.05,
+      "experiment_idx": 0,
+      "subexperiment_idx": 0,
+      "plot_type": "horizontal"
+    },
+    {
+      "variable": "y_end",
+      "name_for_plotting": "y_{end}",
+      "data_type": "constant",
+      "operation": "min",
+      "operands": ["affine/y"],
+      "unit": "dimensionless",
+      "weight": 1.0,
+      "value": 1.8,
+      "std": 0.2,
+      "experiment_idx": 0,
+      "subexperiment_idx": 0,
+      "plot_type": "horizontal"
+    }
+  ]
+}
