@@ -209,16 +209,19 @@ class CVS0DParamID():
                  solver_info=None, mcmc_options=None, optimiser_options=None, 
                  do_ad=False, DEBUG=False,
                  param_id_output_dir=None, resources_dir=None, one_rank=False,
-                 operation_funcs_external_path=None, cost_funcs_external_path=None):
+                 operation_funcs_external_path=None, cost_funcs_external_path=None,
+                 modifier_funcs_external_path=None):
         self.model_path = model_path
         self.param_id_method = param_id_method
         self.mcmc_instead = mcmc_instead
         self.model_type = model_type
         self.file_name_prefix = file_name_prefix
         # Optional external user-func files (issue #303), threaded into the param-id engine so its
-        # operation/cost dicts merge them in alongside the built-ins.
+        # operation/cost dicts merge them in alongside the built-ins. modifier_funcs (issue #383)
+        # follow the same pattern via the params_for_id parser.
         self.operation_funcs_external_path = operation_funcs_external_path
         self.cost_funcs_external_path = cost_funcs_external_path
+        self.modifier_funcs_external_path = modifier_funcs_external_path
 
         self.comm = MPI.COMM_WORLD
         self.rank = self.comm.Get_rank()
@@ -281,7 +284,8 @@ class CVS0DParamID():
         self.prediction_info = None
         self.params_for_id_path = params_for_id_path
         self.optimiser_options = optimiser_options
-        self.obs_and_param_parser = ObsAndParamDataParser()
+        self.obs_and_param_parser = ObsAndParamDataParser(
+            modifier_funcs_external_path=modifier_funcs_external_path)
         if param_id_obs_path:
             # self.__set_obs_names_and_df(param_id_obs_path, sim_time=sim_time, pre_time=pre_time)
             parsed_data = self.obs_and_param_parser.parse_obs_data_json(
@@ -389,6 +393,7 @@ class CVS0DParamID():
             'optimiser_options', 'DEBUG', 'param_id_output_dir', 'resources_dir',
             'one_rank', 'do_ad',
             'operation_funcs_external_path', 'cost_funcs_external_path',
+            'modifier_funcs_external_path',
         ]
         kwargs = {key: inp_data_dict[key] for key in arg_options if key in inp_data_dict}
 

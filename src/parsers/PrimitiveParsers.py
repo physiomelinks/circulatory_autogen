@@ -21,6 +21,8 @@ import re
 from datetime import date
 
 from utilities.protocol_shapes import materialise_shapes, validate_trace_references
+from param_id.modifier_funcs import (BUILTIN_MODIFIER_FUNCS, get_modifier_funcs,
+                                     probe_affine)
 
 try:
     from mpi4py import MPI
@@ -505,7 +507,7 @@ DEFAULT_PARAM_MODIFIER_OPERATION = 'scale'
 
 
 def resolve_modifier_baselines(param_id_info, sim_helper):
-    """Fill in each modifier's `baselines` from the model, once.
+    """Fill in each modifier's `baselines`, `resolved_inputs` and `affine` from the model, once.
 
     Resolved once at setup and never re-derived, because on some backends
     ``get_init_param_vals`` reads the live parameter array: after ``set_param_vals`` has written,
@@ -533,16 +535,51 @@ def resolve_modifier_baselines(param_id_info, sim_helper):
             f"theta * baseline_i, and reading the baseline from the live parameter array would "
             f"compound the factor across calibration iterations.")
 
+    funcs = get_modifier_funcs(param_id_info.get("modifier_funcs_external_path"))
+
+    def _default(qname):
+        value = sim_helper.get_default_param_vals([[qname]])[0]
+        if isinstance(value, (list, tuple)):
+            value = value[0]
+        return float(value)
+
     for mod in modifiers:
-        if mod.get("baselines") is not None:
-            continue
-        raw = sim_helper.get_default_param_vals([[q] for q in mod["targets"]])
-        baselines = []
-        for value in raw:
-            if isinstance(value, (list, tuple)):
-                value = value[0]
-            baselines.append(float(value))
-        mod["baselines"] = baselines
+        if mod.get("baselines") is None:
+            raw = sim_helper.get_default_param_vals([[q] for q in mod["targets"]])
+            baselines = []
+            for value in raw:
+                if isinstance(value, (list, tuple)):
+                    value = value[0]
+                baselines.append(float(value))
+            mod["baselines"] = baselines
+
+        fn = funcs.get(mod["operation"])
+        if fn is None:
+            raise ValueError(
+                f"modifier '{mod['name']}' uses operation {mod['operation']!r}, which is not "
+                f"in the modifier-function registry. Registered: {sorted(funcs)}.")
+
+        # Declared inputs resolve to model defaults exactly once, like the baselines -- a
+        # value read mid-calibration would already have been written by the optimiser.
+        if mod.get("resolved_inputs") is None:
+            resolved = {}
+            for name, qnames in (mod.get("inputs") or {}).items():
+                if isinstance(qnames, list):
+                    resolved[name] = [_default(q) for q in qnames]
+                else:
+                    resolved[name] = _default(qnames)
+            mod["resolved_inputs"] = resolved
+
+        # p_i = a_i*theta + b_i, probed numerically per target. a_i is the constant
+        # chain-rule weight the analytic gradients apply (dp_i/dtheta); a non-affine
+        # function is refused here, before it can make a gradient silently wrong.
+        if mod.get("affine") is None:
+            a_list, b_list = [], []
+            for baseline in mod["baselines"]:
+                a, b = probe_affine(fn, baseline, mod["resolved_inputs"], mod["operation"])
+                a_list.append(a)
+                b_list.append(b)
+            mod["affine"] = {"a": a_list, "b": b_list}
     return param_id_info
 
 
@@ -552,8 +589,9 @@ def expand_modifier_param_vals(param_id_info, param_vals):
     A modifier occupies one slot in the vector (its theta) but names N model parameters, so its
     slot expands to N values, one per target. Everything else passes through untouched.
 
-    The expansion is the whole of the modifier's arithmetic:
-        scale ->  p_i = theta * baseline_i
+    The expansion is the whole of the modifier's arithmetic: the entry's modifier function is
+    called per target, ``p_i = fn(theta, baseline_i, **resolved_inputs)`` -- ``scale`` is just
+    the built-in ``theta * baseline_i``.
 
     N names against N values is paired positionally by pair_names_with_values (#376), which is
     why no backend needs to know modifiers exist.
@@ -562,6 +600,7 @@ def expand_modifier_param_vals(param_id_info, param_vals):
     if not modifiers:
         return list(param_vals)
 
+    funcs = get_modifier_funcs(param_id_info.get("modifier_funcs_external_path"))
     by_index = {mod["index"]: mod for mod in modifiers}
     out = []
     for idx, value in enumerate(param_vals):
@@ -575,10 +614,18 @@ def expand_modifier_param_vals(param_id_info, param_vals):
                 f"modifier '{mod['name']}' has no resolved baselines. Call "
                 f"resolve_modifier_baselines(param_id_info, sim_helper) once at setup, before "
                 f"any parameter has been written.")
-        if mod["operation"] != 'scale':
+        fn = funcs.get(mod["operation"])
+        if fn is None:
             raise NotImplementedError(
-                f"modifier operation {mod['operation']!r} is declared but not implemented.")
-        out.append([float(value) * b for b in baselines])
+                f"modifier operation {mod['operation']!r} is declared but not in the "
+                f"modifier-function registry. Registered: {sorted(funcs)}.")
+        declared = getattr(fn, 'modifier_inputs', {}) or {}
+        resolved = mod.get("resolved_inputs")
+        if declared and resolved is None:
+            raise ValueError(
+                f"modifier '{mod['name']}' has unresolved inputs {sorted(declared)}. Call "
+                f"resolve_modifier_baselines(param_id_info, sim_helper) once at setup.")
+        out.append([float(fn(float(value), b, **(resolved or {}))) for b in baselines])
     return out
 
 
@@ -599,21 +646,39 @@ def param_entry_labels(param_id_info):
 
 
 def apply_modifier_identity_nominals(param_id_info, nominal_vals):
-    """Overwrite each modifier's slot in ``nominal_vals`` with its operation's identity theta.
+    """Overwrite each modifier's slot in ``nominal_vals`` with the theta that leaves its
+    targets at their baselines.
 
     A nominal parameter vector read from the model (``get_init_param_vals`` over first members)
     is right for ordinary and grouped rows, but a modifier's slot is theta, not a model value --
-    the first target's default there would scale every target by it. The identity (scale -> 1.0)
-    is the theta at which every target sits at its baseline, which is what "nominal" means.
-    Returns ``nominal_vals``, modified in place.
+    the first target's default there would be fed to the modifier function as theta. The right
+    nominal is the theta at which the targets sit at their model defaults: invert the affine
+    mapping at the first target, ``theta0 = (baseline_0 - b_0) / a_0`` (for scale that is
+    exactly the identity, 1.0). Multi-target entries whose targets would invert to different
+    thetas keep the first target exact -- the others are as close as one theta allows, which
+    is the entry's own approximation, not this function's. Falls back to the operation's
+    static ``identity`` metadata for records without probed coefficients (built by hand or
+    saved before the probe existed). Returns ``nominal_vals``, modified in place.
     """
     for mod in param_id_info.get("modifiers") or []:
         operation = mod.get("operation", DEFAULT_PARAM_MODIFIER_OPERATION)
+        affine = mod.get("affine")
+        baselines = mod.get("baselines")
+        if affine is not None and baselines:
+            a0, b0 = float(affine["a"][0]), float(affine["b"][0])
+            if a0 == 0.0:
+                raise ValueError(
+                    f"modifier '{mod['name']}' ({operation!r}) has dp/dtheta = 0 at its first "
+                    f"target -- theta does not move it, so no nominal theta exists and "
+                    f"calibrating it is meaningless.")
+            nominal_vals[mod["index"]] = (float(baselines[0]) - b0) / a0
+            continue
         meta = PARAM_MODIFIER_OPERATIONS.get(operation)
         if meta is None or 'identity' not in meta:
             raise NotImplementedError(
-                f"modifier operation {operation!r} has no identity value; cannot choose a "
-                f"nominal theta for '{mod['name']}'.")
+                f"modifier operation {operation!r} has no affine coefficients resolved and no "
+                f"identity value; cannot choose a nominal theta for '{mod['name']}'. Call "
+                f"resolve_modifier_baselines(param_id_info, sim_helper) first.")
         nominal_vals[mod["index"]] = meta['identity']
     return nominal_vals
 
@@ -622,10 +687,11 @@ def modifier_weights_by_index(param_id_info):
     """Per-entry chain-rule weights: ``{entry_index: [w_i per member]}`` for modifier entries.
 
     A calibrated theta that governs several model parameters has
-    ``d(anything)/d(theta) = sum_i w_i * d(anything)/d(p_i)`` with ``w_i = dp_i/dtheta``. For a
-    scale modifier ``p_i = theta * baseline_i`` so ``w_i = baseline_i``. Shared-value groups
-    (``w_i = 1``) are not in the map -- absence means unit weights. Raises if a modifier's
-    baselines have not been resolved, because a weight guessed at is a gradient silently wrong.
+    ``d(anything)/d(theta) = sum_i w_i * d(anything)/d(p_i)`` with ``w_i = dp_i/dtheta``. Every
+    modifier function is affine in theta (``p_i = a_i*theta + b_i``, enforced by the probe at
+    resolve time), so ``w_i = a_i`` -- for the built-in scale that is the baseline itself.
+    Shared-value groups (``w_i = 1``) are not in the map -- absence means unit weights. Raises
+    if a modifier is unresolved, because a weight guessed at is a gradient silently wrong.
     """
     out = {}
     for mod in param_id_info.get("modifiers") or []:
@@ -635,10 +701,17 @@ def modifier_weights_by_index(param_id_info):
                 f"modifier '{mod['name']}' has no resolved baselines. Call "
                 f"resolve_modifier_baselines(param_id_info, sim_helper) once at setup, before "
                 f"any parameter has been written.")
-        if mod.get("operation", DEFAULT_PARAM_MODIFIER_OPERATION) != 'scale':
-            raise NotImplementedError(
-                f"modifier operation {mod['operation']!r} is declared but not implemented.")
-        out[mod["index"]] = [float(b) for b in baselines]
+        affine = mod.get("affine")
+        if affine is not None:
+            out[mod["index"]] = [float(a) for a in affine["a"]]
+        elif mod.get("operation", DEFAULT_PARAM_MODIFIER_OPERATION) == 'scale':
+            # A record from before the affine probe existed (or built by hand): for scale,
+            # dp_i/dtheta is the baseline itself, so the old behaviour is still exact.
+            out[mod["index"]] = [float(b) for b in baselines]
+        else:
+            raise ValueError(
+                f"modifier '{mod['name']}' ({mod['operation']!r}) has no affine coefficients. "
+                f"Call resolve_modifier_baselines(param_id_info, sim_helper) once at setup.")
     return out
 
 
@@ -658,9 +731,31 @@ def save_param_modifiers(param_id_info, output_dir):
             json.dump(modifiers, f, indent=2)
 
 
-def param_modifier_operations():
-    """The modifier operations this version of circulatory_autogen implements."""
-    return {name: dict(meta) for name, meta in PARAM_MODIFIER_OPERATIONS.items()}
+def param_modifier_operations(external_path=None):
+    """The modifier operations available to params_for_id entries, as introspectable data.
+
+    One record per registered modifier function -- built-ins, ``funcs_user`` and (when
+    ``external_path`` is given) an external file -- each carrying ``description``,
+    ``applies_to``, ``inputs`` (``{name: 'float'|'list'}``: what the entry must supply
+    qnames for) and ``user_defined``. Built-ins with static UI metadata (scale's
+    ``default_min``/``default_max``/``dimensionless``/``identity``) keep those keys. A
+    front-end builds its modifier form from this rather than hardcoding CA's vocabulary,
+    the same way it reads the cost-func registry.
+    """
+    out = {}
+    for name, fn in get_modifier_funcs(external_path).items():
+        meta = {
+            'description': getattr(fn, 'modifier_description', name),
+            'applies_to': 'value',
+            'inputs': dict(getattr(fn, 'modifier_inputs', {}) or {}),
+            'user_defined': BUILTIN_MODIFIER_FUNCS.get(name) is not fn,
+        }
+        static = PARAM_MODIFIER_OPERATIONS.get(name)
+        if static is not None and BUILTIN_MODIFIER_FUNCS.get(name) is fn:
+            meta = {**static, **meta, 'description': static.get('description',
+                                                               meta['description'])}
+        out[name] = meta
+    return out
 
 
 # Keys an entry may carry. Anything else is a typo and is refused, on the same reasoning as
@@ -670,9 +765,12 @@ PARAMS_FOR_ID_ENTRY_KEYS = frozenset({
     'name', 'targets', 'param_type', 'min', 'max', 'name_for_plotting',
     'prior', 'prior_params', PARAM_UNBOUNDED_COLUMN, 'comment',
     # A modifier entry names the parameters it acts on with `modifies` instead of `targets`, and
-    # says what it does to them with `operation`. min/max/prior belong to the modifier's own
-    # calibrated value, not to the parameters it modifies.
-    'modifies', 'operation',
+    # says what it does to them with `operation` -- the name of a registered modifier function
+    # (built-in, funcs_user, or modifier_funcs_external_path). `inputs` supplies the model
+    # qname(s) for each input the function declares; their *default* values are what the
+    # function receives. min/max/prior belong to the modifier's own calibrated value, not to
+    # the parameters it modifies.
+    'modifies', 'operation', 'inputs',
 })
 
 
@@ -2413,8 +2511,12 @@ def validate_params_to_change(protocol_info):
 
 
 class ObsAndParamDataParser(object):
-    def __init__(self):
-        pass
+    def __init__(self, modifier_funcs_external_path=None):
+        # Optional external file of user modifier functions (issue #383), threaded from the
+        # `modifier_funcs_external_path` config key -- mirrors operation/cost funcs. Modifier
+        # entries validate against the merged registry, and the path is recorded on the built
+        # param_id_info so the expansion and resolve steps load the same registry later.
+        self.modifier_funcs_external_path = modifier_funcs_external_path
 
     def parse_obs_data_json(
         self,
@@ -3287,14 +3389,20 @@ class ObsAndParamDataParser(object):
         return {'version': PARAMS_FOR_ID_JSON_VERSION, 'defaults': {}, 'params': params}
 
     @classmethod
-    def resolve_params_for_id_doc(cls, doc):
+    def resolve_params_for_id_doc(cls, doc, modifier_funcs=None):
         """Validate a params_for_id document and fold `defaults` into each entry.
 
         Resolution is a shallow per-key override -- an entry's own key wins over `defaults`, which
         wins over whatever circulatory_autogen derives later (the prior machinery's default_expr).
         `prior_params` merges per key too, so a defaults block setting prior_std does not wipe an
         entry's prior_mean.
+
+        ``modifier_funcs`` is the registry modifier entries validate against (operation names,
+        declared inputs); defaults to the built-in + funcs_user registry. Pass
+        ``get_modifier_funcs(external_path)`` to also accept externally-defined functions.
         """
+        if modifier_funcs is None:
+            modifier_funcs = get_modifier_funcs(None)
         if not isinstance(doc, dict):
             raise ValueError(
                 f'params_for_id JSON must be an object with a "params" list, got '
@@ -3366,11 +3474,15 @@ class ObsAndParamDataParser(object):
 
             if has_modifies:
                 operation = entry.get('operation') or DEFAULT_PARAM_MODIFIER_OPERATION
-                if operation not in PARAM_MODIFIER_OPERATIONS:
+                if operation not in modifier_funcs:
                     raise ValueError(
                         f'params_for_id entry {idx} has unknown operation {operation!r}. '
-                        f'Implemented operations: {sorted(PARAM_MODIFIER_OPERATIONS)}.')
+                        f'Registered modifier functions: {sorted(modifier_funcs)} (built-ins '
+                        f'plus funcs_user/modifier_funcs_user.py and '
+                        f'modifier_funcs_external_path).')
                 entry['operation'] = operation
+                entry['inputs'] = cls._validate_modifier_inputs(
+                    idx, operation, modifier_funcs[operation], entry.get('inputs'))
                 # A multiplier range that straddles zero flips the sign of every target
                 # somewhere inside it. That is legal arithmetic and almost never intended.
                 try:
@@ -3387,6 +3499,10 @@ class ObsAndParamDataParser(object):
                 raise ValueError(
                     f'params_for_id entry {idx} sets "operation" but has no "modifies". '
                     f'operation only applies to a modifier entry.')
+            elif entry.get('inputs') is not None:
+                raise ValueError(
+                    f'params_for_id entry {idx} sets "inputs" but has no "modifies". '
+                    f'inputs supply a modifier function\'s extra model constants.')
 
             entry.setdefault('name', entry[key][0])
             name = str(entry['name'])
@@ -3400,6 +3516,57 @@ class ObsAndParamDataParser(object):
 
         cls._validate_modifier_relationships(resolved)
         return resolved
+
+    @classmethod
+    def _validate_modifier_inputs(cls, idx, operation, fn, raw_inputs):
+        """Normalise and validate a modifier entry's ``inputs`` against the function's
+        declaration.
+
+        The function declares each input's name and type on the decorator
+        (``@modifier_func(inputs={'subtract': 'list'})``); the entry supplies the model
+        qname(s) whose *default* values the function will receive: a single qname string for
+        ``'float'``, a non-empty list of qnames for ``'list'``. Everything is checked here, at
+        parse time, so a typo'd input never reaches a calibration as a silently-absent kwarg.
+        """
+        declared = dict(getattr(fn, 'modifier_inputs', {}) or {})
+        raw_inputs = dict(raw_inputs or {})
+
+        unknown = set(raw_inputs) - set(declared)
+        if unknown:
+            raise ValueError(
+                f'params_for_id entry {idx}: operation {operation!r} does not take input(s) '
+                f'{sorted(unknown)}. Declared inputs: {declared or "none"}.')
+        missing = set(declared) - set(raw_inputs)
+        if missing:
+            raise ValueError(
+                f'params_for_id entry {idx}: operation {operation!r} requires input(s) '
+                f'{sorted(missing)} ({ {k: declared[k] for k in sorted(missing)} }), naming '
+                f'the model constant(s) whose default values the function receives.')
+
+        normalised = {}
+        for name, kind in declared.items():
+            value = raw_inputs[name]
+            if kind == 'float':
+                if not isinstance(value, str) or not value.strip():
+                    raise ValueError(
+                        f'params_for_id entry {idx}: input {name!r} of operation '
+                        f'{operation!r} is type "float" and takes a single component/param '
+                        f'qname string, got {value!r}.')
+                qnames = [value.strip()]
+                normalised[name] = qnames[0]
+            else:  # 'list'
+                if isinstance(value, str):
+                    value = [value]
+                if not isinstance(value, list) or not value:
+                    raise ValueError(
+                        f'params_for_id entry {idx}: input {name!r} of operation '
+                        f'{operation!r} is type "list" and takes a non-empty list of '
+                        f'component/param qnames, got {value!r}.')
+                qnames = [str(q).strip() for q in value]
+                normalised[name] = qnames
+            for qname in qnames:
+                cls._qname_to_vessel_and_param(qname)
+        return normalised
 
     @staticmethod
     def _validate_modifier_relationships(entries):
@@ -3464,7 +3631,8 @@ class ObsAndParamDataParser(object):
                 doc = json.load(f)
         else:
             doc = self.params_for_id_csv_to_json(params_for_id_path)
-        entries = self.resolve_params_for_id_doc(doc)
+        entries = self.resolve_params_for_id_doc(
+            doc, modifier_funcs=get_modifier_funcs(self.modifier_funcs_external_path))
         return self._build_param_id_info_from_entries(entries, idxs_to_ignore=idxs_to_ignore)
 
     def get_param_id_info_from_entries(self, params_for_id_entries, idxs_to_ignore=None):
@@ -3617,9 +3785,21 @@ class ObsAndParamDataParser(object):
                 "operation": entries[II].get("operation", DEFAULT_PARAM_MODIFIER_OPERATION),
                 "targets": list(entries[II]["modifies"]),
                 "baselines": None,
+                # The model constants the modifier function's declared inputs name (qnames);
+                # their default values land in `resolved_inputs` alongside the baselines.
+                "inputs": dict(entries[II].get("inputs") or {}),
+                "resolved_inputs": None,
+                # Per-target affine coefficients of p_i = a_i*theta + b_i, probed at resolve
+                # time: a_i is the gradient chain-rule weight, and inverting at the first
+                # target's baseline gives theta's starting value.
+                "affine": None,
             }
             for II in range(N_params) if entries[II].get("modifies")
         ]
+        # Recorded so resolve_modifier_baselines / expand_modifier_param_vals load the same
+        # registry (including external functions) that the entries were validated against.
+        param_id_info["modifier_funcs_external_path"] = getattr(
+            self, 'modifier_funcs_external_path', None)
 
         return param_id_info
 

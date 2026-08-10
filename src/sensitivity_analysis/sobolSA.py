@@ -72,7 +72,8 @@ class sobol_SA():
     def __init__(self, model_path, model_out_names, solver_info, SA_info, dt, sa_output_dir,
                  param_id_path = None, params_for_id_path=None, use_MPI = False, verbose=False,
                  sim_time=2.0, pre_time=20.0, model_type=None,
-                 operation_funcs_external_path=None, cost_funcs_external_path=None):
+                 operation_funcs_external_path=None, cost_funcs_external_path=None,
+                 modifier_funcs_external_path=None):
 
         """
         Initializes the Sensitivity_analysis class.
@@ -107,6 +108,7 @@ class sobol_SA():
         self.sfp = scriptFunctionParser(
             operation_funcs_external_path=operation_funcs_external_path,
             cost_funcs_external_path=cost_funcs_external_path)
+        self.modifier_funcs_external_path = modifier_funcs_external_path
         self.operation_funcs_dict = self.sfp.get_operation_funcs_dict(mode)
 
         self.obs_and_param_parser = None
@@ -115,7 +117,8 @@ class sobol_SA():
             
 
         if param_id_path is not None:
-            self.obs_and_param_parser = ObsAndParamDataParser()
+            self.obs_and_param_parser = ObsAndParamDataParser(
+                modifier_funcs_external_path=getattr(self, 'modifier_funcs_external_path', None))
             parsed_data = self.obs_and_param_parser.parse_obs_data_json(
                 param_id_obs_path=param_id_path,
                 pre_time=pre_time,
@@ -184,7 +187,8 @@ class sobol_SA():
         if self.rank == 0:
             print(f'Setting ground truth data: {obs_data_dict}')
         if self.obs_and_param_parser is None:
-            self.obs_and_param_parser = ObsAndParamDataParser()
+            self.obs_and_param_parser = ObsAndParamDataParser(
+                modifier_funcs_external_path=getattr(self, 'modifier_funcs_external_path', None))
         parsed_data = self.obs_and_param_parser.parse_obs_data_json(
             obs_data_dict=obs_data_dict,
             pre_time=self.pre_time,
@@ -208,7 +212,8 @@ class sobol_SA():
         if self.rank == 0:
             print(f'Setting params for id: {params_for_id_dict}')
         if self.obs_and_param_parser is None:
-            self.obs_and_param_parser = ObsAndParamDataParser()
+            self.obs_and_param_parser = ObsAndParamDataParser(
+                modifier_funcs_external_path=getattr(self, 'modifier_funcs_external_path', None))
         self.param_id_info = self.obs_and_param_parser.get_param_id_info_from_entries(params_for_id_dict)
         self.obs_and_param_parser.save_param_names(self.param_id_info, self.output_dir)
         self.create_SA_info(self.sample_type, self.SA_info["num_samples"])
