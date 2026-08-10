@@ -5180,7 +5180,7 @@ def test_param_id_3compartment_modifier_calibration_fsa(
             {'name': 'q_lv_init', 'targets': ['global/q_lv_init'],
              'min': 200e-6, 'max': 1500e-6, 'name_for_plotting': 'q_{sbv}'},
             {'name': 'C_scale', 'modifies': ['aortic_root/C', 'par/C'],
-             'operation': 'scale', 'min': 0.5, 'max': 2.0,
+             'modifier': 'scale', 'min': 0.5, 'max': 2.0,
              'name_for_plotting': r'\theta_{C}'},
         ],
     }
@@ -5244,9 +5244,141 @@ def test_param_id_3compartment_modifier_calibration_fsa(
         assert len(modifiers) == 1
         mod = modifiers[0]
         assert mod['name'] == 'C_scale'
-        assert mod['operation'] == 'scale'
+        assert mod['modifier'] == 'scale'
         assert mod['targets'] == ['aortic_root/C', 'par/C']
         # Model defaults from 3compartment_parameters.csv (C_aortic_root, C_par).
         assert mod['baselines'] == pytest.approx([1.2028e-8, 3.09077e-10], rel=1e-6), \
             f'baselines should be the model defaults, got {mod["baselines"]}'
+    mpi_comm.Barrier()
+
+
+# Every constant that carries blood volume at t=0 in 3compartment (issue #383: q_tot is only
+# a total if nothing is left out). global/q_lv_init is the remainder's target; the rest are
+# subtracted. Derived from each module's own convention, per BG_modules.cellml /
+# heart_modules.cellml:
+#   heart chambers   q(0) = q_*_init          (q_*_us only shapes pressure, E*(q - q_us):
+#                                              adding it would double-count)
+#   arterial_simple  q(0) = q_0               (q = q_C + q_C_d + q_0, states start at 0)
+#   terminal         q(0) = q_init            (q_us only shapes pressure, (q - q_us)/C_T)
+#   venous (vp)      q(0) = q_C_init + q_us_0 (exact for ANY Delta_q_us: the module's total
+#                                              is q = q_C_change + q_us_0 -- q_us_wCont
+#                                              cancels, venoconstriction only re-partitions
+#                                              stressed vs unstressed, never the total)
+_3COMP_OTHER_VOLUMES = {
+    'global/q_ra_init': 4e-6,
+    'global/q_rv_init': 1e-5,
+    'global/q_la_init': 4e-6,
+    'aortic_root/q_0': 6.94e-6,
+    'par/q_0': 0.0,
+    'systemic_T/q_init': 2.45e-3,
+    'pvn/q_C_init': 1e-4,
+    'pvn/q_us_0': 0.0,
+    'venous_svc/q_C_init': 1.3e-3,
+    'venous_svc/q_us_0': 0.0,
+}
+_3COMP_Q_LV_DEFAULT = 2e-3
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.mpi
+def test_param_id_3compartment_remainder_calibration_fsa(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
+    """The #383 motivating case driven through a real calibration: calibrate the total blood
+    volume q_tot and derive q_lv_init = q_tot - sum(every other initial volume) through the
+    built-in ``remainder`` modifier function, on the FSA gradient path.
+
+    Every non-LV constant carrying blood volume at t=0 is subtracted -- chamber inits,
+    arterial reference volumes (q_0), the terminal q_init, and the venous stressed inits plus
+    their unstressed constants (q_us_0) -- so theta is the volume the volume_sum module would
+    report at init; q_tot is only a total if nothing is left out (see _3COMP_OTHER_VOLUMES for
+    each module family's convention). Checks the end-to-end contract: the run starts with
+    q_lv_init at its model default (theta x0 auto-inverts to q_lv_default + sum(others)),
+    param_modifiers.json records the inputs, their resolved default values and the probed
+    affine coefficients, and the reported theta is a volume interpretable against them.
+    """
+    import json
+
+    rank = mpi_comm.Get_rank()
+
+    others_sum = sum(_3COMP_OTHER_VOLUMES.values())          # 3.868e-3
+    q_tot_baseline = _3COMP_Q_LV_DEFAULT + others_sum        # 5.868e-3
+
+    params_doc = {
+        'version': 1,
+        'params': [
+            {'name': 'q_tot', 'modifies': ['global/q_lv_init'],
+             'modifier': 'remainder',
+             'inputs': {'subtract': sorted(_3COMP_OTHER_VOLUMES)},
+             # A box around the baseline total; q_lv_init = theta - 3.868e-3 stays positive
+             # everywhere inside it.
+             'min': 4.5e-3, 'max': 7e-3, 'name_for_plotting': 'q_{tot}'},
+            {'name': 'C_ao', 'targets': ['aortic_root/C'],
+             'min': 1e-9, 'max': 5e-8, 'name_for_plotting': 'C_{ao}'},
+        ],
+    }
+    params_path = os.path.join(temp_output_dir, '3compartment_remainder_params_for_id.json')
+    if rank == 0:
+        with open(params_path, 'w') as f:
+            json.dump(params_doc, f)
+    mpi_comm.Barrier()
+
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': '3compartment',
+        'input_param_file': '3compartment_parameters.csv',
+        'model_type': 'cellml_only',
+        'solver': 'CVODE_myokit',
+        'param_id_method': 'sp_minimize',
+        'do_ad': True,
+        'pre_time': 2,
+        'sim_time': 1,
+        'dt': 0.01,
+        'DEBUG': True,
+        'do_mcmc': False,
+        'plot_predictions': False,
+        'do_ia': False,
+        'solver_info': {'MaximumStep': 0.001, 'MaximumNumberOfSteps': 5000},
+        'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
+        'params_for_id_file': params_path,
+        'param_id_output_dir': temp_output_dir,
+        'generated_models_dir': temp_generated_models_dir,
+        'debug_optimiser_options': {'cost_convergence': 1e-2},
+    })
+
+    _ensure_cellml_model_generated(config, mpi_comm)
+    run_param_id(config)
+
+    if rank == 0:
+        out_dir = os.path.join(temp_output_dir, 'sp_minimize_3compartment_3compartment_obs_data')
+        best_cost = float(np.load(os.path.join(out_dir, 'best_cost.npy')))
+        assert np.isfinite(best_cost) and best_cost >= 0, \
+            f'expected a finite, non-negative best cost, got {best_cost}'
+
+        best_params = np.load(os.path.join(out_dir, 'best_param_vals.npy')).ravel()
+        assert best_params.shape[0] == 2, best_params
+        q_tot, c_ao = float(best_params[0]), float(best_params[1])
+        assert 4.5e-3 <= q_tot <= 7e-3, f'q_tot out of bounds: {q_tot}'
+        assert 1e-9 <= c_ao <= 5e-8, f'C_ao out of bounds: {c_ao}'
+        # The interpretability contract: theta is the total, and the derived LV volume is
+        # theta minus the recorded subtractions -- positive and of LV magnitude.
+        q_lv = q_tot - others_sum
+        assert 0 < q_lv < 4e-3, f'derived q_lv_init implausible: {q_lv}'
+
+        with open(os.path.join(out_dir, 'param_modifiers.json')) as f:
+            (mod,) = json.load(f)
+        assert mod['name'] == 'q_tot'
+        assert mod['modifier'] == 'remainder'
+        assert mod['targets'] == ['global/q_lv_init']
+        assert mod['inputs'] == {'subtract': sorted(_3COMP_OTHER_VOLUMES)}
+        assert mod['baselines'] == pytest.approx([_3COMP_Q_LV_DEFAULT], rel=1e-6)
+        # Resolved defaults, in the entry's (sorted) qname order.
+        expected_resolved = [_3COMP_OTHER_VOLUMES[q] for q in sorted(_3COMP_OTHER_VOLUMES)]
+        assert mod['resolved_inputs']['subtract'] == pytest.approx(expected_resolved, rel=1e-6)
+        # remainder is affine with slope 1; b = -sum(subtract). Inverting at the baseline is
+        # theta0 = q_lv_default + sum(others), i.e. the run started from the baseline total.
+        assert mod['affine']['a'] == pytest.approx([1.0])
+        assert mod['affine']['b'] == pytest.approx([-others_sum], rel=1e-6)
+        assert q_tot_baseline == pytest.approx(
+            (mod['baselines'][0] - mod['affine']['b'][0]) / mod['affine']['a'][0], rel=1e-6)
     mpi_comm.Barrier()

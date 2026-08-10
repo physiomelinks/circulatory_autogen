@@ -92,7 +92,8 @@ class SensitivityAnalysis():
     def __init__(self, model_path, model_type, file_name_prefix, sa_options, DEBUG=False,
                  param_id_output_dir=None, resources_dir=None, model_out_names=[],
                  solver_info={}, dt=0.01, optimiser_options={}, param_id_obs_path=None, params_for_id_path=None,
-                 operation_funcs_external_path=None, cost_funcs_external_path=None):
+                 operation_funcs_external_path=None, cost_funcs_external_path=None,
+                 modifier_funcs_external_path=None):
 
         self.model_path = model_path
         self.model_type = model_type
@@ -111,13 +112,15 @@ class SensitivityAnalysis():
         # local-sensitivity engine so their operation/cost dicts merge them alongside the built-ins.
         self.operation_funcs_external_path = operation_funcs_external_path
         self.cost_funcs_external_path = cost_funcs_external_path
+        self.modifier_funcs_external_path = modifier_funcs_external_path
         sa_output_dir = sa_options['output_dir']
 
         self.SA_manager = sobol_SA(self.model_path, self.model_out_names, self.solver_info, sa_options, self.dt,
                             sa_output_dir, param_id_path=self.param_id_obs_path, params_for_id_path=self.params_for_id_path,
                             verbose=False, use_MPI=True, model_type=self.model_type,
                             operation_funcs_external_path=operation_funcs_external_path,
-                            cost_funcs_external_path=cost_funcs_external_path)
+                            cost_funcs_external_path=cost_funcs_external_path,
+                            modifier_funcs_external_path=modifier_funcs_external_path)
 
         # For the local (derivative-based) method, which -- unlike Sobol -- runs through a
         # backend-agnostic param-id engine (mirroring IdentifiabilityAnalysis), not the Sobol
@@ -150,6 +153,7 @@ class SensitivityAnalysis():
             'resources_dir', 'model_out_names', 'solver_info',
             'dt', 'optimiser_options', 'param_id_obs_path', 'params_for_id_path',
             'operation_funcs_external_path', 'cost_funcs_external_path',
+            'modifier_funcs_external_path',
         ]
         kwargs = {key: inp_data_dict[key] for key in arg_options if key in inp_data_dict}
 
