@@ -128,21 +128,16 @@ def _cost_fd(tmp_path, arm, backend, casadi_models=None, theta=1.0, h=1e-6):
     return (plus - minus) / (2.0 * h)
 
 
-# native-casadi is expected to fail: on casadi_python a parameter that acts only through a
-# *computed constant* (which is exactly what the native model's theta does) gets an
-# identically-zero AD gradient, because compute_computed_constants is applied numerically and
-# never enters the symbolic graph. Pre-existing and unrelated to modifiers -- confirmed on
-# master @ 5798334 -- and filed as issue #389. strict=True, so the day it is fixed this flips
-# to XPASS and the marks come off rather than quietly staying dead.
-_CASADI_COMPUTED_CONSTANT_XFAIL = pytest.mark.xfail(
-    strict=True,
-    reason='issue #389: casadi_python gives a zero AD gradient for a parameter acting only '
-           'through a computed constant')
-
-_ARMS_OK = [('native', 'myokit'), ('modifier', 'myokit'), ('modifier', 'casadi')]
-_ARMS = _ARMS_OK + [pytest.param('native', 'casadi',
-                                 marks=_CASADI_COMPUTED_CONSTANT_XFAIL)]
-_IDS = ['native-myokit', 'modifier-myokit', 'modifier-casadi', 'native-casadi']
+# All four arms are expected to agree. native-casadi used to be xfail against issue #389:
+# on casadi_python a parameter acting only through a *computed constant* (which is exactly
+# what the native model's theta does) got an identically-zero AD gradient, because
+# compute_computed_constants was applied to the symbolic array only *after* the rates were
+# built from it. It is applied first now, so the arm is a full participant -- and
+# test_a_computed_constant_parameter_reaches_the_dynamics below pins the specific defect.
+_ARMS_OK = [('native', 'myokit'), ('modifier', 'myokit'),
+            ('modifier', 'casadi'), ('native', 'casadi')]
+_ARMS = list(_ARMS_OK)
+_IDS = [f'{arm}-{backend}' for arm, backend in _ARMS]
 
 
 # --------------------------------------------------------------- closed form, every arm
@@ -262,42 +257,64 @@ def test_the_modifier_sums_all_five_members(backend, tmp_path, casadi_models):
 
 
 @pytest.mark.integration
-def test_casadi_refuses_a_nested_param_name_rather_than_flattening_silently(tmp_path,
-                                                                           casadi_models):
-    """The helper's own guard: reaching it with an unflattened grouped row used to mean
-    differentiating w.r.t. the first member alone (the pre-#380 bug), so it must raise."""
+def test_casadi_refuses_a_multi_member_group_but_accepts_a_single_member_list(tmp_path,
+                                                                              casadi_models):
+    """The helper's guard, and the line it draws.
+
+    A *multi-member* group reaching it unflattened would differentiate w.r.t. the first
+    member alone -- the pre-#380 bug -- so it raises. A *single-member* list is the canonical
+    ``param_id_info["param_names"]`` shape (``[['a/C'], ['b/R']]``), names one constant per
+    entry and is unwrapped silently: refusing it broke every direct caller that passes the
+    natural shape, which is how this was found.
+    """
     engine = _engine(tmp_path, 'modifier', 'casadi', casadi_models)
-    with pytest.raises(ValueError, match='expects flat parameter names'):
+    with pytest.raises(ValueError, match='multi-member'):
         engine.sim_helper._create_param_subset([['scaling/k1', 'scaling/k2']], None)
+    # the single-member form is accepted, not refused
+    engine.sim_helper._create_param_subset([['scaling/k1']], [_C[0]])
 
 
 # --------------------------------------------------------------- issue #389
 
 
 @pytest.mark.integration
-def test_a_computed_constant_parameter_has_a_zero_casadi_gradient(tmp_path, casadi_models):
-    """Pin the #389 behaviour so the fix is detected.
+def test_a_computed_constant_parameter_reaches_the_dynamics(tmp_path, casadi_models):
+    """Regression for #389: the native model's theta reaches the rates only through
+    ``k_i = theta*c_i``, which libCellML classes as a COMPUTED_CONSTANT.
 
-    The native model's theta reaches the dynamics only through `k_i = theta*c_i`, which
-    libCellML classes as a COMPUTED_CONSTANT. The CasADi helper gives each of those its own
-    independent SX symbol and applies the defining relation numerically, so the symbolic
-    graph has no path from theta to the rates and the gradient is *structurally* zero -- not
-    small, exactly 0.0. The Myokit arm of the same model gives a real number, so this is a
-    backend defect and not a property of the fixture.
+    The CasADi helper gives every variable its own SX symbol, and used to apply
+    ``compute_computed_constants`` to the symbolic array only *after* building the rates from
+    it -- so there was no path from theta to the dynamics and the gradient was *structurally*
+    zero (not small: exactly 0.0), with the symbolic cost flat in theta to match. That is the
+    worst shape of wrong: indistinguishable from a parameter that genuinely does not matter.
 
-    When #389 is fixed this test fails, and it should be replaced by the native-casadi arm
-    of the equivalence tests above (drop the xfail marks at the same time).
+    Asserted three ways, because "non-zero" alone would pass on a wrong number: against the
+    Myokit arm of the same model, against a finite difference of the numeric cost, and by
+    being materially non-zero in the first place.
     """
-    casadi_engine = _engine(tmp_path, 'native', 'casadi', casadi_models)
     casadi_grad = float(np.asarray(
-        casadi_engine.get_gradient(np.array([1.0]))).ravel()[0])
-    assert casadi_grad == 0.0, (
-        f'issue #389 appears fixed (casadi gradient {casadi_grad}) -- drop the xfail marks '
-        f'on the native-casadi arms and delete this test')
-
-    myokit_engine = _engine(tmp_path, 'native', 'myokit')
+        _engine(tmp_path, 'native', 'casadi', casadi_models)
+        .get_gradient(np.array([1.0]))).ravel()[0])
     myokit_grad = float(np.asarray(
-        myokit_engine.get_gradient(np.array([1.0]))).ravel()[0])
-    assert abs(myokit_grad) > 1.0, (
-        'the fixture must have a materially non-zero gradient, or the zero above proves '
-        f'nothing (got {myokit_grad})')
+        _engine(tmp_path, 'native', 'myokit').get_gradient(np.array([1.0]))).ravel()[0])
+
+    assert abs(casadi_grad) > 1.0, f'theta is disconnected from the dynamics again: {casadi_grad}'
+    assert casadi_grad == pytest.approx(myokit_grad, rel=3e-3), (casadi_grad, myokit_grad)
+    assert casadi_grad == pytest.approx(
+        _cost_fd(tmp_path, 'native', 'casadi', casadi_models), rel=2e-3)
+
+
+@pytest.mark.integration
+def test_an_algebraic_observable_of_a_computed_constant_is_also_connected(tmp_path,
+                                                                          casadi_models):
+    """The same substitution is needed where the *algebraic* map is built, or an observable
+    computed from an algebraic variable that depends on a computed constant would report a
+    zero sensitivity while the cost gradient looked fine. The scaling fixture's observables
+    are states, so this checks the sensitivities the algebraic path produces agree with
+    Myokit's -- the shared assertion that would break if only one of the two sites were
+    substituted."""
+    casadi = _sensitivities(_engine(tmp_path, 'native', 'casadi', casadi_models), 'native')
+    myokit = _sensitivities(_engine(tmp_path, 'native', 'myokit'), 'native')
+    assert set(casadi) == set(myokit)
+    for label, value in myokit.items():
+        assert casadi[label] == pytest.approx(value, rel=3e-3), label
