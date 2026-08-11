@@ -157,10 +157,15 @@ class sobol_SA():
             # set temporary pre time, just to initialise the sim_helper
             self.pre_time = 0.001
 
-        self.sim_helper = self.initialise_sim_helper()
-        self._protocol_executor = ProtocolExecutor(self.sim_helper)
+        # The simulation helper is built lazily (see the sim_helper property). Constructing it
+        # compiles the model, and SensitivityAnalysis builds a sobol_SA unconditionally --
+        # including for `method: local`, which runs through its own CVS0DParamID engine and
+        # never touches the Sobol machinery. That cost two model compiles for one local SA
+        # (CUFLynx #216). Nothing else in __init__ needs the helper, so deferring it makes the
+        # unused half free while leaving the Sobol path byte-identical.
+        self._sim_helper = None
+        self._protocol_executor_obj = None
         if self.sim_time is not None and self.pre_time is not None:
-            self.sim_helper.update_times(self.dt, 0.0, self.sim_time, self.pre_time)
             self.n_steps = int(self.sim_time/self.dt)
 
 
@@ -277,6 +282,45 @@ class sobol_SA():
         # Backwards compatibility alias
         return self._create_SA_info(sample_type, num_samples)
 
+
+    @property
+    def sim_helper(self):
+        """The simulation helper, built on first use.
+
+        Building it compiles the model, so it is deferred until something actually simulates
+        -- see __init__. The first access applies the same `update_times` the eager
+        construction did, so a caller cannot tell the difference.
+        """
+        if self._sim_helper is None:
+            self._sim_helper = self.initialise_sim_helper()
+            if self.sim_time is not None and self.pre_time is not None:
+                self._sim_helper.update_times(self.dt, 0.0, self.sim_time, self.pre_time)
+        return self._sim_helper
+
+    @sim_helper.setter
+    def sim_helper(self, value):
+        # Assignable so a caller can inject or replace the helper (and so any existing
+        # `self.sim_helper = ...` keeps working).
+        self._sim_helper = value
+
+    @property
+    def _protocol_executor(self):
+        """Bound to the helper, so it must not be built before it (it would pin a None)."""
+        if self._protocol_executor_obj is None:
+            self._protocol_executor_obj = ProtocolExecutor(self.sim_helper)
+        return self._protocol_executor_obj
+
+    @_protocol_executor.setter
+    def _protocol_executor(self, value):
+        self._protocol_executor_obj = value
+
+    def has_built_sim_helper(self):
+        """True once the model has actually been compiled for this object.
+
+        Exposed for tests (and for anyone counting compiles): the whole point of the laziness
+        is that a local sensitivity analysis leaves this False.
+        """
+        return self._sim_helper is not None
 
     def initialise_sim_helper(self):
         solver = None

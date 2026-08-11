@@ -21,6 +21,7 @@ import re
 from datetime import date
 
 from utilities.protocol_shapes import materialise_shapes, validate_trace_references
+from utilities.obs_data_helpers import DEFAULT_COST_TYPE, PREVIOUS_DEFAULT_COST_TYPE
 from param_id.modifier_funcs import (BUILTIN_MODIFIER_FUNCS, get_modifier_funcs,
                                      probe_affine)
 
@@ -641,6 +642,60 @@ def expand_modifier_param_vals(param_id_info, param_vals):
                 f"resolve_modifier_baselines(param_id_info, sim_helper) once at setup.")
         out.append([float(fn(float(value), b, **(resolved or {}))) for b in baselines])
     return out
+
+
+def param_name_for_gen(vessel, param_name):
+    """The name a flat generated model gives a module's constant.
+
+    ``('global', 'q_init') -> 'q_init'``; ``('aortic_root', 'C') -> 'C_aortic_root'``.
+
+    Pure and model-free: no simulation helper, no libCellML, no built ``param_id_info`` and no
+    output directory. That matters because the rule is needed at *upload* time by tools that
+    have only a file (CUFLynx #210), while CA itself only published it as run artifacts --
+    ``param_id_info["param_names_for_gen"]`` and ``param_names_for_gen.csv``. A tool that
+    reimplements the rule does not fail loudly when CA changes it; it silently resolves to a
+    *different* variable, seeds the wrong slider and writes the wrong constant into a
+    calibrated CellML. This function is the single statement of the rule --
+    ``_build_param_id_info_from_entries`` calls it rather than restating it.
+    """
+    return str(param_name) if str(vessel) == 'global' else f'{param_name}_{vessel}'
+
+
+def model_qname_candidates(qname):
+    """Names a flat model may have given ``qname``, most specific first.
+
+    ``'aortic_root/C' -> ['aortic_root/C', 'parameters/C_aortic_root',
+    'parameters_global/C_aortic_root', 'C_aortic_root']``
+
+    CA answers the *rule*; the caller decides which candidate exists, because only it has the
+    uploaded model's variable set. Ordering is meaningful: the first hit wins, so the
+    component-qualified name is offered before any flattened alias and the bare name last.
+
+    Mirrors the alias list in ``solver_wrappers.name_resolver.VariableNameResolver``, which is
+    equivalent but cannot be imported without pulling in ``solver_wrappers/__init__`` (and thus
+    scipy) -- see the module note there.
+    """
+    text = str(qname).strip()
+    if '/' not in text:
+        return [text] if text else []
+    vessel, param = text.rsplit('/', 1)
+    vessel, param = vessel.strip(), param.strip()
+    gen = param_name_for_gen(vessel, param)
+
+    candidates = [f'{vessel}/{param}']
+    if vessel.endswith('_module'):
+        candidates.append(f'{vessel[:-len("_module")]}/{param}')
+    else:
+        candidates.append(f'{vessel}_module/{param}')
+    candidates += [f'parameters/{gen}', f'parameters_{vessel}/{param}',
+                   f'parameters_global/{gen}', gen]
+    # order-preserving de-duplication: 'global/x' makes several candidates coincide
+    seen, ordered = set(), []
+    for candidate in candidates:
+        if candidate not in seen:
+            seen.add(candidate)
+            ordered.append(candidate)
+    return ordered
 
 
 def param_entry_labels(param_id_info):
@@ -2927,7 +2982,7 @@ class ObsAndParamDataParser(object):
                 "plot_type": {"types": (str,), "default": None},
                 "plot_color": {"types": (str,), "default": None},
                 "comment": {"types": (str,), "default": None},
-                "cost_type": {"types": (str,), "default": "MSE"},
+                "cost_type": {"types": (str,), "default": DEFAULT_COST_TYPE},
                 "obs_type": {"types": (str,), "default": None},
                 "frequencies": {"types": (list, tuple, np.ndarray, int, float, np.integer, np.floating), "default": None},
                 # If omitted, phase weighting should follow the same weighting as amplitude.
@@ -3109,7 +3164,21 @@ class ObsAndParamDataParser(object):
         )
         obs_info["weight_phase_vec"] = phase_weights[data_types == "frequency"].to_numpy()
 
-        obs_info["cost_type"] = [gt_df.iloc[II].get("cost_type", "MSE") for II in range(N)]
+        obs_info["cost_type"] = [gt_df.iloc[II].get("cost_type", DEFAULT_COST_TYPE)
+                                 for II in range(N)]
+        # The default changed from MSE to gaussian_MLE (CUFLynx #212), so a study whose
+        # obs_data omits cost_type is now scored differently than it was. Say so once, naming
+        # the items and how to keep the old behaviour -- a silent re-scoring is exactly the
+        # kind of change that makes an old result irreproducible with no sign anything moved.
+        defaulted = [str(gt_df.iloc[II].get("variable", II)) for II in range(N)
+                     if not gt_df.iloc[II].get("cost_type")]
+        if defaulted and DEFAULT_COST_TYPE != PREVIOUS_DEFAULT_COST_TYPE:
+            warnings.warn(
+                f"{len(defaulted)} obs_data item(s) do not set 'cost_type' and now default to "
+                f"'{DEFAULT_COST_TYPE}' (previously '{PREVIOUS_DEFAULT_COST_TYPE}'): "
+                f"{defaulted[:8]}{' ...' if len(defaulted) > 8 else ''}. Costs from before this "
+                f"change are not comparable. Set \"cost_type\": \"{PREVIOUS_DEFAULT_COST_TYPE}\" "
+                f"on those items to keep the old scoring.")
 
         obs_info = self.get_ground_truth_values(gt_df, obs_info, output_dir, dt)
         
@@ -3725,7 +3794,8 @@ class ObsAndParamDataParser(object):
             gen = []
             for qname in qnames:
                 vessel, param = self._qname_to_vessel_and_param(qname)
-                gen.append(param if vessel == 'global' else f'{param}_{vessel}')
+                # One statement of the rule (#210): param_name_for_gen is what tools import.
+                gen.append(param_name_for_gen(vessel, param))
             param_names_for_gen.append(gen)
 
         def _numeric(key):
@@ -3923,6 +3993,13 @@ class ObsAndParamDataParser(object):
             #    baselines may still be None -- parsing happens before a simulation helper
             #    exists -- so the calibration run re-saves once they are resolved.
             save_param_modifiers(param_id_info, output_dir)
+
+            # 4. Save the parameter bounds. best_param_vals_history.csv is NORMALISED, so
+            #    without these it cannot be turned back into parameter values from the run
+            #    directory alone -- which is what param_id.run_history.read_run_history needs
+            #    in order not to require a live param_id_info (CUFLynx #210).
+            from param_id.run_history import save_param_bounds
+            save_param_bounds(param_id_info, output_dir)
         return
 
 
