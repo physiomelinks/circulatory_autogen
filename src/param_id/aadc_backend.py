@@ -17,6 +17,27 @@ machine without AADC.
 """
 import numpy as np
 
+
+def _flatten_param_names(param_names_raw, context="AADC"):
+    """Flatten param names, refusing grouped/modifier params (#391).
+
+    Grouped params (list of member names) and modifiers are not yet supported
+    by the AADC backend. This guard converts silent wrong answers into a clear
+    error pointing the user to CasADi or Myokit/FSA.
+    """
+    param_names = []
+    for pn in param_names_raw:
+        if isinstance(pn, (list, tuple)):
+            if len(pn) > 1:
+                raise NotImplementedError(
+                    f"{context} does not yet support grouped/modifier params "
+                    f"(got {pn!r}). Use CasADi or Myokit/FSA backend. See #391.")
+            param_names.append(pn[0])
+        else:
+            param_names.append(pn)
+    return param_names
+
+
 # AADC solver methods whose forward integration the tape can record step-for-step. An adaptive
 # integrator picks its step sizes from the state, so the sequence of operations changes with the
 # parameters and cannot be replayed from a tape.
@@ -38,12 +59,7 @@ def cost_and_grad(pid, param_vals):
     """
     # Common setup: resolve param names and set values
     param_names_raw = pid.param_id_info["param_names"]
-    param_names = []
-    for pn in param_names_raw:
-        if isinstance(pn, (list, tuple)):
-            param_names.append(pn[0])
-        else:
-            param_names.append(pn)
+    param_names = _flatten_param_names(param_names_raw, "AADC cost_and_grad")
 
     pid.sim_helper.set_param_vals(param_names_raw, param_vals)
     pid.sim_helper._ad_param_names = list(param_names)
@@ -353,9 +369,7 @@ def _cost_and_grad_bdf_newton(pid, param_vals):
 
     # Set parameter values
     param_names_raw = pid.param_id_info["param_names"]
-    param_names = []
-    for pn in param_names_raw:
-        param_names.append(pn[0] if isinstance(pn, (list, tuple)) else pn)
+    param_names = _flatten_param_names(param_names_raw, "AADC bdf_newton")
 
     variables_all = list(sim_helper._numeric_variables_all)
     for ci, idx in enumerate(sim_helper.constant_indices):
@@ -660,7 +674,7 @@ def _cost_and_grad_bdf_tape(pid, param_vals):
     n_sim = sim_helper.n_steps
 
     param_names_raw = pid.param_id_info["param_names"]
-    param_names = [pn[0] if isinstance(pn, (list, tuple)) else pn for pn in param_names_raw]
+    param_names = _flatten_param_names(param_names_raw, "AADC bdf_tape")
 
     variables_all = list(sim_helper._numeric_variables_all)
     for ci, idx in enumerate(sim_helper.constant_indices):
@@ -919,7 +933,7 @@ def _cost_and_grad_bdf_kernel(pid, param_vals):
     jac_lag = int(sim_helper.solver_info.get('jac_lag', 10))
 
     param_names_raw = pid.param_id_info["param_names"]
-    param_names = [pn[0] if isinstance(pn, (list, tuple)) else pn for pn in param_names_raw]
+    param_names = _flatten_param_names(param_names_raw, "AADC bdf_kernel")
 
     variables_all = list(sim_helper._numeric_variables_all)
     for ci, idx in enumerate(sim_helper.constant_indices):
