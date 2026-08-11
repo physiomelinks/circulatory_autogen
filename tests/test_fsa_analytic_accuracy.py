@@ -52,9 +52,13 @@ _GT_Y, _STD_Y = 1.8, 0.2
 
 def _obs_doc():
     def item(var, operand, gt, std):
+        # cost_type pinned rather than defaulted: the chain-rule test below differentiates
+        # the cost by hand, so it must know which cost it is differentiating. Leaving it to
+        # CA's default made the test silently wrong when that default changed from MSE to
+        # gaussian_MLE (which is exactly 0.5x MSE -- see funcs_user/cost_funcs_user.py).
         return {"variable": var, "name_for_plotting": var, "data_type": "constant",
                 "operation": "min", "operands": [operand], "unit": "dimensionless",
-                "weight": 1.0, "value": gt, "std": std,
+                "weight": 1.0, "value": gt, "std": std, "cost_type": "gaussian_MLE",
                 "experiment_idx": 0, "subexperiment_idx": 0, "plot_type": "horizontal"}
     return {"protocol_info": {"pre_times": [0.0], "sim_times": [[_T_END]],
                               "params_to_change": {}},
@@ -215,12 +219,15 @@ def test_the_cost_gradient_is_the_chain_rule_over_its_own_sensitivities(
     labels = [engine._observable_label(i)
               for i in engine.obs_info['const_idx_to_obs_idx']]
 
-    # cost = sum_k w_k * (feature_k - gt_k)^2 / std_k^2, divided by the weighted denominator.
+    # gaussian_MLE is 0.5 * sum_k w_k * ((feature_k - gt_k)/std_k)^2 (the negative
+    # log-likelihood up to constants), divided by the weighted denominator -- so
+    # d(cost)/d(feature_k) is (feature_k - gt_k)/std_k^2, not twice that. MSE is exactly
+    # 2x gaussian_MLE, which is why getting this factor wrong shows up as a clean 2x.
     denom = float(engine._total_weighted_obs_denominator())
     by_hand = 0.0
     for label, feature, gt, std in zip(labels, features,
                                        (_GT_X, _GT_Y), (_STD_X, _STD_Y)):
-        by_hand += 2.0 * (feature - gt) / (std ** 2) * sens[label][key]
+        by_hand += (feature - gt) / (std ** 2) * sens[label][key]
     by_hand /= denom
 
     assert float(grad[0]) == pytest.approx(by_hand, rel=1e-6)

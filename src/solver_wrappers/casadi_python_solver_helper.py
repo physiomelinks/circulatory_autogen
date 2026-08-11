@@ -1,4 +1,6 @@
 import importlib.util
+import warnings
+
 import numpy as np
 import copy
 import sys
@@ -162,10 +164,58 @@ class SimulationHelper:
         for i, info in enumerate(self.model.VARIABLE_INFO):
             variables[i] = ca.SX.sym(info["name"])
         self.variables = variables
+        # Keep the per-variable primitives: variables_all_symb is a vertcat, and the algebraic
+        # map needs the element list to substitute computed constants into (#389).
+        self._primitive_variables_symb = list(variables)
         return ca.vertcat(*variables)
 
+    def _variables_all_symb_list(self):
+        """The primitive symbol per model variable, as a list."""
+        return getattr(self, '_primitive_variables_symb', None) or [
+            self.variables_all_symb[i] for i in range(self.variables_all_symb.numel())]
+
+    def _with_computed_constants(self, variables):
+        """A copy of ``variables`` with every COMPUTED_CONSTANT replaced by its expression.
+
+        libCellML splits constants into CONSTANT (a literal initial value) and
+        COMPUTED_CONSTANT (an expression over other constants, evaluated once by
+        ``compute_computed_constants``). This helper gives each variable its own SX symbol, so
+        a computed constant was an *independent* symbol and the relation defining it -- e.g.
+        ``k = theta * c`` -- never entered the symbolic graph. A parameter reaching the
+        dynamics only through such a constant was therefore disconnected from the rates: its
+        AD gradient came out identically zero and the symbolic cost was flat in it, while the
+        numeric path (which re-runs compute_computed_constants) moved normally. Issue #389.
+
+        Running ``compute_computed_constants`` on the *symbolic* array fixes that: each
+        computed slot becomes an expression of the primitive symbols, so everything built from
+        the result depends on the true constants.
+
+        The primitives are left untouched, because ``variables_symb`` is used as a
+        ``ca.Function`` **input** and CasADi requires inputs to be symbolic primitives, not
+        expressions. Computed constants simply stop appearing in the graph; their primitive
+        symbols remain in the input vector, unused, which CasADi allows.
+        """
+        substituted = list(variables)
+        try:
+            self.model.compute_computed_constants(substituted)
+        except Exception as exc:
+            # A model whose computed constants are not symbolically evaluable keeps the old
+            # behaviour rather than failing to load; say so, because the cost of it is a
+            # silently zero gradient for anything that only acts through one.
+            warnings.warn(
+                f"could not evaluate compute_computed_constants symbolically ({exc}); "
+                f"parameters acting only through a computed constant will have a zero "
+                f"AD gradient on this model (issue #389).")
+            return list(variables)
+        return substituted
+
     def _compute_rates_symb(self):
-        self.model.compute_rates(self.start_time, self.states, self.rates, self.variables)
+        # Computed constants first, so a parameter that only feeds one still reaches the
+        # rates symbolically (#389). variables_all_symb stays primitive -- see
+        # _with_computed_constants -- so every ca.Function signature is unchanged.
+        self._symbolic_variables_with_computed = self._with_computed_constants(self.variables)
+        self.model.compute_rates(self.start_time, self.states, self.rates,
+                                 self._symbolic_variables_with_computed)
         return ca.vertcat(*self.variables), ca.vertcat(*self.rates)
 
     def _discover_init_var_state_links(self):
@@ -414,7 +464,10 @@ class SimulationHelper:
         # --- Algebraic map, built once: (t, x, p) -> all algebraic variables ---
         t_symb = ca.SX.sym('t_alg')
         rates = [0.0] * self.STATE_COUNT
-        vars_symb_copy = copy.copy(self.variables_all_symb)
+        # Same substitution as the rates (#389): an algebraic variable -- and therefore an
+        # observable built on one -- that depends on a computed constant would otherwise be
+        # differentiated against an independent symbol and report a zero sensitivity.
+        vars_symb_copy = self._with_computed_constants(list(self._variables_all_symb_list()))
         self.model.compute_rates(t_symb, self.states_symb, rates, vars_symb_copy)
         self.model.compute_variables(t_symb, self.states_symb, rates, vars_symb_copy)
         alg_vec = ca.vertcat(*[vars_symb_copy[self.var_name_to_idx[name]] for name in var_names])
