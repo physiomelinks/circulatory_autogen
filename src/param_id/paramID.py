@@ -474,9 +474,34 @@ class CVS0DParamID():
             except Exception:
                 pass
 
-    def run_mcmc(self):
-        """Run MCMC sampling (requires the instance was built with ``mcmc_instead=True``)."""
+    def run_UQ(self, mcmc_options=None):
+        """Run uncertainty quantification (MCMC) on **this** object.
+
+        Callable whether or not the instance was built with ``mcmc_instead=True``:
+
+        * built with it -- runs the UQ engine constructed up front (unchanged behaviour);
+        * built without it -- promotes the calibration engine via
+          ``OpencorMCMC.from_param_id``, so UQ after a calibration reuses the model already
+          compiled instead of building a second CVS0DParamID for it (CUFLynx #217).
+
+        ``mcmc_options`` overrides the options the object was built with; omit it to keep them.
+        """
+        global mcmc_object
+        if not self.mcmc_instead:
+            if getattr(self, 'param_id', None) is None:
+                raise RuntimeError(
+                    "run_UQ needs either mcmc_instead=True or a built param-id engine; this "
+                    "object has neither.")
+            mcmc_object = OpencorMCMC.from_param_id(
+                self.param_id,
+                mcmc_options if mcmc_options is not None else getattr(self, 'mcmc_options', None))
+        elif mcmc_options is not None:
+            mcmc_object._init_mcmc(mcmc_options, DEBUG=self.DEBUG)
         mcmc_object.run()
+
+    def run_mcmc(self):
+        """Deprecated alias of :meth:`run_UQ`, kept so existing scripts keep working."""
+        return self.run_UQ()
     
     def _check_info_available(self):
         #new check, need ensure 'operands' or 'operation_kwargs' exist
@@ -2877,7 +2902,34 @@ class OpencorMCMC(OpencorParamID):
         super().__init__(model_path, "MCMC",
                 obs_info, param_id_info, protocol_info, prediction_info, solver_info,
                 dt=dt, DEBUG=DEBUG, model_type=model_type)
+        self._init_mcmc(mcmc_options, DEBUG=DEBUG)
 
+    @classmethod
+    def from_param_id(cls, engine, mcmc_options=None):
+        """Adopt an already-built ``OpencorParamID`` instead of constructing a second one.
+
+        Building an engine compiles the model. Because ``mcmc_instead`` selects the inner
+        class at *construction* time, a UQ run following a calibration had to build a second
+        CVS0DParamID and pay that compile again (CUFLynx #217) -- for the same model, the same
+        obs_info and the same parameters.
+
+        ``OpencorMCMC`` only *adds* to ``OpencorParamID``, so the built engine's state is
+        exactly what it needs: adopt its ``__dict__`` (simulation helper, parsed infos,
+        output_dir, and the best_param_vals of the calibration that just ran, which is what
+        seeds the walkers) and then run only the MCMC-specific tail.
+
+        The result **shares** the engine's simulation helper rather than copying it -- that is
+        the point -- which is safe because UQ follows a calibration rather than running beside
+        it. Do not use the engine concurrently afterwards.
+        """
+        obj = cls.__new__(cls)
+        obj.__dict__.update(engine.__dict__)
+        obj.param_id_method = "MCMC"
+        obj._init_mcmc(mcmc_options, DEBUG=getattr(engine, 'DEBUG', False))
+        return obj
+
+    def _init_mcmc(self, mcmc_options, DEBUG=False):
+        """The MCMC-specific half of construction, shared by __init__ and from_param_id."""
         # mcmc init stuff
         self.sampler = None
         if mcmc_options is not None:

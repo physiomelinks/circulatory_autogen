@@ -33,6 +33,27 @@ VALID_PLOT_TYPES = (
 )
 
 
+# The cost function a data_item gets when it does not name one. Single source of truth:
+# PrimitiveParsers reads it rather than restating the literal, OMEXParsers.DEFAULT_COST_TYPE
+# aliases it, and a front-end introspects it via get_default_cost_type() to label an empty
+# cost-type picker honestly (CUFLynx #212) instead of hardcoding a fourth answer.
+#
+# gaussian_MLE, not MSE: CA used to give three different answers for the same question --
+# MSE for an ordinary data_item, gaussian_MLE on OMEX import, and gaussian_MLE forced for
+# Bayesian/MCMC (ensure_mle_cost_type_for_bayesian_inner). A default that changes depending
+# on which door you came in is not a default. gaussian_MLE is the one that is already right
+# for the probabilistic paths, and it uses the std a data_item is required to carry anyway.
+DEFAULT_COST_TYPE = "gaussian_MLE"
+
+# What the default used to be, so a run can tell the user what changed and how to pin it.
+PREVIOUS_DEFAULT_COST_TYPE = "MSE"
+
+
+def get_default_cost_type():
+    """The ``cost_type`` a data_item gets when it does not specify one."""
+    return DEFAULT_COST_TYPE
+
+
 def get_valid_data_types():
     """Return the recognised obs_data ``data_type`` values (excluding deprecated aliases)."""
     return list(VALID_DATA_TYPES)

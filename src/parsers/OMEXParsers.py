@@ -17,6 +17,7 @@ from xml.etree import ElementTree as ET
 import numpy as np
 
 from utilities.utility_funcs import change_parameter_values_and_save
+from utilities.obs_data_helpers import DEFAULT_COST_TYPE as _DEFAULT_COST_TYPE
 
 
 SEDML_NS = {"sedml": "http://sed-ml.org/sed-ml/level1/version4"}
@@ -70,7 +71,9 @@ class OMEXArchiveParser:
 
     # Used for ``data_items`` from ``build_obs_data_dict`` so Laplace / MCMC paths get
     # log-likelihood costs (see ``ensure_mle_cost_type_for_bayesian_inner`` and cost_funcs_user).
-    DEFAULT_COST_TYPE = "gaussian_MLE"
+    # Aliases CA's single default rather than restating it -- the two were the same value by
+    # coincidence before obs_data_helpers.DEFAULT_COST_TYPE existed (CUFLynx #212).
+    DEFAULT_COST_TYPE = _DEFAULT_COST_TYPE
 
     def __init__(self, archive_path: str):
         self.archive_path = os.path.abspath(archive_path)
