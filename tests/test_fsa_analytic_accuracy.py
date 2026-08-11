@@ -35,6 +35,10 @@ import pytest
 
 from param_id.paramID import CVS0DParamID
 
+# The fixture pair lives in tests/test_inputs/ -- it is test scaffolding (an analytically
+# solvable toy), not a resource a user would run, which is what resources/ is for.
+TEST_INPUTS = os.path.join(os.path.dirname(__file__), 'test_inputs')
+
 _C1 = 0.7314          # affine/k1 default, and the native model's c1
 _C2 = 0.1129          # affine/k2 default, and the native model's c2
 _X0, _Y0 = 2.0, 3.0
@@ -77,12 +81,12 @@ def _write(tmp_path, name, doc):
     return path
 
 
-def _engine(tmp_path, resources_dir, model, params_doc, solver_info=None, dt=_DT):
+def _engine(tmp_path, model, params_doc, solver_info=None, dt=_DT):
     """A param-id engine on one of the affine fixtures, FSA gradients enabled."""
     out_dir = os.path.join(str(tmp_path), f'out_{model}')
     os.makedirs(out_dir, exist_ok=True)
     outer = CVS0DParamID(
-        model_path=os.path.join(resources_dir, f'affine_{model}.cellml'),
+        model_path=os.path.join(TEST_INPUTS, f'affine_{model}.cellml'),
         model_type='cellml_only', param_id_method='sp_minimize', file_name_prefix='affine',
         params_for_id_path=_write(tmp_path, f'{model}_params.json', params_doc),
         param_id_obs_path=_write(tmp_path, f'{model}_obs.json', _obs_doc()),
@@ -95,13 +99,13 @@ def _engine(tmp_path, resources_dir, model, params_doc, solver_info=None, dt=_DT
 
 
 @pytest.fixture
-def native(tmp_path, resources_dir):
-    return _engine(tmp_path, resources_dir, 'native', _NATIVE_PARAMS)
+def native(tmp_path):
+    return _engine(tmp_path, 'native', _NATIVE_PARAMS)
 
 
 @pytest.fixture
-def modifier(tmp_path, resources_dir):
-    return _engine(tmp_path, resources_dir, 'modifier', _MODIFIER_PARAMS)
+def modifier(tmp_path):
+    return _engine(tmp_path, 'modifier', _MODIFIER_PARAMS)
 
 
 def _features(engine, theta):
@@ -145,14 +149,14 @@ def test_the_features_match_the_closed_form(native):
 
 @pytest.mark.integration
 @pytest.mark.parametrize('arm', ['native', 'modifier'])
-def test_output_sensitivities_match_the_closed_form(arm, tmp_path, resources_dir):
+def test_output_sensitivities_match_the_closed_form(arm, tmp_path):
     """d ln(Y)/d ln(theta) = -c*T exactly, for both the in-model scaling and the modifier.
 
     The elasticity is the sharp form: it removes x0/y0 and any solver scaling, so a wrong
     chain-rule weight (the #380 failure mode) shows up immediately.
     """
     params = _NATIVE_PARAMS if arm == 'native' else _MODIFIER_PARAMS
-    engine = _engine(tmp_path, resources_dir, arm, params)
+    engine = _engine(tmp_path, arm, params)
     theta = 1.0
     sens = engine.get_observable_sensitivities(np.array([theta]), gradient_method='FSA')
     features = _features(engine, theta)
@@ -174,7 +178,7 @@ def test_output_sensitivities_match_the_closed_form(arm, tmp_path, resources_dir
 @pytest.mark.integration
 @pytest.mark.parametrize('arm', ['native', 'modifier'])
 def test_the_fsa_cost_gradient_matches_a_finite_difference_of_the_cost(
-        arm, tmp_path, resources_dir):
+        arm, tmp_path):
     """The gradient a do_ad calibration actually descends, against differencing CA's own cost.
 
     Issue #387 reported this as wrong by 1e-3..1e-1; at CA's default FSA tolerances it is
@@ -182,7 +186,7 @@ def test_the_fsa_cost_gradient_matches_a_finite_difference_of_the_cost(
     for the configuration that does break it, and why.
     """
     params = _NATIVE_PARAMS if arm == 'native' else _MODIFIER_PARAMS
-    engine = _engine(tmp_path, resources_dir, arm, params)
+    engine = _engine(tmp_path, arm, params)
     theta = 1.0
     _, grad = engine.get_cost_and_jac_fsa(np.array([theta]))
     assert float(grad[0]) == pytest.approx(_cost_fd(engine, theta), rel=1e-4)
@@ -191,7 +195,7 @@ def test_the_fsa_cost_gradient_matches_a_finite_difference_of_the_cost(
 @pytest.mark.integration
 @pytest.mark.parametrize('arm', ['native', 'modifier'])
 def test_the_cost_gradient_is_the_chain_rule_over_its_own_sensitivities(
-        arm, tmp_path, resources_dir):
+        arm, tmp_path):
     """dJ/dtheta must equal sum_k dJ/d(feature_k) * d(feature_k)/dtheta, built from CA's *own*
     output sensitivities.
 
@@ -201,7 +205,7 @@ def test_the_cost_gradient_is_the_chain_rule_over_its_own_sensitivities(
     then pin).
     """
     params = _NATIVE_PARAMS if arm == 'native' else _MODIFIER_PARAMS
-    engine = _engine(tmp_path, resources_dir, arm, params)
+    engine = _engine(tmp_path, arm, params)
     theta = 1.0
     key = 'theta' if arm == 'modifier' else 'affine/theta'
 
@@ -239,17 +243,17 @@ def test_the_modifier_reproduces_the_native_gradient(native, modifier):
 
 
 @pytest.mark.integration
-def test_the_modifier_gradient_sums_both_targets(tmp_path, resources_dir):
+def test_the_modifier_gradient_sums_both_targets(tmp_path):
     """The modifier's derivative is sum_i baseline_i * dJ/dp_i -- dropping either target (the
     pre-#380 first-member-only bug) leaves a materially different number, so assert the sum
     against per-target gradients obtained by calibrating k1 and k2 as free parameters."""
     free = {'version': 1, 'params': [
         {'name': 'k1', 'targets': ['affine/k1'], 'min': 0.05, 'max': 5.0},
         {'name': 'k2', 'targets': ['affine/k2'], 'min': 0.01, 'max': 2.0}]}
-    free_engine = _engine(tmp_path, resources_dir, 'modifier', free)
+    free_engine = _engine(tmp_path, 'modifier', free)
     _, grad_free = free_engine.get_cost_and_jac_fsa(np.array([_C1, _C2]))
 
-    mod_engine = _engine(tmp_path, resources_dir, 'modifier', _MODIFIER_PARAMS)
+    mod_engine = _engine(tmp_path, 'modifier', _MODIFIER_PARAMS)
     _, grad_mod = mod_engine.get_cost_and_jac_fsa(np.array([1.0]))
 
     expected = _C1 * float(grad_free[0]) + _C2 * float(grad_free[1])
@@ -264,7 +268,7 @@ def test_the_modifier_gradient_sums_both_targets(tmp_path, resources_dir):
 
 @pytest.mark.integration
 def test_tightening_rtol_past_the_floor_degrades_the_gradient_and_warns(
-        tmp_path, resources_dir):
+        tmp_path):
     """The configuration issue #387 was actually measured under, pinned as known behaviour.
 
     Myokit excludes the CVODES sensitivity variables from the local error test and uses a
@@ -276,7 +280,7 @@ def test_tightening_rtol_past_the_floor_degrades_the_gradient_and_warns(
     from solver_wrappers.myokit_helper import FSA_MIN_SAFE_REL_TOL
 
     tight = {'solver': 'CVODE_myokit', 'rtol': 1e-12, 'atol': 1e-12}
-    engine = _engine(tmp_path, resources_dir, 'native', _NATIVE_PARAMS, solver_info=tight)
+    engine = _engine(tmp_path, 'native', _NATIVE_PARAMS, solver_info=tight)
     # The warning belongs to enabling FSA, which happens on the first gradient call (the
     # simulation is rebuilt with sensitivities then), not to constructing the helper.
     with pytest.warns(UserWarning, match='less. accurate as rtol'):
@@ -289,11 +293,11 @@ def test_tightening_rtol_past_the_floor_degrades_the_gradient_and_warns(
 
 
 @pytest.mark.integration
-def test_the_default_tolerances_do_not_warn_and_are_accurate(tmp_path, resources_dir):
+def test_the_default_tolerances_do_not_warn_and_are_accurate(tmp_path):
     """The other half: at CA's defaults there is nothing to warn about, and the gradient is
     accurate -- so the warning cannot become background noise on ordinary runs."""
     import warnings as _warnings
-    engine = _engine(tmp_path, resources_dir, 'native', _NATIVE_PARAMS)
+    engine = _engine(tmp_path, 'native', _NATIVE_PARAMS)
     with _warnings.catch_warnings():
         _warnings.simplefilter('error', UserWarning)
         _, grad = engine.get_cost_and_jac_fsa(np.array([1.0]))

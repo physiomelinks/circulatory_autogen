@@ -686,25 +686,26 @@ class SimulationHelper:
         return {name: val for name, val in zip(variable_names, values)}
 
     def _create_param_subset(self, param_names, param_vals=None):
-        # A grouped params_for_id row ("one calibrated value drives these N vessels") cannot be
-        # honoured here yet. This builds the *symbolic* subset that the cost jacobian is taken
-        # against, so it needs one SX symbol per group substituted into every member's slot --
-        # otherwise the derivative is with respect to the first member alone.
-        #
-        # Refusing rather than dropping the extra members: silently calibrating only the first
-        # vessel is what this backend did before, and it produced a cost curve bit-identical to
-        # the ungrouped one, so nothing downstream could tell. Broadcasting on the numeric side
-        # only would be worse still -- the cost would move all members while the gradient
-        # tracked one, so the optimiser would descend a different function than it evaluates.
-        grouped = [x for x in param_names if isinstance(x, (list, tuple)) and len(x) > 1]
-        if grouped:
-            raise NotImplementedError(
-                f"Grouped parameters are not yet supported by the CasADi backend: {grouped}. "
-                f"The symbolic parameter subset takes one symbol per params_for_id row, so the "
-                f"gradient would be with respect to the first vessel only. Use model_type "
-                f"'cellml_only' with solver 'CVODE_myokit' for grouped calibration, or give "
-                f"each vessel its own row. See issue #355.")
-        param_names = [x[0] if isinstance(x, (list, tuple)) else x for x in param_names]
+        """Build the symbolic parameter subset the cost jacobian is taken against.
+
+        ``param_names`` is **flat**: one name per symbol, one value per name. A grouped
+        params_for_id row or a modifier entry names several model constants, and the caller
+        (``param_id.casadi_backend``) flattens them to their members and expands the values,
+        then folds the per-member derivatives back into one per calibrated variable with the
+        entry's chain-rule weights. Doing the fold there rather than here keeps this helper a
+        plain "symbols for these names" service, and reuses the same weights the Myokit/FSA
+        arm applies (``modifier_weights_by_index``), so the two backends cannot disagree
+        about what d/dtheta means.
+
+        A nested name reaching here means the caller did not flatten, which would silently
+        differentiate w.r.t. the first member alone -- the pre-#380 bug -- so refuse it.
+        """
+        nested = [x for x in param_names if isinstance(x, (list, tuple))]
+        if nested:
+            raise ValueError(
+                f"_create_param_subset expects flat parameter names, got nested {nested}. "
+                f"Flatten grouped/modifier entries to their members (and expand their values) "
+                f"before calling; see param_id.casadi_backend.flatten_entries.")
 
         # Resolve each param to its VARIABLE_INFO index, then find its SX symbol
         var_indices = []   # VARIABLE_INFO indices

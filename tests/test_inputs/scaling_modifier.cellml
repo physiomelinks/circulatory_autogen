@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+The *modifier* half of the 5-parameter scaling pair. See
+`scaling_native.cellml` for the full description.
+
+k1..k5 are independent constants whose defaults are exactly the native model's
+c1..c5, so a params_for_id `scale` modifier over all five reproduces the native
+model's theta at theta = 1:
+
+    {{"name": "theta", "modifies": ["scaling/k1", ..., "scaling/k5"],
+      "modifier": "scale", "min": 0.2, "max": 5.0}}
+-->
+<model xmlns="http://www.cellml.org/cellml/2.0#" name="scaling_modifier">
+
+  <units name="per_second">
+    <unit units="second" exponent="-1"/>
+  </units>
+
+  <component name="environment">
+    <variable name="time" units="second" interface="public"/>
+  </component>
+
+  <component name="scaling">
+    <variable name="t" units="second" interface="public"/>
+    <variable name="k1" units="per_second" initial_value="0.7314"/>
+    <variable name="k2" units="per_second" initial_value="0.1129"/>
+    <variable name="k3" units="per_second" initial_value="0.4207"/>
+    <variable name="k4" units="per_second" initial_value="0.2561"/>
+    <variable name="k5" units="per_second" initial_value="0.8893"/>
+    <variable name="x1" units="dimensionless" initial_value="2.0" interface="public"/>
+    <variable name="x2" units="dimensionless" initial_value="3.0" interface="public"/>
+    <variable name="x3" units="dimensionless" initial_value="1.5" interface="public"/>
+    <variable name="x4" units="dimensionless" initial_value="4.0" interface="public"/>
+    <variable name="x5" units="dimensionless" initial_value="2.5" interface="public"/>
+
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+
+      <apply><eq/>
+        <apply><diff/><bvar><ci>t</ci></bvar><ci>x1</ci></apply>
+        <apply><minus/><apply><times/><ci>k1</ci><ci>x1</ci></apply></apply>
+      </apply>
+
+      <apply><eq/>
+        <apply><diff/><bvar><ci>t</ci></bvar><ci>x2</ci></apply>
+        <apply><minus/><apply><times/><ci>k2</ci><ci>x2</ci></apply></apply>
+      </apply>
+
+      <apply><eq/>
+        <apply><diff/><bvar><ci>t</ci></bvar><ci>x3</ci></apply>
+        <apply><minus/><apply><times/><ci>k3</ci><ci>x3</ci></apply></apply>
+      </apply>
+
+      <apply><eq/>
+        <apply><diff/><bvar><ci>t</ci></bvar><ci>x4</ci></apply>
+        <apply><minus/><apply><times/><ci>k4</ci><ci>x4</ci></apply></apply>
+      </apply>
+
+      <apply><eq/>
+        <apply><diff/><bvar><ci>t</ci></bvar><ci>x5</ci></apply>
+        <apply><minus/><apply><times/><ci>k5</ci><ci>x5</ci></apply></apply>
+      </apply>
+
+    </math>
+  </component>
+
+  <connection component_1="environment" component_2="scaling">
+    <map_variables variable_1="time" variable_2="t"/>
+  </connection>
+
+</model>

@@ -211,21 +211,25 @@ def test_param_entry_labels_reads_param_labels_and_falls_back():
 
 
 @pytest.mark.unit
-def test_the_casadi_arm_still_refuses_modifiers():
-    """CasADi cannot express a grouped row until theta is substituted symbolically
-    (_create_param_subset refuses them), so its modifier refusal stays -- with a message that
-    names the working alternatives."""
-    from param_id.paramID import OpencorParamID
+def test_the_casadi_arm_no_longer_refuses_modifiers(monkeypatch):
+    """The CasADi arm used to refuse modifier entries outright. It now folds its per-member
+    jacobian with the same affine weights the FSA arm uses, so the dispatch must reach the
+    backend rather than raise. The numbers are pinned end to end, against the Myokit arm and
+    a closed form, in tests/test_modifier_backend_equivalence.py."""
+    from param_id import paramID
 
-    class _Stub(OpencorParamID):
+    class _Stub(paramID.OpencorParamID):
         def __init__(self):
             pass
 
     pid = _Stub()
     pid.model_type = 'casadi_python'
     pid.param_id_info = _modifier_info()
-    with pytest.raises(NotImplementedError, match="CasADi"):
-        pid.get_observable_sensitivities(np.array([1.0]))
+    called = []
+    monkeypatch.setattr(paramID.casadi_backend, 'get_observable_sensitivities',
+                        lambda p, v: called.append(p) or {})
+    pid.get_observable_sensitivities(np.array([1.0]))
+    assert called == [pid]
 
 
 @pytest.mark.unit

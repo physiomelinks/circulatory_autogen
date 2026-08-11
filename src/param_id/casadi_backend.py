@@ -77,6 +77,10 @@ def content_hash(obj):
     return digest.hexdigest()
 
 
+from parsers.PrimitiveParsers import (expand_modifier_param_vals,
+                                      modifier_weights_by_index, param_entry_labels)
+
+
 def functions_cache_key(pid, param_names, get_all_series):
     """Signature of everything the CasADi symbolic graph is built from, so that the graph can
     be built once and re-evaluated at new parameter values.
@@ -111,10 +115,58 @@ def functions_cache_key(pid, param_names, get_all_series):
             data_sig)
 
 
+def flatten_entries(param_id_info):
+    """``(flat_member_names, per_entry_[(offset, weight), ...])`` for the params_for_id entries.
+
+    One calibrated variable (theta) may govern several model constants: a grouped row shares
+    one value across its members, a scale modifier applies ``theta * baseline_i``. The CasADi
+    graph carries one SX symbol per *model constant*, so the jacobian is taken over every
+    member and folded back per entry with ``d p_i/d theta`` -- the same affine weights the
+    Myokit/FSA arm uses (``modifier_weights_by_index``: 1.0 for a shared-value group, the
+    probed coefficient for a modifier). Both backends therefore answer the same question.
+    """
+    weights = modifier_weights_by_index(param_id_info)
+    flat, entries = [], []
+    for j, names in enumerate(param_id_info["param_names"]):
+        members = list(names) if isinstance(names, (list, tuple)) else [names]
+        w = weights.get(j)
+        entry = []
+        for i, member in enumerate(members):
+            entry.append((len(flat), 1.0 if w is None else float(w[i])))
+            flat.append(member)
+        entries.append(entry)
+    return flat, entries
+
+
+def fold_entry_rows(matrix, entry_map, n_entries):
+    """Fold a per-member jacobian (rows or columns indexed by member) into per-entry values.
+
+    ``matrix`` is indexed ``[..., member]``; returns the same array with the last axis
+    replaced by one column per calibrated variable, each the weighted sum over its members.
+    """
+    matrix = np.asarray(matrix, dtype=float)
+    out = np.zeros(matrix.shape[:-1] + (n_entries,), dtype=float)
+    for j, members in enumerate(entry_map):
+        for offset, weight in members:
+            out[..., j] += weight * matrix[..., offset]
+    return out
+
+
 def build_functions(pid, param_names, param_vals=None, get_all_series=False):
     require_casadi()
+    # Flat member names + expanded values: a modifier's theta becomes fn(theta, baseline_i)
+    # per target, exactly as the numeric protocol run does (expand_modifier_param_vals), so
+    # the symbolic evaluation point and the simulated one are the same point.
+    flat_names, entry_map = flatten_entries(pid.param_id_info)
+    pid._casadi_entry_map = entry_map
+    flat_vals = None
+    if param_vals is not None:
+        expanded = expand_modifier_param_vals(pid.param_id_info, param_vals)
+        flat_vals = []
+        for value in expanded:
+            flat_vals.extend(value if isinstance(value, (list, tuple)) else [value])
     # Always refresh the numeric evaluation point (parameter values + init-seeded states).
-    pid.sim_helper._create_param_subset(param_names, param_vals)
+    pid.sim_helper._create_param_subset(flat_names, flat_vals)
 
     # Build the symbolic graph once per structure. On a symbolic BDF / semi_implicit_euler
     # solve the graph is a mapaccum of thousands of rootfinder steps, and ca.gradient unrolls
@@ -161,6 +213,10 @@ def build_functions(pid, param_names, param_vals=None, get_all_series=False):
     pid.obs_vec = ca.vertcat(*obs_outputs)
     pid.obs_meta = obs_meta
 
+    # d(cost)/d(member) for every model constant; folded to d(cost)/d(theta) per calibrated
+    # variable after evaluation (fold_entry_rows). The weights are constants, so folding the
+    # numbers is identical to substituting theta symbolically and differentiating -- and it
+    # keeps one code path for ungrouped rows, groups and modifiers.
     pid.jac_cost_symb = ca.gradient(pid.cost_symb, pid.sim_helper.variables_symb_subset)
 
     pid.cost_func = ca.Function('cost_func', [pid.sim_helper.states_symb, pid.sim_helper.variables_symb], [pid.cost_symb])
@@ -178,8 +234,11 @@ def build_functions(pid, param_names, param_vals=None, get_all_series=False):
 def get_jac_cost(pid, param_vals):
     param_names = pid.param_id_info["param_names"]
     build_functions(pid, param_names, param_vals)
-    jac_cost = np.array(pid.jac_cost_func(pid.sim_helper.states, pid.sim_helper.variables)).flatten()
-    return jac_cost
+    per_member = np.array(
+        pid.jac_cost_func(pid.sim_helper.states, pid.sim_helper.variables)).flatten()
+    # sum_i (dJ/dp_i) * dp_i/dtheta -- a no-op for ungrouped rows (one member, weight 1).
+    return fold_entry_rows(per_member, pid._casadi_entry_map,
+                           len(pid.param_id_info["param_names"]))
 
 
 def get_cost(pid, param_vals):
@@ -200,11 +259,9 @@ def get_observable_sensitivities(pid, param_vals):
     output instead of the aggregated cost.
     """
     import casadi as ca
-    from parsers.PrimitiveParsers import param_entry_labels
     param_names = pid.param_id_info["param_names"]
-    # Grouped rows never reach here (_create_param_subset refuses them), so each label is its
-    # entry's single qname today -- but keying by param_entry_labels keeps the report shape
-    # identical to the Myokit FSA arm, which does handle groups and modifiers.
+    # One column per calibrated variable, keyed by entry label -- a grouped or modifier entry
+    # reports d(feature)/d(theta) summed over its members, matching the Myokit FSA arm.
     flat_names = param_entry_labels(pid.param_id_info)
     build_functions(pid, param_names, param_vals)
 
@@ -214,7 +271,8 @@ def get_observable_sensitivities(pid, param_vals):
         'obs_jac_func',
         [pid.sim_helper.states_symb, pid.sim_helper.variables_symb],
         [jac_symb])
-    jac = np.array(jac_func(pid.sim_helper.states, pid.sim_helper.variables))  # [n_rows x n_params]
+    jac = np.array(jac_func(pid.sim_helper.states, pid.sim_helper.variables))  # [rows x members]
+    jac = fold_entry_rows(jac, pid._casadi_entry_map, len(flat_names))  # [rows x entries]
 
     # obs_meta slices obs_vec by (field, observable-item, size); the single 'const' entry holds
     # all scalar-feature rows in const-index order, so row idx+k is const observable k, whose
