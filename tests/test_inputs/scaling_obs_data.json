@@ -1,0 +1,96 @@
+{
+  "protocol_info": {
+    "pre_times": [
+      0.0
+    ],
+    "sim_times": [
+      [
+        4.0
+      ]
+    ],
+    "params_to_change": {}
+  },
+  "prediction_items": [],
+  "data_items": [
+    {
+      "variable": "x1_end",
+      "name_for_plotting": "x1_{end}",
+      "data_type": "constant",
+      "operation": "min",
+      "operands": [
+        "scaling/x1"
+      ],
+      "unit": "dimensionless",
+      "weight": 1.0,
+      "value": 0.085812,
+      "std": 0.026816,
+      "experiment_idx": 0,
+      "subexperiment_idx": 0,
+      "plot_type": "horizontal"
+    },
+    {
+      "variable": "x2_end",
+      "name_for_plotting": "x2_{end}",
+      "data_type": "constant",
+      "operation": "min",
+      "operands": [
+        "scaling/x2"
+      ],
+      "unit": "dimensionless",
+      "weight": 1.0,
+      "value": 1.527861,
+      "std": 0.477457,
+      "experiment_idx": 0,
+      "subexperiment_idx": 0,
+      "plot_type": "horizontal"
+    },
+    {
+      "variable": "x3_end",
+      "name_for_plotting": "x3_{end}",
+      "data_type": "constant",
+      "operation": "min",
+      "operands": [
+        "scaling/x3"
+      ],
+      "unit": "dimensionless",
+      "weight": 1.0,
+      "value": 0.223023,
+      "std": 0.069695,
+      "experiment_idx": 0,
+      "subexperiment_idx": 0,
+      "plot_type": "horizontal"
+    },
+    {
+      "variable": "x4_end",
+      "name_for_plotting": "x4_{end}",
+      "data_type": "constant",
+      "operation": "min",
+      "operands": [
+        "scaling/x4"
+      ],
+      "unit": "dimensionless",
+      "weight": 1.0,
+      "value": 1.148838,
+      "std": 0.359012,
+      "experiment_idx": 0,
+      "subexperiment_idx": 0,
+      "plot_type": "horizontal"
+    },
+    {
+      "variable": "x5_end",
+      "name_for_plotting": "x5_{end}",
+      "data_type": "constant",
+      "operation": "min",
+      "operands": [
+        "scaling/x5"
+      ],
+      "unit": "dimensionless",
+      "weight": 1.0,
+      "value": 0.057037,
+      "std": 0.017824,
+      "experiment_idx": 0,
+      "subexperiment_idx": 0,
+      "plot_type": "horizontal"
+    }
+  ]
+}

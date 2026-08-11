@@ -97,14 +97,24 @@ def test_sobol_keeps_groups_for_setting_and_flattens_only_for_labels():
 
 
 @pytest.mark.unit
-def test_the_casadi_backend_refuses_a_group_rather_than_dropping_members():
-    """CasADi builds a symbolic subset with one symbol per row, so a group would be
-    differentiated with respect to its first member only. Until that is fixed properly it must
-    fail loudly: silently calibrating one vessel is what this issue is about, and broadcasting
-    on the numeric side alone would make the cost and the gradient different functions."""
-    import inspect
-    from solver_wrappers import casadi_python_solver_helper as helper
+def test_the_casadi_backend_now_supports_groups_by_folding_per_member_derivatives():
+    """CasADi used to refuse a grouped row, because its symbolic subset took one symbol per
+    *row* and would have differentiated w.r.t. the first member alone.
 
-    src = inspect.getsource(helper.SimulationHelper._create_param_subset)
-    assert 'NotImplementedError' in src
-    assert '#355' in src
+    It now takes one symbol per *member* and folds the per-member derivatives back with each
+    entry's chain-rule weights -- 1.0 for a shared-value group, the probed affine coefficient
+    for a modifier -- which is the same combination the Myokit/FSA arm applies. The guard
+    that remains is against an *unflattened* name reaching the helper, which would silently
+    reintroduce the first-member-only bug.
+    """
+    from param_id.casadi_backend import flatten_entries, fold_entry_rows
+
+    info = {'param_names': [['a/C', 'b/C'], ['heart/R']]}
+    flat, entry_map = flatten_entries(info)
+    assert flat == ['a/C', 'b/C', 'heart/R']
+    # a shared-value group carries unit weights: d/dtheta = sum_i d/dp_i
+    assert entry_map == [[(0, 1.0), (1, 1.0)], [(2, 1.0)]]
+    folded = fold_entry_rows(np.array([3.0, 7.0, 11.0]), entry_map, 2)
+    assert list(folded) == [10.0, 11.0]
+    # ... and the first-member-only answer is distinguishable, or this proves nothing
+    assert folded[0] != 3.0
