@@ -257,13 +257,21 @@ def test_the_modifier_sums_all_five_members(backend, tmp_path, casadi_models):
 
 
 @pytest.mark.integration
-def test_casadi_refuses_a_nested_param_name_rather_than_flattening_silently(tmp_path,
-                                                                           casadi_models):
-    """The helper's own guard: reaching it with an unflattened grouped row used to mean
-    differentiating w.r.t. the first member alone (the pre-#380 bug), so it must raise."""
+def test_casadi_refuses_a_multi_member_group_but_accepts_a_single_member_list(tmp_path,
+                                                                              casadi_models):
+    """The helper's guard, and the line it draws.
+
+    A *multi-member* group reaching it unflattened would differentiate w.r.t. the first
+    member alone -- the pre-#380 bug -- so it raises. A *single-member* list is the canonical
+    ``param_id_info["param_names"]`` shape (``[['a/C'], ['b/R']]``), names one constant per
+    entry and is unwrapped silently: refusing it broke every direct caller that passes the
+    natural shape, which is how this was found.
+    """
     engine = _engine(tmp_path, 'modifier', 'casadi', casadi_models)
-    with pytest.raises(ValueError, match='expects flat parameter names'):
+    with pytest.raises(ValueError, match='multi-member'):
         engine.sim_helper._create_param_subset([['scaling/k1', 'scaling/k2']], None)
+    # the single-member form is accepted, not refused
+    engine.sim_helper._create_param_subset([['scaling/k1']], [_C[0]])
 
 
 # --------------------------------------------------------------- issue #389

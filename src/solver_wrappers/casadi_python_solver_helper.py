@@ -750,15 +750,20 @@ class SimulationHelper:
         arm applies (``modifier_weights_by_index``), so the two backends cannot disagree
         about what d/dtheta means.
 
-        A nested name reaching here means the caller did not flatten, which would silently
-        differentiate w.r.t. the first member alone -- the pre-#380 bug -- so refuse it.
+        A single-member list is accepted and unwrapped: ``[['a/C'], ['b/R']]`` is the canonical
+        ``param_id_info["param_names"]`` shape and names one constant per entry, so there is
+        nothing to flatten and no ambiguity. Only a *multi-member* group is refused -- taking
+        its first member is the pre-#380 bug (the gradient tracks one constant while the cost
+        moves all of them), and it is the caller's job to expand it.
         """
-        nested = [x for x in param_names if isinstance(x, (list, tuple))]
-        if nested:
+        param_names = [x[0] if isinstance(x, (list, tuple)) and len(x) == 1 else x
+                       for x in param_names]
+        grouped = [x for x in param_names if isinstance(x, (list, tuple))]
+        if grouped:
             raise ValueError(
-                f"_create_param_subset expects flat parameter names, got nested {nested}. "
-                f"Flatten grouped/modifier entries to their members (and expand their values) "
-                f"before calling; see param_id.casadi_backend.flatten_entries.")
+                f"_create_param_subset expects one name per symbol, got multi-member "
+                f"{grouped}. Flatten grouped/modifier entries to their members (and expand "
+                f"their values) before calling; see param_id.casadi_backend.flatten_entries.")
 
         # Resolve each param to its VARIABLE_INFO index, then find its SX symbol
         var_indices = []   # VARIABLE_INFO indices
