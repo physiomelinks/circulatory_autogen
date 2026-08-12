@@ -104,6 +104,20 @@ saves the emulator. The script prints the held-out R² per observable:
 **Read those numbers before using it.** They are the only thing standing between you and a set
 of Sobol indices for a model you did not simulate.
 
+!!! warning "How good an emulator you can get depends on the parameter box"
+    Difficulty grows with the width of the `params_for_id` ranges, the number of parameters and
+    how rough the feature is. A worked example from this repo: emulating `max` of the two
+    Lotka-Volterra states over their *full* declared ranges (`alpha` 0.1–7, `gamma` 0.1–10,
+    where the response spans 20–3900) gives held-out R² of only about **0.2 and 0.5** from a
+    128-sample Gaussian process — and 256 samples does not reliably improve it, because `max` of
+    an oscillation whose period changes sharply with the parameters is close to discontinuous.
+
+    If your R² is poor, the useful moves are, in order: narrow the parameter ranges to the
+    region you actually care about; add samples; set `log_scale_params: true` when a bound
+    spans decades; try `models: all`; and consider whether the feature itself is a smooth
+    function of the parameters at all. What you should *not* do is lower `min_r2` to make the
+    run proceed.
+
 The saved directory contains:
 
 | File | What it is |
