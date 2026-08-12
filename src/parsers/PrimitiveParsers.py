@@ -2412,6 +2412,13 @@ class CSVFileParser(object):
         else:
             csv_dataframe = pd.read_csv(filename, dtype=str, header=None)
 
+        # Strip the header names as well as the values. Callers address these columns by name
+        # (issue #159), so a stray space after a comma in the header row would otherwise make a
+        # column unfindable under the name the user can see in their file.
+        if has_header:
+            csv_dataframe = csv_dataframe.rename(
+                columns=lambda name: name.strip() if isinstance(name, str) else name)
+
         for column_name in csv_dataframe.columns:
             csv_dataframe[column_name] = csv_dataframe[column_name].str.strip()
 

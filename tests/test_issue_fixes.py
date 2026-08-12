@@ -4,6 +4,7 @@
 * #99  -- ``*_parameters_unfinished.csv`` must be written to the configured ``resources_dir``.
 * #155 -- the duplicated input-flow BC modules were removed from the microvasculature config.
 * #157 -- solver Make files are copied into each generated model directory.
+* #159 -- parameter CSV columns are read by header name, not by position.
 * #167 -- sensitivity-analysis plot filenames are sanitised (no ``{}``/spaces/backslashes).
 
 These are deliberately light-weight: heavy optional deps are imported inside the test bodies so a
@@ -147,3 +148,100 @@ def test_sanitize_for_filename_strips_unsafe_characters():
     assert sanitize_for_filename('***') == 'output'
     # already-safe names are preserved (dots and dashes are allowed)
     assert sanitize_for_filename('flow_rate-1.0') == 'flow_rate-1.0'
+
+
+# ---------------------------------------------------------------------------
+# #159 -- parameter CSV columns are matched by header, not by position
+# ---------------------------------------------------------------------------
+def _reduce(tmp_path, header, rows, variables_and_units=None):
+    """Run __reduce_parameters_array over a hand-written parameters CSV.
+
+    Builds the parser with __new__ so only the two attributes this method needs are set -- the
+    real __init__ would parse a whole model.
+    """
+    import pandas as pd
+    from parsers.ModelParsers import CSV0DModelParser
+    from parsers.PrimitiveParsers import CSVFileParser
+
+    csv_path = tmp_path / 'x_parameters.csv'
+    csv_path.write_text('\n'.join([header] + rows) + '\n')
+
+    if variables_and_units is None:
+        # one required constant, 'R', which gets the vessel name appended -> 'R_vessel'
+        variables_and_units = [['R', 'Js_per_m6', 'access', 'constant']]
+    vessels_df = pd.DataFrame([{'name': 'vessel',
+                                'variables_and_units': variables_and_units}])
+
+    parser = CSV0DModelParser.__new__(CSV0DModelParser)
+    parser.parameter_filename = str(csv_path)
+    parser.csv_parser = CSVFileParser()
+
+    parameters_array_orig = parser.csv_parser.get_data_as_nparray(str(csv_path), True)
+    return parser._CSV0DModelParser__reduce_parameters_array(
+        parameters_array_orig, vessels_df)
+
+
+def test_parameters_csv_extra_column_does_not_shift_the_value(tmp_path):
+    """The bug: rows were flattened into a positional list, so any column the code did not expect
+    shifted every field to its right.
+
+    resources/FTU_wCVS_parameters.csv is a real file with a 'comp_env' column between units and
+    value; before the fix its parameter values parsed as the comp_env string ('heart') and its
+    data_references as the values.
+    """
+    out = _reduce(tmp_path,
+                  'variable_name,units,comp_env,value,data_reference',
+                  ['R_vessel,Js_per_m6,heart,1333000,Blanco_2013'])
+    assert out['value'][0] == '1333000', 'the comp_env column was read as the value'
+    assert out['data_reference'][0] == 'Blanco_2013'
+    assert out['units'][0] == 'Js_per_m6'
+    assert out['const_type'][0] == 'constant'
+
+
+def test_parameters_csv_columns_may_be_in_any_order(tmp_path):
+    """Header-based reading means column order is not part of the file format."""
+    reordered = _reduce(tmp_path,
+                        'data_reference,value,variable_name,units',
+                        ['Blanco_2013,1333000,R_vessel,Js_per_m6'])
+    canonical = _reduce(tmp_path,
+                        'variable_name,units,value,data_reference',
+                        ['R_vessel,Js_per_m6,1333000,Blanco_2013'])
+    for field in ('variable_name', 'units', 'const_type', 'value', 'data_reference'):
+        assert reordered[field][0] == canonical[field][0], field
+
+
+def test_parameters_csv_header_whitespace_is_tolerated(tmp_path):
+    """A space after a comma in the header row must not make a column unfindable under the name
+    the user can see in their file."""
+    out = _reduce(tmp_path,
+                  'variable_name, units, value, data_reference',
+                  ['R_vessel,Js_per_m6,1333000,Blanco_2013'])
+    assert out['value'][0] == '1333000'
+    assert out['units'][0] == 'Js_per_m6'
+
+
+def test_parameters_csv_missing_required_column_is_reported(tmp_path):
+    """Positional reading turned a missing column into a silent EMPTY_MUST_BE_FILLED; by name it
+    is a named error."""
+    with pytest.raises(SystemExit):
+        _reduce(tmp_path,
+                'variable_name,units,value',
+                ['R_vessel,Js_per_m6,1333000'])
+
+
+def test_parameters_csv_missing_row_still_flags_it_as_unfilled(tmp_path):
+    """Unchanged behaviour: a required parameter with no row in the CSV is carried through as
+    EMPTY_MUST_BE_FILLED so the unfinished-parameters file can list it."""
+    out = _reduce(tmp_path,
+                  'variable_name,units,value,data_reference',
+                  ['something_else,Js_per_m6,1333000,Blanco_2013'])
+    assert out['variable_name'][0] == 'R_vessel'
+    assert out['value'][0] == 'EMPTY_MUST_BE_FILLED'
+
+
+def test_parameters_csv_unit_mismatch_still_exits(tmp_path):
+    """Unchanged behaviour: units that disagree with the module config are a hard error."""
+    with pytest.raises(SystemExit):
+        _reduce(tmp_path,
+                'variable_name,units,value,data_reference',
+                ['R_vessel,m3,1333000,Blanco_2013'])
