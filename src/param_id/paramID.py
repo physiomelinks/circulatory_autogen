@@ -951,6 +951,14 @@ class CVS0DParamID():
         # Also check autocorrelation times for mcmc chain
         tau = self.calculate_autocorrelation_time(samples)
 
+        # Per-parameter posterior summary with ESS and split-R-hat, and the two chain-diagnostic
+        # plots. Printed rather than only returned: R-hat and ESS are the numbers that say
+        # whether the posterior above is trustworthy at all, so a run should not be able to
+        # finish without stating them.
+        self.print_convergence_diagnostics(samples)
+        self.plot_autocorrelation(samples)
+        self.plot_chain_avg(samples)
+
         # check geweke convergence
         if not self.DEBUG:
             # the chain is too short when running debug to do geweke diagnostics
@@ -966,6 +974,219 @@ class CVS0DParamID():
     def calculate_autocorrelation_time(self, samples):
         tau = emcee.autocorr.integrated_time(samples, quiet=True)
         return tau
+
+    # -----------------------------------------------------------------------
+    # Convergence diagnostics (issue #367)
+    # -----------------------------------------------------------------------
+    # Computed here from numpy and emcee rather than through arviz. #367 imported arviz at module
+    # level for these, which would have made every calibration run depend on it -- and arviz is
+    # not a CA dependency, so the diagnostics would then be unavailable in exactly the
+    # environments that need them. R-hat and ESS are short, standard formulas and emcee (already
+    # a dependency) supplies the autocorrelation, so nothing is gained by the dependency.
+
+    def calc_rhat(self, samples):
+        """Split-R-hat (Gelman-Rubin) per parameter, from a ``(steps, walkers, params)`` chain.
+
+        The *split* form: each walker is halved and the halves treated as separate chains, so a
+        single walker that drifts steadily is caught. Plain R-hat cannot see that -- a drifting
+        chain has a large within-chain variance, which is exactly what makes the ratio look fine.
+
+        Returns ``{param_name: rhat}``. Values near 1 indicate the walkers have mixed; the usual
+        working threshold is 1.01.
+        """
+        samples = np.asarray(samples, dtype=float)
+        num_steps, num_walkers, num_params = samples.shape
+
+        half = num_steps // 2
+        if half < 2:
+            return {name: float('nan') for name in self._param_labels(num_params)}
+
+        # (steps, walkers, params) -> (2*walkers chains, half draws, params)
+        chains = np.concatenate([samples[:half], samples[half:2 * half]], axis=1)
+        chains = np.swapaxes(chains, 0, 1)
+        num_chains = chains.shape[0]
+
+        chain_means = chains.mean(axis=1)
+        chain_vars = chains.var(axis=1, ddof=1)
+
+        within = chain_vars.mean(axis=0)
+        between = half * chain_means.var(axis=0, ddof=1) if num_chains > 1 else np.zeros(num_params)
+
+        var_plus = ((half - 1) / half) * within + between / half
+        with np.errstate(divide='ignore', invalid='ignore'):
+            rhat = np.sqrt(np.where(within > 0, var_plus / within, np.nan))
+
+        return dict(zip(self._param_labels(num_params), (float(r) for r in rhat)))
+
+    def calc_effective_sample_size(self, samples):
+        """Effective sample size per parameter: ``N / tau``, with tau the integrated
+        autocorrelation time over the pooled chain.
+
+        MCMC draws are correlated, so the number of samples overstates how much independent
+        information the chain carries. This is the number that should be quoted alongside a
+        posterior mean, not ``num_steps * num_walkers``.
+
+        Returns ``{param_name: ess}``.
+        """
+        samples = np.asarray(samples, dtype=float)
+        num_steps, num_walkers, num_params = samples.shape
+        total = num_steps * num_walkers
+
+        ess = {}
+        for name, idx in zip(self._param_labels(num_params), range(num_params)):
+            try:
+                tau = float(emcee.autocorr.integrated_time(samples[:, :, idx], quiet=True)[0])
+            except Exception:
+                tau = float('nan')
+            if not np.isfinite(tau) or tau <= 0:
+                ess[name] = float('nan')
+            else:
+                # A chain can never carry more independent information than it has draws.
+                ess[name] = float(min(total / tau, total))
+        return ess
+
+    def get_posterior_stats(self, samples):
+        """Per-parameter posterior summary: mean, sd, the 3%/97% credible bounds, ESS and R-hat.
+
+        One table rather than three separate arviz summary calls (#367 built the same dataset and
+        re-ran the summary in each of three accessors, so the expensive part ran three times).
+        """
+        samples = np.asarray(samples, dtype=float)
+        num_steps, num_walkers, num_params = samples.shape
+        flat = samples.reshape(num_steps * num_walkers, num_params)
+
+        ess = self.calc_effective_sample_size(samples)
+        rhat = self.calc_rhat(samples)
+
+        stats = {}
+        for idx, name in enumerate(self._param_labels(num_params)):
+            column = flat[:, idx]
+            stats[name] = {
+                'mean': float(np.mean(column)),
+                'sd': float(np.std(column, ddof=1)) if column.size > 1 else float('nan'),
+                'hdi_3%': float(np.percentile(column, 3)),
+                'hdi_97%': float(np.percentile(column, 97)),
+                'ess': ess[name],
+                'r_hat': rhat[name],
+            }
+        return stats
+
+    def print_convergence_diagnostics(self, samples):
+        """Print the summary table and say plainly whether the chain has converged.
+
+        A diagnostic nobody reads is not a diagnostic, and R-hat / ESS are only useful against
+        their thresholds -- so the verdict is stated rather than left to the reader.
+        """
+        stats = self.get_posterior_stats(samples)
+        print('')
+        print(f'{"parameter":<28s}{"mean":>12s}{"sd":>12s}{"3%":>12s}{"97%":>12s}'
+              f'{"ess":>10s}{"r_hat":>9s}')
+        for name, row in stats.items():
+            print(f'{name:<28s}{row["mean"]:>12.4g}{row["sd"]:>12.4g}{row["hdi_3%"]:>12.4g}'
+                  f'{row["hdi_97%"]:>12.4g}{row["ess"]:>10.1f}{row["r_hat"]:>9.3f}')
+
+        unconverged = [n for n, r in stats.items()
+                       if not np.isfinite(r['r_hat']) or r['r_hat'] > 1.01]
+        if unconverged:
+            print(f'WARNING: r_hat > 1.01 for {unconverged} -- the walkers have not mixed. '
+                  f'Run more steps before trusting the posterior.')
+        else:
+            print('All parameters have r_hat <= 1.01 (walkers mixed).')
+        return stats
+
+    def plot_autocorrelation(self, samples, num_params=None):
+        """One autocorrelation-vs-lag panel per parameter, every walker overlaid.
+
+        The +-0.1 guides are what makes the plot readable: a chain whose autocorrelation has
+        decayed inside them by the end of the trace is producing near-independent draws, and one
+        that has not is still exploring. Returns True when every walker is inside the band over
+        the last fifth of the lags, so a caller can act on it rather than only look at it.
+        """
+        if self.rank != 0:
+            return None
+        samples = np.asarray(samples, dtype=float)
+        if num_params is None:
+            num_params = samples.shape[2]
+
+        fig, axes = plt.subplots(num_params, figsize=(10, 2 * num_params), sharex=True,
+                                 squeeze=False)
+        all_bounded = True
+        labels = self._param_labels(num_params)
+        autocorr = None
+        for idx in range(num_params):
+            ax = axes[idx][0]
+            for walker in range(samples.shape[1]):
+                autocorr = emcee.autocorr.function_1d(samples[:, walker, idx])
+                ax.plot(autocorr, alpha=0.3)
+                window_size = max(1, int(0.2 * len(autocorr)))
+                if np.any(np.abs(autocorr[-window_size:]) > 0.1):
+                    all_bounded = False
+
+            ax.axhline(y=0, color='k', linestyle='--', alpha=0.7)
+            ax.axhline(y=0.1, color='r', linestyle='--', alpha=0.7, linewidth=1.5)
+            ax.axhline(y=-0.1, color='r', linestyle='--', alpha=0.7, linewidth=1.5)
+            ax.set_ylabel(f'${labels[idx]}$')
+            if autocorr is not None:
+                ax.set_xlim(0, len(autocorr))
+
+        axes[-1][0].set_xlabel('Lag')
+        fig.tight_layout()
+        fig.savefig(os.path.join(self.plot_dir,
+                                 f'mcmc_autocorrelation_{self.file_name_prefix}_'
+                                 f'{self.param_id_obs_file_prefix}.pdf'))
+        plt.close(fig)
+        return all_bounded
+
+    def plot_chain_avg(self, samples=None, window_size=10):
+        """Running mean of each walker, one panel per parameter.
+
+        Convergence shows up here as the walkers' running means coming together and flattening;
+        a walker whose mean is still moving has not finished exploring, which a corner plot of
+        the pooled chain hides by averaging it away.
+        """
+        if self.rank != 0:
+            return None
+        if samples is None:
+            chain = self.get_mcmc_samples()
+            if chain is None:
+                return None
+            _, samples, _ = chain
+        samples = np.asarray(samples, dtype=float)
+
+        num_steps, num_chains, num_params = samples.shape
+        if window_size >= num_steps:
+            print(f'Warning: chain-average window {window_size} is not shorter than the '
+                  f'{num_steps} steps available; skipping the chain average plot.')
+            return None
+
+        fig, axes = plt.subplots(num_params, figsize=(10, 2 * num_params), sharex=True,
+                                 squeeze=False)
+        window = np.ones(window_size) / window_size
+        labels = self._param_labels(num_params)
+        for idx in range(num_params):
+            ax = axes[idx][0]
+            for chain_idx in range(num_chains):
+                moving_avg = np.convolve(samples[:, chain_idx, idx], window, mode='valid')
+                ax.plot(np.arange(len(moving_avg)) + window_size - 1, moving_avg, alpha=0.5)
+            ax.set_ylabel(f'${labels[idx]}$')
+
+        axes[-1][0].set_xlabel('Step')
+        fig.tight_layout()
+        fig.savefig(os.path.join(self.plot_dir,
+                                 f'mcmc_chain_average_{self.file_name_prefix}_'
+                                 f'{self.param_id_obs_file_prefix}.pdf'))
+        plt.close(fig)
+        return True
+
+    def _param_labels(self, num_params=None):
+        """Parameter names for the diagnostic tables, falling back to indices."""
+        names = None
+        info = getattr(self, 'param_id_info', None)
+        if isinstance(info, dict):
+            names = info.get('param_names_for_plotting')
+        if names is None or (num_params is not None and len(names) != num_params):
+            return [f'param_{idx}' for idx in range(num_params or 0)]
+        return list(names)
 
     def calculate_geweke_convergence(self, samples):
         d = diagnostics.Diagnostics()
