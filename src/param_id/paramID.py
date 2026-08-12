@@ -1178,6 +1178,284 @@ class CVS0DParamID():
         plt.close(fig)
         return True
 
+    # -----------------------------------------------------------------------
+    # Posterior-predictive plots (issue #367)
+    # -----------------------------------------------------------------------
+    # seaborn is imported lazily inside each of these. It is a CA dependency, but paramID is
+    # imported by every calibration run and none of these are on that path, so there is no
+    # reason to pay the import for a run that never plots a posterior.
+
+    def get_prior_pdf(self, param_idx, x_values):
+        """The prior density for one parameter, over ``x_values``, normalised on that range.
+
+        Derived from CA's own ``get_lnprior_from_params`` rather than reimplemented. The priors
+        are independent per parameter, so evaluating the log prior along one axis with the others
+        held at their best-fit values recovers that parameter's prior up to a constant, and the
+        constant falls out in the normalisation.
+
+        That matters because the prior vocabulary is not simply uniform/exponential/normal any
+        more: params_for_id carries ``prior_mean``, ``prior_std``, ``prior_origin`` and
+        ``prior_scale``, and an ``unbounded`` flag that suppresses the range truncation. #367
+        restated the *old* defaults here (lambda=1, sigma=(max-min)/6, mu=(max+min)/2), so a
+        plotted prior would have silently disagreed with the one actually being sampled.
+        """
+        engine = mcmc_object if self.mcmc_instead else self.param_id
+        x_values = np.asarray(x_values, dtype=float)
+
+        centre = getattr(engine, 'best_param_vals', None)
+        if centre is None:
+            mins = np.asarray(engine.param_id_info['param_mins'], dtype=float)
+            maxs = np.asarray(engine.param_id_info['param_maxs'], dtype=float)
+            centre = 0.5 * (mins + maxs)
+        centre = np.asarray(centre, dtype=float).copy()
+
+        lnprior = np.empty_like(x_values)
+        for idx, value in enumerate(x_values):
+            trial = centre.copy()
+            trial[param_idx] = value
+            lnprior[idx] = engine.get_lnprior_from_params(trial)
+
+        finite = np.isfinite(lnprior)
+        pdf = np.zeros_like(x_values)
+        if not np.any(finite):
+            return pdf
+        # Subtract the max before exponentiating: the log prior is unnormalised, so its absolute
+        # level is arbitrary and can overflow exp() outright.
+        pdf[finite] = np.exp(lnprior[finite] - np.max(lnprior[finite]))
+        area = np.trapz(pdf, x_values)
+        if area > 0:
+            pdf /= area
+        return pdf
+
+    def _posterior_predictive_values(self, flat_samples, n_sims=50):
+        """Re-simulate ``n_sims`` posterior draws and collect each observable's value.
+
+        Returns ``{name_for_plotting: {experiment_idx: [values], 'exp_data': [values]}}`` -- the
+        model's predictive distribution per feature, alongside the measurements it is answerable
+        to.
+        """
+        sim_obj = mcmc_object if self.mcmc_instead else self.param_id
+        names = self.obs_info['names_for_plotting']
+        values = {name: {} for name in names}
+
+        flat_samples = np.asarray(flat_samples, dtype=float)
+        n_actual = int(min(n_sims, len(flat_samples)))
+        if n_actual == 0:
+            return values
+        sample_indices = np.random.choice(len(flat_samples), n_actual, replace=False)
+
+        for count, sample_idx in enumerate(sample_indices, start=1):
+            _, obs_list = sim_obj.get_cost_and_obs_from_params(flat_samples[sample_idx, :],
+                                                               reset=True)
+            subexp_count = 0
+            for exp_idx in range(self.protocol_info['num_experiments']):
+                for sub_idx in range(self.protocol_info['num_sub_per_exp'][exp_idx]):
+                    if subexp_count >= len(obs_list) or obs_list[subexp_count] is None:
+                        subexp_count += 1
+                        continue
+                    obs_proc = sim_obj.get_obs_output_dict(obs_list[subexp_count])
+                    subexp_count += 1
+
+                    for obs_idx, name in enumerate(names):
+                        if (self.obs_info['experiment_idxs'][obs_idx] != exp_idx
+                                or self.obs_info['subexperiment_idxs'][obs_idx] != sub_idx):
+                            continue
+                        value = self._predictive_value(obs_proc, obs_idx)
+                        if value is not None:
+                            values[name].setdefault(exp_idx, []).append(value)
+
+            sim_obj.sim_helper.reset_and_clear()
+            print(f'Processed {count}/{n_actual} posterior samples for the predictive plots.')
+
+        self._add_measured_values(values)
+        return values
+
+    def _predictive_value(self, obs_proc, obs_idx):
+        """One observable's scalar out of a simulated obs dict, by its data_type."""
+        data_type = self.obs_info['data_types'][obs_idx]
+        try:
+            if data_type == 'constant':
+                return obs_proc['const'][obs_idx]
+            if data_type == 'series':
+                return np.max(obs_proc['series'][obs_idx])
+            if data_type == 'frequency':
+                return obs_proc['amp'][obs_idx]
+            if data_type == 'prob_dist':
+                return obs_proc['val_for_prob_dist'][obs_idx]
+        except (IndexError, KeyError, TypeError):
+            return None
+        return None
+
+    def _add_measured_values(self, values):
+        """Add the measured data each feature is answerable to, under 'exp_data'."""
+        for obs_idx, name in enumerate(self.obs_info['names_for_plotting']):
+            data_type = self.obs_info['data_types'][obs_idx]
+            measured = values[name].setdefault('exp_data', [])
+            if data_type == 'constant':
+                mean = self.obs_info['ground_truth_const'][obs_idx]
+                std = self.obs_info['std_const_vec'][obs_idx]
+                # A constant observation is a mean and a std, not samples; draw from it so the
+                # comparison is distribution against distribution rather than a line.
+                measured.extend(np.random.normal(mean, std, 20))
+            elif data_type == 'prob_dist':
+                params = self.obs_info['ground_truth_prob_dist_params'][obs_idx]
+                if isinstance(params, dict) and 'data_points' in params:
+                    measured.extend(np.asarray(params['data_points'], dtype=float))
+
+    def save_posterior_predictions(self, values):
+        """Write the predictive values to posterior_predictions.csv, long-format.
+
+        The plots below are a view of this; the csv is what someone re-plots or re-analyses
+        from without paying for the simulations again.
+        """
+        rows = []
+        for feature, by_experiment in values.items():
+            for key, vals in by_experiment.items():
+                kind = 'experimental' if key == 'exp_data' else 'simulated'
+                for value in vals:
+                    rows.append({'feature': feature, 'experiment_idx': key,
+                                 'value': value, 'data_type': kind})
+        path = os.path.join(self.output_dir, 'posterior_predictions.csv')
+        pd.DataFrame(rows).to_csv(path, index=False)
+        print(f'Saved posterior predictions to {path}')
+        return path
+
+    def plot_boxplots_for_predictions(self, flat_samples, n_sims=50, show_points=True):
+        """Violin + box + jittered points per feature: the model's predictive spread against
+        the measurements, one figure per feature, plus a summary grid.
+
+        This is the plot that answers "does the calibrated model reproduce the data, and with
+        what spread" -- which a best-fit line cannot show.
+        """
+        if self.rank != 0:
+            return None
+        import seaborn as sns
+
+        values = self._posterior_predictive_values(flat_samples, n_sims=n_sims)
+        self.save_posterior_predictions(values)
+
+        written = []
+        for feature, by_experiment in values.items():
+            ordered_keys = sorted(by_experiment.keys(), key=lambda k: str(k))
+            series, labels, colors = [], [], []
+            for key in ordered_keys:
+                if not by_experiment[key]:
+                    continue
+                series.append(by_experiment[key])
+                if key == 'exp_data':
+                    labels.append('Experimental')
+                    colors.append('red')
+                else:
+                    labels.append(self._experiment_label(key))
+                    colors.append(self._experiment_color(key))
+            if not series:
+                continue
+
+            fig, ax = plt.subplots(figsize=(6.5, 4.5))
+            sns.violinplot(data=series, ax=ax, palette=colors, cut=3, inner='box',
+                           saturation=0.8)
+            for idx, collection in enumerate(ax.collections):
+                if idx < len(series):
+                    collection.set_alpha(0.35)
+                    collection.set_edgecolor('none')
+
+            for idx, vals in enumerate(series):
+                mean_v, std_v = np.mean(vals), np.std(vals)
+                ax.scatter(idx, mean_v, marker='D', color='white', edgecolor='black', s=30,
+                           zorder=4)
+                spread = np.max(vals) - np.min(vals)
+                ax.text(idx, np.max(vals) + 0.05 * spread,
+                        fr'${mean_v:.2g} \pm {std_v:.2g}$', ha='center', fontsize=9,
+                        bbox=dict(boxstyle='round,pad=0.2', fc='white', alpha=0.5, ec='none'))
+                if show_points:
+                    ax.scatter(np.random.normal(idx, 0.04, size=len(vals)), vals,
+                               color='black', s=5, alpha=0.2, zorder=2)
+
+            obs_idx = self.obs_info['names_for_plotting'].index(feature)
+            ax.set_xticks(range(len(labels)))
+            ax.set_xticklabels(labels, rotation=15)
+            ax.set_ylabel(f"{feature} ({self.obs_info['units'][obs_idx]})")
+            ax.set_title(feature)
+            sns.despine(ax=ax)
+            fig.tight_layout()
+            # Sanitised, not feature.replace(' ', '_'): a name_for_plotting is LaTeX-ish
+            # (u_{A_{R}}), and braces and slashes do not survive as a filename (#167).
+            # Imported here rather than at module level: sobolSA pulls in SALib, which a
+            # calibration-only install need not have.
+            from sensitivity_analysis.sobolSA import sanitize_for_filename
+
+            path = os.path.join(self.plot_dir, f'posterior_{sanitize_for_filename(feature)}.png')
+            fig.savefig(path, dpi=300)
+            plt.close(fig)
+            written.append(path)
+
+        # Once, after every feature -- #367 called this inside the loop, redrawing the whole
+        # grid once per feature and keeping only the last.
+        self.plot_distribution_grid(values)
+        return written
+
+    def plot_distribution_grid(self, values):
+        """One figure of KDE panels, model posterior against measurement, for every feature."""
+        if self.rank != 0:
+            return None
+        import seaborn as sns
+
+        features = list(self.obs_info['names_for_plotting'])
+        if not features:
+            return None
+        cols = min(3, len(features))
+        rows = (len(features) + cols - 1) // cols
+        fig, axes = plt.subplots(rows, cols, figsize=(cols * 4.5, rows * 4), squeeze=False)
+        flat_axes = axes.flatten()
+
+        for idx, feature in enumerate(features):
+            ax = flat_axes[idx]
+            by_experiment = values.get(feature, {})
+            model_vals = [v for key, vals in by_experiment.items() if key != 'exp_data'
+                          for v in vals]
+            self._draw_density(ax, model_vals, 'Model posterior', '#1f77b4')
+            self._draw_density(ax, by_experiment.get('exp_data', []), 'Experimental', '#d62728')
+
+            ax.set_title(feature, fontweight='bold')
+            ax.set_xlabel(f"Value ({self.obs_info['units'][idx]})")
+            ax.set_ylabel('Density')
+            ax.legend(fontsize=8, frameon=False)
+            sns.despine(ax=ax)
+
+        for empty in range(len(features), len(flat_axes)):
+            flat_axes[empty].axis('off')
+
+        fig.tight_layout()
+        path = os.path.join(self.plot_dir, 'all_features_kde_grid.png')
+        fig.savefig(path, dpi=300)
+        plt.close(fig)
+        return path
+
+    @staticmethod
+    def _draw_density(ax, data, label, color):
+        """A KDE curve, falling back to a histogram when the data has no spread to smooth."""
+        data = np.asarray(list(data), dtype=float)
+        if data.size < 2:
+            return
+        try:
+            from scipy.stats import gaussian_kde
+
+            kde = gaussian_kde(data)
+            pad = 0.5 * np.std(data)
+            grid = np.linspace(np.min(data) - pad, np.max(data) + pad, 200)
+            ax.plot(grid, kde(grid), color=color, lw=2, label=label)
+        except (np.linalg.LinAlgError, ValueError):
+            # gaussian_kde needs a non-singular covariance: identical samples raise here.
+            ax.hist(data, bins=50, density=True, alpha=0.2, color=color, label=label)
+
+    def _experiment_label(self, exp_idx):
+        labels = self.protocol_info.get('experiment_labels') or []
+        return labels[exp_idx] if exp_idx < len(labels) else f'Exp {exp_idx}'
+
+    def _experiment_color(self, exp_idx):
+        colors = self.protocol_info.get('experiment_colors') or []
+        return colors[exp_idx] if exp_idx < len(colors) else f'C{exp_idx}'
+
     def _param_labels(self, num_params=None):
         """Parameter names for the diagnostic tables, falling back to indices."""
         names = None
