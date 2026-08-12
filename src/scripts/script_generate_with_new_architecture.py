@@ -158,6 +158,11 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
         dtSample = inp_data_dict['dt']
         dtSolver = solver_info['dt_solver']
         nMaxSteps = solver_info['MaximumNumberOfSteps']
+        # The generated C++ used to hardcode its tolerances, so these were the one part of
+        # solver_info a cpp user could not set (issue #398). The defaults are the literals that
+        # used to be emitted, so a config that sets neither generates exactly what it did before.
+        reltol = solver_info.get('rtol', 1e-7)
+        abstol = solver_info.get('atol', 1e-9)
 
         if inp_data_dict['couple_to_1d']:
             # object from class CVS0DCppGenerator
@@ -192,6 +197,7 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
             code_generator = CVS0DCppGenerator(model, generated_models_subdir, file_prefix, #XXX
                                             resources_dir=resources_dir, solver=solver_cpp, 
                                             dtSample=dtSample, dtSolver=dtSolver, nMaxSteps=nMaxSteps,
+                                            reltol=reltol, abstol=abstol,
                                             couple_to_1d=inp_data_dict['couple_to_1d'],
                                             cpp_generated_models_dir=cpp_generated_models_dir,
                                             model_1d_config_path=model_1d_config_path,
@@ -227,7 +233,8 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
                 print("Check point 1B")
             code_generator = CVS0DCppGenerator(model, generated_models_subdir, file_prefix,
                                             resources_dir=resources_dir, solver=solver_cpp,
-                                            dtSample=dtSample, dtSolver=dtSolver, nMaxSteps=nMaxSteps)
+                                            dtSample=dtSample, dtSolver=dtSolver, nMaxSteps=nMaxSteps,
+                                            reltol=reltol, abstol=abstol)
             if DEBUG:
                 print("Check point 2B")
 

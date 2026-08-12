@@ -5,6 +5,7 @@
 * #155 -- the duplicated input-flow BC modules were removed from the microvasculature config.
 * #157 -- solver Make files are copied into each generated model directory.
 * #159 -- parameter CSV columns are read by header name, not by position.
+* #398 -- solver_info rtol/atol reach the generated C++ instead of being hardcoded.
 * #167 -- sensitivity-analysis plot filenames are sanitised (no ``{}``/spaces/backslashes).
 
 These are deliberately light-weight: heavy optional deps are imported inside the test bodies so a
@@ -245,3 +246,64 @@ def test_parameters_csv_unit_mismatch_still_exits(tmp_path):
         _reduce(tmp_path,
                 'variable_name,units,value,data_reference',
                 ['R_vessel,m3,1333000,Blanco_2013'])
+
+
+# ---------------------------------------------------------------------------
+# #398 -- solver_info rtol/atol reach the generated C++
+# ---------------------------------------------------------------------------
+def _cpp_solver_init(solver, reltol=1e-7, abstol=1e-9):
+    """The emitted set_ode_solver body, built without generating a whole model."""
+    from generators.CVSCppGenerator import CVS0DCppGenerator
+
+    gen = CVS0DCppGenerator.__new__(CVS0DCppGenerator)
+    gen.solver = solver
+    gen.reltol = reltol
+    gen.abstol = abstol
+    gen.dtSolver = 1e-4
+    gen.nMaxSteps = 5000
+    return gen._build_solver_init_function()
+
+
+@pytest.mark.parametrize('solver', ['CVODE', 'PETSC'])
+def test_cpp_generator_emits_the_configured_tolerances(solver):
+    """The two tolerance literals in the emitted C++ carried a standing
+    'TODO get this from user_inputs.yaml too'; a cpp user could only change the accuracy of a run
+    by hand-editing generated code."""
+    emitted = _cpp_solver_init(solver, reltol=1.5e-9, abstol=2.5e-11)
+    assert 'reltol = 1.5e-09' in emitted, emitted
+    assert 'abstol = 2.5e-11' in emitted, emitted
+    # the values that used to be baked in are gone unless the user asks for them
+    assert 'reltol = 1e-7' not in emitted
+    assert 'abstol = 1e-9' not in emitted
+    assert 'TODO get this from user_inputs' not in emitted
+
+
+@pytest.mark.parametrize('solver', ['CVODE', 'PETSC'])
+def test_cpp_generator_defaults_reproduce_the_previous_output(solver):
+    """A config that sets neither tolerance must generate exactly what it did before, so wiring
+    the settings up does not silently change anybody's existing model."""
+    emitted = _cpp_solver_init(solver)
+    assert 'reltol = 1e-07' in emitted, emitted
+    assert 'abstol = 1e-09' in emitted, emitted
+
+
+def test_cpp_rk4_has_no_tolerances_to_configure():
+    """RK4 is a fixed-step scheme with no tolerance knobs -- it must not grow one just because
+    the settings now exist."""
+    emitted = _cpp_solver_init('RK4')
+    assert 'reltol' not in emitted
+    assert 'abstol' not in emitted
+    assert 'wRK4' in emitted, 'expected the RK4 branch'
+
+
+def test_generate_script_reads_tolerances_from_solver_info():
+    """The generator only gets the user's values if the cpp branch of the generate script passes
+    them, and the defaults there are what keeps existing configs byte-identical."""
+    import inspect
+    from scripts import script_generate_with_new_architecture as gen_script
+
+    source = inspect.getsource(gen_script.generate_with_new_architecture)
+    assert "solver_info.get('rtol', 1e-7)" in source
+    assert "solver_info.get('atol', 1e-9)" in source
+    # both CVS0DCppGenerator constructions (coupled and uncoupled) must forward them
+    assert source.count('reltol=reltol, abstol=abstol') == 2

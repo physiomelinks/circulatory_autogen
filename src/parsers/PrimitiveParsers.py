@@ -258,17 +258,23 @@ _CPP_SOLVERS = frozenset(SOLVER_SCHEMA['solvers_by_model_type']['cpp'])
 
 # The cpp solvers (CVODE/RK4/PETSC) are not run through a SimulationHelper at all: their
 # solver_info is baked into the emitted C++ by the cpp branch of
-# script_generate_with_new_architecture, which forwards exactly two values to CVSCppGenerator --
-# `dt_solver` (a framework key) as the solver step, and `MaximumNumberOfSteps` as mxsteps. The
-# generated C++ hardcodes its tolerances (`sunrealtype reltol = 1e-7; ... abstol = 1e-9;`, with a
-# standing TODO in CVSCppGenerator) and has no maximum-step-size knob, so advertising
-# MaximumStep/rtol/atol here made a downstream tool (e.g. CUFLynx) render three controls the user
-# could set with no effect and no way to tell -- the same reasoning as the notes on 'CVODE_myokit'
-# and 'aadc_semi_implicit'. They are listed again here the day the generator reads them; configs
-# that already set them are migrated with a warning, not rejected (migrate_legacy_solver_info_keys).
+# script_generate_with_new_architecture, which forwards these values to CVSCppGenerator (plus the
+# framework key `dt_solver`, which becomes the solver step).
+#
+# 'MaximumStep' is deliberately absent: the generated C++ integrates at the fixed `dt_solver`, so
+# there is no maximum-step-size knob for it to control. Advertising a setting nothing reads makes
+# a downstream tool (e.g. CUFLynx) render a control the user can change with no effect and no way
+# to tell -- the same reasoning as the notes on 'CVODE_myokit' and 'aadc_semi_implicit'. Configs
+# that already set it are migrated with a warning, not rejected (migrate_legacy_solver_info_keys).
+# rtol/atol used to be absent for the same reason; they came back once the generator stopped
+# hardcoding them (#398). The defaults are the literals the generator used to emit.
 _CPP_SOLVER_INFO = [
     {'name': 'MaximumNumberOfSteps', 'type': 'int', 'default': 5000, 'required': False,
      'description': 'Maximum number of internal integrator steps (emitted as CVODE mxsteps).'},
+    {**_SI_RTOL, 'default': 1e-7,
+     'description': 'Relative integration tolerance (emitted as the generated solver\'s reltol).'},
+    {**_SI_ATOL, 'default': 1e-9,
+     'description': 'Absolute integration tolerance (emitted as the generated solver\'s abstol).'},
 ]
 
 # CVODE_myokit is deliberately NOT in that family. myokit.Simulation exposes only
@@ -2205,8 +2211,9 @@ def migrate_legacy_solver_info_keys(solver_name, solver_info):
             solver_info.pop('MaximumNumberOfSteps', None)
     elif solver_name in _CPP_SOLVERS:
         # Nothing to migrate onto: the generated C++ takes its step from the framework key
-        # 'dt_solver' and hardcodes its tolerances. Dropping loudly beats rejecting, so a
-        # config written for a CVODE backend still runs -- it just says what stopped applying.
+        # 'dt_solver'. Dropping loudly beats rejecting, so a config written for a CVODE backend
+        # still runs -- it just says what stopped applying. rtol/atol are NOT dropped here: the
+        # generator emits them into the solver since #398.
         if 'MaximumStep' in solver_info:
             _warn_dropped_solver_info_key(
                 solver_name, 'MaximumStep',
@@ -2214,15 +2221,6 @@ def migrate_legacy_solver_info_keys(solver_name, solver_info):
                 "'dt_solver' to set it.",
             )
             solver_info.pop('MaximumStep', None)
-        for tol_key in ('rtol', 'atol'):
-            if tol_key in solver_info:
-                _warn_dropped_solver_info_key(
-                    solver_name, tol_key,
-                    'The generated C++ currently hardcodes its tolerances '
-                    '(reltol 1e-7 / abstol 1e-9 in CVSCppGenerator), so this value would '
-                    'not reach the solver.',
-                )
-                solver_info.pop(tol_key, None)
 
     return solver_info
 
