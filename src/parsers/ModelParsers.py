@@ -17,6 +17,12 @@ import os
 generator_resources_dir_path = os.path.join(os.path.dirname(__file__), '../generators/resources')
 base_dir = os.path.join(os.path.dirname(__file__), '../..')
 
+# The columns a {prefix}_parameters.csv must provide. They are looked up by header name, so a file
+# may list them in any order and may carry extra columns (FTU_wCVS_parameters.csv has a 'comp_env'
+# column, for instance) without shifting the ones that matter -- see issue #159. 'const_type' is
+# deliberately absent: it is supplied by the module config, not by the CSV.
+_REQUIRED_PARAMETER_COLUMNS = ('variable_name', 'units', 'value', 'data_reference')
+
 
 class CSV0DModelParser(object):
     '''
@@ -537,33 +543,49 @@ class CSV0DModelParser(object):
                 required_params_unique.append(entry)
         required_params = np.array(required_params_unique)
 
+        # Read each row by column NAME, not position (issue #159). The rows come out of
+        # get_data_as_nparray as a structured array whose fields are the CSV's own headers in the
+        # CSV's own order, so flattening a row into a list and indexing it positionally silently
+        # assumed one particular column layout. A parameters.csv carrying an extra column -- e.g.
+        # resources/FTU_wCVS_parameters.csv, which has 'comp_env' between units and value -- then
+        # shifted every field right of it: the parameter's value became the comp_env string and
+        # its data_reference became the value, with no error raised.
+        missing_columns = [name for name in _REQUIRED_PARAMETER_COLUMNS
+                           if name not in (parameters_array_orig.dtype.names or ())]
+        if missing_columns:
+            print('')
+            print(f'ERROR: {self.parameter_filename} is missing the required column(s) '
+                  f'{missing_columns}. \n'
+                  f'Required columns are {list(_REQUIRED_PARAMETER_COLUMNS)}; the file has '
+                  f'{list(parameters_array_orig.dtype.names or ())}. \n'
+                  f'Columns are matched by header name, so any additional columns are ignored '
+                  f'and their order does not matter, exiting \n')
+            print('')
+            exit()
+
         parameters_list = []
 
         for idx, param_tuple in enumerate(required_params):
-            actually_exit = False
-            try:
-                new_entry = parameters_array_orig[np.where(parameters_array_orig["variable_name"] ==
-                                                                       param_tuple[0])][0]
-                new_entry = [item for item in new_entry]
-                if new_entry[1] != param_tuple[1]:
-                    print('')
-                    print(f'ERROR: units of {new_entry[1]} in parameters.csv file does not \n'
-                          f'match with units of {param_tuple[1]} in module_config.json file \n'
-                          f'for param {new_entry[0]}, exiting \n')
-                    print('')
-                    actually_exit = True
-                    exit()
-
-                new_entry.insert(2, param_tuple[2])
-                parameters_list.append(new_entry)
-                # overwrite 2 index with local or global, it doesn't matter where the
-            except:
+            matches = parameters_array_orig[
+                np.where(parameters_array_orig["variable_name"] == param_tuple[0])]
+            if len(matches) == 0:
                 # the other entries apart from name in this row are left empty
-                new_entry = ([param_tuple[0], param_tuple[1], param_tuple[2],
-                                     'EMPTY_MUST_BE_FILLED', 'EMPTY_MUST_BE_FILLED'])
-                parameters_list.append(new_entry)
-                if actually_exit:
-                    exit()
+                parameters_list.append([param_tuple[0], param_tuple[1], param_tuple[2],
+                                        'EMPTY_MUST_BE_FILLED', 'EMPTY_MUST_BE_FILLED'])
+                continue
+
+            row = matches[0]
+            if row['units'] != param_tuple[1]:
+                print('')
+                print(f'ERROR: units of {row["units"]} in parameters.csv file does not \n'
+                      f'match with units of {param_tuple[1]} in module_config.json file \n'
+                      f'for param {row["variable_name"]}, exiting \n')
+                print('')
+                exit()
+
+            # const_type comes from the module config (local or global), not from the CSV.
+            parameters_list.append([row['variable_name'], row['units'], param_tuple[2],
+                                    row['value'], row['data_reference']])
         if len(parameters_list) == 0:
             return np.empty((len(parameters_list)),
                                     dtype=[('variable_name', 'U80'), ('units', 'U80'),('const_type', 'U80'),
