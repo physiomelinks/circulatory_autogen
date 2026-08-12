@@ -62,6 +62,38 @@ def test_predict_inverts_the_stored_scaling():
     assert features == pytest.approx([2.0 / 2.0 * 2.0 * 10.0, 4.0 / 4.0 * 3.0 * 100.0])
 
 
+class DistributionStub:
+    """A probabilistic emulator: predict returns a distribution, not an array.
+
+    ``.mean`` is a property here, exactly as it is on a torch distribution -- as opposed to a
+    tensor or ndarray, where ``.mean`` is a method.
+    """
+
+    class _Gaussian:
+        def __init__(self, values):
+            self.mean = values
+
+    def __init__(self, weights):
+        self.weights = np.asarray(weights, dtype=float)
+
+    def predict(self, x):
+        return self._Gaussian(np.asarray(x, dtype=float) @ self.weights)
+
+
+def test_a_probabilistic_emulator_is_read_through_its_mean():
+    """Every Gaussian process -- autoemulate's default -- returns a distribution.
+
+    Taking ``.mean`` off it by truthiness would grab the *method* on a plain tensor and turn
+    every prediction into a bound method, so the distinction has to be by callability.
+    """
+    bundle = make_bundle()
+    bundle.model = DistributionStub([[2.0, 0.0], [0.0, 3.0]])
+    assert bundle.predict(np.array([0.5, 0.5])) == pytest.approx([1.0, 1.5])
+    # ... and the deterministic (array-returning) emulator still works
+    bundle.model = LinearStub([[2.0, 0.0], [0.0, 3.0]])
+    assert bundle.predict(np.array([0.5, 0.5])) == pytest.approx([1.0, 1.5])
+
+
 def test_a_low_r2_emulator_is_refused_by_name():
     bundle = make_bundle(feature_r2=(0.99, 0.42))
     bundle.check_quality(0.4)   # the threshold is the user's, so a lenient one still passes

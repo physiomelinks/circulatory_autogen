@@ -302,8 +302,16 @@ def _as_backend_input(model, x_scaled):
 
 
 def _as_numpy_mean(raw):
-    if hasattr(raw, 'mean') and not isinstance(raw, np.ndarray):
-        raw = raw.mean                     # a torch distribution (GaussianLike)
+    """The predicted values, whether the emulator returned a tensor or a distribution.
+
+    A probabilistic emulator (every Gaussian process, i.e. the default) returns a torch
+    distribution whose ``.mean`` is a *property* holding the prediction; a deterministic one
+    returns a tensor, whose ``.mean`` is a *method*. Distinguishing them by callability rather
+    than by type keeps this working for both without importing torch to ask.
+    """
+    mean = getattr(raw, 'mean', None)
+    if mean is not None and not callable(mean):
+        raw = mean
     if hasattr(raw, 'detach'):
         raw = raw.detach().cpu().numpy()
     return np.asarray(raw, dtype=float)
