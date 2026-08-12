@@ -96,9 +96,10 @@ The design points are spread across MPI ranks, each runs the real solver, and ra
 saves the emulator. The script prints the held-out R² per observable:
 
 ```
-[emulator] saved to .../emulators/Lotka_Volterra_Lotka_Volterra_obs_data
-    held-out R2   0.9986   x_max (max Lotka_Volterra/x)
-    held-out R2   0.9791   y_max (max Lotka_Volterra/y)
+[emulator] training on 64 samples across 8 rank(s)
+[emulator] saved to .../emulators/Simple_ODE_Benchmark_Simple_ODE_Benchmark_obs_data
+    held-out R2   1.0000   x_{SS} (steady_state_avg benchmark/x)
+    held-out R2   1.0000   y_{SS} (steady_state_avg benchmark/y)
 ```
 
 **Read those numbers before using it.** They are the only thing standing between you and a set
@@ -106,17 +107,20 @@ of Sobol indices for a model you did not simulate.
 
 !!! warning "How good an emulator you can get depends on the parameter box"
     Difficulty grows with the width of the `params_for_id` ranges, the number of parameters and
-    how rough the feature is. A worked example from this repo: emulating `max` of the two
-    Lotka-Volterra states over their *full* declared ranges (`alpha` 0.1–7, `gamma` 0.1–10,
-    where the response spans 20–3900) gives held-out R² of only about **0.2 and 0.5** from a
-    128-sample Gaussian process — and 256 samples does not reliably improve it, because `max` of
-    an oscillation whose period changes sharply with the parameters is close to discontinuous.
+    how rough the feature is. Two worked examples from this repo, at opposite ends:
+
+    * **`Simple_ODE_Benchmark`** — steady states of `dx/dt = -x + p`, `dy/dt = -3y + q`, i.e. a
+      smooth monotone response. 64 Sobol samples give held-out R² of **0.99999** and **0.99997**.
+      This is what a well-posed emulation problem looks like.
+    * **`Lotka_Volterra`** — `max` of each state over the *full* declared ranges (`alpha` 0.1–7,
+      `gamma` 0.1–10, the response spanning 20–3900). A 128-sample Gaussian process manages only
+      about **0.2 and 0.5**, and 256 samples does not reliably improve it: `max` of an
+      oscillation whose period shifts sharply with the parameters is close to discontinuous.
 
     If your R² is poor, the useful moves are, in order: narrow the parameter ranges to the
-    region you actually care about; add samples; set `log_scale_params: true` when a bound
-    spans decades; try `models: all`; and consider whether the feature itself is a smooth
-    function of the parameters at all. What you should *not* do is lower `min_r2` to make the
-    run proceed.
+    region you actually care about; add samples; set `log_scale_params: true` when a bound spans
+    decades; try `models: all`; and consider whether the feature is a smooth function of the
+    parameters at all. What you should *not* do is lower `min_r2` to make the run proceed.
 
 The saved directory contains:
 

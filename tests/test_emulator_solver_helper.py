@@ -3,6 +3,10 @@
 These build a real ``CVS0DParamID`` over a stub emulator and no solver at all -- which is the
 point of putting the emulator behind the helper interface: nothing above it has to change, and
 nothing below it has to exist. autoemulate is not needed, so these run everywhere.
+
+The obs_data and params_for_id come from ``Simple_ODE_Benchmark`` (two parameters, two scalar
+features), matching test_emulator_training.py. Nothing is simulated here -- they are only a
+realistic shape for the parsers to produce.
 """
 import os
 
@@ -30,12 +34,14 @@ class LinearStub:
 def _config(base_user_inputs, resources_dir, tmp_path, **overrides):
     config = base_user_inputs.copy()
     config.update({
-        'file_prefix': 'Lotka_Volterra',
-        'input_param_file': 'Lotka_Volterra_parameters.csv',
+        'file_prefix': 'Simple_ODE_Benchmark',
+        'input_param_file': 'Simple_ODE_Benchmark_parameters.csv',
         'model_type': 'cellml_only',
         'resources_dir': resources_dir,
-        'param_id_obs_path': os.path.join(resources_dir, 'Lotka_Volterra_obs_data.json'),
-        'params_for_id_path': os.path.join(resources_dir, 'Lotka_Volterra_params_for_id.csv'),
+        'param_id_obs_path': os.path.join(resources_dir,
+                                          'Simple_ODE_Benchmark_obs_data.json'),
+        'params_for_id_path': os.path.join(resources_dir,
+                                           'Simple_ODE_Benchmark_params_for_id.csv'),
         'param_id_output_dir': str(tmp_path / 'param_id_output'),
         'param_id_method': 'genetic_algorithm',
         'DEBUG': True,
@@ -213,10 +219,11 @@ def test_cost_path_uses_the_predicted_features_and_skips_the_operation(
         base_user_inputs, resources_dir, tmp_path):
     """The whole point of the seam.
 
-    Both Lotka_Volterra observables are ``max`` of a trace. Re-applying an operation to an
-    already-reduced scalar is invisible for ``max`` -- but ``max_minus_min`` of one value is
-    zero, so this must be verified as "the operation did not run", not "the number looked
-    plausible". get_obs_output_dict returning exactly the emulator's vector is that check.
+    Both benchmark observables are ``steady_state_avg`` of a trace -- the mean of its second
+    half. Re-applying that to an already-reduced scalar is invisible (the mean of one value is
+    itself), and for an operation like ``max_minus_min`` it would silently be zero. So this has
+    to be verified as "the operation did not run", not "the number looked plausible", and
+    get_obs_output_dict returning exactly the emulator's vector is that check.
     """
     config = _config(base_user_inputs, resources_dir, tmp_path)
     bundle, _, _ = _write_bundle(config)
