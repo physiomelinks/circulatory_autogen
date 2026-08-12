@@ -67,7 +67,7 @@ def _config(base_user_inputs, resources_dir, temp_output_dir, temp_generated_mod
         'sim_time': 8.0,
         'dt': 0.05,
         'DEBUG': True,
-        'do_mcmc': False,
+        'do_uq': False,
         'do_ia': False,
         'plot_predictions': False,
         'solver_info': {'MaximumStep': 0.01, 'MaximumNumberOfSteps': 5000},
@@ -150,7 +150,13 @@ def test_training_writes_a_checkable_artefact(base_user_inputs, resources_dir, t
     def fake_fit(x, y):
         x_scale = EmulatorBundle.make_scale(x)
         y_scale = EmulatorBundle.make_scale(y)
-        return _LinearFit(), [0.97, 0.96], [0.01, 0.02], 'LinearStub', x_scale, y_scale
+        validation = {
+            'r2': [0.97, 0.96], 'rmse': [0.01, 0.02], 'mae': [0.01, 0.02],
+            'bias': [0.0, 0.0], 'max_abs_error': [0.02, 0.04],
+            'nrmse': [0.01, 0.02],
+            'theta': x[:2], 'y_true': y[:2], 'y_pred': y[:2],
+        }
+        return _LinearFit(), validation, 'LinearStub', x_scale, y_scale
 
     monkeypatch.setattr(trainer, 'fit', fake_fit)
     monkeypatch.setattr('emulators.emulator_trainer.require_autoemulate', lambda: None)
@@ -176,6 +182,60 @@ def test_training_writes_a_checkable_artefact(base_user_inputs, resources_dir, t
     from emulators.emulator_bundle import EmulatorQualityError
     with pytest.raises(EmulatorQualityError):
         saved.check_matches({'inputs_sha256': 'a-different-model'})
+
+
+@pytest.mark.unit
+def test_the_validation_report_measures_error_in_real_units():
+    """The statistics and the points must be in the feature's own units.
+
+    The emulator is fitted in a scaled space; reporting its error there would give
+    a bias and an RMSE that mean nothing next to the observation they approximate,
+    and a parity plot whose axes are not the quantity being emulated.
+    """
+    from emulators.emulator_trainer import _validation_report
+
+    class DoublingStub:
+        """Predicts exactly 0.1 (scaled) above the truth, for a known bias."""
+
+        def predict(self, x):
+            return np.asarray(x, dtype=float) + 0.1
+
+    # y = x in the scaled space; real units are y*10 + 100, x*2 + 1.
+    x_test = np.array([[0.0], [0.5], [1.0]])
+    y_test = np.array([[0.0], [0.5], [1.0]])
+    x_scale = {'shift': [1.0], 'span': [2.0]}
+    y_scale = {'shift': [100.0], 'span': [10.0]}
+
+    report = _validation_report(DoublingStub(), x_test, y_test, x_scale, y_scale)
+
+    # A constant +0.1 scaled error is +1.0 in real units, on every point.
+    assert report['bias'][0] == pytest.approx(1.0)
+    assert report['mae'][0] == pytest.approx(1.0)
+    assert report['rmse'][0] == pytest.approx(1.0)
+    assert report['max_abs_error'][0] == pytest.approx(1.0)
+    # And the points come back as the parameters and features they really are.
+    assert report['theta'].flatten() == pytest.approx([1.0, 2.0, 3.0])
+    assert report['y_true'].flatten() == pytest.approx([100.0, 105.0, 110.0])
+    assert report['y_pred'].flatten() == pytest.approx([101.0, 106.0, 111.0])
+    # nrmse is against the feature's own spread (10 here), so features in
+    # different units can be compared.
+    assert report['nrmse'][0] == pytest.approx(0.1)
+
+
+@pytest.mark.unit
+def test_a_degenerate_test_column_scores_nan_not_a_perfect_fit():
+    from emulators.emulator_trainer import _validation_report
+
+    class ConstantStub:
+        def predict(self, x):
+            return np.zeros((len(x), 1))
+
+    report = _validation_report(
+        ConstantStub(), np.array([[0.0], [1.0]]), np.array([[0.0], [0.0]]),
+        {'shift': [0.0], 'span': [1.0]}, {'shift': [0.0], 'span': [1.0]},
+    )
+    assert np.isnan(report['r2'][0])
+    assert np.isnan(report['nrmse'][0])
 
 
 @pytest.mark.integration
@@ -209,6 +269,16 @@ def test_a_trained_emulator_recovers_the_analytic_steady_states(
         return
 
     assert bundle is not None
+    # The error data an Analysis view is drawn from, written beside the emulator.
+    saved = EmulatorBundle.load(resolve_emulator_dir(config))
+    points = saved.error_points()
+    assert points is not None, 'the held-out points must survive a save/load'
+    assert points['theta'].shape[1] == len(saved.param_entry_labels)
+    assert points['y_true'].shape == points['y_pred'].shape
+    stats = saved.error_stats()
+    assert len(stats) == len(saved.feature_labels)
+    assert all(row['bias'] is not None for row in stats)
+
     reported = np.asarray(bundle.meta['feature_r2'], dtype=float)
     assert np.all(np.isfinite(reported))
     # A smooth, near-linear response is what an emulator is for; anything less than this on

@@ -259,6 +259,76 @@ def test_gradient_over_an_emulator_is_finite_differences(base_user_inputs, resou
     assert np.any(np.abs(gradient) > 0)
 
 
+def test_simulating_the_best_fit_degrades_instead_of_raising(
+        base_user_inputs, resources_dir, tmp_path):
+    """Callers pair this with plot_outputs() in one try block.
+
+    Raising here therefore cost the run its observable errors as well as its
+    traces -- the whole post-calibration report, for a run that had finished
+    perfectly well. There is simply nothing to re-simulate: the emulator's
+    features are the result.
+    """
+    config = _config(base_user_inputs, resources_dir, tmp_path)
+    _write_bundle(config)
+    pid = CVS0DParamID.init_from_dict(config)
+    pid.param_id.best_param_vals = np.asarray(
+        pid.param_id.param_id_info['param_mins'], dtype=float)
+
+    assert pid.simulate_with_best_param_vals() is None
+    assert pid.simulate_with_best_param_vals(return_series=True) == (None, None)
+    assert pid.best_output_calculated is True
+
+
+def test_a_calibration_on_an_emulator_still_writes_its_observable_errors(
+        base_user_inputs, resources_dir, tmp_path):
+    """A finished run must have something to show for itself.
+
+    An emulator has no traces, so the reconstruction plots cannot be drawn -- but
+    the observable *errors* are a comparison of feature against ground truth, and
+    that is exactly what an emulator has. Losing them along with the traces left a
+    completed calibration looking like it had produced nothing, because the error
+    vectors are what the outputs directory (and anything reading it) shows.
+    """
+    config = _config(base_user_inputs, resources_dir, tmp_path)
+    _write_bundle(config)
+
+    pid = CVS0DParamID.init_from_dict(config)
+    engine = pid.param_id
+    engine.best_param_vals = np.asarray(engine.param_id_info['param_mins'], dtype=float) * 1.2
+
+    from param_id.plot_outputs import ParamIDPlotOutputs
+
+    plotter = ParamIDPlotOutputs(pid)
+    percent, std = plotter.emulator_error_vectors()
+
+    assert percent.shape == (engine.obs_info['num_obs'],)
+    assert np.all(np.isfinite(percent))
+    assert np.all(np.isfinite(std))
+    # Not all zero: a zero vector is what "we never evaluated anything" looks
+    # like, and is indistinguishable from a perfect fit.
+    assert np.any(np.abs(percent) > 0)
+
+
+def test_all_series_degrades_rather_than_raising_on_an_emulator(
+        base_user_inputs, resources_dir, tmp_path):
+    """get_all_series asks for two things: the features and their traces.
+
+    Refusing outright cost the caller the features too, which is what stopped a
+    calibration writing its errors. The traces come back as None; the features
+    are the emulator's own.
+    """
+    config = _config(base_user_inputs, resources_dir, tmp_path)
+    bundle, _, _ = _write_bundle(config)
+    engine = CVS0DParamID.init_from_dict(config).param_id
+
+    theta = np.asarray(engine.param_id_info['param_mins'], dtype=float) * 1.1
+    _, operands_list, _ = engine.get_cost_obs_and_pred_from_params(theta)
+    obs_dict, all_series = engine.get_obs_output_dict(operands_list[0], get_all_series=True)
+
+    assert np.asarray(obs_dict['const']) == pytest.approx(bundle.predict(theta))
+    assert all(series is None for series in all_series)
+
+
 def test_gradient_at_a_bound_stays_inside_the_training_box(base_user_inputs, resources_dir,
                                                            tmp_path):
     """An optimiser reaching a bound must not be refused mid-descent.

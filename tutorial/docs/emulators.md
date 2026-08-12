@@ -127,8 +127,40 @@ The saved directory contains:
 | File | What it is |
 |---|---|
 | `emulator.joblib` | the fitted emulator |
-| `emulator_metadata.json` | R²/RMSE per feature, the training box, the design, provenance |
+| `emulator_metadata.json` | per-feature R², RMSE, MAE, bias, max abs error and nRMSE; the training box; the design; provenance |
 | `training_data.npz` | the design and its simulated targets, so it can be refitted or extended without re-simulating |
+| `emulator_validation.npz` | the held-out points: `theta`, the simulator's `y_true` and the emulator's `y_pred`, in real units |
+
+### Analysing the error
+
+The statistics say how wrong the emulator is on average; the held-out points say
+**where**, which is what decides whether the region you care about is one of the good
+ones. Both are read through the bundle:
+
+```python
+from emulators.emulator_bundle import EmulatorBundle
+bundle = EmulatorBundle.load(emulator_dir)
+
+for row in bundle.error_stats():
+    print(row['label'], row['r2'], row['bias'], row['nrmse'])
+
+points = bundle.error_points()      # None if the bundle predates this
+# points['y_pred'] vs points['y_true']  -> parity plot
+# points['residual'] vs points['theta'] -> where in the space it goes wrong
+```
+
+`residual` is **prediction minus truth**, fixed here so every consumer agrees on
+the sign: positive means the emulator reads high. Why more than R²:
+
+* **`bias`** — a feature can score a good R² and still read systematically high,
+  which shifts every downstream cost rather than just adding noise to it.
+* **`nrmse`** — RMSE in one feature's units says nothing against another's, so it
+  is the only one of these that can rank features against each other.
+* **`max_abs_error`** — an emulator that is good almost everywhere still misleads
+  a calibration that walks through the one place it is not.
+
+These points are free: training already paid to simulate them and then deliberately
+did not fit to them.
 
 ## Using it
 

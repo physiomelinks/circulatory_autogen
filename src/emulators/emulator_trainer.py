@@ -249,8 +249,8 @@ class EmulatorTrainer:
 
         emulation = _load_autoemulate()(x_train, y_train, test_data=(x_test, y_test), **kwargs)
         result = emulation.best_result()
-        r2, rmse = _per_feature_scores(result.model, x_test, y_test, y_scale)
-        return result.model, r2, rmse, _result_model_name(result), x_scale, y_scale
+        validation = _validation_report(result.model, x_test, y_test, x_scale, y_scale)
+        return (result.model, validation, _result_model_name(result), x_scale, y_scale)
 
     def train(self):
         """The whole pipeline. Returns the bundle on rank 0, ``None`` elsewhere."""
@@ -262,7 +262,7 @@ class EmulatorTrainer:
         if self.rank != 0:
             return None
 
-        model, r2, rmse, model_name, x_scale, y_scale = self.fit(x, y)
+        model, validation, model_name, x_scale, y_scale = self.fit(x, y)
         meta = {
             'param_entry_labels': [str(label) for label in _param_labels(self.pid)],
             'param_mins': [float(v) for v in self.pid.param_id_info['param_mins']],
@@ -274,8 +274,16 @@ class EmulatorTrainer:
             'has_modifiers': bool(self.pid.param_id_info.get('modifiers')),
             'param_defaults': self._baseline_snapshot(),
             'feature_labels': self.feature_labels,
-            'feature_r2': [float(v) for v in r2],
-            'feature_rmse': [float(v) for v in rmse],
+            'feature_r2': [float(v) for v in validation['r2']],
+            'feature_rmse': [float(v) for v in validation['rmse']],
+            # The rest of what the held-out set says, per feature: not summary
+            # enough to replace a plot, but enough to rank features by how badly
+            # the emulator does on them, which R2 alone does not (a feature can
+            # score well and still be biased). See `error_stats`.
+            'feature_mae': [float(v) for v in validation['mae']],
+            'feature_bias': [float(v) for v in validation['bias']],
+            'feature_max_abs_error': [float(v) for v in validation['max_abs_error']],
+            'feature_nrmse': [float(v) for v in validation['nrmse']],
             'x_scale': x_scale,
             'y_scale': y_scale,
             'model_name': model_name,
@@ -289,7 +297,8 @@ class EmulatorTrainer:
                                        self.pid.protocol_info, self.pid.model_path),
             'provenance': _provenance(self.pid),
         }
-        bundle = EmulatorBundle(model, meta, x_train=x, y_train=y)
+        bundle = EmulatorBundle(model, meta, x_train=x, y_train=y,
+                                validation=validation)
         output_dir = getattr(self, 'output_dir', None) or os.getcwd()
         bundle.save(output_dir)
         print(f'[emulator] saved to {output_dir}')
@@ -353,21 +362,19 @@ def _block_for_rank(n_samples, rank, num_procs):
 
 
 def _discover_comm():
-    """The world communicator when running under a launcher, else None (serial).
+    """The world communicator: the real one under a launcher, a one-rank stub otherwise.
 
-    Imported lazily and only when mpi4py is already loaded or a launcher is present, so merely
-    training an emulator in a plain script does not open MPI.
+    Through ``get_MPI`` and never ``from mpi4py import MPI``, so a serial training run never
+    opens MPI at all -- that import registers an atexit MPI_Finalize which aborts on macOS
+    when a NIC goes away (#396). The stub implements the collectives used here, so the split
+    and gather below need no serial special case.
+
+    Imported inside the function because this module is reachable from ``solver_wrappers``,
+    which every CA run imports.
     """
-    try:
-        from utilities.mpi_utils import get_MPI          # available once #396 lands
-        return get_MPI().COMM_WORLD
-    except ImportError:
-        pass
-    try:
-        from mpi4py import MPI
-        return MPI.COMM_WORLD
-    except ImportError:                                  # pragma: no cover - env dependent
-        return None
+    from utilities.mpi_utils import get_MPI  # noqa: PLC0415
+
+    return get_MPI().COMM_WORLD
 
 
 def _parse_models(models):
@@ -426,32 +433,64 @@ def _train_test_split(x, y, test_fraction, seed):
     return x[train_idx], y[train_idx], x[test_idx], y[test_idx]
 
 
-def _per_feature_scores(model, x_test, y_test, y_scale):
-    """Held-out R2 and RMSE, **per feature**.
+def _validation_report(model, x_test, y_test, x_scale, y_scale):
+    """Everything the held-out set says about the emulator, per feature.
 
-    autoemulate's summary reports one score per model, aggregated over outputs. A single
-    aggregate hides exactly the case this check exists for -- five features fitted well and one
-    badly -- since the good ones average the bad one away. RMSE is converted back to the
-    feature's real units so it can be read against the observation it approximates.
+    Returns the per-feature statistics **and the held-out points themselves** --
+    the parameters, the simulator's answer and the emulator's -- because the
+    statistics cannot answer the question a user actually has. R2 says how well the
+    emulator does on average over the design; a parity or residual plot says
+    *where* it goes wrong, which is what decides whether the region you care about
+    is one of the good ones (#333).
+
+    These points are free: training already paid to simulate them and then
+    deliberately did not fit to them. Everything is converted back to real units,
+    so a consumer never has to know the emulator was fitted in a scaled space.
     """
     from emulators.emulator_bundle import _as_backend_input, _as_numpy_mean
-    y_true = np.asarray(y_test, dtype=float).reshape(len(y_test), -1)
-    n_features = y_true.shape[1]
-    try:
-        predicted = _as_numpy_mean(
-            model.predict(_as_backend_input(model, x_test))).reshape(len(x_test), -1)
-    except Exception as error:                            # pragma: no cover - backend dependent
-        print(f'[emulator] could not score the fitted emulator per feature: {error}')
-        return [float('nan')] * n_features, [float('nan')] * n_features
 
-    span = np.asarray(y_scale['span'], dtype=float)
-    r2, rmse = [], []
+    y_true_scaled = np.asarray(y_test, dtype=float).reshape(len(y_test), -1)
+    n_features = y_true_scaled.shape[1]
+    empty = [float('nan')] * n_features
+    try:
+        predicted_scaled = _as_numpy_mean(
+            model.predict(_as_backend_input(model, x_test))).reshape(len(x_test), -1)
+    except Exception as error:  # pragma: no cover - backend dependent
+        print(f'[emulator] could not score the fitted emulator per feature: {error}')
+        return {'r2': empty, 'rmse': empty, 'mae': empty, 'bias': empty,
+                'max_abs_error': empty, 'nrmse': empty,
+                'theta': np.empty((0, 0)), 'y_true': np.empty((0, n_features)),
+                'y_pred': np.empty((0, n_features))}
+
+    y_span = np.asarray(y_scale['span'], dtype=float)
+    y_shift = np.asarray(y_scale['shift'], dtype=float)
+    x_span = np.asarray(x_scale['span'], dtype=float)
+    x_shift = np.asarray(x_scale['shift'], dtype=float)
+
+    y_true = y_true_scaled * y_span + y_shift
+    y_pred = predicted_scaled * y_span + y_shift
+    theta = np.asarray(x_test, dtype=float) * x_span + x_shift
+
+    report = {'r2': [], 'rmse': [], 'mae': [], 'bias': [], 'max_abs_error': [],
+              'nrmse': [], 'theta': theta, 'y_true': y_true, 'y_pred': y_pred}
     for col in range(n_features):
-        truth, pred = y_true[:, col], predicted[:, col]
-        residual = float(np.sum((truth - pred) ** 2))
+        truth, pred = y_true[:, col], y_pred[:, col]
+        error = pred - truth
+        residual = float(np.sum(error ** 2))
         total = float(np.sum((truth - np.mean(truth)) ** 2))
-        # A degenerate test column (every value equal) has no variance to explain; report nan
-        # rather than a 1.0 that would read as a perfect fit.
-        r2.append(1.0 - residual / total if total > 0 else float('nan'))
-        rmse.append(float(np.sqrt(residual / len(truth)) * span[col % span.size]))
-    return r2, rmse
+        # A degenerate test column (every value equal) has no variance to explain;
+        # report nan rather than a 1.0 that would read as a perfect fit.
+        report['r2'].append(1.0 - residual / total if total > 0 else float('nan'))
+        rmse = float(np.sqrt(residual / len(truth)))
+        report['rmse'].append(rmse)
+        report['mae'].append(float(np.mean(np.abs(error))))
+        # Signed, deliberately: a systematically high emulator and a noisy one can
+        # share an RMSE, and only one of them shifts every downstream cost.
+        report['bias'].append(float(np.mean(error)))
+        report['max_abs_error'].append(float(np.max(np.abs(error))))
+        # RMSE against the spread of the feature, so features in different units
+        # can be ranked against each other -- which raw RMSE cannot do, and which
+        # is the axis "which feature is the emulator worst at" needs.
+        spread = float(np.max(truth) - np.min(truth))
+        report['nrmse'].append(rmse / spread if spread > 0 else float('nan'))
+    return report

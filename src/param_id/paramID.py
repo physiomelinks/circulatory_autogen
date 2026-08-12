@@ -600,6 +600,16 @@ class CVS0DParamID():
             feature values. If True, a tuple ``(obs_dicts, obs_arrays)`` where
             ``obs_arrays`` holds the time-series for plotting.
         """
+        if getattr(self.param_id, 'emulates_features', False):
+            # Nothing to simulate: the emulator's features *are* the result, and
+            # they were produced by the run that just finished. Returning rather
+            # than raising matters because callers pair this with plot_outputs()
+            # in one try block -- raising here cost the run its observable errors
+            # too, which an emulator can perfectly well report (#333).
+            print('use_emulator is set, so there is no simulation to re-run for the '
+                  'best fit; the emulator predicts the observable features directly.')
+            self.best_output_calculated = True
+            return (None, None) if return_series else None
         if return_series:
             obs_dicts, obs_arrays = self.param_id.simulate_once(reset=reset, only_one_exp=only_one_exp, return_series=return_series)
             self.best_output_calculated = True
@@ -2483,11 +2493,12 @@ class OpencorParamID():
             obs_val_for_prob_dist_vec = np.zeros((len(self.obs_info["ground_truth_prob_dist_params"]), ))
 
         if get_all_series:
-            if self.emulates_features:
-                raise NotImplementedError(
-                    'the series of an observable cannot be produced from an emulator: it '
-                    'predicts the scalar feature the series was reduced to, not the series. '
-                    'Re-run with use_emulator: false to plot or save simulated outputs.')
+            # An emulator has no series to give -- it predicts the scalar the series
+            # was reduced to. That used to raise, which was too blunt: the caller
+            # (plot_outputs) wants the *features* as well, and those are exactly what
+            # an emulator does have. Hand back the features with every series None,
+            # and let the caller skip the reconstruction rather than lose the errors
+            # with it (#333).
             obs_series_array_all = [None]*len(operands_outputs)
 
 
@@ -2498,7 +2509,11 @@ class OpencorParamID():
         for JJ in range(len(operands_outputs)):
             if self.obs_info["data_types"][JJ] == 'frequency':
                 pass
-            elif get_all_series:
+            elif get_all_series and not self.emulates_features:
+                # An emulator has no series for this item; the None left in place
+                # is what says so. Running the operation's series branch on an
+                # already-reduced scalar would put a length-1 "trace" here, which
+                # a plot would draw as a single point and read as real.
                 if self.obs_info["operations"][JJ] is None:
                     obs_series_array_all[JJ] = operands_outputs[JJ][0]
                 elif hasattr(operation_funcs_dict[self.obs_info["operations"][JJ]], 'series_to_constant'):

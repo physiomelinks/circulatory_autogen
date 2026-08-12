@@ -167,6 +167,78 @@ def test_fingerprint_changes_with_bounds_observables_and_protocol():
     assert fingerprint(param_id_info, obs_info, protocol_info) == base
 
 
+def test_error_stats_carry_more_than_r2(tmp_path):
+    """R2 alone cannot rank features by how badly the emulator does on them.
+
+    A feature can score well and still read systematically high (bias), and RMSE
+    in one feature's units says nothing against another's (nrmse does). The table
+    an Analysis view draws needs all of them.
+    """
+    bundle = make_bundle()
+    bundle.meta.update({
+        'feature_mae': [0.02, 0.30],
+        'feature_bias': [0.00, -0.25],
+        'feature_max_abs_error': [0.05, 0.90],
+        'feature_nrmse': [0.01, 0.18],
+    })
+    rows = bundle.error_stats()
+    assert [r['label'] for r in rows] == bundle.feature_labels
+    assert rows[1]['bias'] == pytest.approx(-0.25)
+    assert rows[1]['nrmse'] == pytest.approx(0.18)
+    # Ranking by nrmse is what makes "which feature is worst" answerable across
+    # features measured in different units.
+    worst = max(rows, key=lambda r: r['nrmse'])
+    assert worst['label'] == bundle.feature_labels[1]
+
+
+def test_error_stats_report_a_missing_statistic_as_none(tmp_path):
+    """None, not nan: an older bundle has no value for a statistic added later,
+    which is a different thing from one that could not be computed."""
+    bundle = make_bundle()
+    rows = bundle.error_stats()
+    assert rows[0]['r2'] == pytest.approx(0.99)
+    assert rows[0]['bias'] is None
+
+
+def test_held_out_points_round_trip_and_carry_a_signed_residual(tmp_path):
+    """The points are the part statistics cannot replace.
+
+    A parity plot and a residual-against-parameter plot answer *where* the
+    emulator goes wrong, which is what decides whether the region a study cares
+    about is one of the good ones. A consumer cannot recompute them without the
+    emulator, the simulator and the split -- i.e. without being CA.
+    """
+    validation = {
+        'theta': np.array([[0.1, 0.2], [0.5, 0.6]]),
+        'y_true': np.array([[1.0, 2.0], [3.0, 4.0]]),
+        'y_pred': np.array([[1.1, 2.0], [2.7, 4.4]]),
+    }
+    bundle = make_bundle()
+    bundle.validation = validation
+    bundle.save(str(tmp_path))
+    assert os.path.isfile(tmp_path / 'emulator_validation.npz')
+
+    reloaded = EmulatorBundle.load(str(tmp_path))
+    points = reloaded.error_points()
+    assert points['theta'] == pytest.approx(validation['theta'])
+    assert points['y_true'] == pytest.approx(validation['y_true'])
+    # Sign convention fixed here so every consumer agrees: prediction minus truth,
+    # so a positive residual means the emulator reads high.
+    assert points['residual'][0][0] == pytest.approx(0.1)
+    assert points['residual'][1][0] == pytest.approx(-0.3)
+    # Labelled, so a plot can name its axes without re-deriving them.
+    assert points['feature_labels'] == reloaded.feature_labels
+    assert points['param_entry_labels'] == reloaded.param_entry_labels
+
+
+def test_a_bundle_without_held_out_points_says_so(tmp_path):
+    """An emulator trained before this existed is still a usable emulator."""
+    bundle = make_bundle()
+    bundle.save(str(tmp_path))
+    assert not os.path.isfile(tmp_path / 'emulator_validation.npz')
+    assert EmulatorBundle.load(str(tmp_path)).error_points() is None
+
+
 def test_bundle_round_trips_through_disk(tmp_path):
     bundle = make_bundle()
     bundle.x_train = np.array([[0.1, 0.2], [0.3, 0.4]])

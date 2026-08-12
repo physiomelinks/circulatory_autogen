@@ -41,6 +41,9 @@ class ParamIDPlotOutputs:
 
     def plot_outputs(self) -> None:
         print("plotting best observables")
+        if getattr(self.client.param_id, "emulates_features", False):
+            self.save_emulator_outputs()
+            return
         phase = self._uses_phase()
         list_of_obs_dicts, list_of_all_series = self._fetch_best_fit_data()
         tSim_per_sub_count, sim_time_tot_per_exp, n_steps_per_sub_count = (
@@ -64,6 +67,77 @@ class ParamIDPlotOutputs:
         self.print_observable_errors(
             phase, percent_error_vec, phase_error_vec
         )
+
+    def save_emulator_outputs(self) -> None:
+        """Error vectors and error-bar pages for a run that used an emulator.
+
+        An emulator predicts the scalar features and not the traces, so the
+        reconstruction pages cannot be drawn -- but the *errors* are a comparison
+        of feature against ground truth, and those are exactly what it has. Losing
+        them along with the traces would leave a finished calibration with nothing
+        to show for itself, which is what happened before this existed (#333).
+
+        Writes the same ``percent_error_vec`` / ``error_vec_names`` files an
+        ordinary run writes, so every consumer of them -- CA's own plots, and the
+        tools that read the outputs directory -- is unchanged.
+        """
+        percent_error_vec, std_error_vec = self.emulator_error_vectors()
+        self.save_error_vectors(percent_error_vec, std_error_vec)
+        obs_names_for_plot = self._observable_names_for_error_plots()
+        self.plot_percent_error_bar_pages(obs_names_for_plot, percent_error_vec)
+        self.plot_std_error_bar_pages(obs_names_for_plot, std_error_vec)
+        print(
+            "This run used an emulator, so the reconstruction plots (which need the "
+            "simulated traces) were not drawn; the observable errors above are the "
+            "emulator's own features against the ground truth."
+        )
+
+    def emulator_error_vectors(self):
+        """Percent and std error per observable, from the emulator's features.
+
+        Only ``constant`` observables exist on this path -- CA refuses an emulator
+        study whose obs_data holds anything else -- so this is the constant branch
+        of ``plot_reconstruction_pages`` with the plotting removed, and it must
+        stay identical to it: the two numbers are the same quantity, and a run
+        should not report a different error because it drew fewer pictures.
+        """
+        obs_info = self.client.obs_info
+        param_id = self.client.param_id
+        num_obs = obs_info["num_obs"]
+        percent_error_vec = np.zeros((num_obs,))
+        std_error_vec = np.zeros((num_obs,))
+
+        _, operands_list = param_id.get_cost_and_obs_from_params(param_id.best_param_vals)
+        if not operands_list:
+            print("WARNING: the emulator produced no observables; errors not saved")
+            return percent_error_vec, std_error_vec
+
+        # One evaluation per segment, then each observable read from its own --
+        # a data_item names the experiment and sub-experiment it belongs to, and
+        # scoring it against another segment is scoring the wrong thing.
+        num_sub_per_exp = self.client.protocol_info["num_sub_per_exp"]
+        const_by_segment = {}
+        for const_idx, obs_idx in enumerate(obs_info["const_idx_to_obs_idx"]):
+            exp = int(obs_info["experiment_idxs"][obs_idx])
+            sub = int(obs_info["subexperiment_idxs"][obs_idx])
+            flat = sum(num_sub_per_exp[:exp]) + sub
+            if flat >= len(operands_list) or operands_list[flat] is None:
+                continue
+            if flat not in const_by_segment:
+                const_by_segment[flat] = np.asarray(
+                    param_id.get_obs_output_dict(operands_list[flat])["const"], dtype=float
+                )
+            consts = const_by_segment[flat]
+            if const_idx >= len(consts):
+                continue
+            ground_truth = obs_info["ground_truth_const"][const_idx]
+            percent_error_vec[obs_idx] = (
+                100 * (consts[const_idx] - ground_truth) / (ground_truth + 1e-10)
+            )
+            std_error_vec[obs_idx] = (
+                consts[const_idx] - ground_truth
+            ) / obs_info["std_const_vec"][const_idx]
+        return percent_error_vec, std_error_vec
 
     def _uses_phase(self) -> bool:
         gtp = self.client.obs_info["ground_truth_phase"]

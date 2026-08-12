@@ -22,6 +22,11 @@ import numpy as np
 METADATA_FILE = 'emulator_metadata.json'
 MODEL_FILE = 'emulator'          # autoemulate's saver appends .joblib
 TRAINING_DATA_FILE = 'training_data.npz'
+#: The held-out points, the simulator's answer at each and the emulator's. The
+#: per-feature statistics in the metadata say how wrong the emulator is on
+#: average; only these say *where* -- which is the question that decides whether
+#: the region a study cares about is one of the good ones (#333).
+VALIDATION_FILE = 'emulator_validation.npz'
 
 #: metadata keys that must be present for a bundle to be usable at all.
 REQUIRED_META_KEYS = ('param_entry_labels', 'param_mins', 'param_maxs', 'feature_labels',
@@ -103,9 +108,11 @@ class EmulatorBundle:
         meta: the metadata dict (see ``REQUIRED_META_KEYS``).
         x_train / y_train: the training design and targets, in real units. Kept so the emulator
             can be refitted, extended or audited without re-running the simulator.
+        validation: the held-out report from :func:`emulators.emulator_trainer._validation_report`
+            -- per-feature statistics plus the points they were computed from.
     """
 
-    def __init__(self, model, meta, x_train=None, y_train=None):
+    def __init__(self, model, meta, x_train=None, y_train=None, validation=None):
         missing = [key for key in REQUIRED_META_KEYS if key not in meta]
         if missing:
             raise ValueError(f'emulator metadata is missing {missing}')
@@ -113,6 +120,7 @@ class EmulatorBundle:
         self.meta = meta
         self.x_train = None if x_train is None else np.asarray(x_train, dtype=float)
         self.y_train = None if y_train is None else np.asarray(y_train, dtype=float)
+        self.validation = validation or {}
 
         self.param_mins = np.asarray(meta['param_mins'], dtype=float)
         self.param_maxs = np.asarray(meta['param_maxs'], dtype=float)
@@ -216,6 +224,55 @@ class EmulatorBundle:
                     f'obs_data operations or protocol differ. Retrain the emulator, or set '
                     f'emulator_settings.retrain_if_stale to true.')
 
+    # ------------------------------------------------------------------ error
+
+    def error_stats(self):
+        """Per-feature held-out error, as rows ready to tabulate or plot.
+
+        One row per feature with every statistic the metadata carries, because no
+        single one of them is sufficient on its own: R2 can be high while the
+        emulator is systematically off (``bias``), RMSE cannot be compared between
+        features in different units (``nrmse`` can), and an emulator that is good
+        almost everywhere still misleads a calibration that walks through the one
+        place it is not (``max_abs_error``).
+        """
+        rows = []
+        for i, label in enumerate(self.feature_labels):
+            rows.append({
+                'label': label,
+                'r2': _stat(self.meta.get('feature_r2'), i),
+                'rmse': _stat(self.meta.get('feature_rmse'), i),
+                'mae': _stat(self.meta.get('feature_mae'), i),
+                'bias': _stat(self.meta.get('feature_bias'), i),
+                'max_abs_error': _stat(self.meta.get('feature_max_abs_error'), i),
+                'nrmse': _stat(self.meta.get('feature_nrmse'), i),
+            })
+        return rows
+
+    def error_points(self):
+        """The held-out points: ``{theta, y_true, y_pred, residual, feature_labels,
+        param_entry_labels}``, all in real units, or ``None`` if none were saved.
+
+        This is what a parity plot (``y_pred`` against ``y_true``) and a residual
+        plot (``residual`` against a column of ``theta``) are drawn from. The
+        residual is included rather than left to the caller so that every consumer
+        agrees on its sign: **prediction minus truth**, so a positive residual
+        means the emulator reads high.
+        """
+        theta = self.validation.get('theta')
+        if theta is None or not len(np.asarray(theta)):
+            return None
+        y_true = np.asarray(self.validation['y_true'], dtype=float)
+        y_pred = np.asarray(self.validation['y_pred'], dtype=float)
+        return {
+            'theta': np.asarray(theta, dtype=float),
+            'y_true': y_true,
+            'y_pred': y_pred,
+            'residual': y_pred - y_true,
+            'feature_labels': list(self.feature_labels),
+            'param_entry_labels': list(self.param_entry_labels),
+        }
+
     # ------------------------------------------------------------------ predict
 
     def predict(self, theta, out_of_bounds='error'):
@@ -241,6 +298,21 @@ class EmulatorBundle:
             # simulations again -- the expensive half of training is the runs, not the fit.
             np.savez(os.path.join(directory, TRAINING_DATA_FILE),
                      x_train=self.x_train, y_train=self.y_train)
+        theta = self.validation.get('theta')
+        if theta is not None and len(np.asarray(theta)):
+            # Written even though the metadata already carries the statistics, and
+            # in real units: a parity plot, a residual-against-parameter plot and
+            # "which held-out point is worst" all need the points, and a consumer
+            # that had to recompute them would need the emulator, the simulator and
+            # the split -- i.e. would need to be circulatory_autogen.
+            np.savez(
+                os.path.join(directory, VALIDATION_FILE),
+                theta=np.asarray(self.validation['theta'], dtype=float),
+                y_true=np.asarray(self.validation['y_true'], dtype=float),
+                y_pred=np.asarray(self.validation['y_pred'], dtype=float),
+                feature_labels=np.asarray(self.feature_labels, dtype=object),
+                param_entry_labels=np.asarray(self.param_entry_labels, dtype=object),
+            )
         return directory
 
     @classmethod
@@ -258,7 +330,8 @@ class EmulatorBundle:
         if os.path.isfile(data_path):
             with np.load(data_path) as data:
                 x_train, y_train = data['x_train'], data['y_train']
-        return cls(model, meta, x_train=x_train, y_train=y_train)
+        return cls(model, meta, x_train=x_train, y_train=y_train,
+                   validation=_load_validation(directory))
 
     def _predict_scaled(self, x_scaled):
         """The one place the emulator backend is actually called.
@@ -269,6 +342,35 @@ class EmulatorBundle:
         """
         raw = self.model.predict(_as_backend_input(self.model, x_scaled))
         return _as_numpy_mean(raw).reshape(len(x_scaled), -1)
+
+
+def _stat(values, index):
+    """One statistic, as a float, or None when the emulator did not record it.
+
+    None rather than nan: an older bundle simply has no value for a statistic
+    added later, and that is different from a value that could not be computed.
+    """
+    try:
+        value = float(values[index])
+    except (TypeError, IndexError, ValueError):
+        return None
+    return value
+
+
+def _load_validation(directory):
+    """The held-out points, or ``{}`` when the bundle predates them / has none."""
+    path = os.path.join(directory, VALIDATION_FILE)
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with np.load(path, allow_pickle=True) as data:
+            return {
+                'theta': data['theta'],
+                'y_true': data['y_true'],
+                'y_pred': data['y_pred'],
+            }
+    except Exception:  # noqa: BLE001 - a damaged extra is not a damaged emulator
+        return {}
 
 
 def _save_model(model, path_without_suffix):
