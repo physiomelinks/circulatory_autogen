@@ -25,11 +25,14 @@ try:
 except Exception:
     AadcPythonSimulationHelper = None
 
-try:
-    from mpi4py import MPI
-    _MPI_AVAILABLE = True
-except Exception:
-    _MPI_AVAILABLE = False
+# Not `from mpi4py import MPI`. This module picks a solver; it has no collectives
+# to run. That import initialised MPI and registered an atexit MPI_Finalize for
+# every consumer who merely wanted a forward solve -- and that finalise aborts on
+# macOS when a NIC goes away, on machines with no MPI installed (#396).
+# mpi_utils answers "is it installed" without opening it.
+from utilities.mpi_utils import mpi_available as _mpi_available
+
+_MPI_AVAILABLE = _mpi_available()
 
 
 def get_simulation_helper(model_path: str = None, solver: str = None, 

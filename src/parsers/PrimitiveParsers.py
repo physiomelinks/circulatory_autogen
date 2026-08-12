@@ -25,13 +25,14 @@ from utilities.obs_data_helpers import DEFAULT_COST_TYPE, PREVIOUS_DEFAULT_COST_
 from param_id.modifier_funcs import (BUILTIN_MODIFIER_FUNCS, get_modifier_funcs,
                                      probe_affine)
 
-try:
-    from mpi4py import MPI
-    mpi_available = True
-    rank = MPI.COMM_WORLD.Get_rank()
-except:
-    mpi_available = False
-    rank=0
+# Rank only -- no collectives here. Importing mpi4py for it initialised MPI and
+# registered an atexit MPI_Finalize in every process that merely parsed a config,
+# and that finalise aborts on macOS when a NIC goes away (#396). mpi_utils
+# answers without opening MPI when nothing launched this process.
+from utilities import mpi_utils as _mpi_utils
+
+mpi_available = _mpi_utils.mpi_available()
+rank = _mpi_utils.rank()
 
 root_dir = os.path.join(os.path.dirname(__file__), '../..')
 sys.path.append(os.path.join(root_dir, 'src'))

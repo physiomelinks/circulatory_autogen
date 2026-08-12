@@ -43,7 +43,14 @@ import seaborn as sns
 from parsers.PrimitiveParsers import expand_modifier_param_vals
 from parsers.PrimitiveParsers import scriptFunctionParser
 from param_id.operation_funcs import resolve_operation_kwargs, validate_operation_kwargs
-from mpi4py import MPI
+# Not `from mpi4py import MPI`: that import initialises MPI and registers an
+# atexit MPI_Finalize, and with no launcher present that finalise is what aborts
+# on macOS when a NIC goes away (#396). get_MPI hands back the real
+# mpi4py.MPI under mpiexec -- a multi-rank run is unchanged -- and a one-rank
+# stub otherwise, so a serial run never opens MPI at all.
+from utilities.mpi_utils import get_MPI as _get_MPI
+
+MPI = _get_MPI()
 from parsers.PrimitiveParsers import CSVFileParser, ObsAndParamDataParser
 import csv
 from tqdm import tqdm  # make sure tqdm is installed
