@@ -6,11 +6,18 @@ Created on 29/10/2021
 
 import sys
 import os
-from mpi4py import MPI
 from distutils import util, dir_util
 
 root_dir = os.path.join(os.path.dirname(__file__), '../..')
 sys.path.append(os.path.join(root_dir, 'src'))
+# Not `from mpi4py import MPI`: that import initialises MPI and registers an
+# atexit MPI_Finalize, and with no launcher present that finalise is what aborts
+# on macOS when a NIC goes away (#396). Placed after the sys.path
+# bootstrap above, which is what makes `utilities` importable. Under mpiexec
+# get_MPI hands back the real mpi4py.MPI, so a multi-rank run is unchanged.
+from utilities.mpi_utils import get_MPI as _get_MPI
+
+MPI = _get_MPI()
 
 from param_id.paramID import CVS0DParamID
 from scripts.read_and_insert_parameters import insert_parameters
