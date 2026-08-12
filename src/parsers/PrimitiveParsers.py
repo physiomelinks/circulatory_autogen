@@ -243,13 +243,32 @@ _SI_RTOL = {'name': 'rtol', 'type': 'float', 'default': 1e-8, 'required': False,
             'description': 'Relative integration tolerance.'}
 _SI_ATOL = {'name': 'atol', 'type': 'float', 'default': 1e-8, 'required': False,
             'description': 'Absolute integration tolerance.'}
-# CVODE-family backends (opencor, and the cpp CVODE/RK4/PETSC) share the same fields.
+# The OpenCOR CVODE backend, which forwards solver_info straight into OpenCOR's own
+# odeSolverProperties() (rtol/atol translated to RelativeTolerance/AbsoluteTolerance).
 _CVODE_FAMILY_SOLVER_INFO = [
     {'name': 'MaximumStep', 'type': 'float', 'default': 0.001, 'required': False,
      'description': 'Maximum integrator step size.'},
     {'name': 'MaximumNumberOfSteps', 'type': 'int', 'default': 5000, 'required': False,
      'description': 'Maximum number of internal integrator steps per output step.'},
     _SI_RTOL, _SI_ATOL,
+]
+
+# Derived, so the migration below and the model_type menu cannot name different sets of solvers.
+_CPP_SOLVERS = frozenset(SOLVER_SCHEMA['solvers_by_model_type']['cpp'])
+
+# The cpp solvers (CVODE/RK4/PETSC) are not run through a SimulationHelper at all: their
+# solver_info is baked into the emitted C++ by the cpp branch of
+# script_generate_with_new_architecture, which forwards exactly two values to CVSCppGenerator --
+# `dt_solver` (a framework key) as the solver step, and `MaximumNumberOfSteps` as mxsteps. The
+# generated C++ hardcodes its tolerances (`sunrealtype reltol = 1e-7; ... abstol = 1e-9;`, with a
+# standing TODO in CVSCppGenerator) and has no maximum-step-size knob, so advertising
+# MaximumStep/rtol/atol here made a downstream tool (e.g. CUFLynx) render three controls the user
+# could set with no effect and no way to tell -- the same reasoning as the notes on 'CVODE_myokit'
+# and 'aadc_semi_implicit'. They are listed again here the day the generator reads them; configs
+# that already set them are migrated with a warning, not rejected (migrate_legacy_solver_info_keys).
+_CPP_SOLVER_INFO = [
+    {'name': 'MaximumNumberOfSteps', 'type': 'int', 'default': 5000, 'required': False,
+     'description': 'Maximum number of internal integrator steps (emitted as CVODE mxsteps).'},
 ]
 
 # CVODE_myokit is deliberately NOT in that family. myokit.Simulation exposes only
@@ -293,9 +312,9 @@ _SOLVE_IVP_SOLVER_INFO = [
 SOLVER_INFO_FIELDS = {
     'CVODE_opencor': _CVODE_FAMILY_SOLVER_INFO,
     'CVODE_myokit': _MYOKIT_SOLVER_INFO,
-    'CVODE': _CVODE_FAMILY_SOLVER_INFO,
-    'RK4': _CVODE_FAMILY_SOLVER_INFO,
-    'PETSC': _CVODE_FAMILY_SOLVER_INFO,
+    'CVODE': _CPP_SOLVER_INFO,
+    'RK4': _CPP_SOLVER_INFO,
+    'PETSC': _CPP_SOLVER_INFO,
     'solve_ivp': _SOLVE_IVP_SOLVER_INFO,
     'user_defined': _SOLVE_IVP_SOLVER_INFO,
     'casadi_integrator': [
@@ -2184,6 +2203,26 @@ def migrate_legacy_solver_info_keys(solver_name, solver_info):
                 'control accuracy.',
             )
             solver_info.pop('MaximumNumberOfSteps', None)
+    elif solver_name in _CPP_SOLVERS:
+        # Nothing to migrate onto: the generated C++ takes its step from the framework key
+        # 'dt_solver' and hardcodes its tolerances. Dropping loudly beats rejecting, so a
+        # config written for a CVODE backend still runs -- it just says what stopped applying.
+        if 'MaximumStep' in solver_info:
+            _warn_dropped_solver_info_key(
+                solver_name, 'MaximumStep',
+                'The generated C++ integrates at a fixed step; use the framework key '
+                "'dt_solver' to set it.",
+            )
+            solver_info.pop('MaximumStep', None)
+        for tol_key in ('rtol', 'atol'):
+            if tol_key in solver_info:
+                _warn_dropped_solver_info_key(
+                    solver_name, tol_key,
+                    'The generated C++ currently hardcodes its tolerances '
+                    '(reltol 1e-7 / abstol 1e-9 in CVSCppGenerator), so this value would '
+                    'not reach the solver.',
+                )
+                solver_info.pop(tol_key, None)
 
     return solver_info
 

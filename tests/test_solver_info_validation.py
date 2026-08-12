@@ -1,3 +1,4 @@
+import ast
 import pathlib
 import warnings
 
@@ -172,51 +173,254 @@ def test_schema_settings_are_actually_read_by_the_code():
         'Either wire the option up or remove it from PARAM_ID_METHODS.')
 
 
-# Which module actually consumes each solver's solver_info. A setting must appear in *its own*
-# solver's consumer, not merely somewhere in src/: protocol_runner.py relays every key into
-# get_simulation_helper's solver_info whether or not the backend does anything with it, so a
-# repo-wide search counts a pass-through as a read (issue #330).
-_SOLVER_CONSUMERS = {
-    'CVODE_myokit': ['solver_wrappers/myokit_helper.py'],
-    'CVODE_opencor': ['solver_wrappers/opencor_helper.py'],
-    'solve_ivp': ['solver_wrappers/python_solver_helper.py'],
-    'user_defined': ['solver_wrappers/python_solver_helper.py'],
-    'casadi_integrator': ['solver_wrappers/casadi_python_solver_helper.py'],
-    # AADC settings are split: integrator knobs in the helper, gradient knobs (jac_lag,
-    # gradient_strategy) in the tape/kernel paths of aadc_backend.
-    'aadc_semi_implicit': ['solver_wrappers/aadc_python_solver_helper.py',
-                           'param_id/aadc_backend.py'],
+# ---------------------------------------------------------------------------
+# Per-solver, consumption-aware schema check (issue #330)
+# ---------------------------------------------------------------------------
+# A setting must be read by *its own* solver's backend, not merely appear somewhere in src/:
+# protocol_runner.py relays every key into get_simulation_helper's solver_info whether or not the
+# backend does anything with it, so a repo-wide substring search counts a pass-through as a read.
+#
+# The solver -> backend-module mapping below is DERIVED from get_simulation_helper's own dispatch
+# rather than hand-written. A hand-maintained map is the very failure mode this check exists to
+# prevent: it drifts silently, and a solver whose entry went stale gets checked against the wrong
+# file -- or, if its entry is simply missing, is not checked at all.
+
+_SRC_DIR = pathlib.Path(__file__).resolve().parent.parent / 'src'
+_RELAY_FILES = ('protocol_runners/protocol_runner.py', 'parsers/PrimitiveParsers.py')
+
+# Genuine cross-module consumers, listed explicitly because they are not reachable from the
+# factory's dispatch. Keep this list short and justified -- every entry is a hole in the
+# derivation.
+_EXTRA_CONSUMERS = {
+    # AADC's settings are split: the integrator knobs are read by the helper the factory returns,
+    # but the gradient knobs (jac_lag, gradient_strategy) are read by the tape/kernel gradient
+    # paths, which the forward-solve helper never touches.
+    'aadc_semi_implicit': ['param_id/aadc_backend.py'],
 }
 
-_RELAY_FILES = ('protocol_runners/protocol_runner.py', 'parsers/PrimitiveParsers.py')
+# Solvers with no Python backend at all, so the factory has nothing to dispatch to. cpp models are
+# never run through a SimulationHelper: solver_info is baked into the emitted C++ by the cpp branch
+# of script_generate_with_new_architecture, which hands the values to CVSCppGenerator. Those two
+# files are therefore the real consumer, and the fields are checked against them exactly as a
+# helper module would be -- this is a different consumer, not an exemption.
+_GENERATED_CODE_CONSUMERS = {
+    solver: ['scripts/script_generate_with_new_architecture.py',
+             'generators/CVSCppGenerator.py']
+    for solver in ('CVODE', 'RK4', 'PETSC')
+}
+
+
+def _import_aliases(tree):
+    """{local alias: src-relative module path} for `from x.y import Z as Alias` imports."""
+    aliases = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            for name in node.names:
+                if name.asname:
+                    aliases[name.asname] = node.module.replace('.', '/') + '.py'
+    return aliases
+
+
+def _local_string_lists(func):
+    """{var: [strings]} for `name = ['a', 'b']` assignments inside `func`.
+
+    The dispatch tests membership against these (`solver in casadi_solvers`), so resolving them
+    is what lets the derivation see solvers that are not compared to a literal.
+    """
+    out = {}
+    for node in ast.walk(func):
+        if isinstance(node, ast.Assign) and isinstance(node.value, (ast.List, ast.Tuple)):
+            values = [e.value for e in node.value.elts
+                      if isinstance(e, ast.Constant) and isinstance(e.value, str)]
+            if values and len(values) == len(node.value.elts):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        out[target.id] = values
+    return out
+
+
+def _derive_solver_consumers():
+    """Read solver -> backend module out of `get_simulation_helper`'s if/elif dispatch."""
+    factory_path = _SRC_DIR / 'solver_wrappers' / '__init__.py'
+    tree = ast.parse(factory_path.read_text())
+    aliases = _import_aliases(tree)
+    func = next(n for n in ast.walk(tree)
+                if isinstance(n, ast.FunctionDef) and n.name == 'get_simulation_helper')
+    string_lists = _local_string_lists(func)
+
+    def solvers_matched_by(test):
+        """The solver names a branch condition selects (`== 'x'` or `in some_list`)."""
+        names = []
+        for node in ast.walk(test):
+            if not isinstance(node, ast.Compare):
+                continue
+            if not (isinstance(node.left, ast.Name) and node.left.id == 'solver'):
+                continue
+            for op, comparator in zip(node.ops, node.comparators):
+                if isinstance(op, ast.Eq) and isinstance(comparator, ast.Constant):
+                    names.append(comparator.value)
+                elif isinstance(op, ast.In):
+                    if isinstance(comparator, ast.Name):
+                        names.extend(string_lists.get(comparator.id, []))
+                    elif isinstance(comparator, (ast.List, ast.Tuple)):
+                        names.extend(e.value for e in comparator.elts
+                                     if isinstance(e, ast.Constant))
+        return names
+
+    def modules_returned_by(body):
+        """The helper modules a branch constructs and returns."""
+        modules = []
+        for stmt in body:
+            for node in ast.walk(stmt):
+                if isinstance(node, ast.Return) and isinstance(node.value, ast.Call) \
+                        and isinstance(node.value.func, ast.Name) \
+                        and node.value.func.id in aliases:
+                    modules.append(aliases[node.value.func.id])
+        return modules
+
+    consumers = {}
+
+    def walk_chain(statements):
+        for stmt in statements:
+            if isinstance(stmt, ast.If):
+                modules = modules_returned_by(stmt.body)
+                for solver in solvers_matched_by(stmt.test):
+                    for module in modules:
+                        consumers.setdefault(solver, [])
+                        if module not in consumers[solver]:
+                            consumers[solver].append(module)
+                walk_chain(stmt.orelse)  # the elif chain
+
+    walk_chain(func.body)
+    return consumers
+
+
+def _setting_names_read(source):
+    """String constants used as a *setting name* in `source`, via the AST rather than a substring
+    search.
+
+    A substring search over the file text counts a name that only appears in a docstring, a
+    comment or an error message -- myokit_helper's own docstring lists 'Key supported solver_info
+    keys', which would vouch for a key nothing reads. Only these positions count:
+
+      solver_info['x'] / opts['x'] = ...     subscript
+      solver_info.get('x') / .pop('x')       lookup
+      'x' in solver_info                     membership
+      key == 'x'                             the translating forwarders (rtol -> RelativeTolerance)
+      [... 'x' ...] / {'x': default}         key allow-lists and default blocks
+
+    Comments and docstrings are not any of these, so they stop counting as evidence.
+    """
+    names = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant) \
+                and isinstance(node.slice.value, str):
+            names.add(node.slice.value)
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) \
+                and node.func.attr in ('get', 'pop') and node.args \
+                and isinstance(node.args[0], ast.Constant) \
+                and isinstance(node.args[0].value, str):
+            names.add(node.args[0].value)
+        elif isinstance(node, ast.Compare):
+            for op, comparator in zip(node.ops, node.comparators):
+                if isinstance(op, (ast.In, ast.NotIn)) and isinstance(node.left, ast.Constant) \
+                        and isinstance(node.left.value, str):
+                    names.add(node.left.value)
+                elif isinstance(op, ast.Eq):
+                    for side in (node.left, comparator):
+                        if isinstance(side, ast.Constant) and isinstance(side.value, str):
+                            names.add(side.value)
+        elif isinstance(node, ast.Dict):
+            for key in node.keys:
+                if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                    names.add(key.value)
+        elif isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+            for element in node.elts:
+                if isinstance(element, ast.Constant) and isinstance(element.value, str):
+                    names.add(element.value)
+    return names
+
+
+def _consumers_by_solver():
+    """The full solver -> consumer-module map: derived, plus the two documented additions."""
+    consumers = {solver: list(modules)
+                 for solver, modules in _derive_solver_consumers().items()}
+    for solver, extra in _EXTRA_CONSUMERS.items():
+        consumers.setdefault(solver, []).extend(extra)
+    for solver, modules in _GENERATED_CODE_CONSUMERS.items():
+        consumers.setdefault(solver, []).extend(modules)
+    return consumers
+
+
+@pytest.mark.unit
+def test_solver_consumer_map_is_derived_from_the_factory_dispatch():
+    """Guard on the derivation itself.
+
+    If get_simulation_helper is restructured so the AST walk stops recognising its dispatch, the
+    map silently empties and every per-solver check below passes vacuously. Pin that the
+    derivation still finds each solver the factory really dispatches, and that it resolves to the
+    backend that solver actually uses.
+    """
+    derived = _derive_solver_consumers()
+    assert derived, ('the dispatch in get_simulation_helper could not be read; '
+                     'test_each_solver_setting_is_read_by_that_solvers_consumer would pass '
+                     'vacuously')
+    # Spot-check the two shapes the dispatch uses: `solver == 'x'` and `solver in some_list`.
+    assert derived['CVODE_myokit'] == ['solver_wrappers/myokit_helper.py']
+    assert derived['casadi_integrator'] == ['solver_wrappers/casadi_python_solver_helper.py']
+    # user_defined is dispatched via a list and shares the scipy helper with solve_ivp.
+    assert derived['user_defined'] == derived['solve_ivp'] \
+        == ['solver_wrappers/python_solver_helper.py']
+    for solver, modules in derived.items():
+        assert solver in SOLVER_INFO_FIELDS, (
+            'get_simulation_helper dispatches solver ' + solver + ' but SOLVER_INFO_FIELDS does '
+            'not declare its settings, so a front-end cannot build its form')
+        for module in modules:
+            assert (_SRC_DIR / module).exists(), module
+
+
+@pytest.mark.unit
+def test_every_advertised_solver_has_a_consumer_to_check_against():
+    """No solver may sit outside the check.
+
+    Before #330 the cpp solvers were exempt, which is how they came to advertise MaximumStep,
+    rtol and atol that the generated C++ never reads. An unmapped solver is not a small gap: it
+    is a solver whose entire settings form is unverified.
+    """
+    unmapped = sorted(set(SOLVER_INFO_FIELDS) - set(_consumers_by_solver()))
+    assert not unmapped, (
+        'solvers advertising settings with no consumer to check them against: ' + str(unmapped)
+        + '. Add the backend to get_simulation_helper (preferred, since the map is derived from '
+        'it), or record the consumer in _EXTRA_CONSUMERS / _GENERATED_CODE_CONSUMERS with a '
+        'comment saying why the derivation cannot see it.')
 
 
 @pytest.mark.unit
 def test_each_solver_setting_is_read_by_that_solvers_consumer():
-    """Per-solver, consumption-aware version of the check above (issue #330).
+    """Per-solver, consumption-aware version of the repo-wide check above (issue #330).
 
     A solver_info setting is CUFLynx's contract: it renders a control for it. If the backend that
     owns the solver never reads the key, the user gets a control that silently does nothing --
     and the repo-wide check cannot see that, because it only asks whether the *name* appears
     anywhere in src/, and every key appears in the relay in protocol_runner.py. That is how
-    CVODE_myokit came to advertise MaximumNumberOfSteps: myokit.Simulation exposes only
-    set_max_step_size / set_min_step_size / set_tolerance, so the value went nowhere.
+    CVODE_myokit came to advertise MaximumNumberOfSteps (myokit.Simulation exposes only
+    set_max_step_size / set_min_step_size / set_tolerance) and how the cpp solvers came to
+    advertise MaximumStep/rtol/atol (the emitted C++ hardcodes its tolerances and steps at
+    dt_solver).
 
-    The cpp solvers (CVODE/RK4/PETSC) are deliberately not mapped: their solver_info is consumed
-    by generated C++ rather than a Python backend, so there is no module to grep. They remain
-    covered by the repo-wide check only, and that gap is recorded here rather than hidden.
+    CVODE_opencor forwards solver_info wholesale into OpenCOR's odeSolverProperties() instead of
+    reading each key by name, so its evidence is the alias branches (rtol -> RelativeTolerance)
+    and its default block rather than four separate lookups. That is still a read of the name in
+    code, which is what _setting_names_read requires.
     """
-    src_dir = pathlib.Path(__file__).resolve().parent.parent / 'src'
-
     phantom = {}
-    for solver, consumers in _SOLVER_CONSUMERS.items():
-        text = ''
+    for solver, consumers in _consumers_by_solver().items():
+        read = set()
         for rel in consumers:
-            path = src_dir / rel
+            path = _SRC_DIR / rel
             assert path.exists(), 'consumer file missing for ' + solver + ': ' + rel
-            text += path.read_text(errors='ignore')
-        missing = [f['name'] for f in SOLVER_INFO_FIELDS[solver]
-                   if '"' + f['name'] + '"' not in text and "'" + f['name'] + "'" not in text]
+            read |= _setting_names_read(path.read_text(errors='ignore'))
+        missing = [f['name'] for f in SOLVER_INFO_FIELDS[solver] if f['name'] not in read]
         if missing:
             phantom[solver] = missing
 
@@ -229,12 +433,40 @@ def test_each_solver_setting_is_read_by_that_solvers_consumer():
 
 @pytest.mark.unit
 def test_the_relay_does_not_count_as_reading_a_setting():
-    """Guard on the guard: if protocol_runner ever became a mapped consumer, the per-solver check
-    above would silently degrade back into the repo-wide one it replaced."""
+    """Guard on the guard: if a relay ever became a mapped consumer, the per-solver check above
+    would silently degrade back into the repo-wide one it replaced.
+
+    protocol_runner.py setdefault()s every key into the solver_info it forwards, so it mentions
+    all of them while consuming none.
+    """
     for relay in _RELAY_FILES:
-        for consumers in _SOLVER_CONSUMERS.values():
+        for solver, consumers in _consumers_by_solver().items():
             assert relay not in consumers, (
-                relay + ' relays solver_info wholesale and must never be treated as a consumer')
+                relay + ' relays solver_info wholesale and must never be treated as a consumer '
+                '(mapped for ' + solver + ')')
+
+
+@pytest.mark.unit
+def test_a_setting_named_only_in_prose_does_not_count_as_read():
+    """The second gap #330 records: the old check was a substring search over the file text, so a
+    key mentioned in a docstring, a comment or an error message vouched for itself."""
+    prose_only = '''
+"""MaximumNumberOfSteps is supported by this backend."""
+# MaximumStep is also mentioned here
+def run(solver_info):
+    raise ValueError("set rtol to fix this")
+'''
+    assert _setting_names_read(prose_only) == set()
+
+    genuinely_read = '''
+def run(solver_info):
+    a = solver_info["MaximumStep"]
+    b = solver_info.get("rtol")
+    if "atol" in solver_info:
+        pass
+    return a, b
+'''
+    assert {'MaximumStep', 'rtol', 'atol'} <= _setting_names_read(genuinely_read)
 
 
 def test_analysis_options_schema_well_formed():
@@ -470,12 +702,45 @@ def test_myokit_rejects_maximum_number_of_steps_after_migration():
 
 
 def test_cpp_rk4_accepts_maximum_number_of_steps():
+    """MaximumNumberOfSteps is the one integrator key the cpp path really forwards: the generate
+    script reads it and CVSCppGenerator emits it as CVODE's mxsteps."""
     validate_solver_info('RK4', {
         'solver': 'RK4',
         'method': 'RK4',
-        'MaximumStep': 0.001,
+        'dt_solver': 1e-4,
         'MaximumNumberOfSteps': 5000,
     })
+
+
+@pytest.mark.parametrize('solver', ['CVODE', 'RK4', 'PETSC'])
+def test_cpp_solvers_reject_settings_the_generated_code_never_reads(solver):
+    """The generated C++ steps at dt_solver and hardcodes reltol 1e-7 / abstol 1e-9, so
+    MaximumStep/rtol/atol reached nothing. Advertising them made CUFLynx draw three dead
+    controls (issue #330)."""
+    for dead_key, value in [('MaximumStep', 0.001), ('rtol', 1e-8), ('atol', 1e-8)]:
+        with pytest.raises(ValueError, match=dead_key):
+            validate_solver_info(solver, {'solver': solver, dead_key: value})
+
+
+@pytest.mark.parametrize('solver', ['CVODE', 'RK4', 'PETSC'])
+def test_cpp_legacy_tolerance_keys_are_migrated_with_a_warning_not_rejected(solver, capsys):
+    """A config written for a CVODE backend must keep running -- it just has to say which of its
+    settings stopped applying, rather than failing validation on the way in."""
+    migrated = migrate_legacy_solver_info_keys(solver, {
+        'solver': solver,
+        'dt_solver': 1e-4,
+        'MaximumStep': 0.001,
+        'MaximumNumberOfSteps': 5000,
+        'rtol': 1e-8,
+        'atol': 1e-8,
+    })
+    assert set(migrated) == {'solver', 'dt_solver', 'MaximumNumberOfSteps'}
+    validate_solver_info(solver, migrated)  # the migrated config is accepted
+
+    warned = capsys.readouterr().out
+    for dropped in ('MaximumStep', 'rtol', 'atol'):
+        assert dropped in warned, dropped + ' was dropped silently'
+    assert 'dt_solver' in warned, 'the MaximumStep warning should name the setting to use instead'
 
 
 def test_solve_ivp_rejects_maximum_step_keys():
