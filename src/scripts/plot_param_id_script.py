@@ -58,13 +58,13 @@ def plot_param_id(inp_data_dict=None, generate=True):
     solver_info = inp_data_dict['solver_info']
     dt = inp_data_dict['dt']
     optimiser_options = inp_data_dict['optimiser_options']
-    mcmc_options = inp_data_dict['mcmc_options']
+    UQ_options = inp_data_dict['UQ_options']
     resources_dir = inp_data_dict['resources_dir']
     param_id_output_dir = inp_data_dict['param_id_output_dir']
     param_id_output_dir_abs_path = inp_data_dict['param_id_output_dir_abs_path']
     plot_predictions = inp_data_dict['plot_predictions']
     do_sensitivity = inp_data_dict['do_sensitivity']
-    do_mcmc = inp_data_dict['do_mcmc']
+    do_uq = inp_data_dict['do_uq']
     generated_models_subdir = inp_data_dict['generated_models_subdir']
     do_identify = inp_data_dict['do_ia']
     ia_option = inp_data_dict['ia_options']
@@ -111,7 +111,7 @@ def plot_param_id(inp_data_dict=None, generate=True):
     # simulate with best values first to check cost
     param_id.simulate_with_best_param_vals()
     param_id.plot_outputs()
-    if do_mcmc:
+    if do_uq:
         if os.path.exists(os.path.join(param_id.output_dir, 'mcmc_chain.npy')):
             if not plot_predictions:
                 param_id.plot_mcmc()
@@ -145,10 +145,10 @@ def plot_param_id(inp_data_dict=None, generate=True):
                                             num_calls_to_function=1,
                                             sim_time=sim_time, pre_time=pre_time,
                                             solver_info=solver_info, dt=dt, 
-                                            mcmc_options=mcmc_options, DEBUG=DEBUG,
+                                            UQ_options=UQ_options, DEBUG=DEBUG,
                                             param_id_output_dir=param_id_output_dir, resources_dir=resources_dir)
     
-        if do_mcmc:
+        if do_uq:
             mcmc_plotter.plot_mcmc_and_predictions()
     
     return

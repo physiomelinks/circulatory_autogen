@@ -115,14 +115,14 @@ def run_param_id(inp_data_dict=None):
         print('param id complete with method:', param_id_method)
 
     # param_id.close_simulation() comment for identifiability analysis run otherwise the model will be closed before analysis
-    do_mcmc = inp_data_dict['do_mcmc']
+    do_uq = inp_data_dict['do_uq']
 
     if DEBUG:
-        mcmc_options = inp_data_dict['debug_mcmc_options']
+        UQ_options = inp_data_dict['debug_UQ_options']
     else:
-        mcmc_options = inp_data_dict['mcmc_options']
+        UQ_options = inp_data_dict['UQ_options']
 
-    if do_mcmc:
+    if do_uq:
 
         if rank == 0:
             print('running mcmc')
@@ -131,7 +131,7 @@ def run_param_id(inp_data_dict=None):
                                 params_for_id_path=params_for_id_path,
                                 param_id_obs_path=param_id_obs_path,
                                 sim_time=sim_time, pre_time=pre_time,
-                                solver_info=solver_info, dt=dt, mcmc_options=mcmc_options, DEBUG=DEBUG,
+                                solver_info=solver_info, dt=dt, UQ_options=UQ_options, DEBUG=DEBUG,
                                 param_id_output_dir=param_id_output_dir, resources_dir=resources_dir,
                                 operation_funcs_external_path=operation_funcs_external_path,
                                 cost_funcs_external_path=cost_funcs_external_path)

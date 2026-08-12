@@ -470,9 +470,9 @@ def run(solver_info):
 
 
 def test_analysis_options_schema_well_formed():
-    """The non-calibration analysis modes (sensitivity, MCMC, identifiability) expose their option
+    """The non-calibration analysis modes (sensitivity, UQ, identifiability) expose their option
     blocks the same way, so a tool can auto-populate their settings forms too."""
-    assert set(ANALYSIS_OPTIONS) == {'sensitivity_analysis', 'mcmc', 'identifiability_analysis'}
+    assert set(ANALYSIS_OPTIONS) == {'sensitivity_analysis', 'uq', 'identifiability_analysis'}
     for mode, meta in ANALYSIS_OPTIONS.items():
         assert meta.get('label') and meta.get('enable_flag') and meta.get('options_key')
         _assert_descriptors_well_formed(mode, meta.get('options'))
@@ -483,12 +483,14 @@ def test_analysis_options_schema_well_formed():
     # 'local' (#338): which arm differentiates, and the finite-difference step.
     assert names('sensitivity_analysis') == {
         'method', 'sample_type', 'num_samples', 'gradient_method', 'fd_rel_step'}
-    assert names('mcmc') == {'num_steps', 'num_walkers'}
+    # 'uq', not 'mcmc': MCMC is one UQ method, and 'method' is the seam the others are added at.
+    assert names('uq') == {'method', 'library', 'num_steps', 'num_walkers', 'burn_in'}
+    assert ANALYSIS_OPTIONS['uq']['options_key'] == 'UQ_options'
     assert names('identifiability_analysis') == {'method', 'gradient_source', 'sub_method'}
     assert analysis_options('not_a_mode') == []
     # the enabling flags match the documented user_inputs feature flags
     assert {m['enable_flag'] for m in ANALYSIS_OPTIONS.values()} == {
-        'do_sensitivity', 'do_mcmc', 'do_ia'}
+        'do_sensitivity', 'do_uq', 'do_ia'}
 
 
 def _option(mode, name):
@@ -519,6 +521,11 @@ def test_closed_set_analysis_options_are_enums_with_choices():
         # deliberately absent from sub_method's choices -- AD is now reached via gradient_source
         # instead (the Fisher-information path), not the calculate_hessian sub_method.
         ('identifiability_analysis', 'sub_method'): ['parabola_fit', 'numdifftools_finite_diff'],
+        # Only what is implemented may be offered: a menu entry a front-end can select but CA
+        # cannot run is the same defect as a setting nothing reads. Extend these as the SMC /
+        # surrogate methods and the pyMC backend land.
+        ('uq', 'method'): ['mcmc'],
+        ('uq', 'library'): ['emcee'],
     }
     for (mode, name), choices in expected.items():
         opt = _option(mode, name)
@@ -1419,3 +1426,71 @@ def test_cvode_myokit_schema_declares_cas_defaults():
     fields = {f['name']: f for f in solver_info_fields('CVODE_myokit')}
     assert fields['rtol']['default'] == CA_DEFAULT_REL_TOL == 1e-6
     assert fields['atol']['default'] == CA_DEFAULT_ABS_TOL == 1e-8
+
+
+# ---------------------------------------------------------------------------
+# Legacy mcmc_options / do_mcmc spelling (renamed to UQ_options / do_uq)
+# ---------------------------------------------------------------------------
+@pytest.mark.unit
+def test_legacy_mcmc_option_names_are_migrated_with_a_warning(capsys):
+    """MCMC became one method of UQ, so its settings moved to UQ_options/do_uq. A config written
+    for the old names must keep running and be told, once, what to rename -- the same
+    migrate-with-a-warning treatment solver_info keys get."""
+    from parsers.PrimitiveParsers import _normalise_uq_option_names
+
+    inp = {
+        'do_mcmc': True,
+        'mcmc_options': {'num_steps': 11},
+        'debug_mcmc_options': {'num_steps': 3},
+    }
+    _normalise_uq_option_names(inp)
+
+    assert inp == {
+        'do_uq': True,
+        'UQ_options': {'num_steps': 11},
+        'debug_UQ_options': {'num_steps': 3},
+    }, 'the values must survive the rename, and the old keys must not linger'
+
+    warned = capsys.readouterr().out
+    for old_key, new_key in [('mcmc_options', 'UQ_options'),
+                             ('debug_mcmc_options', 'debug_UQ_options'),
+                             ('do_mcmc', 'do_uq')]:
+        assert old_key in warned and new_key in warned, old_key + ' was renamed silently'
+
+
+@pytest.mark.unit
+def test_a_config_using_only_the_new_uq_names_is_silent():
+    """The migration must not nag a config that is already correct."""
+    from parsers.PrimitiveParsers import _normalise_uq_option_names
+
+    inp = {'do_uq': False, 'UQ_options': {'method': 'mcmc'}}
+    before = dict(inp)
+    _normalise_uq_option_names(inp)
+    assert inp == before
+
+
+@pytest.mark.unit
+def test_setting_both_uq_spellings_is_refused():
+    """Not a stale key to migrate but a contradiction: the two values can disagree, and
+    silently preferring either would hide one from a user who believes it is in effect."""
+    from parsers.PrimitiveParsers import _normalise_uq_option_names
+
+    with pytest.raises(ValueError, match='mcmc_options'):
+        _normalise_uq_option_names({'mcmc_options': {'num_steps': 1},
+                                    'UQ_options': {'num_steps': 2}})
+
+
+@pytest.mark.unit
+def test_deprecated_mcmc_options_kwarg_still_reaches_UQ_options(capsys):
+    """The public CVS0DParamID(mcmc_options=...) kwarg keeps working, and passing both spellings
+    is refused for the same reason as above."""
+    from param_id.paramID import _resolve_UQ_options
+
+    assert _resolve_UQ_options(None, {'num_steps': 5}) == {'num_steps': 5}
+    assert 'deprecated' in capsys.readouterr().out
+
+    assert _resolve_UQ_options({'num_steps': 9}, None) == {'num_steps': 9}
+    assert capsys.readouterr().out == '', 'the new spelling must be silent'
+
+    with pytest.raises(ValueError, match='not both'):
+        _resolve_UQ_options({'num_steps': 9}, {'num_steps': 5})

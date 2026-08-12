@@ -239,7 +239,7 @@ class OptimiserComparison:
         
         # Disable time-consuming post-processing for comparison
         config['do_ia'] = False
-        config['do_mcmc'] = False
+        config['do_uq'] = False
         
         # Start timing
         start_time = time.time()

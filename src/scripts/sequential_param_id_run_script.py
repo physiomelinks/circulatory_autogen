@@ -59,17 +59,17 @@ if __name__ == '__main__':
         param_id_output_dir = inp_data_dict['param_id_output_dir']
         plot_predictions = inp_data_dict['plot_predictions']
         do_sensitivity = inp_data_dict['do_sensitivity']
-        do_mcmc = inp_data_dict['do_mcmc']
+        do_uq = inp_data_dict['do_uq']
         input_params_path = inp_data_dict['input_params_path']
         num_calls_to_function = inp_data_dict['num_calls_to_function']
-        mcmc_options = inp_data_dict['mcmc_options']
+        UQ_options = inp_data_dict['UQ_options']
 
 
         seq_param_id = SequentialParamID(model_path, model_type, param_id_method, file_prefix,
                                 input_params_path=input_params_path,
                                 param_id_obs_path=param_id_obs_path,
                                 num_calls_to_function=num_calls_to_function,
-                                solver_info=solver_info, dt=dt, mcmc_options=mcmc_options, ga_options=ga_options,
+                                solver_info=solver_info, dt=dt, UQ_options=UQ_options, ga_options=ga_options,
                                 DEBUG=DEBUG, 
                                 param_id_output_dir=param_id_output_dir, resources_dir=resources_dir)
 

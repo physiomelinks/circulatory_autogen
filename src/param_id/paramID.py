@@ -109,6 +109,25 @@ warnings.filterwarnings( "ignore", module = "matplotlib/..*" )
 mcmc_object = None
 
 
+def _resolve_UQ_options(UQ_options, mcmc_options):
+    """Accept the deprecated ``mcmc_options=`` kwarg wherever ``UQ_options=`` is now taken.
+
+    MCMC is one method of uncertainty quantification rather than the whole of it, so the options
+    moved to ``UQ_options`` with a ``method`` key. Callers passing the old name keep working and
+    are told once. Passing both is refused: the two can disagree, and picking a winner would
+    silently discard one from a caller who believes it is in effect.
+    """
+    if mcmc_options is None:
+        return UQ_options
+    if UQ_options is not None:
+        raise ValueError(
+            "pass either UQ_options or the deprecated mcmc_options, not both -- they are the "
+            "same setting and their values can disagree.")
+    print("WARNING: the 'mcmc_options' argument is deprecated; use 'UQ_options' instead "
+          "(MCMC is now selected with UQ_options={'method': 'mcmc', ...}).")
+    return mcmc_options
+
+
 def ensure_mle_cost_type_for_bayesian_inner(inner, inp_data_dict):
     """
     Set ``obs_info['cost_type']`` on an OpencorParamID / OpencorMCMC instance so every
@@ -125,9 +144,13 @@ def ensure_mle_cost_type_for_bayesian_inner(inner, inp_data_dict):
     option_dicts = []
     if inp_data_dict.get("DEBUG"):
         option_dicts.append(inp_data_dict.get("debug_optimiser_options") or {})
-        option_dicts.append(inp_data_dict.get("debug_mcmc_options") or {})
+        option_dicts.append(inp_data_dict.get("debug_UQ_options")
+                            or inp_data_dict.get("debug_mcmc_options") or {})
     option_dicts.append(inp_data_dict.get("optimiser_options") or {})
-    option_dicts.append(inp_data_dict.get("mcmc_options") or {})
+    # The legacy spelling is still read here: parse_user_inputs_file normalises it, but this is
+    # also reachable with a hand-built dict that never went through the parser.
+    option_dicts.append(inp_data_dict.get("UQ_options")
+                        or inp_data_dict.get("mcmc_options") or {})
     for src in option_dicts:
         if not isinstance(src, dict):
             continue
@@ -194,7 +217,10 @@ class CVS0DParamID():
         pre_time: Unlogged steady-state spin-up duration (s).
         dt: Output sampling step (s); must be <= every dt in the obs data.
         solver_info: Solver config dict (defaults to ``{"solver": "CVODE_myokit"}``).
-        mcmc_options: Options dict for MCMC (used when ``mcmc_instead=True``).
+        UQ_options: Options dict for uncertainty quantification (used when
+            ``mcmc_instead=True``): ``method`` (only ``'mcmc'`` so far), ``library``,
+            ``num_steps``, ``num_walkers``, ``burn_in``. ``mcmc_options`` is accepted as a
+            deprecated alias.
         optimiser_options: Options dict for the optimiser (e.g. ``cost_convergence``,
             ``max_patience``, ``num_calls_to_function``, ``cost_type``). Sensible
             defaults are used if omitted.
@@ -213,11 +239,11 @@ class CVS0DParamID():
     def __init__(self, model_path, model_type, param_id_method, mcmc_instead=False, file_name_prefix='no_name',
                  params_for_id_path=None,
                  param_id_obs_path=None, sim_time=2.0, pre_time=20.0, dt=0.01,
-                 solver_info=None, mcmc_options=None, optimiser_options=None, 
+                 solver_info=None, UQ_options=None, optimiser_options=None,
                  do_ad=False, DEBUG=False,
                  param_id_output_dir=None, resources_dir=None, one_rank=False,
                  operation_funcs_external_path=None, cost_funcs_external_path=None,
-                 modifier_funcs_external_path=None):
+                 modifier_funcs_external_path=None, mcmc_options=None):
         self.model_path = model_path
         self.param_id_method = param_id_method
         self.mcmc_instead = mcmc_instead
@@ -234,7 +260,7 @@ class CVS0DParamID():
         self.rank = self.comm.Get_rank()
         self.num_procs = self.comm.Get_size()
 
-        self.mcmc_options = mcmc_options
+        self.UQ_options = _resolve_UQ_options(UQ_options, mcmc_options)
         if solver_info is None:
             self.solver_info = {"solver": "CVODE_myokit"}
         else:
@@ -335,7 +361,7 @@ class CVS0DParamID():
             mcmc_object = OpencorMCMC(self.model_path,
                                            self.obs_info, self.param_id_info,
                                            self.protocol_info, self.prediction_info, self.solver_info, dt=self.dt,
-                                           mcmc_options=mcmc_options,
+                                           UQ_options=self.UQ_options,
                                            DEBUG=self.DEBUG, model_type=self.model_type)
             self.n_steps = mcmc_object.n_steps
         else:
@@ -396,7 +422,7 @@ class CVS0DParamID():
         arg_options = [
             'model_path', 'model_type', 'param_id_method', 'mcmc_instead',
             'file_name_prefix', 'params_for_id_path', 'param_id_obs_path',
-            'sim_time', 'pre_time', 'dt', 'solver_info', 'mcmc_options',
+            'sim_time', 'pre_time', 'dt', 'solver_info', 'UQ_options',
             'optimiser_options', 'DEBUG', 'param_id_output_dir', 'resources_dir',
             'one_rank', 'do_ad',
             'operation_funcs_external_path', 'cost_funcs_external_path',
@@ -481,7 +507,7 @@ class CVS0DParamID():
             except Exception:
                 pass
 
-    def run_UQ(self, mcmc_options=None):
+    def run_UQ(self, UQ_options=None, mcmc_options=None):
         """Run uncertainty quantification (MCMC) on **this** object.
 
         Callable whether or not the instance was built with ``mcmc_instead=True``:
@@ -491,8 +517,10 @@ class CVS0DParamID():
           ``OpencorMCMC.from_param_id``, so UQ after a calibration reuses the model already
           compiled instead of building a second CVS0DParamID for it (CUFLynx #217).
 
-        ``mcmc_options`` overrides the options the object was built with; omit it to keep them.
+        ``UQ_options`` overrides the options the object was built with; omit it to keep them.
+        ``mcmc_options`` is a deprecated alias.
         """
+        UQ_options = _resolve_UQ_options(UQ_options, mcmc_options)
         global mcmc_object
         if not self.mcmc_instead:
             if getattr(self, 'param_id', None) is None:
@@ -501,9 +529,9 @@ class CVS0DParamID():
                     "object has neither.")
             mcmc_object = OpencorMCMC.from_param_id(
                 self.param_id,
-                mcmc_options if mcmc_options is not None else getattr(self, 'mcmc_options', None))
-        elif mcmc_options is not None:
-            mcmc_object._init_mcmc(mcmc_options, DEBUG=self.DEBUG)
+                UQ_options if UQ_options is not None else getattr(self, 'UQ_options', None))
+        elif UQ_options is not None:
+            mcmc_object._init_mcmc(UQ_options, DEBUG=self.DEBUG)
         mcmc_object.run()
 
     def run_mcmc(self):
@@ -2880,14 +2908,14 @@ class OpencorMCMC(OpencorParamID):
 
     def __init__(self, model_path,
                  obs_info, param_id_info, protocol_info, prediction_info, solver_info,
-                 dt=0.01, mcmc_options=None, DEBUG=False, model_type=None):
+                 dt=0.01, UQ_options=None, DEBUG=False, model_type=None, mcmc_options=None):
         super().__init__(model_path, "MCMC",
                 obs_info, param_id_info, protocol_info, prediction_info, solver_info,
                 dt=dt, DEBUG=DEBUG, model_type=model_type)
-        self._init_mcmc(mcmc_options, DEBUG=DEBUG)
+        self._init_mcmc(_resolve_UQ_options(UQ_options, mcmc_options), DEBUG=DEBUG)
 
     @classmethod
-    def from_param_id(cls, engine, mcmc_options=None):
+    def from_param_id(cls, engine, UQ_options=None, mcmc_options=None):
         """Adopt an already-built ``OpencorParamID`` instead of constructing a second one.
 
         Building an engine compiles the model. Because ``mcmc_instead`` selects the inner
@@ -2907,26 +2935,27 @@ class OpencorMCMC(OpencorParamID):
         obj = cls.__new__(cls)
         obj.__dict__.update(engine.__dict__)
         obj.param_id_method = "MCMC"
-        obj._init_mcmc(mcmc_options, DEBUG=getattr(engine, 'DEBUG', False))
+        obj._init_mcmc(_resolve_UQ_options(UQ_options, mcmc_options),
+                       DEBUG=getattr(engine, 'DEBUG', False))
         return obj
 
-    def _init_mcmc(self, mcmc_options, DEBUG=False):
+    def _init_mcmc(self, UQ_options, DEBUG=False):
         """The MCMC-specific half of construction, shared by __init__ and from_param_id."""
         # mcmc init stuff
         self.sampler = None
-        if mcmc_options is not None:
-            self.mcmc_options = mcmc_options
-            if 'num_steps' not in self.mcmc_options.keys(): 
-                self.mcmc_options['num_steps'] = 5000
+        if UQ_options is not None:
+            self.UQ_options = UQ_options
+            if 'num_steps' not in self.UQ_options.keys(): 
+                self.UQ_options['num_steps'] = 5000
                 print('number of mcmc steps is not set, choosing default of 5000')
-            if 'num_walkers' not in self.mcmc_options.keys():
-                self.mcmc_options['num_walkers'] = 2*self.num_params
+            if 'num_walkers' not in self.UQ_options.keys():
+                self.UQ_options['num_walkers'] = 2*self.num_params
                 print('number of mcmc walkers is not set, ',
                     'choosing default of 2*num_params')
         else:
-            self.mcmc_options = {}
-            self.mcmc_options['num_steps'] = 5000
-            self.mcmc_options['num_walkers'] = 2*self.num_params
+            self.UQ_options = {}
+            self.UQ_options['num_steps'] = 5000
+            self.UQ_options['num_walkers'] = 2*self.num_params
             print('number of mcmc steps and walkers is not set, ',
                   'choosing defaults of 5000 and 2*num_params')
 
@@ -2952,12 +2981,12 @@ class OpencorMCMC(OpencorParamID):
                 if self.best_param_vals is not None:
                     best_param_vals_norm = self.param_norm_obj.normalise(self.best_param_vals)
                     # create initial params in gaussian ball around best_param_vals estimate
-                    init_param_vals_norm = (np.ones((self.mcmc_options['num_walkers'], self.num_params))*best_param_vals_norm).T + \
-                                       0.1*np.random.randn(self.num_params, self.mcmc_options['num_walkers'])
+                    init_param_vals_norm = (np.ones((self.UQ_options['num_walkers'], self.num_params))*best_param_vals_norm).T + \
+                                       0.1*np.random.randn(self.num_params, self.UQ_options['num_walkers'])
                     init_param_vals_norm = np.clip(init_param_vals_norm, 0.001, 0.999)
                     init_param_vals = self.param_norm_obj.unnormalise(init_param_vals_norm)
                 else:
-                    init_param_vals_norm = np.random.rand(self.num_params, self.mcmc_options['num_walkers'])
+                    init_param_vals_norm = np.random.rand(self.num_params, self.UQ_options['num_walkers'])
                     init_param_vals = self.param_norm_obj.unnormalise(init_param_vals_norm)
 
             try:
@@ -2970,35 +2999,35 @@ class OpencorMCMC(OpencorParamID):
                 return
 
             if mcmc_lib == 'emcee':
-                self.sampler = emcee.EnsembleSampler(self.mcmc_options['num_walkers'], self.num_params, calculate_lnlikelihood,
+                self.sampler = emcee.EnsembleSampler(self.UQ_options['num_walkers'], self.num_params, calculate_lnlikelihood,
                                             pool=pool)
             elif mcmc_lib == 'zeus':
-                self.sampler = zeus.EnsembleSampler(self.mcmc_options['num_walkers'], self.num_params, calculate_lnlikelihood,
+                self.sampler = zeus.EnsembleSampler(self.UQ_options['num_walkers'], self.num_params, calculate_lnlikelihood,
                                                         pool=pool)
 
             start_time = time.time()
-            self.sampler.run_mcmc(init_param_vals.T, self.mcmc_options['num_steps'], progress=True, tune=True)
+            self.sampler.run_mcmc(init_param_vals.T, self.UQ_options['num_steps'], progress=True, tune=True)
             print(f'mcmc time = {time.time() - start_time}')
             pool.close()
 
         else:
             if self.best_param_vals is not None:
                 best_param_vals_norm = self.param_norm_obj.normalise(self.best_param_vals)
-                init_param_vals_norm = (np.ones((self.mcmc_options['num_walkers'], self.num_params))*best_param_vals_norm).T + \
-                                   0.01*np.random.randn(self.num_params, self.mcmc_options['num_walkers'])
+                init_param_vals_norm = (np.ones((self.UQ_options['num_walkers'], self.num_params))*best_param_vals_norm).T + \
+                                   0.01*np.random.randn(self.num_params, self.UQ_options['num_walkers'])
                 init_param_vals_norm = np.clip(init_param_vals_norm, 0.001, 0.999)
                 init_param_vals = self.param_norm_obj.unnormalise(init_param_vals_norm)
             else:
-                init_param_vals_norm = np.random.rand(self.num_params, self.mcmc_options['num_walkers'])
+                init_param_vals_norm = np.random.rand(self.num_params, self.UQ_options['num_walkers'])
                 init_param_vals = self.param_norm_obj.unnormalise(init_param_vals_norm)
 
             if mcmc_lib == 'emcee':
-                self.sampler = emcee.EnsembleSampler(self.mcmc_options['num_walkers'], self.num_params, calculate_lnlikelihood)
+                self.sampler = emcee.EnsembleSampler(self.UQ_options['num_walkers'], self.num_params, calculate_lnlikelihood)
             elif mcmc_lib == 'zeus':
-                self.sampler = zeus.EnsembleSampler(self.mcmc_options['num_walkers'], self.num_params, calculate_lnlikelihood)
+                self.sampler = zeus.EnsembleSampler(self.UQ_options['num_walkers'], self.num_params, calculate_lnlikelihood)
 
             start_time = time.time()
-            self.sampler.run_mcmc(init_param_vals.T, self.mcmc_options['num_steps']) # , progress=True)
+            self.sampler.run_mcmc(init_param_vals.T, self.UQ_options['num_steps']) # , progress=True)
             print(f'mcmc time = {time.time()-start_time}')
 
         if rank == 0:
@@ -3082,7 +3111,7 @@ class MCMC_plotter:
                  params_for_id_path=None, num_calls_to_function=1000,
                  param_id_obs_path=None, sim_time=2.0, pre_time=20.0, 
                  solver_info=None, 
-                 dt=0.01, mcmc_options=None, 
+                 dt=0.01, UQ_options=None, mcmc_options=None,
                  param_id_output_dir=None, resources_dir=None,
                  DEBUG=False):
 
@@ -3128,7 +3157,7 @@ class MCMC_plotter:
         self.best_param_vals = None
         self.best_param_names = None
 
-        self.mcmc_options = mcmc_options
+        self.UQ_options = _resolve_UQ_options(UQ_options, mcmc_options)
 
         # thresholds for identifiability TODO optimise these
         self.threshold_param_importance = 0.1
@@ -3153,7 +3182,7 @@ class MCMC_plotter:
                                     param_id_obs_path=self.param_id_obs_path,
                                     sim_time=self.sim_time, pre_time=self.pre_time, dt=self.dt,
                                     param_id_output_dir=self.param_id_output_dir, resources_dir=self.resources_dir,
-                                    solver_info=self.solver_info, mcmc_options=self.mcmc_options,
+                                    solver_info=self.solver_info, UQ_options=self.UQ_options,
                                     DEBUG=self.DEBUG, one_rank=True)
                 if os.path.exists(os.path.join(mcmc.output_dir, 'param_names_to_remove.csv')):
                     with open(os.path.join(mcmc.output_dir, 'param_names_to_remove.csv'), 'r') as r:
