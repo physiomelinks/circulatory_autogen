@@ -1444,9 +1444,10 @@ ANALYSIS_OPTIONS = {
              'description': 'Uncertainty-quantification method. Only posterior sampling by MCMC '
                             'is implemented so far.'},
             {'name': 'library', 'type': 'enum', 'default': 'emcee', 'required': False,
-             'choices': ['emcee'],
+             'choices': ['emcee', 'pymc'],
              'description': 'Sampler backend for method=mcmc. emcee is the built-in affine '
-                            'invariant ensemble sampler.'},
+                            'invariant ensemble sampler; pymc adds Metropolis and sequential '
+                            'Monte Carlo and needs the optional [uq] extra.'},
             {'name': 'num_steps', 'type': 'int', 'default': 5000, 'required': False,
              'description': 'Number of MCMC steps per walker.'},
             {'name': 'num_walkers', 'type': 'int', 'default': None, 'required': False,

@@ -550,7 +550,10 @@ def test_closed_set_analysis_options_are_enums_with_choices():
         # cannot run is the same defect as a setting nothing reads. Extend these as the SMC /
         # surrogate methods and the pyMC backend land.
         ('uq', 'method'): ['mcmc'],
-        ('uq', 'library'): ['emcee'],
+        # 'zeus' is still accepted by _build_sampler for backwards compatibility but is
+        # deliberately not advertised: it is not a CA dependency and there is no extra that
+        # installs it, so offering it in a menu would be a control that fails for most users.
+        ('uq', 'library'): ['emcee', 'pymc'],
         # -> EmulatorTrainer.design (raises ValueError otherwise)
         ('emulation', 'sample_type'): ['sobol', 'latin_hypercube', 'random'],
         # -> EmulatorBundle.check_bounds. 'error' is the default deliberately: outside its

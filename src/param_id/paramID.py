@@ -44,19 +44,19 @@ import re
 from numpy import genfromtxt
 from importlib import import_module
 # import tqdm # TODO this needs to be installed for corner plot but doesnt need an import here
-mcmc_lib = 'emcee' # TODO make this a user variable
-if mcmc_lib == 'emcee':
-    try:
-        import emcee
-    except ImportError:
-        emcee = None
-elif mcmc_lib == 'zeus':
-    try:
-        import zeus
-    except ImportError:
-        zeus = None
-else:
-    print(f'unknown mcmc lib : {mcmc_lib}')
+# Which sampler a UQ run uses is UQ_options['library'], read in OpencorMCMC._build_sampler -- not
+# the module-level constant this used to be, which meant editing the source to change sampler.
+# Both are imported optionally: emcee is a CA dependency but zeus is not, and pymc is imported
+# only inside its own backend module (it is an optional [uq] extra, and this module is imported
+# by every calibration run, UQ or not).
+try:
+    import emcee
+except ImportError:
+    emcee = None
+try:
+    import zeus
+except ImportError:
+    zeus = None
 try:
     import corner
 except ImportError:
@@ -3690,6 +3690,44 @@ class OpencorMCMC(OpencorParamID):
             self.cost_type, self.cost_funcs_dict, "MCMC (log-likelihood uses -cost)"
         )
 
+    def _build_sampler(self, pool=None):
+        """The sampler named by ``UQ_options['library']``, behind emcee's interface.
+
+        Every backend here exposes ``run_mcmc`` and ``get_chain`` returning a
+        ``(steps, walkers, params)`` chain, so the sampling loop, the saved ``mcmc_chain.npy``
+        and everything downstream of it are the same whichever was chosen.
+        """
+        library = (self.UQ_options or {}).get('library', 'emcee')
+        num_walkers = self.UQ_options['num_walkers']
+
+        if library == 'emcee':
+            if pool is not None:
+                return emcee.EnsembleSampler(num_walkers, self.num_params,
+                                             calculate_lnlikelihood, pool=pool)
+            return emcee.EnsembleSampler(num_walkers, self.num_params, calculate_lnlikelihood)
+
+        if library == 'zeus':
+            if zeus is None:
+                raise ImportError("UQ_options library 'zeus' was selected but zeus is not "
+                                  "installed.")
+            if pool is not None:
+                return zeus.EnsembleSampler(num_walkers, self.num_params,
+                                            calculate_lnlikelihood, pool=pool)
+            return zeus.EnsembleSampler(num_walkers, self.num_params, calculate_lnlikelihood)
+
+        if library == 'pymc':
+            # Imported here, not at module level: pymc is an optional extra, and paramID is
+            # imported by every calibration run.
+            from param_id.pymc_backend import PyMCSampler
+            return PyMCSampler(
+                num_walkers, self.num_params, calculate_lnlikelihood,
+                param_id_info=self.param_id_info,
+                num_tune=self.UQ_options.get('num_tune', 1000),
+                method=self.UQ_options.get('pymc_method', 'mcmc'))
+
+        raise ValueError(
+            f"unknown UQ_options library {library!r}. Valid options are 'emcee' and 'pymc'.")
+
     def _cost_weight_vectors(self, exp_idx, sub_idx):
         """Every feature entering the likelihood carries equal weight (issue #193).
 
@@ -3783,12 +3821,7 @@ class OpencorMCMC(OpencorParamID):
                 pool.wait()
                 return
 
-            if mcmc_lib == 'emcee':
-                self.sampler = emcee.EnsembleSampler(self.UQ_options['num_walkers'], self.num_params, calculate_lnlikelihood,
-                                            pool=pool)
-            elif mcmc_lib == 'zeus':
-                self.sampler = zeus.EnsembleSampler(self.UQ_options['num_walkers'], self.num_params, calculate_lnlikelihood,
-                                                        pool=pool)
+            self.sampler = self._build_sampler(pool=pool)
 
             start_time = time.time()
             self.sampler.run_mcmc(init_param_vals.T, self.UQ_options['num_steps'], progress=True, tune=True)
@@ -3806,10 +3839,7 @@ class OpencorMCMC(OpencorParamID):
                 init_param_vals_norm = np.random.rand(self.num_params, self.UQ_options['num_walkers'])
                 init_param_vals = self.param_norm_obj.unnormalise(init_param_vals_norm)
 
-            if mcmc_lib == 'emcee':
-                self.sampler = emcee.EnsembleSampler(self.UQ_options['num_walkers'], self.num_params, calculate_lnlikelihood)
-            elif mcmc_lib == 'zeus':
-                self.sampler = zeus.EnsembleSampler(self.UQ_options['num_walkers'], self.num_params, calculate_lnlikelihood)
+            self.sampler = self._build_sampler()
 
             start_time = time.time()
             self.sampler.run_mcmc(init_param_vals.T, self.UQ_options['num_steps']) # , progress=True)
@@ -3817,7 +3847,7 @@ class OpencorMCMC(OpencorParamID):
 
         if rank == 0:
             # TODO save chains
-            if mcmc_lib == 'emcee':
+            if hasattr(self.sampler, 'acceptance_fraction'):
                 print(f'acceptance fraction was {self.sampler.acceptance_fraction}')
             samples = self.sampler.get_chain()
             mcmc_chain_path = os.path.join(self.output_dir, 'mcmc_chain.npy')
