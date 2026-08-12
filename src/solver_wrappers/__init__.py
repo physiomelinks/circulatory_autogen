@@ -4,26 +4,58 @@ Solver wrapper factory.
 Provides access to OpenCOR, Myokit, and SciPy-based solvers through a common API.
 """
 import os
+import traceback
+
 from solver_wrappers.python_solver_helper import SimulationHelper as PythonSimulationHelper
+
+#: Why each optional backend failed to import, keyed by backend name. A backend is optional
+#: because it may genuinely not be installed -- but the import can also fail for reasons that
+#: have nothing to do with installation, and those used to be indistinguishable: every failure
+#: became a bare `None` and then the same "X is not available" message, whatever went wrong.
+#: A real example is a fresh CI runner where two MPI ranks import myokit at once and race on
+#: creating ~/.config/myokit/myokit.ini; the message said myokit was not installed, when it was.
+#: Keeping the reason turns that into something a user can act on (see _unavailable_message).
+BACKEND_IMPORT_ERRORS = {}
+
+
+def _record_import_error(name, exc):
+    BACKEND_IMPORT_ERRORS[name] = ''.join(
+        traceback.format_exception_only(type(exc), exc)).strip()
+
+
+def _unavailable_message(backend, solver):
+    """The error for a solver whose backend did not import, naming the underlying cause."""
+    reason = BACKEND_IMPORT_ERRORS.get(backend)
+    if not reason:
+        return f"{backend} solver requested but {backend} is not available"
+    return (f"{solver} solver requested but the {backend} backend failed to import: {reason}. "
+            f"If {backend} is installed, this is not an installation problem -- the import "
+            f"itself raised, and that error is the one to fix.")
+
+
 try:
     from solver_wrappers.myokit_helper import SimulationHelper as MyokitSimulationHelper
-except:
+except Exception as _exc:                                # noqa: BLE001 - reason is recorded
     MyokitSimulationHelper = None
+    _record_import_error('Myokit', _exc)
 
 try:
     from solver_wrappers.opencor_helper import SimulationHelper as OpenCORSimulationHelper
-except Exception:
+except Exception as _exc:
     OpenCORSimulationHelper = None
+    _record_import_error('OpenCOR', _exc)
 
 try:
     from solver_wrappers.casadi_python_solver_helper import SimulationHelper as CasADiPythonSimulationHelper
-except Exception:
+except Exception as _exc:
     CasADiPythonSimulationHelper = None
+    _record_import_error('CasADi', _exc)
 
 try:
     from solver_wrappers.aadc_python_solver_helper import SimulationHelper as AadcPythonSimulationHelper
-except Exception:
+except Exception as _exc:
     AadcPythonSimulationHelper = None
+    _record_import_error('AADC', _exc)
 
 # Not `from mpi4py import MPI`. This module picks a solver; it has no collectives
 # to run. That import initialised MPI and registered an atexit MPI_Finalize for
@@ -89,14 +121,14 @@ def get_simulation_helper(model_path: str = None, solver: str = None,
         if OpenCORSimulationHelper is not None:
             return OpenCORSimulationHelper(model_path, dt, sim_time, solver_info, pre_time=pre_time)
         else:
-            raise RuntimeError("OpenCOR solver requested but OpenCOR is not available")
+            raise RuntimeError(_unavailable_message('OpenCOR', 'CVODE_opencor'))
     elif solver == 'CVODE_myokit':
         if is_python_model:
             raise ValueError("CVODE_myokit solver cannot be used with Python models. Use a solve_ivp method instead.")
         if MyokitSimulationHelper is not None:
             return MyokitSimulationHelper(model_path, dt, sim_time, solver_info, pre_time=pre_time)
         else:
-            raise RuntimeError("Myokit solver requested but Myokit is not available")
+            raise RuntimeError(_unavailable_message('Myokit', 'CVODE_myokit'))
     elif solver in python_solvers:
         if not is_python_model:
             raise ValueError(f"solve_ivp method {solver} can only be used with Python models. Use CVODE_opencor (or legacy CVODE) or CVODE_myokit for CellML models.")
@@ -109,7 +141,7 @@ def get_simulation_helper(model_path: str = None, solver: str = None,
         if CasADiPythonSimulationHelper is not None:
             return CasADiPythonSimulationHelper(model_path, dt, sim_time, solver_info, pre_time=pre_time)
         else:
-            raise RuntimeError("CasADi solver requested but CasADi is not available")
+            raise RuntimeError(_unavailable_message('CasADi', solver))
     elif solver in aadc_solvers:
         if not is_aadc_python_model:
             raise ValueError(f"Solver {solver} can only be used for AADC Python models (model_type='aadc_python').")
