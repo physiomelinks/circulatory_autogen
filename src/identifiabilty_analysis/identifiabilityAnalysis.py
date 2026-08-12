@@ -170,11 +170,18 @@ class IdentifiabilityAnalysis():
 
         pid = self.param_id
         solver = pid.solver_info.get('solver') if isinstance(pid.solver_info, dict) else None
-        available = {s['value'] for s in gradient_sources(pid.model_type, solver)}
+        # use_emulator collapses this to FD alone: the analytic arms differentiate the real
+        # model, so on an emulator run they would build the Fisher information from
+        # sensitivities of a model that is not being evaluated (#333).
+        emulating = bool(getattr(pid, 'emulates_features', False))
+        available = {s['value'] for s in gradient_sources(pid.model_type, solver,
+                                                          use_emulator=emulating)}
         if gradient_source not in available:
             raise ValueError(
                 f"Laplace gradient_source '{gradient_source}' is not available for model_type "
-                f"'{pid.model_type}' / solver '{solver}'. Available: {sorted(available)}. "
+                f"'{pid.model_type}' / solver '{solver}'"
+                + (" with use_emulator: true" if emulating else "")
+                + f". Available: {sorted(available)}. "
                 "(gradient_sources(model_type, solver) lists the analytic sources per model; use "
                 "'FD' for finite differences.)")
 

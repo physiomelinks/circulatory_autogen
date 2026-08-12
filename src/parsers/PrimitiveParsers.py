@@ -1254,7 +1254,7 @@ def solver_info_fields(solver):
     return SOLVER_INFO_FIELDS.get(solver, [])
 
 
-def gradient_sources(model_type, solver=None, method=None):
+def gradient_sources(model_type, solver=None, method=None, use_emulator=False):
     """The gradient sources available for the gradient-based param-id methods (`sp_minimize`,
     `multi_start_sp_minimize`) with this `model_type` + `solver` (+ optional integrator `method`),
     for a front-end that offers a "Gradient" menu without hardcoding CA's rules.
@@ -1283,6 +1283,9 @@ def gradient_sources(model_type, solver=None, method=None):
     previously duplicated from in downstream tools (e.g. CUFLynx); keep it in step with
     get_gradient.
 
+    ``use_emulator`` (issue #333) collapses the menu to finite differences alone: the analytic
+    arms differentiate the real model, and an emulator run is not evaluating it.
+
     When ``method`` (the integrator plugin) is given, the analytic source is additionally gated on
     per-integrator suitability (``SOLVER_SCHEMA['ad_suitable_methods']`` /
     ``['fsa_suitable_methods']``): the CasADi AD descriptor is omitted for a casadi_integrator
@@ -1295,6 +1298,12 @@ def gradient_sources(model_type, solver=None, method=None):
         'description': ('Central finite differences of the cost; works for any model_type, at '
                         'the cost of extra simulations per gradient.'),
     }]
+    if use_emulator:
+        # Every analytic arm differentiates the real model, which is not the function an
+        # emulator run evaluates -- offering one would mean descending a different function
+        # than the cost reports. FD on the emulator is exact for what is being minimised, and
+        # costs 2M matrix multiplies rather than 2M simulations (#333).
+        return sources
     if model_type == 'casadi_python':
         casadi_methods = SOLVER_SCHEMA['methods_by_solver']['casadi_integrator']
         ad_suitable = SOLVER_SCHEMA['ad_suitable_methods']['casadi_integrator']
@@ -1445,6 +1454,67 @@ ANALYSIS_OPTIONS = {
              'choices': ['parabola_fit', 'numdifftools_finite_diff'],
              'description': 'Finite-difference Hessian method for the Laplace approximation '
                             '(used when gradient_source is FD).'},
+        ],
+    },
+    # Emulation is the odd one out among these modes: it has a *train* step and a *use* step,
+    # so it carries a second flag. `enable_flag` (do_emulation) trains an emulator against the
+    # solver named by `solver`; `use_flag` (use_emulator) makes calibration, SA, MCMC and IA
+    # evaluate the trained emulator instead of that solver. They are independent -- training
+    # once and then using it across several runs is the normal shape (#333).
+    'emulation': {
+        'label': 'Emulator (surrogate model)',
+        'enable_flag': 'do_emulation',
+        'use_flag': 'use_emulator',
+        'options_key': 'emulator_settings',
+        'options': [
+            {'name': 'emulator_dir', 'type': 'str', 'default': None, 'required': False,
+             'description': ('Directory holding the trained emulator. Defaults to '
+                             '<param_id_output_dir>/emulators/<file_prefix>_<obs_prefix>.')},
+            # A str rather than a list: descriptor types are scalar, and the accepted names are
+            # a runtime property of the installed autoemulate, discoverable through
+            # emulators.emulator_trainer.emulator_model_names() -- so a tool offers that list
+            # and joins the selection with commas, instead of a menu hardcoded here.
+            {'name': 'models', 'type': 'str', 'default': 'default', 'required': False,
+             'description': ('Which emulators to fit and compare: "default" for autoemulate\'s '
+                             'default set, "all" for every registered one, or a comma-separated '
+                             'list of names (see emulator_model_names()).')},
+            {'name': 'num_train_samples', 'type': 'int', 'default': 128, 'required': False,
+             'description': ('Number of simulations run to build the training set. This is the '
+                             'up-front cost the emulator has to earn back.')},
+            # enum, not str: EmulatorTrainer.design dispatches on exactly these three and
+            # raises ValueError on anything else, so a free string only defers a typo to
+            # run time -- after the model has been generated.
+            {'name': 'sample_type', 'type': 'enum', 'default': 'sobol', 'required': False,
+             'choices': ['sobol', 'latin_hypercube', 'random'],
+             'description': ('Design of experiments over the params_for_id box. Same vocabulary '
+                             'as optimiser_options.start_sampling.')},
+            {'name': 'log_scale_params', 'type': 'bool', 'default': False, 'required': False,
+             'description': ('Space the design logarithmically in each parameter. Worth setting '
+                             'when a bound spans decades; requires every min to be positive.')},
+            {'name': 'random_seed', 'type': 'int', 'default': 0, 'required': False,
+             'description': 'Seed for the design and the fit, so a training run is repeatable.'},
+            {'name': 'test_fraction', 'type': 'float', 'default': 0.2, 'required': False,
+             'description': ('Fraction of the design held out and never trained on, which is '
+                             'what the reported R2/RMSE are measured against.')},
+            {'name': 'n_splits', 'type': 'int', 'default': 5, 'required': False,
+             'description': 'Cross-validation folds autoemulate uses when comparing emulators.'},
+            {'name': 'n_iter', 'type': 'int', 'default': 10, 'required': False,
+             'description': 'Hyper-parameter settings sampled per emulator during tuning.'},
+            # The refusal that makes the rest of it safe. An emulator below this is not slower
+            # or noisier -- it is confidently wrong, and nothing downstream can tell.
+            {'name': 'min_r2', 'type': 'float', 'default': 0.9, 'required': False,
+             'description': ('Refuse to use an emulator whose worst held-out per-feature R2 is '
+                             'below this. Raise it for results you intend to publish.')},
+            # enum, not str: EmulatorBundle.check_bounds dispatches on these, and the default
+            # has to be the strict one -- outside its design an emulator is an extrapolation
+            # with no error estimate at all.
+            {'name': 'out_of_bounds', 'type': 'enum', 'default': 'error', 'required': False,
+             'choices': ['error', 'warn', 'clip'],
+             'description': ('What to do when a parameter falls outside the box the emulator '
+                             'was trained in: refuse, warn and extrapolate, or clip to the box.')},
+            {'name': 'fd_rel_step', 'type': 'float', 'default': 1e-3, 'required': False,
+             'description': ('Relative step for the finite-difference gradient over the '
+                             'emulator, which is the only gradient source an emulator has.')},
         ],
     },
 }
@@ -1666,10 +1736,14 @@ class YamlFileParser(object):
                    and inp_data_dict.get('solver', 'CVODE_myokit') == 'CVODE_myokit'
                    and inp_data_dict.get('do_ad'))
         if inp_data_dict.get('param_id_method') == 'sp_minimize' and \
-                inp_data_dict.get('model_type') not in ('casadi_python', 'aadc_python') and not _fsa_ad:
+                inp_data_dict.get('model_type') not in ('casadi_python', 'aadc_python') \
+                and not _fsa_ad and not inp_data_dict.get('use_emulator'):
+            # An emulator is exempt: its gradient comes from finite differences on its own
+            # evaluations, which is affordable in a way FD on a solver is not (#333).
             print('Parameter identification with sp_minimize requires model_type to be '
                   '"casadi_python" or "aadc_python", or "cellml_only" with solver '
-                  '"CVODE_myokit" and do_ad: true (Myokit CVODES forward sensitivity).')
+                  '"CVODE_myokit" and do_ad: true (Myokit CVODES forward sensitivity) -- or '
+                  'use_emulator: true, whose gradient is finite differences on the emulator.')
             exit()
 
         # multi_start_sp_minimize runs on any model type: it uses the AD gradient for
@@ -2083,7 +2157,31 @@ class YamlFileParser(object):
             if 'method' not in inp_data_dict['ia_options'].keys():
                 print('No method specified for identifiability analysis, setting to Laplace by default')
                 inp_data_dict['ia_options']['method'] = 'Laplace'
-        
+
+        # Emulator settings (#333). Two flags, because emulation has two steps: do_emulation
+        # trains one against the solver named by `solver`, use_emulator makes the analyses
+        # evaluate it. Defaults here must match ANALYSIS_OPTIONS['emulation'], which is what a
+        # settings form shows the user.
+        if 'do_emulation' not in inp_data_dict.keys():
+            inp_data_dict['do_emulation'] = False
+        if 'use_emulator' not in inp_data_dict.keys():
+            inp_data_dict['use_emulator'] = False
+        if inp_data_dict.get('emulator_settings') is None:
+            inp_data_dict['emulator_settings'] = {}
+        emulator_settings = inp_data_dict['emulator_settings']
+        emulator_settings.setdefault('emulator_dir', None)
+        emulator_settings.setdefault('models', 'default')
+        emulator_settings.setdefault('num_train_samples', 128)
+        emulator_settings.setdefault('sample_type', 'sobol')
+        emulator_settings.setdefault('log_scale_params', False)
+        emulator_settings.setdefault('random_seed', 0)
+        emulator_settings.setdefault('test_fraction', 0.2)
+        emulator_settings.setdefault('n_splits', 5)
+        emulator_settings.setdefault('n_iter', 10)
+        emulator_settings.setdefault('min_r2', 0.9)
+        emulator_settings.setdefault('out_of_bounds', 'error')
+        emulator_settings.setdefault('fd_rel_step', 1e-3)
+
         # Parse optimiser_options - this is the new unified way to specify options
         # Handle backwards compatibility: if ga_options or debug_ga_options is specified, merge into optimiser_options
         if 'optimiser_options' not in inp_data_dict.keys():

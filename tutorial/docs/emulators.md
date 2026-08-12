@@ -1,0 +1,170 @@
+# Emulators (Surrogate Models)
+
+An **emulator** (or surrogate) is a fast statistical stand-in for your model. Circulatory Autogen
+fits one that maps the parameters in your `params_for_id.csv` to the **scalar features** of your
+`obs_data.json` data items — the same numbers the cost function is computed from. Once it is
+trained, calibration, sensitivity analysis, UQ/MCMC and identifiability analysis can all evaluate
+the emulator instead of running the solver.
+
+!!! warning "The training runs are paid up front"
+    Training costs `num_train_samples` simulations. That is only worth it when the downstream use
+    is much larger:
+
+    * **Sobol sensitivity analysis** — `num_samples × (2M + 2)` model evaluations. Worth it.
+    * **MCMC / UQ** — tens of thousands of evaluations. Worth it.
+    * **Identifiability analysis** — a Hessian's worth per parameter pair. Usually worth it.
+    * **A single genetic-algorithm calibration** — often *cheaper run directly*. Not worth it.
+
+!!! note "Scope: scalar features, not waveforms"
+    The emulator predicts each data item's value **after** its `operation` (`max`, `mean`,
+    `max_minus_min`, …). It does not produce simulated traces, so `data_type: series` and
+    `frequency` observables, prediction variables and output plots are not available in emulator
+    mode — CA refuses them explicitly rather than returning something that looks plausible.
+    Emulating full time series is a planned follow-up.
+
+## Installation
+
+The emulator backend is [autoemulate](https://pypi.org/project/autoemulate/), an optional
+dependency (it pulls in torch, gpytorch and lightgbm, and needs Python ≥3.10, <3.13):
+
+```bash
+pip install "circulatory_autogen[emulation]"
+```
+
+Everything else in CA works without it; only `do_emulation` / `use_emulator` need it.
+
+## Configuration
+
+Two independent flags, because emulation has two steps:
+
+```yaml
+do_emulation: false   # train an emulator against the solver named by `solver`
+use_emulator: false   # make the analyses evaluate the trained emulator
+```
+
+`solver:` keeps meaning the **truth solver** — the one the emulator is trained against, and the
+one you compare it with. That is deliberate: switching to an emulator should not lose track of
+what it is approximating.
+
+```yaml
+emulator_settings:
+  # emulator_dir:            # default <param_id_output_dir>/emulators/<file_prefix>_<obs_prefix>
+  models: default            # 'default', 'all', or a comma-separated list of emulator names
+  num_train_samples: 128     # simulations run to build the training set
+  sample_type: sobol         # sobol | latin_hypercube | random
+  log_scale_params: false    # space the design logarithmically (needs every min > 0)
+  random_seed: 0
+  test_fraction: 0.2         # held out and never trained on -- what R2/RMSE are measured on
+  n_splits: 5                # autoemulate cross-validation folds
+  n_iter: 10                 # hyper-parameter settings sampled per emulator
+  min_r2: 0.9                # refuse to USE an emulator worse than this
+  out_of_bounds: error       # error | warn | clip
+  fd_rel_step: 1.0e-3        # step for the finite-difference gradient over the emulator
+```
+
+The available `models` names come from the installed autoemulate and are discoverable in code:
+
+```python
+from emulators.emulator_trainer import emulator_model_names
+print(emulator_model_names())   # GaussianProcessRBF, RadialBasisFunctions, LightGBM, ...
+```
+
+## Training
+
+```bash
+cd user_run_files
+./run_emulator_training.sh 8      # 8 MPI processes
+```
+
+The design points are spread across MPI ranks, each runs the real solver, and rank 0 fits and
+saves the emulator. The script prints the held-out R² per observable:
+
+```
+[emulator] saved to .../emulators/Lotka_Volterra_Lotka_Volterra_obs_data
+    held-out R2   0.9986   x_max (max Lotka_Volterra/x)
+    held-out R2   0.9791   y_max (max Lotka_Volterra/y)
+```
+
+**Read those numbers before using it.** They are the only thing standing between you and a set
+of Sobol indices for a model you did not simulate.
+
+The saved directory contains:
+
+| File | What it is |
+|---|---|
+| `emulator.joblib` | the fitted emulator |
+| `emulator_metadata.json` | R²/RMSE per feature, the training box, the design, provenance |
+| `training_data.npz` | the design and its simulated targets, so it can be refitted or extended without re-simulating |
+
+## Using it
+
+Set `use_emulator: true` and run any of the usual scripts unchanged:
+
+```bash
+./run_param_id.sh 4
+./run_sensitivity_analysis.sh 4
+./run_identifiability_analysis.sh
+```
+
+Nothing else in the configuration changes. To sanity-check a result, run the same analysis with
+`use_emulator: false` and compare — that is what keeping `solver:` meaningful is for.
+
+## When CA refuses
+
+An unvalidated emulator does not fail loudly; it returns plausible wrong numbers, and every
+downstream index, cost and posterior inherits the error with nothing to show for it. So CA
+refuses rather than proceeding quietly:
+
+| Situation | What happens |
+|---|---|
+| Worst held-out R² below `min_r2` | refused at setup, naming the observable and its R² |
+| A parameter outside the training box | refused (or warns/clips, per `out_of_bounds`) |
+| Parameter bounds, observables, operations, protocol or the model file changed since training | refused as **stale** — retrain |
+| A `series` or `frequency` data item | refused: the emulator predicts scalars only |
+| `autoemulate` not installed | refused, naming the install command |
+
+An emulator is an interpolant. Outside the box it was trained in it is an extrapolation with no
+error estimate at all, which is why `out_of_bounds: error` is the default.
+
+## Gradients
+
+Over an emulator the only gradient source is **finite differences on the emulator itself**. The
+analytic arms (CasADi AD, Myokit CVODES FSA, AADC) all differentiate the *real* model, which is
+not the function an emulator run is evaluating — using one would mean the optimiser descends a
+different function than the cost it reports.
+
+This costs `2M` emulator evaluations per gradient, which is a matrix multiply apiece rather than
+`2M` simulations, so gradient-based calibration (`sp_minimize`, `multi_start_sp_minimize`) and
+the Laplace identifiability analysis work normally. `do_ad` is turned off automatically, with a
+message, when `use_emulator` is set.
+
+## From Python
+
+```python
+from emulators.emulator_trainer import EmulatorTrainer
+from param_id.paramID import CVS0DParamID
+
+inp["do_emulation"] = True
+inp["emulator_settings"] = {"num_train_samples": 200, "models": "GaussianProcessRBF"}
+bundle = EmulatorTrainer.init_from_dict(inp).train()
+print(dict(zip(bundle.feature_labels, bundle.meta["feature_r2"])))
+
+inp["use_emulator"] = True
+pid = CVS0DParamID.init_from_dict(inp)   # calibrates against the emulator
+```
+
+`EmulatorTrainer.init_from_dict` always builds its engine with `use_emulator` forced off, so
+training runs the real solver even when the config asks for an emulator elsewhere.
+
+## Notes
+
+* The training targets are computed through the **same code path as the cost**
+  (`param_id.fd_backend.observable_features`), so the emulator approximates exactly what your
+  calibration is fitting rather than a second implementation of it.
+* Parameters are mapped to the unit box and features are standardised before fitting. CA
+  parameters routinely span a compliance near `1e-9` and a resistance near `1e8`, and autoemulate
+  works in float32; the transforms are stored in the bundle and inverted on prediction.
+* Modifier and grouped parameters are supported: the emulator is trained on θ — one value per
+  `params_for_id` entry — not on the expanded per-parameter values.
+* `params_to_change` from your protocol are held at the values they had during training. Change
+  the protocol and the emulator is refused as stale.

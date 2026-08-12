@@ -80,7 +80,8 @@ class sobol_SA():
                  param_id_path = None, params_for_id_path=None, use_MPI = False, verbose=False,
                  sim_time=2.0, pre_time=20.0, model_type=None,
                  operation_funcs_external_path=None, cost_funcs_external_path=None,
-                 modifier_funcs_external_path=None):
+                 modifier_funcs_external_path=None,
+                 use_emulator=False, emulator_dir=None, emulator_settings=None):
 
         """
         Initializes the Sensitivity_analysis class.
@@ -117,6 +118,12 @@ class sobol_SA():
             cost_funcs_external_path=cost_funcs_external_path)
         self.modifier_funcs_external_path = modifier_funcs_external_path
         self.operation_funcs_dict = self.sfp.get_operation_funcs_dict(mode)
+
+        # Emulator mode (#333). `solver_info['solver']` still names the truth solver -- the one
+        # the emulator was trained against -- so this is its own flag rather than a solver name.
+        self.use_emulator = bool(use_emulator)
+        self.emulator_dir = emulator_dir
+        self.emulator_settings = dict(emulator_settings or {})
 
         self.obs_and_param_parser = None
         self.gt_df = None
@@ -302,7 +309,30 @@ class sobol_SA():
             self._sim_helper = self.initialise_sim_helper()
             if self.sim_time is not None and self.pre_time is not None:
                 self._sim_helper.update_times(self.dt, 0.0, self.sim_time, self.pre_time)
+            if getattr(self._sim_helper, 'emulates_features', False):
+                self._configure_emulator(self._sim_helper)
         return self._sim_helper
+
+    def _configure_emulator(self, helper):
+        """Validate the emulator against this analysis, and map its outputs to the data_items.
+
+        Sobol reads a surrogate ``num_samples*(2M+2)`` times without ever touching the model,
+        so an emulator trained against different bounds, observables or protocol would produce
+        a complete, plausible set of indices for a different problem (#333).
+        """
+        from emulators.emulator_bundle import fingerprint
+        bad = {jj: dtype for jj, dtype in enumerate(self.obs_info['data_types'])
+               if dtype != 'constant'}
+        if bad:
+            raise ValueError(
+                f'use_emulator is set, but obs_data.json has data_type(s) '
+                f'{sorted(set(bad.values()))} at data_item index(es) {sorted(bad)}. The emulator '
+                f'predicts scalar data_item features only.')
+        helper.bundle.check_matches(
+            fingerprint(self.param_id_info, self.obs_info, self.protocol_info, self.model_path))
+        helper.bundle.check_quality(self.emulator_settings.get('min_r2', 0.9))
+        helper.set_obs_map(self.obs_info['const_idx_to_obs_idx'],
+                           num_obs=len(self.obs_info['operations']))
 
     @sim_helper.setter
     def sim_helper(self, value):
@@ -346,6 +376,9 @@ class sobol_SA():
             sim_time=self.sim_time,
             solver_info=self.solver_info,
             pre_time=self.pre_time,
+            use_emulator=self.use_emulator,
+            emulator_dir=self.emulator_dir,
+            out_of_bounds=self.emulator_settings.get('out_of_bounds', 'error'),
         )
 
     def set_output_dir(self, path):
@@ -414,8 +447,15 @@ class sobol_SA():
         local_outputs = []
 
         # Create a single progress bar for rank 0 only to avoid noisy output from all ranks
+        emulates_features = bool(getattr(self.sim_helper, 'emulates_features', False))
+
         with tqdm(total=len(local_samples), desc=f"Rank {self.rank}", position=self.rank, leave=True, disable=self.rank != 0) as pbar:
             for param_vals in local_samples:
+
+                if emulates_features:
+                    # The emulator's input is theta itself, before the expansion below turns a
+                    # modifier's single slot into one value per model parameter.
+                    self.sim_helper.set_theta(param_vals)
 
                 # Delegate the multi-experiment / multi-subexperiment loop to
                 # ProtocolExecutor.  continue_on_failure=True preserves existing
@@ -432,6 +472,14 @@ class sobol_SA():
                     self._rank0_print(
                         f"[MPI Rank {self.rank}] Simulation failed for params: {param_vals}"
                     )
+
+                if emulates_features:
+                    # The emulator predicts each data_item's feature directly, so the operation
+                    # must not run again: it would reduce an already-reduced scalar, and
+                    # max_minus_min of one value is zero.
+                    local_outputs.append(list(self.sim_helper.get_predicted_features()))
+                    pbar.update(1)
+                    continue
 
                 features = []
                 for j in range(len(self.obs_info["operations"])):

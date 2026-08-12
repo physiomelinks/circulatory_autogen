@@ -29,6 +29,7 @@ Runs are launched via shell scripts in `user_run_files/`, which call entry-point
 | `run_multiple_param_id.sh` | `run_multiple_param_id.py` | Batch calibration over models |
 | `run_sensitivity_analysis.sh` | `sensitivity_analysis_run_script.py` | Sobol SA (`mpiexec`) |
 | `run_identifiability_analysis.sh` | `identifiability_run_script.py` | Laplace / profile-likelihood |
+| `run_emulator_training.sh` (arg: `num_processors`, uses `mpiexec`) | `train_emulator_run_script.py` | Train a surrogate of the obs features |
 | `plot_param_id.sh` | `plot_param_id_script.py` | Plot calibration results |
 
 Other useful scripts in `src/scripts/`: `generate_obs_json.py`, `example_format_obs_data_json_file.py`, `generate_modules_files.py`, `convert_0d_to_1d.py`, `read_and_insert_parameters.py`, `generate_omex_analysis_script.py`.
@@ -70,6 +71,8 @@ Then call the same stages the scripts call, all taking that dict:
 
 **Never commit `resources/user_inputs_<yymmdd>.yaml`.** Every run archives its resolved config there via `save_dated_user_inputs` (`src/parsers/PrimitiveParsers.py`), so these files appear constantly as modified or untracked — they are per-machine run artifacts, not inputs. They bake in absolute local paths (`resources_dir`, `generated_models_dir`, and `/tmp/pytest-*` dirs when a test run writes them), so committing them adds churn and leaks one machine's layout into the repo. They are gitignored; leave them untracked, and do not `git add -A` them back in. The same goes for anything else that shows up modified purely because you ran the suite.
 
+- `do_emulation` / `use_emulator` + `emulator_settings` — **emulators (surrogate models, issue #333)**. The emulator maps theta (the params_for_id vector, one slot per entry) to the *scalar* features of the obs_data data_items, i.e. the value after the `operation` reduction — the same numbers the cost uses. `do_emulation` trains one against the solver named by `solver`; `use_emulator` makes calibration/SA/UQ/IA evaluate it. `solver` deliberately keeps meaning the truth solver, so an emulator run can be compared with it. Backend is the optional `autoemulate` (`pip install ".[emulation]"`, needs Python >=3.10,<3.13). Series/frequency observables, prediction traces and output plots are **refused** in emulator mode, not approximated.
+
 ## Discoverable schemas (keep settings machine-readable for CUFLynx)
 
 The GUI front-end **CUFLynx** auto-populates its menus and settings forms by reading discoverable schemas in `src/parsers/PrimitiveParsers.py` — it does **not** hardcode the options. **Whenever you add or change a user-configurable setting, update the matching schema in the same PR**, or CUFLynx silently won't expose it:
@@ -77,7 +80,7 @@ The GUI front-end **CUFLynx** auto-populates its menus and settings forms by rea
 - `SOLVER_SCHEMA` — model types, solvers per model type, integrator `method`s per solver, and `solver_info_fields_by_solver` (`SOLVER_INFO_FIELDS`: the `solver_info` settings per solver). `_SOLVER_INTEGRATOR_KEYS` (validation) is **derived** from `SOLVER_INFO_FIELDS`, so add a solver_info field there. Also carries per-integrator analytic-gradient suitability for a tool's Gradient menu: `ad_suitable_methods` (casadi_integrator methods that support CasADi AD — **derived** from `_CASADI_ADJOINT_METHODS`, i.e. every method except the adjoint `cvodes`/`idas`), `fsa_suitable_methods` (Myokit CVODES FSA methods per solver), and `default_method_by_solver` (advisory default integrator, e.g. `casadi_integrator` → `bdf`).
 - `PARAM_ID_METHODS` — calibration methods, each with an `options` list = the `optimiser_options` it reads. Add a new optimiser knob here.
 - `gradient_sources(model_type, solver, method=None)` — the gradient sources (FD / AD / FSA) the gradient-based methods (`sp_minimize`, `multi_start_sp_minimize`) can use for a given model, each with the `do_ad` flag it implies. There is **no** per-method "gradient" option: AD vs FD is the top-level `do_ad` flag, and which analytic backend runs follows from `model_type`/`solver` (mirrors `OpencorParamID.get_gradient`). When the integrator `method` is passed, the analytic source is additionally gated on `ad_suitable_methods`/`fsa_suitable_methods` (e.g. no CasADi AD for `cvodes`/`idas`). Keep it in step with that dispatch.
-- `ANALYSIS_OPTIONS` — the `sa_options` / `mcmc_options` / `ia_options` settings for the sensitivity / MCMC / identifiability modes.
+- `ANALYSIS_OPTIONS` — the `sa_options` / `mcmc_options` / `ia_options` / `emulator_settings` settings for the sensitivity / MCMC / identifiability / emulation modes. `emulation` is the only entry with a **`use_flag`** as well as an `enable_flag`, because it has a train step and a use step. `gradient_sources(..., use_emulator=True)` collapses to FD alone (the analytic arms differentiate the real model, which an emulator run is not evaluating). Emulator model names are a runtime registry like the cost funcs — `emulators.emulator_trainer.emulator_model_names()`.
 - Cost functions are a runtime registry (user-extensible), so they're discovered via `funcs_user.cost_funcs_user.cost_func_metadata()` (names + `is_MLE`/`is_combiner`/`differentiable` flags), not a static schema. Both this and the operation-funcs dict take an optional `external_path` (and `scriptFunctionParser` an `operation_funcs_external_path` / `cost_funcs_external_path`) so the merged set — including funcs from an external file — is introspectable.
 
 Each setting is a descriptor `{name, type, default, required, description, choices?}`. Accessors: `solver_info_fields(solver)`, `param_id_method_options(method)`, `analysis_options(mode)`, `gradient_sources(model_type, solver, method=None)`. Tests in `tests/test_solver_info_validation.py` lock every schema's shape **and** its correspondence to what the code actually reads (e.g. an option the optimiser doesn't read, or a read the schema omits, fails the suite) — extend those when you add settings.
@@ -86,11 +89,12 @@ Each setting is a descriptor `{name, type, default, required, description, choic
 
 | Dir | Contents / purpose |
 |---|---|
-| `solver_wrappers/` | `SimulationHelper` backends + `get_simulation_helper()` factory (`__init__.py`). Backends: `myokit_helper.py`, `opencor_helper.py`, `python_solver_helper.py`, `casadi_python_solver_helper.py`. `name_resolver.py` maps variable names. |
+| `solver_wrappers/` | `SimulationHelper` backends + `get_simulation_helper()` factory (`__init__.py`). Backends: `myokit_helper.py`, `opencor_helper.py`, `python_solver_helper.py`, `casadi_python_solver_helper.py`, `emulator_solver_helper.py` (answers from a trained emulator; `emulates_features = True` tells the two reduction sites to skip the obs `operation`). `name_resolver.py` maps variable names. |
 | `generators/` | `CVSCellMLGenerator.py`, `PythonGenerator.py` (libCellML Analyser, strict ODE), `CVSCppGenerator.py`, `Python1DModelFilesGenerator.py`. |
 | `param_id/` | `paramID.py` (calibration), `optimisers.py`, `differentiable.py` + `math_backend.py` + `operation_funcs.py` (AD), `plot_outputs.py`. |
 | `protocol_runners/` | `protocol_runner.py`, `protocol_executor.py` — the multi-experiment/sub-experiment simulation loop. |
 | `sensitivity_analysis/` | `sensitivityAnalysis.py`, `sobolSA.py`. |
+| `emulators/` | `emulator_trainer.py` (design -> simulate -> fit -> validate -> persist), `emulator_bundle.py` (the artefact + every refusal rule). Backend: optional `autoemulate`. |
 | `identifiabilty_analysis/` | `identifiabilityAnalysis.py` (note the dir is spelled `identifiabilty`). |
 | `parsers/` | `ModelParsers.py`, `PrimitiveParsers.py`, `OMEXParsers.py` — CSV/YAML/JSON/OMEX loading. |
 | `models/` | `LumpedModels.py` (`CVS0DModel`). `checks/LumpedModelChecks.py` validates structure/connectivity. |
@@ -147,6 +151,8 @@ Add/extend tests in `tests/` for **every feature and bugfix**; a bugfix should i
 | `test_autogeneration.py` | CSV → model generation (markers: `integration`, `slow`, `autogen_rank(idx)`) |
 | `test_param_id.py` | Calibration across optimisers (`integration`, `slow`, `mpi`, `compare_optimisers`) |
 | `test_sensitivity_analysis.py` | Sobol SA (`integration`, `mpi`) |
+| `test_emulator_settings.py`, `test_emulator_solver_helper.py` | Emulator artefact, refusals and the cost-path seam, with a stub emulator (`unit`, no autoemulate) |
+| `test_emulator_training.py` | Emulator training end-to-end (`integration`, `slow`, `mpi`; the real fit is `importorskip('autoemulate')`) |
 | `test_protocol_funcs.py`, `test_unit_conversion.py`, `test_solver_info_validation.py`, `test_casadi_conditionals.py` | Unit-level (`unit`) |
 | `test_omex_analysis_pipeline.py` | OMEX/SED-ML pipeline (`integration`, `misc_task`) |
 

@@ -74,6 +74,13 @@ docs = [
     "mkdocstrings[python]>=0.24",
     "black>=22.0.0",  # used by mkdocstrings to format rendered signatures
 ]
+# Surrogate (emulator) models -- issue #333. Optional because autoemulate pulls in torch,
+# gpytorch, pyro-ppl and lightgbm, and requires Python >=3.10,<3.13, which is narrower than
+# this project's floor. CA imports it only when do_emulation/use_emulator is set, and says so
+# by name when it is missing.
+emulation = [
+    "autoemulate>=2.1,<3",
+]
 
 [tool.pytest.ini_options]
 # Pytest configuration

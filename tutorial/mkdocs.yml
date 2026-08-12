@@ -34,6 +34,7 @@ nav:
   - Parameter Identification: parameter-identification.md
   - Sensitivity Analysis: sensitivity-analysis.md
   - Identifiability Analysis: identifiability-analysis.md
+  - Emulators (Surrogate Models): emulators.md
   - "Example: 3Compartment Model": example-3compartment-model.md
   - Running on the HPC: running-on-hpc.md
   - Other Useful Features: other-features.md
@@ -44,6 +45,7 @@ nav:
       - Parameter identification: api/param-id.md
       - Sensitivity analysis: api/sensitivity.md
       - Identifiability analysis: api/identifiability.md
+      - Emulators: api/emulators.md
       - Protocols: api/protocols.md
       - Observation data &amp; utilities: api/utilities.md
       - Parsers &amp; generators (internal): api/internals.md

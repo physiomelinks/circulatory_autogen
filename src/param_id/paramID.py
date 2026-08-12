@@ -77,6 +77,7 @@ from param_id.operation_funcs import resolve_operation_kwargs, validate_operatio
 from param_id.cost_kwargs import call_cost_func, validate_cost_kwargs
 from parsers.PrimitiveParsers import (apply_modifier_identity_nominals,
                                       expand_modifier_param_vals,
+                                      param_entry_labels,
                                       resolve_modifier_baselines,
                                       save_param_modifiers)
 from param_id.plot_outputs import ParamIDPlotOutputs
@@ -243,12 +244,18 @@ class CVS0DParamID():
                  do_ad=False, DEBUG=False,
                  param_id_output_dir=None, resources_dir=None, one_rank=False,
                  operation_funcs_external_path=None, cost_funcs_external_path=None,
-                 modifier_funcs_external_path=None, mcmc_options=None):
+                 modifier_funcs_external_path=None, mcmc_options=None,
+                 use_emulator=False, emulator_dir=None, emulator_settings=None):
         self.model_path = model_path
         self.param_id_method = param_id_method
         self.mcmc_instead = mcmc_instead
         self.model_type = model_type
         self.file_name_prefix = file_name_prefix
+        # Emulator mode (#333): the analyses evaluate a trained surrogate instead of the
+        # solver. `solver_info['solver']` still names the solver it was trained against.
+        self.use_emulator = bool(use_emulator)
+        self.emulator_dir = emulator_dir
+        self.emulator_settings = dict(emulator_settings or {})
         # Optional external user-func files (issue #303), threaded into the param-id engine so its
         # operation/cost dicts merge them in alongside the built-ins. modifier_funcs (issue #383)
         # follow the same pattern via the params_for_id parser.
@@ -362,7 +369,10 @@ class CVS0DParamID():
                                            self.obs_info, self.param_id_info,
                                            self.protocol_info, self.prediction_info, self.solver_info, dt=self.dt,
                                            UQ_options=self.UQ_options,
-                                           DEBUG=self.DEBUG, model_type=self.model_type)
+                                           DEBUG=self.DEBUG, model_type=self.model_type,
+                                           use_emulator=self.use_emulator,
+                                           emulator_dir=self.emulator_dir,
+                                           emulator_settings=self.emulator_settings)
             self.n_steps = mcmc_object.n_steps
         else:
             if model_type in ['cellml_only', 'python', 'casadi_python', 'aadc_python', 'python_user_defined']:
@@ -373,7 +383,10 @@ class CVS0DParamID():
                                                do_ad=do_ad, DEBUG=self.DEBUG,
                                                model_type=self.model_type,
                                                operation_funcs_external_path=self.operation_funcs_external_path,
-                                               cost_funcs_external_path=self.cost_funcs_external_path)
+                                               cost_funcs_external_path=self.cost_funcs_external_path,
+                                               use_emulator=self.use_emulator,
+                                               emulator_dir=self.emulator_dir,
+                                               emulator_settings=self.emulator_settings)
                 self.n_steps = self.param_id.n_steps
         if self.rank == 0:
             self.set_output_dir(self.output_dir)
@@ -426,13 +439,19 @@ class CVS0DParamID():
             'optimiser_options', 'DEBUG', 'param_id_output_dir', 'resources_dir',
             'one_rank', 'do_ad',
             'operation_funcs_external_path', 'cost_funcs_external_path',
-            'modifier_funcs_external_path',
+            'modifier_funcs_external_path', 'use_emulator', 'emulator_settings',
         ]
         kwargs = {key: inp_data_dict[key] for key in arg_options if key in inp_data_dict}
 
         # Support common naming used elsewhere
         if 'file_name_prefix' not in kwargs and 'file_prefix' in inp_data_dict:
             kwargs['file_name_prefix'] = inp_data_dict['file_prefix']
+
+        # Where this config's emulator lives, resolved from the same dict the trainer used, so
+        # a run finds the emulator its own settings produced without naming a path twice.
+        if kwargs.get('use_emulator'):
+            from emulators.emulator_trainer import resolve_emulator_dir
+            kwargs['emulator_dir'] = resolve_emulator_dir(inp_data_dict)
 
         return cls(**kwargs)
 
@@ -967,6 +986,10 @@ class CVS0DParamID():
     def save_prediction_data(self):
         if self.rank !=0:
             return
+        if getattr(self.param_id, 'emulates_features', False):
+            print('Prediction variables are not saved when use_emulator is set: they are '
+                  'traces, and the emulator predicts the scalar observable features only.')
+            return
         if self.prediction_info['names'] is not None:
             print('Saving prediction data')
             time_and_pred_per_exp_list = self.__get_prediction_data()
@@ -1188,6 +1211,42 @@ class CVS0DParamID():
         print(param_std)
         np.save(os.path.join(self.output_dir, 'params_std.npy'), param_std)
 
+def observable_base_label(obs_info, obs_idx):
+    """``name (operation operand)`` for one data_item -- the label before disambiguation.
+
+    A module function rather than only a method, because an emulator has to record the labels
+    of the features it was trained on and check them against the run using it (#333), and both
+    sides must spell an observable the same way or every reload would look stale.
+    """
+    name = obs_info["names_for_plotting"][obs_idx]
+    op = obs_info["operations"][obs_idx]
+    operands = obs_info["operands"][obs_idx]
+    operand = operands[0] if operands else ''
+    return f"{name} ({op} {operand})" if op else f"{name} ({operand})"
+
+
+def observable_labels(obs_info):
+    """One disambiguated label per data_item, in obs_info order. See ``_observable_label``."""
+    bases = [observable_base_label(obs_info, idx) for idx in range(obs_info["num_obs"])]
+    counts = {}
+    for base in bases:
+        counts[base] = counts.get(base, 0) + 1
+    labels = []
+    for idx, base in enumerate(bases):
+        if counts[base] == 1:
+            labels.append(base)
+        else:
+            labels.append(f'{base} [exp {obs_info["experiment_idxs"][idx]}, '
+                          f'sub {obs_info["subexperiment_idxs"][idx]}]')
+    return labels
+
+
+def emulated_feature_labels(obs_info):
+    """The labels of the scalar features an emulator is trained on, in emulator output order."""
+    labels = observable_labels(obs_info)
+    return [labels[obs_idx] for obs_idx in obs_info["const_idx_to_obs_idx"]]
+
+
 OFFLINE_PRE_TIME_INIT_STATE_ERROR = (
     "varying initial state (quantity) requires doing it from the actual initial state, so "
     "offline_pre_time can't be used. Reformulate to calibrate wrt a constant parameter rather "
@@ -1200,17 +1259,33 @@ class OpencorParamID():
     """
     Class for doing parameter identification on opencor models
     """
+
+    #: True once the sim helper is an emulator of the scalar observable features (#333). A class
+    #: attribute so it is always readable -- the cost, gradient and observable paths branch on
+    #: it, and any of them can be reached on an engine built without the full constructor.
+    emulates_features = False
+
     def __init__(self, model_path, param_id_method,
                  obs_info, param_id_info, protocol_info, prediction_info,
                  solver_info, dt=0.01,
                  optimiser_options=None, do_ad=False,
                  DEBUG=False, model_type=None,
-                 operation_funcs_external_path=None, cost_funcs_external_path=None):
+                 operation_funcs_external_path=None, cost_funcs_external_path=None,
+                 use_emulator=False, emulator_dir=None, emulator_settings=None):
 
         self.model_path = model_path
         self.param_id_method = param_id_method
         self.output_dir = None
         self.model_type = model_type
+
+        # Emulator mode (#333). `solver` still names the truth solver -- the one the emulator
+        # was trained against, and the one to compare it with -- so this is its own flag.
+        self.use_emulator = bool(use_emulator)
+        self.emulator_dir = emulator_dir
+        self.emulator_settings = dict(emulator_settings or {})
+        # Set for real once the helper exists; defined here so anything reading it during
+        # construction sees False rather than an AttributeError.
+        self.emulates_features = False
 
         self.solver_info = solver_info
         self.obs_info = obs_info
@@ -1276,6 +1351,11 @@ class OpencorParamID():
                 self.pre_time = None
 
         self.sim_helper = self.initialise_sim_helper()
+        # Cached rather than probed per evaluation: this decides, on the hot path, whether the
+        # obs `operation` still has to run. getattr keeps every real backend at False untouched.
+        self.emulates_features = bool(getattr(self.sim_helper, 'emulates_features', False))
+        if self.emulates_features:
+            self._configure_emulator()
         self._protocol_executor = ProtocolExecutor(self.sim_helper)
 
         # Resolve modifier baselines here and nowhere else: the helper exists and nothing has
@@ -1339,7 +1419,14 @@ class OpencorParamID():
         self.pred_collinearity_idx_pairs = None
 
         self.do_ad = do_ad
-        
+        if self.emulates_features and self.do_ad:
+            # Every analytic arm differentiates the real model, so AD over an emulator would
+            # descend a different function than the cost reports. get_gradient answers with
+            # finite differences on the emulator instead, which costs nothing here.
+            print('use_emulator is set, so do_ad is being turned off: gradients over an '
+                  'emulator come from finite differences on its own (near-free) evaluations.')
+            self.do_ad = False
+
         if self.obs_info is not None:
             self.cost_type = self.obs_info["cost_type"]
         else:
@@ -1431,9 +1518,42 @@ class OpencorParamID():
         solver = self.solver_info.get('solver')
         helper_cls = get_simulation_helper(solver=solver, model_type=self.model_type,
                                            model_path=self.model_path, dt=self.dt, sim_time=self.sim_time,
-                                           solver_info=self.solver_info, pre_time=self.pre_time)
+                                           solver_info=self.solver_info, pre_time=self.pre_time,
+                                           use_emulator=self.use_emulator,
+                                           emulator_dir=self.emulator_dir,
+                                           out_of_bounds=self.emulator_settings.get(
+                                               'out_of_bounds', 'error'))
         return helper_cls
-    
+
+    def _configure_emulator(self):
+        """Validate the loaded emulator against this run, and wire its outputs to the obs items.
+
+        Everything here is a refusal that has to happen *before* the first evaluation. An
+        emulator asked to answer for a model, parameter set or protocol it was not trained
+        against does not fail -- it answers, about something else -- and the resulting costs
+        and Sobol indices carry no sign of it (#333).
+        """
+        from emulators.emulator_bundle import fingerprint
+        bundle = self.sim_helper.bundle
+
+        bad = {jj: dtype for jj, dtype in enumerate(self.obs_info['data_types'])
+               if dtype != 'constant'}
+        if bad:
+            raise ValueError(
+                f'use_emulator is set, but obs_data.json has data_type(s) '
+                f'{sorted(set(bad.values()))} at data_item index(es) {sorted(bad)}. The emulator '
+                f'predicts scalar data_item features only; those need the full simulated trace '
+                f'("series") or its FFT ("frequency"). Emulating series outputs is not supported '
+                f'yet -- run with use_emulator: false, or drop those items.')
+
+        bundle.check_matches(
+            fingerprint(self.param_id_info, self.obs_info, self.protocol_info, self.model_path),
+            param_entry_labels=param_entry_labels(self.param_id_info),
+            feature_labels=emulated_feature_labels(self.obs_info))
+        bundle.check_quality(self.emulator_settings.get('min_r2', 0.9))
+        self.sim_helper.set_obs_map(self.obs_info['const_idx_to_obs_idx'],
+                                    num_obs=self.obs_info['num_obs'])
+
     def add_user_operation_func(self, func):
         if self.model_type == "casadi_python" and not is_circulatory_differentiable(func):
             raise ValueError(
@@ -1470,6 +1590,12 @@ class OpencorParamID():
         # parameter has been written, which is the property that stops theta compounding.
         if getattr(self, 'sim_helper', None) is not None:
             resolve_modifier_baselines(self.param_id_info, self.sim_helper)
+        # Re-check the emulator against the parameters it is now being asked about: the
+        # programmatic API sets these after construction, and an emulator trained for a
+        # different set (or a different box) would answer anyway.
+        if self.emulates_features:
+            self._configure_emulator()
+
     
     def set_protocol_info(self, protocol_info):
         self.protocol_info = protocol_info
@@ -1486,6 +1612,10 @@ class OpencorParamID():
         validate_operation_kwargs(self.obs_info, self.operation_funcs_dict)
         validate_cost_kwargs(self.obs_info, self.cost_funcs_dict, self.cost_type)
         self._refresh_num_weighted_obs_tables()
+        # As in set_param_id_info: the observables just changed, and the emulator's outputs
+        # are tied to the ones it was trained on, feature for feature.
+        if self.emulates_features:
+            self._configure_emulator()
 
     def set_optimiser_options(self, optimiser_options):
         self.optimiser_options = optimiser_options
@@ -1527,6 +1657,16 @@ class OpencorParamID():
             Inserted before ``.npz`` (e.g. ``"_plot"`` for plot-time dumps).
         """
         if MPI.COMM_WORLD.Get_rank() != 0:
+            return
+        if self.emulates_features:
+            # Not a failure -- the run worked, and this is the one thing an emulator of scalar
+            # features genuinely cannot give. Said plainly, at the end of a run, rather than
+            # raised from inside a save.
+            print(
+                "[param_id] the all-outputs npz is not written when use_emulator is set: the "
+                "emulator predicts the scalar observable features, not the traces they came "
+                "from. Re-run with use_emulator: false for simulated outputs."
+            )
             return
         if self.output_dir is None or self.protocol_info is None:
             print(
@@ -1711,6 +1851,13 @@ class OpencorParamID():
         # TODO: Test AD with multiple subexperiments
         if do_ad:
             reset = False
+
+        if self.emulates_features:
+            # The emulator's input is theta itself. By the time the executor calls
+            # set_param_vals these values have been expanded to one per model parameter, and a
+            # modifier entry's expansion (theta * baseline) is not the theta it was trained on
+            # -- so theta is handed over here, before any of that.
+            self.sim_helper.set_theta(param_vals)
 
         # Run the protocol loop via the shared ProtocolExecutor.
         # reset_after_experiment mirrors the original `reset` flag: when do_ad=True
@@ -2336,8 +2483,13 @@ class OpencorParamID():
             obs_val_for_prob_dist_vec = np.zeros((len(self.obs_info["ground_truth_prob_dist_params"]), ))
 
         if get_all_series:
+            if self.emulates_features:
+                raise NotImplementedError(
+                    'the series of an observable cannot be produced from an emulator: it '
+                    'predicts the scalar feature the series was reduced to, not the series. '
+                    'Re-run with use_emulator: false to plot or save simulated outputs.')
             obs_series_array_all = [None]*len(operands_outputs)
-        
+
 
         const_count = 0
         series_count = 0
@@ -2368,7 +2520,14 @@ class OpencorParamID():
 
             # use the function defined in the operation_funcs_dict to calculate the observable
             # from the operands
-            if self.obs_info["operations"][JJ] == None:
+            if self.emulates_features:
+                # The emulator predicts the feature itself, i.e. what the operation would have
+                # returned. Running the operation again would reduce an already-reduced scalar:
+                # harmless for `mean`, but `max_minus_min` of a single value is zero, and the
+                # cost would then be fitting zeros without anything looking wrong.
+                obs = float(np.asarray(operands_outputs[JJ][0]).reshape(-1)[0])
+                self.temp_results[self.obs_info["names_for_plotting"][JJ]] = obs
+            elif self.obs_info["operations"][JJ] == None:
                 obs = operands_outputs[JJ][0]
             else:
                 if self.obs_info["data_types"][JJ] != 'frequency':
@@ -2580,7 +2739,12 @@ class OpencorParamID():
     # ---- Backend-agnostic cost/gradient interface ----
 
     def get_cost(self, param_vals):
-        """Compute cost J(p), dispatching to CasADi or AADC or numpy."""
+        """Compute cost J(p), dispatching to the emulator, CasADi, AADC or numpy."""
+        if self.emulates_features:
+            # First, and before the model_type branches: a casadi_python model run on an
+            # emulator would otherwise evaluate its real symbolic graph here and quietly
+            # ignore the emulator the user asked for.
+            return float(self.get_cost_from_params(param_vals))
         if self.model_type == 'casadi_python':
             return float(self.get_cost_ca(param_vals))
         if self.model_type == 'aadc_python' and self.do_ad:
@@ -2590,7 +2754,14 @@ class OpencorParamID():
         return float(self.get_cost_from_params(param_vals))
 
     def get_gradient(self, param_vals):
-        """Compute gradient ∇J(p), dispatching to CasADi, AADC, or Myokit FSA."""
+        """Compute gradient ∇J(p), dispatching to the emulator, CasADi, AADC, or Myokit FSA."""
+        if self.emulates_features:
+            # Finite differences on the emulator's own cost -- the same function get_cost
+            # returns, which the analytic arms (all of which differentiate the real model)
+            # would not be. 2M evaluations is the wrong trade against a solver and the right
+            # one here, where an evaluation is a matrix multiply.
+            return fd_backend.cost_gradient(
+                self, param_vals, h=float(self.emulator_settings.get('fd_rel_step', 1e-3)))
         if self.model_type == 'casadi_python':
             return self.get_jac_cost_ca(param_vals)
         elif self.model_type == 'aadc_python':
@@ -2601,11 +2772,7 @@ class OpencorParamID():
             raise ValueError(f"Gradient not available for model_type={self.model_type}")
 
     def _observable_base_label(self, obs_idx):
-        name = self.obs_info["names_for_plotting"][obs_idx]
-        op = self.obs_info["operations"][obs_idx]
-        operands = self.obs_info["operands"][obs_idx]
-        operand = operands[0] if operands else ''
-        return f"{name} ({op} {operand})" if op else f"{name} ({operand})"
+        return observable_base_label(self.obs_info, obs_idx)
 
     def _ambiguous_observable_labels(self):
         """Base labels shared by more than one observable. Computed once per obs_info."""
@@ -2679,6 +2846,17 @@ class OpencorParamID():
         stopped being hardcoded.
         """
         method = (gradient_method or '').strip().upper()
+        if self.emulates_features:
+            # Over an emulator, FD is the only honest arm: the analytic ones differentiate the
+            # real model, which is not the function being evaluated. It is also free here.
+            if method not in ('', 'ANALYTIC', 'AUTO', 'FD'):
+                raise ValueError(
+                    f"gradient_method '{gradient_method}' differentiates the real model, but "
+                    f"this run evaluates an emulator (use_emulator: true). Only 'FD' is "
+                    f"available over an emulator -- and it costs 2M emulator evaluations, "
+                    f"not 2M simulations.")
+            kwargs = {} if fd_rel_step is None else {'h': float(fd_rel_step)}
+            return fd_backend.observable_feature_sensitivities(self, param_vals, **kwargs)
         if method == 'FD':
             kwargs = {} if fd_rel_step is None else {'h': float(fd_rel_step)}
             return fd_backend.observable_feature_sensitivities(self, param_vals, **kwargs)
@@ -2791,6 +2969,11 @@ class OpencorParamID():
             reset (bool, optional): if you want to reset the simulation after running.
                                     Gets changed to True for num_experiments > 1. Defaults to True.
         """
+        if self.emulates_features:
+            raise NotImplementedError(
+                'simulate_once needs the full simulated trace, which a feature emulator cannot '
+                'produce -- it predicts the scalar data_item features only. Re-run with '
+                'use_emulator: false to simulate, plot or save outputs.')
         if MPI.COMM_WORLD.Get_rank() != 0:
             print('simulate once should only be done on one rank')
             exit()
@@ -2908,10 +3091,13 @@ class OpencorMCMC(OpencorParamID):
 
     def __init__(self, model_path,
                  obs_info, param_id_info, protocol_info, prediction_info, solver_info,
-                 dt=0.01, UQ_options=None, DEBUG=False, model_type=None, mcmc_options=None):
+                 dt=0.01, UQ_options=None, DEBUG=False, model_type=None, mcmc_options=None,
+                 use_emulator=False, emulator_dir=None, emulator_settings=None):
         super().__init__(model_path, "MCMC",
                 obs_info, param_id_info, protocol_info, prediction_info, solver_info,
-                dt=dt, DEBUG=DEBUG, model_type=model_type)
+                dt=dt, DEBUG=DEBUG, model_type=model_type,
+                use_emulator=use_emulator, emulator_dir=emulator_dir,
+                emulator_settings=emulator_settings)
         self._init_mcmc(_resolve_UQ_options(UQ_options, mcmc_options), DEBUG=DEBUG)
 
     @classmethod
