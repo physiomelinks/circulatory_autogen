@@ -44,8 +44,9 @@ class CVS0DCppGenerator(object):
     '''
 
 
-    def __init__(self, model, generated_model_subdir, file_prefix, resources_dir=None, 
+    def __init__(self, model, generated_model_subdir, file_prefix, resources_dir=None,
                  solver='CVODE', dtSample=1e-3, dtSolver=1e-4, nMaxSteps=5000,
+                 reltol=1e-7, abstol=1e-9,
                  couple_to_1d=False, cpp_generated_models_dir=None,
                  model_1d_config_path=None, create_main_0d=False,
                  conn_1d_0d_info=None, DEBUG=False):
@@ -110,6 +111,12 @@ class CVS0DCppGenerator(object):
         self.dtSample = dtSample
         self.dtSolver = dtSolver
         self.nMaxSteps = nMaxSteps
+        # solver_info's rtol/atol, emitted into the generated C++ (issue #398). They used to be
+        # literals in the emitted source, so a cpp user could only change the accuracy of a run by
+        # hand-editing generated code -- and the schema advertised rtol/atol settings that reached
+        # nothing.
+        self.reltol = reltol
+        self.abstol = abstol
 
         # these are for delayed variables
         self.variables_to_delay = []
@@ -681,6 +688,204 @@ class CVS0DCppGenerator(object):
         # This is for if we want to use a cellml file that it already annotated, i.e, one we didn't annotate.
         # TODO TEST THIS
         self.annotated_model_file_path = annotated_model_file_path
+
+    def _build_solver_init_function(self):
+        """The generated `Model0d::set_ode_solver` body, as source text.
+
+        Split out of generate_cpp so the emitted solver configuration can be checked without
+        generating a whole model: the tolerances it writes are user settings (issue #398), and
+        a setting is only real if it reaches the code that runs.
+        """
+        solverInitFunction = """ 
+void Model0d::set_ode_solver(std::string ODEsolver)
+{
+    solver_0d = ODEsolver;
+    """
+
+        if self.solver == 'CVODE':
+            solverInitFunction += f"""
+    // Create our SUNDIALS context object.
+    SUNContext_Create(SUN_COMM_NULL, &context);
+    // Create our CVODE solver.
+    solver = CVodeCreate(CV_BDF, context);
+    // Initialise our CVODE solver.
+    y = N_VMake_Serial(STATE_COUNT, states, context);
+    CVodeInit(solver, func, voi, y);
+    // Set our user data.
+    userData = new UserOdeData(variables, std::bind(&Model0d::computeRates, this, std::placeholders::_1, 
+                                                    std::placeholders::_2, std::placeholders::_3, 
+                                                    std::placeholders::_4, std::placeholders::_5), solver);
+    CVodeSetUserData(solver, userData);
+    // Set our maximum number of internal steps (default 500).
+    long int mxsteps = {self.nMaxSteps};
+    CVodeSetMaxNumSteps(solver, mxsteps);
+    // Set our maximum absolute step size.
+    sunrealtype hmax = {self.dtSolver};
+    CVodeSetMaxStep(solver, hmax);
+    // Set our linear solver.
+    // Create matrix object.
+    matrix = SUNDenseMatrix(STATE_COUNT, STATE_COUNT, context);
+    // Create linear solver object.
+    linearSolver = SUNLinSol_Dense(y, matrix, context);
+    // Attach linear solver module
+    CVodeSetLinearSolver(solver, linearSolver, matrix);
+    // Set our scalar relative and absolute tolerances (solver_info rtol/atol).
+    sunrealtype reltol = {self.reltol};
+    sunrealtype abstol = {self.abstol};
+    CVodeSStolerances(solver, reltol, abstol);
+"""
+        elif self.solver == 'PETSC':
+            solverInitFunction += f"""
+    // Set up PETSc TS ODE solver (fixed-step for now)
+    PetscErrorCode ierr;
+
+    // Create solution vector
+    ierr = VecCreate(PETSC_COMM_WORLD, &y);
+    std::cout << "set_ode_solver :: VecCreate "<< ierr << std::endl;
+    ierr = VecSetSizes(y, PETSC_DECIDE, STATE_COUNT);
+    std::cout << "set_ode_solver :: VecSetSizes "<< ierr << std::endl;
+    ierr = VecSetFromOptions(y);
+    std::cout << "set_ode_solver :: VecSetFromOptions "<< ierr << std::endl;
+
+    // Create TS
+    ierr = TSCreate(PETSC_COMM_WORLD, &ts); // create the timestepper (TS) object
+    std::cout << "set_ode_solver :: TSCreate "<< ierr << std::endl;
+    ierr = TSSetProblemType(ts, TS_NONLINEAR); // TSProblemType is one of TS_LINEAR or TS_NONLINEAR
+    std::cout << "set_ode_solver :: TSSetProblemType "<< ierr << std::endl;
+    ierr = TSSetRHSFunction(ts, NULL, TSRHSfunc, this); // set the RHS function
+    // 'this' --> pointer to your Model0d object; PETSc stores it, so that every time it calls TSRHSfunc, it passes that same pointer as ctx.
+    std::cout << "set_ode_solver :: TSSetRHSFunction "<< ierr << std::endl;
+    ierr = TSSetSolution(ts, y);
+    std::cout << "set_ode_solver :: TSSetSolution "<< ierr << std::endl; 
+
+
+#ifdef SOLVER_CN
+    ierr = TSSetType(ts, TSCN); // set the solution method: Crank-Nicolson
+    std::cout << "set_ode_solver :: TSSetType "<< ierr << std::endl;
+    ierr = TSSetTimeStep(ts, {self.dtSolver}); // set the initial time step
+    std::cout << "set_ode_solver :: TSSetTimeStep "<< ierr << std::endl;
+    ierr = TSSetMaxSteps(ts, 10000000000000); // maximum number of time steps
+    std::cout << "set_ode_solver :: TSSetMaxSteps "<< ierr << std::endl;
+    // ierr = TSSetMaxTime(ts, 10.);
+    // std::cout << "set_ode_solver :: TSSetMaxTime "<< ierr << std::endl;
+    // No other options needed
+#endif
+
+#ifdef SOLVER_BDF1
+    ierr = TSSetType(ts, TSBDF); // set the solution method: backward differentiation formula (BDF)
+    std::cout << "set_ode_solver :: TSSetType "<< ierr << std::endl;
+    ierr = TSBDFSetOrder(ts, 1);
+    std::cout << "set_ode_solver :: TSBDFSetOrder "<< ierr << std::endl;
+    ierr = TSSetTimeStep(ts, {self.dtSolver}); // set the initial time step
+    std::cout << "set_ode_solver :: TSSetTimeStep "<< ierr << std::endl;
+    ierr = TSSetMaxSteps(ts, 10000000000000); // maximum number of time steps
+    std::cout << "set_ode_solver :: TSSetMaxSteps "<< ierr << std::endl;
+    // ierr = TSSetMaxTime(ts, 10.);
+    // std::cout << "set_ode_solver :: TSSetMaxTime "<< ierr << std::endl;
+
+    // Options for matrix-free BDF1
+    PetscOptionsSetValue(NULL, "-ts_adapt_type", "none");
+    PetscOptionsSetValue(NULL, "-ts_bdf_single_jacobian", NULL);
+    PetscOptionsSetValue(NULL, "-snes_mf_operator", NULL);
+#endif
+
+#ifdef SOLVER_BDF2
+    ierr = TSSetType(ts, TSBDF); // set the solution method: backward differentiation formula (BDF)
+    std::cout << "set_ode_solver :: TSSetType "<< ierr << std::endl;
+    ierr = TSBDFSetOrder(ts, 2);
+    std::cout << "set_ode_solver :: TSBDFSetOrder "<< ierr << std::endl;
+    ierr = TSSetTimeStep(ts, {self.dtSolver}); // set the initial time step
+    std::cout << "set_ode_solver :: TSSetTimeStep "<< ierr << std::endl;
+    ierr = TSSetMaxSteps(ts, 10000000000000); // maximum number of time steps
+    std::cout << "set_ode_solver :: TSSetMaxSteps "<< ierr << std::endl;
+    // ierr = TSSetMaxTime(ts, 10.);
+    // std::cout << "set_ode_solver :: TSSetMaxTime "<< ierr << std::endl;
+
+    // Options for matrix-free BDF2
+    PetscOptionsSetValue(NULL, "-ts_adapt_type", "none");
+    PetscOptionsSetValue(NULL, "-ts_bdf_single_jacobian", NULL);
+    PetscOptionsSetValue(NULL, "-snes_mf_operator", NULL);
+#endif 
+
+    // Tolerances
+    // in order: scalar absolute tolerances, vector of absolute tolerances, scalar relative tolerances, vector of relative tolerances
+    // (solver_info rtol/atol)
+    double reltol = {self.reltol};
+    double abstol = {self.abstol};
+    ierr = TSSetTolerances(ts, abstol, NULL, reltol, NULL);
+    std::cout << "set_ode_solver :: TSSetTolerances "<< ierr << std::endl;
+
+    // Nonlinear solver
+    ierr = TSGetSNES(ts, &snes); // return the SNES (nonlinear solver) associated with the TS (timestepper) context (valid only for nonlinear problems)
+    std::cout << "set_ode_solver :: TSGetSNES "<< ierr << std::endl;
+    ierr = SNESSetType(snes, SNESNEWTONLS); // set the algorithm/method to be used to solve the nonlinear system with the given SNES
+    std::cout << "set_ode_solver :: SNESSetType "<< ierr << std::endl;
+
+    // Linear solver (dense)
+    ierr = SNESGetKSP(snes, &ksp); // return the KSP (linear solver) context for the SNES solver
+    std::cout << "set_ode_solver :: SNESGetKSP "<< ierr << std::endl;
+    ierr = KSPSetType(ksp, KSPGMRES); // GMRES // set the algorithm/method to be used to solve the linear system with the given KSP
+    // ierr = KSPSetType(ksp, KSPFGMRES); // flexible GMRES
+    // ierr = KSPSetType(ksp, KSPPREONLY); // KSPPREONLY: method that applies ONLY the preconditioner exactly once.
+    std::cout << "set_ode_solver :: KSPSetType "<< ierr << std::endl;
+
+    // Preconditioner
+    ierr = KSPGetPC(ksp, &pc); // return a pointer to the preconditioner (PC) context with the KSP
+    std::cout << "set_ode_solver :: KSPGetPC "<< ierr << std::endl;
+
+    // Build PC for a particular preconditioner type
+#ifdef SOLVER_CN
+    // ierr = PCSetType(pc, PCNONE);
+    // ierr = PCSetType(pc, PCJACOBI); // PCJACOBI: Jacobi, i.e. diagonal scaling preconditioning.
+    // ierr = PCSetType(pc, PCLU); // PCLU: this uses a direct solver, based on LU factorization, as a preconditioner.
+    ierr = PCSetType(pc, PCILU);
+    std::cout << "set_ode_solver :: PCSetType "<< ierr << std::endl;
+#endif 
+
+#ifdef SOLVER_BDF1
+    // ierr = PCSetType(pc, PCNONE);
+    ierr = PCSetType(pc, PCJACOBI); // PCJACOBI: Jacobi, i.e. diagonal scaling preconditioning.
+    // ierr = PCSetType(pc, PCLU); // PCLU: this uses a direct solver, based on LU factorization, as a preconditioner.
+    std::cout << "set_ode_solver :: PCSetType "<< ierr << std::endl;
+#endif
+
+#ifdef SOLVER_BDF2
+    // ierr = PCSetType(pc, PCNONE);
+    ierr = PCSetType(pc, PCJACOBI); // PCJACOBI: Jacobi, i.e. diagonal scaling preconditioning.
+    // ierr = PCSetType(pc, PCLU); // PCLU: this uses a direct solver, based on LU factorization, as a preconditioner.
+    std::cout << "set_ode_solver :: PCSetType "<< ierr << std::endl;
+#endif
+
+    ierr = TSSetFromOptions(ts); // set various TS parameters from the options database
+    std::cout << "set_ode_solver :: TSSetFromOptions "<< ierr << std::endl;
+    ierr = TSSetUp(ts); // set up the internal data structures for the later use of TS
+    std::cout << "set_ode_solver :: TSSetUp "<< ierr << std::endl;
+
+    // User data
+    userData = new UserOdeData(variables, std::bind(&Model0d::computeRates, this,
+        std::placeholders::_1, std::placeholders::_2, std::placeholders::_3,
+        std::placeholders::_4, std::placeholders::_5));
+    userData->tOld = voi;
+
+"""
+        else:
+            solverInitFunction += """
+    states0 = createStatesArray(); // store initial state, before evolving to the next time level
+    k1 = createStatesArray(); // same size as states, should really be different function
+    k2 = createStatesArray(); // same size as states, should really be different function
+    k3 = createStatesArray(); // same size as states, should really be different function
+    k4 = createStatesArray(); // same size as states, should really be different function
+    // Runge-Kutta 4 weights
+    wRK4[0] = 1./6.;
+    wRK4[1] = 1./3.;
+    wRK4[2] = 1./3.;
+    wRK4[3] = 1./6.;
+"""
+        solverInitFunction += """
+}
+"""
+        return solverInitFunction
+
 
     def generate_cpp(self):
 
@@ -2010,193 +2215,7 @@ Model0d::Model0d() :
         # print(postClassInit) 
 
 
-        solverInitFunction = """ 
-void Model0d::set_ode_solver(std::string ODEsolver)
-{
-    solver_0d = ODEsolver;
-    """
-
-        if self.solver == 'CVODE':
-            solverInitFunction += f"""
-    // Create our SUNDIALS context object.
-    SUNContext_Create(SUN_COMM_NULL, &context);
-    // Create our CVODE solver.
-    solver = CVodeCreate(CV_BDF, context);
-    // Initialise our CVODE solver.
-    y = N_VMake_Serial(STATE_COUNT, states, context);
-    CVodeInit(solver, func, voi, y);
-    // Set our user data.
-    userData = new UserOdeData(variables, std::bind(&Model0d::computeRates, this, std::placeholders::_1, 
-                                                    std::placeholders::_2, std::placeholders::_3, 
-                                                    std::placeholders::_4, std::placeholders::_5), solver);
-    CVodeSetUserData(solver, userData);
-    // Set our maximum number of internal steps (default 500).
-    long int mxsteps = {self.nMaxSteps};
-    CVodeSetMaxNumSteps(solver, mxsteps);
-    // Set our maximum absolute step size.
-    sunrealtype hmax = {self.dtSolver};
-    CVodeSetMaxStep(solver, hmax);
-    // Set our linear solver.
-    // Create matrix object.
-    matrix = SUNDenseMatrix(STATE_COUNT, STATE_COUNT, context);
-    // Create linear solver object.
-    linearSolver = SUNLinSol_Dense(y, matrix, context);
-    // Attach linear solver module
-    CVodeSetLinearSolver(solver, linearSolver, matrix);
-    // Set our scalar relative and absolute tolerances.
-    sunrealtype reltol = 1e-7; // TODO get this from user_inputs.yaml too
-    sunrealtype abstol = 1e-9; // TODO get this from user_inputs.yaml too
-    CVodeSStolerances(solver, reltol, abstol); 
-"""
-        elif self.solver == 'PETSC':
-            solverInitFunction += f"""
-    // Set up PETSc TS ODE solver (fixed-step for now)
-    PetscErrorCode ierr;
-
-    // Create solution vector
-    ierr = VecCreate(PETSC_COMM_WORLD, &y);
-    std::cout << "set_ode_solver :: VecCreate "<< ierr << std::endl;
-    ierr = VecSetSizes(y, PETSC_DECIDE, STATE_COUNT);
-    std::cout << "set_ode_solver :: VecSetSizes "<< ierr << std::endl;
-    ierr = VecSetFromOptions(y);
-    std::cout << "set_ode_solver :: VecSetFromOptions "<< ierr << std::endl;
-
-    // Create TS
-    ierr = TSCreate(PETSC_COMM_WORLD, &ts); // create the timestepper (TS) object
-    std::cout << "set_ode_solver :: TSCreate "<< ierr << std::endl;
-    ierr = TSSetProblemType(ts, TS_NONLINEAR); // TSProblemType is one of TS_LINEAR or TS_NONLINEAR
-    std::cout << "set_ode_solver :: TSSetProblemType "<< ierr << std::endl;
-    ierr = TSSetRHSFunction(ts, NULL, TSRHSfunc, this); // set the RHS function
-    // 'this' --> pointer to your Model0d object; PETSc stores it, so that every time it calls TSRHSfunc, it passes that same pointer as ctx.
-    std::cout << "set_ode_solver :: TSSetRHSFunction "<< ierr << std::endl;
-    ierr = TSSetSolution(ts, y);
-    std::cout << "set_ode_solver :: TSSetSolution "<< ierr << std::endl; 
-
-
-#ifdef SOLVER_CN
-    ierr = TSSetType(ts, TSCN); // set the solution method: Crank-Nicolson
-    std::cout << "set_ode_solver :: TSSetType "<< ierr << std::endl;
-    ierr = TSSetTimeStep(ts, {self.dtSolver}); // set the initial time step
-    std::cout << "set_ode_solver :: TSSetTimeStep "<< ierr << std::endl;
-    ierr = TSSetMaxSteps(ts, 10000000000000); // maximum number of time steps
-    std::cout << "set_ode_solver :: TSSetMaxSteps "<< ierr << std::endl;
-    // ierr = TSSetMaxTime(ts, 10.);
-    // std::cout << "set_ode_solver :: TSSetMaxTime "<< ierr << std::endl;
-    // No other options needed
-#endif
-
-#ifdef SOLVER_BDF1
-    ierr = TSSetType(ts, TSBDF); // set the solution method: backward differentiation formula (BDF)
-    std::cout << "set_ode_solver :: TSSetType "<< ierr << std::endl;
-    ierr = TSBDFSetOrder(ts, 1);
-    std::cout << "set_ode_solver :: TSBDFSetOrder "<< ierr << std::endl;
-    ierr = TSSetTimeStep(ts, {self.dtSolver}); // set the initial time step
-    std::cout << "set_ode_solver :: TSSetTimeStep "<< ierr << std::endl;
-    ierr = TSSetMaxSteps(ts, 10000000000000); // maximum number of time steps
-    std::cout << "set_ode_solver :: TSSetMaxSteps "<< ierr << std::endl;
-    // ierr = TSSetMaxTime(ts, 10.);
-    // std::cout << "set_ode_solver :: TSSetMaxTime "<< ierr << std::endl;
-
-    // Options for matrix-free BDF1
-    PetscOptionsSetValue(NULL, "-ts_adapt_type", "none");
-    PetscOptionsSetValue(NULL, "-ts_bdf_single_jacobian", NULL);
-    PetscOptionsSetValue(NULL, "-snes_mf_operator", NULL);
-#endif
-
-#ifdef SOLVER_BDF2
-    ierr = TSSetType(ts, TSBDF); // set the solution method: backward differentiation formula (BDF)
-    std::cout << "set_ode_solver :: TSSetType "<< ierr << std::endl;
-    ierr = TSBDFSetOrder(ts, 2);
-    std::cout << "set_ode_solver :: TSBDFSetOrder "<< ierr << std::endl;
-    ierr = TSSetTimeStep(ts, {self.dtSolver}); // set the initial time step
-    std::cout << "set_ode_solver :: TSSetTimeStep "<< ierr << std::endl;
-    ierr = TSSetMaxSteps(ts, 10000000000000); // maximum number of time steps
-    std::cout << "set_ode_solver :: TSSetMaxSteps "<< ierr << std::endl;
-    // ierr = TSSetMaxTime(ts, 10.);
-    // std::cout << "set_ode_solver :: TSSetMaxTime "<< ierr << std::endl;
-
-    // Options for matrix-free BDF2
-    PetscOptionsSetValue(NULL, "-ts_adapt_type", "none");
-    PetscOptionsSetValue(NULL, "-ts_bdf_single_jacobian", NULL);
-    PetscOptionsSetValue(NULL, "-snes_mf_operator", NULL);
-#endif 
-
-    // Tolerances
-    // in order: scalar absolute tolerances, vector of absolute tolerances, scalar relative tolerances, vector of relative tolerances
-    double reltol = 1e-7; // TODO get this from user_inputs.yaml too
-    double abstol = 1e-9; // TODO get this from user_inputs.yaml too
-    ierr = TSSetTolerances(ts, abstol, NULL, reltol, NULL); 
-    std::cout << "set_ode_solver :: TSSetTolerances "<< ierr << std::endl;
-
-    // Nonlinear solver
-    ierr = TSGetSNES(ts, &snes); // return the SNES (nonlinear solver) associated with the TS (timestepper) context (valid only for nonlinear problems)
-    std::cout << "set_ode_solver :: TSGetSNES "<< ierr << std::endl;
-    ierr = SNESSetType(snes, SNESNEWTONLS); // set the algorithm/method to be used to solve the nonlinear system with the given SNES
-    std::cout << "set_ode_solver :: SNESSetType "<< ierr << std::endl;
-
-    // Linear solver (dense)
-    ierr = SNESGetKSP(snes, &ksp); // return the KSP (linear solver) context for the SNES solver
-    std::cout << "set_ode_solver :: SNESGetKSP "<< ierr << std::endl;
-    ierr = KSPSetType(ksp, KSPGMRES); // GMRES // set the algorithm/method to be used to solve the linear system with the given KSP
-    // ierr = KSPSetType(ksp, KSPFGMRES); // flexible GMRES
-    // ierr = KSPSetType(ksp, KSPPREONLY); // KSPPREONLY: method that applies ONLY the preconditioner exactly once.
-    std::cout << "set_ode_solver :: KSPSetType "<< ierr << std::endl;
-
-    // Preconditioner
-    ierr = KSPGetPC(ksp, &pc); // return a pointer to the preconditioner (PC) context with the KSP
-    std::cout << "set_ode_solver :: KSPGetPC "<< ierr << std::endl;
-
-    // Build PC for a particular preconditioner type
-#ifdef SOLVER_CN
-    // ierr = PCSetType(pc, PCNONE);
-    // ierr = PCSetType(pc, PCJACOBI); // PCJACOBI: Jacobi, i.e. diagonal scaling preconditioning.
-    // ierr = PCSetType(pc, PCLU); // PCLU: this uses a direct solver, based on LU factorization, as a preconditioner.
-    ierr = PCSetType(pc, PCILU);
-    std::cout << "set_ode_solver :: PCSetType "<< ierr << std::endl;
-#endif 
-
-#ifdef SOLVER_BDF1
-    // ierr = PCSetType(pc, PCNONE);
-    ierr = PCSetType(pc, PCJACOBI); // PCJACOBI: Jacobi, i.e. diagonal scaling preconditioning.
-    // ierr = PCSetType(pc, PCLU); // PCLU: this uses a direct solver, based on LU factorization, as a preconditioner.
-    std::cout << "set_ode_solver :: PCSetType "<< ierr << std::endl;
-#endif
-
-#ifdef SOLVER_BDF2
-    // ierr = PCSetType(pc, PCNONE);
-    ierr = PCSetType(pc, PCJACOBI); // PCJACOBI: Jacobi, i.e. diagonal scaling preconditioning.
-    // ierr = PCSetType(pc, PCLU); // PCLU: this uses a direct solver, based on LU factorization, as a preconditioner.
-    std::cout << "set_ode_solver :: PCSetType "<< ierr << std::endl;
-#endif
-
-    ierr = TSSetFromOptions(ts); // set various TS parameters from the options database
-    std::cout << "set_ode_solver :: TSSetFromOptions "<< ierr << std::endl;
-    ierr = TSSetUp(ts); // set up the internal data structures for the later use of TS
-    std::cout << "set_ode_solver :: TSSetUp "<< ierr << std::endl;
-
-    // User data
-    userData = new UserOdeData(variables, std::bind(&Model0d::computeRates, this,
-        std::placeholders::_1, std::placeholders::_2, std::placeholders::_3,
-        std::placeholders::_4, std::placeholders::_5));
-    userData->tOld = voi;
-
-"""
-        else:
-            solverInitFunction += """
-    states0 = createStatesArray(); // store initial state, before evolving to the next time level
-    k1 = createStatesArray(); // same size as states, should really be different function
-    k2 = createStatesArray(); // same size as states, should really be different function
-    k3 = createStatesArray(); // same size as states, should really be different function
-    k4 = createStatesArray(); // same size as states, should really be different function
-    // Runge-Kutta 4 weights
-    wRK4[0] = 1./6.;
-    wRK4[1] = 1./3.;
-    wRK4[2] = 1./3.;
-    wRK4[3] = 1./6.;
-"""
-        solverInitFunction += """
-}
-"""
+        solverInitFunction = self._build_solver_init_function()
         
         # print("#################################################")
         # print("solverInitFunction")

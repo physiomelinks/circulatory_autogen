@@ -713,17 +713,28 @@ def test_cpp_rk4_accepts_maximum_number_of_steps():
 
 
 @pytest.mark.parametrize('solver', ['CVODE', 'RK4', 'PETSC'])
-def test_cpp_solvers_reject_settings_the_generated_code_never_reads(solver):
-    """The generated C++ steps at dt_solver and hardcodes reltol 1e-7 / abstol 1e-9, so
-    MaximumStep/rtol/atol reached nothing. Advertising them made CUFLynx draw three dead
-    controls (issue #330)."""
-    for dead_key, value in [('MaximumStep', 0.001), ('rtol', 1e-8), ('atol', 1e-8)]:
-        with pytest.raises(ValueError, match=dead_key):
-            validate_solver_info(solver, {'solver': solver, dead_key: value})
+def test_cpp_solvers_reject_the_setting_the_generated_code_never_reads(solver):
+    """The generated C++ integrates at the fixed dt_solver, so there is no maximum-step-size knob
+    for MaximumStep to control. Advertising it made CUFLynx draw a dead control (issue #330)."""
+    with pytest.raises(ValueError, match='MaximumStep'):
+        validate_solver_info(solver, {'solver': solver, 'MaximumStep': 0.001})
 
 
 @pytest.mark.parametrize('solver', ['CVODE', 'RK4', 'PETSC'])
-def test_cpp_legacy_tolerance_keys_are_migrated_with_a_warning_not_rejected(solver, capsys):
+def test_cpp_solvers_accept_tolerances_now_that_the_generator_emits_them(solver):
+    """rtol/atol were removed in #330 because the emitted C++ hardcoded its tolerances; #398
+    wired them through, so they are a real setting again."""
+    validate_solver_info(solver, {
+        'solver': solver,
+        'dt_solver': 1e-4,
+        'MaximumNumberOfSteps': 5000,
+        'rtol': 1e-8,
+        'atol': 1e-10,
+    })
+
+
+@pytest.mark.parametrize('solver', ['CVODE', 'RK4', 'PETSC'])
+def test_cpp_maximum_step_is_migrated_with_a_warning_not_rejected(solver, capsys):
     """A config written for a CVODE backend must keep running -- it just has to say which of its
     settings stopped applying, rather than failing validation on the way in."""
     migrated = migrate_legacy_solver_info_keys(solver, {
@@ -732,15 +743,17 @@ def test_cpp_legacy_tolerance_keys_are_migrated_with_a_warning_not_rejected(solv
         'MaximumStep': 0.001,
         'MaximumNumberOfSteps': 5000,
         'rtol': 1e-8,
-        'atol': 1e-8,
+        'atol': 1e-10,
     })
-    assert set(migrated) == {'solver', 'dt_solver', 'MaximumNumberOfSteps'}
+    # MaximumStep goes; the tolerances stay, because the generator emits them (#398).
+    assert set(migrated) == {'solver', 'dt_solver', 'MaximumNumberOfSteps', 'rtol', 'atol'}
     validate_solver_info(solver, migrated)  # the migrated config is accepted
 
     warned = capsys.readouterr().out
-    for dropped in ('MaximumStep', 'rtol', 'atol'):
-        assert dropped in warned, dropped + ' was dropped silently'
+    assert 'MaximumStep' in warned, 'MaximumStep was dropped silently'
     assert 'dt_solver' in warned, 'the MaximumStep warning should name the setting to use instead'
+    for kept in ('rtol', 'atol'):
+        assert kept not in warned, kept + ' is wired up and must not warn'
 
 
 def test_solve_ivp_rejects_maximum_step_keys():
