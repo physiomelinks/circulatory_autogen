@@ -2216,6 +2216,23 @@ class OpencorParamID():
             return None
         return raw[obs_idx] or None
 
+    def _cost_weight_vectors(self, exp_idx, sub_idx):
+        """The five per-data_item weight vectors this sub-experiment's cost is built from.
+
+        A single seam so a subclass can change what weighting the cost uses without
+        reimplementing cost_calc -- OpencorMCMC flattens them, because a weighted likelihood is
+        not a posterior (issue #193).
+
+        Returns them in the order (const, series, amp, phase, prob_dist).
+        """
+        return (
+            self.protocol_info["scaled_weight_const_from_exp_sub"][exp_idx][sub_idx],
+            self.protocol_info["scaled_weight_series_from_exp_sub"][exp_idx][sub_idx],
+            self.protocol_info["scaled_weight_amp_from_exp_sub"][exp_idx][sub_idx],
+            self.protocol_info["scaled_weight_phase_from_exp_sub"][exp_idx][sub_idx],
+            self.protocol_info["scaled_weight_prob_dist_from_exp_sub"][exp_idx][sub_idx],
+        )
+
     def cost_calc(self, obs_dict, exp_idx=0, sub_idx=0, is_symbolic=False):
 
         # Symbolic cost terms use the casadi-mode cost funcs; numeric ones the numpy-mode funcs
@@ -2239,12 +2256,10 @@ class OpencorParamID():
         # occupy the leading rows; interleave the types and an observable picked up another
         # row's weight -- usually a zero, which dropped it from the cost while
         # _refresh_num_weighted_obs_tables still counted it in the denominator (#349).
-        updated_weight_const_vec = self.protocol_info["scaled_weight_const_from_exp_sub"][exp_idx][sub_idx]
-        updated_weight_series_vec = self.protocol_info["scaled_weight_series_from_exp_sub"][exp_idx][sub_idx]
-        updated_weight_amp_vec = self.protocol_info["scaled_weight_amp_from_exp_sub"][exp_idx][sub_idx]
-        updated_weight_phase_vec = self.protocol_info["scaled_weight_phase_from_exp_sub"][exp_idx][sub_idx]
-        updated_weight_prob_dist_vec = self.protocol_info["scaled_weight_prob_dist_from_exp_sub"][exp_idx][sub_idx]
-        
+        (updated_weight_const_vec, updated_weight_series_vec, updated_weight_amp_vec,
+         updated_weight_phase_vec, updated_weight_prob_dist_vec) = \
+            self._cost_weight_vectors(exp_idx, sub_idx)
+
         # get number of obs that don't have zero weights (cached in __init__ / refresh on obs/protocol change)
         if self._num_weighted_obs_by_exp_sub is not None:
             num_weighted_obs = self._num_weighted_obs_by_exp_sub[exp_idx][sub_idx]
@@ -3161,9 +3176,48 @@ class OpencorMCMC(OpencorParamID):
                   'choosing defaults of 5000 and 2*num_params')
 
         self.DEBUG = DEBUG
+        self._warned_about_flattened_weights = False
         assert_mle_cost_for_bayesian(
             self.cost_type, self.cost_funcs_dict, "MCMC (log-likelihood uses -cost)"
         )
+
+    def _cost_weight_vectors(self, exp_idx, sub_idx):
+        """Every feature entering the likelihood carries equal weight (issue #193).
+
+        Calibration weights are a modelling choice: they say which features the optimiser should
+        care about most. A posterior is not. Under ``ln L = -cost``, a weight w on a feature
+        raises its likelihood term to the power w, which is the same as claiming w independent
+        observations of it -- so a feature weighted 10 shrinks the posterior as if it had been
+        measured ten times, and the credible intervals that come out are not the ones the data
+        supports. The relative weighting between features distorts their trade-off in the same
+        way.
+
+        Zero weights are preserved: a zero does not mean "unimportant", it means the observable
+        is not part of this sub-experiment at all, and reinstating it would add a feature the
+        user excluded. The non-zero count is therefore unchanged, so the cached
+        ``_num_weighted_obs_by_exp_sub`` denominator stays correct.
+
+        Warns once when this actually changed something, so a user who tuned weights for a
+        calibration and then ran UQ on the same obs_data finds out that they no longer apply.
+        """
+        vectors = super()._cost_weight_vectors(exp_idx, sub_idx)
+        flattened = tuple(np.asarray(vec != 0, dtype=float) for vec in vectors)
+
+        if not getattr(self, '_warned_about_flattened_weights', False):
+            for original, flat in zip(vectors, flattened):
+                original = np.asarray(original, dtype=float)
+                if original.size and not np.allclose(original, flat):
+                    print(
+                        'WARNING: obs_data weights are ignored for UQ -- every feature entering '
+                        'the likelihood is weighted 1. A weighted likelihood is not a posterior: '
+                        'a weight w on a feature is the same claim as w independent observations '
+                        'of it, so it would shrink the credible intervals by a factor the data '
+                        'does not support (issue #193). Weights of 0 still exclude an observable.'
+                    )
+                    self._warned_about_flattened_weights = True
+                    break
+
+        return flattened
 
     def run(self):
         comm = MPI.COMM_WORLD
