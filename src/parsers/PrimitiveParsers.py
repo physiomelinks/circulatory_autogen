@@ -430,6 +430,27 @@ _OPT_GA_NUM_CROSS_BREED = {
     'description': 'Genetic algorithm: cross-bred (recombined) offspring per generation. '
                    'Reduced to 10 when DEBUG is on.',
 }
+# What the GA minimises. 'likelihood' is the log posterior, negated so that lower is still
+# better -- it lets the GA search the same objective MCMC samples, which is what makes a GA a
+# usable way to find a starting point for UQ.
+_OPT_OBJECTIVE_FUNCTION = {
+    'name': 'objective_function', 'type': 'enum', 'default': 'cost', 'required': False,
+    'choices': ['cost', 'likelihood'],
+    'description': "Genetic algorithm: what to minimise. 'cost' is the weighted cost function; "
+                   "'likelihood' is the negative log posterior (log likelihood + log prior).",
+}
+_OPT_USE_RELATIVE_TOLERANCE = {
+    'name': 'use_relative_tolerance', 'type': 'bool', 'default': False, 'required': False,
+    'description': 'Genetic algorithm: also count a generation as stalled when the *fractional* '
+                   'change in cost falls below relative_tolerance, not only when the absolute '
+                   'change falls below cost_convergence. Useful when the objective is large in '
+                   'magnitude (e.g. a log posterior), where an absolute threshold never trips.',
+}
+_OPT_RELATIVE_TOLERANCE = {
+    'name': 'relative_tolerance', 'type': 'float', 'default': 1e-3, 'required': False,
+    'description': 'Genetic algorithm: the fractional cost change below which a generation '
+                   'counts as stalled. Only read when use_relative_tolerance is true.',
+}
 
 
 # Single source of truth for the prior distributions a params_for_id `prior` column may name,
@@ -1162,7 +1183,12 @@ PARAM_ID_METHODS = {
         'description': 'Gradient-free population-based global search.',
         'options': [_OPT_NUM_CALLS, _OPT_COST_CONVERGENCE, _OPT_MAX_PATIENCE,
                     _OPT_GA_NUM_ELITE, _OPT_GA_NUM_SURVIVORS,
-                    _OPT_GA_NUM_MUTATIONS_PER_SURVIVOR, _OPT_GA_NUM_CROSS_BREED],
+                    _OPT_GA_NUM_MUTATIONS_PER_SURVIVOR, _OPT_GA_NUM_CROSS_BREED,
+                    # Only the GA reads these: it is the one optimiser that can be driven by a
+                    # log-posterior (it needs no gradient of it), and the one whose selection
+                    # step had to change to cope with the negative costs that produces.
+                    _OPT_OBJECTIVE_FUNCTION, _OPT_USE_RELATIVE_TOLERANCE,
+                    _OPT_RELATIVE_TOLERANCE],
     },
     'CMA-ES': {
         'label': 'CMA-ES',
