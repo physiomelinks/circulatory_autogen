@@ -114,18 +114,27 @@ debug_optimiser_options:
   cost_type: gaussian_MLE
   # Note: When DEBUG is True, debug_optimiser_options overrides optimiser_options
 
-#______ mcmc inputs ___________
-do_mcmc: false
-mcmc_options:
+#______ uncertainty quantification inputs ___________
+# Was do_mcmc / mcmc_options: MCMC is one UQ method rather than the whole of it, so `method`
+# below is where other methods are selected as they are added. The old names still work and
+# warn once.
+do_uq: false
+UQ_options:
+  method: mcmc         # only 'mcmc' so far
+  library: emcee       # sampler backend for method: mcmc
   num_steps: 1000
   num_walkers: 64
+  burn_in: 0.5         # < 1 is a fraction of num_steps; >= 1 is a number of steps
   # TODO As above for cost_type
   cost_type: gaussian_MLE
   cost_convergence: 0.001
 
-debug_mcmc_options:
+debug_UQ_options:
+  method: mcmc
+  library: emcee
   num_steps: 5
   num_walkers: 40
+  burn_in: 0.5
   cost_type: gaussian_MLE
   cost_convergence: 0.001
 

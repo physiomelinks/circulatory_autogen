@@ -62,7 +62,7 @@ def _oscillator_config(base_user_inputs, temp_output_dir, temp_generated_models_
         'sim_time': 10.0,
         'dt': 0.05,
         'DEBUG': True,
-        'do_mcmc': False,
+        'do_uq': False,
         'do_ad': False,
         'plot_predictions': False,
         'model_out_names': ['oscillator/x'],

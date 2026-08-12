@@ -646,7 +646,7 @@ def generated_cellml_model_factory(base_user_inputs, resources_dir, temp_generat
             "sim_time": 0.1,
             "dt": 0.01,
             "plot_predictions": False,
-            "do_mcmc": False,
+            "do_uq": False,
             "resources_dir": resources_dir,
             "generated_models_dir": temp_generated_models_dir,
             "solver_info": {"MaximumStep": 0.001, "MaximumNumberOfSteps": 5000},
@@ -1380,7 +1380,7 @@ def minimal_param_id_config(base_user_inputs, resources_dir, temp_output_dir):
         'sim_time': 1,
         'dt': 0.01,
         'DEBUG': True,
-        'do_mcmc': False,
+        'do_uq': False,
         'plot_predictions': False,
         'solver_info': {
             'MaximumStep': 0.001,

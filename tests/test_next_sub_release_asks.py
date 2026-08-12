@@ -304,7 +304,7 @@ def test_from_param_id_adopts_the_engine_instead_of_building_a_second_one():
 
     assert uq.sim_helper is sentinel_helper, 'the model would have been compiled again'
     assert uq.param_id_method == 'MCMC'
-    assert uq.mcmc_options['num_steps'] == 7
+    assert uq.UQ_options['num_steps'] == 7
     assert list(uq.best_param_vals) == [1.0, 2.0], 'the calibration result seeds the walkers'
     assert calls, 'the MLE cost check must still run'
 

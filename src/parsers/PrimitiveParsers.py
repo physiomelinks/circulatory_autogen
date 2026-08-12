@@ -1387,15 +1387,31 @@ ANALYSIS_OPTIONS = {
                              'for Sobol, where M is the number of parameters.')},
         ],
     },
-    'mcmc': {
-        'label': 'MCMC posterior sampling',
-        'enable_flag': 'do_mcmc',
-        'options_key': 'mcmc_options',
+    # Named 'uq' rather than 'mcmc' because MCMC is one method of uncertainty quantification, not
+    # the whole of it: 'method' below is the seam other UQ methods (SMC, surrogate/history
+    # matching -- #333/#334) are added at, the same way sa_options and ia_options already select
+    # their method. The legacy 'mcmc_options'/'do_mcmc' spelling is still accepted and normalised
+    # onto these names with a warning; see _normalise_uq_option_names.
+    'uq': {
+        'label': 'Uncertainty quantification',
+        'enable_flag': 'do_uq',
+        'options_key': 'UQ_options',
         'options': [
+            {'name': 'method', 'type': 'enum', 'default': 'mcmc', 'required': False,
+             'choices': ['mcmc'],
+             'description': 'Uncertainty-quantification method. Only posterior sampling by MCMC '
+                            'is implemented so far.'},
+            {'name': 'library', 'type': 'enum', 'default': 'emcee', 'required': False,
+             'choices': ['emcee'],
+             'description': 'Sampler backend for method=mcmc. emcee is the built-in affine '
+                            'invariant ensemble sampler.'},
             {'name': 'num_steps', 'type': 'int', 'default': 5000, 'required': False,
              'description': 'Number of MCMC steps per walker.'},
             {'name': 'num_walkers', 'type': 'int', 'default': None, 'required': False,
              'description': 'Number of ensemble walkers (defaults to 2 * number of parameters).'},
+            {'name': 'burn_in', 'type': 'float', 'default': 0.5, 'required': False,
+             'description': 'Samples discarded before the chain is used. A value below 1 is a '
+                            'fraction of num_steps; 1 or above is a number of steps.'},
         ],
     },
     'identifiability_analysis': {
@@ -1435,9 +1451,46 @@ ANALYSIS_OPTIONS = {
 
 def analysis_options(mode):
     """The option descriptors for a non-calibration analysis mode ('sensitivity_analysis',
-    'mcmc', 'identifiability_analysis'); an empty list for an unknown mode."""
+    'uq', 'identifiability_analysis'); an empty list for an unknown mode."""
     meta = ANALYSIS_OPTIONS.get(mode)
     return meta['options'] if meta else []
+
+
+# The pre-UQ spellings, kept working. MCMC is one UQ method rather than the whole of it, so the
+# settings moved to UQ_options/do_uq with a 'method' key other methods can be added at. A config
+# written for the old names keeps running and is told, once, what to rename.
+_LEGACY_UQ_KEY_RENAMES = (
+    ('mcmc_options', 'UQ_options'),
+    ('debug_mcmc_options', 'debug_UQ_options'),
+    ('do_mcmc', 'do_uq'),
+)
+
+
+def _normalise_uq_option_names(inp_data_dict):
+    """Move legacy ``mcmc_options``/``debug_mcmc_options``/``do_mcmc`` onto their UQ names.
+
+    Migrating rather than rejecting keeps existing user_inputs.yaml files working. Setting both
+    spellings is refused instead of migrated: the two values can disagree, and silently preferring
+    either would discard one from a user who believes it is in effect -- the same reasoning as
+    ``_raise_duplicate_solver_info_key``.
+    """
+    for old_key, new_key in _LEGACY_UQ_KEY_RENAMES:
+        if old_key not in inp_data_dict:
+            continue
+        if new_key in inp_data_dict:
+            raise ValueError(
+                f'user_inputs sets both {old_key!r} and {new_key!r}. These are the same setting: '
+                f'{old_key!r} is the legacy name for {new_key!r}, which is the one CA uses now. '
+                f'Remove {old_key!r} (keeping {new_key!r}) so there is one value, not two.'
+            )
+        inp_data_dict[new_key] = inp_data_dict.pop(old_key)
+        print(
+            f'WARNING: user_inputs key {old_key!r} has been renamed to {new_key!r}; its value was '
+            f'applied to {new_key!r}. MCMC is now one method of uncertainty quantification '
+            f"(UQ_options: method: mcmc), so other methods can be added alongside it. Rename it "
+            f'in your user_inputs to silence this.'
+        )
+    return inp_data_dict
 
 
 def save_dated_user_inputs(inp_data_dict):
@@ -1958,13 +2011,17 @@ class YamlFileParser(object):
             method=(inp_data_dict.get('solver_info') or {}).get('method'),
         )
 
-        if 'DEBUG' in inp_data_dict.keys(): 
+        # Before the debug merge below, so a legacy config's debug_mcmc_options is already
+        # debug_UQ_options by the time it is merged onto UQ_options.
+        _normalise_uq_option_names(inp_data_dict)
+
+        if 'DEBUG' in inp_data_dict.keys():
             if inp_data_dict['DEBUG']:
                 # For backwards compatibility, still set ga_options if debug_ga_options exists
                 if 'debug_ga_options' in inp_data_dict.keys():
                     inp_data_dict['ga_options'] = inp_data_dict['debug_ga_options']
-                if 'debug_mcmc_options' in inp_data_dict.keys():
-                    inp_data_dict['mcmc_options'] = inp_data_dict['debug_mcmc_options']
+                if 'debug_UQ_options' in inp_data_dict.keys():
+                    inp_data_dict['UQ_options'] = inp_data_dict['debug_UQ_options']
             else:
                 pass
         else:
