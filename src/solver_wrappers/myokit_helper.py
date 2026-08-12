@@ -14,8 +14,61 @@ from solver_wrappers.name_resolver import VariableNameResolver
 from utilities.protocol_shapes import materialise_shapes, validate_trace_references
 import xml.etree.ElementTree as ET
 import tempfile
+import hashlib
 import re
 import os
+
+
+# Where flattened CellML goes. A flattened model is a pure function of its input file, so
+# it is written under one stable name per input and overwritten on each run. It used to be
+# a fresh ``NamedTemporaryFile(delete=False)`` per simulation -- nothing ever deleted them,
+# and a calibration run flattens once per helper, so /tmp accumulated one ~100 kB file per
+# simulation forever (7,655 of them, 719 MB, on one dev machine).
+FLATTENED_CELLML_DIRNAME = 'circulatory_autogen_flattened'
+
+
+def flattened_cellml_path(path):
+    """The stable path the flattened form of *path* is written to.
+
+    The digest of the absolute input path keeps two models that share a basename in
+    different resources dirs from overwriting each other: silently simulating the wrong
+    model is a far worse failure than the disk use this naming fixes.
+    """
+    resolved = os.path.abspath(path)
+    digest = hashlib.sha1(resolved.encode('utf-8')).hexdigest()[:8]
+    stem = os.path.splitext(os.path.basename(resolved))[0]
+    cache_dir = os.path.join(tempfile.gettempdir(), FLATTENED_CELLML_DIRNAME)
+    os.makedirs(cache_dir, exist_ok=True)
+    return os.path.join(cache_dir, f'{stem}_{digest}_flat.cellml')
+
+
+def write_flattened_cellml(prepared_path, model_string):
+    """Write *model_string* to *prepared_path*, atomically.
+
+    Under ``mpiexec`` every rank flattens the same model to the same path, so a plain
+    open-and-write lets one rank parse what another is still writing. Staging in the same
+    directory and calling os.replace makes the swap atomic, and readers see either the old
+    complete file or the new one.
+    """
+    os.makedirs(os.path.dirname(prepared_path), exist_ok=True)
+    fd, staging_path = tempfile.mkstemp(
+        prefix=f'.{os.path.basename(prepared_path)}.',
+        suffix='.tmp',
+        dir=os.path.dirname(prepared_path),
+        text=True,
+    )
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as wf:
+            wf.write(model_string)
+            wf.flush()
+            os.fsync(wf.fileno())
+        os.replace(staging_path, prepared_path)
+    except Exception:
+        try:
+            os.remove(staging_path)
+        except OSError:
+            pass
+        raise
 
 
 # CA's default CVODES tolerances for the Myokit backend, mirrored by the CVODE_myokit schema
@@ -327,11 +380,9 @@ class SimulationHelper:
             # Print the flattened model to string
             model_string = cellml.print_model(flat_model)
 
-            # Create temp file with the flattened model
-            with tempfile.NamedTemporaryFile(mode='w+', suffix='.cellml', delete=False) as f:
-                prepared_path = f.name
-            with open(prepared_path, 'w') as f:
-                f.write(model_string)
+            # One file per input model, overwritten, not a new tempfile per run.
+            prepared_path = flattened_cellml_path(path)
+            write_flattened_cellml(prepared_path, model_string)
 
             return prepared_path
 
