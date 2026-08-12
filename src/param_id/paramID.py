@@ -2,6 +2,7 @@
 @author: Finbar J. Argus
 '''
 
+import contextlib
 import numpy as np
 import os
 import sys
@@ -3066,6 +3067,12 @@ class OpencorParamID():
 
                     for obs_idx in range(len(obs)):
                         for key in best_fit_outputs.keys():
+                            # A diagnostic that raises destroys the information it exists to
+                            # print: this block runs *because* something is already wrong, and
+                            # the saved run and the live one need not expose the same variables.
+                            if key not in this_run_outputs:
+                                print(f'parameter {key} is not in this run\'s outputs, skipping')
+                                continue
                             print(f'parameter {key}')
                             best_fit_output = best_fit_outputs[key]
                             this_run_output = this_run_outputs[key]
@@ -3177,6 +3184,9 @@ class OpencorMCMC(OpencorParamID):
 
         self.DEBUG = DEBUG
         self._warned_about_flattened_weights = False
+        # Weights are flattened for the likelihood MCMC samples (#193), but not for costs that
+        # are reported or compared against the calibration -- see calibration_weighting().
+        self._flatten_weights = True
         assert_mle_cost_for_bayesian(
             self.cost_type, self.cost_funcs_dict, "MCMC (log-likelihood uses -cost)"
         )
@@ -3201,6 +3211,8 @@ class OpencorMCMC(OpencorParamID):
         calibration and then ran UQ on the same obs_data finds out that they no longer apply.
         """
         vectors = super()._cost_weight_vectors(exp_idx, sub_idx)
+        if not getattr(self, '_flatten_weights', True):
+            return vectors
         flattened = tuple(np.asarray(vec != 0, dtype=float) for vec in vectors)
 
         if not getattr(self, '_warned_about_flattened_weights', False):
@@ -3218,6 +3230,25 @@ class OpencorMCMC(OpencorParamID):
                     break
 
         return flattened
+
+    @contextlib.contextmanager
+    def calibration_weighting(self):
+        """Evaluate costs inside this block with the obs_data weights, not the flat ones.
+
+        The flattening exists for the *likelihood being sampled*: a weighted likelihood is not a
+        posterior (#193). It must not follow the cost out into the artifacts, because best_cost
+        is a calibration artifact -- plot_param_id and simulate_once re-derive it and compare
+        against the saved value, and the calibration itself optimised the weighted cost. A
+        best_cost written on the flat scale is simply a different quantity under the same name,
+        and the two disagree by whatever the weights were (measured on 3compartment: 0.0377 saved
+        against 0.1058 recomputed, which tripped simulate_once's consistency check).
+        """
+        previous = getattr(self, '_flatten_weights', True)
+        self._flatten_weights = False
+        try:
+            yield
+        finally:
+            self._flatten_weights = previous
 
     def run(self):
         comm = MPI.COMM_WORLD
@@ -3420,10 +3451,15 @@ class OpencorMCMC(OpencorParamID):
         """
         stats, means, medians = self.posterior_statistics(flat_samples)
 
-        median_cost = float(np.ravel(
-            self.get_cost_and_obs_from_params(medians, reset=True)[0])[0])
-        mean_cost = float(np.ravel(
-            self.get_cost_and_obs_from_params(means, reset=True)[0])[0])
+        # Weighted like the calibration, not like the likelihood: these sit in the same file as
+        # calibration_best_cost and are read against it, so all three have to be the same
+        # quantity. The flat weighting (#193) is for the likelihood being sampled, and must not
+        # follow the cost out into the artifacts.
+        with self.calibration_weighting():
+            median_cost = float(np.ravel(
+                self.get_cost_and_obs_from_params(medians, reset=True)[0])[0])
+            mean_cost = float(np.ravel(
+                self.get_cost_and_obs_from_params(means, reset=True)[0])[0])
 
         document = {
             'parameters': stats,
