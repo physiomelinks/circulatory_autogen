@@ -21,7 +21,6 @@ def _engine(cls, weights):
         'scaled_weight_series_from_exp_sub': [[np.asarray(weights['series'], dtype=float)]],
         'scaled_weight_amp_from_exp_sub': [[np.asarray(weights['amp'], dtype=float)]],
         'scaled_weight_phase_from_exp_sub': [[np.asarray(weights['phase'], dtype=float)]],
-        'scaled_weight_prob_dist_from_exp_sub': [[np.asarray(weights['prob_dist'], dtype=float)]],
     }
     return obj
 
@@ -31,7 +30,6 @@ _MIXED = {
     'series': [2.0, 0.0],
     'amp': [3.0],
     'phase': [0.0],
-    'prob_dist': [7.5, 1.0],
 }
 
 
@@ -39,12 +37,12 @@ _MIXED = {
 def test_calibration_keeps_the_weights_the_user_set():
     """The base engine must be untouched -- weighting is exactly what a calibration is for."""
     engine = _engine(OpencorParamID, _MIXED)
-    const, series, amp, phase, prob_dist = engine._cost_weight_vectors(0, 0)
+    const, series, amp, phase = engine._cost_weight_vectors(0, 0)
 
     assert list(const) == [1.0, 10.0, 0.0, 0.5]
     assert list(series) == [2.0, 0.0]
     assert list(amp) == [3.0]
-    assert list(prob_dist) == [7.5, 1.0]
+    assert list(phase) == [0.0]
 
 
 @pytest.mark.unit
@@ -60,7 +58,7 @@ def test_uq_preserves_zero_weights_because_they_exclude_an_observable():
     sub-experiment. Reinstating it would add a feature the user excluded -- and would also
     desynchronise the cached _num_weighted_obs_by_exp_sub denominator, which counts non-zeros."""
     engine = _engine(OpencorMCMC, _MIXED)
-    const, series, amp, phase, prob_dist = engine._cost_weight_vectors(0, 0)
+    const, series, amp, phase = engine._cost_weight_vectors(0, 0)
 
     assert list(const) == [1.0, 1.0, 0.0, 1.0]
     assert list(series) == [1.0, 0.0]
@@ -92,8 +90,7 @@ def test_uq_warns_once_when_the_weights_actually_changed(capsys):
 def test_uq_is_silent_when_the_weights_were_already_uniform(capsys):
     """The common case -- nothing changed, so there is nothing to say."""
     engine = _engine(OpencorMCMC, {
-        'const': [1.0, 1.0, 0.0], 'series': [1.0], 'amp': [0.0],
-        'phase': [0.0], 'prob_dist': [1.0],
+        'const': [1.0, 1.0, 0.0], 'series': [1.0], 'amp': [0.0], 'phase': [0.0],
     })
     engine._cost_weight_vectors(0, 0)
     assert capsys.readouterr().out == ''
@@ -123,7 +120,7 @@ def test_calibration_weighting_restores_the_users_weights():
     engine._flatten_weights = True
 
     with engine.calibration_weighting():
-        const, series, amp, phase, prob_dist = engine._cost_weight_vectors(0, 0)
+        const, series, amp, phase = engine._cost_weight_vectors(0, 0)
         assert list(const) == [1.0, 10.0, 0.0, 0.5], 'the user weights must be back'
         assert list(series) == [2.0, 0.0]
 

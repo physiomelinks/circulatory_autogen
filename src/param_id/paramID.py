@@ -75,7 +75,7 @@ from param_id.differentiable import (
     is_circulatory_differentiable,
 )
 from param_id.operation_funcs import resolve_operation_kwargs, validate_operation_kwargs
-from param_id.cost_kwargs import call_cost_func, validate_cost_kwargs
+from param_id.cost_kwargs import call_cost_func, ground_truth_param_name, validate_cost_kwargs
 from parsers.PrimitiveParsers import (apply_modifier_identity_nominals,
                                       expand_modifier_param_vals,
                                       param_entry_labels,
@@ -1295,8 +1295,6 @@ class CVS0DParamID():
                 return np.max(obs_proc['series'][obs_idx])
             if data_type == 'frequency':
                 return obs_proc['amp'][obs_idx]
-            if data_type == 'prob_dist':
-                return obs_proc['val_for_prob_dist'][obs_idx]
         except (IndexError, KeyError, TypeError):
             return None
         return None
@@ -1307,15 +1305,16 @@ class CVS0DParamID():
             data_type = self.obs_info['data_types'][obs_idx]
             measured = values[name].setdefault('exp_data', [])
             if data_type == 'constant':
-                mean = self.obs_info['ground_truth_const'][obs_idx]
-                std = self.obs_info['std_const_vec'][obs_idx]
-                # A constant observation is a mean and a std, not samples; draw from it so the
-                # comparison is distribution against distribution rather than a line.
-                measured.extend(np.random.normal(mean, std, 20))
-            elif data_type == 'prob_dist':
+                # A constant scored against a distribution already *is* samples -- use them as
+                # given. Otherwise the observation is a mean and a std, so draw from it and the
+                # comparison stays distribution against distribution rather than against a line.
                 params = self.obs_info['ground_truth_prob_dist_params'][obs_idx]
                 if isinstance(params, dict) and 'data_points' in params:
                     measured.extend(np.asarray(params['data_points'], dtype=float))
+                else:
+                    mean = self.obs_info['ground_truth_const'][obs_idx]
+                    std = self.obs_info['std_const_vec'][obs_idx]
+                    measured.extend(np.random.normal(mean, std, 20))
 
     def save_posterior_predictions(self, values):
         """Write the predictive values to posterior_predictions.csv, long-format.
@@ -1993,13 +1992,11 @@ class OpencorParamID():
                 ws = self.protocol_info["scaled_weight_series_from_exp_sub"][exp_idx][sub_idx]
                 wa = self.protocol_info["scaled_weight_amp_from_exp_sub"][exp_idx][sub_idx]
                 wp = self.protocol_info["scaled_weight_phase_from_exp_sub"][exp_idx][sub_idx]
-                wd = self.protocol_info["scaled_weight_prob_dist_from_exp_sub"][exp_idx][sub_idx]
                 n = int(
                     np.sum(wc != 0)
                     + np.sum(ws != 0)
                     + np.sum(wa != 0)
                     + np.sum(wp != 0)
-                    + np.sum(wd != 0)
                 )
                 row.append(n)
                 total += n
@@ -2447,13 +2444,11 @@ class OpencorParamID():
                     ws = self.protocol_info["scaled_weight_series_from_exp_sub"][exp_idx][this_sub_idx]
                     wa = self.protocol_info["scaled_weight_amp_from_exp_sub"][exp_idx][this_sub_idx]
                     wp = self.protocol_info["scaled_weight_phase_from_exp_sub"][exp_idx][this_sub_idx]
-                    wd = self.protocol_info["scaled_weight_prob_dist_from_exp_sub"][exp_idx][this_sub_idx]
                     weighted_obs_denominator += int(
                         np.sum(wc != 0)
                         + np.sum(ws != 0)
                         + np.sum(wa != 0)
                         + np.sum(wp != 0)
-                        + np.sum(wd != 0)
                     )
 
         # Mean NLL contribution per weighted observable slot (summed raw sub costs / global count).
@@ -2732,20 +2727,19 @@ class OpencorParamID():
         return raw[obs_idx] or None
 
     def _cost_weight_vectors(self, exp_idx, sub_idx):
-        """The five per-data_item weight vectors this sub-experiment's cost is built from.
+        """The four per-data_item weight vectors this sub-experiment's cost is built from.
 
         A single seam so a subclass can change what weighting the cost uses without
         reimplementing cost_calc -- OpencorMCMC flattens them, because a weighted likelihood is
         not a posterior (issue #193).
 
-        Returns them in the order (const, series, amp, phase, prob_dist).
+        Returns them in the order (const, series, amp, phase).
         """
         return (
             self.protocol_info["scaled_weight_const_from_exp_sub"][exp_idx][sub_idx],
             self.protocol_info["scaled_weight_series_from_exp_sub"][exp_idx][sub_idx],
             self.protocol_info["scaled_weight_amp_from_exp_sub"][exp_idx][sub_idx],
             self.protocol_info["scaled_weight_phase_from_exp_sub"][exp_idx][sub_idx],
-            self.protocol_info["scaled_weight_prob_dist_from_exp_sub"][exp_idx][sub_idx],
         )
 
     def cost_calc(self, obs_dict, exp_idx=0, sub_idx=0, is_symbolic=False):
@@ -2759,7 +2753,6 @@ class OpencorParamID():
         series = obs_dict['series']
         amp = obs_dict['amp']
         phase = obs_dict['phase']
-        val_for_prob_dist = obs_dict['val_for_prob_dist']
 
         # update cost weights for this experiment and subexperiment.
         #
@@ -2772,8 +2765,7 @@ class OpencorParamID():
         # row's weight -- usually a zero, which dropped it from the cost while
         # _refresh_num_weighted_obs_tables still counted it in the denominator (#349).
         (updated_weight_const_vec, updated_weight_series_vec, updated_weight_amp_vec,
-         updated_weight_phase_vec, updated_weight_prob_dist_vec) = \
-            self._cost_weight_vectors(exp_idx, sub_idx)
+         updated_weight_phase_vec) = self._cost_weight_vectors(exp_idx, sub_idx)
 
         # get number of obs that don't have zero weights (cached in __init__ / refresh on obs/protocol change)
         if self._num_weighted_obs_by_exp_sub is not None:
@@ -2784,7 +2776,6 @@ class OpencorParamID():
                 + np.sum(updated_weight_series_vec != 0)
                 + np.sum(updated_weight_amp_vec != 0)
                 + np.sum(updated_weight_phase_vec != 0)
-                + np.sum(updated_weight_prob_dist_vec != 0)
             )
         
         # this subexperiment doesn't have any weighted observables, so no cost
@@ -2796,7 +2787,7 @@ class OpencorParamID():
         if self.obs_info["ground_truth_phase"].all() == None:
             phase = None
 
-        # TODO: Fix for amp, phase, and val_for_prob_dist
+        # TODO: Fix for amp and phase
         if is_symbolic:
             _require_casadi()
             cost = ca.SX(0)
@@ -2836,11 +2827,10 @@ class OpencorParamID():
 
             # Silently returning a zero cost for observables we can't differentiate would look
             # like a perfectly converged fit, so fail loudly instead.
-            if amp is not None or phase is not None or val_for_prob_dist is not None:
+            if amp is not None or phase is not None:
                 raise NotImplementedError(
-                    'automatic differentiation of frequency (amp/phase) and prob_dist '
-                    'observables is not implemented. Use constant or series data items, or '
-                    'turn off do_ad.')
+                    'automatic differentiation of frequency (amp/phase) observables is not '
+                    'implemented. Use constant or series data items, or turn off do_ad.')
 
             return cost
 
@@ -2859,8 +2849,10 @@ class OpencorParamID():
             for const_idx in range(len(const)):
                 obs_idx = self.obs_info['const_idx_to_obs_idx'][const_idx]
                 if updated_weight_const_vec[obs_idx] != 0:
-                    cost += call_cost_func(cost_funcs_dict[self.cost_type[obs_idx]],
-                                           const[const_idx], self.obs_info["ground_truth_const"][const_idx],
+                    cost_func = cost_funcs_dict[self.cost_type[obs_idx]]
+                    cost += call_cost_func(cost_func,
+                                           const[const_idx],
+                                           self._ground_truth_for(cost_func, const_idx, obs_idx),
                                            std=self.obs_info["std_const_vec"][const_idx],
                                            weight=updated_weight_const_vec[obs_idx],
                                            cost_kwargs=self._cost_kwargs_for(obs_idx))
@@ -2956,19 +2948,27 @@ class OpencorParamID():
                         phase_cost += call_cost_func(cost_funcs_dict[self.cost_type[obs_idx]], phase_entry, obs_entry,
                                                      std=std_entry, weight=weight_entry, cost_kwargs=self._cost_kwargs_for(obs_idx))
 
-        prob_dist_cost = 0
-        if val_for_prob_dist is not None:
-            for prob_dist_idx in range(len(val_for_prob_dist)):
-                obs_idx = self.obs_info['prob_dist_idx_to_obs_idx'][prob_dist_idx]
-                if updated_weight_prob_dist_vec[obs_idx] != 0:
-                    prob_dist_cost += call_cost_func(cost_funcs_dict[self.cost_type[obs_idx]],
-                                                      val_for_prob_dist[prob_dist_idx],
-                                                      self.obs_info["ground_truth_prob_dist_params"][prob_dist_idx],
-                                                      weight=updated_weight_prob_dist_vec[obs_idx],
-                                                      cost_kwargs=self._cost_kwargs_for(obs_idx))
-            
+        return cost + series_cost + amp_cost + phase_cost
 
-        return cost + series_cost + amp_cost + phase_cost + prob_dist_cost
+    def _ground_truth_for(self, cost_func, const_idx, obs_idx):
+        """What this observable is compared against: a number, or a distribution.
+
+        Chosen from the cost func's signature rather than from the data_item's type. A scalar
+        scored against a KDE of measured samples is still a scalar -- ``prob_dist`` used to be a
+        fourth data_type for this, which put those observables in a parallel vector and hid them
+        from everything that works on scalar features, the emulator included (issue #421).
+
+        ``prob_dist_params`` is read by ``obs_idx``, the data_item row, the way ``cost_type`` and
+        the weight vectors are; ``ground_truth_const`` keeps its own compacted ``const_idx``.
+        """
+        if ground_truth_param_name(cost_func) == 'prob_dist_params':
+            params = self.obs_info["ground_truth_prob_dist_params"][obs_idx]
+            if params is None:
+                raise ValueError(
+                    f'cost_type {self.cost_type[obs_idx]!r} scores its data_item against a '
+                    f'distribution, so the data_item needs a "prob_dist_params" entry.')
+            return params
+        return self.obs_info["ground_truth_const"][const_idx]
 
     def _resolve_operation_kwargs(self, JJ, operation_funcs_dict, operands_outputs,
                                   num_operands=None):
@@ -3009,18 +3009,16 @@ class OpencorParamID():
 
         if is_symbolic:
             _require_casadi()
-            # TODO: Test series, amp, phase and prob_dist_vec
+            # TODO: Test series, amp and phase
             obs_const_vec = ca.SX.zeros(len(self.obs_info["ground_truth_const"]), 1)
             obs_series_list_of_arrays = [None]*len(self.obs_info["ground_truth_series"])
             obs_amp_list_of_arrays = [None]*len(self.obs_info["ground_truth_amp"])
             obs_phase_list_of_arrays = [None]*len(self.obs_info["ground_truth_phase"])
-            obs_val_for_prob_dist_vec = ca.SX.zeros(len(self.obs_info["ground_truth_prob_dist_params"]), 1)
         else:     
             obs_const_vec = np.zeros((len(self.obs_info["ground_truth_const"]), ))
             obs_series_list_of_arrays = [None]*len(self.obs_info["ground_truth_series"])
             obs_amp_list_of_arrays = [None]*len(self.obs_info["ground_truth_amp"])
             obs_phase_list_of_arrays = [None]*len(self.obs_info["ground_truth_phase"])
-            obs_val_for_prob_dist_vec = np.zeros((len(self.obs_info["ground_truth_prob_dist_params"]), ))
 
         if get_all_series:
             # An emulator has no series to give -- it predicts the scalar the series
@@ -3035,7 +3033,6 @@ class OpencorParamID():
         const_count = 0
         series_count = 0
         freq_count = 0
-        prob_dist_count = 0
         for JJ in range(len(operands_outputs)):
             if self.obs_info["data_types"][JJ] == 'frequency':
                 pass
@@ -3174,9 +3171,6 @@ class OpencorParamID():
                 # plt.close()
 
                 freq_count += 1
-            elif self.obs_info["data_types"][JJ] == 'prob_dist':
-                obs_val_for_prob_dist_vec[prob_dist_count] = obs
-                prob_dist_count += 1
 
         if const_count == 0:
             obs_const_vec = None
@@ -3185,11 +3179,9 @@ class OpencorParamID():
         if freq_count == 0:
             obs_amp_list_of_arrays = None
             obs_phase_list_of_arrays = None
-        if prob_dist_count == 0:
-            obs_val_for_prob_dist_vec = None
         obs_dict = {'const': obs_const_vec, 'series': obs_series_list_of_arrays,
                     'amp': obs_amp_list_of_arrays, 'phase': obs_phase_list_of_arrays,
-                    'val_for_prob_dist': obs_val_for_prob_dist_vec}
+}
 
         if get_all_series: 
             return obs_dict, obs_series_array_all
@@ -3261,9 +3253,8 @@ class OpencorParamID():
                     ws = self.protocol_info["scaled_weight_series_from_exp_sub"][exp_idx][sub_idx]
                     wa = self.protocol_info["scaled_weight_amp_from_exp_sub"][exp_idx][sub_idx]
                     wp = self.protocol_info["scaled_weight_phase_from_exp_sub"][exp_idx][sub_idx]
-                    wd = self.protocol_info["scaled_weight_prob_dist_from_exp_sub"][exp_idx][sub_idx]
                     D += int(np.sum(wc != 0) + np.sum(ws != 0) + np.sum(wa != 0)
-                             + np.sum(wp != 0) + np.sum(wd != 0))
+                             + np.sum(wp != 0))
         return max(int(D), 1)
 
     def get_jac_cost_fsa(self, param_vals, return_cost=False):

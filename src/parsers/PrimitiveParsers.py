@@ -21,7 +21,8 @@ import re
 from datetime import date
 
 from utilities.protocol_shapes import materialise_shapes, validate_trace_references
-from utilities.obs_data_helpers import DEFAULT_COST_TYPE, PREVIOUS_DEFAULT_COST_TYPE
+from utilities.obs_data_helpers import (DEFAULT_COST_TYPE, PREVIOUS_DEFAULT_COST_TYPE,
+                                        VALID_DATA_TYPES)
 from param_id.modifier_funcs import (BUILTIN_MODIFIER_FUNCS, get_modifier_funcs,
                                      probe_affine)
 
@@ -3246,8 +3247,13 @@ class ObsAndParamDataParser(object):
                 # cost-side counterpart of operation_kwargs. std and weight are supplied by CA
                 # from the fields above and are rejected here -- see param_id.cost_kwargs.
                 "cost_kwargs": {"types": (dict,), "default": lambda df: [{} for _ in range(len(df))]},
-                "value": {"types": (int, float, np.integer, np.floating, list, np.ndarray), "default": REQUIRED},
-                "std": {"types": (int, float, np.integer, np.floating, list, np.ndarray), "default": REQUIRED},
+                # The scalar ground truth, and required as such -- but only for an item that
+                # has one. An item whose cost scores it against a distribution states its
+                # ground truth in "prob_dist_params" instead, and carrying a dummy value/std
+                # alongside would be a number nothing reads (issue #421). Enforced per row
+                # below rather than by REQUIRED, which is per column.
+                "value": {"types": (int, float, np.integer, np.floating, list, np.ndarray), "default": np.nan},
+                "std": {"types": (int, float, np.integer, np.floating, list, np.ndarray), "default": np.nan},
                 "experiment_idx": {"types": (int, np.integer), "default": 0},
                 "subexperiment_idx": {"types": (int, np.integer), "default": 0},
                 "plot_type": {"types": (str,), "default": None},
@@ -3319,6 +3325,39 @@ class ObsAndParamDataParser(object):
                     f"Missing required data_item keys: {sorted(missing_required_cols)}"
                 )
 
+            bad_data_types = sorted({str(dt) for dt in gt_df["data_type"]}
+                                    - set(VALID_DATA_TYPES))
+            if "prob_dist" in bad_data_types:
+                raise ValueError(
+                    'data_type "prob_dist" has been removed (issue #421). It described the '
+                    'ground truth rather than the data: the feature is an ordinary scalar, and '
+                    'comparing it against a distribution is the cost function\'s job. Write '
+                    '"data_type": "constant" with a cost_type that scores against a '
+                    'distribution (kernel_density_estimation, multimodal_gaussian, '
+                    'poisson_MLE), keep the item\'s "prob_dist_params", and drop its now-unread '
+                    '"value" and "std".')
+            if bad_data_types:
+                raise ValueError(
+                    f"Unknown data_item data_type(s) {bad_data_types}. "
+                    f"Valid data_types: {list(VALID_DATA_TYPES)}.")
+
+            missing_ground_truth = []
+            for row_idx in range(len(gt_df)):
+                row = gt_df.iloc[row_idx]
+                if not _is_missing_scalar(row["prob_dist_params"]):
+                    continue
+                absent = [key for key in ("value", "std") if _is_missing_scalar(row[key])]
+                if absent:
+                    missing_ground_truth.append(
+                        f"'{row['name_for_plotting']}' (cost_type '{row['cost_type']}') is "
+                        f"missing {' and '.join(absent)}")
+            if missing_ground_truth:
+                raise ValueError(
+                    "Every data_item needs a ground truth to be scored against: either "
+                    "'value' and 'std', or 'prob_dist_params' for a cost that compares "
+                    "against a distribution (kernel_density_estimation, multimodal_gaussian, "
+                    "poisson_MLE). " + "; ".join(missing_ground_truth))
+
             if len(type_errors) > 0:
                 raise ValueError(
                     "Invalid data_item value types:\n" + "\n".join(type_errors)
@@ -3367,12 +3406,6 @@ class ObsAndParamDataParser(object):
                 if gt_df.iloc[II]["data_type"] == "constant":
                     if not warning_printed:
                         print('constant data types plot type defaults to horizontal lines',
-                            'change "plot_type" in obs_data.json to change this')
-                        warning_printed = True
-                    obs_info["plot_type"].append("horizontal")
-                elif gt_df.iloc[II]["data_type"] == "prob_dist":
-                    if not warning_printed:
-                        print('prob_dist data types plot type defaults to horizontal lines',
                             'change "plot_type" in obs_data.json to change this')
                         warning_printed = True
                     obs_info["plot_type"].append("horizontal")
@@ -3427,7 +3460,6 @@ class ObsAndParamDataParser(object):
         obs_info["weight_const_vec"] = weights[data_types == "constant"]
         obs_info["weight_series_vec"] = weights[data_types == "series"]
         obs_info["weight_amp_vec"] = weights[data_types == "frequency"]
-        obs_info["weight_prob_dist_vec"] = weights[data_types == "prob_dist"]
 
         phase_weights = gt_df.apply(
             lambda row: row["phase_weight"] if row.get("phase_weight") is not None else row["weight"],
@@ -3472,9 +3504,19 @@ class ObsAndParamDataParser(object):
         ground_truth_amp = np.array([gt_df.iloc[II]["value"] for II in range(gt_df.shape[0])
                                         if gt_df.iloc[II]["data_type"] == "frequency"])
 
-        # then for ground truth probability distributions
-        ground_truth_prob_dist_params = np.array([gt_df.iloc[II]["prob_dist_params"] for II in range(gt_df.shape[0])
-                                            if gt_df.iloc[II]["data_type"] == "prob_dist"])
+        # The distribution a data_item is compared against, for a cost that scores against one
+        # (kernel_density_estimation, multimodal_gaussian, poisson_MLE) rather than against a
+        # value/std. Such an item is an ordinary scalar observable -- prob_dist used to be a
+        # data_type of its own, which filed it in a parallel vector and hid it from everything
+        # that works on scalar features, the emulator included (issue #421).
+        #
+        # Full length over all data_items and indexed by row, like cost_type and the weight
+        # vectors, so it stays correct when the per-type vectors are compacted to their own
+        # index spaces (the #349 rule).
+        ground_truth_prob_dist_params = [
+            gt_df.iloc[II]["prob_dist_params"] if isinstance(
+                gt_df.iloc[II]["prob_dist_params"], dict) else None
+            for II in range(gt_df.shape[0])]
 
 
         # _______ and the phase of the freq data
@@ -3545,11 +3587,9 @@ class ObsAndParamDataParser(object):
         const_count = 0
         series_count = 0
         freq_count = 0
-        prob_dist_count = 0
         obs_info["const_idx_to_obs_idx"] = []
         obs_info["series_idx_to_obs_idx"] = []
         obs_info["freq_idx_to_obs_idx"] = []
-        obs_info["prob_dist_idx_to_obs_idx"] = []
         for obs_idx in range(obs_info["num_obs"]):
             if obs_info["data_types"][obs_idx] == "constant":
                 obs_info["const_idx_to_obs_idx"].append(obs_idx)
@@ -3560,9 +3600,6 @@ class ObsAndParamDataParser(object):
             elif obs_info["data_types"][obs_idx] == "frequency":
                 obs_info["freq_idx_to_obs_idx"].append(obs_idx)
                 freq_count += 1
-            elif obs_info["data_types"][obs_idx] == "prob_dist":
-                obs_info["prob_dist_idx_to_obs_idx"].append(obs_idx)
-                prob_dist_count += 1
 
         return obs_info
 
@@ -3627,7 +3664,6 @@ class ObsAndParamDataParser(object):
         series_map = [[[] for _ in range(protocol['num_sub_per_exp'][exp_idx])] for exp_idx in range(N_exp)]
         amp_map = [[[] for _ in range(protocol['num_sub_per_exp'][exp_idx])] for exp_idx in range(N_exp)]
         phase_map = [[[] for _ in range(protocol['num_sub_per_exp'][exp_idx])] for exp_idx in range(N_exp)]
-        prob_dist_map = [[[] for _ in range(protocol['num_sub_per_exp'][exp_idx])] for exp_idx in range(N_exp)]
 
         
         # --- Calculate Scaled Weight Maps ---
@@ -3640,7 +3676,7 @@ class ObsAndParamDataParser(object):
                 
                 # Iterate over all possible data types
                 for data_type, weight_map in [
-                    ("constant", const_map), ("series", series_map), ("frequency", amp_map), ("prob_dist", prob_dist_map)
+                    ("constant", const_map), ("series", series_map), ("frequency", amp_map)
                 ]:
                     # Create the full weight vector (Weight if matched, 0.0 otherwise)
                     full_weights = np.where(mask & (df["data_type"] == data_type), df["weight"], 0.0)
@@ -3664,7 +3700,6 @@ class ObsAndParamDataParser(object):
         protocol["scaled_weight_series_from_exp_sub"] = series_map
         protocol["scaled_weight_amp_from_exp_sub"] = amp_map
         protocol["scaled_weight_phase_from_exp_sub"] = phase_map
-        protocol["scaled_weight_prob_dist_from_exp_sub"] = prob_dist_map
         
         return protocol
     

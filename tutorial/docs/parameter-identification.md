@@ -131,6 +131,35 @@ The entries in the data_item list in the `obs_data.json` file are:
 - **std**: The standard deviation which is used in the cost function. The cost function is the relative absolute error (AE) or mean squared error (MRE), each normalised by the std.
 - **value**: The value of the ground truth, either a scalar for constant data_type, or a list of values for series or frequency data_types.
 - **obs_dt**: required for *series* data types and not needed for constant or frequency. It defines the timestep for the observable series values.
+- **prob_dist_params**: the ground truth when it is a *distribution* rather than a value — see below. An item that sets this needs no **value** or **std**; an item that does not, needs both.
+
+### Ground truth as a distribution (`prob_dist_params`)
+
+Some observables are not known as a single number plus a standard deviation. A measurement repeated across a cohort is a **set of points**, and it may not even be unimodal. For these, state the ground truth as `prob_dist_params` and choose a `cost_type` that scores against a distribution:
+
+| cost_type | `prob_dist_params` | scores the output against |
+|---|---|---|
+| `kernel_density_estimation` | `{"data_points": [...]}` | a smooth density fitted to the measured points, with no assumption about how many modes there are |
+| `multimodal_gaussian` | `{"means": [...], "stds": [...], "scales": [...]}` | a named mixture of gaussians (`scales` must sum to 1) |
+| `poisson_MLE` | `{"k": <count>}` | a Poisson likelihood, where the model output is the rate |
+
+The observable itself is still an ordinary **constant**: the model produces one scalar, exactly as for `gaussian_MLE`. Only what it is compared against differs, and that follows from `cost_type`.
+
+```json
+{
+  "variable": "x_steady_state",
+  "data_type": "constant",
+  "operation": "steady_state_avg",
+  "operands": ["benchmark/x"],
+  "unit": "dimensionless",
+  "weight": 1.0,
+  "cost_type": "kernel_density_estimation",
+  "prob_dist_params": {"data_points": [1.05, 0.99, 4.08, 3.96, "..."]},
+  "cost_kwargs": {"bandwidth": 0.1}
+}
+```
+
+Anything that *tunes* the comparison rather than stating the data goes in `cost_kwargs` — for `kernel_density_estimation` that is `bandwidth`, the KDE smoothing width (a number, `"scott"` or `"silverman"`; Scott's rule by default), which you can change without touching the measurements.
 
 ### Series ground truth from `.npy` files (`t_path` and `value_path`)
 
@@ -402,8 +431,8 @@ Before doing calibration, a solver for the model needs to be chosen
     both supported, and `dt` does not have to equal a series item's `obs_dt`: the simulated
     series is linearly interpolated onto the observation times, which is a multiply by a matrix
     of weights fixed by the two time grids, so it stays differentiable. Frequency (`amp` /
-    `phase`) and `prob_dist` observables cannot be differentiated yet, and raise rather than
-    silently contributing nothing to the cost.
+    `phase`) observables cannot be differentiated yet, and raise rather than silently
+    contributing nothing to the cost.
 
 !!! note "CasADi `semi_implicit_euler` — enables automatic differentiation on stiff models (verify with a convergence study)"
     When using gradient-based parameter identification (`param_id_method: sp_minimize` with
