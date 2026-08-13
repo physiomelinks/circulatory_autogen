@@ -1463,6 +1463,14 @@ ANALYSIS_OPTIONS = {
              'description': 'Tuning (warm-up) draws the pymc backend discards before sampling. '
                             'Ignored by emcee, which tunes as it goes. These are on top of '
                             'num_steps, so 1000 tune plus 500 draws is 1500 iterations.'},
+            # The backend's other undeclared setting, and the one that changes the answer rather
+            # than what it costs to get it. Same defect as num_tune above: _build_sampler reads
+            # it with a hardcoded fallback, so it sat at 'mcmc' with nothing able to reach it.
+            {'name': 'pymc_method', 'type': 'enum', 'default': 'mcmc', 'required': False,
+             'choices': ['mcmc', 'smc'],
+             'description': "pyMC sampling algorithm: 'mcmc' is Metropolis, 'smc' is sequential "
+                            'Monte Carlo, which can cross a low-probability region between modes '
+                            'that Metropolis gets stuck on one side of. Ignored by emcee.'},
         ],
     },
     'identifiability_analysis': {
