@@ -220,6 +220,50 @@ jobs:
         python -m pytest tests/test_UQ.py -m slow -k "not KDE" -v --with-mpi --tb=short \
           --durations=0 --junitxml=junit-uq.xml
 
+    # A skipped test is a green step, so this job could report success having run nothing at
+    # all -- and that is the likely failure, not a red X: every UQ test is guarded by a skipif
+    # on an optional extra (autoemulate, pymc). If [emulation] or [uq] silently fails to
+    # resolve, the whole point of this job evaporates and the badge still says pass.
+    - name: Fail if the UQ tests did not actually run
+      if: always()
+      run: |
+        python - <<'PY'
+        import glob
+        import sys
+        import xml.etree.ElementTree as ET
+
+        problems = []
+        seen_any = False
+        for path in sorted(glob.glob('junit-uq*.xml')):
+            seen_any = True
+            suites = ET.parse(path).getroot()
+            suites = [suites] if suites.tag == 'testsuite' else suites.findall('testsuite')
+            for suite in suites:
+                total = int(suite.get('tests', 0))
+                skipped = int(suite.get('skipped', 0))
+                ran = total - skipped
+                print(f'{path}: {total} collected, {skipped} skipped, {ran} ran')
+                if total == 0:
+                    problems.append(f'{path} collected no tests')
+                elif ran == 0:
+                    problems.append(f'{path} ran nothing -- all {total} tests skipped')
+                elif skipped:
+                    problems.append(f'{path} skipped {skipped} of {total} tests')
+
+        if not seen_any:
+            problems.append('no junit-uq*.xml was produced, so no UQ tests ran at all')
+
+        if problems:
+            print()
+            print('The UQ job is meant to be the one place these run. Every UQ test is behind a '
+                  'skipif on an optional extra, so a skip here almost always means [uq] or '
+                  '[emulation] did not install rather than that the test was inapplicable.')
+            for problem in problems:
+                print(f'  - {problem}')
+            sys.exit(1)
+        print('every UQ test ran')
+        PY
+
     - name: Upload UQ test results
       if: always()
       uses: actions/upload-artifact@v4
