@@ -89,6 +89,19 @@ SAMPLERS = [
 ]
 
 
+def _agree(mpi_comm, problem):
+    """Fail on every rank, or on none -- given rank 0's verdict.
+
+    A rank that fails an assertion on its own walks out of the test while the others are still
+    heading for a collective, and the run then hangs rather than reporting the failure. So the
+    checks that come *before* a collective are decided on rank 0 and broadcast, and every rank
+    raises on the same answer. The broadcast also orders the ranks, so it stands in for the
+    barrier that used to follow the check.
+    """
+    problem = mpi_comm.bcast(problem, root=0)
+    assert not problem, problem
+
+
 def _emulator_available():
     try:
         from emulators.emulator_trainer import autoemulate_available
@@ -186,23 +199,30 @@ def test_uq_on_an_emulator_recovers_the_analytic_posterior(
     config = _config(resources_dir, temp_output_dir, temp_generated_models_dir, emulator_dir,
                      library=library)
 
-    if mpi_comm.Get_rank() == 0:
-        assert generate_with_new_architecture(False, config), 'benchmark generation failed'
-    mpi_comm.Barrier()
+    _agree(mpi_comm, None if mpi_comm.Get_rank() != 0 or
+           generate_with_new_architecture(False, config) else 'benchmark generation failed')
 
     bundle = _train_emulator(config, mpi_comm)
-    if mpi_comm.Get_rank() != 0:
-        return
 
     # The emulator has to be faithful before its posterior means anything. Checked here rather
     # than left implicit, so a bad posterior below is attributable: a broken surrogate and a
     # broken sampler fail this test in the same place otherwise.
-    for entry in (bundle.error_stats() or []):
-        if isinstance(entry, dict) and entry.get('r2') is not None:
-            assert float(entry['r2']) > 0.99, f"emulator is not faithful: {entry}"
+    unfaithful = None
+    if mpi_comm.Get_rank() == 0:
+        for entry in (bundle.error_stats() or []):
+            if isinstance(entry, dict) and entry.get('r2') is not None and \
+                    float(entry['r2']) <= 0.99:
+                unfaithful = f'emulator is not faithful: {entry}'
+    _agree(mpi_comm, unfaithful)
 
+    # Every rank samples: UQ is a parallel run, and which ranks do what is the sampler's
+    # business (emcee farms likelihoods to a pool, pyMC gives each rank its own chains). A rank
+    # that skipped this would strand the others inside the sampler's collectives -- which is
+    # what used to happen here, so this file could only ever be run on one rank.
     param_id = CVS0DParamID.init_from_dict({**config, 'mcmc_instead': True})
     param_id.run_UQ()
+    if mpi_comm.Get_rank() != 0:
+        return
 
     chain = np.load(os.path.join(param_id.output_dir, 'mcmc_chain.npy'))
     flat = chain[chain.shape[0] // 2:, :, :].reshape(-1, chain.shape[2])
@@ -238,16 +258,16 @@ def test_the_uq_run_writes_its_posterior_summary(
     emulator_dir = os.path.join(temp_output_dir, 'emulator')
     config = _config(resources_dir, temp_output_dir, temp_generated_models_dir, emulator_dir)
 
-    if mpi_comm.Get_rank() == 0:
-        assert generate_with_new_architecture(False, config), 'benchmark generation failed'
-    mpi_comm.Barrier()
+    _agree(mpi_comm, None if mpi_comm.Get_rank() != 0 or
+           generate_with_new_architecture(False, config) else 'benchmark generation failed')
 
     _train_emulator(config, mpi_comm)
-    if mpi_comm.Get_rank() != 0:
-        return
 
+    # Every rank samples -- see the note in the test above.
     param_id = CVS0DParamID.init_from_dict({**config, 'mcmc_instead': True})
     param_id.run_UQ()
+    if mpi_comm.Get_rank() != 0:
+        return
 
     path = os.path.join(param_id.output_dir, 'mcmc_statistics.json')
     assert os.path.isfile(path), 'a UQ run must write its posterior summary'
