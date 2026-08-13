@@ -1,11 +1,48 @@
 import os
 import copy
+import time
 import warnings
 
 import numpy as np
 
 from solver_wrappers.param_grouping import pair_names_with_values
-import myokit
+
+
+def _import_myokit_tolerating_first_run_race(attempts=5, delay=0.2):
+    """``import myokit``, surviving the race it loses on its own first import.
+
+    Myokit creates its user config directory at import time with a bare
+    ``if not os.path.exists(DIR_USER): os.makedirs(DIR_USER)`` -- a check and a create with a
+    gap in between. Under ``mpiexec`` every rank imports at once, so on a machine where
+    ``~/.config/myokit`` does not yet exist the ranks all see "missing", all call ``makedirs``,
+    and every one but the winner dies with ``FileExistsError``.
+
+    It only ever happens on the *first* parallel run, because afterwards the directory is there
+    -- which is why it presents as a CI job that passes when re-run, and why it is easy to
+    dismiss as noise. It is not noise: it is equally a user's first ``./run_param_id.sh 4`` on a
+    new machine or a fresh HPC home directory, where it reads as "Myokit is not installed".
+
+    Retrying is the fix rather than pre-creating the directory ourselves, because the path is
+    Myokit's to decide (it has already moved once, from ``~/.myokit``) and a copy of that rule
+    here would stop matching without saying so. A failed import leaves nothing in
+    ``sys.modules``, so the retry genuinely re-runs the module -- by which time the winning rank
+    has created the directory and the import takes the "already exists" branch.
+
+    Only ``FileExistsError`` is retried. Every other import failure is the caller's to see
+    immediately, and is reported with its reason by ``solver_wrappers`` (#410).
+    """
+    for attempt in range(attempts):
+        try:
+            import myokit  # noqa: PLC0415 - the point of this function
+            return myokit
+        except FileExistsError:
+            if attempt == attempts - 1:
+                raise
+            # The winner may still be inside makedirs, or writing myokit.ini.
+            time.sleep(delay * (attempt + 1))
+
+
+myokit = _import_myokit_tolerating_first_run_race()
 from myokit.formats import cellml as cellml_format
 # src_dir = os.path.join(os.path.dirname(__file__), '..')
 # sys.path.append(src_dir)
