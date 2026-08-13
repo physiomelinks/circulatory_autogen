@@ -1,5 +1,6 @@
 import ast
 import pathlib
+import re
 import warnings
 
 import pytest
@@ -501,7 +502,8 @@ def test_analysis_options_schema_well_formed():
     assert names('sensitivity_analysis') == {
         'method', 'sample_type', 'num_samples', 'gradient_method', 'fd_rel_step'}
     # 'uq', not 'mcmc': MCMC is one UQ method, and 'method' is the seam the others are added at.
-    assert names('uq') == {'method', 'library', 'num_steps', 'num_walkers', 'burn_in'}
+    assert names('uq') == {'method', 'library', 'num_steps', 'num_walkers', 'burn_in',
+                           'num_tune', 'pymc_method'}
     assert ANALYSIS_OPTIONS['uq']['options_key'] == 'UQ_options'
     assert names('identifiability_analysis') == {'method', 'gradient_source', 'sub_method'}
     assert names('emulation') == {
@@ -520,6 +522,36 @@ def test_analysis_options_schema_well_formed():
 
 def _option(mode, name):
     return next(o for o in analysis_options(mode) if o['name'] == name)
+
+
+def test_every_uq_option_the_code_reads_is_advertised():
+    """A UQ setting CA reads but does not declare cannot be reached from a front-end at all.
+
+    CUFLynx builds its UQ form from ANALYSIS_OPTIONS['uq'] and hardcodes nothing, so an option
+    missing here is an option nobody can set: it stays at whatever default the ``.get()`` call
+    carries, silently. That is how the pyMC backend shipped selectable but unconfigurable --
+    ``library: pymc`` was advertised while ``num_tune`` and ``pymc_method``, the only two
+    settings that backend adds, were not.
+
+    Scanning the source rather than restating a list is the point. The name set above is
+    hand-maintained, so it agrees with whatever it was last edited to say; this reads what the
+    code actually asks ``UQ_options`` for, and so fails when a read is added without a
+    descriptor, which is the direction the mistake goes in.
+    """
+    src_dir = pathlib.Path(__file__).resolve().parent.parent / 'src'
+    # UQ_options['x'], UQ_options.get('x'), self.UQ_options.get("x", default)
+    pattern = re.compile(r"""UQ_options(?:\.get\(|\[)\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]""")
+    read = set()
+    for path in src_dir.rglob('*.py'):
+        if 'obsolete' in path.parts:
+            continue
+        read.update(pattern.findall(path.read_text(encoding='utf-8')))
+
+    advertised = {o['name'] for o in analysis_options('uq')}
+    assert read, 'found no UQ_options reads at all -- the pattern has stopped matching'
+    assert read <= advertised, (
+        f'UQ_options read by the code but not declared in ANALYSIS_OPTIONS["uq"]: '
+        f'{sorted(read - advertised)}')
 
 
 def test_closed_set_analysis_options_are_enums_with_choices():
@@ -550,7 +582,12 @@ def test_closed_set_analysis_options_are_enums_with_choices():
         # cannot run is the same defect as a setting nothing reads. Extend these as the SMC /
         # surrogate methods and the pyMC backend land.
         ('uq', 'method'): ['mcmc'],
-        ('uq', 'library'): ['emcee'],
+        # 'zeus' is still accepted by _build_sampler for backwards compatibility but is
+        # deliberately not advertised: it is not a CA dependency and there is no extra that
+        # installs it, so offering it in a menu would be a control that fails for most users.
+        ('uq', 'library'): ['emcee', 'pymc'],
+        # -> PyMCSampler.__init__, which raises on anything else.
+        ('uq', 'pymc_method'): ['mcmc', 'smc'],
         # -> EmulatorTrainer.design (raises ValueError otherwise)
         ('emulation', 'sample_type'): ['sobol', 'latin_hypercube', 'random'],
         # -> EmulatorBundle.check_bounds. 'error' is the default deliberately: outside its

@@ -69,6 +69,12 @@ dev = [
     "flake8>=4.0.0",
     "mypy>=0.950",
 ]
+# Optional UQ backends. Kept out of the core list on purpose: pytensor builds C
+# extensions, and param_id/paramID.py is imported by every calibration run, so a hard
+# dependency would make an ordinary calibration fail to import for anyone not doing UQ.
+uq = [
+    "pymc>=5.0",
+]
 docs = [
     "mkdocs-material>=9.0",
     "mkdocstrings[python]>=0.24",

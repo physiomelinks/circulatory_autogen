@@ -161,6 +161,74 @@ jobs:
       run: |
         python -m pytest tests/test_param_id.py tests/test_sensitivity_analysis.py -v --with-mpi --tb=short --junitxml=junit-param-id-serial.xml
 
+  # The end-to-end UQ tests: a real chain checked against a posterior whose answer is known in
+  # closed form (issue #179). Nothing else runs them -- the full-model ones are marked `slow`
+  # and every other job deselects them.
+  #
+  # Measured on Simple_ODE_Benchmark, which is why the job is split the way it is:
+  #
+  #   tests/test_uq_on_emulator.py [emcee]                ~34 s    (sampled through an emulator)
+  #   tests/test_uq_on_emulator.py [pymc]                 ~83 s    (same, pyMC backend)
+  #   test_UQ.py::test_mcmc_unimodal_with_validation      ~9 min    (emcee, real model)
+  #   test_UQ.py::test_mcmc_bimodal_with_validation      ~26 min    (emcee, real model)
+  #   test_UQ.py::..._KDE_likelihood                     >50 min    (pyMC -- killed, unfinished)
+  #
+  # The pyMC case is deselected here. It is not slow by accident: pyMC's Metropolis takes one
+  # likelihood evaluation *per parameter per step* where emcee moves the whole ensemble at once,
+  # and PyMCSampler's num_tune defaults to 1000, so it runs 1500 iterations for the 500 draws
+  # the test asks for. Run it by hand (or fix the tuning cost) rather than putting an hour on
+  # every pull request. The pyMC backend is still covered end to end -- through the emulator,
+  # where the same chain costs 83 seconds instead of an hour.
+  #
+  # It is its own job rather than extra cases on test-param-id-*, because it needs two optional
+  # extras those jobs have no use for, and because at ~35 minutes it would become the critical
+  # path of a job that currently takes 26. In parallel it sets the workflow's wall-clock floor
+  # instead of adding to it.
+  test-uq:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.10"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        # [uq] brings pymc/pytensor and [emulation] brings autoemulate. Without them the
+        # corresponding tests skip, and those code paths go unexercised in CI -- which is how
+        # the pyMC backend stayed unproven for as long as it did.
+        pip install -e ".[dev,uq,emulation]"
+
+    - name: Install MPI and Myokit build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libopenmpi-dev openmpi-bin libsundials-dev build-essential
+
+    # Fast enough to be worth running first: it fails in a minute if UQ is broken at all,
+    # rather than after half an hour of sampling the real model.
+    - name: Run UQ on an emulator (fast posterior-recovery check)
+      run: |
+        python -m pytest tests/test_uq_on_emulator.py -v --with-mpi --tb=short \
+          --durations=0 --junitxml=junit-uq-emulator.xml
+
+    - name: Run the full-model UQ posterior-recovery tests
+      run: |
+        python -m pytest tests/test_UQ.py -m slow -k "not KDE" -v --with-mpi --tb=short \
+          --durations=0 --junitxml=junit-uq.xml
+
+    - name: Upload UQ test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: uq-test-results
+        path: |
+          junit-uq-emulator.xml
+          junit-uq.xml
+
   # Job to run full test suite if OpenCOR is available (optional)
   # This can be enabled if OpenCOR is set up in CI environment
   test-with-opencor:
