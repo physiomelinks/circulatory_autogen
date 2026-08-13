@@ -78,7 +78,9 @@ def test_param_id_method_options_match_optimiser_reads():
     # Keys each optimiser reads from optimiser_options (see param_id/optimisers.py).
     assert names('genetic_algorithm') == {'num_calls_to_function', 'cost_convergence',
                                           'max_patience', 'num_elite', 'num_survivors',
-                                          'num_mutations_per_survivor', 'num_cross_breed'}
+                                          'num_mutations_per_survivor', 'num_cross_breed',
+                                          'objective_function', 'use_relative_cost_tolerance',
+                                          'relative_cost_tolerance'}
     assert names('CMA-ES') == {'num_calls_to_function', 'sigma0', 'cost_convergence',
                                'max_patience'}
     assert names('bayesian') == {'num_calls_to_function'}
@@ -88,6 +90,20 @@ def test_param_id_method_options_match_optimiser_reads():
         'no_new_starts_on_convergence', 'convergence_cluster_tol_frac', 'cost_convergence'}
     # multi-start is a superset of sp_minimize's gradient-descent settings
     assert names('sp_minimize') <= names('multi_start_sp_minimize')
+
+
+def test_the_ga_stopping_rules_are_listed_together():
+    """Option order is form order in a front-end that renders this schema, so it is part of the
+    contract rather than incidental. The relative-tolerance pair is the same decision as
+    cost_convergence and max_patience -- when to stop -- and belongs with them, not parked past
+    the population sizes where a reader takes it for something unrelated."""
+    order = [opt['name'] for opt in param_id_method_options('genetic_algorithm')]
+    stopping = ['cost_convergence', 'max_patience',
+                'use_relative_cost_tolerance', 'relative_cost_tolerance']
+    first = order.index(stopping[0])
+    assert order[first:first + len(stopping)] == stopping
+    # and the switch comes before the value it gates, which reads backwards otherwise
+    assert order.index('use_relative_cost_tolerance') < order.index('relative_cost_tolerance')
 
 
 def test_solver_info_fields_schema_well_formed():
