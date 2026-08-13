@@ -951,6 +951,14 @@ class CVS0DParamID():
         # Also check autocorrelation times for mcmc chain
         tau = self.calculate_autocorrelation_time(samples)
 
+        # Per-parameter posterior summary with ESS and split-R-hat, and the two chain-diagnostic
+        # plots. Printed rather than only returned: R-hat and ESS are the numbers that say
+        # whether the posterior above is trustworthy at all, so a run should not be able to
+        # finish without stating them.
+        self.print_convergence_diagnostics(samples)
+        self.plot_autocorrelation(samples)
+        self.plot_chain_avg(samples)
+
         # check geweke convergence
         if not self.DEBUG:
             # the chain is too short when running debug to do geweke diagnostics
@@ -966,6 +974,497 @@ class CVS0DParamID():
     def calculate_autocorrelation_time(self, samples):
         tau = emcee.autocorr.integrated_time(samples, quiet=True)
         return tau
+
+    # -----------------------------------------------------------------------
+    # Convergence diagnostics (issue #367)
+    # -----------------------------------------------------------------------
+    # Computed here from numpy and emcee rather than through arviz. #367 imported arviz at module
+    # level for these, which would have made every calibration run depend on it -- and arviz is
+    # not a CA dependency, so the diagnostics would then be unavailable in exactly the
+    # environments that need them. R-hat and ESS are short, standard formulas and emcee (already
+    # a dependency) supplies the autocorrelation, so nothing is gained by the dependency.
+
+    def calc_rhat(self, samples):
+        """Split-R-hat (Gelman-Rubin) per parameter, from a ``(steps, walkers, params)`` chain.
+
+        The *split* form: each walker is halved and the halves treated as separate chains, so a
+        single walker that drifts steadily is caught. Plain R-hat cannot see that -- a drifting
+        chain has a large within-chain variance, which is exactly what makes the ratio look fine.
+
+        Returns ``{param_name: rhat}``. Values near 1 indicate the walkers have mixed; the usual
+        working threshold is 1.01.
+        """
+        samples = np.asarray(samples, dtype=float)
+        num_steps, num_walkers, num_params = samples.shape
+
+        half = num_steps // 2
+        if half < 2:
+            return {name: float('nan') for name in self._param_labels(num_params)}
+
+        # (steps, walkers, params) -> (2*walkers chains, half draws, params)
+        chains = np.concatenate([samples[:half], samples[half:2 * half]], axis=1)
+        chains = np.swapaxes(chains, 0, 1)
+        num_chains = chains.shape[0]
+
+        chain_means = chains.mean(axis=1)
+        chain_vars = chains.var(axis=1, ddof=1)
+
+        within = chain_vars.mean(axis=0)
+        between = half * chain_means.var(axis=0, ddof=1) if num_chains > 1 else np.zeros(num_params)
+
+        var_plus = ((half - 1) / half) * within + between / half
+        with np.errstate(divide='ignore', invalid='ignore'):
+            rhat = np.sqrt(np.where(within > 0, var_plus / within, np.nan))
+
+        return dict(zip(self._param_labels(num_params), (float(r) for r in rhat)))
+
+    def calc_effective_sample_size(self, samples):
+        """Effective sample size per parameter: ``N / tau``, with tau the integrated
+        autocorrelation time over the pooled chain.
+
+        MCMC draws are correlated, so the number of samples overstates how much independent
+        information the chain carries. This is the number that should be quoted alongside a
+        posterior mean, not ``num_steps * num_walkers``.
+
+        Returns ``{param_name: ess}``.
+        """
+        samples = np.asarray(samples, dtype=float)
+        num_steps, num_walkers, num_params = samples.shape
+        total = num_steps * num_walkers
+
+        ess = {}
+        for name, idx in zip(self._param_labels(num_params), range(num_params)):
+            try:
+                tau = float(emcee.autocorr.integrated_time(samples[:, :, idx], quiet=True)[0])
+            except Exception:
+                tau = float('nan')
+            if not np.isfinite(tau) or tau <= 0:
+                ess[name] = float('nan')
+            else:
+                # A chain can never carry more independent information than it has draws.
+                ess[name] = float(min(total / tau, total))
+        return ess
+
+    def get_posterior_stats(self, samples):
+        """Per-parameter posterior summary: mean, sd, the 3%/97% credible bounds, ESS and R-hat.
+
+        One table rather than three separate arviz summary calls (#367 built the same dataset and
+        re-ran the summary in each of three accessors, so the expensive part ran three times).
+        """
+        samples = np.asarray(samples, dtype=float)
+        num_steps, num_walkers, num_params = samples.shape
+        flat = samples.reshape(num_steps * num_walkers, num_params)
+
+        ess = self.calc_effective_sample_size(samples)
+        rhat = self.calc_rhat(samples)
+
+        stats = {}
+        for idx, name in enumerate(self._param_labels(num_params)):
+            column = flat[:, idx]
+            stats[name] = {
+                'mean': float(np.mean(column)),
+                'sd': float(np.std(column, ddof=1)) if column.size > 1 else float('nan'),
+                'hdi_3%': float(np.percentile(column, 3)),
+                'hdi_97%': float(np.percentile(column, 97)),
+                'ess': ess[name],
+                'r_hat': rhat[name],
+            }
+        return stats
+
+    def print_convergence_diagnostics(self, samples):
+        """Print the summary table and say plainly whether the chain has converged.
+
+        A diagnostic nobody reads is not a diagnostic, and R-hat / ESS are only useful against
+        their thresholds -- so the verdict is stated rather than left to the reader.
+        """
+        stats = self.get_posterior_stats(samples)
+        print('')
+        print(f'{"parameter":<28s}{"mean":>12s}{"sd":>12s}{"3%":>12s}{"97%":>12s}'
+              f'{"ess":>10s}{"r_hat":>9s}')
+        for name, row in stats.items():
+            print(f'{name:<28s}{row["mean"]:>12.4g}{row["sd"]:>12.4g}{row["hdi_3%"]:>12.4g}'
+                  f'{row["hdi_97%"]:>12.4g}{row["ess"]:>10.1f}{row["r_hat"]:>9.3f}')
+
+        unconverged = [n for n, r in stats.items()
+                       if not np.isfinite(r['r_hat']) or r['r_hat'] > 1.01]
+        if unconverged:
+            print(f'WARNING: r_hat > 1.01 for {unconverged} -- the walkers have not mixed. '
+                  f'Run more steps before trusting the posterior.')
+        else:
+            print('All parameters have r_hat <= 1.01 (walkers mixed).')
+        return stats
+
+    def plot_autocorrelation(self, samples, num_params=None):
+        """One autocorrelation-vs-lag panel per parameter, every walker overlaid.
+
+        The +-0.1 guides are what makes the plot readable: a chain whose autocorrelation has
+        decayed inside them by the end of the trace is producing near-independent draws, and one
+        that has not is still exploring. Returns True when every walker is inside the band over
+        the last fifth of the lags, so a caller can act on it rather than only look at it.
+        """
+        if self.rank != 0:
+            return None
+        samples = np.asarray(samples, dtype=float)
+        if num_params is None:
+            num_params = samples.shape[2]
+
+        fig, axes = plt.subplots(num_params, figsize=(10, 2 * num_params), sharex=True,
+                                 squeeze=False)
+        all_bounded = True
+        labels = self._param_labels(num_params)
+        autocorr = None
+        for idx in range(num_params):
+            ax = axes[idx][0]
+            for walker in range(samples.shape[1]):
+                autocorr = emcee.autocorr.function_1d(samples[:, walker, idx])
+                ax.plot(autocorr, alpha=0.3)
+                window_size = max(1, int(0.2 * len(autocorr)))
+                if np.any(np.abs(autocorr[-window_size:]) > 0.1):
+                    all_bounded = False
+
+            ax.axhline(y=0, color='k', linestyle='--', alpha=0.7)
+            ax.axhline(y=0.1, color='r', linestyle='--', alpha=0.7, linewidth=1.5)
+            ax.axhline(y=-0.1, color='r', linestyle='--', alpha=0.7, linewidth=1.5)
+            ax.set_ylabel(f'${labels[idx]}$')
+            if autocorr is not None:
+                ax.set_xlim(0, len(autocorr))
+
+        axes[-1][0].set_xlabel('Lag')
+        fig.tight_layout()
+        fig.savefig(os.path.join(self.plot_dir,
+                                 f'mcmc_autocorrelation_{self.file_name_prefix}_'
+                                 f'{self.param_id_obs_file_prefix}.pdf'))
+        plt.close(fig)
+        return all_bounded
+
+    def plot_chain_avg(self, samples=None, window_size=10):
+        """Running mean of each walker, one panel per parameter.
+
+        Convergence shows up here as the walkers' running means coming together and flattening;
+        a walker whose mean is still moving has not finished exploring, which a corner plot of
+        the pooled chain hides by averaging it away.
+        """
+        if self.rank != 0:
+            return None
+        if samples is None:
+            chain = self.get_mcmc_samples()
+            if chain is None:
+                return None
+            _, samples, _ = chain
+        samples = np.asarray(samples, dtype=float)
+
+        num_steps, num_chains, num_params = samples.shape
+        if window_size >= num_steps:
+            print(f'Warning: chain-average window {window_size} is not shorter than the '
+                  f'{num_steps} steps available; skipping the chain average plot.')
+            return None
+
+        fig, axes = plt.subplots(num_params, figsize=(10, 2 * num_params), sharex=True,
+                                 squeeze=False)
+        window = np.ones(window_size) / window_size
+        labels = self._param_labels(num_params)
+        for idx in range(num_params):
+            ax = axes[idx][0]
+            for chain_idx in range(num_chains):
+                moving_avg = np.convolve(samples[:, chain_idx, idx], window, mode='valid')
+                ax.plot(np.arange(len(moving_avg)) + window_size - 1, moving_avg, alpha=0.5)
+            ax.set_ylabel(f'${labels[idx]}$')
+
+        axes[-1][0].set_xlabel('Step')
+        fig.tight_layout()
+        fig.savefig(os.path.join(self.plot_dir,
+                                 f'mcmc_chain_average_{self.file_name_prefix}_'
+                                 f'{self.param_id_obs_file_prefix}.pdf'))
+        plt.close(fig)
+        return True
+
+    # -----------------------------------------------------------------------
+    # Posterior-predictive plots (issue #367)
+    # -----------------------------------------------------------------------
+    # seaborn is imported lazily inside each of these. It is a CA dependency, but paramID is
+    # imported by every calibration run and none of these are on that path, so there is no
+    # reason to pay the import for a run that never plots a posterior.
+
+    def get_prior_pdf(self, param_idx, x_values):
+        """The prior density for one parameter, over ``x_values``, normalised on that range.
+
+        Derived from CA's own ``get_lnprior_from_params`` rather than reimplemented. The priors
+        are independent per parameter, so evaluating the log prior along one axis with the others
+        held at their best-fit values recovers that parameter's prior up to a constant, and the
+        constant falls out in the normalisation.
+
+        That matters because the prior vocabulary is not simply uniform/exponential/normal any
+        more: params_for_id carries ``prior_mean``, ``prior_std``, ``prior_origin`` and
+        ``prior_scale``, and an ``unbounded`` flag that suppresses the range truncation. #367
+        restated the *old* defaults here (lambda=1, sigma=(max-min)/6, mu=(max+min)/2), so a
+        plotted prior would have silently disagreed with the one actually being sampled.
+        """
+        engine = mcmc_object if self.mcmc_instead else self.param_id
+        x_values = np.asarray(x_values, dtype=float)
+
+        centre = getattr(engine, 'best_param_vals', None)
+        if centre is None:
+            mins = np.asarray(engine.param_id_info['param_mins'], dtype=float)
+            maxs = np.asarray(engine.param_id_info['param_maxs'], dtype=float)
+            centre = 0.5 * (mins + maxs)
+        centre = np.asarray(centre, dtype=float).copy()
+
+        lnprior = np.empty_like(x_values)
+        for idx, value in enumerate(x_values):
+            trial = centre.copy()
+            trial[param_idx] = value
+            lnprior[idx] = engine.get_lnprior_from_params(trial)
+
+        finite = np.isfinite(lnprior)
+        pdf = np.zeros_like(x_values)
+        if not np.any(finite):
+            return pdf
+        # Subtract the max before exponentiating: the log prior is unnormalised, so its absolute
+        # level is arbitrary and can overflow exp() outright.
+        pdf[finite] = np.exp(lnprior[finite] - np.max(lnprior[finite]))
+        area = np.trapz(pdf, x_values)
+        if area > 0:
+            pdf /= area
+        return pdf
+
+    def _posterior_predictive_values(self, flat_samples, n_sims=50):
+        """Re-simulate ``n_sims`` posterior draws and collect each observable's value.
+
+        Returns ``{name_for_plotting: {experiment_idx: [values], 'exp_data': [values]}}`` -- the
+        model's predictive distribution per feature, alongside the measurements it is answerable
+        to.
+        """
+        sim_obj = mcmc_object if self.mcmc_instead else self.param_id
+        names = self.obs_info['names_for_plotting']
+        values = {name: {} for name in names}
+
+        flat_samples = np.asarray(flat_samples, dtype=float)
+        n_actual = int(min(n_sims, len(flat_samples)))
+        if n_actual == 0:
+            return values
+        sample_indices = np.random.choice(len(flat_samples), n_actual, replace=False)
+
+        for count, sample_idx in enumerate(sample_indices, start=1):
+            _, obs_list = sim_obj.get_cost_and_obs_from_params(flat_samples[sample_idx, :],
+                                                               reset=True)
+            subexp_count = 0
+            for exp_idx in range(self.protocol_info['num_experiments']):
+                for sub_idx in range(self.protocol_info['num_sub_per_exp'][exp_idx]):
+                    if subexp_count >= len(obs_list) or obs_list[subexp_count] is None:
+                        subexp_count += 1
+                        continue
+                    obs_proc = sim_obj.get_obs_output_dict(obs_list[subexp_count])
+                    subexp_count += 1
+
+                    for obs_idx, name in enumerate(names):
+                        if (self.obs_info['experiment_idxs'][obs_idx] != exp_idx
+                                or self.obs_info['subexperiment_idxs'][obs_idx] != sub_idx):
+                            continue
+                        value = self._predictive_value(obs_proc, obs_idx)
+                        if value is not None:
+                            values[name].setdefault(exp_idx, []).append(value)
+
+            sim_obj.sim_helper.reset_and_clear()
+            print(f'Processed {count}/{n_actual} posterior samples for the predictive plots.')
+
+        self._add_measured_values(values)
+        return values
+
+    def _predictive_value(self, obs_proc, obs_idx):
+        """One observable's scalar out of a simulated obs dict, by its data_type."""
+        data_type = self.obs_info['data_types'][obs_idx]
+        try:
+            if data_type == 'constant':
+                return obs_proc['const'][obs_idx]
+            if data_type == 'series':
+                return np.max(obs_proc['series'][obs_idx])
+            if data_type == 'frequency':
+                return obs_proc['amp'][obs_idx]
+            if data_type == 'prob_dist':
+                return obs_proc['val_for_prob_dist'][obs_idx]
+        except (IndexError, KeyError, TypeError):
+            return None
+        return None
+
+    def _add_measured_values(self, values):
+        """Add the measured data each feature is answerable to, under 'exp_data'."""
+        for obs_idx, name in enumerate(self.obs_info['names_for_plotting']):
+            data_type = self.obs_info['data_types'][obs_idx]
+            measured = values[name].setdefault('exp_data', [])
+            if data_type == 'constant':
+                mean = self.obs_info['ground_truth_const'][obs_idx]
+                std = self.obs_info['std_const_vec'][obs_idx]
+                # A constant observation is a mean and a std, not samples; draw from it so the
+                # comparison is distribution against distribution rather than a line.
+                measured.extend(np.random.normal(mean, std, 20))
+            elif data_type == 'prob_dist':
+                params = self.obs_info['ground_truth_prob_dist_params'][obs_idx]
+                if isinstance(params, dict) and 'data_points' in params:
+                    measured.extend(np.asarray(params['data_points'], dtype=float))
+
+    def save_posterior_predictions(self, values):
+        """Write the predictive values to posterior_predictions.csv, long-format.
+
+        The plots below are a view of this; the csv is what someone re-plots or re-analyses
+        from without paying for the simulations again.
+        """
+        rows = []
+        for feature, by_experiment in values.items():
+            for key, vals in by_experiment.items():
+                kind = 'experimental' if key == 'exp_data' else 'simulated'
+                for value in vals:
+                    rows.append({'feature': feature, 'experiment_idx': key,
+                                 'value': value, 'data_type': kind})
+        path = os.path.join(self.output_dir, 'posterior_predictions.csv')
+        pd.DataFrame(rows).to_csv(path, index=False)
+        print(f'Saved posterior predictions to {path}')
+        return path
+
+    def plot_boxplots_for_predictions(self, flat_samples, n_sims=50, show_points=True):
+        """Violin + box + jittered points per feature: the model's predictive spread against
+        the measurements, one figure per feature, plus a summary grid.
+
+        This is the plot that answers "does the calibrated model reproduce the data, and with
+        what spread" -- which a best-fit line cannot show.
+        """
+        if self.rank != 0:
+            return None
+        import seaborn as sns
+
+        values = self._posterior_predictive_values(flat_samples, n_sims=n_sims)
+        self.save_posterior_predictions(values)
+
+        written = []
+        for feature, by_experiment in values.items():
+            ordered_keys = sorted(by_experiment.keys(), key=lambda k: str(k))
+            series, labels, colors = [], [], []
+            for key in ordered_keys:
+                if not by_experiment[key]:
+                    continue
+                series.append(by_experiment[key])
+                if key == 'exp_data':
+                    labels.append('Experimental')
+                    colors.append('red')
+                else:
+                    labels.append(self._experiment_label(key))
+                    colors.append(self._experiment_color(key))
+            if not series:
+                continue
+
+            fig, ax = plt.subplots(figsize=(6.5, 4.5))
+            sns.violinplot(data=series, ax=ax, palette=colors, cut=3, inner='box',
+                           saturation=0.8)
+            for idx, collection in enumerate(ax.collections):
+                if idx < len(series):
+                    collection.set_alpha(0.35)
+                    collection.set_edgecolor('none')
+
+            for idx, vals in enumerate(series):
+                mean_v, std_v = np.mean(vals), np.std(vals)
+                ax.scatter(idx, mean_v, marker='D', color='white', edgecolor='black', s=30,
+                           zorder=4)
+                spread = np.max(vals) - np.min(vals)
+                ax.text(idx, np.max(vals) + 0.05 * spread,
+                        fr'${mean_v:.2g} \pm {std_v:.2g}$', ha='center', fontsize=9,
+                        bbox=dict(boxstyle='round,pad=0.2', fc='white', alpha=0.5, ec='none'))
+                if show_points:
+                    ax.scatter(np.random.normal(idx, 0.04, size=len(vals)), vals,
+                               color='black', s=5, alpha=0.2, zorder=2)
+
+            obs_idx = self.obs_info['names_for_plotting'].index(feature)
+            ax.set_xticks(range(len(labels)))
+            ax.set_xticklabels(labels, rotation=15)
+            ax.set_ylabel(f"{feature} ({self.obs_info['units'][obs_idx]})")
+            ax.set_title(feature)
+            sns.despine(ax=ax)
+            fig.tight_layout()
+            # Sanitised, not feature.replace(' ', '_'): a name_for_plotting is LaTeX-ish
+            # (u_{A_{R}}), and braces and slashes do not survive as a filename (#167).
+            # Imported here rather than at module level: sobolSA pulls in SALib, which a
+            # calibration-only install need not have.
+            from sensitivity_analysis.sobolSA import sanitize_for_filename
+
+            path = os.path.join(self.plot_dir, f'posterior_{sanitize_for_filename(feature)}.png')
+            fig.savefig(path, dpi=300)
+            plt.close(fig)
+            written.append(path)
+
+        # Once, after every feature -- #367 called this inside the loop, redrawing the whole
+        # grid once per feature and keeping only the last.
+        self.plot_distribution_grid(values)
+        return written
+
+    def plot_distribution_grid(self, values):
+        """One figure of KDE panels, model posterior against measurement, for every feature."""
+        if self.rank != 0:
+            return None
+        import seaborn as sns
+
+        features = list(self.obs_info['names_for_plotting'])
+        if not features:
+            return None
+        cols = min(3, len(features))
+        rows = (len(features) + cols - 1) // cols
+        fig, axes = plt.subplots(rows, cols, figsize=(cols * 4.5, rows * 4), squeeze=False)
+        flat_axes = axes.flatten()
+
+        for idx, feature in enumerate(features):
+            ax = flat_axes[idx]
+            by_experiment = values.get(feature, {})
+            model_vals = [v for key, vals in by_experiment.items() if key != 'exp_data'
+                          for v in vals]
+            self._draw_density(ax, model_vals, 'Model posterior', '#1f77b4')
+            self._draw_density(ax, by_experiment.get('exp_data', []), 'Experimental', '#d62728')
+
+            ax.set_title(feature, fontweight='bold')
+            ax.set_xlabel(f"Value ({self.obs_info['units'][idx]})")
+            ax.set_ylabel('Density')
+            ax.legend(fontsize=8, frameon=False)
+            sns.despine(ax=ax)
+
+        for empty in range(len(features), len(flat_axes)):
+            flat_axes[empty].axis('off')
+
+        fig.tight_layout()
+        path = os.path.join(self.plot_dir, 'all_features_kde_grid.png')
+        fig.savefig(path, dpi=300)
+        plt.close(fig)
+        return path
+
+    @staticmethod
+    def _draw_density(ax, data, label, color):
+        """A KDE curve, falling back to a histogram when the data has no spread to smooth."""
+        data = np.asarray(list(data), dtype=float)
+        if data.size < 2:
+            return
+        try:
+            from scipy.stats import gaussian_kde
+
+            kde = gaussian_kde(data)
+            pad = 0.5 * np.std(data)
+            grid = np.linspace(np.min(data) - pad, np.max(data) + pad, 200)
+            ax.plot(grid, kde(grid), color=color, lw=2, label=label)
+        except (np.linalg.LinAlgError, ValueError):
+            # gaussian_kde needs a non-singular covariance: identical samples raise here.
+            ax.hist(data, bins=50, density=True, alpha=0.2, color=color, label=label)
+
+    def _experiment_label(self, exp_idx):
+        labels = self.protocol_info.get('experiment_labels') or []
+        return labels[exp_idx] if exp_idx < len(labels) else f'Exp {exp_idx}'
+
+    def _experiment_color(self, exp_idx):
+        colors = self.protocol_info.get('experiment_colors') or []
+        return colors[exp_idx] if exp_idx < len(colors) else f'C{exp_idx}'
+
+    def _param_labels(self, num_params=None):
+        """Parameter names for the diagnostic tables, falling back to indices."""
+        names = None
+        info = getattr(self, 'param_id_info', None)
+        if isinstance(info, dict):
+            names = info.get('param_names_for_plotting')
+        if names is None or (num_params is not None and len(names) != num_params):
+            return [f'param_{idx}' for idx in range(num_params or 0)]
+        return list(names)
 
     def calculate_geweke_convergence(self, samples):
         d = diagnostics.Diagnostics()
