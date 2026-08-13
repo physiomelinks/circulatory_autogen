@@ -186,7 +186,7 @@ def test_relative_tolerance_catches_a_stall_an_absolute_threshold_misses():
     absolute_only = _ga(_StubEngine())
     assert absolute_only._loss_has_stalled(500.0, 500.01) is False
 
-    relative = _ga(_StubEngine(), use_relative_tolerance=True, relative_tolerance=1e-3)
+    relative = _ga(_StubEngine(), use_relative_cost_tolerance=True, relative_cost_tolerance=1e-3)
     assert relative._loss_has_stalled(500.0, 500.01) is True
     # still not stalled when the fractional change is genuinely large
     assert relative._loss_has_stalled(500.0, 700.0) is False
@@ -194,5 +194,5 @@ def test_relative_tolerance_catches_a_stall_an_absolute_threshold_misses():
 
 @pytest.mark.unit
 def test_relative_tolerance_does_not_divide_by_zero():
-    relative = _ga(_StubEngine(), use_relative_tolerance=True, relative_tolerance=1e-3)
+    relative = _ga(_StubEngine(), use_relative_cost_tolerance=True, relative_cost_tolerance=1e-3)
     assert relative._loss_has_stalled(1.0, 0.0) is False

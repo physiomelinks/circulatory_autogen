@@ -439,17 +439,17 @@ _OPT_OBJECTIVE_FUNCTION = {
     'description': "Genetic algorithm: what to minimise. 'cost' is the weighted cost function; "
                    "'likelihood' is the negative log posterior (log likelihood + log prior).",
 }
-_OPT_USE_RELATIVE_TOLERANCE = {
-    'name': 'use_relative_tolerance', 'type': 'bool', 'default': False, 'required': False,
+_OPT_USE_RELATIVE_COST_TOLERANCE = {
+    'name': 'use_relative_cost_tolerance', 'type': 'bool', 'default': False, 'required': False,
     'description': 'Genetic algorithm: also count a generation as stalled when the *fractional* '
-                   'change in cost falls below relative_tolerance, not only when the absolute '
+                   'change in cost falls below relative_cost_tolerance, not only when the absolute '
                    'change falls below cost_convergence. Useful when the objective is large in '
                    'magnitude (e.g. a log posterior), where an absolute threshold never trips.',
 }
-_OPT_RELATIVE_TOLERANCE = {
-    'name': 'relative_tolerance', 'type': 'float', 'default': 1e-3, 'required': False,
+_OPT_RELATIVE_COST_TOLERANCE = {
+    'name': 'relative_cost_tolerance', 'type': 'float', 'default': 1e-3, 'required': False,
     'description': 'Genetic algorithm: the fractional cost change below which a generation '
-                   'counts as stalled. Only read when use_relative_tolerance is true.',
+                   'counts as stalled. Only read when use_relative_cost_tolerance is true.',
 }
 
 
@@ -1181,14 +1181,20 @@ PARAM_ID_METHODS = {
         'label': 'Genetic algorithm',
         'gradient_based': False,
         'description': 'Gradient-free population-based global search.',
+        # This order is the order a front-end lays the form out in, so the stopping rules sit
+        # together: the relative one is the same decision as cost_convergence/max_patience, not
+        # a separate feature, and is unreadable parked at the far end past the population sizes.
         'options': [_OPT_NUM_CALLS, _OPT_COST_CONVERGENCE, _OPT_MAX_PATIENCE,
+                    # Only the GA reads these two, for the same reason it alone reads
+                    # objective_function below: a log-posterior objective sits in the hundreds
+                    # and never moves by less than an absolute threshold.
+                    _OPT_USE_RELATIVE_COST_TOLERANCE, _OPT_RELATIVE_COST_TOLERANCE,
                     _OPT_GA_NUM_ELITE, _OPT_GA_NUM_SURVIVORS,
                     _OPT_GA_NUM_MUTATIONS_PER_SURVIVOR, _OPT_GA_NUM_CROSS_BREED,
-                    # Only the GA reads these: it is the one optimiser that can be driven by a
+                    # Only the GA reads this: it is the one optimiser that can be driven by a
                     # log-posterior (it needs no gradient of it), and the one whose selection
                     # step had to change to cope with the negative costs that produces.
-                    _OPT_OBJECTIVE_FUNCTION, _OPT_USE_RELATIVE_TOLERANCE,
-                    _OPT_RELATIVE_TOLERANCE],
+                    _OPT_OBJECTIVE_FUNCTION],
     },
     'CMA-ES': {
         'label': 'CMA-ES',

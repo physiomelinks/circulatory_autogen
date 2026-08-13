@@ -153,16 +153,16 @@ class GeneticAlgorithmOptimiser(Optimiser):
 
         The absolute ``cost_convergence`` test alone is scale dependent: a likelihood objective
         whose values sit in the hundreds never moves by less than 1e-4, so the run only ever
-        stops on the generation budget. Opting in to ``use_relative_tolerance`` also stops when
-        the *fractional* change falls below ``relative_tolerance``. Either criterion counts, so
+        stops on the generation budget. Opting in to ``use_relative_cost_tolerance`` also stops when
+        the *fractional* change falls below ``relative_cost_tolerance``. Either criterion counts, so
         turning it on can only make a run stop sooner, never later.
         """
         diff = abs(cost - last_loss)
         if diff < self.optimiser_options["cost_convergence"]:
             return True
-        if self.optimiser_options.get('use_relative_tolerance', False):
+        if self.optimiser_options.get('use_relative_cost_tolerance', False):
             relative_change = diff / max(abs(last_loss), 1e-10)
-            return relative_change < self.optimiser_options.get('relative_tolerance', 1e-3)
+            return relative_change < self.optimiser_options.get('relative_cost_tolerance', 1e-3)
         return False
 
     @staticmethod
