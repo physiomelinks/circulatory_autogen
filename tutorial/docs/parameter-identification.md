@@ -245,6 +245,93 @@ funcs in `funcs_user/operation_funcs_user.py`, funcs in a file pointed to by
 When building obs data in python rather than as a file, pass the same field through
 `ObsDataCreator.add_data_item({... , "operation_kwargs": {...}})`.
 
+### Building an observable from other observables
+
+Sometimes the quantity you want to fit is not something the model reports directly, but a
+combination of quantities it does. If you have a ground truth for the mean flow and another for
+the peak flow, what you actually know may be the difference between them -- the pulse amplitude --
+and that difference is what you want the cost to see.
+
+An observable can therefore be computed from observables defined earlier in `data_items`, using
+the string-reference rule described above: a string in `operation_kwargs` that matches an earlier
+item's `name_for_plotting` is replaced by that item's computed value.
+
+`funcs_user/operation_funcs_user.py` ships `calculate_two_observable_difference` for the two-term
+case. It takes its inputs as `pred1` and `pred2` and returns `pred2 - pred1`:
+
+```json
+{
+  "variable": "flow aortic root",
+  "name_for_plotting": "v_{ARmean}",
+  "data_type": "constant",
+  "operation": "mean",
+  "operands": ["aortic_root/v"],
+  "unit": "m3_per_s", "weight": 1.0, "value": 0.0001, "std": 1e-05
+},
+{
+  "variable": "flow aortic root",
+  "name_for_plotting": "v_{ARmax}",
+  "data_type": "constant",
+  "operation": "max",
+  "operands": ["aortic_root/v"],
+  "unit": "m3_per_s", "weight": 1.0, "value": 0.0005, "std": 5e-05
+},
+{
+  "variable": "flow aortic root",
+  "name_for_plotting": "v_{ARdelta}",
+  "data_type": "constant",
+  "operation": "calculate_two_observable_difference",
+  "operands": [""],
+  "operation_kwargs": { "pred1": "v_{ARmean}", "pred2": "v_{ARmax}" },
+  "unit": "m3_per_s", "weight": 1.0, "value": 0.0004, "std": 5e-05
+}
+```
+
+`resources/3compartment_extra_ops_obs_data.json` is this example as a complete, working file.
+
+Three things to get right:
+
+- **Order matters.** An observable can only reference items that appear *before* it in
+  `data_items`, because the values are computed in file order and the reference is resolved
+  against the ones already computed.
+- **`operands` is empty**, written `[""]`. The item takes its inputs from `operation_kwargs`
+  rather than from a model variable, so there is no trace to reduce. `variable` is still filled in
+  for labelling.
+- **`name_for_plotting` must be unique.** It is the key the reference is resolved against, so two
+  items sharing a name means the later one silently replaces the earlier, and a reference gets a
+  value from the wrong item. Nothing errors -- the run simply fits the wrong feature. Likewise a
+  name that matches nothing is passed through to the operation func as a plain string rather than
+  raising, so a typo shows up as a strange result rather than a failure.
+
+To combine more than two observables, or to combine them some other way, write your own operation
+func in `funcs_user/operation_funcs_user.py` (see
+[Creating your own operations](#creating-your-own-operations)) and name it in `operation`. It
+receives the referenced values as keyword arguments, so it needs to accept them -- either by
+declaring them explicitly or with `**kwargs`. `@series_to_constant` marks it as returning a
+single number rather than a trace:
+
+```python
+@series_to_constant
+def combine_three_observables(x=None, series_output=False, **kwargs):
+    return kwargs["pred3"] - kwargs["pred2"] - kwargs["pred1"]
+```
+
+and the `data_item` names it in `operation` with one `operation_kwargs` entry per input:
+
+```json
+"operation": "combine_three_observables",
+"operands": [""],
+"operation_kwargs": { "pred1": "v_{ARmean}", "pred2": "v_{ARmax}", "pred3": "v_{ARmin}" }
+```
+
+!!! note
+    Older versions could fail with `TypeError: operation_funcs.mean() argument after ** must be a
+    mapping, not float` when a `data_item` had no `operation_kwargs`. This is fixed: every place
+    that forwards `operation_kwargs` now goes through
+    `param_id.operation_funcs.resolve_operation_kwargs`, which treats a missing/null/NaN value as
+    "no kwargs" and raises a descriptive `ValueError` (naming the data item, the operation and the
+    accepted keys) for a key the operation func does not accept.
+
 ### prediction items (optional)
 
 You can include a `prediction_items` list in `obs_data.json` to request additional model outputs to plot (not used in the cost function). Each entry includes:
