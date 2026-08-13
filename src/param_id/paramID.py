@@ -2790,7 +2790,20 @@ class OpencorParamID():
                 for const_idx in range(const.size1()):
                     obs_idx = self.obs_info['const_idx_to_obs_idx'][const_idx]
                     if updated_weight_const_vec[obs_idx] != 0:
-                        cost += call_cost_func(cost_funcs_dict[self.cost_type[obs_idx]],
+                        cost_func = cost_funcs_dict[self.cost_type[obs_idx]]
+                        # A cost that scores against a distribution builds its density from
+                        # numbers (scipy's gaussian_kde, a mixture) and cannot take a symbol.
+                        # Before #421 these items were data_type prob_dist and were refused
+                        # below with amp/phase; now they are constants, so refuse them here --
+                        # otherwise the symbolic cost silently picks up the nan standing in for
+                        # the `value` such an item deliberately does not have.
+                        if ground_truth_param_name(cost_func) == 'prob_dist_params':
+                            raise NotImplementedError(
+                                f"cost_type '{self.cost_type[obs_idx]}' scores against a "
+                                f"distribution and cannot be differentiated symbolically. Use a "
+                                f"value/std cost (gaussian_MLE, MSE, AE) for this data_item, or "
+                                f"turn off do_ad.")
+                        cost += call_cost_func(cost_func,
                                                const[const_idx], self.obs_info["ground_truth_const"][const_idx],
                                                std=self.obs_info["std_const_vec"][const_idx],
                                                weight=updated_weight_const_vec[obs_idx],
