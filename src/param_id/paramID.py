@@ -3655,14 +3655,35 @@ def sample_with_checkpoints(sampler, initial_state, num_steps, save_chain, save_
     chain used to reach disk once, hours in. ``sample()`` is the same loop as a generator, so
     checkpointing is just doing something on the way round.
 
+    A backend with no generator form can still checkpoint, if it has some hook of its own to do
+    it from: one that sets ``saves_own_checkpoints`` is handed ``save_chain`` and ``save_every``
+    and is trusted to call the hook itself. pyMC is that case -- ``pm.sample`` cannot be stepped
+    but does take a per-draw callback -- and without this it took the fallback below, so a pyMC
+    run's chain appeared only at the end however ``chain_save_every`` was set.
+
     Falls back to ``run_mcmc`` when ``save_every`` is non-positive (checkpointing off) or the
-    sampler has no ``sample`` -- zeus is driven through the same code path here, and a backend
-    that only offers ``run_mcmc`` should keep working rather than raise.
+    sampler has neither ``sample`` nor its own checkpointing -- zeus is driven through the same
+    code path here, and a backend that only offers ``run_mcmc`` should keep working rather than
+    raise.
 
     Returns the number of checkpoints written, which is what a test can assert on without
     reaching into the filesystem.
     """
     sample = getattr(sampler, 'sample', None)
+    if save_every > 0 and getattr(sampler, 'saves_own_checkpoints', False):
+        # Counted here rather than trusted to the backend, so "how many were written" means the
+        # same thing -- calls to this hook -- whichever route produced them.
+        checkpoints = 0
+
+        def counted_save(samples):
+            nonlocal checkpoints
+            checkpoints += 1
+            save_chain(samples)
+
+        sampler.run_mcmc(initial_state, num_steps, save_chain=counted_save,
+                         save_every=save_every, **sample_kwargs)
+        return checkpoints
+
     if save_every <= 0 or sample is None:
         sampler.run_mcmc(initial_state, num_steps, **sample_kwargs)
         return 0
