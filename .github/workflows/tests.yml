@@ -167,7 +167,8 @@ jobs:
   #
   # Measured on Simple_ODE_Benchmark, which is why the job is split the way it is:
   #
-  #   tests/test_uq_on_emulator.py                        ~1 min    (sampled through an emulator)
+  #   tests/test_uq_on_emulator.py [emcee]                ~34 s    (sampled through an emulator)
+  #   tests/test_uq_on_emulator.py [pymc]                 ~83 s    (same, pyMC backend)
   #   test_UQ.py::test_mcmc_unimodal_with_validation      ~9 min    (emcee, real model)
   #   test_UQ.py::test_mcmc_bimodal_with_validation      ~26 min    (emcee, real model)
   #   test_UQ.py::..._KDE_likelihood                     >50 min    (pyMC -- killed, unfinished)
@@ -176,7 +177,8 @@ jobs:
   # likelihood evaluation *per parameter per step* where emcee moves the whole ensemble at once,
   # and PyMCSampler's num_tune defaults to 1000, so it runs 1500 iterations for the 500 draws
   # the test asks for. Run it by hand (or fix the tuning cost) rather than putting an hour on
-  # every pull request; the pyMC backend's other coverage is in tests/test_uq_pymc_backend.py.
+  # every pull request. The pyMC backend is still covered end to end -- through the emulator,
+  # where the same chain costs 83 seconds instead of an hour.
   #
   # It is its own job rather than extra cases on test-param-id-*, because it needs two optional
   # extras those jobs have no use for, and because at ~35 minutes it would become the critical

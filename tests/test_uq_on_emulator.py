@@ -50,6 +50,10 @@ except ImportError:                                            # pragma: no cove
 ANALYTICAL_SOLUTION = np.array([1.0, 1.0])
 ANALYTICAL_STD = np.array([0.1, 0.3])
 
+#: Walkers for emcee, chains for pymc -- the same budget either way, so the two samplers are
+#: compared on equal terms rather than on how each happens to be configured.
+NUM_WALKERS = 20
+
 #: The sweep's pick: fast to train, faithful, and cheap to evaluate.
 EMULATOR_SETTINGS = {
     'models': 'RadialBasisFunctions',
@@ -68,6 +72,23 @@ def mpi_comm():
     return MPI.COMM_WORLD
 
 
+def _pymc_available():
+    try:
+        import pymc  # noqa: F401
+
+        return True
+    except ImportError:
+        return False
+
+
+SAMPLERS = [
+    pytest.param('emcee', id='emcee'),
+    pytest.param('pymc', id='pymc',
+                 marks=pytest.mark.skipif(not _pymc_available(),
+                                          reason='the pyMC backend needs the [uq] extra')),
+]
+
+
 def _emulator_available():
     try:
         from emulators.emulator_trainer import autoemulate_available
@@ -77,7 +98,27 @@ def _emulator_available():
         return False
 
 
-def _config(resources_dir, output_dir, generated_models_dir, emulator_dir, **overrides):
+def _uq_options(library):
+    options = {
+        'method': 'mcmc',
+        'library': library,
+        'num_steps': 3000,
+        'num_walkers': NUM_WALKERS,
+        'burn_in': 0.5,
+        'cost_type': 'gaussian_MLE',
+    }
+    if library == 'pymc':
+        # pymc runs num_tune warm-up iterations *on top of* num_steps, per chain, and its
+        # Metropolis steps one parameter at a time -- so the default 1000 would triple an
+        # already heavier chain. Cheap here because each evaluation is an emulator prediction
+        # rather than a solve, but there is no reason to pay for warm-up this test does not need.
+        options['num_tune'] = 200
+        options['num_steps'] = 1500
+    return options
+
+
+def _config(resources_dir, output_dir, generated_models_dir, emulator_dir,
+            library='emcee', **overrides):
     config = {
         'file_prefix': 'Simple_ODE_Benchmark',
         'input_param_file': 'Simple_ODE_Benchmark_parameters.csv',
@@ -104,14 +145,7 @@ def _config(resources_dir, output_dir, generated_models_dir, emulator_dir, **ove
         'use_emulator': True,
         'emulator_settings': {**EMULATOR_SETTINGS, 'emulator_dir': emulator_dir},
         'emulator_dir': emulator_dir,
-        'UQ_options': {
-            'method': 'mcmc',
-            'library': 'emcee',
-            'num_steps': 3000,
-            'num_walkers': 16,
-            'burn_in': 0.5,
-            'cost_type': 'gaussian_MLE',
-        },
+        'UQ_options': _uq_options(library),
     }
     config.update(overrides)
     return YamlFileParser().parse_user_inputs_file(
@@ -127,18 +161,30 @@ def _train_emulator(config, comm):
 
 @pytest.mark.integration
 @pytest.mark.mpi
+@pytest.mark.parametrize('library', SAMPLERS)
 @pytest.mark.skipif(not _emulator_available(),
                     reason='autoemulate is required for the emulator UQ test')
 def test_uq_on_an_emulator_recovers_the_analytic_posterior(
-        resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
+        library, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
     """Train an emulator, sample through it, and check the posterior is the right one.
+
+    Run for both samplers. Two independent samplers agreeing on a posterior whose answer is
+    known in closed form is a much stronger statement than either one matching alone: a bug in
+    the shared machinery below them (the cost, the priors, the emulator) would move both, but a
+    bug in one sampler moves only that one.
+
+    It is also the only affordable way to exercise the pyMC backend end to end. Against the real
+    model that test exceeded 50 minutes and was killed unfinished, because pyMC's Metropolis
+    takes one likelihood evaluation per parameter per step. On an emulator each of those
+    evaluations is a matrix multiply, so the same chain costs seconds.
 
     Deliberately *not* marked slow: the whole point is that this runs on a pull request, where
     the full-model equivalents cannot. If it stops being quick, that is a regression in its own
     right -- an emulator whose sampling costs what the model costs has no reason to exist.
     """
     emulator_dir = os.path.join(temp_output_dir, 'emulator')
-    config = _config(resources_dir, temp_output_dir, temp_generated_models_dir, emulator_dir)
+    config = _config(resources_dir, temp_output_dir, temp_generated_models_dir, emulator_dir,
+                     library=library)
 
     if mpi_comm.Get_rank() == 0:
         assert generate_with_new_architecture(False, config), 'benchmark generation failed'
@@ -163,13 +209,21 @@ def test_uq_on_an_emulator_recovers_the_analytic_posterior(
 
     posterior_mean = flat.mean(axis=0)
     posterior_sd = flat.std(axis=0)
-    print(f'emulator posterior mean {posterior_mean} (truth {ANALYTICAL_SOLUTION})')
-    print(f'emulator posterior sd   {posterior_sd} (truth {ANALYTICAL_STD})')
+    print(f'[{library}] posterior mean {posterior_mean} (truth {ANALYTICAL_SOLUTION})')
+    print(f'[{library}] posterior sd   {posterior_sd} (truth {ANALYTICAL_STD})')
 
+    assert chain.shape[1] == NUM_WALKERS, (
+        f'{library} produced {chain.shape[1]} walkers, not the {NUM_WALKERS} asked for')
+
+    # Both moments are checked, not just the centre. A sampler that finds the right mode but
+    # mis-sizes its spread has not recovered the posterior -- it has recovered a point estimate
+    # with a plausible-looking error bar, which is exactly what UQ is supposed to replace.
     # Tolerances are far wider than the sweep's measured error (0.007 / 0.003), so this fails on
     # a real regression rather than on sampling noise.
-    assert posterior_mean == pytest.approx(ANALYTICAL_SOLUTION, abs=0.05), posterior_mean
-    assert posterior_sd == pytest.approx(ANALYTICAL_STD, abs=0.08), posterior_sd
+    assert posterior_mean == pytest.approx(ANALYTICAL_SOLUTION, abs=0.05), (
+        f'{library} posterior mean {posterior_mean} != {ANALYTICAL_SOLUTION}')
+    assert posterior_sd == pytest.approx(ANALYTICAL_STD, abs=0.08), (
+        f'{library} posterior sd {posterior_sd} != {ANALYTICAL_STD}')
 
 
 @pytest.mark.integration
