@@ -1116,6 +1116,7 @@ def test_param_id_SN_simple_CVODE_myokit_ga_smoke(
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.mpi
+@pytest.mark.full_scale_model
 def test_param_id_simple_physiological_succeeds(base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
     """
     Test that parameter identification succeeds for simple_physiological model.
