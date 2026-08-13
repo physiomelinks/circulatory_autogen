@@ -3325,8 +3325,11 @@ class ObsAndParamDataParser(object):
                     f"Missing required data_item keys: {sorted(missing_required_cols)}"
                 )
 
+            # An obs_data with no data_items is valid -- a protocol-only file says how to drive
+            # the model without yet saying what to measure -- and the schema loop above is
+            # skipped for it, so none of these columns exist to validate.
             bad_data_types = sorted({str(dt) for dt in gt_df["data_type"]}
-                                    - set(VALID_DATA_TYPES))
+                                    - set(VALID_DATA_TYPES)) if len(gt_df) else []
             if "prob_dist" in bad_data_types:
                 raise ValueError(
                     'data_type "prob_dist" has been removed (issue #421). It described the '
