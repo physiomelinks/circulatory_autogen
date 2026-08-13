@@ -2,6 +2,7 @@
 @author: Finbar J. Argus
 '''
 
+import contextlib
 import numpy as np
 import os
 import sys
@@ -2216,6 +2217,23 @@ class OpencorParamID():
             return None
         return raw[obs_idx] or None
 
+    def _cost_weight_vectors(self, exp_idx, sub_idx):
+        """The five per-data_item weight vectors this sub-experiment's cost is built from.
+
+        A single seam so a subclass can change what weighting the cost uses without
+        reimplementing cost_calc -- OpencorMCMC flattens them, because a weighted likelihood is
+        not a posterior (issue #193).
+
+        Returns them in the order (const, series, amp, phase, prob_dist).
+        """
+        return (
+            self.protocol_info["scaled_weight_const_from_exp_sub"][exp_idx][sub_idx],
+            self.protocol_info["scaled_weight_series_from_exp_sub"][exp_idx][sub_idx],
+            self.protocol_info["scaled_weight_amp_from_exp_sub"][exp_idx][sub_idx],
+            self.protocol_info["scaled_weight_phase_from_exp_sub"][exp_idx][sub_idx],
+            self.protocol_info["scaled_weight_prob_dist_from_exp_sub"][exp_idx][sub_idx],
+        )
+
     def cost_calc(self, obs_dict, exp_idx=0, sub_idx=0, is_symbolic=False):
 
         # Symbolic cost terms use the casadi-mode cost funcs; numeric ones the numpy-mode funcs
@@ -2239,12 +2257,10 @@ class OpencorParamID():
         # occupy the leading rows; interleave the types and an observable picked up another
         # row's weight -- usually a zero, which dropped it from the cost while
         # _refresh_num_weighted_obs_tables still counted it in the denominator (#349).
-        updated_weight_const_vec = self.protocol_info["scaled_weight_const_from_exp_sub"][exp_idx][sub_idx]
-        updated_weight_series_vec = self.protocol_info["scaled_weight_series_from_exp_sub"][exp_idx][sub_idx]
-        updated_weight_amp_vec = self.protocol_info["scaled_weight_amp_from_exp_sub"][exp_idx][sub_idx]
-        updated_weight_phase_vec = self.protocol_info["scaled_weight_phase_from_exp_sub"][exp_idx][sub_idx]
-        updated_weight_prob_dist_vec = self.protocol_info["scaled_weight_prob_dist_from_exp_sub"][exp_idx][sub_idx]
-        
+        (updated_weight_const_vec, updated_weight_series_vec, updated_weight_amp_vec,
+         updated_weight_phase_vec, updated_weight_prob_dist_vec) = \
+            self._cost_weight_vectors(exp_idx, sub_idx)
+
         # get number of obs that don't have zero weights (cached in __init__ / refresh on obs/protocol change)
         if self._num_weighted_obs_by_exp_sub is not None:
             num_weighted_obs = self._num_weighted_obs_by_exp_sub[exp_idx][sub_idx]
@@ -3051,6 +3067,12 @@ class OpencorParamID():
 
                     for obs_idx in range(len(obs)):
                         for key in best_fit_outputs.keys():
+                            # A diagnostic that raises destroys the information it exists to
+                            # print: this block runs *because* something is already wrong, and
+                            # the saved run and the live one need not expose the same variables.
+                            if key not in this_run_outputs:
+                                print(f'parameter {key} is not in this run\'s outputs, skipping')
+                                continue
                             print(f'parameter {key}')
                             best_fit_output = best_fit_outputs[key]
                             this_run_output = this_run_outputs[key]
@@ -3161,9 +3183,72 @@ class OpencorMCMC(OpencorParamID):
                   'choosing defaults of 5000 and 2*num_params')
 
         self.DEBUG = DEBUG
+        self._warned_about_flattened_weights = False
+        # Weights are flattened for the likelihood MCMC samples (#193), but not for costs that
+        # are reported or compared against the calibration -- see calibration_weighting().
+        self._flatten_weights = True
         assert_mle_cost_for_bayesian(
             self.cost_type, self.cost_funcs_dict, "MCMC (log-likelihood uses -cost)"
         )
+
+    def _cost_weight_vectors(self, exp_idx, sub_idx):
+        """Every feature entering the likelihood carries equal weight (issue #193).
+
+        Calibration weights are a modelling choice: they say which features the optimiser should
+        care about most. A posterior is not. Under ``ln L = -cost``, a weight w on a feature
+        raises its likelihood term to the power w, which is the same as claiming w independent
+        observations of it -- so a feature weighted 10 shrinks the posterior as if it had been
+        measured ten times, and the credible intervals that come out are not the ones the data
+        supports. The relative weighting between features distorts their trade-off in the same
+        way.
+
+        Zero weights are preserved: a zero does not mean "unimportant", it means the observable
+        is not part of this sub-experiment at all, and reinstating it would add a feature the
+        user excluded. The non-zero count is therefore unchanged, so the cached
+        ``_num_weighted_obs_by_exp_sub`` denominator stays correct.
+
+        Warns once when this actually changed something, so a user who tuned weights for a
+        calibration and then ran UQ on the same obs_data finds out that they no longer apply.
+        """
+        vectors = super()._cost_weight_vectors(exp_idx, sub_idx)
+        if not getattr(self, '_flatten_weights', True):
+            return vectors
+        flattened = tuple(np.asarray(vec != 0, dtype=float) for vec in vectors)
+
+        if not getattr(self, '_warned_about_flattened_weights', False):
+            for original, flat in zip(vectors, flattened):
+                original = np.asarray(original, dtype=float)
+                if original.size and not np.allclose(original, flat):
+                    print(
+                        'WARNING: obs_data weights are ignored for UQ -- every feature entering '
+                        'the likelihood is weighted 1. A weighted likelihood is not a posterior: '
+                        'a weight w on a feature is the same claim as w independent observations '
+                        'of it, so it would shrink the credible intervals by a factor the data '
+                        'does not support (issue #193). Weights of 0 still exclude an observable.'
+                    )
+                    self._warned_about_flattened_weights = True
+                    break
+
+        return flattened
+
+    @contextlib.contextmanager
+    def calibration_weighting(self):
+        """Evaluate costs inside this block with the obs_data weights, not the flat ones.
+
+        The flattening exists for the *likelihood being sampled*: a weighted likelihood is not a
+        posterior (#193). It must not follow the cost out into the artifacts, because best_cost
+        is a calibration artifact -- plot_param_id and simulate_once re-derive it and compare
+        against the saved value, and the calibration itself optimised the weighted cost. A
+        best_cost written on the flat scale is simply a different quantity under the same name,
+        and the two disagree by whatever the weights were (measured on 3compartment: 0.0377 saved
+        against 0.1058 recomputed, which tripped simulate_once's consistency check).
+        """
+        previous = getattr(self, '_flatten_weights', True)
+        self._flatten_weights = False
+        try:
+            yield
+        finally:
+            self._flatten_weights = previous
 
     def run(self):
         comm = MPI.COMM_WORLD
@@ -3366,10 +3451,15 @@ class OpencorMCMC(OpencorParamID):
         """
         stats, means, medians = self.posterior_statistics(flat_samples)
 
-        median_cost = float(np.ravel(
-            self.get_cost_and_obs_from_params(medians, reset=True)[0])[0])
-        mean_cost = float(np.ravel(
-            self.get_cost_and_obs_from_params(means, reset=True)[0])[0])
+        # Weighted like the calibration, not like the likelihood: these sit in the same file as
+        # calibration_best_cost and are read against it, so all three have to be the same
+        # quantity. The flat weighting (#193) is for the likelihood being sampled, and must not
+        # follow the cost out into the artifacts.
+        with self.calibration_weighting():
+            median_cost = float(np.ravel(
+                self.get_cost_and_obs_from_params(medians, reset=True)[0])[0])
+            mean_cost = float(np.ravel(
+                self.get_cost_and_obs_from_params(means, reset=True)[0])[0])
 
         document = {
             'parameters': stats,
