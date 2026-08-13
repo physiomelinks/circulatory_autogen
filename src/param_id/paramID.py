@@ -3241,44 +3241,176 @@ class OpencorMCMC(OpencorParamID):
             print('mcmc complete')
             print(f'mcmc chain saved in {mcmc_chain_path}')
 
-            # save best param vals and best cost from mcmc mean
-            samples = samples[samples.shape[0]//2:, :, :]
-            # thin = 10
-            # samples = samples[::thin, :, :]
-            flat_samples = samples.reshape(-1, self.num_params)
-            means = np.zeros((self.num_params))
-            medians = np.zeros((self.num_params))
-            for param_idx in range(self.num_params):
-                means[param_idx] = np.mean(flat_samples[:, param_idx])
-                medians[param_idx] = np.median(flat_samples[:, param_idx])
+            flat_samples = samples[self.burn_in_index(samples.shape[0]):, :, :].reshape(
+                -1, self.num_params)
+            self.save_mcmc_statistics(flat_samples)
 
-            # rerun with original and mcmc optimal param vals
-            mcmc_best_param_vals = medians  # means
-            # TODO change the below to get_cost_from_params when inheriting
-            mcmc_best_cost, _ = self.get_cost_and_obs_from_params(mcmc_best_param_vals, reset=True)
-            if self.best_param_vals is None:
-                self.best_param_vals = mcmc_best_param_vals
-                self.best_cost = mcmc_best_cost
-                print('cost from mcmc median param vals is {}'.format(self.best_cost))
-                print('saving best_param_vals and best_cost from mcmc medians')
+    def burn_in_index(self, num_steps):
+        """The first step to keep, from ``UQ_options['burn_in']``.
 
-                np.save(os.path.join(self.output_dir, 'best_cost'), self.best_cost)
-                np.save(os.path.join(self.output_dir, 'best_param_vals'), self.best_param_vals)
+        A value below 1 is a fraction of the chain; 1 or above is a number of steps. Defaults to
+        half the chain, which is what this used to hardcode. Always leaves at least one step, so
+        a burn_in longer than the run degrades to "keep the last sample" rather than producing an
+        empty array and a stack of nan statistics.
+        """
+        burn_in = (self.UQ_options or {}).get('burn_in', 0.5)
+        try:
+            burn_in = float(burn_in)
+        except (TypeError, ValueError):
+            print(f"WARNING: UQ_options burn_in {burn_in!r} is not a number; using half the chain.")
+            burn_in = 0.5
+
+        index = int(num_steps * burn_in) if burn_in < 1 else int(burn_in)
+        if index >= num_steps:
+            print(f'WARNING: burn_in discards all {num_steps} steps of the chain; '
+                  f'keeping the last one. Run more steps, or lower burn_in.')
+            index = num_steps - 1
+        return max(0, index)
+
+    def flat_param_names(self):
+        """One name per calibrated parameter, for labelling the statistics.
+
+        A grouped row calibrates one value shared across several model variables, so it is one
+        parameter with several names; the first stands for the group, as it does elsewhere.
+        """
+        # len(), never truthiness: param_id_info holds these as numpy arrays, and `not array`
+        # raises rather than answering.
+        info = self.param_id_info or {}
+        names = info.get('param_names_for_plotting')
+        if names is None or len(names) != self.num_params:
+            names = info.get('param_names')
+        if names is None:
+            names = []
+        flat = []
+        for idx in range(self.num_params):
+            if idx < len(names):
+                entry = names[idx]
+                flat.append(str(entry[0] if isinstance(entry, (list, tuple)) else entry))
             else:
-                original_best_cost, _ = self.get_cost_and_obs_from_params(self.best_param_vals, reset=True)
-                if mcmc_best_cost < original_best_cost:
-                    self.best_param_vals = mcmc_best_param_vals
-                    self.best_cost = mcmc_best_cost
-                    print('cost from mcmc median param vals is {}'.format(self.best_cost))
-                    print('resaving best_param_vals and best_cost from mcmc medians')
+                flat.append(f'param_{idx}')
+        return flat
 
-                    np.save(os.path.join(self.output_dir, 'best_cost'), self.best_cost)
-                    np.save(os.path.join(self.output_dir, 'best_param_vals'), self.best_param_vals)
-                else:
-                    self.best_cost = original_best_cost
-                    # leave the original best fit param val as the best fit value, mcmc just gives distributions
-                    print('cost from mcmc median param vals is {}'.format(mcmc_best_cost))
-                    print('Keeping the genetic algorithm best fit as it is lower, ({})'.format(self.best_cost))
+    def posterior_statistics(self, flat_samples):
+        """Per-parameter summary of the posterior, plus the cost at its point summaries.
+
+        A posterior is a distribution, and the honest summary of one is a spread rather than a
+        single number -- so mean *and* median *and* the quartiles and the 95% interval, not a
+        winner. The costs are reported for comparison with the calibration's best, deliberately
+        without acting on that comparison: see save_mcmc_statistics.
+        """
+        flat_samples = np.asarray(flat_samples, dtype=float)
+        names = self.flat_param_names()
+
+        means = flat_samples.mean(axis=0)
+        medians = np.median(flat_samples, axis=0)
+
+        stats = {}
+        for idx, name in enumerate(names):
+            column = flat_samples[:, idx]
+            stats[name] = {
+                'mean': float(means[idx]),
+                'median': float(medians[idx]),
+                'sd': float(np.std(column, ddof=1)) if column.size > 1 else float('nan'),
+                'q2.5': float(np.percentile(column, 2.5)),
+                'q25': float(np.percentile(column, 25)),
+                'q75': float(np.percentile(column, 75)),
+                'q97.5': float(np.percentile(column, 97.5)),
+                'min': float(np.min(column)),
+                'max': float(np.max(column)),
+            }
+        return stats, means, medians
+
+    def calibration_best_cost(self):
+        """The calibration's best cost as a finite float, or None if there isn't one.
+
+        Prefers the value on disk: a UQ run is often handed the calibration's *parameters*
+        (set_best_param_vals) without its cost, leaving the in-memory best_cost at inf. Reporting
+        inf would put a JSON Infinity in the file -- which strict JSON parsers reject -- and make
+        every posterior median look like it had beaten the calibration.
+        """
+        candidates = [self.best_cost]
+        path = os.path.join(self.output_dir, 'best_cost.npy')
+        if os.path.isfile(path):
+            try:
+                candidates.append(np.load(path))
+            except Exception:
+                pass
+        for candidate in candidates:
+            if candidate is None:
+                continue
+            try:
+                value = float(np.ravel(candidate)[0])
+            except (TypeError, ValueError, IndexError):
+                continue
+            if np.isfinite(value):
+                return value
+        return None
+
+    def save_mcmc_statistics(self, flat_samples):
+        """Write ``mcmc_statistics.json``, and leave the calibration's best fit alone.
+
+        This used to overwrite best_param_vals.npy and best_cost.npy with the posterior median
+        whenever that median scored a lower cost. Two different estimators were being conflated:
+        a posterior median summarises a distribution, a calibration best is an argmin, and they
+        answer different questions. Silently replacing one with the other meant a UQ run mutated
+        the calibration's answer -- and the file gave no clue which estimator it held.
+
+        The comparison is still reported, because it is genuinely informative (a median that
+        beats the optimum usually means the calibration stopped early, or that the posterior is
+        skewed), but nothing is decided on it. Choosing between the two is the user's call, and
+        both are now on disk to choose from.
+
+        The one exception is a UQ run with no calibration behind it at all: nothing else has
+        written a best fit, so the median is the only estimate there is, and the rest of the
+        pipeline (plotting, predictions) needs one. That is recorded in the file's `source`.
+        """
+        stats, means, medians = self.posterior_statistics(flat_samples)
+
+        median_cost = float(np.ravel(
+            self.get_cost_and_obs_from_params(medians, reset=True)[0])[0])
+        mean_cost = float(np.ravel(
+            self.get_cost_and_obs_from_params(means, reset=True)[0])[0])
+
+        document = {
+            'parameters': stats,
+            'num_samples': int(np.asarray(flat_samples).shape[0]),
+            'cost_at_posterior_median': median_cost,
+            'cost_at_posterior_mean': mean_cost,
+            'calibration_best_cost': self.calibration_best_cost(),
+        }
+
+        if self.best_param_vals is None:
+            # No calibration behind this run, so this is not an overwrite: it is the only
+            # estimate available, and downstream plotting/prediction needs one.
+            self.best_param_vals = medians
+            self.best_cost = median_cost
+            document['source'] = 'posterior_median'
+            document['calibration_best_cost'] = None
+            np.save(os.path.join(self.output_dir, 'best_cost'), self.best_cost)
+            np.save(os.path.join(self.output_dir, 'best_param_vals'), self.best_param_vals)
+            print('No calibration best fit existed, so best_param_vals and best_cost were '
+                  'written from the posterior median.')
+        else:
+            document['source'] = 'calibration'
+            calibration_cost = document['calibration_best_cost']
+            reported = 'unknown' if calibration_cost is None else calibration_cost
+            print(f'cost at the posterior median is {median_cost}, at the posterior mean is '
+                  f'{mean_cost}; the calibration best fit ({reported}) is left unchanged '
+                  f'(a posterior median is not an optimum -- see mcmc_statistics.json for the '
+                  f'full posterior summary).')
+            # Only when there is a real number to beat. The engine's in-memory best_cost is inf
+            # on a UQ run that adopted a calibration's parameters without its cost, and
+            # "lower than inf" is true of everything.
+            if calibration_cost is not None and median_cost < calibration_cost:
+                print('NOTE: the posterior median scores a lower cost than the calibration best '
+                      'fit. That usually means the calibration stopped early or the posterior '
+                      'is skewed. Both are on disk; choosing between them is yours to make.')
+
+        path = os.path.join(self.output_dir, 'mcmc_statistics.json')
+        with open(path, 'w') as write_file:
+            json.dump(document, write_file, indent=2)
+        print(f'mcmc statistics saved in {path}')
+        return document
 
     def calculate_pred_from_posterior_samples(self, flat_samples, n_sims=100):
         # idxs of output are [exp_idx][sim_idx, pred_idx, time_idx]
