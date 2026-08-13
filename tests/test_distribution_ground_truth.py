@@ -220,6 +220,70 @@ def test_the_bandwidth_is_a_cost_kwarg_not_part_of_the_ground_truth(tmp_path):
 
 
 @pytest.mark.unit
+def test_cost_calc_scores_a_distribution_item_in_the_constant_loop(tmp_path):
+    """End to end through the cost, mixing both ground truth shapes in one obs_data: the KDE
+    item must be scored, and scored against its samples rather than against the nan standing in
+    for the value it does not have."""
+    from param_id.paramID import OpencorParamID
+    from parsers.PrimitiveParsers import ObsAndParamDataParser, scriptFunctionParser
+
+    parser = ObsAndParamDataParser()
+    parsed = parser.parse_obs_data_json(
+        obs_data_dict=_obs_data([_kde_item(cost_kwargs={"bandwidth": 0.1}), _gaussian_item()]),
+        pre_time=0.0, sim_time=1.0)
+    obs_info = parser.process_obs_info(gt_df=parsed["gt_df"], output_dir=str(tmp_path), dt=0.01)
+    protocol_info = parser.process_protocol_and_weights(
+        gt_df=parsed["gt_df"], protocol_info=parsed["protocol_info"], dt=0.01)
+
+    pid = OpencorParamID.__new__(OpencorParamID)
+    pid.obs_info = obs_info
+    pid.protocol_info = protocol_info
+    pid.cost_type = obs_info["cost_type"]
+    pid._num_weighted_obs_by_exp_sub = None
+    pid.cost_funcs_dict = scriptFunctionParser().get_cost_funcs_dict("numpy")
+    pid.cost_funcs_dict_symbolic = pid.cost_funcs_dict
+
+    def cost_at(x):
+        return pid.cost_calc({"const": np.array([x, 0.33]), "series": None,
+                              "amp": None, "phase": None}, exp_idx=0, sub_idx=0)
+
+    assert np.isfinite(cost_at(1.0)), 'the KDE item was scored against a nan ground truth'
+    assert cost_at(2.5) > cost_at(1.0), 'the KDE item is not contributing to the cost'
+    assert cost_at(4.0) < cost_at(2.5), 'the far mode is not being scored as a good fit'
+
+
+@pytest.mark.unit
+def test_a_distribution_cost_cannot_be_differentiated_symbolically(tmp_path):
+    """Its density is built from numbers -- scipy's gaussian_kde cannot take a symbol. Silently
+    returning something would be worse than raising: the nan standing in for `value` would
+    propagate into a gradient that looks like a failed solve."""
+    from param_id.paramID import OpencorParamID
+    from parsers.PrimitiveParsers import ObsAndParamDataParser, scriptFunctionParser
+
+    ca = pytest.importorskip('casadi')
+
+    parser = ObsAndParamDataParser()
+    parsed = parser.parse_obs_data_json(obs_data_dict=_obs_data([_kde_item()]),
+                                        pre_time=0.0, sim_time=1.0)
+    obs_info = parser.process_obs_info(gt_df=parsed["gt_df"], output_dir=str(tmp_path), dt=0.01)
+    protocol_info = parser.process_protocol_and_weights(
+        gt_df=parsed["gt_df"], protocol_info=parsed["protocol_info"], dt=0.01)
+
+    pid = OpencorParamID.__new__(OpencorParamID)
+    pid.obs_info = obs_info
+    pid.protocol_info = protocol_info
+    pid.cost_type = obs_info["cost_type"]
+    pid._num_weighted_obs_by_exp_sub = None
+    pid.cost_funcs_dict = scriptFunctionParser().get_cost_funcs_dict("numpy")
+    pid.cost_funcs_dict_symbolic = scriptFunctionParser().get_cost_funcs_dict("casadi")
+
+    with pytest.raises(NotImplementedError, match='do_ad'):
+        pid.cost_calc({"const": ca.SX.sym('x', 1, 1), "series": None,
+                       "amp": None, "phase": None},
+                      exp_idx=0, sub_idx=0, is_symbolic=True)
+
+
+@pytest.mark.unit
 def test_an_unknown_cost_kwarg_is_rejected(tmp_path):
     obs_info = _parse([_kde_item(cost_kwargs={"bandwith": 0.1})], tmp_path)
     from param_id.cost_kwargs import validate_cost_kwargs
