@@ -236,31 +236,38 @@ jobs:
           --junitxml=junit-param-id-serial.xml
 
   # The end-to-end UQ tests: a real chain checked against a posterior whose answer is known in
-  # closed form (issue #179). Nothing else runs them -- the full-model ones are marked `slow`
-  # and every other job deselects them.
+  # closed form (issue #179). Nothing else runs them.
   #
-  # Measured on Simple_ODE_Benchmark, which is why the job is split the way it is:
+  # Every case here is sampled through an emulator. Measured on Simple_ODE_Benchmark, which is
+  # what decided that:
   #
-  #   tests/test_uq_on_emulator.py [emcee]                ~34 s    (sampled through an emulator)
-  #   tests/test_uq_on_emulator.py [pymc]                 ~83 s    (same, pyMC backend)
-  #   test_UQ.py::test_mcmc_unimodal_with_validation      ~9 min    (emcee, real model)
-  #   test_UQ.py::test_mcmc_bimodal_with_validation      ~26 min    (emcee, real model)
-  #   test_UQ.py::..._KDE_likelihood                     >50 min    (pyMC -- killed, unfinished)
+  #   tests/test_uq_on_emulator.py [emcee]                ~47 s   (through an emulator)
+  #   tests/test_uq_on_emulator.py [pymc]                ~126 s   (same, pyMC backend)
+  #   tests/test_uq_on_emulator.py [bimodal]              ~69 s   (same, both modes present)
+  #   test_UQ.py::test_mcmc_unimodal_with_validation     ~25 min  (emcee, real model)
+  #   test_UQ.py::test_mcmc_bimodal_with_validation      ~56 min  (emcee, real model)
+  #   test_UQ.py::..._KDE_likelihood                     >50 min  (pyMC -- killed, unfinished)
   #
-  # The pyMC case is deselected here. It is not slow by accident: pyMC's Metropolis takes one
-  # likelihood evaluation *per parameter per step* where emcee moves the whole ensemble at once,
-  # and PyMCSampler's num_tune defaults to 1000, so it runs 1500 iterations for the 500 draws
-  # the test asks for. Run it by hand (or fix the tuning cost) rather than putting an hour on
-  # every pull request. The pyMC backend is still covered end to end -- through the emulator,
-  # where the same chain costs 83 seconds instead of an hour.
+  # The full-model three are marked `manual`: not collected at all without --run-manual, so they
+  # run neither here nor in a default local run. They make the same assertions the emulator ones
+  # do -- the same recovery of the analytic answer, the same both-modes-present statistic -- and
+  # the only difference is that the likelihood comes from the solver rather than from an
+  # emulator faithful to it (held-out R2 1.0000). They took 82 of this job's 89 minutes to say
+  # so. Run them by hand when the solver-driven path itself changes.
+  #
+  # pyMC is slow against the real model for a structural reason worth remembering: its Metropolis
+  # takes one likelihood evaluation *per parameter per step* where emcee moves the whole ensemble
+  # at once, and num_tune defaults to 1000, so it runs 1500 iterations for 500 draws. Through an
+  # emulator each of those evaluations is a matrix multiply, which is what makes it affordable.
   #
   # It is its own job rather than extra cases on test-param-id-*, because it needs two optional
-  # extras those jobs have no use for, and because at ~35 minutes it would become the critical
-  # path of a job that currently takes 26. In parallel it sets the workflow's wall-clock floor
-  # instead of adding to it.
+  # extras those jobs have no use for.
   test-uq:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # ~5 minutes of tests plus ~3 of installs. Deliberately not generous: this job used to take
+    # 89 minutes against the real model, and a timeout close to the real cost is what makes a
+    # regression back to that visible instead of merely slow.
+    timeout-minutes: 25
     steps:
     - uses: actions/checkout@v4
 
@@ -299,17 +306,19 @@ jobs:
         python -m pytest tests/test_uq_pymc_mpi.py -v --tb=short \
           --junitxml=junit-uq-pymc-mpi.xml
 
-    # Fast enough to be worth running first: it fails in a minute if UQ is broken at all,
-    # rather than after half an hour of sampling the real model.
-    - name: Run UQ on an emulator (fast posterior-recovery check)
+    # The whole UQ stack -- the cost, the priors, both samplers, the statistics -- checked
+    # against a posterior whose answer is known in closed form, including the bimodal case.
+    #
+    # The full-model equivalents in test_UQ.py are deliberately not run here. They took 82
+    # minutes of this job's 89 (the bimodal one alone: 56), and they sample the same posteriors
+    # these do -- the only difference being that the likelihood comes from the solver rather
+    # than from an emulator faithful to it (held-out R2 1.0000). Paying 16x the wall clock on
+    # every PR for that difference is not a good trade, so they are marked `manual` and run on
+    # demand with --run-manual when the solver-driven path itself changes.
+    - name: Run UQ on an emulator (posterior recovery, both samplers, bimodal)
       run: |
         python -m pytest tests/test_uq_on_emulator.py -v --with-mpi --tb=short \
           --durations=0 --junitxml=junit-uq-emulator.xml
-
-    - name: Run the full-model UQ posterior-recovery tests
-      run: |
-        python -m pytest tests/test_UQ.py -m slow -k "not KDE" -v --with-mpi --tb=short \
-          --durations=0 --junitxml=junit-uq.xml
 
     # A skipped test is a green step, so this job could report success having run nothing at
     # all -- and that is the likely failure, not a red X: every UQ test is guarded by a skipif
@@ -328,7 +337,6 @@ jobs:
           junit-uq-emulator.xml
           junit-uq-pymc-mpi.xml
           junit-uq-pymc-live.xml
-          junit-uq.xml
 
   # UQ with more than one rank -- the way a real UQ run is launched (`run_param_id.sh` takes a
   # processor count), and, until this job, the way nothing was ever tested. Every other UQ job

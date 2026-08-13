@@ -104,6 +104,7 @@ addopts = [
 ]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "manual: never collected without --run-manual; too slow for CI or a normal local run",
     "integration: marks tests as integration tests",
     "unit: marks tests as unit tests",
     "mpi: marks tests that require MPI",

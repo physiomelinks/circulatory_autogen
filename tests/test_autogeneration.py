@@ -65,13 +65,19 @@ def test_generate_cellml_model_succeeds(file_prefix, input_param_file, model_typ
     assert success, f"Model generation failed for {file_prefix} with {input_param_file}"
 
 
+_SN_SIMPLE_XFAIL = (
+    "SN_simple's CellML initialises states from *_init parameters, which libCellML's Analyser rejects (ANALYSER_VARIABLE_NON_CONSTANT_INITIALISATION), so PythonGenerator cannot emit it (#151). cellml_only + Myokit accept the same model. strict=True on purpose: when a libCellML upgrade makes this pass, the XPASS fails the suite and says so, rather than leaving a permanently-red test that everyone has learned to ignore."
+)
+
+
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.parametrize(
     "file_prefix,input_param_file,model_type,solver",
     [
         ('3compartment', '3compartment_parameters.csv', 'python', 'solve_ivp'),
-        ('SN_simple', 'SN_simple_parameters.csv', 'python', 'solve_ivp'),
+        pytest.param('SN_simple', 'SN_simple_parameters.csv', 'python', 'solve_ivp',
+                     marks=pytest.mark.xfail(strict=True, reason=_SN_SIMPLE_XFAIL)),
         ('pid_control', 'pid_control_parameters.csv', 'python', 'solve_ivp'),
         ('Lotka_Volterra', 'Lotka_Volterra_parameters.csv', 'casadi_python', 'casadi_integrator'),
         ('3compartment', '3compartment_parameters.csv', 'casadi_python', 'casadi_integrator'),
