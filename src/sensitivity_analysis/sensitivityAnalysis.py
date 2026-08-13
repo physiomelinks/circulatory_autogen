@@ -100,7 +100,8 @@ class SensitivityAnalysis():
                  param_id_output_dir=None, resources_dir=None, model_out_names=[],
                  solver_info={}, dt=0.01, optimiser_options={}, param_id_obs_path=None, params_for_id_path=None,
                  operation_funcs_external_path=None, cost_funcs_external_path=None,
-                 modifier_funcs_external_path=None):
+                 modifier_funcs_external_path=None,
+                 use_emulator=False, emulator_dir=None, emulator_settings=None):
 
         self.model_path = model_path
         self.model_type = model_type
@@ -127,7 +128,9 @@ class SensitivityAnalysis():
                             verbose=False, use_MPI=True, model_type=self.model_type,
                             operation_funcs_external_path=operation_funcs_external_path,
                             cost_funcs_external_path=cost_funcs_external_path,
-                            modifier_funcs_external_path=modifier_funcs_external_path)
+                            modifier_funcs_external_path=modifier_funcs_external_path,
+                            use_emulator=use_emulator, emulator_dir=emulator_dir,
+                            emulator_settings=emulator_settings)
 
         # For the local (derivative-based) method, which -- unlike Sobol -- runs through a
         # backend-agnostic param-id engine (mirroring IdentifiabilityAnalysis), not the Sobol
@@ -160,13 +163,17 @@ class SensitivityAnalysis():
             'resources_dir', 'model_out_names', 'solver_info',
             'dt', 'optimiser_options', 'param_id_obs_path', 'params_for_id_path',
             'operation_funcs_external_path', 'cost_funcs_external_path',
-            'modifier_funcs_external_path',
+            'modifier_funcs_external_path', 'use_emulator', 'emulator_settings',
         ]
         kwargs = {key: inp_data_dict[key] for key in arg_options if key in inp_data_dict}
 
         # Support common naming used elsewhere
         if 'file_name_prefix' not in kwargs and 'file_prefix' in inp_data_dict:
             kwargs['file_name_prefix'] = inp_data_dict['file_prefix']
+
+        if kwargs.get('use_emulator'):
+            from emulators.emulator_trainer import resolve_emulator_dir
+            kwargs['emulator_dir'] = resolve_emulator_dir(inp_data_dict)
 
         sa = cls(**kwargs)
         # Keep the parsed config so the local method can build a param-id engine from it.

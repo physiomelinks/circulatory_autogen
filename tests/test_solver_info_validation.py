@@ -472,7 +472,8 @@ def run(solver_info):
 def test_analysis_options_schema_well_formed():
     """The non-calibration analysis modes (sensitivity, UQ, identifiability) expose their option
     blocks the same way, so a tool can auto-populate their settings forms too."""
-    assert set(ANALYSIS_OPTIONS) == {'sensitivity_analysis', 'uq', 'identifiability_analysis'}
+    assert set(ANALYSIS_OPTIONS) == {'sensitivity_analysis', 'uq', 'identifiability_analysis',
+                                     'emulation'}
     for mode, meta in ANALYSIS_OPTIONS.items():
         assert meta.get('label') and meta.get('enable_flag') and meta.get('options_key')
         _assert_descriptors_well_formed(mode, meta.get('options'))
@@ -487,10 +488,18 @@ def test_analysis_options_schema_well_formed():
     assert names('uq') == {'method', 'library', 'num_steps', 'num_walkers', 'burn_in'}
     assert ANALYSIS_OPTIONS['uq']['options_key'] == 'UQ_options'
     assert names('identifiability_analysis') == {'method', 'gradient_source', 'sub_method'}
+    assert names('emulation') == {
+        'emulator_dir', 'models', 'num_train_samples', 'sample_type', 'log_scale_params',
+        'random_seed', 'test_fraction', 'n_splits', 'n_iter', 'min_r2', 'out_of_bounds',
+        'fd_rel_step'}
     assert analysis_options('not_a_mode') == []
     # the enabling flags match the documented user_inputs feature flags
     assert {m['enable_flag'] for m in ANALYSIS_OPTIONS.values()} == {
-        'do_sensitivity', 'do_uq', 'do_ia'}
+        'do_sensitivity', 'do_uq', 'do_ia', 'do_emulation'}
+    # Emulation alone carries a second flag, because it has a train step and a use step:
+    # do_emulation fits the surrogate, use_emulator makes the analyses evaluate it (#333).
+    assert ANALYSIS_OPTIONS['emulation']['use_flag'] == 'use_emulator'
+    assert {m.get('use_flag') for m in ANALYSIS_OPTIONS.values()} == {None, 'use_emulator'}
 
 
 def _option(mode, name):
@@ -526,6 +535,11 @@ def test_closed_set_analysis_options_are_enums_with_choices():
         # surrogate methods and the pyMC backend land.
         ('uq', 'method'): ['mcmc'],
         ('uq', 'library'): ['emcee'],
+        # -> EmulatorTrainer.design (raises ValueError otherwise)
+        ('emulation', 'sample_type'): ['sobol', 'latin_hypercube', 'random'],
+        # -> EmulatorBundle.check_bounds. 'error' is the default deliberately: outside its
+        # training box an emulator extrapolates with no error estimate at all.
+        ('emulation', 'out_of_bounds'): ['error', 'warn', 'clip'],
     }
     for (mode, name), choices in expected.items():
         opt = _option(mode, name)

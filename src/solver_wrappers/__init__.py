@@ -57,6 +57,12 @@ except Exception as _exc:
     AadcPythonSimulationHelper = None
     _record_import_error('AADC', _exc)
 
+try:
+    from solver_wrappers.emulator_solver_helper import SimulationHelper as EmulatorSimulationHelper
+except Exception as _exc:
+    EmulatorSimulationHelper = None
+    _record_import_error('emulator', _exc)
+
 # Not `from mpi4py import MPI`. This module picks a solver; it has no collectives
 # to run. That import initialised MPI and registered an atexit MPI_Finalize for
 # every consumer who merely wanted a forward solve -- and that finalise aborts on
@@ -67,9 +73,11 @@ from utilities.mpi_utils import mpi_available as _mpi_available
 _MPI_AVAILABLE = _mpi_available()
 
 
-def get_simulation_helper(model_path: str = None, solver: str = None, 
-                          model_type: str = None, dt: float = None, sim_time: float = None, 
-                          solver_info: dict = None, pre_time: float = 0.0):
+def get_simulation_helper(model_path: str = None, solver: str = None,
+                          model_type: str = None, dt: float = None, sim_time: float = None,
+                          solver_info: dict = None, pre_time: float = 0.0,
+                          use_emulator: bool = False, emulator_dir: str = None,
+                          emulator_bundle=None, out_of_bounds: str = 'error'):
     """Create a `SimulationHelper` for the requested solver.
 
     Returns the appropriate backend (OpenCOR, Myokit, SciPy, or CasADi) based on
@@ -92,6 +100,14 @@ def get_simulation_helper(model_path: str = None, solver: str = None,
         sim_time: Logged simulation duration (s).
         solver_info: Solver config dict (e.g. ``MaximumStep``, ``method``).
         pre_time: Unlogged steady-state spin-up duration (s).
+        use_emulator: Answer from a trained emulator instead of integrating (issue #333).
+            ``solver`` keeps naming the *truth* solver -- the one an emulator was trained
+            against, and the one to compare its answers with -- so this is a separate flag
+            rather than another solver name.
+        emulator_dir: Directory holding the trained emulator, when ``use_emulator``.
+        emulator_bundle: An already-loaded ``EmulatorBundle``, used instead of reading
+            ``emulator_dir``.
+        out_of_bounds: What the emulator does off its training box: 'error', 'warn' or 'clip'.
 
     Returns:
         SimulationHelper: The backend instance for the requested solver.
@@ -100,6 +116,18 @@ def get_simulation_helper(model_path: str = None, solver: str = None,
         ValueError: If the solver is unknown or incompatible with ``model_type``.
         RuntimeError: If the requested backend is not installed.
     """
+    if use_emulator:
+        if EmulatorSimulationHelper is None:
+            # Same reason-carrying message as every other backend (#410): "not
+            # available" hides the difference between "autoemulate is missing"
+            # and "the import itself raised", and only one of those is an install.
+            raise RuntimeError(
+                _unavailable_message('emulator', 'use_emulator')
+                + ' Install it with `pip install "circulatory_autogen[emulation]"`.')
+        return EmulatorSimulationHelper(emulator_dir, dt, sim_time, solver_info,
+                                        pre_time=pre_time, bundle=emulator_bundle,
+                                        out_of_bounds=out_of_bounds)
+
     # Define valid solver types
     cellml_solvers = ['CVODE_opencor', 'CVODE_myokit']
     python_solvers = ['solve_ivp']
@@ -172,7 +200,8 @@ def get_simulation_helper_from_inp_data_dict(inp_data_dict):
     Convenience wrapper around
     [`get_simulation_helper`][solver_wrappers.get_simulation_helper] that reads
     ``model_path``, ``solver_info`` (and its ``solver``), ``model_type``, ``dt``,
-    ``sim_time`` and ``pre_time`` from the dict.
+    ``sim_time`` and ``pre_time`` from the dict -- and ``use_emulator`` plus
+    ``emulator_settings``, so a configured emulator is picked up here too.
 
     Args:
         inp_data_dict: Configuration dict (see
@@ -181,7 +210,15 @@ def get_simulation_helper_from_inp_data_dict(inp_data_dict):
     Returns:
         SimulationHelper: The backend instance for the configured solver.
     """
-    return get_simulation_helper(model_path=inp_data_dict["model_path"], solver=inp_data_dict["solver_info"]["solver"], model_type=inp_data_dict["model_type"], dt=inp_data_dict["dt"], sim_time=inp_data_dict["sim_time"], solver_info=inp_data_dict["solver_info"], pre_time=inp_data_dict["pre_time"])
+    emulator_settings = inp_data_dict.get("emulator_settings") or {}
+    use_emulator = bool(inp_data_dict.get("use_emulator", False))
+    emulator_dir = None
+    if use_emulator:
+        from emulators.emulator_trainer import resolve_emulator_dir
+        emulator_dir = resolve_emulator_dir(inp_data_dict)
+    return get_simulation_helper(model_path=inp_data_dict["model_path"], solver=inp_data_dict["solver_info"]["solver"], model_type=inp_data_dict["model_type"], dt=inp_data_dict["dt"], sim_time=inp_data_dict["sim_time"], solver_info=inp_data_dict["solver_info"], pre_time=inp_data_dict["pre_time"],
+                                 use_emulator=use_emulator, emulator_dir=emulator_dir,
+                                 out_of_bounds=emulator_settings.get("out_of_bounds", "error"))
 
 __all__ = [
     "get_simulation_helper",
@@ -189,4 +226,5 @@ __all__ = [
     "MyokitSimulationHelper",
     "OpenCORSimulationHelper",
     "CasADiPythonSimulationHelper",
+    "EmulatorSimulationHelper",
 ]
