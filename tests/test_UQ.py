@@ -20,7 +20,14 @@ from param_id.paramID import CVS0DParamID
 from scripts.param_id_run_script import run_param_id
 # mpi_comm is a fixture defined in test_param_id, so it has to be imported here to be visible to
 # these tests -- not merely referenced in their signatures.
-from tests.test_param_id import _ensure_cellml_model_generated, mpi_comm  # noqa: F401
+#
+# Imported as a top-level module, not as `tests.test_param_id`: tests/ has no __init__.py, so
+# pytest puts it on sys.path and imports these files top-level anyway -- while `tests` as a
+# package resolves against whatever else is installed. At least one dependency ships its own
+# top-level `tests` package, which shadows this directory and makes the dotted form fail with
+# ModuleNotFoundError in a plain pip environment (it happens to work under the OpenCOR shell,
+# which has no such package -- so the dotted form passes locally and breaks in CI).
+from test_param_id import _ensure_cellml_model_generated, mpi_comm  # noqa: F401
 
 pymc_installed = True
 try:

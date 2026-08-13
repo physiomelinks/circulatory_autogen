@@ -161,6 +161,50 @@ jobs:
       run: |
         python -m pytest tests/test_param_id.py tests/test_sensitivity_analysis.py -v --with-mpi --tb=short --junitxml=junit-param-id-serial.xml
 
+  # The end-to-end UQ tests: a real calibration followed by a real MCMC chain, checked against
+  # a posterior whose answer is known in closed form (issue #179). They are marked `slow` and so
+  # are deselected everywhere else -- this is the only job that runs them.
+  #
+  # It is its own job, not extra cases bolted onto test-param-id-*, for two reasons: it needs the
+  # optional [uq] extra (pymc/pytensor, which the other jobs have no use for and which cost a
+  # minute to install), and at ~40 minutes it would otherwise become the critical path of a job
+  # that currently takes half that. As a separate job it runs in parallel, so it sets the
+  # wall-clock floor for the workflow rather than adding to it.
+  test-uq:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.10"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        # [uq] brings pymc/pytensor. Without it the pyMC backend test skips, and the backend
+        # goes unexercised in CI -- which is how it stayed unproven for as long as it did.
+        pip install -e ".[dev,uq]"
+
+    - name: Install MPI and Myokit build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libopenmpi-dev openmpi-bin libsundials-dev build-essential
+
+    - name: Run the end-to-end UQ posterior-recovery tests
+      run: |
+        python -m pytest tests/test_UQ.py -m slow -v --with-mpi --tb=short --durations=0 \
+          --junitxml=junit-uq.xml
+
+    - name: Upload UQ test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: uq-test-results
+        path: junit-uq.xml
+
   # Job to run full test suite if OpenCOR is available (optional)
   # This can be enabled if OpenCOR is set up in CI environment
   test-with-opencor:
