@@ -161,15 +161,27 @@ jobs:
       run: |
         python -m pytest tests/test_param_id.py tests/test_sensitivity_analysis.py -v --with-mpi --tb=short --junitxml=junit-param-id-serial.xml
 
-  # The end-to-end UQ tests: a real calibration followed by a real MCMC chain, checked against
-  # a posterior whose answer is known in closed form (issue #179). They are marked `slow` and so
-  # are deselected everywhere else -- this is the only job that runs them.
+  # The end-to-end UQ tests: a real chain checked against a posterior whose answer is known in
+  # closed form (issue #179). Nothing else runs them -- the full-model ones are marked `slow`
+  # and every other job deselects them.
   #
-  # It is its own job, not extra cases bolted onto test-param-id-*, for two reasons: it needs the
-  # optional [uq] extra (pymc/pytensor, which the other jobs have no use for and which cost a
-  # minute to install), and at ~40 minutes it would otherwise become the critical path of a job
-  # that currently takes half that. As a separate job it runs in parallel, so it sets the
-  # wall-clock floor for the workflow rather than adding to it.
+  # Measured on Simple_ODE_Benchmark, which is why the job is split the way it is:
+  #
+  #   tests/test_uq_on_emulator.py                        ~1 min    (sampled through an emulator)
+  #   test_UQ.py::test_mcmc_unimodal_with_validation      ~9 min    (emcee, real model)
+  #   test_UQ.py::test_mcmc_bimodal_with_validation      ~26 min    (emcee, real model)
+  #   test_UQ.py::..._KDE_likelihood                     >50 min    (pyMC -- killed, unfinished)
+  #
+  # The pyMC case is deselected here. It is not slow by accident: pyMC's Metropolis takes one
+  # likelihood evaluation *per parameter per step* where emcee moves the whole ensemble at once,
+  # and PyMCSampler's num_tune defaults to 1000, so it runs 1500 iterations for the 500 draws
+  # the test asks for. Run it by hand (or fix the tuning cost) rather than putting an hour on
+  # every pull request; the pyMC backend's other coverage is in tests/test_uq_pymc_backend.py.
+  #
+  # It is its own job rather than extra cases on test-param-id-*, because it needs two optional
+  # extras those jobs have no use for, and because at ~35 minutes it would become the critical
+  # path of a job that currently takes 26. In parallel it sets the workflow's wall-clock floor
+  # instead of adding to it.
   test-uq:
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -184,26 +196,36 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        # [uq] brings pymc/pytensor. Without it the pyMC backend test skips, and the backend
-        # goes unexercised in CI -- which is how it stayed unproven for as long as it did.
-        pip install -e ".[dev,uq]"
+        # [uq] brings pymc/pytensor and [emulation] brings autoemulate. Without them the
+        # corresponding tests skip, and those code paths go unexercised in CI -- which is how
+        # the pyMC backend stayed unproven for as long as it did.
+        pip install -e ".[dev,uq,emulation]"
 
     - name: Install MPI and Myokit build dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y libopenmpi-dev openmpi-bin libsundials-dev build-essential
 
-    - name: Run the end-to-end UQ posterior-recovery tests
+    # Fast enough to be worth running first: it fails in a minute if UQ is broken at all,
+    # rather than after half an hour of sampling the real model.
+    - name: Run UQ on an emulator (fast posterior-recovery check)
       run: |
-        python -m pytest tests/test_UQ.py -m slow -v --with-mpi --tb=short --durations=0 \
-          --junitxml=junit-uq.xml
+        python -m pytest tests/test_uq_on_emulator.py -v --with-mpi --tb=short \
+          --durations=0 --junitxml=junit-uq-emulator.xml
+
+    - name: Run the full-model UQ posterior-recovery tests
+      run: |
+        python -m pytest tests/test_UQ.py -m slow -k "not KDE" -v --with-mpi --tb=short \
+          --durations=0 --junitxml=junit-uq.xml
 
     - name: Upload UQ test results
       if: always()
       uses: actions/upload-artifact@v4
       with:
         name: uq-test-results
-        path: junit-uq.xml
+        path: |
+          junit-uq-emulator.xml
+          junit-uq.xml
 
   # Job to run full test suite if OpenCOR is available (optional)
   # This can be enabled if OpenCOR is set up in CI environment
