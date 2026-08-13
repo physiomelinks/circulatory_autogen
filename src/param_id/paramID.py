@@ -111,6 +111,16 @@ warnings.filterwarnings( "ignore", module = "matplotlib/..*" )
 mcmc_object = None
 
 
+# numpy 2.0 renamed trapz to trapezoid and removed the old name; numpy 1.x has only the old one,
+# and this project supports both (CI runs 2.2 while the OpenCOR shell ships 1.26). Bound once here
+# rather than branched at the call site, and named for what it does rather than for either
+# spelling.
+try:
+    from numpy import trapezoid as integrate_trapezoid       # numpy >= 2.0
+except ImportError:                                          # pragma: no cover - numpy < 2.0
+    from numpy import trapz as integrate_trapezoid
+
+
 def _resolve_UQ_options(UQ_options, mcmc_options):
     """Accept the deprecated ``mcmc_options=`` kwarg wherever ``UQ_options=`` is now taken.
 
@@ -1222,7 +1232,7 @@ class CVS0DParamID():
         # Subtract the max before exponentiating: the log prior is unnormalised, so its absolute
         # level is arbitrary and can overflow exp() outright.
         pdf[finite] = np.exp(lnprior[finite] - np.max(lnprior[finite]))
-        area = np.trapz(pdf, x_values)
+        area = integrate_trapezoid(pdf, x_values)
         if area > 0:
             pdf /= area
         return pdf
