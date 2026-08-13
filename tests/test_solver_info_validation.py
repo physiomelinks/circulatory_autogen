@@ -777,6 +777,49 @@ def test_cpp_maximum_step_is_migrated_with_a_warning_not_rejected(solver, capsys
         assert kept not in warned, kept + ' is wired up and must not warn'
 
 
+@pytest.mark.parametrize('solver', ['CVODE', 'RK4', 'PETSC'])
+def test_cpp_maximum_step_alone_becomes_the_solver_step(solver, capsys):
+    """MaximumStep on its own is the only step the user gave, so it has to survive.
+
+    It used to be dropped here, and the parser's own MaximumStep -> dt_solver fallback runs
+    *after* this -- so nothing was left for it to find and generation died with
+    ``KeyError: 'dt_solver'`` on every cpp config that had not already been rewritten to the new
+    key, including the cpp autogeneration test.
+    """
+    migrated = migrate_legacy_solver_info_keys(solver, {
+        'solver': solver,
+        'MaximumStep': 0.001,
+    })
+    assert migrated == {'solver': solver, 'dt_solver': 0.001}
+    validate_solver_info(solver, migrated)
+
+    warned = capsys.readouterr().out
+    assert 'MaximumStep' in warned and 'dt_solver' in warned, (
+        'a renamed setting must name what it became'
+    )
+
+
+def test_a_cpp_config_with_only_maximum_step_still_generates():
+    """The end the bug was actually felt at: the value has to reach the generator.
+
+    ``script_generate_with_new_architecture`` reads ``solver_info['dt_solver']`` directly, so a
+    config that names the step the old way must arrive with that key present rather than raising
+    KeyError part-way through generation.
+    """
+    parsed = YamlFileParser().parse_user_inputs_file(
+        {
+            'file_prefix': '3compartment',
+            'input_param_file': '3compartment_parameters.csv',
+            'model_type': 'cpp',
+            'solver': 'RK4',
+            'solver_info': {'MaximumStep': 0.001},
+        },
+        obs_path_needed=False,
+        do_generation_with_fit_parameters=False,
+    )
+    assert parsed['solver_info']['dt_solver'] == 0.001
+
+
 def test_solve_ivp_rejects_maximum_step_keys():
     with pytest.raises(ValueError, match="MaximumStep"):
         validate_solver_info('solve_ivp', {
