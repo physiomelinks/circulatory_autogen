@@ -64,6 +64,13 @@ To run the script, use the following command (which utilizes **MPI for paralleli
 
 After successful execution, you will find the SA plots—including the first, second, and total order indices—in the directory specified by `output_dir`.
 
+## Deriving an observable from other observables
+
+Sensitivity analysis uses the same `data_items` as calibration, so a feature built from other
+features -- the difference between two observables, say -- is available here too, and is defined
+the same way. See
+[Building an observable from other observables](parameter-identification.md#building-an-observable-from-other-observables).
+
 ## Expected outcome
 
 You should have Sobol index plots saved to `sa_options.output_dir`.
@@ -72,41 +79,3 @@ You should have Sobol index plots saved to `sa_options.output_dir`.
 
 - If you see errors about `params_for_id_path`, confirm your `params_for_id.csv` filename and `resources_dir`.
 - If MPI errors occur, ensure `mpiexec` is available and `mpi4py` is installed in the OpenCOR Python environment.
-
-## Introduction to Extracting New Features from Known Ground Truth
-
-This new feature used to calculate multiple previous (sequence in JSON file) predict results (extracted from previous experiments predict results) error and make it fitting the expectation ground truth (GT) value, to observe delta_input and delta_output relationship when GT numbers are limited. This new feature also could be used in model calibration progress.
-
-- If your ground truth is not sufficient for performing sensitivity analysis, or if you want to extract the difference between two ground truths as a new ground truth to assess a specific feature, please use this feature. For example, if there is a ground truth max_V and another ground truth min_V, you can extract delta_V = (max_V − min_V) as the new ground truth.
-
-Below figure is an example of a JSON file.
-
-![Example of JSON file](images/SensitivityAnalysis_JSONexample.png)
-
-important notice: this experimental unit must be placed after the unit from which the experimental prediction results are extracted, ensuring that the predicted outputs are available before this unit is executed.
-
-"name_for_plotting": "v_{ARdelta}", this string is important, you need to set a different name for different experiments, otherwise cannot use this new feature, but even if you set the same name, do not report error when running calibration progress.
-
-"operation": "calculate_delta_predict3", must select this operation function, make it receive specific index predict results and subtract subtract with specific index predict results.
-
-"operands": "", current experimental unit calculate results by extracted predicted results, so could be set as empty.
-
-"operation_kwargs", this data used to point which experiment predicted results need to be added, then convey the value to participate in the cost function calculation. It is the same per-`data_item` field used in calibration -- see [operation_kwargs](parameter-identification.md#operation_kwargs) for the full contract (which keys are accepted, what happens to an unknown key, and how a string value references an earlier observable).
-
-"v_{ARmean}" and "v_{ARmax}", important strings, specifies which experiment predicts results will be conveyed to the current experiment.
-
-"pred1" and "pred2": in fact, these parameter saved "v_{ARmean}" and "v_{ARmax}" experiments corresponding to predicted results. (The progress reads the JSON file and retrieves the prediction results for each experiment sequentially now)
-
-- If you extract more than 2 experimental predict results, and calculate new features by specific ways, you need to modify corresponding "operation" name, such as change "calculate_delta_predict3" to "our_new_expect_calculate_results", then need to modify './circulatory_autogen/funcs_user/operation_funcs_user.py' to added your own calculate function, be careful about the function style, the example "calculate_delta_predict3" as shown in below figure.
-
-![Example of operation file](images/SensitivityAnalysis_Operationexample.png)
-
-!!! note
-    Older versions could fail with `TypeError: operation_funcs.mean() argument after ** must be a
-    mapping, not float` when a `data_item` had no `operation_kwargs`. This is fixed: every place
-    that forwards `operation_kwargs` now goes through
-    `param_id.operation_funcs.resolve_operation_kwargs`, which treats a missing/null/NaN value as
-    "no kwargs" and raises a descriptive `ValueError` (naming the data item, the operation and the
-    accepted keys) for a key the operation func does not accept.
-
-If there is any other issue, please contact Changqing Dong, email: cdon822@aucklanduni.ac.nz. 
