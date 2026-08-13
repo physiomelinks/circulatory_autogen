@@ -146,6 +146,20 @@ def test_an_item_with_neither_a_value_nor_a_distribution_is_rejected(tmp_path):
 
 
 @pytest.mark.unit
+def test_an_obs_data_with_no_data_items_is_still_valid(tmp_path):
+    """A protocol-only obs_data says how to drive the model without yet saying what to measure --
+    what an obs_data generated from a model's own protocol looks like before its targets are
+    added. The schema loop is skipped for it, so none of the columns the ground-truth checks
+    read exist. Only the parse is exercised, which is as far as a protocol-only file goes."""
+    path = tmp_path / "obs_data.json"
+    path.write_text(json.dumps(_obs_data([])))
+    parsed = ObsAndParamDataParser().parse_obs_data_json(
+        param_id_obs_path=str(path), pre_time=0.0, sim_time=1.0, model_type="cellml_only")
+
+    assert len(parsed["gt_df"]) == 0
+
+
+@pytest.mark.unit
 def test_a_value_item_still_needs_its_std(tmp_path):
     with pytest.raises(ValueError, match="std"):
         _parse([_gaussian_item(std=None)], tmp_path)
