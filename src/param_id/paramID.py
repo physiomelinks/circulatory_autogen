@@ -110,6 +110,11 @@ warnings.filterwarnings( "ignore", module = "matplotlib/..*" )
 # can't be pickled because they are pyqt.
 mcmc_object = None
 
+#: The UQ backends that parallelise across MPI ranks by farming likelihood evaluations out to a
+#: worker pool, rather than by giving each rank chains of its own. See
+#: ``OpencorMCMC.sampler_needs_a_worker_pool`` for why the two arrangements cannot be mixed.
+_POOL_BACKED_UQ_LIBRARIES = ('emcee', 'zeus')
+
 
 # numpy 2.0 renamed trapz to trapezoid and removed the old name; numpy 1.x has only the old one,
 # and this project supports both (CI runs 2.2 while the OpenCOR shell ships 1.26). Bound once here
@@ -3876,22 +3881,13 @@ class OpencorMCMC(OpencorParamID):
             print('Running mcmc')
 
 
-        if num_procs > 1:
+        if num_procs > 1 and self.sampler_needs_a_worker_pool():
             # from pathos import multiprocessing
             # from pathos.multiprocessing import ProcessPool
             from schwimmbad import MPIPool
 
             if rank == 0:
-                if self.best_param_vals is not None:
-                    best_param_vals_norm = self.param_norm_obj.normalise(self.best_param_vals)
-                    # create initial params in gaussian ball around best_param_vals estimate
-                    init_param_vals_norm = (np.ones((self.UQ_options['num_walkers'], self.num_params))*best_param_vals_norm).T + \
-                                       0.1*np.random.randn(self.num_params, self.UQ_options['num_walkers'])
-                    init_param_vals_norm = np.clip(init_param_vals_norm, 0.001, 0.999)
-                    init_param_vals = self.param_norm_obj.unnormalise(init_param_vals_norm)
-                else:
-                    init_param_vals_norm = np.random.rand(self.num_params, self.UQ_options['num_walkers'])
-                    init_param_vals = self.param_norm_obj.unnormalise(init_param_vals_norm)
+                init_param_vals = self._initial_walker_positions(ball_scale=0.1)
 
             try:
                 pool = MPIPool() # workers dont get past this line in this try, they wait for work to do
@@ -3905,25 +3901,38 @@ class OpencorMCMC(OpencorParamID):
             self.sampler = self._build_sampler(pool=pool)
 
             start_time = time.time()
-            self._sample(init_param_vals.T, progress=True, tune=True)
+            self._sample(init_param_vals, progress=True, tune=True)
             print(f'mcmc time = {time.time() - start_time}')
             pool.close()
 
-        else:
-            if self.best_param_vals is not None:
-                best_param_vals_norm = self.param_norm_obj.normalise(self.best_param_vals)
-                init_param_vals_norm = (np.ones((self.UQ_options['num_walkers'], self.num_params))*best_param_vals_norm).T + \
-                                   0.01*np.random.randn(self.num_params, self.UQ_options['num_walkers'])
-                init_param_vals_norm = np.clip(init_param_vals_norm, 0.001, 0.999)
-                init_param_vals = self.param_norm_obj.unnormalise(init_param_vals_norm)
-            else:
-                init_param_vals_norm = np.random.rand(self.num_params, self.UQ_options['num_walkers'])
-                init_param_vals = self.param_norm_obj.unnormalise(init_param_vals_norm)
+        elif num_procs > 1:
+            # Every rank samples its own chains and they are gathered at the end, so no rank is
+            # a worker and no pool is opened. See sampler_needs_a_worker_pool.
+            #
+            # The starting ensemble is drawn once and broadcast rather than drawn per rank: the
+            # ranks must agree on it (best_param_vals is only guaranteed on rank 0, so drawing
+            # locally would put some ranks in a ball around the calibrated fit and others on a
+            # uniform draw over the whole prior box), and each rank then takes the slice of
+            # walkers it is responsible for so the gathered chain covers the ensemble asked for
+            # rather than repeating its first few walkers on every rank.
+            init_param_vals = self._initial_walker_positions(ball_scale=0.1) if rank == 0 else None
+            init_param_vals = comm.bcast(init_param_vals, root=0)
 
             self.sampler = self._build_sampler()
 
             start_time = time.time()
-            self._sample(init_param_vals.T) # , progress=True)
+            self._sample(self._walkers_for_rank(init_param_vals, rank, num_procs),
+                         progress=True, tune=True)
+            if rank == 0:
+                print(f'mcmc time = {time.time() - start_time}')
+
+        else:
+            init_param_vals = self._initial_walker_positions(ball_scale=0.01)
+
+            self.sampler = self._build_sampler()
+
+            start_time = time.time()
+            self._sample(init_param_vals) # , progress=True)
             print(f'mcmc time = {time.time()-start_time}')
 
         if rank == 0:
@@ -3938,6 +3947,65 @@ class OpencorMCMC(OpencorParamID):
             flat_samples = samples[self.burn_in_index(samples.shape[0]):, :, :].reshape(
                 -1, self.num_params)
             self.save_mcmc_statistics(flat_samples)
+
+    def sampler_needs_a_worker_pool(self):
+        """Whether this backend parallelises across ranks by farming out the likelihood.
+
+        The two backends parallelise in opposite directions, and running one arrangement under
+        the other hangs:
+
+        * **emcee and zeus** advance one ensemble in one process. The parallelism is the
+          likelihood: the sampler is handed a ``schwimmbad.MPIPool``, and every other rank sits
+          in ``pool.wait()`` serving evaluations until the master closes the pool.
+        * **pyMC** has no such hook. ``PyMCSampler`` instead gives each rank
+          ``chains_for_rank(...)`` chains of its own and gathers them along the walker axis at
+          the end -- which means every rank must reach ``run_mcmc``, and its ``comm.Barrier()``
+          and ``comm.gather`` are collectives over COMM_WORLD.
+
+        Opening a pool for pyMC therefore deadlocked every ``mpiexec -n >1`` UQ run with
+        ``library: pymc``: the workers were parked inside ``pool.wait()``, blocked in a receive
+        that only the master's ``pool.close()`` ends, so they could never join the master's
+        barrier -- and the master waits on that barrier forever, holding the pool open. Neither
+        side can move, and the run hangs after sampling with no error and no chain written. It
+        was never seen because nothing exercised it: the pyMC tests run on one rank, where this
+        branch is not taken at all.
+        """
+        return (self.UQ_options or {}).get('library', 'emcee') in _POOL_BACKED_UQ_LIBRARIES
+
+    def _initial_walker_positions(self, ball_scale):
+        """Starting positions for the ensemble, ``(num_walkers, num_params)``.
+
+        A gaussian ball of relative width ``ball_scale`` around the calibrated fit, in
+        normalised space, or a uniform draw over the prior box when there is no fit to start
+        from. Was written out twice, once per branch of ``run``, with the two copies differing
+        only in ``ball_scale`` -- a third branch is not worth a third copy.
+        """
+        num_walkers = self.UQ_options['num_walkers']
+        if self.best_param_vals is not None:
+            best_param_vals_norm = self.param_norm_obj.normalise(self.best_param_vals)
+            # create initial params in gaussian ball around best_param_vals estimate
+            init_param_vals_norm = (np.ones((num_walkers, self.num_params))*best_param_vals_norm).T + \
+                               ball_scale*np.random.randn(self.num_params, num_walkers)
+            init_param_vals_norm = np.clip(init_param_vals_norm, 0.001, 0.999)
+        else:
+            init_param_vals_norm = np.random.rand(self.num_params, num_walkers)
+        return self.param_norm_obj.unnormalise(init_param_vals_norm).T
+
+    @staticmethod
+    def _walkers_for_rank(init_param_vals, rank, num_procs):
+        """The slice of the starting ensemble this rank is responsible for.
+
+        Mirrors ``PyMCSampler.chains_for_rank``, which decides how many chains the rank runs
+        from the same two numbers -- if these two disagree, a rank either starts chains from
+        another rank's positions or is handed positions it never uses.
+
+        Indices wrap, because ``chains_for_rank`` never returns zero: with more ranks than
+        walkers every rank still runs one chain, and the ranks past the end of the ensemble
+        start over at its beginning rather than being handed nothing.
+        """
+        num_walkers = len(init_param_vals)
+        per_rank = max(1, num_walkers // num_procs)
+        return init_param_vals[(rank*per_rank + np.arange(per_rank)) % num_walkers]
 
     def mcmc_chain_path(self):
         """Where the chain is written -- the same path during the run as at the end of it.
