@@ -1138,9 +1138,15 @@ def test_cellml_solvers(model_name, input_param_file, solver, solver_info, gener
             assert len(var_result) > 0, f"Empty result for variable {var_name}"
 
 
+_SN_SIMPLE_XFAIL = (
+    "SN_simple's CellML initialises states from *_init parameters, which libCellML's Analyser rejects (ANALYSER_VARIABLE_NON_CONSTANT_INITIALISATION), so PythonGenerator cannot emit it (#151). cellml_only + Myokit accept the same model. strict=True on purpose: when a libCellML upgrade makes this pass, the XPASS fails the suite and says so, rather than leaving a permanently-red test that everyone has learned to ignore."
+)
+
+
 @pytest.mark.parametrize("model_name,input_param_file", [
     ("3compartment", "3compartment_parameters.csv"),
-    ("SN_simple", "SN_simple_parameters.csv"),
+    pytest.param("SN_simple", "SN_simple_parameters.csv",
+                 marks=pytest.mark.xfail(strict=True, reason=_SN_SIMPLE_XFAIL)),
 ])
 def test_python_BDF_solver(model_name, input_param_file, temp_model_dir, generated_cellml_model_factory):
     """

@@ -5,10 +5,17 @@ Simple_ODE_Benchmark model has an analytically known steady state, so a correct 
 centre on it with the right spread. Every unit test in test_uq_*.py can pass while the pipeline
 as a whole samples the wrong distribution -- that is what these catch.
 
-All three are slow (a real calibration followed by a real chain), so they are deselected from
-the default ``-m "not slow"`` run. Run them with:
+All three sample the *real model* -- a real calibration followed by a real chain -- and cost
+about 80 minutes between them (the bimodal one alone took 56 on CI). They are marked ``manual``,
+so they are not collected at all unless you ask for them:
 
-    ./run_pytest.sh tests/test_UQ.py -n 4 -m slow -v
+    ./run_pytest.sh tests/test_UQ.py -n 4 --run-manual -v
+
+What runs instead, on every PR and every default local run, is ``test_uq_on_emulator.py``: the
+same posterior-recovery and both-modes-present assertions, sampled through an emulator, in about
+five minutes. That covers everything above it in the stack -- the cost, the priors, both
+samplers, the statistics. What it does not cover, and what these three exist for, is the
+likelihood driven by the actual solver. Run them when you change anything on that path.
 """
 import os
 from pathlib import Path
@@ -116,6 +123,7 @@ def _assert_posterior_recovers_the_truth(stats, best_params, rtol, std_atol):
 
 @pytest.mark.integration
 @pytest.mark.slow
+@pytest.mark.manual
 @pytest.mark.mpi
 def test_mcmc_unimodal_with_validation(base_user_inputs, resources_dir, temp_output_dir,
                                        temp_generated_models_dir, mpi_comm):
@@ -150,6 +158,7 @@ def test_mcmc_unimodal_with_validation(base_user_inputs, resources_dir, temp_out
 
 @pytest.mark.integration
 @pytest.mark.slow
+@pytest.mark.manual
 @pytest.mark.mpi
 @pytest.mark.skipif(not pymc_installed,
                     reason='the pyMC backend needs the optional [uq] extra')
@@ -194,6 +203,7 @@ def test_mcmc_unimodal_with_validation_KDE_likelihood(base_user_inputs, resource
 
 @pytest.mark.integration
 @pytest.mark.slow
+@pytest.mark.manual
 @pytest.mark.mpi
 def test_mcmc_bimodal_with_validation(base_user_inputs, resources_dir, temp_output_dir,
                                       temp_generated_models_dir, mpi_comm):

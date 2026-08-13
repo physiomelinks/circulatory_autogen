@@ -186,7 +186,10 @@ jobs:
   # instead of adding to it.
   test-uq:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # ~5 minutes of tests plus ~3 of installs. Deliberately not generous: this job used to take
+    # 89 minutes against the real model, and a timeout close to the real cost is what makes a
+    # regression back to that visible instead of merely slow.
+    timeout-minutes: 25
     steps:
     - uses: actions/checkout@v4
 
@@ -208,17 +211,19 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y libopenmpi-dev openmpi-bin libsundials-dev build-essential
 
-    # Fast enough to be worth running first: it fails in a minute if UQ is broken at all,
-    # rather than after half an hour of sampling the real model.
-    - name: Run UQ on an emulator (fast posterior-recovery check)
+    # The whole UQ stack -- the cost, the priors, both samplers, the statistics -- checked
+    # against a posterior whose answer is known in closed form, including the bimodal case.
+    #
+    # The full-model equivalents in test_UQ.py are deliberately not run here. They took 82
+    # minutes of this job's 89 (the bimodal one alone: 56), and they sample the same posteriors
+    # these do -- the only difference being that the likelihood comes from the solver rather
+    # than from an emulator faithful to it (held-out R2 1.0000). Paying 16x the wall clock on
+    # every PR for that difference is not a good trade, so they are marked `manual` and run on
+    # demand with --run-manual when the solver-driven path itself changes.
+    - name: Run UQ on an emulator (posterior recovery, both samplers, bimodal)
       run: |
         python -m pytest tests/test_uq_on_emulator.py -v --with-mpi --tb=short \
           --durations=0 --junitxml=junit-uq-emulator.xml
-
-    - name: Run the full-model UQ posterior-recovery tests
-      run: |
-        python -m pytest tests/test_UQ.py -m slow -k "not KDE" -v --with-mpi --tb=short \
-          --durations=0 --junitxml=junit-uq.xml
 
     # A skipped test is a green step, so this job could report success having run nothing at
     # all -- and that is the likely failure, not a red X: every UQ test is guarded by a skipif
@@ -271,7 +276,6 @@ jobs:
         name: uq-test-results
         path: |
           junit-uq-emulator.xml
-          junit-uq.xml
 
   # Job to run full test suite if OpenCOR is available (optional)
   # This can be enabled if OpenCOR is set up in CI environment

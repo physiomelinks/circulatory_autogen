@@ -138,7 +138,7 @@ A `params_to_change` value is a **float** (constant) or a **string** (trace key 
 
 ## Backend caveats
 
-- **SN_simple / SN_full**: `cellml_only` generation + **Myokit** accept the emitted CellML (including state initial values referencing `*_init` params). **`PythonGenerator`** uses libCellML Analyser and requires a strict **ODE** model; the same SN CellML fails `ANALYSER_VARIABLE_NON_CONSTANT_INITIALISATION`, so `model_type: python` codegen is **not expected to work for SN** until the generator/model satisfies the analyser.
+- **SN_simple / SN_full**: `cellml_only` generation + **Myokit** accept the emitted CellML (including state initial values referencing `*_init` params). **`PythonGenerator`** uses libCellML Analyser and requires a strict **ODE** model; the same SN CellML fails `ANALYSER_VARIABLE_NON_CONSTANT_INITIALISATION`, so `model_type: python` codegen is **not expected to work for SN** until the generator/model satisfies the analyser. The two tests that hit this (`test_generate_python_model_succeeds[SN_simple…]`, `test_python_BDF_solver[SN_simple…]`) are `xfail(strict=True)`, so a libCellML upgrade that fixes it turns them into an `XPASS(strict)` **failure** telling you to drop the marker — rather than leaving two permanently-red tests nobody reads.
 - **CasADi**: piecewise/conditional models emit `ca.if_else` so they stay symbolically differentiable (needed for AD-based param ID). See `tests/test_casadi_conditionals.py`.
 
 ## Testing (required for every change)
@@ -157,6 +157,7 @@ Add/extend tests in `tests/` for **every feature and bugfix**; a bugfix should i
 | `test_omex_analysis_pipeline.py` | OMEX/SED-ML pipeline (`integration`, `misc_task`) |
 
 - Markers are declared in pyproject.toml (`--strict-markers` is on, so an unregistered marker fails the run). Notable: `slow`, `integration`, `unit`, `mpi`, `solver`, `need_opencor`, `compare_optimisers`, and the rank/task-coordination markers (`one_rank_task`, `autogen_rank`, `solver_task`, `misc_task`) used for MPI ordering.
+- **`manual`** is stronger than `slow`: those tests are **not collected at all** without `--run-manual`, so they run neither in CI nor in a default local run. It is for a test that is too expensive to justify on every run *and* has a faster stand-in — the full-model UQ posterior-recovery tests in `test_UQ.py` (~80 min; the bimodal one alone took 56 on CI) versus `test_uq_on_emulator.py`, which makes the same assertions through an emulator in ~5. Reach for `manual` only with that pairing; a slow test with no cheaper equivalent should stay `slow` and keep running.
 - Fixtures in `tests/conftest.py`: `base_user_inputs`, `resources_dir`, `temp_output_dir`, `temp_generated_models_dir`, `mpi_comm`.
 - Reuse existing CellML models / obs_data.json patterns from `resources/`; put new fixtures under `tests/test_inputs/` when needed.
 
