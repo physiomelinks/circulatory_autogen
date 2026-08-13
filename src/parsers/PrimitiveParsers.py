@@ -1475,7 +1475,10 @@ ANALYSIS_OPTIONS = {
              'description': 'Steps between writes of the partial chain to mcmc_chain.npy, so a '
                             'running chain can be watched and a cancelled one is not lost. 0 '
                             'saves only at the end, which a very wide chain on a slow shared '
-                            'filesystem may prefer. Ignored by a backend that cannot be stepped.'},
+                            'filesystem may prefer. Under pymc it counts post-tuning draws and '
+                            "the partial chain holds rank 0's draws so far as a single walker; "
+                            "pymc_method 'smc' has no per-draw hook, so it saves only at the "
+                            'end whatever this is set to.'},
         ],
     },
     'identifiability_analysis': {

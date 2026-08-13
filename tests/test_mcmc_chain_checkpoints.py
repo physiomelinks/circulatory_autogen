@@ -65,6 +65,28 @@ class _RunMcmcOnlySampler:
         self.run_mcmc_calls += 1
 
 
+class _SelfCheckpointingSampler:
+    """A backend that cannot be stepped but checkpoints itself -- pyMC's shape.
+
+    ``pm.sample`` is one blocking call with no generator form, but it does take a per-draw
+    callback, so the backend can write the partial chain from inside its own run_mcmc.
+    """
+
+    saves_own_checkpoints = True
+
+    def __init__(self):
+        self.run_mcmc_kwargs = None
+
+    def get_chain(self):
+        return np.zeros((1, NUM_WALKERS, NUM_PARAMS))
+
+    def run_mcmc(self, initial_state, num_steps, save_chain=None, save_every=0, **kwargs):
+        self.run_mcmc_kwargs = kwargs
+        for step in range(1, num_steps + 1):
+            if save_every and step % save_every == 0:
+                save_chain(np.zeros((step, 1, NUM_PARAMS)))
+
+
 def _saver(path, seen):
     """Record the shape of every chain written, and write it, so both can be asserted."""
     def save(samples):
@@ -136,6 +158,41 @@ def test_a_backend_that_cannot_be_stepped_still_runs():
 
     assert written == 0
     assert sampler.run_mcmc_calls == 1
+
+
+def test_a_backend_that_checkpoints_itself_is_given_the_hook(tmp_path):
+    """The pyMC case (#417 follow-up). Before this it matched 'cannot be stepped' and took the
+    blocking fallback, so its chain appeared only at the end however chain_save_every was set --
+    the file a live progress view polls stayed absent for the whole run."""
+    path = str(tmp_path / 'mcmc_chain.npy')
+    sampler = _SelfCheckpointingSampler()
+    shapes = []
+
+    written = sample_with_checkpoints(sampler, 'x0', 20, _saver(path, shapes), save_every=5)
+
+    assert written == 4, 'the count is the calls to the hook, whichever route made them'
+    assert [s[0] for s in shapes] == [5, 10, 15, 20]
+    assert np.load(path).shape == (20, 1, NUM_PARAMS)
+
+
+def test_a_self_checkpointing_backend_still_honours_checkpointing_off():
+    """save_every 0 means 'only at the end' for every backend, so the hook must not be handed
+    over -- a backend given save_every=0 would write nothing anyway, but it must not be asked."""
+    sampler = _SelfCheckpointingSampler()
+    saves = []
+
+    written = sample_with_checkpoints(sampler, 'x0', 10, saves.append, save_every=0)
+
+    assert written == 0 and saves == []
+
+
+def test_self_checkpointing_backends_get_the_sampler_kwargs_too():
+    sampler = _SelfCheckpointingSampler()
+
+    sample_with_checkpoints(sampler, 'x0', 4, lambda s: None, save_every=2,
+                            progress=True, tune=True)
+
+    assert sampler.run_mcmc_kwargs == {'progress': True, 'tune': True}
 
 
 def test_sampler_kwargs_are_passed_through():

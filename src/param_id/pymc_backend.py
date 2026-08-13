@@ -13,7 +13,17 @@ pymc and pytensor are imported lazily, inside the sampler. They are not CA depen
 ``paramID.py`` is imported by every calibration run, so importing them at module level (as the
 original patch did) would break every user who has not installed them, to no benefit for anyone
 not doing UQ. Install with ``pip install -e ".[uq]"``.
+
+The one place the two backends are not interchangeable is *how* the chain reaches disk while it
+is being sampled (#417). emcee's ``sample()`` is a generator, so the caller checkpoints between
+steps; ``pm.sample`` is a single blocking call with no generator equivalent, and a pyMC run
+therefore wrote nothing until it finished -- a live progress plot of it stayed empty for the
+whole run. ``pm.sample`` does take a per-draw ``callback``, so this module does its own
+checkpointing through that and declares ``saves_own_checkpoints`` so the shared loop hands it
+the same ``save_chain`` hook rather than falling back to the blocking call.
 """
+import sys
+
 import numpy as np
 
 try:
@@ -40,6 +50,92 @@ def _import_pymc():
     return pm, pt, as_op
 
 
+def _progressbar_wanted(progress, rank):
+    """Whether to let pyMC draw its progress bar.
+
+    Only rank 0 has anything to draw, and only when the caller asked for progress at all -- but
+    also only onto a terminal. pyMC's bar is a rich table that repaints, so redirected into a
+    log file it becomes thousands of lines of ANSI escapes wrapped around a redrawn table
+    (measured: ~8 kB for a 1000-draw run, growing with the run), interleaved with whatever else
+    is writing to that log. That is the run log a user is left reading when a run goes wrong,
+    and the bar is worth nothing in it: nobody watches a progress bar in a file. A terminal
+    still gets it.
+    """
+    return bool(progress) and rank == 0 and bool(getattr(sys.stdout, 'isatty', lambda: False)())
+
+
+class _LiveChainWriter:
+    """pyMC's per-draw callback, writing the draws so far the way #417 writes emcee's.
+
+    pyMC hands a callback ``(trace, draw)`` after every recorded draw, where ``trace`` is the
+    per-chain backend it is filling and ``draw`` carries the chain index and whether the draw is
+    a tuning one. That is enough to write the same growing ``mcmc_chain.npy`` an emcee run
+    writes, without pretending ``pm.sample`` can be stepped.
+
+    **The live file is the draws in the order pyMC produced them, as a single walker.** With
+    ``cores=1`` -- which is what CA asks for, because the parallelism is MPI ranks, not pyMC
+    processes -- chains are sampled one after another, not advanced together. So there is no
+    honest ``(steps, walkers, params)`` rectangle covering all of them until the last one
+    finishes: chain 2 has one draw while chain 1 has five thousand, and squaring that off means
+    either throwing away chain 1's draws or inventing chain 2's. Concatenating them instead is
+    exactly what happened, in the order it happened, and it grows monotonically for the whole
+    run -- which is what a progress view needs. The finished chain, written by the caller once
+    sampling returns, is the real ``(steps, chains, params)`` from every rank.
+
+    Tuning draws are dropped, because pyMC drops them: they are recorded in the same trace but
+    do not appear in the posterior, and a live view that included them would disagree with the
+    chain that lands at the end.
+
+    Nothing in here may raise. A callback that throws takes the whole ``pm.sample`` call down
+    with it, and losing hours of sampling because a progress nicety could not write a file is a
+    far worse failure than not having the file. A first failure is reported and turns the
+    checkpointing off for the rest of the run.
+    """
+
+    def __init__(self, save_chain, save_every, param_names, num_tune):
+        self.save_chain = save_chain
+        self.save_every = save_every
+        self.param_names = list(param_names)
+        self.num_tune = int(num_tune)
+        # chain index -> pyMC's trace for it, in the order sampling reached them; the traces are
+        # the same objects for the life of the run, so a finished chain stays readable here.
+        self.traces = {}
+        self.num_draws = 0
+        self.disabled = False
+
+    def __call__(self, trace, draw):
+        self.traces[draw.chain] = trace
+        if self.disabled or draw.tuning:
+            return
+        self.num_draws += 1
+        if self.num_draws % self.save_every:
+            return
+        try:
+            samples = self.chain_so_far()
+            if samples is not None:
+                self.save_chain(samples)
+        except Exception as exc:                       # noqa: BLE001 - see the class docstring
+            self.disabled = True
+            print(f'WARNING: could not write the partial MCMC chain ({exc}); sampling continues '
+                  'and the chain will be saved at the end of the run.')
+
+    def chain_so_far(self):
+        """The post-tuning draws so far, ``(draws, 1, params)``, or None before there are any."""
+        parts = []
+        for trace in self.traces.values():
+            recorded = len(trace)
+            if recorded <= self.num_tune:
+                continue
+            # A trace still being filled is preallocated to its full length, so it has to be cut
+            # to what has actually been recorded -- the tail is zeros, not draws.
+            parts.append(np.stack(
+                [np.asarray(trace.get_values(name))[self.num_tune:recorded]
+                 for name in self.param_names], axis=-1))
+        if not parts:
+            return None
+        return np.concatenate(parts, axis=0)[:, np.newaxis, :]
+
+
 class PyMCSampler:
     """A pyMC sampler wearing emcee's interface.
 
@@ -53,6 +149,12 @@ class PyMCSampler:
         num_tune: Tuning (burn-in) draws discarded before sampling.
         method: ``'mcmc'`` for Metropolis sampling, or ``'smc'`` for sequential Monte Carlo.
     """
+
+    #: Read by ``paramID.sample_with_checkpoints``. ``pm.sample`` is one blocking call with no
+    #: generator form, so this backend cannot be driven a step at a time -- but it does not have
+    #: to fall back to writing the chain only at the end either: it checkpoints itself from
+    #: pyMC's per-draw callback, given the same ``save_chain`` hook.
+    saves_own_checkpoints = True
 
     def __init__(self, num_walkers, num_params, log_posterior_fn, param_id_info=None,
                  num_tune=1000, method='mcmc'):
@@ -140,27 +242,36 @@ class PyMCSampler:
             return max(1, int(num_walkers))
         return max(1, int(num_walkers) // int(num_procs))
 
-    def run_mcmc(self, initial_state, num_steps, progress=False, **kwargs):
+    def run_mcmc(self, initial_state, num_steps, progress=False, save_chain=None, save_every=0,
+                 **kwargs):
         """Sample, and return the chain as ``(steps, walkers, params)``.
 
         ``initial_state`` is emcee's ``(walkers, params)`` starting positions; it seeds the
         per-chain initial values for ``method='mcmc'`` and is unused for SMC, which draws its
         own initial population from the prior.
+
+        ``save_chain``/``save_every`` are the checkpoint hook from
+        ``paramID.sample_with_checkpoints`` (issue #417): call ``save_chain(samples)`` every
+        ``save_every`` draws so the run can be watched and a cancelled one is not lost. Routed
+        into ``pm.sample``'s per-draw callback -- see ``_LiveChainWriter`` for what the partial
+        chain contains and why.
         """
         comm = MPI.COMM_WORLD if MPI is not None else None
         rank = comm.Get_rank() if comm is not None else 0
         num_procs = comm.Get_size() if comm is not None else 1
         num_chains = self.chains_for_rank(self.num_walkers, num_procs)
+        checkpointer = self._make_checkpointer(save_chain, save_every, rank)
 
         model = self._build_model()
         with model:
             if self.method == 'smc':
                 trace = self.pm.sample_smc(draws=num_steps, chains=num_chains, cores=1,
-                                           progressbar=(progress and rank == 0))
+                                           progressbar=_progressbar_wanted(progress, rank))
             else:
                 trace = self.pm.sample(
                     draws=num_steps, tune=self.num_tune, chains=num_chains, cores=1,
-                    step=self.pm.Metropolis(), progressbar=(progress and rank == 0),
+                    step=self.pm.Metropolis(), progressbar=_progressbar_wanted(progress, rank),
+                    callback=checkpointer,
                     initvals=self._initial_values(initial_state, num_chains))
 
         local_chain = self.trace_to_emcee_chain(trace, self._param_names())
@@ -176,6 +287,29 @@ class PyMCSampler:
         # Each rank sampled its own chains, so they concatenate along the walker axis.
         self.chain = np.concatenate([c for c in gathered if c is not None], axis=1)
         return self.chain
+
+    def _make_checkpointer(self, save_chain, save_every, rank):
+        """The per-draw callback that writes the partial chain, or None if nothing should.
+
+        Nothing should when checkpointing is off, when this is not rank 0, or under SMC:
+
+        * **Not rank 0.** Every rank samples its own chains into the same output directory, and
+          the chain file is one path. Ranks all writing it would each overwrite the others with
+          a chain that is only their own -- so the file would flicker between ranks rather than
+          grow. Only rank 0 writes, which means the live file shows rank 0's chains; the other
+          ranks' are gathered into the finished chain at the end, as they always were.
+        * **SMC.** ``pm.sample_smc`` takes no callback -- it advances a whole population per
+          stage rather than drawing one sample at a time, so there is no per-draw hook to hang
+          this on. Rather than leave that looking broken, say it: the chain arrives at the end.
+        """
+        if save_chain is None or save_every <= 0 or rank != 0:
+            return None
+        if self.method == 'smc':
+            print("NOTE: pyMC's sequential Monte Carlo (pymc_method 'smc') has no per-draw hook, "
+                  'so the chain is written once, when sampling finishes. UQ_options '
+                  "chain_save_every takes effect for pymc_method 'mcmc' only.")
+            return None
+        return _LiveChainWriter(save_chain, save_every, self._param_names(), self.num_tune)
 
     def _initial_values(self, initial_state, num_chains):
         """emcee's (walkers, params) start positions as pyMC's per-chain initval dicts."""

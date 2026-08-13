@@ -208,6 +208,13 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y libopenmpi-dev openmpi-bin libsundials-dev build-essential
 
+    # Seconds, and the only place the pyMC-sampling half of these runs: without [uq] they skip,
+    # which is exactly how the backend's live-chain checkpointing could regress unnoticed.
+    - name: Run the pyMC live-chain tests
+      run: |
+        python -m pytest tests/test_uq_pymc_live_chain.py -v --tb=short \
+          --junitxml=junit-uq-pymc-live.xml
+
     # Fast enough to be worth running first: it fails in a minute if UQ is broken at all,
     # rather than after half an hour of sampling the real model.
     - name: Run UQ on an emulator (fast posterior-recovery check)
@@ -271,6 +278,7 @@ jobs:
         name: uq-test-results
         path: |
           junit-uq-emulator.xml
+          junit-uq-pymc-live.xml
           junit-uq.xml
 
   # Job to run full test suite if OpenCOR is available (optional)
