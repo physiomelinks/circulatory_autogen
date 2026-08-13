@@ -215,6 +215,16 @@ jobs:
         python -m pytest tests/test_uq_pymc_live_chain.py -v --tb=short \
           --junitxml=junit-uq-pymc-live.xml
 
+    # Launches its own `mpiexec -n 2`, so it needs no MPI harness of its own -- but it is the
+    # only multi-rank UQ coverage anywhere in CI, for either backend. Both arrangements (pyMC
+    # sampling per rank, emcee farming likelihoods to a pool) hang rather than fail when they
+    # are wrong, so the test carries a deadline and the step carries one too.
+    - name: Run the multi-rank UQ tests
+      timeout-minutes: 15
+      run: |
+        python -m pytest tests/test_uq_pymc_mpi.py -v --tb=short \
+          --junitxml=junit-uq-mpi.xml
+
     # Fast enough to be worth running first: it fails in a minute if UQ is broken at all,
     # rather than after half an hour of sampling the real model.
     - name: Run UQ on an emulator (fast posterior-recovery check)
@@ -278,6 +288,7 @@ jobs:
         name: uq-test-results
         path: |
           junit-uq-emulator.xml
+          junit-uq-mpi.xml
           junit-uq-pymc-live.xml
           junit-uq.xml
 
