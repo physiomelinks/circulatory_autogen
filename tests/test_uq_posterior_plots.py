@@ -9,7 +9,7 @@ import os
 import numpy as np
 import pytest
 
-from param_id.paramID import CVS0DParamID
+from param_id.paramID import CVS0DParamID, integrate_trapezoid
 
 
 class _StubEngine:
@@ -223,7 +223,9 @@ def test_normal_prior_pdf_peaks_at_its_mean_and_integrates_to_one(tmp_path):
     pdf = plotter.get_prior_pdf(0, x)
 
     assert x[int(np.argmax(pdf))] == pytest.approx(3.0, abs=0.05)
-    assert np.trapz(pdf, x) == pytest.approx(1.0, abs=1e-6)
+    # Imported from paramID rather than called as np.trapz: numpy 2.0 removed that name,
+    # and a test that only runs on numpy 1.x is not testing the code CI runs.
+    assert integrate_trapezoid(pdf, x) == pytest.approx(1.0, abs=1e-6)
 
 
 @pytest.mark.unit
