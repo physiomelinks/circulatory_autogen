@@ -116,6 +116,7 @@ markers = [
     "autogen_rank(idx): autogeneration test assigned rank index",
     "solver_task: marks a solver test that signals completion",
     "compare_optimisers: marks compare_optimisers tests",
+    "full_scale_model: calibrates a whole-circulation model rather than a small one, so it takes minutes rather than seconds; CI splits the param_id jobs on this marker to halve their wall clock",
     "xdist_group(name): group marker used by pytest-xdist to serialize groups",
 ]
 # Coverage options
