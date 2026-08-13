@@ -65,6 +65,23 @@ def get_cost_kwarg_spec(func):
     return accepted, positional, accepts_any
 
 
+def ground_truth_param_name(func):
+    """The name of the ground truth this cost func takes, from its signature.
+
+    ``gaussian_MLE(output, desired_mean, std, weight)`` is scored against a number;
+    ``kernel_density_estimation(output, prob_dist_params, weight)`` against a distribution. Both
+    are scalar observables -- only what they are compared *to* differs, which is a property of
+    the cost, not of the data. Reading it off the signature is the same rule
+    ``framework_kwargs_for`` already applies to the keyword arguments, extended to the positional
+    ground truth so the two no longer need separate call sites (issue #421).
+
+    Returns ``'desired_mean'`` when the signature says nothing useful, which is the shape every
+    cost took before distributions existed.
+    """
+    _, positional, _ = get_cost_kwarg_spec(func)
+    return positional[1] if len(positional) >= 2 else 'desired_mean'
+
+
 def framework_kwargs_for(func, std=None, weight=None):
     """The framework-supplied kwargs this particular cost func can actually receive.
 

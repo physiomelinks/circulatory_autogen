@@ -114,9 +114,10 @@ def test_a_constant_observation_is_expanded_into_a_comparable_spread(tmp_path):
 
 
 @pytest.mark.unit
-def test_prob_dist_measurements_are_used_as_given(tmp_path):
-    """A prob_dist observation already *is* samples, so it must not be re-drawn."""
-    plotter = _plotter(tmp_path, _StubEngine([1.0]), data_types=('prob_dist',))
+def test_distribution_measurements_are_used_as_given(tmp_path):
+    """An observation stated as a distribution already *is* samples, so it must not be re-drawn
+    from a mean and a std -- it has neither (issue #421)."""
+    plotter = _plotter(tmp_path, _StubEngine([1.0]), data_types=('constant',))
     plotter.obs_info['ground_truth_prob_dist_params'] = [{'data_points': [1.0, 2.0, 3.0]}]
     values = {'x': {}}
     plotter._add_measured_values(values)

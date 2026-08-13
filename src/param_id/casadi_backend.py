@@ -189,7 +189,7 @@ def build_functions(pid, param_names, param_vals=None, get_all_series=False):
         else:
             obs_dict_item = output_dict
 
-        for key in ['const', 'series', 'amp', 'phase', 'val_for_prob_dist']:
+        for key in ['const', 'series', 'amp', 'phase']:
             val = obs_dict_item[key]
 
             if val is None:
@@ -316,7 +316,6 @@ def get_obs(pid, param_vals, get_all_series=False):
             'series': None,
             'amp': None,
             'phase': None,
-            'val_for_prob_dist': None
         })
 
     idx = 0

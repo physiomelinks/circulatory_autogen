@@ -111,8 +111,10 @@ def test_kde_cost_honours_the_bandwidth_and_the_weight():
     pytest.importorskip('scipy.stats')
     samples = [1.0, 1.2, 0.9, 1.1, 1.05, 0.95]
 
-    narrow = kernel_density_estimation(2.0, {'data_points': samples, 'bandwidth': 0.05}, 1.0)
-    wide = kernel_density_estimation(2.0, {'data_points': samples, 'bandwidth': 1.0}, 1.0)
+    # bandwidth is a cost_kwarg, not part of the ground truth: it tunes the comparison rather
+    # than stating the measurements, so it can be swept without editing them (issue #421).
+    narrow = kernel_density_estimation(2.0, {'data_points': samples}, 1.0, bandwidth=0.05)
+    wide = kernel_density_estimation(2.0, {'data_points': samples}, 1.0, bandwidth=1.0)
     assert narrow > wide, 'a narrower kernel must penalise a far-out point more'
 
     cost = kernel_density_estimation(1.0, {'data_points': samples}, 1.0)

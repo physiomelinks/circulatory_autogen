@@ -100,7 +100,7 @@ def multimodal_gaussian(output, prob_dist_params, weight):
 
 
 @is_MLE
-def kernel_density_estimation(output, prob_dist_params, weight):
+def kernel_density_estimation(output, prob_dist_params, weight, bandwidth="scott"):
     """Negative log-likelihood under a kernel density estimate of the observed samples.
 
     For a target that is known only as a set of measurements rather than as a named
@@ -109,8 +109,10 @@ def kernel_density_estimation(output, prob_dist_params, weight):
     ``multimodal_gaussian`` this needs no assumption about how many modes there are, or
     where they sit.
 
-    prob_dist_params: ``{"data_points": [...], "bandwidth": <optional>}``. ``bandwidth`` is
-    passed straight to gaussian_kde's ``bw_method`` ('scott', 'silverman', a scalar, or a
+    ``prob_dist_params`` is the data_item's ``{"data_points": [...]}`` -- the ground truth, the
+    distribution-shaped alternative to ``value``/``std``. ``bandwidth`` is a *knob*, so it comes
+    from the data_item's ``cost_kwargs`` (issue #84) and can be swept without touching the data;
+    it is passed straight to gaussian_kde's ``bw_method`` ('scott', 'silverman', a scalar or a
     callable), defaulting to Scott's rule.
     """
     if hasattr(output, "__len__") and np.size(output) > 1:
@@ -120,7 +122,8 @@ def kernel_density_estimation(output, prob_dist_params, weight):
     if not isinstance(prob_dist_params, dict) or "data_points" not in prob_dist_params:
         raise ValueError(
             "prob_dist_params for kernel_density_estimation in obs_data.json must be a dict "
-            "with a 'data_points' entry (and optionally 'bandwidth')")
+            "with a 'data_points' entry. Set the smoothing width in the data_item's "
+            '"cost_kwargs": {"bandwidth": ...} instead.')
 
     data_points = np.asarray(prob_dist_params["data_points"], dtype=float)
     if data_points.size == 0:
@@ -129,7 +132,7 @@ def kernel_density_estimation(output, prob_dist_params, weight):
 
     from scipy.stats import gaussian_kde
 
-    kde = gaussian_kde(data_points, bw_method=prob_dist_params.get("bandwidth", "scott"))
+    kde = gaussian_kde(data_points, bw_method=bandwidth)
     # logpdf returns an array even for one point; the cost must be a plain scalar so the
     # weighted sum over observables stays 0-d.
     return float(-np.ravel(kde.logpdf(np.ravel(output)))[0] * weight)
