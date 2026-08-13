@@ -503,7 +503,7 @@ def test_analysis_options_schema_well_formed():
         'method', 'sample_type', 'num_samples', 'gradient_method', 'fd_rel_step'}
     # 'uq', not 'mcmc': MCMC is one UQ method, and 'method' is the seam the others are added at.
     assert names('uq') == {'method', 'library', 'num_steps', 'num_walkers', 'burn_in',
-                           'num_tune', 'pymc_method'}
+                           'num_tune', 'pymc_method', 'chain_save_every'}
     assert ANALYSIS_OPTIONS['uq']['options_key'] == 'UQ_options'
     assert names('identifiability_analysis') == {'method', 'gradient_source', 'sub_method'}
     assert names('emulation') == {
