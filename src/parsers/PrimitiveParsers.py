@@ -2366,16 +2366,30 @@ def migrate_legacy_solver_info_keys(solver_name, solver_info):
             )
             solver_info.pop('MaximumNumberOfSteps', None)
     elif solver_name in _CPP_SOLVERS:
-        # Nothing to migrate onto: the generated C++ takes its step from the framework key
-        # 'dt_solver'. Dropping loudly beats rejecting, so a config written for a CVODE backend
-        # still runs -- it just says what stopped applying. rtol/atol are NOT dropped here: the
-        # generator emits them into the solver since #398.
+        # The generated C++ integrates at a fixed step, taken from the framework key
+        # 'dt_solver'. rtol/atol are NOT touched here: the generator emits them since #398.
         if 'MaximumStep' in solver_info:
-            _warn_dropped_solver_info_key(
-                solver_name, 'MaximumStep',
-                'The generated C++ integrates at a fixed step; use the framework key '
-                "'dt_solver' to set it.",
-            )
+            if 'dt_solver' in solver_info:
+                # Both given: dt_solver is the one the generated code reads, so MaximumStep
+                # stops applying and says so. Not an error -- a config written for a CVODE
+                # backend has to keep running.
+                _warn_dropped_solver_info_key(
+                    solver_name, 'MaximumStep',
+                    'The generated C++ integrates at the fixed step in '
+                    "'dt_solver', which is already set.",
+                )
+            else:
+                # Carried across rather than discarded. Dropping it lost the only step the
+                # user had given -- and this runs *before* the parser's own
+                # MaximumStep -> dt_solver fallback, so there was nothing left for that to
+                # find and generation died with KeyError: 'dt_solver' on every cpp config
+                # that had not already been rewritten to the new key.
+                #
+                # A maximum adaptive step and a fixed step are not the same quantity, but
+                # reading the former as the latter is conservative, and is exactly what that
+                # fallback already did.
+                solver_info['dt_solver'] = solver_info['MaximumStep']
+                _warn_renamed_solver_info_key(solver_name, 'MaximumStep', 'dt_solver')
             solver_info.pop('MaximumStep', None)
 
     return solver_info
