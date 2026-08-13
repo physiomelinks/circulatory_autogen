@@ -223,7 +223,7 @@ jobs:
       timeout-minutes: 15
       run: |
         python -m pytest tests/test_uq_pymc_mpi.py -v --tb=short \
-          --junitxml=junit-uq-mpi.xml
+          --junitxml=junit-uq-pymc-mpi.xml
 
     # Fast enough to be worth running first: it fails in a minute if UQ is broken at all,
     # rather than after half an hour of sampling the real model.
@@ -243,43 +243,7 @@ jobs:
     # resolve, the whole point of this job evaporates and the badge still says pass.
     - name: Fail if the UQ tests did not actually run
       if: always()
-      run: |
-        python - <<'PY'
-        import glob
-        import sys
-        import xml.etree.ElementTree as ET
-
-        problems = []
-        seen_any = False
-        for path in sorted(glob.glob('junit-uq*.xml')):
-            seen_any = True
-            suites = ET.parse(path).getroot()
-            suites = [suites] if suites.tag == 'testsuite' else suites.findall('testsuite')
-            for suite in suites:
-                total = int(suite.get('tests', 0))
-                skipped = int(suite.get('skipped', 0))
-                ran = total - skipped
-                print(f'{path}: {total} collected, {skipped} skipped, {ran} ran')
-                if total == 0:
-                    problems.append(f'{path} collected no tests')
-                elif ran == 0:
-                    problems.append(f'{path} ran nothing -- all {total} tests skipped')
-                elif skipped:
-                    problems.append(f'{path} skipped {skipped} of {total} tests')
-
-        if not seen_any:
-            problems.append('no junit-uq*.xml was produced, so no UQ tests ran at all')
-
-        if problems:
-            print()
-            print('The UQ job is meant to be the one place these run. Every UQ test is behind a '
-                  'skipif on an optional extra, so a skip here almost always means [uq] or '
-                  '[emulation] did not install rather than that the test was inapplicable.')
-            for problem in problems:
-                print(f'  - {problem}')
-            sys.exit(1)
-        print('every UQ test ran')
-        PY
+      run: python .github/scripts/fail_if_tests_skipped.py "junit-uq*.xml"
 
     - name: Upload UQ test results
       if: always()
@@ -288,9 +252,64 @@ jobs:
         name: uq-test-results
         path: |
           junit-uq-emulator.xml
-          junit-uq-mpi.xml
+          junit-uq-pymc-mpi.xml
           junit-uq-pymc-live.xml
           junit-uq.xml
+
+  # UQ with more than one rank -- the way a real UQ run is launched (`run_param_id.sh` takes a
+  # processor count), and, until this job, the way nothing was ever tested. Every other UQ job
+  # runs pytest directly, on one rank, where the multi-rank branches are not taken at all: that
+  # is how a deadlock in the pyMC arm survived from #408 until #424.
+  #
+  # It runs the emulator UQ tests because they are the only end-to-end UQ that is affordable on
+  # a pull request -- both samplers, a posterior with a closed-form answer, minutes not hours --
+  # and they cover the two arrangements that can deadlock: emcee farming likelihoods to an
+  # MPIPool, and pyMC sampling its own chains per rank.
+  #
+  # Each rank writes its own junit file, since both ranks run the whole file and a shared path
+  # would have them overwrite each other. The quoting matters: OMPI_COMM_WORLD_RANK must be
+  # expanded by each rank's own shell, not by the shell that launches mpiexec.
+  test-uq-mpi:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.10"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[dev,uq,emulation]"
+
+    - name: Install MPI and Myokit build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libopenmpi-dev openmpi-bin libsundials-dev build-essential
+
+    - name: Run the emulator UQ tests on two ranks
+      timeout-minutes: 30
+      run: |
+        mpiexec -n 2 bash -c 'python -m pytest tests/test_uq_on_emulator.py -v --with-mpi \
+          --tb=short --durations=0 --junitxml=junit-uq-2rank-$OMPI_COMM_WORLD_RANK.xml'
+
+    # Same reasoning as the serial UQ job: these are all behind skipif on an optional extra, so
+    # a job that installed neither would pass having run nothing. Rank 0's results are the ones
+    # checked -- both ranks run the same tests.
+    - name: Fail if the multi-rank UQ tests did not actually run
+      if: always()
+      run: python .github/scripts/fail_if_tests_skipped.py "junit-uq-2rank-0.xml"
+
+    - name: Upload multi-rank UQ test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: uq-mpi-test-results
+        path: |
+          junit-uq-2rank-*.xml
 
   # Job to run full test suite if OpenCOR is available (optional)
   # This can be enabled if OpenCOR is set up in CI environment
