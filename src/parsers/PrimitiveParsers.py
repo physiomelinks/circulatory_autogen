@@ -1471,6 +1471,11 @@ ANALYSIS_OPTIONS = {
              'description': "pyMC sampling algorithm: 'mcmc' is Metropolis, 'smc' is sequential "
                             'Monte Carlo, which can cross a low-probability region between modes '
                             'that Metropolis gets stuck on one side of. Ignored by emcee.'},
+            {'name': 'chain_save_every', 'type': 'int', 'default': 50, 'required': False,
+             'description': 'Steps between writes of the partial chain to mcmc_chain.npy, so a '
+                            'running chain can be watched and a cancelled one is not lost. 0 '
+                            'saves only at the end, which a very wide chain on a slow shared '
+                            'filesystem may prefer. Ignored by a backend that cannot be stepped.'},
         ],
     },
     'identifiability_analysis': {

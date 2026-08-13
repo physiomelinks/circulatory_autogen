@@ -3628,7 +3628,57 @@ def calculate_lnlikelihood(param_vals):
     """
     return mcmc_object.get_lnlikelihood_lnprior_from_params(param_vals)
 
-class OpencorMCMC(OpencorParamID): 
+
+def save_chain_atomically(path, samples):
+    """Write ``samples`` to ``path`` so a concurrent reader never sees half an array.
+
+    The chain is written *while* it is being sampled, so something else is expected to be
+    polling this file -- a front-end drawing the run, or a user with a notebook open. Writing in
+    place would leave a window in which the file is a truncated array, and ``np.load`` on that
+    raises rather than returning fewer steps. Writing beside it and renaming closes the window:
+    ``os.replace`` is atomic, so a reader sees either the previous chain or the new one.
+
+    ``np.save`` appends ``.npy`` to any path that lacks it, which would turn the temporary name
+    into ``...npy.tmp.npy`` and leave it behind; handing it an open file avoids that.
+    """
+    tmp_path = f'{path}.tmp'
+    with open(tmp_path, 'wb') as tmp_file:
+        np.save(tmp_file, samples)
+    os.replace(tmp_path, path)
+
+
+def sample_with_checkpoints(sampler, initial_state, num_steps, save_chain, save_every,
+                            **sample_kwargs):
+    """Run ``sampler`` for ``num_steps``, saving the chain so far every ``save_every`` steps.
+
+    ``run_mcmc`` is one blocking call that returns only when sampling is done, which is why the
+    chain used to reach disk once, hours in. ``sample()`` is the same loop as a generator, so
+    checkpointing is just doing something on the way round.
+
+    Falls back to ``run_mcmc`` when ``save_every`` is non-positive (checkpointing off) or the
+    sampler has no ``sample`` -- zeus is driven through the same code path here, and a backend
+    that only offers ``run_mcmc`` should keep working rather than raise.
+
+    Returns the number of checkpoints written, which is what a test can assert on without
+    reaching into the filesystem.
+    """
+    sample = getattr(sampler, 'sample', None)
+    if save_every <= 0 or sample is None:
+        sampler.run_mcmc(initial_state, num_steps, **sample_kwargs)
+        return 0
+
+    checkpoints = 0
+    for step, _state in enumerate(sample(initial_state, iterations=num_steps, **sample_kwargs),
+                                  start=1):
+        # Not on the last step: the caller saves the finished chain either way, and saving the
+        # same array twice in a row is pure I/O on the largest it will ever be.
+        if step % save_every == 0 and step < num_steps:
+            save_chain(sampler.get_chain())
+            checkpoints += 1
+    return checkpoints
+
+
+class OpencorMCMC(OpencorParamID):
     """
     Class for doing mcmc on opencor models
     
@@ -3834,7 +3884,7 @@ class OpencorMCMC(OpencorParamID):
             self.sampler = self._build_sampler(pool=pool)
 
             start_time = time.time()
-            self.sampler.run_mcmc(init_param_vals.T, self.UQ_options['num_steps'], progress=True, tune=True)
+            self._sample(init_param_vals.T, progress=True, tune=True)
             print(f'mcmc time = {time.time() - start_time}')
             pool.close()
 
@@ -3852,22 +3902,39 @@ class OpencorMCMC(OpencorParamID):
             self.sampler = self._build_sampler()
 
             start_time = time.time()
-            self.sampler.run_mcmc(init_param_vals.T, self.UQ_options['num_steps']) # , progress=True)
+            self._sample(init_param_vals.T) # , progress=True)
             print(f'mcmc time = {time.time()-start_time}')
 
         if rank == 0:
-            # TODO save chains
             if hasattr(self.sampler, 'acceptance_fraction'):
                 print(f'acceptance fraction was {self.sampler.acceptance_fraction}')
             samples = self.sampler.get_chain()
-            mcmc_chain_path = os.path.join(self.output_dir, 'mcmc_chain.npy')
-            np.save(mcmc_chain_path, samples)
+            mcmc_chain_path = self.mcmc_chain_path()
+            save_chain_atomically(mcmc_chain_path, samples)
             print('mcmc complete')
             print(f'mcmc chain saved in {mcmc_chain_path}')
 
             flat_samples = samples[self.burn_in_index(samples.shape[0]):, :, :].reshape(
                 -1, self.num_params)
             self.save_mcmc_statistics(flat_samples)
+
+    def mcmc_chain_path(self):
+        """Where the chain is written -- the same path during the run as at the end of it.
+
+        Deliberately one file rather than a partial one that is renamed at the end: everything
+        that reads a chain (``load_mcmc_chain``, the plotters, a front-end) then needs no notion
+        of "the run has finished", and a run that is cancelled or killed leaves its chain exactly
+        where the tooling already looks for it.
+        """
+        return os.path.join(self.output_dir, 'mcmc_chain.npy')
+
+    def _sample(self, initial_state, **sample_kwargs):
+        """Sample, leaving a readable chain behind on the way rather than only at the end."""
+        return sample_with_checkpoints(
+            self.sampler, initial_state, self.UQ_options['num_steps'],
+            lambda samples: save_chain_atomically(self.mcmc_chain_path(), samples),
+            self.UQ_options.get('chain_save_every', 50),
+            **sample_kwargs)
 
     def burn_in_index(self, num_steps):
         """The first step to keep, from ``UQ_options['burn_in']``.
