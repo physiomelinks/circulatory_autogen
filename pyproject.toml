@@ -4,7 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "circulatory-autogen"
-version = "0.1.0"
+# Keep in step with the release tag: every release is accompanied by a chore PR bumping this.
+# It had drifted to 0.1.0 while the published release was Version_0_2, so anything built from
+# the tree reported a version lower than the one already out.
+version = "0.3.0"
 description = "Generation and calibration of CellML circulatory system models from module/vessel arrays"
 readme = "README.md"
 requires-python = ">=3.7"
