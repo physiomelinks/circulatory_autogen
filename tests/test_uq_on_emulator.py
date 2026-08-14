@@ -165,6 +165,14 @@ def _config(resources_dir, output_dir, generated_models_dir, emulator_dir,
         config, obs_path_needed=True, do_generation_with_fit_parameters=False)
 
 
+_TESTS_DIR = os.path.dirname(os.path.abspath(__file__))
+
+#: A bimodal target: the same benchmark, but each observable is scored against a KDE over
+#: samples clustered near two values instead of against a mean and a std.
+BIMODAL_OBS_PATH = os.path.join(_TESTS_DIR, 'test_inputs',
+                                'Simple_ODE_Benchmark_bimodal_obs_data.json')
+
+
 def _train_emulator(config, comm):
     from emulators.emulator_trainer import EmulatorTrainer
 
@@ -286,3 +294,77 @@ def test_the_uq_run_writes_its_posterior_summary(
 
 def _reject_non_standard_json(value):
     raise AssertionError(f'mcmc_statistics.json contains non-standard JSON constant {value!r}')
+
+
+@pytest.mark.integration
+@pytest.mark.mpi
+@pytest.mark.skipif(not _emulator_available(),
+                    reason='autoemulate is required for the emulator UQ test')
+def test_uq_on_an_emulator_finds_both_modes_of_a_bimodal_target(
+        resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
+    """A bimodal posterior, sampled through an emulator.
+
+    This is the case a point estimate cannot represent at all, so it is the one that most
+    justifies running UQ -- and the one an ensemble sampler is most likely to get wrong by
+    parking every walker in whichever mode it found first. The full-model version
+    (test_UQ.py::test_mcmc_bimodal_with_validation) takes ~26 minutes, which is why it is marked
+    slow and does not run on a pull request.
+
+    It could not be emulated before #421: both data_items were data_type ``prob_dist``, so
+    EmulatorTrainer refused with "the emulator predicts scalar data_item features only". Now
+    that they are constants scored against a KDE, the emulator has features to predict -- and
+    only easy ones, because the bimodality lives entirely in the *likelihood*. The
+    parameter -> steady-state map it has to learn is as smooth as the unimodal case; the two
+    modes come from the KDE cost applied afterwards. That is what makes this affordable here and
+    expensive against the model.
+    """
+    emulator_dir = os.path.join(temp_output_dir, 'emulator')
+    config = _config(resources_dir, temp_output_dir, temp_generated_models_dir, emulator_dir,
+                     param_id_obs_path=BIMODAL_OBS_PATH)
+
+    _agree(mpi_comm, None if mpi_comm.Get_rank() != 0 or
+           generate_with_new_architecture(False, config) else 'benchmark generation failed')
+
+    bundle = _train_emulator(config, mpi_comm)
+
+    # Both checks are decided on rank 0 and broadcast, because they sit before a collective:
+    # a rank that failed one on its own would leave the others inside run_UQ's collectives and
+    # the run would hang instead of reporting the failure.
+    problem = None
+    if mpi_comm.Get_rank() == 0:
+        for entry in (bundle.error_stats() or []):
+            if isinstance(entry, dict) and entry.get('r2') is not None and \
+                    float(entry['r2']) <= 0.99:
+                problem = f'emulator is not faithful: {entry}'
+
+        # An emulator is only trustworthy inside its training box, and a mode outside that box
+        # is unreachable however good the sampler is -- the surrogate would then support half
+        # the posterior and look perfectly converged doing it. Both KDE clusters must fall
+        # inside the span of the features it was trained on.
+        y_train = np.asarray(bundle.y_train, dtype=float)
+        for mode in (1.0, 4.0):
+            if not y_train[:, 0].min() <= mode <= y_train[:, 0].max():
+                problem = (
+                    f'the training set spans {y_train[:, 0].min():.2f}..'
+                    f'{y_train[:, 0].max():.2f}, which does not reach the mode at {mode}: '
+                    f'that mode cannot be sampled')
+    _agree(mpi_comm, problem)
+
+    # Every rank samples -- see the sibling test: which ranks do what inside the chain is the
+    # sampler's business, and a rank that skipped this would strand the others.
+    param_id = CVS0DParamID.init_from_dict({**config, 'mcmc_instead': True})
+    param_id.run_UQ()
+    if mpi_comm.Get_rank() != 0:
+        return
+
+    chain = np.load(os.path.join(param_id.output_dir, 'mcmc_chain.npy'))
+    flat = chain[chain.shape[0] // 2:, :, :].reshape(-1, chain.shape[2])
+
+    # The same statistic the full-model test asserts: a unimodal collapse shows up as all the
+    # mass on one side of the midpoint, which is exactly what a mean or a best-fit point hides.
+    first_param = flat[:, 0]
+    midpoint = 0.5 * (first_param.min() + first_param.max())
+    below = float(np.mean(first_param < midpoint))
+    print(f'[bimodal] {below:.1%} of samples below the midpoint {midpoint:.3f}')
+    assert 0.1 < below < 0.9, (
+        f'the chain collapsed onto one mode: {below:.1%} of samples below the midpoint')

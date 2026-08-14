@@ -206,6 +206,14 @@ def _get_assigned_one_rank_rank(request):
     return 0
 
 
+def pytest_addoption(parser):
+    parser.addoption(
+        '--run-manual', action='store_true', default=False,
+        help='also run the tests marked "manual" -- ones too slow for CI or for a normal local '
+             'run, kept because they check something a faster test only approximates (e.g. the '
+             'full-model UQ posterior recovery, ~80 min, whose emulated equivalents run in ~5).')
+
+
 def pytest_configure(config):
     """
     Configure pytest to work with OpenCOR Python environment.
@@ -699,13 +707,36 @@ def test_model_configs():
     ]
 
 
-def pytest_collection_modifyitems(items):
+def drop_manual_tests(config, items):
+    """Deselect the ``manual`` tests unless ``--run-manual`` was passed.
+
+    Deselected rather than skipped so they leave the rank-assignment bookkeeping untouched --
+    and because a permanently-skipped test in every run's summary is noise that stops being read.
+
+    A module-level function rather than inline in the hook so it can be tested directly. Testing
+    it by launching a nested pytest is not an option: ``pytest_configure`` deletes the shared
+    ``.pytest_*_results`` files at session start, so an inner session wipes the outer run's
+    accumulated results and the outer run then blocks in ``_wait_for_expected_result_count``
+    for its full 1800 s timeout.
+    """
+    if config.getoption('--run-manual'):
+        return
+    manual = [item for item in items if 'manual' in item.keywords]
+    if manual:
+        items[:] = [item for item in items if item not in manual]
+        config.hook.pytest_deselected(items=manual)
+
+
+def pytest_collection_modifyitems(config, items):
     """
     Ensure autogeneration tests run before param_id tests, which in turn run before others.
     This is useful when running the full suite so that generated assets exist before
     parameter ID tests execute.
     """
     import os
+
+    drop_manual_tests(config, items)
+
     autogen_items = [item for item in items if _is_autogen_like_nodeid(item.nodeid)]
     misc_items = [item for item in items if _is_misc_nodeid(item.nodeid)]
     solver_items = [item for item in items if "test_solvers" in item.nodeid]

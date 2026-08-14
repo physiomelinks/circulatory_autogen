@@ -8,58 +8,70 @@
         8.0
       ]
     ],
-    "params_to_change": {
-    },
+    "params_to_change": {},
     "experiment_labels": [
       "TWorld_v2_Virual_cohort"
     ]
   },
   "prediction_items": [],
   "data_items": [
-	{  
-	  "variable": "benchmark/x",  
-	  "name_for_plotting": "x_{SS}",  
-	  "data_type": "prob_dist",  
-	  "operation": "steady_state_avg",  
-	  "operands": ["benchmark/x"],  
-	  "unit": "dimensionless",  
-	  "weight": 1.0,  
-	  "value": 1,  
-	  "std": 0.1,  
-	  "experiment_idx": 0,  
-	  "subexperiment_idx": 0,  
-	  "plot_type": "None",
-          "prob_dist_params": {  
-	        "data_points": [1.050, 0.986, 1.065, 1.152, 0.977, 0.977, 1.158, 1.077, 0.953, 1.054]
-	  },
-      "cost_type": "kernel_density_estimation"
-	},
-	{  
-	  "variable": "benchmark/y",  
-	  "name_for_plotting": "y_{SS}",  
-	  "data_type": "prob_dist",  
-	  "operation": "steady_state_avg",  
-	  "operands": ["benchmark/y"],  
-	  "unit": "dimensionless",  
-	  "weight": 1.0,  
-	  "value": 0.33,  
-	  "std": 0.1,  
-	  "experiment_idx": 0,  
-	  "subexperiment_idx": 0,  
-	  "plot_type": "None",
-	      "prob_dist_params": {  
-		    "data_points": [4.3616256380e-1,
-							3.4851763020e-1,
-							3.0416979900e-1,
-							3.2567541060e-1,
-							3.0277230150e-1,
-							3.9074290780e-1,
-							2.3822858120e-1,
-							4.0581900250e-1,
-							3.4042696990e-1,
-							1.9834831290e-1]
-		  },
-	  "cost_type": "kernel_density_estimation"
-	}
+    {
+      "variable": "benchmark/x",
+      "name_for_plotting": "x_{SS}",
+      "data_type": "constant",
+      "operation": "steady_state_avg",
+      "operands": [
+        "benchmark/x"
+      ],
+      "unit": "dimensionless",
+      "weight": 1.0,
+      "experiment_idx": 0,
+      "subexperiment_idx": 0,
+      "plot_type": "None",
+      "cost_type": "kernel_density_estimation",
+      "prob_dist_params": {
+        "data_points": [
+          1.05,
+          0.986,
+          1.065,
+          1.152,
+          0.977,
+          0.977,
+          1.158,
+          1.077,
+          0.953,
+          1.054
+        ]
+      }
+    },
+    {
+      "variable": "benchmark/y",
+      "name_for_plotting": "y_{SS}",
+      "data_type": "constant",
+      "operation": "steady_state_avg",
+      "operands": [
+        "benchmark/y"
+      ],
+      "unit": "dimensionless",
+      "weight": 1.0,
+      "experiment_idx": 0,
+      "subexperiment_idx": 0,
+      "plot_type": "None",
+      "cost_type": "kernel_density_estimation",
+      "prob_dist_params": {
+        "data_points": [
+          0.4361625638,
+          0.3485176302,
+          0.304169799,
+          0.3256754106,
+          0.3027723015,
+          0.3907429078,
+          0.2382285812,
+          0.4058190025,
+          0.3404269699,
+          0.1983483129
+        ]
+      }
+    }
   ]
 }

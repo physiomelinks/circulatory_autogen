@@ -94,7 +94,7 @@ def test_a_trailing_constant_is_actually_scored(tmp_path):
 
     # The model says 8.0 where the data says 5.0, with std 1 -> a real cost.
     obs_dict = {"const": np.array([8.0]), "series": None,
-                "amp": None, "phase": None, "val_for_prob_dist": None}
+                "amp": None, "phase": None}
     cost = pid.cost_calc(obs_dict, exp_idx=0, sub_idx=0)
 
     assert cost > 0.0, (
@@ -177,7 +177,7 @@ def test_a_series_is_scored_too(tmp_path):
 
     # Model says 4.0 where the series says 2.0 -> a real, non-zero cost.
     obs_dict = {"const": np.array([5.0]), "series": [np.array([4.0, 4.0])],
-                "amp": None, "phase": None, "val_for_prob_dist": None}
+                "amp": None, "phase": None}
     cost = pid.cost_calc(obs_dict, exp_idx=0, sub_idx=0)
 
     assert cost > 0.0, "the series contributed nothing"
