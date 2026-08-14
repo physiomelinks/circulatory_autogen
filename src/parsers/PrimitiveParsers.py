@@ -1281,6 +1281,32 @@ def param_id_method_options(param_id_method):
     return []
 
 
+def uq_options(library=None):
+    """The `UQ_options` settings a given sampler `library` reads, for tools that auto-populate
+    the UQ settings form.
+
+    The samplers do not take the same settings: `num_tune` and `pymc_method` are pyMC's alone,
+    and `_build_sampler` passes them to no other backend. Until now that was said only in each
+    description ("Ignored by emcee"), which a form cannot act on -- so an emcee user was offered
+    a tuning count that nothing would read and a pyMC algorithm that would not run, and had no
+    way to tell those apart from the settings that do apply.
+
+    A descriptor carrying `libraries` applies to those backends only; one without it applies to
+    every backend, which is the common case and keeps the annotation to the exceptions. Returns
+    every option when `library` is None, so a caller wanting the whole schema (or a tool that
+    has not chosen a backend yet) still gets it.
+
+    Unknown library names return the library-agnostic options rather than nothing: a front-end
+    on a newer CA than its schema knows should degrade to the settings that are certainly
+    right, not to an empty form.
+    """
+    options = ANALYSIS_OPTIONS['uq']['options']
+    if library is None:
+        return list(options)
+    return [opt for opt in options
+            if 'libraries' not in opt or library in opt['libraries']]
+
+
 def solver_info_fields(solver):
     """The `solver_info` settings a given solver accepts (see SOLVER_INFO_FIELDS), for tools that
     auto-populate the solver settings form. Empty list for an unknown solver."""
@@ -1461,6 +1487,7 @@ ANALYSIS_OPTIONS = {
             # inverted: the knob exists and matters (it triples the iteration count at its
             # default) but no front-end could discover or change it.
             {'name': 'num_tune', 'type': 'int', 'default': 1000, 'required': False,
+             'libraries': ['pymc'],
              'description': 'Tuning (warm-up) draws the pymc backend discards before sampling. '
                             'Ignored by emcee, which tunes as it goes. These are on top of '
                             'num_steps, so 1000 tune plus 500 draws is 1500 iterations.'},
@@ -1469,6 +1496,7 @@ ANALYSIS_OPTIONS = {
             # it with a hardcoded fallback, so it sat at 'mcmc' with nothing able to reach it.
             {'name': 'pymc_method', 'type': 'enum', 'default': 'mcmc', 'required': False,
              'choices': ['mcmc', 'smc'],
+             'libraries': ['pymc'],
              'description': "pyMC sampling algorithm: 'mcmc' is Metropolis, 'smc' is sequential "
                             'Monte Carlo, which can cross a low-probability region between modes '
                             'that Metropolis gets stuck on one side of. Ignored by emcee.'},
