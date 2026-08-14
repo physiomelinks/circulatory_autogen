@@ -72,15 +72,26 @@ class _LiveChainWriter:
     a tuning one. That is enough to write the same growing ``mcmc_chain.npy`` an emcee run
     writes, without pretending ``pm.sample`` can be stepped.
 
-    **The live file is the draws in the order pyMC produced them, as a single walker.** With
-    ``cores=1`` -- which is what CA asks for, because the parallelism is MPI ranks, not pyMC
-    processes -- chains are sampled one after another, not advanced together. So there is no
-    honest ``(steps, walkers, params)`` rectangle covering all of them until the last one
-    finishes: chain 2 has one draw while chain 1 has five thousand, and squaring that off means
-    either throwing away chain 1's draws or inventing chain 2's. Concatenating them instead is
-    exactly what happened, in the order it happened, and it grows monotonically for the whole
-    run -- which is what a progress view needs. The finished chain, written by the caller once
-    sampling returns, is the real ``(steps, chains, params)`` from every rank.
+    **The live file keeps each chain in its own column, NaN where it has not got there yet.**
+    With ``cores=1`` -- which is what CA asks for, because the parallelism is MPI ranks, not
+    pyMC processes -- chains are sampled one after another, not advanced together, so there is
+    no full ``(steps, chains, params)`` rectangle until the last one finishes: chain 2 has one
+    draw while chain 1 has five thousand.
+
+    This first shipped concatenating them into a single walker, on the reasoning that a
+    ragged set of chains has no honest rectangle and the concatenation at least invented
+    nothing. That was wrong in a way only a plot shows. The joined trace steps discontinuously
+    where one chain ends and the next begins, and every statistic computed along it -- the
+    autocorrelation, the running mean -- is taken *across* those joins, so a live view of a
+    healthy pyMC run looked like one badly-mixing chain. emcee advances all its walkers
+    together and never has this shape, so only pyMC looked broken.
+
+    Padding with NaN is the honest rectangle: each column is one real chain, and a draw that
+    has not happened is absent rather than fabricated. Consumers must use NaN-aware reductions
+    (``np.nanmean`` and friends) or drop the NaNs -- which is the right requirement, because
+    the alternative is a number no sampler produced. The finished chain, written by the caller
+    once sampling returns, is the real dense ``(steps, chains, params)`` from every rank and
+    carries no NaN at all.
 
     Tuning draws are dropped, because pyMC drops them: they are recorded in the same trace but
     do not appear in the posterior, and a live view that included them would disagree with the
@@ -120,20 +131,36 @@ class _LiveChainWriter:
                   'and the chain will be saved at the end of the run.')
 
     def chain_so_far(self):
-        """The post-tuning draws so far, ``(draws, 1, params)``, or None before there are any."""
-        parts = []
-        for trace in self.traces.values():
+        """The post-tuning draws so far as ``(draws, chains, params)``, or None before any.
+
+        One column per chain pyMC has started, in chain order, padded with NaN where a chain
+        has not reached that draw yet. A chain that has not started at all contributes no
+        column, so the array widens as sampling moves on to the next chain.
+
+        NaN rather than a fabricated number: "not sampled yet" is not a value, and anything
+        substituted for it -- zero, the last draw, the mean -- is a datum no sampler produced
+        and would be plotted and averaged as though it were real.
+        """
+        blocks = {}
+        for chain_idx, trace in self.traces.items():
             recorded = len(trace)
             if recorded <= self.num_tune:
                 continue
             # A trace still being filled is preallocated to its full length, so it has to be cut
             # to what has actually been recorded -- the tail is zeros, not draws.
-            parts.append(np.stack(
+            blocks[chain_idx] = np.stack(
                 [np.asarray(trace.get_values(name))[self.num_tune:recorded]
-                 for name in self.param_names], axis=-1))
-        if not parts:
+                 for name in self.param_names], axis=-1)
+        if not blocks:
             return None
-        return np.concatenate(parts, axis=0)[:, np.newaxis, :]
+        # Column index *is* the chain index, so a trace keeps its identity as the run goes on
+        # rather than shifting left when an earlier chain is skipped.
+        num_chains = max(blocks) + 1
+        longest = max(len(block) for block in blocks.values())
+        samples = np.full((longest, num_chains, len(self.param_names)), np.nan)
+        for chain_idx, block in blocks.items():
+            samples[:len(block), chain_idx, :] = block
+        return samples
 
 
 class PyMCSampler:

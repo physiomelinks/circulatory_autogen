@@ -817,6 +817,7 @@ class CVS0DParamID():
             return
 
         samples = np.load(os.path.join(self.output_dir, 'mcmc_chain.npy'))
+        samples = drop_unsampled_draws(samples)
         num_steps = samples.shape[0]
         num_walkers = samples.shape[1]
         num_params = samples.shape[2]  #
@@ -3636,6 +3637,35 @@ def calculate_lnlikelihood(param_vals):
     and not all the attributes of the class instance.
     """
     return mcmc_object.get_lnlikelihood_lnprior_from_params(param_vals)
+
+
+def drop_unsampled_draws(samples):
+    """A chain cut back to the draws every walker actually reached.
+
+    Only a *partial* pyMC chain has anything to drop. Its chains are sampled one after another
+    (``cores=1``), so the file written mid-run carries NaN where a chain has not got to a draw
+    yet -- see ``pymc_backend._LiveChainWriter``. A finished chain is dense and this returns it
+    untouched.
+
+    It matters because a cancelled or killed run leaves that partial file exactly where the
+    finished one would be, and every statistic downstream (``np.mean``, ``np.percentile``,
+    arviz's ESS and R-hat) turns a single NaN into a NaN answer for the whole parameter.
+    Truncating to the shortest chain is the conservative reading: every walker is then a real
+    chain of the same length, which is the rectangle the rest of the code is written against.
+
+    Deliberately not ``np.nan_to_num`` or a per-walker compaction: substituting zeros invents
+    draws, and letting walkers have different lengths would push the raggedness into every
+    consumer instead of resolving it here.
+    """
+    samples = np.asarray(samples)
+    if samples.ndim != 3 or not np.isnan(samples).any():
+        return samples
+    complete = ~np.isnan(samples).any(axis=(1, 2))
+    if not complete.any():
+        return samples[:0]
+    # Draws are contiguous from the start, so the first gap ends the usable chain.
+    first_gap = np.argmax(~complete) if (~complete).any() else len(complete)
+    return samples[:first_gap]
 
 
 def save_chain_atomically(path, samples):
