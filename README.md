@@ -1,10 +1,10 @@
 # Overview
 
-[![Tests](https://github.com/FinbarArgus/circulatory_autogen/workflows/Tests/badge.svg)](https://github.com/FinbarArgus/circulatory_autogen/actions/workflows/tests.yml)
+[![Tests](https://github.com/physiomelinks/circulatory_autogen/actions/workflows/tests.yml/badge.svg?branch=master&event=push)](https://github.com/physiomelinks/circulatory_autogen/actions/workflows/tests.yml)
 
 This project allows the generation and calibration of cellml (and soon to be more) circulatory system models from an array of module/vessel names and connections.
 
-> **Note:** Test results and pass percentage are displayed in the [GitHub Actions workflow summary](https://github.com/FinbarArgus/circulatory_autogen/actions/workflows/tests.yml). The badge above shows the overall test status (passing/failing). 
+> **Note:** Test results and pass percentage are displayed in the [GitHub Actions workflow summary](https://github.com/physiomelinks/circulatory_autogen/actions/workflows/tests.yml). The badge above shows the overall test status (passing/failing) for `master` of this repository, which is where pull requests are merged. 
 
 # Tutorial
 
