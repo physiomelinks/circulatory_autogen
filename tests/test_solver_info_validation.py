@@ -19,6 +19,7 @@ from parsers.PrimitiveParsers import (
     gradient_sources,
     ANALYSIS_OPTIONS,
     analysis_options,
+    uq_options,
     _SOLVER_INTEGRATOR_KEYS,
     _CASADI_ADJOINT_METHODS,
 )
@@ -552,6 +553,59 @@ def test_every_uq_option_the_code_reads_is_advertised():
     assert read <= advertised, (
         f'UQ_options read by the code but not declared in ANALYSIS_OPTIONS["uq"]: '
         f'{sorted(read - advertised)}')
+
+
+def test_uq_options_are_filtered_by_sampler_library():
+    """A settings form should offer what the chosen sampler actually reads, and nothing else.
+
+    ``num_tune`` and ``pymc_method`` are pyMC's alone. Offering them under emcee is not a
+    cosmetic wart: the user sets a tuning count that nothing reads and an algorithm that will
+    not run, and has no way to tell those from the settings that do apply.
+    """
+    everything = {o['name'] for o in analysis_options('uq')}
+    pymc_only = {'num_tune', 'pymc_method'}
+
+    assert {o['name'] for o in uq_options('pymc')} == everything
+    assert {o['name'] for o in uq_options('emcee')} == everything - pymc_only
+    # No library named at all is "show me the schema", not "show me nothing".
+    assert {o['name'] for o in uq_options()} == everything
+
+
+def test_an_unknown_sampler_library_still_gets_the_shared_options():
+    """A front-end newer than the CA it is pointed at (or older) must degrade to the settings
+    that are certainly right, rather than to an empty form with no way to configure a run."""
+    assert {o['name'] for o in uq_options('zeus')} == \
+        {o['name'] for o in analysis_options('uq')} - {'num_tune', 'pymc_method'}
+
+
+def test_library_specific_uq_options_are_read_only_in_that_librarys_arm():
+    """The annotation has to match the dispatch, or the form hides a setting that matters.
+
+    Restating "num_tune and pymc_method are pyMC's" in the test would only agree with itself.
+    This reads ``_build_sampler``, which is where the choice is actually made, and requires that
+    an option marked for one library is read inside that library's branch and not before it --
+    so moving a read out of the pyMC arm without dropping the annotation fails here.
+    """
+    import inspect
+
+    from param_id.paramID import OpencorMCMC
+
+    source = inspect.getsource(OpencorMCMC._build_sampler)
+    before_pymc, marker, pymc_arm = source.partition("if library == 'pymc'")
+    assert marker, "_build_sampler no longer dispatches on library == 'pymc'"
+
+    annotated = [o for o in analysis_options('uq') if o.get('libraries')]
+    assert annotated, 'no UQ option is annotated with the libraries that read it'
+    for opt in annotated:
+        assert opt['libraries'] == ['pymc'], (
+            f"{opt['name']}: this test only knows how to check the pyMC arm; extend it "
+            'alongside a new library-specific option')
+        assert opt['name'] in pymc_arm, (
+            f"{opt['name']} is advertised as pyMC-only but _build_sampler's pyMC arm never "
+            'reads it')
+        assert opt['name'] not in before_pymc, (
+            f"{opt['name']} is advertised as pyMC-only but is read before the pyMC arm, so "
+            'another backend reads it too and the form must offer it there')
 
 
 def test_closed_set_analysis_options_are_enums_with_choices():
