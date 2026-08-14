@@ -113,8 +113,50 @@ jobs:
           echo "> CI runs the Myokit-first suite and fails on real test failures." >> $GITHUB_STEP_SUMMARY
         fi
 
+  # The param_id suite is split in two, serial and MPI alike, because one test was half of it.
+  # Measured on the run that prompted the split (per-test, from the job logs):
+  #
+  #   test_param_id_simple_physiological_succeeds     705 s serial / 621 s MPI
+  #   everything else in both files, together         801 s serial / 600 s MPI
+  #
+  # That one test calibrates a whole-circulation model where every other test uses a small one
+  # (3compartment, lotka_volterra, fitzhugh_nagumo), so the split is by model scale rather than
+  # an arbitrary halving: `full_scale_model` marks it, and the two halves select on the marker.
+  # A new full-scale test joins the first half by wearing the marker; anything else lands in the
+  # second half by default. Splitting on a marker rather than on `-k <test name>` means renaming
+  # the test cannot silently put 12 minutes back into one job.
+  #
+  # Each half is ~10-13 minutes and they run in parallel, so the wall clock is halved rather
+  # than the work reduced.
+  test-param-id-mpi-full-scale:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.10"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[dev]"
+
+    - name: Install MPI and Myokit build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libopenmpi-dev openmpi-bin libsundials-dev build-essential
+
+    - name: Run the full-scale model calibration with MPI
+      run: |
+        mpiexec -n 2 python -m pytest tests/test_param_id.py -m full_scale_model -v --with-mpi \
+          --tb=short --durations=0 --junitxml=junit-param-id-full-scale.xml
+
   test-param-id-mpi:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
     - uses: actions/checkout@v4
 
@@ -135,10 +177,40 @@ jobs:
 
     - name: Run param_id and sensitivity analysis tests with MPI
       run: |
-        mpiexec -n 2 python -m pytest tests/test_param_id.py tests/test_sensitivity_analysis.py -v --with-mpi --tb=short --junitxml=junit-param-id.xml
+        mpiexec -n 2 python -m pytest tests/test_param_id.py tests/test_sensitivity_analysis.py \
+          -m "not full_scale_model" -v --with-mpi --tb=short --durations=0 \
+          --junitxml=junit-param-id.xml
+
+  # Split on the same marker as the MPI pair above, for the same reason -- see the note there.
+  test-param-id-serial-full-scale:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.10"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[dev]"
+
+    - name: Install MPI and Myokit build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libopenmpi-dev openmpi-bin libsundials-dev build-essential
+
+    - name: Run the full-scale model calibration in serial mode
+      run: |
+        python -m pytest tests/test_param_id.py -m full_scale_model -v --with-mpi --tb=short \
+          --durations=0 --junitxml=junit-param-id-serial-full-scale.xml
 
   test-param-id-serial:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
     - uses: actions/checkout@v4
 
@@ -159,7 +231,9 @@ jobs:
 
     - name: Run param_id and sensitivity analysis tests in serial mode
       run: |
-        python -m pytest tests/test_param_id.py tests/test_sensitivity_analysis.py -v --with-mpi --tb=short --junitxml=junit-param-id-serial.xml
+        python -m pytest tests/test_param_id.py tests/test_sensitivity_analysis.py \
+          -m "not full_scale_model" -v --with-mpi --tb=short --durations=0 \
+          --junitxml=junit-param-id-serial.xml
 
   # The end-to-end UQ tests: a real chain checked against a posterior whose answer is known in
   # closed form (issue #179). Nothing else runs them -- the full-model ones are marked `slow`
