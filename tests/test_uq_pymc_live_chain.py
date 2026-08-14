@@ -22,7 +22,11 @@ from collections import namedtuple
 import numpy as np
 import pytest
 
-from param_id.paramID import sample_with_checkpoints, save_chain_atomically
+from param_id.paramID import (
+    drop_unsampled_draws,
+    sample_with_checkpoints,
+    save_chain_atomically,
+)
 from param_id.pymc_backend import PyMCSampler, _LiveChainWriter, _progressbar_wanted
 
 pymc_installed = True
@@ -69,23 +73,34 @@ class _FakeTrace:
 def _replay_pymc(writer, draws_per_chain, num_tune, num_chains, start=0.0):
     """Drive ``writer`` with the callback sequence pyMC produces at ``cores=1``.
 
-    Chain by chain, tuning draws first, one callback per recorded draw. Returns the draws that
-    should end up in the chain -- every chain's post-tuning draws, concatenated in the order
-    they were sampled.
+    Chain by chain, tuning draws first, one callback per recorded draw. Returns the post-tuning
+    draws per chain, ``[chain][draw][param]`` -- the shape the live file is expected to hold,
+    one column per chain, before any NaN padding is applied.
     """
     total = num_tune + draws_per_chain
-    expected = []
+    per_chain = []
     value = start
     for chain in range(num_chains):
         trace = _FakeTrace(total)
+        kept = []
         for idx in range(total):
             value += 1.0
             point = [value, -value]
             trace.record(point)
             if idx >= num_tune:
-                expected.append(point)
+                kept.append(point)
             writer(trace=trace, draw=Draw(chain, False, idx, idx < num_tune, {}, {}))
-    return np.asarray(expected)
+        per_chain.append(np.asarray(kept, dtype=float).reshape(-1, len(PARAM_NAMES)))
+    return per_chain
+
+
+def _padded(per_chain):
+    """``per_chain`` as the ``(draws, chains, params)`` rectangle, NaN where a chain is short."""
+    longest = max((len(c) for c in per_chain), default=0)
+    out = np.full((longest, len(per_chain), len(PARAM_NAMES)), np.nan)
+    for idx, block in enumerate(per_chain):
+        out[:len(block), idx, :] = block
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -103,20 +118,91 @@ def test_the_chain_is_written_every_save_every_draws_and_grows():
 
 
 @pytest.mark.unit
-def test_the_partial_chain_is_the_draws_so_far_in_the_order_they_were_sampled():
-    """The ordering assertion. Chain 0's draws, then chain 1's -- which is what happened, and is
-    the only arrangement of sequentially sampled chains that is all real draws and never
-    shrinks."""
+def test_each_chain_keeps_its_own_column():
+    """The fix. Chains sampled one after another must not be concatenated into one trace.
+
+    Joined end to end, the trace steps discontinuously where one chain ends and the next
+    begins, and the autocorrelation and running mean are then computed *across* that join --
+    so a healthy pyMC run was drawn as one badly-mixing chain.
+    """
     written = []
     writer = _LiveChainWriter(written.append, save_every=4, param_names=PARAM_NAMES, num_tune=3)
 
-    expected = _replay_pymc(writer, draws_per_chain=8, num_tune=3, num_chains=2)
+    per_chain = _replay_pymc(writer, draws_per_chain=8, num_tune=3, num_chains=2)
 
-    assert len(expected) == 16
-    np.testing.assert_allclose(written[-1], expected[:, np.newaxis, :])
-    # and every checkpoint on the way is a prefix of it, never a re-truncated view
-    for chunk in written:
-        np.testing.assert_allclose(chunk, expected[:chunk.shape[0], np.newaxis, :])
+    final = written[-1]
+    assert final.shape == (8, 2, 2), 'two chains of eight draws, side by side'
+    np.testing.assert_allclose(final, _padded(per_chain))
+    # column index is the chain index: chain 1's draws are not in chain 0's column
+    np.testing.assert_allclose(final[:, 0, :], per_chain[0])
+    np.testing.assert_allclose(final[:, 1, :], per_chain[1])
+
+
+@pytest.mark.unit
+def test_a_chain_that_has_not_caught_up_is_padded_with_nan():
+    """Mid-run, chain 1 has draws chain 2 does not. The gap is NaN -- not zero, not the last
+    value, not the mean -- because it is a draw no sampler has produced yet, and anything put
+    there would be plotted and averaged as though it had been."""
+    written = []
+    writer = _LiveChainWriter(written.append, save_every=3, param_names=PARAM_NAMES, num_tune=0)
+
+    # 6 draws for chain 0, then only 3 for chain 1 -> the writer is called mid-chain-1
+    _replay_pymc(writer, draws_per_chain=6, num_tune=0, num_chains=1)
+    trace = _FakeTrace(6)
+    for idx in range(3):
+        trace.record([100.0 + idx, -(100.0 + idx)])
+        writer(trace=trace, draw=Draw(1, False, idx, False, {}, {}))
+
+    partial = written[-1]
+    assert partial.shape == (6, 2, 2), 'full height, one column per started chain'
+    assert not np.isnan(partial[:, 0, :]).any(), 'the finished chain has no gaps'
+    assert not np.isnan(partial[:3, 1, :]).any(), "chain 1's real draws are present"
+    assert np.isnan(partial[3:, 1, :]).all(), 'and the draws it has not reached are NaN'
+    # a NaN-aware reduction still gets the right answer for the short chain
+    np.testing.assert_allclose(np.nanmean(partial[:, 1, 0]), 101.0)
+
+
+@pytest.mark.unit
+def test_a_cancelled_runs_partial_chain_is_cut_to_its_complete_draws():
+    """A killed run leaves the partial file where the finished one would be, so whatever reads
+    it must not turn a NaN into a NaN mean for the whole parameter."""
+    partial = np.arange(24, dtype=float).reshape(4, 2, 3)
+    partial[2:, 1, :] = np.nan            # chain 1 stopped two draws in
+
+    kept = drop_unsampled_draws(partial)
+
+    assert kept.shape == (2, 2, 3), 'cut to the draws both chains reached'
+    assert not np.isnan(kept).any()
+    np.testing.assert_allclose(kept, partial[:2])
+
+
+@pytest.mark.unit
+def test_a_finished_chain_is_returned_untouched():
+    """The common case: nothing to drop, and no copy of a chain that may be very large."""
+    dense = np.arange(24, dtype=float).reshape(4, 2, 3)
+    assert drop_unsampled_draws(dense) is dense
+
+
+@pytest.mark.unit
+def test_a_chain_with_no_complete_draw_comes_back_empty_rather_than_nan():
+    """Cancelled before the second chain produced anything. An empty chain reads as 'no
+    samples'; one full of NaN reads as samples whose every statistic is NaN."""
+    nothing = np.full((3, 2, 2), np.nan)
+    nothing[:, 0, :] = 1.0
+    assert drop_unsampled_draws(nothing).shape[0] == 0
+
+
+@pytest.mark.unit
+def test_the_finished_chain_carries_no_nan():
+    """The padding is a property of a *partial* chain only. Once every chain has run its full
+    length the rectangle is dense, and a consumer that forgot about NaN still gets a number."""
+    written = []
+    writer = _LiveChainWriter(written.append, save_every=5, param_names=PARAM_NAMES, num_tune=1)
+
+    _replay_pymc(writer, draws_per_chain=5, num_tune=1, num_chains=3)
+
+    assert written[-1].shape == (5, 3, 2)
+    assert not np.isnan(written[-1]).any()
 
 
 @pytest.mark.unit
@@ -127,10 +213,10 @@ def test_tuning_draws_are_left_out_because_pymc_leaves_them_out():
     written = []
     writer = _LiveChainWriter(written.append, save_every=2, param_names=PARAM_NAMES, num_tune=6)
 
-    expected = _replay_pymc(writer, draws_per_chain=4, num_tune=6, num_chains=1)
+    per_chain = _replay_pymc(writer, draws_per_chain=4, num_tune=6, num_chains=1)
 
     assert written[-1].shape[0] == 4, 'four post-tuning draws, not ten recorded ones'
-    np.testing.assert_allclose(written[-1], expected[:, np.newaxis, :])
+    np.testing.assert_allclose(written[-1], _padded(per_chain))
 
 
 @pytest.mark.unit
@@ -268,12 +354,11 @@ def test_a_real_pymc_run_writes_a_growing_chain_that_matches_what_it_returns(tmp
 
     # a checkpoint every 2 post-tuning draws over 2 chains x 6 draws, and never the tuning ones
     assert checkpoints == 6
-    assert [s[0] for s in shapes] == [2, 4, 6, 8, 10, 12]
-    assert all(s[1:] == (1, 2) for s in shapes)
+    # chain 0 grows to its full 6 draws, then chain 1 appears as a second column and grows
+    assert shapes == [(2, 1, 2), (4, 1, 2), (6, 1, 2), (6, 2, 2), (6, 2, 2), (6, 2, 2)]
 
-    # ...and the draws are the chains pyMC returned, chain 0 then chain 1
-    pooled = np.concatenate([chain[:, c, :] for c in range(num_chains)], axis=0)
-    np.testing.assert_allclose(np.load(path)[:, 0, :], pooled)
+    # ...and the last partial chain is exactly the chains pyMC went on to return, per column
+    np.testing.assert_allclose(np.load(path), chain)
 
 
 @pytest.mark.unit
