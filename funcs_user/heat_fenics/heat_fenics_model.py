@@ -2,7 +2,7 @@
 
 This is the flagship example of the ``model_type: external_python`` / ``solver: external``
 backend: a solver that owns its own time-stepping. CA does not integrate anything here --
-it hands over ``dt``/``sim_time``/``pre_time``, asks for a run, and reads four probe
+it hands over ``dt``/``sim_time``/``pre_time``, asks for a run, and reads three probe
 traces back. Everything between those two points is dolfinx.
 
 The physics
@@ -45,11 +45,18 @@ deterministic choice.
 Time scales
 -----------
 The slowest mode of the unit square with Dirichlet edges decays at ``λ = 2 k π² ≈ 19.7 k``,
-so across the calibration box ``k ∈ [0.01, 0.2]`` the time constant runs from ≈ 5 s down to
-≈ 0.25 s. The suggested grid is ``dt = 0.02`` / ``sim_time = 2.0`` (100 steps): at the
+so across the calibration box ``k ∈ [0.001, 0.2]`` the time constant runs from ≈ 51 s down
+to ≈ 0.25 s. The suggested grid is ``dt = 0.02`` / ``sim_time = 2.0`` (100 steps): at the
 default ``k = 0.05`` that covers about two time constants; at ``k = 0.01`` the plate has
-only partially cooled and at ``k = 0.2`` it has fully relaxed -- both ends of the box leave
-a distinct signature in the traces, which is what makes ``k`` identifiable.
+only partially cooled and at ``k = 0.2`` it has fully relaxed -- both leave a distinct
+signature in the traces, which is what makes ``k`` identifiable.
+
+Below roughly ``k = 0.005`` the plate barely cools at all on this window (at ``k = 0.001``
+it keeps ~96% of its heat) and every observable saturates at the initial temperature. That
+is a deliberate lower bound rather than a useful operating point: it says "no diffusion",
+and a calibration rules it out immediately -- but it is a flat region of the cost surface,
+so a gradient method started there has nothing to descend. Lengthen ``sim_time`` if you
+want that end of the box to be informative.
 
 MPI
 ---

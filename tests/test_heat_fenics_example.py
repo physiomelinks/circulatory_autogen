@@ -43,8 +43,8 @@ _RESOURCE_FILES = ('heat_fenics_params_for_id.csv', 'heat_fenics_obs_data.json')
 
 #: A deliberately small grid for the tests: 50 steps on an 8x8 mesh is milliseconds once the
 #: forms are compiled, and none of the assertions below need the shipped resolution. The
-#: window tracks the calibration box -- at k in [0.01, 0.2] the plate's time constant runs
-#: from ~5 s to ~0.25 s, so a 1 s window shows real cooling at the fast end without being
+#: window tracks the calibration box -- at k in [0.001, 0.2] the plate's time constant runs
+#: from ~51 s to ~0.25 s, so a 1 s window shows real cooling at the fast end without being
 #: dominated by it at the slow end.
 _FAST_CONFIG = {
     'dt': 0.02,
@@ -219,7 +219,7 @@ def test_more_diffusivity_relaxes_faster_towards_the_boundary_value(model):
     monotonicity over the calibration box rather than as a value, so it holds on any mesh
     and any step size.
     """
-    sweep = (0.01, 0.05, 0.1, 0.2)  # the shipped calibration box for heat/k
+    sweep = (0.001, 0.01, 0.05, 0.1, 0.2)  # the shipped calibration box for heat/k
     model.set_param_vals({'heat/u_D': 0.0})
     finals = []
     for k in sweep:
@@ -309,7 +309,7 @@ def _emulator_config(base_user_inputs, temp_output_dir, temp_generated_models_di
         'resources_dir': resources_dir,
         'param_id_method': 'genetic_algorithm',
         # A coarse grid on a coarse mesh: 10 steps of an 8x8 problem per training sample,
-        # over the 1 s window the k in [0.01, 0.2] box actually shows cooling in.
+        # over the 1 s window the k in [0.001, 0.2] box actually shows cooling in.
         # The features still move over the whole params_for_id box, which is all the
         # emulator needs, and 20 of them take seconds rather than minutes.
         'pre_time': 0.0,

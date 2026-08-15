@@ -61,11 +61,18 @@ Probes sit at (0.25, 0.25), (0.5, 0.5) and (0.75, 0.75), and are located once in
 ### Time scales — why `dt = 0.02`, `sim_time = 2.0`
 
 The slowest mode of the unit square with Dirichlet edges decays at `λ₁ = 2kπ² ≈ 19.7k`, so
-across the calibration box `k ∈ [0.01, 0.2]` the plate's time constant runs from ≈ 5 s down
-to ≈ 0.25 s. The suggested grid is therefore **100 steps of 0.02 s**: at the default
+across the calibration box `k ∈ [0.001, 0.2]` the plate's time constant runs from ≈ 51 s
+down to ≈ 0.25 s. The suggested grid is therefore **100 steps of 0.02 s**: at the default
 `k = 0.05` that is about two time constants, while `k = 0.01` leaves the plate only
-partially cooled and `k = 0.2` fully relaxes it — both ends of the box leave a distinct
-signature, which is what makes `k` identifiable. A default 16×16 mesh (289 dofs) makes a
+partially cooled and `k = 0.2` fully relaxes it — both leave a distinct signature, which is
+what makes `k` identifiable.
+
+!!! note "The bottom of the box is a bound, not an operating point"
+    Below about `k = 0.005` the plate barely cools on this window — at `k = 0.001` it keeps
+    ~96% of its heat and every observable saturates at the initial temperature. That is
+    exactly what a lower bound should say ("no diffusion"), and a calibration rules it out
+    immediately, but it is a *flat* region of the cost surface: a gradient method started
+    there has nothing to descend. Lengthen `sim_time` if you want that end informative. A default 16×16 mesh (289 dofs) makes a
 whole run **milliseconds** once the forms are compiled; the one-off FFCx compilation in
 `init_solver` is a few seconds.
 
@@ -74,7 +81,7 @@ whole run **milliseconds** once the forms are compiled; the one-off FFCx compila
 | File | Purpose |
 |---|---|
 | `heat_fenics_model.py` | The solver class (`parameters`, `output_names`, `init_solver`, `update_times`, `set_param_vals`, `run`, `get_results`, `reset`, `extra_plots`, `close`) and `SIM_HELPER`. |
-| `heat_fenics_params_for_id.csv` | The calibration box: `heat/k ∈ [0.01, 0.2]`, `heat/u_D ∈ [-0.5, 0.5]`. |
+| `heat_fenics_params_for_id.csv` | The calibration box: `heat/k ∈ [0.001, 0.2]`, `heat/u_D ∈ [-0.5, 0.5]`. |
 | `heat_fenics_obs_data.json` | Six scalar observables — `mean` and `min` of each of the three probes, so every probe is scored against a ground truth rather than only the centre one. |
 
 !!! warning "Why not `max(T_p*)`?"
