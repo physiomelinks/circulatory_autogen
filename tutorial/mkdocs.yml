@@ -31,6 +31,7 @@ nav:
   - Getting Started: getting-started.md
   - Model Generation and Simulation: model-generation-simulation.md
   - Designing a model: design-model.md
+  - External Python Solvers: external-python-solvers.md
   - Parameter Identification: parameter-identification.md
   - Sensitivity Analysis: sensitivity-analysis.md
   - Identifiability Analysis: identifiability-analysis.md
