@@ -107,7 +107,24 @@ The authoritative lists are `[project.dependencies]` and `[project.optional-depe
 - Sensitivity analysis: `SALib`, `seaborn`.
 - **Development**: the `dev` extra (e.g. `pytest`, `pytest-mpi`).
 
-**4. Run scripts**
+**4. Point the shell helpers at your venv**
+
+The shell scripts under `user_run_files/` (`run_param_id.sh`, `run_autogeneration.sh`, `run_pytest.sh`, …) all invoke whatever interpreter `user_run_files/python_path.sh` names. Edit that file once so `python_path` is **your venv’s Python**, using an absolute path:
+
+=== "Linux / macOS"
+    ```
+    python_path=[project_dir]/.venv/bin/python
+    ```
+
+=== "Windows"
+    ```
+    python_path=C:\[project_dir]\.venv\Scripts\python.exe
+    ```
+
+!!! warning "Do not point `python_path` at OpenCOR’s `pythonshell`"
+    That is the deprecated setup — see [Deprecated: OpenCOR-based setup](#deprecated-opencor-based-setup). The scripts contain nothing OpenCOR-specific; they only need an interpreter with the project installed. (`python_path.sh` does **not** read `opencor_pythonshell_path.sh` — that file is unused legacy and is scheduled for removal along with `python_path.sh` itself.)
+
+**5. Run scripts**
 
 With the venv activated (if you use one), run Python from `[project_dir]` as usual, for example:
 
@@ -115,9 +132,27 @@ With the venv activated (if you use one), run Python from `[project_dir]` as usu
 python src/scripts/<script_name>.py
 ```
 
-The shell helpers under `user_run_files/*.sh` may still assume a particular interpreter; if a script fails, run the matching Python module or script directly with your venv’s `python`.
+or use the shell helper for the same stage, e.g. `cd user_run_files && ./run_autogeneration.sh`.
 
 For a notebook-oriented walkthrough, see `tutorial/interactive/generate_and_calibrate.ipynb`.
+
+**6. Run the tests (optional, but do this after any change)**
+
+```
+cd [project_dir]
+./run_pytest.sh
+```
+
+`run_pytest.sh` runs pytest under `mpiexec` using the `python_path` you set above — no OpenCOR involved.
+
+- `./run_pytest.sh -n 4` — `-n N` is the **MPI rank count**, *not* pytest-xdist (xdist is force-disabled, because its workers conflict with MPI ranks).
+- `./run_pytest.sh -m "not slow"` — skip the expensive tests. `-k <expr>` and any other arguments pass straight through to pytest.
+- `./run_pytest.sh -m "not need_opencor"` — **use this if you have not installed OpenCOR.** A handful of tests exercise the optional `CVODE_opencor` backend; they are marked `need_opencor` but are *not* skipped automatically, so they fail rather than skip when OpenCOR is absent. That is expected, not a broken install.
+- Equivalent without the script (handy if `python_path.sh` is set for someone else’s machine):
+
+    ```
+    mpiexec -n 1 .venv/bin/python -m pytest -p no:xdist -m "not need_opencor"
+    ```
 
 ## Optional third-party backends (not part of Circulatory Autogen)
 
@@ -163,8 +198,7 @@ is enabled by installing the package:
 python -m pip install aadc
 ```
 
-(Into OpenCOR's Python if you run the test suite that way — see the legacy section below,
-e.g. `[OpenCOR_dir]/pythonshell -m pip install aadc`.)
+(Into the same venv you installed the project into — the one `python_path` points at.)
 
 and then selecting it in your `user_inputs.yaml`:
 
@@ -292,9 +326,9 @@ cd [project_dir]
 
 (Use `./pythonshell -m pip` / `./pythonshell.bat -m pip` on Mac/Windows as above.) For development tools: `pip install -e ".[dev]"`.
 
-### `python_path.sh` (legacy)
+### `python_path.sh` pointed at a pythonshell (legacy)
 
-Shell scripts under `user_run_files/` may read `[project_dir]/user_run_files/python_path.sh`. Set `python_path` to your OpenCOR pythonshell:
+The shell scripts under `user_run_files/` read `python_path` from `[project_dir]/user_run_files/python_path.sh`. The **legacy** setup set it to an OpenCOR pythonshell:
 
 !!! Note
     === "Linux and Mac"
@@ -307,7 +341,7 @@ Shell scripts under `user_run_files/` may read `[project_dir]/user_run_files/pyt
         ```
         Use Windows path conventions (`C:\`, backslashes).
 
-This tutorial’s **primary** path no longer depends on this file if you use a normal venv and `python -m pip install -e .`.
+**Do not do this for new setups** — point `python_path` at your venv instead, as in [step 4 above](#install-python-libraries-from-pyprojecttoml). The scripts still read this file either way; only the interpreter it names has changed. `python_path.sh` itself will be removed once libOpenCOR is on PyPI.
 
 ### OpenCOR versions before 0.8 and SSL (legacy)
 
