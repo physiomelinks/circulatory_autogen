@@ -6,14 +6,17 @@ This file documents the conventions, gotchas, and entry points an agent needs th
 
 ## Build / run / test
 
-- **Tests MUST run under the OpenCOR Python shell** — not the system Python. Always use `./run_pytest.sh`, which sources `user_run_files/python_path.sh` and runs pytest under `mpiexec`. The path to the OpenCOR python is in `user_run_files/opencor_pythonshell_path.sh` (sourced by `python_path.sh`).
-  - **DEPRECATED — do not build on it.** OpenCOR's `pythonshell` is on its way out: it will be replaced by a plain `pip install libopencor` into a normal Python env once libOpenCOR reaches PyPI, and `python_path.sh` / `opencor_pythonshell_path.sh` will be removed. Don't add new code paths that assume the bundled interpreter; prefer a standard venv + `pip install -e ".[dev]"`.
-  - Gotcha it causes today: OpenCOR bundles a **dual-ABI `mpi4py`** (`MPI.mpich.*.so` **and** `MPI.openmpi.*.so`, dispatched by `mpi4py._mpiabi`). If the variant picked at import doesn't match the MPI owning the system `mpiexec`, every rank aborts at `MPI_Init` with `unsupported PMI version PMIx`. Fix by pinning the ABI to the installed launcher — `export MPI4PY_MPIABI=openmpi` (or `mpich`) — **not** by installing a second MPI.
-  - `./run_pytest.sh` — full suite, 1 MPI rank.
-  - `./run_pytest.sh -n 4 -v -s` — `-n N` sets **MPI rank count** (it is *not* pytest-xdist; xdist is force-disabled with `-p no:xdist` because ranks and xdist workers conflict).
-  - `./run_pytest.sh -m "not slow"` / `-m "not compare_optimisers"` — deselect expensive tests.
-  - `-k <expr>` and other args pass straight through to pytest.
-- Editable install: `pip install -e ".[dev]"` (the test runner auto-installs dev deps into the OpenCOR env if pytest is missing).
+**Do not use OpenCOR's `pythonshell` — run everything in a normal venv.** The bundled interpreter is deprecated and going away: it will be replaced by a plain `pip install libopencor` into a standard Python env once libOpenCOR reaches PyPI, and `python_path.sh` / `opencor_pythonshell_path.sh` will be removed with it. Don't add code paths, docs or test setups that assume it.
+
+- **Set up**: `python -m venv venv && venv/bin/pip install -e ".[dev]"`. Nothing in the default path needs OpenCOR — the default solver is `CVODE_myokit`, and `CVODE_opencor` is the only backend that does.
+- **`user_run_files/python_path.sh` sets `python_path`**, the interpreter every `user_run_files/*.sh` (including `run_pytest.sh`) invokes. **Point it at your venv** — `python_path=/abs/path/to/circulatory_autogen/venv/bin/python` — not at a `pythonshell`. The runner is otherwise interpreter-agnostic; there is nothing OpenCOR-specific left in it. Note `python_path.sh` does **not** source `opencor_pythonshell_path.sh`: that file is legacy and unread, and is on the same removal list.
+- `./run_pytest.sh` — full suite, 1 MPI rank.
+- `./run_pytest.sh -n 4 -v -s` — `-n N` sets **MPI rank count** (it is *not* pytest-xdist; xdist is force-disabled with `-p no:xdist` because ranks and xdist workers conflict).
+- `./run_pytest.sh -m "not slow"` / `-m "not compare_optimisers"` — deselect expensive tests. `-k <expr>` and other args pass straight through to pytest.
+- Equivalent without the script (useful when `python_path.sh` holds someone else's path): `mpiexec -n 1 venv/bin/python -m pytest -p no:xdist <args>`.
+- **Without OpenCOR installed, deselect the tests that truly need it**: `-m "not need_opencor"`. `need_opencor` is a plain marker with **no auto-skip**, so those tests *fail* rather than skip if OpenCOR is absent — that is expected, not a regression.
+- Editable install: `pip install -e ".[dev]"` (the test runner auto-installs dev deps into whatever `python_path` points at, if pytest is missing there).
+- Legacy MPI gotcha, only if you are still on a pythonshell: OpenCOR bundles a **dual-ABI `mpi4py`** (`MPI.mpich.*.so` **and** `MPI.openmpi.*.so`, dispatched by `mpi4py._mpiabi`). If the variant picked at import doesn't match the MPI owning the system `mpiexec`, every rank aborts at `MPI_Init` with `unsupported PMI version PMIx`. Fix by pinning the ABI to the installed launcher — `export MPI4PY_MPIABI=openmpi` (or `mpich`) — **not** by installing a second MPI. A venv's pip-installed `mpi4py` links the single system MPI and avoids the ambiguity entirely; this is one more reason to move off the pythonshell.
 - pyproject.toml holds deps, pytest config, markers, black (line-length 100), coverage. Python `>=3.7`.
 
 ## How users actually drive it
