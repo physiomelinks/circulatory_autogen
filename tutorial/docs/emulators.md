@@ -67,6 +67,7 @@ emulator_settings:
   # emulator_dir:            # default <param_id_output_dir>/emulators/<file_prefix>_<obs_prefix>
   models: default            # 'default', 'all', or a comma-separated list of emulator names
   num_train_samples: 128     # simulations run to build the training set
+  reuse_samples: false       # refit the samples a previous run saved, instead of simulating
   sample_type: sobol         # sobol | latin_hypercube | random
   log_scale_params: false    # space the design logarithmically (needs every min > 0)
   random_seed: 0
@@ -131,6 +132,41 @@ The saved directory contains:
 | `training_data.npz` | the design and its simulated targets, so it can be refitted or extended without re-simulating |
 | `emulator_validation.npz` | the held-out points: `theta`, the simulator's `y_true` and the emulator's `y_pred`, in real units |
 
+### Trying another emulator without re-running the simulations
+
+Training is two costs: the `num_train_samples` runs of your model — minutes to hours, and the
+whole reason emulators exist — and the fit, which takes seconds. `training_data.npz` above is
+what makes the second one repeatable on its own:
+
+```yaml
+emulator_settings:
+  reuse_samples: true        # refit what emulator_dir already holds; run no new simulations
+  models: all                # ... with a different emulator,
+  test_fraction: 0.3         # ... or a different split, n_iter, n_splits, min_r2, random_seed
+```
+
+```bash
+./run_emulator_training.sh 1    # one rank is enough: there is nothing left to parallelise
+```
+
+The result is an ordinary emulator bundle, written over the same directory, and its metadata
+records `design.reused_samples: true` so the provenance never claims simulations that run did
+not perform.
+
+!!! warning "What it does *not* do"
+    * It runs **no simulations**, so `num_train_samples`, `sample_type` and `log_scale_params`
+      are ignored — the saved design is what gets fitted, however many points it holds. If your
+      `num_train_samples` disagrees with what was saved, CA prints the number it is really
+      using rather than letting the requested one stand.
+    * It needs a previous training run in `emulator_dir`. The first run has to have
+      `reuse_samples: false`; that is the run that pays for the simulations.
+    * `random_seed` still applies — it seeds the fit and the train/test split — so re-fitting
+      with a different seed is a meaningful thing to do.
+    * Samples belong to one problem. If the parameter bounds, `obs_data.json`, protocol or the
+      model file have changed since they were simulated, CA **refuses** rather than refitting
+      them: retrain with `reuse_samples: false` instead. Reusing them would produce an emulator
+      that is confidently wrong about a study it was never trained for.
+
 ### Analysing the error
 
 The statistics say how wrong the emulator is on average; the held-out points say
@@ -187,6 +223,8 @@ refuses rather than proceeding quietly:
 | A parameter outside the training box | refused (or warns/clips, per `out_of_bounds`) |
 | Parameter bounds, observables, operations, protocol or the model file changed since training | refused as **stale** — retrain |
 | A `series` or `frequency` data item | refused: the emulator predicts scalars only |
+| `reuse_samples: true` with no previous emulator, or one saved without its samples | refused, naming the directory it looked in — train once without the setting first |
+| `reuse_samples: true` after the bounds, obs_data, protocol or model changed | refused as **stale** — retrain with `reuse_samples: false` |
 | `autoemulate` not installed | refused, naming the install command |
 
 An emulator is an interpolant. Outside the box it was trained in it is an extrapolation with no

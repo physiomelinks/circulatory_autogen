@@ -171,6 +171,13 @@ emulator_settings:
   models: default
   # Number of simulations run to build the training set
   num_train_samples: 128
+  # Refit the design and simulated features a previous run already saved in emulator_dir
+  # (training_data.npz) instead of running the simulations again -- for trying a different
+  # `models` or fit setting for the cost of the fit alone. Runs no simulations, so
+  # num_train_samples, sample_type and log_scale_params are ignored; needs a previous training
+  # run (the first one must have this false), and is refused if the parameter bounds, obs_data,
+  # protocol or model have changed since those samples were simulated.
+  reuse_samples: false
   # Design over the params_for_id box: sobol, latin_hypercube or random
   sample_type: sobol
   # Space the design logarithmically (worth it when a bound spans decades; needs min > 0)
