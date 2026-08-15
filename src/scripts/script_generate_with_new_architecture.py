@@ -83,6 +83,19 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
             return False
         return True
 
+    if inp_data_dict['model_type'] == 'external_python':
+        # No code generation either, and for a stronger reason: the model *is* a solver the user
+        # already has (see solver_wrappers.external_simulation_helper). Verify the file exists so
+        # a wrong path fails here rather than at the first simulation.
+        external_path = inp_data_dict['model_path']
+        if not os.path.exists(external_path):
+            print(f'external_python model file not found: {external_path}')
+            print('Create it (a .py file defining a solver class and SIM_HELPER = ThatClass; '
+                  'see funcs_user/example_model_external/) or set external_model_path in '
+                  'user_inputs.yaml.')
+            return False
+        return True
+
     DEBUG = inp_data_dict['DEBUG']
     file_prefix = inp_data_dict['file_prefix']
     resources_dir = inp_data_dict['resources_dir']
