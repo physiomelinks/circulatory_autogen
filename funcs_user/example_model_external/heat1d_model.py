@@ -136,7 +136,9 @@ class Heat1D:
         ax.set_xlabel('time (s)')
         ax.set_ylabel('x')
         ax.set_title(f"1D heat equation, k={self._param_vals['heat/k']:.4g}")
-        fig.colorbar(image, ax=ax, label='T')
+        # 2 significant figures on the colorbar: the default formatter happily prints
+        # float artefacts (0.30000000000000004) as tick labels.
+        fig.colorbar(image, ax=ax, label='T', format='%.2g')
         fig.tight_layout()
         return [fig]
 

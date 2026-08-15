@@ -515,6 +515,13 @@ def test_get_extra_figures_returns_the_users_figure_and_nothing_when_absent(tmp_
     figures = sim.get_extra_figures()
     assert len(figures) == 1
     assert isinstance(figures[0], matplotlib.figure.Figure)
+
+    # The colorbar's ticks are bounded to 2 significant figures: the default
+    # formatter prints float artefacts (0.30000000000000004) as tick labels.
+    colorbar_axes = [ax for ax in figures[0].axes if ax.get_label() == '<colorbar>']
+    assert len(colorbar_axes) == 1
+    formatter = colorbar_axes[0].yaxis.get_major_formatter()
+    assert formatter(0.30000000000000004, None) == '0.3'
     matplotlib.pyplot.close(figures[0])
 
     plain = ExternalSimulationHelper(_write_model(tmp_path, _MINIMAL_MODEL), 0.1, 1.0,

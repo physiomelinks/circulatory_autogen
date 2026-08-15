@@ -507,7 +507,9 @@ class HeatFEniCSxModel:
         # triangulation of the P1 dof coordinates is the mesh, and this stays clear of the
         # dolfinx cell-connectivity API entirely.
         mappable = axes.tripcolor(x, y, field, shading='gouraud')
-        figure.colorbar(mappable, ax=axes, label='u')
+        # 2 significant figures on the colorbar: the default formatter happily prints
+        # float artefacts (0.30000000000000004) as tick labels.
+        figure.colorbar(mappable, ax=axes, label='u', format='%.2g')
 
         for idx, (px, py) in enumerate(PROBE_POINTS):
             axes.plot(px, py, 'o', markersize=7, markerfacecolor='none',
