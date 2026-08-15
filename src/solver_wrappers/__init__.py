@@ -63,6 +63,12 @@ except Exception as _exc:
     EmulatorSimulationHelper = None
     _record_import_error('emulator', _exc)
 
+try:
+    from solver_wrappers.external_simulation_helper import SimulationHelper as ExternalSimulationHelper
+except Exception as _exc:
+    ExternalSimulationHelper = None
+    _record_import_error('external', _exc)
+
 # Not `from mpi4py import MPI`. This module picks a solver; it has no collectives
 # to run. That import initialised MPI and registered an atexit MPI_Finalize for
 # every consumer who merely wanted a forward solve -- and that finalise aborts on
@@ -95,7 +101,10 @@ def get_simulation_helper(model_path: str = None, solver: str = None,
               (method set via ``solver_info``, e.g. RK45, BDF).
             - ``'casadi_integrator'``: CasADi integrator for
               ``model_type='casadi_python'`` (cvodes, idas, collocation, rk).
-        model_type: ``'cellml_only'``, ``'python'`` or ``'casadi_python'``.
+            - ``'external'``: a user-supplied solver class that does its own time
+              stepping, for ``model_type='external_python'``.
+        model_type: ``'cellml_only'``, ``'python'``, ``'casadi_python'`` or
+            ``'external_python'``.
         dt: Output sampling step (s).
         sim_time: Logged simulation duration (s).
         solver_info: Solver config dict (e.g. ``MaximumStep``, ``method``).
@@ -135,12 +144,14 @@ def get_simulation_helper(model_path: str = None, solver: str = None,
     casadi_solvers = ['casadi_integrator']
     aadc_solvers = ['aadc_semi_implicit']
     user_defined_solvers = ['user_defined']
+    external_solvers = ['external']
 
     # Determine if this is a Python model
     is_python_model = (model_type == 'python')
     is_casadi_python_model = (model_type == 'casadi_python')
     is_aadc_python_model = (model_type == 'aadc_python')
     is_user_defined_model = (model_type == 'python_user_defined')
+    is_external_model = (model_type == 'external_python')
 
     # Check for explicit solver specification with validation
     if solver == 'CVODE_opencor':
@@ -184,9 +195,19 @@ def get_simulation_helper(model_path: str = None, solver: str = None,
             raise ValueError(f"model_path {model_path} does not end with .py, which is required for python_user_defined models (the wrapper module)")
         # The user wrapper is integrated by the shared SciPy PythonSimulationHelper.
         return PythonSimulationHelper(model_path, dt, sim_time, solver_info, pre_time=pre_time)
+    elif solver in external_solvers:
+        if not is_external_model:
+            raise ValueError(f"Solver {solver} can only be used for external Python models (model_type='external_python').")
+        if not model_path.endswith('.py'):
+            raise ValueError(f"model_path {model_path} does not end with .py, which is required for external_python models (the file defining SIM_HELPER)")
+        if ExternalSimulationHelper is None:
+            raise RuntimeError(_unavailable_message('external', solver))
+        # Unlike python_user_defined, the user's class owns its own time stepping; this helper
+        # only wraps it in the shared SimulationHelper surface.
+        return ExternalSimulationHelper(model_path, dt, sim_time, solver_info, pre_time=pre_time)
     elif solver is not None:
         # Unknown solver type
-        raise ValueError(f"Unknown solver {solver}. Valid options are: {cellml_solvers} for CellML models, {python_solvers} for Python models, {casadi_solvers} for CasADi Python models, and {user_defined_solvers} for user-defined Python models.")
+        raise ValueError(f"Unknown solver {solver}. Valid options are: {cellml_solvers} for CellML models, {python_solvers} for Python models, {casadi_solvers} for CasADi Python models, {user_defined_solvers} for user-defined Python models, and {external_solvers} for external Python models.")
 
     # Backward compatibility logic
     if is_python_model:
@@ -227,4 +248,5 @@ __all__ = [
     "OpenCORSimulationHelper",
     "CasADiPythonSimulationHelper",
     "EmulatorSimulationHelper",
+    "ExternalSimulationHelper",
 ]

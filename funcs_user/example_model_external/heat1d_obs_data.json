@@ -1,0 +1,38 @@
+[
+  { "variable": "probe 1 mean temperature",
+    "name_for_plotting": "mean(T_p1)",
+    "data_type": "constant",
+    "operation": "mean",
+    "operands": ["heat/T_p1"],
+    "unit": "dimensionless",
+    "weight": 1.0,
+    "value": 0.25338190,
+    "std": 0.005,
+    "cost_type": "gaussian_MLE",
+    "plot_type": "horizontal"
+  },
+  { "variable": "probe 2 mean temperature",
+    "name_for_plotting": "mean(T_p2)",
+    "data_type": "constant",
+    "operation": "mean",
+    "operands": ["heat/T_p2"],
+    "unit": "dimensionless",
+    "weight": 1.0,
+    "value": 0.23883291,
+    "std": 0.005,
+    "cost_type": "gaussian_MLE",
+    "plot_type": "horizontal"
+  },
+  { "variable": "probe 3 mean temperature",
+    "name_for_plotting": "mean(T_p3)",
+    "data_type": "constant",
+    "operation": "mean",
+    "operands": ["heat/T_p3"],
+    "unit": "dimensionless",
+    "weight": 1.0,
+    "value": 0.14911117,
+    "std": 0.005,
+    "cost_type": "gaussian_MLE",
+    "plot_type": "horizontal"
+  }
+]

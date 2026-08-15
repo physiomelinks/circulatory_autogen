@@ -393,6 +393,66 @@ jobs:
         path: |
           junit-uq-2rank-*.xml
 
+  # The FEniCSx flagship for `model_type: external_python` (funcs_user/heat_fenics). It is a
+  # finite-element solver written against dolfinx, and dolfinx is a conda-forge package that
+  # pip cannot provide -- so no other job here can install it, and without this one
+  # tests/test_heat_fenics_example.py skips at collection and the shipped example goes
+  # untested. That is the failure this job exists to prevent: an example that stops working
+  # against a new dolfinx, or against a change to the external backend, with CI still green.
+  #
+  # Its own job rather than extra cases on `test`, for the same reason test-uq is its own job:
+  # the environment is conda rather than pip, and the emulator round trip needs the
+  # [emulation] extra that the ordinary jobs have no use for.
+  #
+  # dolfinx is pinned to 0.9.x on purpose. The example renames-proofs the handful of calls
+  # that have moved between releases (functionspace, bb_tree, the PETSc assembly helpers),
+  # but an unpinned conda-forge install would silently move CI onto a release nobody has
+  # tested this against, and a finite-element API break reads as a physics failure. Bump the
+  # pin deliberately, with the example, and the version named in its docstring.
+  test-fenics-emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    # micromamba activates the environment through the shell profile, so every step needs a
+    # *login* shell. Without this the steps run against the runner's system python and
+    # `import dolfinx` fails -- which, because the test file uses importorskip, would show up
+    # as a green job that ran nothing at all.
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up a FEniCSx environment
+      uses: mamba-org/setup-micromamba@v1
+      with:
+        environment-name: fenicsx
+        condarc: |
+          channels:
+            - conda-forge
+        create-args: >-
+          python=3.11
+          fenics-dolfinx=0.9
+          pip
+        cache-environment: true
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        # [emulation] brings autoemulate, which the emulator round-trip test needs; without
+        # it that test skips and the external backend's integration with CA goes unchecked.
+        pip install -e ".[dev,emulation]"
+
+    # A skipped test is a green step, and every test in this file sits behind an
+    # importorskip. If the conda environment failed to activate, or the extra failed to
+    # resolve, the job would pass having run nothing -- so assert the imports first.
+    - name: Fail if the FEniCSx or emulator stack did not install
+      run: |
+        python -c "import dolfinx, petsc4py, autoemulate; print('dolfinx', dolfinx.__version__)"
+
+    - name: Run the FEniCSx example tests
+      run: |
+        python -m pytest tests/test_heat_fenics_example.py -v -p no:xdist --tb=short
+
   # Job to run full test suite if OpenCOR is available (optional)
   # This can be enabled if OpenCOR is set up in CI environment
   test-with-opencor:

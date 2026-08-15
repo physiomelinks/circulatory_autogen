@@ -391,7 +391,8 @@ class CVS0DParamID():
                                            emulator_settings=self.emulator_settings)
             self.n_steps = mcmc_object.n_steps
         else:
-            if model_type in ['cellml_only', 'python', 'casadi_python', 'aadc_python', 'python_user_defined']:
+            if model_type in ['cellml_only', 'python', 'casadi_python', 'aadc_python',
+                              'python_user_defined', 'external_python']:
                 self.param_id = OpencorParamID(self.model_path, self.param_id_method,
                                                self.obs_info, self.param_id_info, self.protocol_info,
                                                self.prediction_info, self.solver_info, dt=self.dt,

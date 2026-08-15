@@ -89,7 +89,8 @@ AADC_AD_METHODS = AADC_TAPE_CONSISTENT_METHODS + AADC_BDF_AD_METHODS
 # settings UI) so they don't hardcode these lists. Keep this in sync with
 # solver_wrappers.get_simulation_helper.
 SOLVER_SCHEMA = {
-    'model_types': ['cellml_only', 'python', 'cpp', 'casadi_python', 'aadc_python', 'python_user_defined'],
+    'model_types': ['cellml_only', 'python', 'cpp', 'casadi_python', 'aadc_python',
+                    'python_user_defined', 'external_python'],
     'solvers_by_model_type': {
         'cellml_only': ['CVODE_opencor', 'CVODE_myokit'],
         'python': ['solve_ivp'],
@@ -99,6 +100,10 @@ SOLVER_SCHEMA = {
         # The user supplies their own ODE wrapper in funcs_user/; it is integrated
         # by the shared SciPy PythonSimulationHelper (see solver_wrappers).
         'python_user_defined': ['user_defined'],
+        # The user supplies a whole solver CLASS (an FE code, a compiled library, a scheme of
+        # their own) that does its own time stepping; CA only wraps it. See
+        # solver_wrappers/external_simulation_helper.py.
+        'external_python': ['external'],
     },
     # Methods/plugins valid for each solver.
     'methods_by_solver': {
@@ -128,6 +133,12 @@ SOLVER_SCHEMA = {
         # The user wrapper supplies the rhs; the framework integrates it with the
         # same scipy solve_ivp methods as model_type 'python'.
         'user_defined': ['RK45', 'RK23', 'DOP853', 'Radau', 'BDF', 'LSODA', 'forward_euler'],
+        # A single placeholder method, because there is nothing here for CA to choose: the
+        # external class owns its own integration scheme. The entry exists so every solver has
+        # a method menu (a downstream form would otherwise have an empty control), and so the
+        # derived tables below -- forward_methods_by_solver, stiff_suitable_methods -- have
+        # something to name.
+        'external': ['external'],
     },
     # Default solver for each model_type (used when none is specified).
     'default_solver_by_model_type': {
@@ -137,6 +148,7 @@ SOLVER_SCHEMA = {
         'casadi_python': 'casadi_integrator',
         'aadc_python': 'aadc_semi_implicit',
         'python_user_defined': 'user_defined',
+        'external_python': 'external',
     },
 }
 
@@ -217,6 +229,11 @@ SOLVER_SCHEMA['stiff_suitable_methods'] = {
     # every solver in methods_by_solver has an entry here (enforced by the schema tests).
     'RK4': [],
     'PETSC': [],
+    # Not empty, and not an assessment either: 'external' is a placeholder for "whatever scheme
+    # the user's class implements", so CA cannot say whether it is stiff-safe -- only the author
+    # can. An empty list would make a remove-only method filter (CUFLynx's) strip the solver's
+    # one method and leave a stiff-model menu with nothing in it.
+    'external': ['external'],
 }
 
 # Recommended default integrator per solver, for a front-end to pre-select an AD-friendly method:
@@ -325,6 +342,15 @@ SOLVER_INFO_FIELDS = {
     'PETSC': _CPP_SOLVER_INFO,
     'solve_ivp': _SOLVE_IVP_SOLVER_INFO,
     'user_defined': _SOLVE_IVP_SOLVER_INFO,
+    # Deliberately one free-form field and no integrator knobs. CA does not integrate an
+    # external model, so rtol/max_step/... would be settings nothing reads -- and what an
+    # external solver does need to be told (a mesh, a device, a scheme's own tolerance) is not
+    # something CA can enumerate. The whole dict is handed to the user's init_solver.
+    'external': [
+        {'name': 'user_config', 'type': 'dict', 'default': None, 'required': False,
+         'description': "free-form options dict passed to the user class's init_solver via "
+                        "config['solver_info']"},
+    ],
     'casadi_integrator': [
         {'name': 'max_step_size', 'type': 'float', 'default': 0.001, 'required': False,
          'description': 'Maximum step size for the adaptive CasADi integrators (cvodes/idas/etc).'},
@@ -1901,6 +1927,19 @@ class YamlFileParser(object):
                 wrapper_path = os.path.join(base_dir, 'funcs_user', f'{file_prefix}_wrapper.py')
             inp_data_dict['model_path'] = wrapper_path
             inp_data_dict['uncalibrated_model_path'] = wrapper_path
+        elif inp_data_dict.get('model_type') == 'external_python':
+            model_ext = None
+            # The "model" is the user's own solver class in funcs_user/, not a generated file.
+            # Default to funcs_user/{file_prefix}_model.py, overridable via
+            # 'external_model_path'. Deliberately NOT model_wrapper_path: that key belongs to
+            # python_user_defined, whose file has a different contract entirely (an rhs, not a
+            # solver class), and one config pointing at the other's file must fail loudly rather
+            # than half-work.
+            external_path = inp_data_dict.get('external_model_path')
+            if not external_path:
+                external_path = os.path.join(base_dir, 'funcs_user', f'{file_prefix}_model.py')
+            inp_data_dict['model_path'] = external_path
+            inp_data_dict['uncalibrated_model_path'] = external_path
         elif inp_data_dict.get('model_type') in ['python', 'casadi_python']:
             model_ext = '.py'
         elif inp_data_dict.get('model_type') == 'cellml_only':
@@ -1959,6 +1998,7 @@ class YamlFileParser(object):
         valid_casadi_solver_plugins = _methods['casadi_integrator']
         valid_aadc_solvers = _solvers.get('aadc_python', [])
         valid_user_defined_solvers = _solvers.get('python_user_defined', [])
+        valid_external_solvers = _solvers.get('external_python', [])
 
         solver_name = inp_data_dict.get('solver_info', {}).get('solver')
         if solver_name is None:
@@ -1981,6 +2021,8 @@ class YamlFileParser(object):
                 solver_name = 'aadc_semi_implicit'
             elif inp_data_dict.get('model_type') == 'python_user_defined':
                 solver_name = 'user_defined'
+            elif inp_data_dict.get('model_type') == 'external_python':
+                solver_name = 'external'
             else:
                 print(f'Invalid model type: {inp_data_dict.get("model_type")}')
                 exit()
@@ -1991,7 +2033,8 @@ class YamlFileParser(object):
                 solver_name not in valid_python_solvers and
                 solver_name not in valid_casadi_solvers and
                 solver_name not in valid_aadc_solvers and
-                solver_name not in valid_user_defined_solvers):
+                solver_name not in valid_user_defined_solvers and
+                solver_name not in valid_external_solvers):
                 print(f'Invalid solver: {solver_name}')
                 exit()
         
@@ -2023,6 +2066,8 @@ class YamlFileParser(object):
                 pass  # AADC solver handles its own defaults
             elif inp_data_dict.get('model_type') == 'python_user_defined':
                 pass  # user wrapper handles its own integration
+            elif inp_data_dict.get('model_type') == 'external_python':
+                pass  # the external solver class handles its own integration
             elif ('MaximumNumberOfSteps' in defaults
                   and 'MaximumNumberOfSteps' not in inp_data_dict['solver_info']):
                 inp_data_dict['solver_info']['MaximumNumberOfSteps'] = defaults['MaximumNumberOfSteps']
@@ -2079,6 +2124,11 @@ class YamlFileParser(object):
                 # The user wrapper is integrated by solve_ivp; default to RK45.
                 solver_method = 'RK45'
                 inp_data_dict['solver_info']['method'] = solver_method
+            elif solver_name in valid_external_solvers:
+                # There is no method to choose: the external class owns its scheme. The
+                # placeholder keeps solver_info the same shape as every other model_type's.
+                solver_method = 'external'
+                inp_data_dict['solver_info']['method'] = solver_method
             else:
                 if solver_name.startswith('CVODE'):
                     solver_method = 'CVODE'
@@ -2099,7 +2149,8 @@ class YamlFileParser(object):
             and solver_name not in valid_cpp_solvers
             and solver_name not in valid_casadi_solvers
             and solver_name not in valid_aadc_solvers
-            and solver_name not in valid_user_defined_solvers):
+            and solver_name not in valid_user_defined_solvers
+            and solver_name not in valid_external_solvers):
             print(f'Invalid solver: {solver_name}')
             print(f'Valid CellML solvers: {valid_cellml_solvers}')
             print(f'Valid Python solvers: {valid_python_solvers}')
@@ -2107,6 +2158,7 @@ class YamlFileParser(object):
             print(f'Valid CasADi solvers: {valid_casadi_solvers}')
             print(f'Valid AADC solvers: {valid_aadc_solvers}')
             print(f'Valid user-defined solvers: {valid_user_defined_solvers}')
+            print(f'Valid external solvers: {valid_external_solvers}')
             exit()
         
         
@@ -2146,6 +2198,17 @@ class YamlFileParser(object):
         if inp_data_dict.get('model_type') == 'aadc_python' and solver_name not in valid_aadc_solvers:
                 print(f'Solver {solver_name} cannot be used with AADC Python models')
                 print(f'Use {valid_aadc_solvers} for AADC Python models')
+                exit()
+
+        # The external solver wraps a user-supplied solver class, and nothing else can.
+        if inp_data_dict.get('model_type') == 'external_python' and solver_name not in valid_external_solvers:
+                print(f'Solver {solver_name} cannot be used with external Python models (model_type="external_python")')
+                print(f'Use {valid_external_solvers} for external Python models')
+                exit()
+        if solver_name in valid_external_solvers and inp_data_dict.get('model_type') != 'external_python':
+                print(f'Solver {solver_name} requires model_type to be "external_python"')
+                print('It wraps a user-supplied solver class that does its own time stepping; '
+                      'use model_type "python_user_defined" if you supply only an rhs')
                 exit()
 
         # CasADi solvers can only be used with CasADi Python models.
@@ -2597,6 +2660,14 @@ def get_solver_info_default(model_type):
             'max_step': 0.001,
             'rtol': 1e-8,
             'atol': 1e-8,
+        }
+    if model_type == 'external_python':
+        # No tolerances or step sizes: the external class integrates itself. 'user_config' is
+        # left out rather than defaulted to {} so the user class can tell "not configured" from
+        # "configured empty".
+        return {
+            'solver': 'external',
+            'method': 'external',
         }
     raise ValueError(f'Invalid model type: {model_type}')
 
