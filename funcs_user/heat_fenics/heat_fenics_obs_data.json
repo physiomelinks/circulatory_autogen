@@ -1,24 +1,90 @@
 [
-  { "variable": "centre probe mean",
-    "name_for_plotting": "mean(T_{p2})",
+  {
+    "variable": "near probe mean",
+    "name_for_plotting": "mean(T_{p1})",
     "data_type": "constant",
     "operation": "mean",
-    "operands": ["heat/T_p2"],
+    "operands": [
+      "heat/T_p1"
+    ],
     "unit": "dimensionless",
     "weight": 1.0,
-    "value": 0.385,
+    "value": 0.47,
     "std": 0.02,
     "cost_type": "gaussian_MLE",
     "plot_type": "horizontal"
   },
-  { "variable": "centre probe minimum",
+  {
+    "variable": "near probe minimum",
+    "name_for_plotting": "min(T_{p1})",
+    "data_type": "constant",
+    "operation": "min",
+    "operands": [
+      "heat/T_p1"
+    ],
+    "unit": "dimensionless",
+    "weight": 1.0,
+    "value": 0.215,
+    "std": 0.015,
+    "cost_type": "gaussian_MLE",
+    "plot_type": "horizontal"
+  },
+  {
+    "variable": "centre probe mean",
+    "name_for_plotting": "mean(T_{p2})",
+    "data_type": "constant",
+    "operation": "mean",
+    "operands": [
+      "heat/T_p2"
+    ],
+    "unit": "dimensionless",
+    "weight": 1.0,
+    "value": 0.645,
+    "std": 0.02,
+    "cost_type": "gaussian_MLE",
+    "plot_type": "horizontal"
+  },
+  {
+    "variable": "centre probe minimum",
     "name_for_plotting": "min(T_{p2})",
     "data_type": "constant",
     "operation": "min",
-    "operands": ["heat/T_p2"],
+    "operands": [
+      "heat/T_p2"
+    ],
     "unit": "dimensionless",
     "weight": 1.0,
-    "value": 0.172,
+    "value": 0.278,
+    "std": 0.015,
+    "cost_type": "gaussian_MLE",
+    "plot_type": "horizontal"
+  },
+  {
+    "variable": "far probe mean",
+    "name_for_plotting": "mean(T_{p3})",
+    "data_type": "constant",
+    "operation": "mean",
+    "operands": [
+      "heat/T_p3"
+    ],
+    "unit": "dimensionless",
+    "weight": 1.0,
+    "value": 0.403,
+    "std": 0.02,
+    "cost_type": "gaussian_MLE",
+    "plot_type": "horizontal"
+  },
+  {
+    "variable": "far probe minimum",
+    "name_for_plotting": "min(T_{p3})",
+    "data_type": "constant",
+    "operation": "min",
+    "operands": [
+      "heat/T_p3"
+    ],
+    "unit": "dimensionless",
+    "weight": 1.0,
+    "value": 0.125,
     "std": 0.015,
     "cost_type": "gaussian_MLE",
     "plot_type": "horizontal"

@@ -12,7 +12,7 @@ Four layers, in increasing order of how much of CA they involve:
   length the contract promises. Also that a second ``run()`` at the same parameters is
   bit-identical, because a calibration reuses one instance for thousands of samples.
 * **physics sanity** -- a monotonicity that no amount of discretisation error can flip:
-  more diffusivity, faster relaxation to the boundary value.
+  more diffusivity, faster relaxation towards the boundary conditions.
 * **plots** -- ``extra_plots`` returns two Figures, headless.
 * **emulator round trip** -- CA trains a surrogate against this model through the ordinary
   ``do_emulation`` path, and the surrogate agrees with the solver at a held-out theta. This
@@ -41,11 +41,14 @@ _EXAMPLE_DIR = os.path.realpath(
 _MODEL_PATH = os.path.join(_EXAMPLE_DIR, 'heat_fenics_model.py')
 _RESOURCE_FILES = ('heat_fenics_params_for_id.csv', 'heat_fenics_obs_data.json')
 
-#: A deliberately small grid for the tests: 20 steps on an 8x8 mesh is milliseconds once the
-#: forms are compiled, and none of the assertions below need the shipped resolution.
+#: A deliberately small grid for the tests: 50 steps on an 8x8 mesh is milliseconds once the
+#: forms are compiled, and none of the assertions below need the shipped resolution. The
+#: window tracks the calibration box -- at k in [0.01, 0.2] the plate's time constant runs
+#: from ~5 s to ~0.25 s, so a 1 s window shows real cooling at the fast end without being
+#: dominated by it at the slow end.
 _FAST_CONFIG = {
-    'dt': 0.0025,
-    'sim_time': 0.05,
+    'dt': 0.02,
+    'sim_time': 1.0,
     'pre_time': 0.0,
     'start_time': 0.0,
     'solver_info': {'user_config': {'nx': 8}},
@@ -122,7 +125,7 @@ def test_smoke_run_produces_the_promised_record_grid(model):
     # Generous on purpose: the point is to catch an accidental O(minutes) run (a forgotten
     # mesh refinement, a re-assembly per step), not to benchmark the runner. Measured well
     # under a second on an 8x8 mesh once the forms are compiled.
-    assert elapsed < 30.0, f'a 20-step 8x8 solve took {elapsed:.1f} s'
+    assert elapsed < 30.0, f'a 50-step 8x8 solve took {elapsed:.1f} s'
 
     results = model.get_results()
     assert set(results) == set(model.output_names), (
@@ -137,25 +140,33 @@ def test_smoke_run_produces_the_promised_record_grid(model):
             f'int(pre_time/dt) + int(sim_time/dt) + 1 = {expected}')
         assert np.all(np.isfinite(trace))
 
-    # The initial condition is a unit Gaussian centred on p2, so the first centre sample is 1
-    # and the outer probes start well below it. If the probes were mislocated (or swapped for
-    # boundary dofs) this is what would go wrong.
-    assert results['heat/T_p2'][0] == pytest.approx(1.0, abs=1e-9)
-    assert 0.0 < results['heat/T_p1'][0] < results['heat/T_p2'][0]
+    # The initial condition is a uniform plate, so every interior probe starts at
+    # INITIAL_TEMP. If a probe were mislocated onto a boundary dof this is what would go
+    # wrong -- it would start at a boundary value instead.
+    for name in model.output_names:
+        assert results[name][0] == pytest.approx(1.0, abs=1e-9), (
+            f'{name} does not start at the uniform initial temperature; it is probably '
+            f'sitting on a boundary dof')
 
-    # p1 and p3 are images of each other under a symmetry the mesh and the bump both have,
-    # so they must agree to round-off. A free check on the probe locating and the assembly.
-    assert results['heat/T_p1'] == pytest.approx(results['heat/T_p3'], abs=1e-10)
+    # p1 sits nearer the driven left edge than p3, so with u_D above the fixed edge
+    # temperature it must run warmer. (Under the old symmetric bump the two were identical;
+    # they are independent observables now, which is what the shipped obs_data relies on.)
+    model.set_param_vals({'heat/u_D': 0.4})
+    assert model.run() is True
+    warmed = model.get_results()
+    assert np.mean(warmed['heat/T_p1']) > np.mean(warmed['heat/T_p3']), (
+        'the probe nearer the driven left edge is not warmer than the far one -- is u_D '
+        'applied to the left edge only, or did the boundary split fail?')
 
 
 @pytest.mark.integration
 @pytest.mark.slow
 def test_pre_time_samples_are_included(model):
     """``get_results`` returns the pre-time samples too; CA discards them, not the model."""
-    model.update_times(dt=0.0025, start_time=0.0, sim_time=0.05, pre_time=0.025)
+    model.update_times(dt=0.02, start_time=0.0, sim_time=1.0, pre_time=0.5)
     assert model.run() is True
 
-    config = dict(_FAST_CONFIG, pre_time=0.025)
+    config = dict(_FAST_CONFIG, pre_time=0.5)
     expected = _expected_num_samples(config)
     trace = model.get_results()['heat/T_p2']
     assert len(trace) == expected, (
@@ -172,17 +183,17 @@ def test_runs_are_repeatable_and_parameters_need_no_reinit(model):
     If ``run`` did not restart from the initial condition, sample 500's cost would depend on
     sample 499's parameters -- an error that shows up as a calibration that "almost works".
     """
-    model.set_param_vals({'heat/k': 1.0, 'heat/u_D': 0.0})
+    model.set_param_vals({'heat/k': 0.05, 'heat/u_D': 0.0})
     assert model.run() is True
     first = model.get_results()['heat/T_p2'].copy()
 
     # A different parameter set in between, so a stale state would be visible.
-    model.set_param_vals({'heat/k': 3.0})
+    model.set_param_vals({'heat/k': 0.15})
     assert model.run() is True
     other = model.get_results()['heat/T_p2'].copy()
     assert not np.allclose(first, other), 'changing heat/k changed nothing -- is k in the form?'
 
-    model.set_param_vals({'heat/k': 1.0, 'heat/u_D': 0.0})
+    model.set_param_vals({'heat/k': 0.05, 'heat/u_D': 0.0})
     assert model.run() is True
     again = model.get_results()['heat/T_p2']
     assert again == pytest.approx(first, abs=1e-12), (
@@ -202,31 +213,42 @@ def test_an_unknown_parameter_is_rejected_by_name(model):
 def test_more_diffusivity_relaxes_faster_towards_the_boundary_value(model):
     """The one physical statement no discretisation error can flip.
 
-    ``u_t = k Δu`` with ``u = u_D`` on the boundary relaxes at a rate proportional to ``k``,
-    so the final centre temperature must fall monotonically as ``k`` rises, towards ``u_D``.
-    Stated as a monotonicity over a wide sweep rather than as a value, so it holds on any
-    mesh and any step size.
+    ``u_t = k Δu`` on a plate quenched through its boundary relaxes at a rate proportional
+    to ``k``, so the final centre temperature must fall monotonically as ``k`` rises, from
+    the uniform initial temperature towards the steady conduction profile. Stated as a
+    monotonicity over the calibration box rather than as a value, so it holds on any mesh
+    and any step size.
     """
+    sweep = (0.01, 0.05, 0.1, 0.2)  # the shipped calibration box for heat/k
     model.set_param_vals({'heat/u_D': 0.0})
     finals = []
-    for k in (0.5, 1.0, 2.0, 4.0):
+    for k in sweep:
         model.set_param_vals({'heat/k': k})
         assert model.run() is True, f'the solve diverged at heat/k = {k}'
         finals.append(float(model.get_results()['heat/T_p2'][-1]))
 
     assert all(later < earlier for earlier, later in zip(finals, finals[1:])), (
-        f'final centre temperature should fall as k rises, got {finals} for k = '
-        f'(0.5, 1.0, 2.0, 4.0)')
-    # ... and every one of them is on its way to u_D = 0 from the initial 1.0.
+        f'final centre temperature should fall as k rises, got {finals} for k = {sweep}')
+    # ... and every one of them is on its way down from the initial 1.0, towards the fixed
+    # edge temperature of 0 (u_D is 0 here too, so every edge is at 0).
     assert 0.0 < finals[-1] < finals[0] < 1.0
 
-    # The boundary value is the attractor, so shifting it shifts where the field ends up.
-    model.set_param_vals({'heat/k': 4.0, 'heat/u_D': 0.4})
+    # The left edge is the only driven one, so raising u_D must raise where the field ends
+    # up -- and it must do so without touching the other three edges.
+    model.set_param_vals({'heat/k': 0.2, 'heat/u_D': 0.4})
     assert model.run() is True
     shifted = float(model.get_results()['heat/T_p2'][-1])
     assert shifted > finals[-1], (
         f'raising u_D from 0.0 to 0.4 left the final centre temperature at {shifted} '
-        f'(was {finals[-1]}) -- is u_D actually applied on the boundary?')
+        f'(was {finals[-1]}) -- is u_D actually applied on the left edge?')
+    # A driven edge at u_D < 0 must pull the plate below the all-zero-boundary case, which
+    # a boundary condition applied to the wrong facets (or to none) could not do.
+    model.set_param_vals({'heat/u_D': -0.4})
+    assert model.run() is True
+    cooled = float(model.get_results()['heat/T_p2'][-1])
+    assert cooled < finals[-1], (
+        f'u_D = -0.4 gave a final centre temperature of {cooled}, not below the '
+        f'{finals[-1]} of the all-zero boundary')
 
 
 @pytest.mark.integration
@@ -286,12 +308,13 @@ def _emulator_config(base_user_inputs, temp_output_dir, temp_generated_models_di
         'external_model_path': _MODEL_PATH,
         'resources_dir': resources_dir,
         'param_id_method': 'genetic_algorithm',
-        # A coarse grid on a coarse mesh: 10 steps of an 8x8 problem per training sample.
+        # A coarse grid on a coarse mesh: 10 steps of an 8x8 problem per training sample,
+        # over the 1 s window the k in [0.01, 0.2] box actually shows cooling in.
         # The features still move over the whole params_for_id box, which is all the
         # emulator needs, and 20 of them take seconds rather than minutes.
         'pre_time': 0.0,
-        'sim_time': 0.05,
-        'dt': 0.005,
+        'sim_time': 1.0,
+        'dt': 0.1,
         'solver_info': {'user_config': {'nx': 8}},
         'DEBUG': False,
         'do_uq': False,

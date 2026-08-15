@@ -2,15 +2,16 @@
 
 This is the flagship example of the ``model_type: external_python`` / ``solver: external``
 backend: a solver that owns its own time-stepping. CA does not integrate anything here --
-it hands over ``dt``/``sim_time``/``pre_time``, asks for a run, and reads three probe
+it hands over ``dt``/``sim_time``/``pre_time``, asks for a run, and reads four probe
 traces back. Everything between those two points is dolfinx.
 
 The physics
 -----------
-Backward Euler for ``u_t = k Δu`` on the unit square, P1 Lagrange, Dirichlet ``u = u_D`` on
-the whole boundary, and a Gaussian bump as the initial condition::
+Backward Euler for ``u_t = k Δu`` on the unit square, P1 Lagrange, starting from a
+**uniform initial temperature** ``u(x, 0) = 1`` and quenched through the boundary:
 
-    u(x, 0) = exp(-|x - (0.5, 0.5)|^2 / (2 σ^2)),   σ = 0.15
+* the **left edge** (``x = 0``) is held at the calibratable Dirichlet value ``u_D``;
+* the **bottom, top and right edges** are held at the fixed temperature ``0``.
 
 Weak form, with ``u_n`` the previous step::
 
@@ -20,24 +21,35 @@ Two calibratable parameters, both ``fem.Constant`` so that changing them is an i
 write to ``.value`` and never a re-compilation of the form:
 
 * ``heat/k``   -- diffusivity, in the stiffness term.
-* ``heat/u_D`` -- the Dirichlet value on the whole boundary.
+* ``heat/u_D`` -- the Dirichlet value on the left edge.
 
 Three probes are evaluated every step: ``heat/T_p1`` at (0.25, 0.25), ``heat/T_p2`` at
-(0.5, 0.5) and ``heat/T_p3`` at (0.75, 0.75).
+(0.5, 0.5) and ``heat/T_p3`` at (0.75, 0.75). Every trace starts at the initial temperature
+and decays monotonically toward the steady conduction profile between ``u_D`` and the fixed
+edges -- which is what makes a ``min`` observable informative here (it is the temperature
+reached by the end of the window), where it would have been a constant under a symmetric
+initial bump.
 
 .. note::
-   p1 and p3 sit symmetrically about the centre of a mesh that is itself invariant under a
-   180° rotation, and the initial bump is radially symmetric -- so ``T_p1`` and ``T_p3``
-   must agree to round-off. That is deliberate: it is a free correctness check on the probe
-   locating and on the assembly, and ``tests/test_heat_fenics_example.py`` asserts it.
+   ``T_p1`` and ``T_p3`` are no longer mirror images of each other, as they were under the
+   old symmetric bump: the left edge is driven and the other three are fixed, so the 180°
+   rotation that mapped p1 onto p3 is not a symmetry of the boundary conditions. p1 sits
+   nearer the driven edge and runs warmer than p3 whenever ``u_D > 0``. That is what lets
+   the shipped ``obs_data`` score p1 and p3 as *independent* observables.
+
+The two corner dofs shared by the left edge and the top/bottom edges belong to the
+left-edge condition: the boundary value there is genuinely discontinuous, and giving the
+corners to ``u_D`` (rather than the fixed edges) is an arbitrary but documented and
+deterministic choice.
 
 Time scales
 -----------
-The slowest mode of the unit square decays at ``λ = 2 k π² ≈ 19.7 k``, so at the default
-``k = 1`` the bump has a time constant of about 0.05 s. That is what sets the suggested
-``dt = 0.0005`` / ``sim_time = 0.05`` (100 steps, ~one time constant of decay): long enough
-for an interesting transient across the whole ``k ∈ [0.2, 5]`` calibration box, short enough
-that a whole run is milliseconds once the forms are compiled.
+The slowest mode of the unit square with Dirichlet edges decays at ``λ = 2 k π² ≈ 19.7 k``,
+so across the calibration box ``k ∈ [0.01, 0.2]`` the time constant runs from ≈ 5 s down to
+≈ 0.25 s. The suggested grid is ``dt = 0.02`` / ``sim_time = 2.0`` (100 steps): at the
+default ``k = 0.05`` that covers about two time constants; at ``k = 0.01`` the plate has
+only partially cooled and at ``k = 0.2`` it has fully relaxed -- both ends of the box leave
+a distinct signature in the traces, which is what makes ``k`` identifiable.
 
 MPI
 ---
@@ -78,12 +90,15 @@ except ImportError as _exc:                                   # pragma: no cover
 #: that "it broke after I updated" has an actionable answer.
 TESTED_DOLFINX_VERSIONS = '0.8.x and 0.9.x'
 
-#: Where the three probes sit, in the order they appear in ``output_names``.
+#: Where the three probes sit, in the order they appear in ``output_names``. p1 is the
+#: nearest to the driven left edge, so it answers fastest and carries the most ``u_D``
+#: signal; p3 is the furthest and is dominated by ``k``.
 PROBE_POINTS = ((0.25, 0.25), (0.5, 0.5), (0.75, 0.75))
 
-#: Centre and width of the initial Gaussian bump.
-BUMP_CENTRE = (0.5, 0.5)
-BUMP_SIGMA = 0.15
+#: The uniform initial temperature, and the fixed Dirichlet value on the bottom, top and
+#: right edges. The left edge is the calibratable ``heat/u_D``.
+INITIAL_TEMP = 1.0
+FIXED_TEMP = 0.0
 
 #: Default mesh resolution. Overridable via ``solver_info['user_config']['nx']``.
 DEFAULT_NX = 16
@@ -140,7 +155,10 @@ class HeatFEniCSxModel:
     # --- self description -------------------------------------------------------------
     # Literal values only: CA's tooling reads these by parsing the file, without importing
     # it, so that a machine with no dolfinx can still list the model's parameters.
-    parameters = {"heat/k": 1.0, "heat/u_D": 0.0}
+    # u_D defaults to 0.25, not 0: at u_D == FIXED_TEMP the left edge is indistinguishable
+    # from the other three, p1 and p3 become identical by symmetry, and the whole point of
+    # the boundary split disappears at exactly the point the example is demonstrated from.
+    parameters = {"heat/k": 0.05, "heat/u_D": 0.25}
     output_names = ["heat/T_p1", "heat/T_p2", "heat/T_p3"]
 
     def __init__(self):
@@ -151,7 +169,7 @@ class HeatFEniCSxModel:
         self._dt_const = None
         self._a_form = None
         self._L_form = None
-        self._bc = None
+        self._bcs = None
         self._u_n = None
         self._uh = None
         self._probe_points = None
@@ -160,7 +178,7 @@ class HeatFEniCSxModel:
         self._solver = None
         self._matrix = None
         self._rhs_vector = None
-        self._sigma = BUMP_SIGMA
+        self._fixed_const = None
         self.dt = None
         self.start_time = 0.0
         self.sim_time = None
@@ -181,14 +199,13 @@ class HeatFEniCSxModel:
             config: dict with ``dt``, ``sim_time``, ``pre_time``, ``start_time`` and
                 ``solver_info``. ``solver_info['user_config']`` is the free-form block a
                 user sets in ``user_inputs.yaml``; ``nx`` (mesh resolution, default 16),
-                ``ny``, ``bump_sigma`` and ``petsc_pc`` are read from it.
+                ``ny`` and ``petsc_pc`` are read from it.
         """
         solver_info = config.get('solver_info') or {}
         user_config = solver_info.get('user_config') or {}
 
         nx = int(user_config.get('nx', DEFAULT_NX))
         ny = int(user_config.get('ny', nx))
-        sigma = float(user_config.get('bump_sigma', BUMP_SIGMA))
         if nx < 2 or ny < 2:
             raise ValueError(f'user_config nx/ny must be at least 2, got nx={nx}, ny={ny}')
 
@@ -217,8 +234,7 @@ class HeatFEniCSxModel:
         self._a_form = fem.form(a)
         self._L_form = fem.form(L)
 
-        self._bc = self._make_boundary_condition()
-        self._sigma = sigma
+        self._bcs = self._make_boundary_conditions()
         self._set_initial_condition()
 
         self._dof_coords = self._V.tabulate_dof_coordinates()[:, :2].copy()
@@ -231,31 +247,63 @@ class HeatFEniCSxModel:
         self.update_times(config['dt'], config.get('start_time', 0.0),
                           config['sim_time'], config.get('pre_time', 0.0))
 
-    def _make_boundary_condition(self):
-        """Dirichlet ``u = u_D`` on the whole boundary."""
+    def _make_boundary_conditions(self):
+        """Two Dirichlet conditions: the variable left edge, and the three fixed edges.
+
+        The left edge carries ``heat/u_D`` (a ``fem.Constant``, so calibrating it never
+        re-assembles); bottom, top and right are held at :data:`FIXED_TEMP`.
+
+        Facets are located *geometrically* (``locate_entities_boundary`` with a coordinate
+        predicate) rather than by marking the mesh, because on a unit square "x == 0" is
+        exactly what distinguishes the edges and needs no MeshTags bookkeeping.
+
+        The two corners at ``(0, 0)`` and ``(0, 1)`` sit on both sets of facets. The
+        boundary value there is genuinely discontinuous, so *someone* has to win: the fixed
+        dofs are filtered to exclude the left-edge dofs, giving the corners to ``u_D``.
+        Deterministic and documented beats whichever ordering dolfinx happens to apply last.
+        """
         tdim = self._mesh.topology.dim
         fdim = tdim - 1
         self._mesh.topology.create_connectivity(fdim, tdim)
-        exterior_facet_indices = _resolve(('exterior_facet_indices',), dmesh)
-        boundary_facets = exterior_facet_indices(self._mesh.topology)
-        boundary_dofs = fem.locate_dofs_topological(self._V, fdim, boundary_facets)
-        if len(boundary_dofs) == 0:
+
+        locate_entities_boundary = _resolve(('locate_entities_boundary',), dmesh)
+        tol = 1.0e-12
+
+        left_facets = locate_entities_boundary(
+            self._mesh, fdim, lambda x: np.isclose(x[0], 0.0, atol=tol))
+        rest_facets = locate_entities_boundary(
+            self._mesh, fdim,
+            lambda x: (np.isclose(x[0], 1.0, atol=tol)
+                       | np.isclose(x[1], 0.0, atol=tol)
+                       | np.isclose(x[1], 1.0, atol=tol)))
+
+        left_dofs = fem.locate_dofs_topological(self._V, fdim, left_facets)
+        rest_dofs = fem.locate_dofs_topological(self._V, fdim, rest_facets)
+
+        if len(left_dofs) == 0 or len(rest_dofs) == 0:
             raise RuntimeError(
-                'no boundary dofs were found, so the Dirichlet condition would be a no-op. '
-                f'This example was written against dolfinx {TESTED_DOLFINX_VERSIONS}; check '
-                f'that dolfinx {_dolfinx_version()} still returns facet indices from '
-                'mesh.exterior_facet_indices(mesh.topology).')
+                f'the boundary split found {len(left_dofs)} left-edge and {len(rest_dofs)} '
+                f'fixed-edge dofs; both must be non-empty or a Dirichlet condition would be '
+                f'a no-op. This example was written against dolfinx '
+                f'{TESTED_DOLFINX_VERSIONS}, running {_dolfinx_version()}; check that '
+                'mesh.locate_entities_boundary still takes a coordinate predicate.')
+
+        # Corners belong to the left edge -- see the docstring.
+        rest_dofs = np.setdiff1d(rest_dofs, left_dofs)
+
+        self._fixed_const = fem.Constant(self._mesh, _scalar_type()(FIXED_TEMP))
         # The Constant form of dirichletbc takes the function space explicitly.
-        return fem.dirichletbc(self._uD_const, boundary_dofs, self._V)
+        return [fem.dirichletbc(self._uD_const, left_dofs, self._V),
+                fem.dirichletbc(self._fixed_const, rest_dofs, self._V)]
 
     def _set_initial_condition(self):
-        cx, cy = BUMP_CENTRE
-        sigma = self._sigma
+        """A uniform plate at :data:`INITIAL_TEMP`, quenched through its boundary.
 
-        def bump(x):
-            return np.exp(-((x[0] - cx) ** 2 + (x[1] - cy) ** 2) / (2.0 * sigma ** 2))
-
-        self._u_n.interpolate(bump)
+        Uniform rather than a bump so that every probe starts at the same known value and
+        decays monotonically: that is what makes ``min`` an informative observable (it is
+        the temperature reached by the end of the window) instead of a constant.
+        """
+        self._u_n.x.array[:] = INITIAL_TEMP
         self._uh.x.array[:] = self._u_n.x.array
 
     def _locate_probes(self):
@@ -384,7 +432,7 @@ class HeatFEniCSxModel:
         # It is ~n_dofs entries at this size, so the cost is noise next to the form
         # compilation that init_solver already paid.
         self._destroy_matrix()
-        self._matrix = assemble_matrix(self._a_form, bcs=[self._bc])
+        self._matrix = assemble_matrix(self._a_form, bcs=self._bcs)
         self._matrix.assemble()
         # dolfinx's create_vector builds the vector with the function space's ghost layout,
         # which is what assemble_vector expects. createVecRight is the serial fallback for a
@@ -401,10 +449,10 @@ class HeatFEniCSxModel:
             with self._rhs_vector.localForm() as local:
                 local.set(0.0)
             assemble_vector(self._rhs_vector, self._L_form)
-            apply_lifting(self._rhs_vector, [self._a_form], [[self._bc]])
+            apply_lifting(self._rhs_vector, [self._a_form], [self._bcs])
             self._rhs_vector.ghostUpdate(addv=PETSc.InsertMode.ADD,
                                          mode=PETSc.ScatterMode.REVERSE)
-            set_bc(self._rhs_vector, [self._bc])
+            set_bc(self._rhs_vector, self._bcs)
 
             self._solver.solve(self._rhs_vector, self._solution_vec())
             self._uh.x.scatter_forward()
@@ -547,15 +595,24 @@ SIM_HELPER = HeatFEniCSxModel
 
 if __name__ == '__main__':
     # Drive the model without CA -- the quickest way to check an install, and how the
-    # numbers in heat_fenics_obs_data.json can be regenerated exactly. See README.md.
+    # numbers in heat_fenics_obs_data.json are regenerated exactly. Prints every observable
+    # the shipped obs_data scores, in its order, so the values can be pasted straight in.
+    # See README.md.
     model = HeatFEniCSxModel()
-    model.init_solver({'dt': 0.0005, 'sim_time': 0.05, 'pre_time': 0.0, 'start_time': 0.0,
+    model.init_solver({'dt': 0.02, 'sim_time': 2.0, 'pre_time': 0.0, 'start_time': 0.0,
                        'solver_info': {'user_config': {'nx': 16}}})
     assert model.run(), 'the heat_fenics reference run diverged'
     results = model.get_results()
-    p2 = results['heat/T_p2']
-    print(f'samples          : {len(p2)}')
-    print(f'mean(heat/T_p2)  : {np.mean(p2):.6f}')
-    print(f'min(heat/T_p2)   : {np.min(p2):.6f}')
-    print(f'p1 == p3         : {np.allclose(results["heat/T_p1"], results["heat/T_p3"])}')
+    print(f'samples            : {len(results["heat/T_p2"])}')
+    print(f'k = {model.parameters["heat/k"]}, u_D = {model.parameters["heat/u_D"]}')
+    for observable in ('heat/T_p1', 'heat/T_p2', 'heat/T_p3'):
+        trace = results[observable]
+        print(f'mean({observable}) : {np.mean(trace):.6f}')
+        print(f'min({observable})  : {np.min(trace):.6f}')
+    # p1 and p3 are no longer mirror images: the left edge is driven and the other three
+    # are fixed, so the 180-degree rotation that used to map p1 onto p3 is not a symmetry
+    # of the boundary conditions. p1 (nearer the driven edge) must run warmer than p3
+    # whenever u_D exceeds the fixed temperature.
+    print(f'p1 warmer than p3  : '
+          f'{np.mean(results["heat/T_p1"]) >= np.mean(results["heat/T_p3"])}')
     model.close()

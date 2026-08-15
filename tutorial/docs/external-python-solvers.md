@@ -36,7 +36,7 @@ import numpy as np
 
 class MyModel:
     # --- self-description (required) ---------------------------------------------
-    parameters = {"heat/k": 1.0, "heat/u_D": 0.0}          # name -> default
+    parameters = {"heat/k": 0.05, "heat/u_D": 0.25}        # name -> default
     output_names = ["heat/T_p1", "heat/T_p2", "heat/T_p3"]
 
     # --- required methods --------------------------------------------------------
@@ -175,8 +175,8 @@ solver: external
 external_model_path: /path/to/my_model.py
 
 pre_time: 0.0
-sim_time: 0.05
-dt: 0.0005
+sim_time: 2.0
+dt: 0.02
 
 # Anything under user_config reaches init_solver untouched, as
 # config['solver_info']['user_config'].
@@ -203,12 +203,21 @@ the shape of the thing.
 finite-element solver for
 
 ```
-u_t = k Δu    on the unit square,   u = u_D on the boundary
+u_t = k Δu    on the unit square
+
+u(x, 0) = 1                    a uniformly hot plate
+u = u_D  on the left edge      calibratable
+u = 0    on the other three    fixed
 ```
 
-with a Gaussian bump as the initial condition, backward Euler in time, P1 Lagrange in space, and
-three point probes read out every step as `heat/T_p1`, `heat/T_p2`, `heat/T_p3`. Two parameters
-are exposed for calibration: the diffusivity `heat/k` and the boundary value `heat/u_D`.
+backward Euler in time, P1 Lagrange in space, and three point probes read out every step as
+`heat/T_p1`, `heat/T_p2`, `heat/T_p3`. Two parameters are exposed for calibration: the
+diffusivity `heat/k` and the driven-edge value `heat/u_D`.
+
+Driving one edge and fixing the other three is what makes the three probes independent: p1 is
+nearest the driven edge and answers mostly to `u_D`, p3 is furthest and answers mostly to `k`.
+(`u_D` defaults to 0.25 rather than 0 for the same reason — at `u_D = 0` every edge is
+identical and the structure disappears.)
 
 It is small on purpose — a 16×16 mesh and 100 steps, milliseconds per run once the forms are
 compiled — because it is a teaching artefact, not a convergence study.
@@ -260,8 +269,8 @@ resources_dir: <CA_dir>/funcs_user/heat_fenics
 param_id_obs_path: <CA_dir>/funcs_user/heat_fenics/heat_fenics_obs_data.json
 
 pre_time: 0.0
-sim_time: 0.05
-dt: 0.0005
+sim_time: 2.0
+dt: 0.02
 
 param_id_method: genetic_algorithm
 
@@ -275,12 +284,12 @@ calibration box:
 
 ```csv
 vessel_name,  param_name,  param_type,  min,   max,   name_for_plotting
-heat,         k,           const,       0.2,   5.0,   k
+heat,         k,           const,       0.01,  0.2,   k
 heat,         u_D,         const,       -0.5,  0.5,   u_{D}
 ```
 
-and `heat_fenics_obs_data.json` holds the two scalar targets, `mean(heat/T_p2)` and
-`min(heat/T_p2)`.
+and `heat_fenics_obs_data.json` holds six scalar targets — the `mean` and the `min` of each of
+the three probes, so every probe is scored rather than just the centre one.
 
 ### 5. Calibrate and sweep it
 
@@ -320,10 +329,11 @@ emulator_settings:
     `mean` both move with the parameters, so that pair is well conditioned.
 
 !!! tip "Give yourself a free correctness check"
-    In the heat example, probes p1 and p3 are images of each other under a symmetry that both
-    the mesh and the initial bump have, so their traces must agree to round-off. That single
-    assertion covers the probe locating and the assembly at once, and it holds on any mesh and
-    any step size.
+    In the heat example, p1 sits nearer the driven left edge than p3, so with `u_D` above the
+    fixed edge temperature p1 *must* run warmer — on any mesh, at any step size. One assertion
+    covers the probe locating, the assembly and the boundary split at once. Look for an
+    inequality your physics guarantees rather than a value your discretisation happens to
+    produce.
 
 ## See also
 

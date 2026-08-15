@@ -17,17 +17,19 @@ yours.
 | Expensive one-off setup kept out of the hot loop | `init_solver` builds the mesh, the function space, the compiled forms and the probe cells |
 | A cheap `update_times` | `dt` lives in the form as a `fem.Constant`, so re-gridding is one array write, not a re-compilation |
 | `set_param_vals` without a re-init | `heat/k` and `heat/u_D` are `fem.Constant`s already in the form; setting them writes `.value` in place |
-| A repeatable `run` | every call restarts from the same Gaussian initial condition, so a thousand calibration samples reuse one instance |
+| A repeatable `run` | every call restarts from the same uniform initial condition, so a thousand calibration samples reuse one instance |
 | Named scalar outputs | three point probes, evaluated every step, named `heat/T_p1..3` |
 | `extra_plots` | two field snapshots (mid-time and final time), returned as `matplotlib` Figures for CA / the CUFLynx GUI to place |
 
 ## The model
 
-Backward Euler for `u_t = k Δu` on the unit square, P1 Lagrange elements, `u = u_D` on the
-whole boundary, and a Gaussian bump as the initial condition:
+Backward Euler for `u_t = k Δu` on the unit square, P1 Lagrange elements. A **uniformly hot
+plate, quenched through its boundary**:
 
 ```
-u(x, 0) = exp(-|x - (0.5, 0.5)|² / (2 σ²)),   σ = 0.15
+u(x, 0) = 1                      everywhere
+u = u_D  on the left edge        (x = 0)      -- calibratable
+u = 0    on bottom, top, right                -- fixed
 ```
 
 Weak form, with `u_n` the previous step:
@@ -39,34 +41,49 @@ Weak form, with `u_n` the previous step:
 Probes sit at (0.25, 0.25), (0.5, 0.5) and (0.75, 0.75), and are located once in
 `init_solver` with `dolfinx.geometry.bb_tree` / `compute_colliding_cells`.
 
-!!! note
-    `heat/T_p1` and `heat/T_p3` agree to round-off *by construction*: the bump is radially
-    symmetric and a uniform triangulation of the unit square is invariant under a 180°
-    rotation about its centre, which maps p1 onto p3. That is a free correctness check on
-    the probe locating and the assembly, and `tests/test_heat_fenics_example.py` asserts it.
+!!! note "Why the boundary is split"
+    Driving one edge and fixing the other three is what makes the three probes carry
+    *independent* information: p1 sits nearest the driven edge and answers mostly to `u_D`,
+    p3 sits furthest and answers mostly to `k`. Under a symmetric initial bump with one
+    boundary value, p1 and p3 were identical by symmetry, so only one of them was worth
+    scoring.
 
-### Time scales — why `dt = 0.0005`, `sim_time = 0.05`
+    The corner dofs at (0, 0) and (0, 1) belong to *both* facet sets — the boundary value
+    there is genuinely discontinuous. They are assigned to the left edge (`u_D`), which is
+    arbitrary but deterministic and documented, rather than left to whichever condition
+    dolfinx happens to apply last.
 
-The slowest mode of the unit square decays at `λ₁ = 2kπ² ≈ 19.7k`, so at the default `k = 1`
-the bump has a time constant of ≈ 0.05 s. The suggested grid is therefore **100 steps of
-0.0005 s**, covering about one time constant. Across the calibration box `k ∈ [0.2, 5]` that
-window spans "barely decayed" to "fully relaxed to `u_D`", which is what makes both
-parameters identifiable. A default 16×16 mesh (289 dofs) makes a whole run **milliseconds**
-once the forms are compiled; the one-off FFCx compilation in `init_solver` is a few seconds.
+!!! warning "`u_D` defaults to 0.25, not 0"
+    At `u_D == 0` the left edge is indistinguishable from the other three, p1 and p3
+    coincide, and the boundary split the example exists to demonstrate is invisible at
+    exactly the point it is demonstrated from.
+
+### Time scales — why `dt = 0.02`, `sim_time = 2.0`
+
+The slowest mode of the unit square with Dirichlet edges decays at `λ₁ = 2kπ² ≈ 19.7k`, so
+across the calibration box `k ∈ [0.01, 0.2]` the plate's time constant runs from ≈ 5 s down
+to ≈ 0.25 s. The suggested grid is therefore **100 steps of 0.02 s**: at the default
+`k = 0.05` that is about two time constants, while `k = 0.01` leaves the plate only
+partially cooled and `k = 0.2` fully relaxes it — both ends of the box leave a distinct
+signature, which is what makes `k` identifiable. A default 16×16 mesh (289 dofs) makes a
+whole run **milliseconds** once the forms are compiled; the one-off FFCx compilation in
+`init_solver` is a few seconds.
 
 ## Files
 
 | File | Purpose |
 |---|---|
 | `heat_fenics_model.py` | The solver class (`parameters`, `output_names`, `init_solver`, `update_times`, `set_param_vals`, `run`, `get_results`, `reset`, `extra_plots`, `close`) and `SIM_HELPER`. |
-| `heat_fenics_params_for_id.csv` | The calibration box: `heat/k ∈ [0.2, 5.0]`, `heat/u_D ∈ [-0.5, 0.5]`. |
-| `heat_fenics_obs_data.json` | Two scalar observables — `mean(heat/T_p2)` and `min(heat/T_p2)`. |
+| `heat_fenics_params_for_id.csv` | The calibration box: `heat/k ∈ [0.01, 0.2]`, `heat/u_D ∈ [-0.5, 0.5]`. |
+| `heat_fenics_obs_data.json` | Six scalar observables — `mean` and `min` of each of the three probes, so every probe is scored against a ground truth rather than only the centre one. |
 
-!!! warning "Why not `max(T_p2)`?"
-    The maximum of the centre probe is the *initial* value, which is `exp(0) = 1` for every
+!!! warning "Why not `max(T_p*)`?"
+    The maximum of every probe is its *initial* value, which is the uniform `1.0` for every
     parameter set — a constant feature. It would contribute nothing to the cost and would
-    score `NaN` R² as an emulator target. `min(T_p2)` (the final, relaxed value) is
-    informative about `u_D`, and `mean(T_p2)` about `k`, so the pair is well conditioned.
+    score `NaN` R² as an emulator target. `min(T_p*)` is the temperature the probe reaches
+    by the end of the window, and `mean(T_p*)` integrates the path it took to get there;
+    together, across three probes at different distances from the driven edge, they pin
+    down both parameters.
 
 ## Installing FEniCSx
 
@@ -114,8 +131,8 @@ resources_dir: <CA_dir>/funcs_user/heat_fenics
 param_id_obs_path: <CA_dir>/funcs_user/heat_fenics/heat_fenics_obs_data.json
 
 pre_time: 0.0
-sim_time: 0.05
-dt: 0.0005
+sim_time: 2.0
+dt: 0.02
 
 param_id_method: genetic_algorithm
 
@@ -123,7 +140,6 @@ param_id_method: genetic_algorithm
 solver_info:
   user_config:
     nx: 16          # mesh resolution; 8 for a fast smoke test, 32 for a finer field
-    bump_sigma: 0.15
 ```
 
 Then the ordinary CA entry points — nothing about them is special-cased for this model:
@@ -139,7 +155,7 @@ ranks solving different parameter samples on a distributed mesh will deadlock.
 
 ### Training an emulator of it
 
-The two observables are scalars, so this model is a legitimate emulator target — worthwhile
+The six observables are scalars, so this model is a legitimate emulator target — worthwhile
 as soon as you want Sobol indices or MCMC rather than a single calibration:
 
 ```yaml
@@ -154,15 +170,17 @@ See [Emulators](../../tutorial/docs/emulators.md) for the rest.
 
 ## About the numbers in `heat_fenics_obs_data.json`
 
-The two values (`mean(T_p2) = 0.385`, `min(T_p2) = 0.172`) are the model's own output at the
-default parameters `k = 1.0`, `u_D = 0.0` on the suggested `dt = 0.0005` / `sim_time = 0.05`
-grid, estimated from the eigenfunction expansion of the Gaussian bump and quoted with a `std`
-that comfortably covers the discretisation error of the 16×16 backward-Euler scheme. They are
-targets for a demonstration calibration, not measurements.
+The six values are the model's own output at the default parameters `k = 0.05`,
+`u_D = 0.25` on the suggested `dt = 0.02` / `sim_time = 2.0` grid — **estimates**, computed
+from a matched finite-difference solve of the same problem rather than from dolfinx itself
+(the authoring machine had no FEniCSx), and quoted with a `std` that comfortably covers both
+the FD-vs-P1-FEM gap and the discretisation error of the 16×16 backward-Euler scheme. They
+are targets for a demonstration calibration, not measurements.
 
 To pin them to the exact numbers *your* dolfinx build produces — which is what you want if
 you intend the calibration to recover a known answer — run the file directly and paste the
-two printed values into the JSON:
+printed values into the JSON (it prints `mean` and `min` for all three probes, in the JSON's
+order):
 
 ```bash
 python funcs_user/heat_fenics/heat_fenics_model.py
