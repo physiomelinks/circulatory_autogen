@@ -118,55 +118,6 @@ private:
     std::vector<aadc::ExtVarIndex> rhs_idx_, out_idx_;
 };
 
-// Step kernel ExtFunc: wraps a step kernel (compute_rates + BDF step) with constant t and J_diag.
-// Gradient flows through x and p only (t and J_diag are off-tape constants).
-class StepExtFunc : public aadc::ConstStateExtFunc {
-public:
-    std::shared_ptr<Functions> kern;
-    std::vector<Argument> kx,kp; Argument kt; std::vector<Argument> kj;
-    std::vector<Result> kr;
-    std::vector<aadc::ExtVarIndex> tx,tp,to;
-    double t_val; std::vector<double> j_val;
-    mutable std::shared_ptr<WorkSpace> ws;
-    int n_, np_;
-
-    StepExtFunc(std::shared_ptr<Functions> k,
-        const std::vector<Argument>& kx_, const std::vector<Argument>& kp_,
-        Argument kt_, const std::vector<Argument>& kj_, const std::vector<Result>& kr_,
-        const std::vector<aadc::ExtVarIndex>& tx_, const std::vector<aadc::ExtVarIndex>& tp_,
-        const std::vector<aadc::ExtVarIndex>& to_,
-        double tv, const std::vector<double>& jv, std::shared_ptr<WorkSpace> w)
-        : kern(k), kx(kx_), kp(kp_), kt(kt_), kj(kj_), kr(kr_),
-          tx(tx_), tp(tp_), to(to_), t_val(tv), j_val(jv), ws(w),
-          n_(kx_.size()), np_(kp_.size()) {}
-
-    template<typename M> void forward(M* v) const {
-        for (int a=0;a<aadc::mmSize<M>();a++) {
-            for (int i=0;i<n_;i++) aadc::toDblPtr(ws->val(kx[i]))[0]=aadc::toDblPtr(v[tx[i]])[a];
-            for (int k=0;k<np_;k++) aadc::toDblPtr(ws->val(kp[k]))[0]=aadc::toDblPtr(v[tp[k]])[a];
-            aadc::toDblPtr(ws->val(kt))[0]=t_val;
-            for (int i=0;i<n_;i++) aadc::toDblPtr(ws->val(kj[i]))[0]=j_val[i];
-            kern->forward(*ws);
-            for (int i=0;i<n_;i++) aadc::toDblPtr(v[to[i]])[a]=aadc::toDblPtr(ws->val(kr[i]))[0];
-        }
-    }
-    template<class M> void reverse(const M* v, M* d) const {
-        for (int a=0;a<aadc::mmSize<M>();a++) {
-            for (int i=0;i<n_;i++) aadc::toDblPtr(ws->val(kx[i]))[0]=aadc::toDblPtr(v[tx[i]])[a];
-            for (int k=0;k<np_;k++) aadc::toDblPtr(ws->val(kp[k]))[0]=aadc::toDblPtr(v[tp[k]])[a];
-            aadc::toDblPtr(ws->val(kt))[0]=t_val;
-            for (int i=0;i<n_;i++) aadc::toDblPtr(ws->val(kj[i]))[0]=j_val[i];
-            kern->forward(*ws);
-            ws->resetDiff();
-            for (int i=0;i<n_;i++) aadc::toDblPtr(ws->diff(kr[i]))[0]=aadc::toDblPtr(d[to[i]])[a];
-            kern->reverse(*ws);
-            for (int i=0;i<n_;i++) aadc::toDblPtr(d[tx[i]])[a]+=aadc::toDblPtr(ws->diff(kx[i]))[0];
-            for (int k=0;k<np_;k++) aadc::toDblPtr(d[tp[k]])[a]+=aadc::toDblPtr(ws->diff(kp[k]))[0];
-            // t and J_diag: no gradient (constants for AD)
-        }
-    }
-};
-
 // Static cache
 static struct {
     std::shared_ptr<Functions> funcs;
@@ -226,7 +177,7 @@ py::tuple bdf_record_and_evaluate(
     int total_subs = total_steps * n_sub;
 
     if (!cache.funcs || cache.total_subs != total_subs || cache.newton_mode != newton_iters) {
-        // ---- Record f-kernel (compute_rates only, for Jacobian computation) ----
+        // ---- Record kernel ----
         auto kernel = std::make_shared<Functions>();
         kernel->startRecording();
         std::vector<idouble> kx(n); std::vector<Argument> kxa(n);
@@ -234,46 +185,17 @@ py::tuple bdf_record_and_evaluate(
         std::vector<idouble> kv(n_vars); std::vector<Argument> kpa(n_p);
         for (int i=0;i<n_vars;i++) { double v=py_variables[i].cast<double>(); kv[i]=(v==v)?v:0.0; }
         for (int k=0;k<n_p;k++) { kv[pidx[k]]=py_param_values[k].cast<double>(); kpa[k]=kv[pidx[k]].markAsInput(); }
-        idouble kt(0.0); Argument kta = kt.markAsInput();
         py::list pkx(n),pkr(n),pkv(n_vars);
         for (int i=0;i<n;i++) pkx[i]=py::cast(kx[i]);
         for (int i=0;i<n;i++) pkr[i]=py::cast(idouble(0.0));
         for (int i=0;i<n_vars;i++) pkv[i]=py::cast(kv[i]);
-        compute_rates_fn(py::cast(kt),pkx,pkr,pkv);
+        compute_rates_fn(py::cast(idouble(0.0)),pkx,pkr,pkv);
         std::vector<Result> krr(n);
         for (int i=0;i<n;i++) {
             auto o=pkr[i]; idouble rv=py::isinstance<idouble>(o)?o.cast<idouble>():idouble(o.cast<double>());
             krr[i]=rv.markAsOutput();
         }
         kernel->stopRecording();
-
-        // ---- Record step kernel (compute_rates + semi-implicit, ONE step) ----
-        // Inputs: x(n), p(n_p), t(1), J_diag(n). Outputs: x_new(n).
-        // This kernel is replayed 22000 times — NO idouble arithmetic on main tape.
-        auto step_kernel = std::make_shared<Functions>();
-        step_kernel->startRecording();
-        std::vector<idouble> sx(n); std::vector<Argument> sxa(n);
-        for (int i=0;i<n;i++) { sx[i]=py_states[i].cast<double>(); sxa[i]=sx[i].markAsInput(); }
-        std::vector<idouble> sv(n_vars); std::vector<Argument> spa(n_p);
-        for (int i=0;i<n_vars;i++) { double v=py_variables[i].cast<double>(); sv[i]=(v==v)?v:0.0; }
-        for (int k=0;k<n_p;k++) { sv[pidx[k]]=py_param_values[k].cast<double>(); spa[k]=sv[pidx[k]].markAsInput(); }
-        idouble st(0.0); Argument sta = st.markAsInput();
-        std::vector<idouble> sj(n); std::vector<Argument> sja(n);
-        for (int i=0;i<n;i++) { sj[i]=0.0; sja[i]=sj[i].markAsInput(); }
-        // Call compute_rates within step kernel recording
-        py::list spkx(n),spkr(n),spkv(n_vars);
-        for (int i=0;i<n;i++) spkx[i]=py::cast(sx[i]);
-        for (int i=0;i<n;i++) spkr[i]=py::cast(idouble(0.0));
-        for (int i=0;i<n_vars;i++) spkv[i]=py::cast(sv[i]);
-        compute_rates_fn(py::cast(st),spkx,spkr,spkv);
-        // Semi-implicit: x_new[i] = x[i] + dt*f[i] / (1 - dt*J[i])
-        std::vector<Result> sxr(n);
-        for (int i=0;i<n;i++) {
-            auto o=spkr[i]; idouble fi=py::isinstance<idouble>(o)?o.cast<idouble>():idouble(o.cast<double>());
-            idouble xnew = sx[i] + idouble(idt)*fi / (idouble(1.0) - idouble(idt)*sj[i]);
-            sxr[i] = xnew.markAsOutput();
-        }
-        step_kernel->stopRecording();
 
         // ---- Record compute_variables kernel (for var observables) ----
         bool has_var_obs = false;
@@ -346,138 +268,132 @@ py::tuple bdf_record_and_evaluate(
         std::map<Key,Acc> accs;
         for (auto&o:obs) accs[{o.kind,o.si,o.op}]=Acc{};
 
-        // Pre-allocate workspaces
-        auto jac_ws = kernel->createWorkSpace();
-        auto step_ws = step_kernel->createWorkSpace();
-        auto loop_ws = kernel->createWorkSpace();  // for Newton f-kernel replays
-        std::vector<double> dJ_val(n, 0.0);
+        std::vector<idouble> dJ(n,idouble(0.0));
+        auto jac_ws = kernel->createWorkSpace();  // reused for all Jacobian computations
+        auto loop_ws = kernel->createWorkSpace();  // reused for all forward evals in loop
         std::vector<std::vector<double>> cached_LU(n, std::vector<double>(n, 0.0));
         std::vector<int> cached_piv(n);
         for (int i=0;i<n;i++) { cached_piv[i]=i; cached_LU[i][i]=1.0; }
-
         int sc=0;
-        int cp_interval = 100;
+        int cp_interval = 100; // checkpoint every 100 sub-steps
         for (int step=0;step<total_steps;step++) {
             for (int sub=0;sub<n_sub;sub++) {
                 if (sc > 0 && sc % cp_interval == 0)
                     idouble::CheckPoint();
+                // Helper: call kernel ExtFunc, put f(y,p) on tape, return rates
+                auto call_kernel = [&](std::vector<idouble>& y) -> std::vector<idouble> {
+                    std::vector<idouble> r(n);
+                    std::vector<aadc::ExtVarIndex> txi(n),tpi(n_p),toi(n);
+                    for (int i=0;i<n;i++) txi[i]=aadc::ExtVarIndex(y[i],true,true);
+                    for (int k=0;k<n_p;k++) tpi[k]=aadc::ExtVarIndex(pid2[k],true,true);
+                    for (int i=0;i<n;i++){r[i]=idouble(0.0);toi[i]=aadc::ExtVarIndex(r[i],false,true);}
+                    aadc::addConstStateExtFunction(std::make_shared<KernelExtFunc>(kernel,kxa,kpa,krr,txi,tpi,toi,loop_ws));
+                    for (int i=0;i<n;i++) loop_ws->setVal(kxa[i],y[i].val);
+                    for (int k2=0;k2<n_p;k2++) loop_ws->setVal(kpa[k2],pid2[k2].val);
+                    kernel->forward(*loop_ws);
+                    for (int i=0;i<n;i++) r[i].val=aadc::toDblPtr(loop_ws->val(krr[i]))[0];
+                    return r;
+                };
 
-                double t_val = sc * idt;
-
-                // Compute diagonal J off-tape via kernel reverse AD (every jac_lag steps)
-                if (sc%jac_lag==0) {
-                    for (int i=0;i<n;i++) jac_ws->setVal(kxa[i], x[i].val);
+                // Helper: compute Jacobian off-tape via kernel reverse AD
+                // Row i of J: set adjoint f_i = 1, reverse, read x_j adjoints
+                // 27 reverse passes = full 27×27 Jacobian, exact (no FD approximation)
+                auto compute_jacobian = [&](const std::vector<idouble>& y, const std::vector<double>& f0) {
+                    std::vector<std::vector<double>> J(n, std::vector<double>(n, 0.0));
+                    for (int i=0;i<n;i++) jac_ws->setVal(kxa[i], y[i].val);
                     for (int k2=0;k2<n_p;k2++) jac_ws->setVal(kpa[k2], pid2[k2].val);
-                    jac_ws->setVal(kta, t_val);
                     kernel->forward(*jac_ws);
                     for (int i=0;i<n;i++) {
                         jac_ws->resetDiff();
                         jac_ws->setDiff(krr[i], 1.0);
                         kernel->reverse(*jac_ws);
-                        dJ_val[i] = aadc::toDblPtr(jac_ws->diff(kxa[i]))[0];
+                        for (int j=0;j<n;j++)
+                            J[i][j] = aadc::toDblPtr(jac_ws->diff(kxa[j]))[0];
+                    }
+                    return J;
+                };
+
+                // Helper: LU factorize (I - dt*J) off-tape, return L,U,piv
+                // Simple partial pivoting LU
+                auto lu_factorize = [&](const std::vector<std::vector<double>>& J) {
+                    std::vector<std::vector<double>> A(n, std::vector<double>(n));
+                    std::vector<int> piv(n);
+                    for (int i=0;i<n;i++) { piv[i]=i; for (int j=0;j<n;j++) A[i][j]=(i==j?1.0:0.0)-idt*J[i][j]; }
+                    for (int col=0;col<n;col++) {
+                        // partial pivot
+                        int mx=col; for (int r=col+1;r<n;r++) if (std::abs(A[r][col])>std::abs(A[mx][col])) mx=r;
+                        if (mx!=col) { std::swap(A[col],A[mx]); std::swap(piv[col],piv[mx]); }
+                        for (int r=col+1;r<n;r++) {
+                            A[r][col]/=A[col][col];
+                            for (int c=col+1;c<n;c++) A[r][c]-=A[r][col]*A[col][c];
+                        }
+                    }
+                    return std::make_pair(A, piv);
+                };
+
+                // Compute diagonal J via kernel reverse AD (off-tape, for semi-implicit predictor)
+                auto rates0_ref = call_kernel(x);
+                if (sc%jac_lag==0) {
+                    for (int i=0;i<n;i++) jac_ws->setVal(kxa[i], x[i].val);
+                    for (int k2=0;k2<n_p;k2++) jac_ws->setVal(kpa[k2], pid2[k2].val);
+                    kernel->forward(*jac_ws);
+                    for (int i=0;i<n;i++) {
+                        jac_ws->resetDiff();
+                        jac_ws->setDiff(krr[i], 1.0);
+                        kernel->reverse(*jac_ws);
+                        dJ[i] = idouble(aadc::toDblPtr(jac_ws->diff(kxa[i]))[0]);
                     }
                 }
 
                 if (newton_iters == 0) {
-                    // ---- SEMI-IMPLICIT: step kernel approach ----
-                    // ONE reference node per step, no idouble arithmetic on main tape
-                    std::vector<idouble> xnew(n);
-                    std::vector<aadc::ExtVarIndex> txi(n), tpi(n_p), toi(n);
-                    for (int i=0;i<n;i++) txi[i]=aadc::ExtVarIndex(x[i],true,true);
-                    for (int k2=0;k2<n_p;k2++) tpi[k2]=aadc::ExtVarIndex(pid2[k2],true,true);
-                    for (int i=0;i<n;i++){xnew[i]=idouble(0.0);toi[i]=aadc::ExtVarIndex(xnew[i],false,true);}
-
-                    aadc::addConstStateExtFunction(std::make_shared<StepExtFunc>(
-                        step_kernel, sxa, spa, sta, sja, sxr,
-                        txi, tpi, toi, t_val, dJ_val, step_ws));
-
-                    for (int i=0;i<n;i++) step_ws->setVal(sxa[i], x[i].val);
-                    for (int k2=0;k2<n_p;k2++) step_ws->setVal(spa[k2], pid2[k2].val);
-                    step_ws->setVal(sta, t_val);
-                    for (int i=0;i<n;i++) step_ws->setVal(sja[i], dJ_val[i]);
-                    step_kernel->forward(*step_ws);
-                    for (int i=0;i<n;i++) xnew[i].val=aadc::toDblPtr(step_ws->val(sxr[i]))[0];
-                    x = xnew;
+                    // Semi-implicit step
+                    for (int i=0;i<n;i++)
+                        x[i]=x[i]+idouble(idt)*rates0_ref[i]/(idouble(1.0)-idouble(idt)*dJ[i]);
                 } else {
-                    // ---- NEWTON: f-kernel + LUSolveExtFunc approach ----
-                    // Semi-implicit predictor via step kernel
+                    // Full Newton with semi-implicit predictor
                     std::vector<idouble> y(n);
-                    {
-                        std::vector<aadc::ExtVarIndex> txi(n), tpi(n_p), toi(n);
-                        for (int i=0;i<n;i++) txi[i]=aadc::ExtVarIndex(x[i],true,true);
-                        for (int k2=0;k2<n_p;k2++) tpi[k2]=aadc::ExtVarIndex(pid2[k2],true,true);
-                        for (int i=0;i<n;i++){y[i]=idouble(0.0);toi[i]=aadc::ExtVarIndex(y[i],false,true);}
-                        aadc::addConstStateExtFunction(std::make_shared<StepExtFunc>(
-                            step_kernel, sxa, spa, sta, sja, sxr,
-                            txi, tpi, toi, t_val, dJ_val, step_ws));
-                        for (int i=0;i<n;i++) step_ws->setVal(sxa[i], x[i].val);
-                        for (int k2=0;k2<n_p;k2++) step_ws->setVal(spa[k2], pid2[k2].val);
-                        step_ws->setVal(sta, t_val);
-                        for (int i=0;i<n;i++) step_ws->setVal(sja[i], dJ_val[i]);
-                        step_kernel->forward(*step_ws);
-                        for (int i=0;i<n;i++) y[i].val=aadc::toDblPtr(step_ws->val(sxr[i]))[0];
-                    }
+                    for (int i=0;i<n;i++)
+                        y[i]=x[i]+idouble(idt)*rates0_ref[i]/(idouble(1.0)-idouble(idt)*dJ[i]);
 
-                    // Full Jacobian + LU (off-tape, every jac_lag steps)
+                    // Compute full Jacobian at y and LU off-tape (constants)
+                    std::vector<double> f0(n);
+                    { for (int i=0;i<n;i++) loop_ws->setVal(kxa[i],y[i].val);
+                      for (int k2=0;k2<n_p;k2++) loop_ws->setVal(kpa[k2],pid2[k2].val);
+                      kernel->forward(*loop_ws);
+                      for (int i=0;i<n;i++) f0[i]=aadc::toDblPtr(loop_ws->val(krr[i]))[0];
+                    }
                     if (sc%jac_lag==0) {
-                        std::vector<std::vector<double>> J(n, std::vector<double>(n, 0.0));
-                        for (int i=0;i<n;i++) jac_ws->setVal(kxa[i], y[i].val);
-                        for (int k2=0;k2<n_p;k2++) jac_ws->setVal(kpa[k2], pid2[k2].val);
-                        jac_ws->setVal(kta, t_val);
-                        kernel->forward(*jac_ws);
-                        for (int i=0;i<n;i++) {
-                            jac_ws->resetDiff();
-                            jac_ws->setDiff(krr[i], 1.0);
-                            kernel->reverse(*jac_ws);
-                            for (int j=0;j<n;j++)
-                                J[i][j] = aadc::toDblPtr(jac_ws->diff(kxa[j]))[0];
-                        }
-                        // LU factorize (I - dt*J)
-                        cached_LU.assign(n, std::vector<double>(n));
-                        cached_piv.resize(n);
-                        for (int i=0;i<n;i++) { cached_piv[i]=i; for (int j=0;j<n;j++) cached_LU[i][j]=(i==j?1.0:0.0)-idt*J[i][j]; }
-                        for (int col=0;col<n;col++) {
-                            int mx=col; for (int r=col+1;r<n;r++) if (std::abs(cached_LU[r][col])>std::abs(cached_LU[mx][col])) mx=r;
-                            if (mx!=col) { std::swap(cached_LU[col],cached_LU[mx]); std::swap(cached_piv[col],cached_piv[mx]); }
-                            for (int r=col+1;r<n;r++) {
-                                cached_LU[r][col]/=cached_LU[col][col];
-                                for (int c=col+1;c<n;c++) cached_LU[r][c]-=cached_LU[r][col]*cached_LU[col][c];
-                            }
-                        }
+                        auto J = compute_jacobian(y, f0);
+                        auto [LU_new, piv_new] = lu_factorize(J);
+                        cached_LU = LU_new;
+                        cached_piv = piv_new;
                     }
 
-                    // Newton iterations: f(y) via f-kernel + LUSolveExtFunc
+                    // Newton iterations
                     for (int nit=0; nit<newton_iters; nit++) {
-                        // f(y) on tape via KernelExtFunc
-                        std::vector<idouble> fy(n);
-                        {
-                            std::vector<aadc::ExtVarIndex> txi(n),tpi(n_p),toi(n);
-                            for (int i=0;i<n;i++) txi[i]=aadc::ExtVarIndex(y[i],true,true);
-                            for (int k2=0;k2<n_p;k2++) tpi[k2]=aadc::ExtVarIndex(pid2[k2],true,true);
-                            for (int i=0;i<n;i++){fy[i]=idouble(0.0);toi[i]=aadc::ExtVarIndex(fy[i],false,true);}
-                            aadc::addConstStateExtFunction(std::make_shared<KernelExtFunc>(kernel,kxa,kpa,krr,txi,tpi,toi,loop_ws));
-                            for (int i=0;i<n;i++) loop_ws->setVal(kxa[i],y[i].val);
-                            for (int k2=0;k2<n_p;k2++) loop_ws->setVal(kpa[k2],pid2[k2].val);
-                            loop_ws->setVal(kta, t_val);
-                            kernel->forward(*loop_ws);
-                            for (int i=0;i<n;i++) fy[i].val=aadc::toDblPtr(loop_ws->val(krr[i]))[0];
-                        }
-                        // F = y - x - dt*f(y)
+                        auto fy = call_kernel(y);  // f(y) on tape
+                        // F = y - x - dt*f(y), on tape
                         std::vector<idouble> F(n);
                         for (int i=0;i<n;i++) F[i]=y[i]-x[i]-idouble(idt)*fy[i];
-                        // LU solve via ExtFunc
+                        // dy = LU_solve(F) via ExtFunc (off-tape LU, constant coefficients)
                         std::vector<idouble> dy(n);
                         {
                             std::vector<aadc::ExtVarIndex> rhs_ei(n), out_ei(n);
                             for (int i=0;i<n;i++) rhs_ei[i]=aadc::ExtVarIndex(F[i],true,true);
                             for (int i=0;i<n;i++){dy[i]=idouble(0.0);out_ei[i]=aadc::ExtVarIndex(dy[i],false,true);}
                             aadc::addConstStateExtFunction(std::make_shared<LUSolveExtFunc>(n,cached_LU,cached_piv,rhs_ei,out_ei));
+                            // Compute values for dy
                             std::vector<double> bv(n);
                             for (int i=0;i<n;i++) bv[i]=F[cached_piv[i]].val;
-                            for (int i=1;i<n;i++) for (int j=0;j<i;j++) bv[i]-=cached_LU[i][j]*bv[j];
-                            for (int i=n-1;i>=0;i--) { for (int j=i+1;j<n;j++) bv[i]-=cached_LU[i][j]*bv[j]; bv[i]/=cached_LU[i][i]; }
+                            for (int i=1;i<n;i++)
+                                for (int j=0;j<i;j++) bv[i]-=cached_LU[i][j]*bv[j];
+                            for (int i=n-1;i>=0;i--) {
+                                for (int j=i+1;j<n;j++) bv[i]-=cached_LU[i][j]*bv[j];
+                                bv[i]/=cached_LU[i][i];
+                            }
                             for (int i=0;i<n;i++) dy[i].val=bv[i];
                         }
+                        // y = y - dy, on tape
                         for (int i=0;i<n;i++) y[i]=y[i]-dy[i];
                     }
                     x = y;
