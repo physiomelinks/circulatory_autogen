@@ -123,7 +123,9 @@ observable values and the p1/p3 symmetry check. It should finish in a few second
     constructor, the bounding-box tree, the PETSc assembly helpers, `Function.x.petsc_vec` —
     are looked up through a small `_resolve` helper that raises a message naming the tested
     versions instead of an `AttributeError` from three frames down. If you are on a newer
-    dolfinx and something raises, that message tells you which call moved.
+    dolfinx and something raises, that message tells you which call moved. The helper lives
+    at the foot of `heat_fenics_model.py`, below the class, so the contract is what you read
+    first.
 
 ## Running it from CA
 

@@ -71,7 +71,9 @@ Written and tested against **dolfinx 0.8.x / 0.9.x** (conda-forge ``fenics-dolfi
 handful of calls whose names have moved between releases -- the function-space constructor,
 the bounding-box tree, the PETSc assembly helpers -- are looked up through
 :func:`_resolve`, which raises a message naming the tested versions rather than an
-``AttributeError`` from three frames down. See ``README.md`` for the install line.
+``AttributeError`` from three frames down. That shim, and the rest of the material that is
+incidental to the CA contract, lives at the foot of this file. See ``README.md`` for the
+install line.
 """
 import numpy as np
 
@@ -109,46 +111,6 @@ FIXED_TEMP = 0.0
 
 #: Default mesh resolution. Overridable via ``solver_info['user_config']['nx']``.
 DEFAULT_NX = 16
-
-
-def _dolfinx_version():
-    return getattr(dolfinx, '__version__', 'unknown')
-
-
-def _resolve(name_candidates, *modules):
-    """First attribute in ``name_candidates`` found on any of ``modules``.
-
-    dolfinx renames things between minor releases (``FunctionSpace`` -> ``functionspace``,
-    ``BoundingBoxTree`` -> ``bb_tree``, ``fem.set_bc`` -> ``fem.petsc.set_bc``). Looking them
-    up by a list of candidates keeps this example working across the releases it is known
-    good on, and fails with a message that says which one it was written for otherwise.
-    """
-    for name in name_candidates:
-        for module in modules:
-            attribute = getattr(module, name, None)
-            if attribute is not None:
-                return attribute
-    raise RuntimeError(
-        f'none of {list(name_candidates)} exist on '
-        f'{[getattr(m, "__name__", str(m)) for m in modules]} in dolfinx '
-        f'{_dolfinx_version()}. funcs_user/heat_fenics/heat_fenics_model.py was written '
-        f'against dolfinx {TESTED_DOLFINX_VERSIONS}; this API has moved since. Either '
-        f'install a tested version (`conda install -c conda-forge "fenics-dolfinx=0.9"`) '
-        f'or update this file.')
-
-
-def _resolve_optional(name, *modules):
-    """Like :func:`_resolve`, but returns ``None`` instead of raising."""
-    for module in modules:
-        attribute = getattr(module, name, None)
-        if attribute is not None:
-            return attribute
-    return None
-
-
-def _scalar_type():
-    scalar = getattr(dolfinx, 'default_scalar_type', None)
-    return scalar if scalar is not None else PETSc.ScalarType
 
 
 class HeatFEniCSxModel:
@@ -273,10 +235,9 @@ class HeatFEniCSxModel:
         fdim = tdim - 1
         self._mesh.topology.create_connectivity(fdim, tdim)
 
-        locate_entities_boundary = _resolve(('locate_entities_boundary',), dmesh)
         tol = 1.0e-12
 
-        left_facets = locate_entities_boundary(
+        left_facets = dmesh.locate_entities_boundary(
             self._mesh, fdim, lambda x: np.isclose(x[0], 0.0, atol=tol))
         rest_facets = locate_entities_boundary(
             self._mesh, fdim,
@@ -327,11 +288,10 @@ class HeatFEniCSxModel:
         bb_tree = _resolve(('bb_tree', 'BoundingBoxTree'), dgeometry)
         compute_collisions = _resolve(
             ('compute_collisions_points', 'compute_collisions'), dgeometry)
-        compute_colliding_cells = _resolve(('compute_colliding_cells',), dgeometry)
 
         tree = bb_tree(self._mesh, self._mesh.topology.dim)
         candidates = compute_collisions(tree, points)
-        colliding = compute_colliding_cells(self._mesh, candidates, points)
+        colliding = dgeometry.compute_colliding_cells(self._mesh, candidates, points)
 
         cells = []
         for idx in range(len(points)):
@@ -406,7 +366,7 @@ class HeatFEniCSxModel:
     def run(self):
         """Solve the whole grid from the initial condition. Repeatable.
 
-        Every call restarts from the Gaussian bump, so back-to-back runs at the same
+        Every call restarts from the uniform plate, so back-to-back runs at the same
         parameters give bit-identical traces -- which is what lets a calibration or a
         sensitivity sweep reuse one instance for thousands of samples.
 
@@ -428,10 +388,12 @@ class HeatFEniCSxModel:
         return True
 
     def _solve(self):
-        assemble_matrix = _resolve(('assemble_matrix',), fem_petsc, fem)
-        assemble_vector = _resolve(('assemble_vector',), fem_petsc, fem)
-        apply_lifting = _resolve(('apply_lifting',), fem_petsc, fem)
-        set_bc = _resolve(('set_bc',), fem_petsc, fem)
+        # These four live on dolfinx.fem.petsc in every version this file supports, so they
+        # are called directly; only the names that actually moved go through _resolve.
+        assemble_matrix = fem_petsc.assemble_matrix
+        assemble_vector = fem_petsc.assemble_vector
+        apply_lifting = fem_petsc.apply_lifting
+        set_bc = fem_petsc.set_bc
 
         self.reset()
 
@@ -596,8 +558,59 @@ class HeatFEniCSxModel:
             self._matrix = None
 
 
-#: What CA looks for when it loads this file.
+#: What CA looks for when it loads this file. Part of the contract, so it stays here,
+#: immediately under the class it names, rather than at the foot of the file.
 SIM_HELPER = HeatFEniCSxModel
+
+
+# ---------------------------------------------------------------------------
+# Everything below here is incidental to the contract: dolfinx compatibility
+# shims, and a self-check you can run with `python heat_fenics_model.py`.
+#
+# The shims are module-level names, and Python looks those up when a method
+# *runs*, not when the class is defined -- so defining them after the class is
+# no different to defining them before it, and keeps the contract first.
+# ---------------------------------------------------------------------------
+
+
+def _dolfinx_version():
+    return getattr(dolfinx, '__version__', 'unknown')
+
+
+def _resolve(name_candidates, *modules):
+    """First attribute in ``name_candidates`` found on any of ``modules``.
+
+    dolfinx renames things between minor releases (``FunctionSpace`` -> ``functionspace``,
+    ``BoundingBoxTree`` -> ``bb_tree``, ``fem.set_bc`` -> ``fem.petsc.set_bc``). Looking them
+    up by a list of candidates keeps this example working across the releases it is known
+    good on, and fails with a message that says which one it was written for otherwise.
+    """
+    for name in name_candidates:
+        for module in modules:
+            attribute = getattr(module, name, None)
+            if attribute is not None:
+                return attribute
+    raise RuntimeError(
+        f'none of {list(name_candidates)} exist on '
+        f'{[getattr(m, "__name__", str(m)) for m in modules]} in dolfinx '
+        f'{_dolfinx_version()}. funcs_user/heat_fenics/heat_fenics_model.py was written '
+        f'against dolfinx {TESTED_DOLFINX_VERSIONS}; this API has moved since. Either '
+        f'install a tested version (`conda install -c conda-forge "fenics-dolfinx=0.9"`) '
+        f'or update this file.')
+
+
+def _resolve_optional(name, *modules):
+    """Like :func:`_resolve`, but returns ``None`` instead of raising."""
+    for module in modules:
+        attribute = getattr(module, name, None)
+        if attribute is not None:
+            return attribute
+    return None
+
+
+def _scalar_type():
+    scalar = getattr(dolfinx, 'default_scalar_type', None)
+    return scalar if scalar is not None else PETSc.ScalarType
 
 
 if __name__ == '__main__':
