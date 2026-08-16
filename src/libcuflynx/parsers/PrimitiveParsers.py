@@ -31,11 +31,12 @@ from libcuflynx.param_id.modifier_funcs import (BUILTIN_MODIFIER_FUNCS, get_modi
 # and that finalise aborts on macOS when a NIC goes away (#396). mpi_utils
 # answers without opening MPI when nothing launched this process.
 from libcuflynx.utilities import mpi_utils as _mpi_utils
+from libcuflynx.utilities.paths import (default_generated_models_dir, default_funcs_user_dir,
+                                        default_param_id_output_dir, default_resources_dir,
+                                        default_sensitivity_outputs_dir, default_user_inputs_dir)
 
 mpi_available = _mpi_utils.mpi_available()
 rank = _mpi_utils.rank()
-
-root_dir = os.path.join(os.path.dirname(__file__), '../../..')
 
 
 # ---------------------------------------------------------------------------
@@ -1748,10 +1749,11 @@ def warn_if_casadi_nonzero_pre_time(
             stacklevel=3,
         )
 
-user_inputs_dir = os.path.join(root_dir, 'user_run_files')
-src_dir = os.path.join(os.path.dirname(__file__), '..')
-base_dir = os.path.join(src_dir, '..', '..')
-operation_funcs_user_dir = os.path.join(base_dir, 'funcs_user')
+# Resolved once at import so tests can monkeypatch them, but off user_data_root() rather
+# than off this file's location: installed, the old __file__-relative form pointed into
+# site-packages (#431).
+user_inputs_dir = default_user_inputs_dir()
+operation_funcs_user_dir = default_funcs_user_dir()
 
 class scriptFunctionParser(object):
     '''
@@ -1760,8 +1762,10 @@ class scriptFunctionParser(object):
 
     def __init__(self, operation_funcs_external_path=None, cost_funcs_external_path=None):
         # funcs_user is a repo directory, not part of the package, and the built-in
-        # cost funcs are still imported from it by bare name (see #433).
-        sys.path.append(operation_funcs_user_dir)
+        # cost funcs are still imported from it by bare name (see #433). Only put it on
+        # sys.path if it is actually there -- in an install it usually is not.
+        if os.path.isdir(operation_funcs_user_dir) and operation_funcs_user_dir not in sys.path:
+            sys.path.append(operation_funcs_user_dir)
         '''
         Constructor
 
@@ -1880,15 +1884,15 @@ class YamlFileParser(object):
         if "resources_dir" in inp_data_dict.keys():
             inp_data_dict['resources_dir'] = os.path.join(user_files_dir, inp_data_dict['resources_dir'])
         else:
-            inp_data_dict['resources_dir'] = os.path.join(root_dir, 'resources')
+            inp_data_dict['resources_dir'] = default_resources_dir()
         if "param_id_output_dir" in inp_data_dict.keys():
             inp_data_dict['param_id_output_dir'] = os.path.join(user_files_dir, inp_data_dict['param_id_output_dir'])
         else:
-            inp_data_dict['param_id_output_dir'] = os.path.join(root_dir, 'param_id_output')
+            inp_data_dict['param_id_output_dir'] = default_param_id_output_dir()
         if "generated_models_dir" in inp_data_dict.keys():
             inp_data_dict['generated_models_dir'] = os.path.join(user_files_dir, inp_data_dict['generated_models_dir'])
         else:
-            inp_data_dict['generated_models_dir'] = os.path.join(root_dir, 'generated_models')
+            inp_data_dict['generated_models_dir'] = default_generated_models_dir()
         
         if obs_path_needed:
             if 'param_id_obs_path' in inp_data_dict.keys():
@@ -1932,7 +1936,7 @@ class YamlFileParser(object):
             # 'external_model_path'.
             external_path = inp_data_dict.get('external_model_path')
             if not external_path:
-                external_path = os.path.join(base_dir, 'funcs_user', f'{file_prefix}_model.py')
+                external_path = os.path.join(default_funcs_user_dir(), f'{file_prefix}_model.py')
             inp_data_dict['model_path'] = external_path
             inp_data_dict['uncalibrated_model_path'] = external_path
         elif inp_data_dict.get('model_type') in ['python', 'casadi_python']:
@@ -2256,14 +2260,14 @@ class YamlFileParser(object):
                 'method': 'sobol',
                 'num_samples': 32,
                 'sample_type': 'saltelli',
-                'output_dir': os.path.join(root_dir, 'sensitivity_outputs', file_prefix + '_SA_results')
+                'output_dir': os.path.join(default_sensitivity_outputs_dir(), file_prefix + '_SA_results')
             }
         else:
             if 'output_dir' not in inp_data_dict['sa_options'].keys():
-                inp_data_dict['sa_options']['output_dir'] = os.path.join(root_dir, 'sensitivity_outputs', file_prefix + '_SA_results')  
+                inp_data_dict['sa_options']['output_dir'] = os.path.join(default_sensitivity_outputs_dir(), file_prefix + '_SA_results')
             else:
                 if not os.path.isabs(inp_data_dict['sa_options']['output_dir']):
-                    inp_data_dict['sa_options']['output_dir'] = os.path.join(root_dir, 'sensitivity_outputs', inp_data_dict['sa_options']['output_dir']) 
+                    inp_data_dict['sa_options']['output_dir'] = os.path.join(default_sensitivity_outputs_dir(), inp_data_dict['sa_options']['output_dir'])
             
             if not os.path.exists(inp_data_dict['sa_options']['output_dir']):
                 os.makedirs(inp_data_dict['sa_options']['output_dir'], exist_ok=True)
@@ -2806,8 +2810,11 @@ class JSONFileParser(object):
     def json_to_dataframe_with_user_dir(self, json_dir, json_user_dir, external_modules_dir):
         dfs = [self.json_to_dataframe(os.path.join(json_dir, file)) \
                 for file in os.listdir(json_dir) if self._is_json_module_file(file)]
+        # module_config_user/ is a checkout directory, absent in a pip install (#431/#432),
+        # so a missing one is "no user modules", not an error.
         user_module_dfs = [self.json_to_dataframe(os.path.join(json_user_dir, file)) \
-                for file in os.listdir(json_user_dir) if self._is_json_module_file(file)]
+                for file in (os.listdir(json_user_dir) if json_user_dir and os.path.isdir(json_user_dir) else []) \
+                if self._is_json_module_file(file)]
         if external_modules_dir is not None:
             external_module_dfs = [self.json_to_dataframe(os.path.join(external_modules_dir, file)) \
                     for file in os.listdir(external_modules_dir) if self._is_json_module_file(file)]

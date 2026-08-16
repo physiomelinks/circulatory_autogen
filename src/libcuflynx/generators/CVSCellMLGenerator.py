@@ -11,10 +11,13 @@ import os
 import shutil
 import tempfile
 from sys import exit
+from libcuflynx.utilities.paths import default_module_config_user_dir, default_resources_dir
+
 generators_dir = os.path.dirname(__file__)
-base_dir = os.path.join(os.path.dirname(__file__), '../../..')
 # Build/run scripts copied alongside each generated model so it can be compiled/run standalone.
-solver_make_files_dir = os.path.join(base_dir, 'src', 'libcuflynx', 'solver1d', 'Make_files')
+# Package data -- they live in libcuflynx/solver1d, so anchor them to the package, not to a
+# guessed repo root (#431). Read-only; they are copied *out* into the generated model dir.
+solver_make_files_dir = os.path.join(generators_dir, '..', 'solver1d', 'Make_files')
 LIBCELLML_available = True
 try:
     from libcellml import Annotator, Analyser, AnalyserModel, AnalyserExternalVariable, Generator, GeneratorProfile        
@@ -51,7 +54,7 @@ class CVS0DCellMLGenerator(object):
         self.inp_data_dict = inp_data_dict
 
         if inp_data_dict['resources_dir'] is None:
-            self.resources_dir = os.path.join(generators_dir, '../../../resources')
+            self.resources_dir = default_resources_dir()
         else:
             self.resources_dir = inp_data_dict['resources_dir']
 
@@ -63,15 +66,21 @@ class CVS0DCellMLGenerator(object):
         self.module_scripts = [os.path.join(generators_dir, 'resources', filename) for filename in
                                os.listdir(os.path.join(generators_dir, 'resources'))
                                if filename.endswith('modules.cellml') and not filename.startswith('._')]
-        self.module_scripts += [os.path.join(base_dir, 'module_config_user', filename) for filename in
-                               os.listdir(os.path.join(base_dir, 'module_config_user'))
-                               if filename.endswith('modules.cellml') and not filename.startswith('._')]
+        # module_config_user/ is a checkout directory, not package data, and is absent in a
+        # pip install (#431/#432) -- so a missing one means "no user modules", not a crash.
+        module_config_user_dir = default_module_config_user_dir()
+        if os.path.isdir(module_config_user_dir):
+            self.module_scripts += [os.path.join(module_config_user_dir, filename) for filename in
+                                   os.listdir(module_config_user_dir)
+                                   if filename.endswith('modules.cellml') and not filename.startswith('._')]
         if inp_data_dict['external_modules_dir'] is not None:
             self.module_scripts += [os.path.join(self.inp_data_dict['external_modules_dir'], filename) for filename in
                                 os.listdir(os.path.join(self.inp_data_dict['external_modules_dir']))
                                 if filename.endswith('modules.cellml') and not filename.startswith('._')]
-        self.units_scripts = [os.path.join(generators_dir, 'resources/units.cellml'),
-                              os.path.join(base_dir, 'module_config_user/user_units.cellml')]
+        self.units_scripts = [os.path.join(generators_dir, 'resources/units.cellml')]
+        user_units_script = os.path.join(module_config_user_dir, 'user_units.cellml')
+        if os.path.isfile(user_units_script):
+            self.units_scripts.append(user_units_script)
         self.all_parameters_defined = False
         self.BC_set = {}
         self.all_units = []
@@ -485,24 +494,21 @@ class CVS0DCellMLGenerator(object):
 
         def _write_units_file(wf):
             for file_idx, units_script in enumerate(self.units_scripts):
+                # Concatenate the units models into one: only the first file contributes the
+                # xml declaration and <model> open, only the last one the </model> close.
+                # Stated as two independent conditions rather than a first/middle/last chain
+                # so a *single* units script (the pip-install case, where the checkout's
+                # module_config_user/user_units.cellml is absent -- #431) still gets closed.
+                is_first = file_idx == 0
+                is_last = file_idx == len(self.units_scripts) - 1
                 with open(units_script, 'r') as rf:
                     for line_idx, line in enumerate(rf):
-                        # if not first file then skip first two lines and last line
-                        if file_idx == 0:
-                            if line.startswith('</model>'):
-                                # don't write the last line
-                                continue
-                        elif file_idx == len(self.units_scripts) - 1:
-                            if line_idx == 0 or line_idx == 1:
-                                # don't write the first two lines
-                                continue
-                        else:
-                            if line_idx == 0 or line_idx == 1:
-                                # don't write the first two lines
-                                continue
-                            if line.startswith('</model>'):
-                                # don't write the last line
-                                continue
+                        if not is_first and line_idx in (0, 1):
+                            # don't repeat the first two lines
+                            continue
+                        if not is_last and line.startswith('</model>'):
+                            # don't close the model until the last file
+                            continue
 
                         wf.write(line)
                         if "units name" in line:

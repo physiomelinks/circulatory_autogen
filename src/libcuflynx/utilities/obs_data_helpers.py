@@ -7,7 +7,6 @@ except ImportError:  # optional dependency
 import json
 import os, sys
 import re
-root_dir = os.path.join(os.path.dirname(__file__), '../../..')
 
 # ---------------------------------------------------------------------------
 # obs_data.json schema vocabularies

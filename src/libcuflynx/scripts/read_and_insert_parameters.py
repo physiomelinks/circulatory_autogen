@@ -8,9 +8,9 @@ import sys
 import os
 import re
 import pandas as pd
-root_dir = os.path.join(os.path.dirname(__file__), '../../..')
+from libcuflynx.utilities.paths import default_resources_dir, default_user_inputs_dir
 
-user_inputs_dir = os.path.join(root_dir, 'user_run_files')
+user_inputs_dir = default_user_inputs_dir()
 
 from libcuflynx.parsers.PrimitiveParsers import JSONFileParser, CSVFileParser
 import traceback
@@ -56,7 +56,7 @@ if __name__ == '__main__':
                           "you want to use the default user_inputs.yaml location")
                     exit()
 
-            resources_dir = os.path.join(root_dir, 'resources')
+            resources_dir = default_resources_dir()
             # overwrite dir paths if set in user_inputs.yaml
             if "resources_dir" in inp_data_dict.keys():
                 resources_dir = inp_data_dict['resources_dir']

@@ -8,12 +8,13 @@ import sys
 import os
 from distutils import util, dir_util
 
-root_dir = os.path.join(os.path.dirname(__file__), '../../..')
 # Not `from mpi4py import MPI`: that import initialises MPI and registers an
 # atexit MPI_Finalize, and with no launcher present that finalise is what aborts
 # on macOS when a NIC goes away (#396). Under mpiexec get_MPI hands back the real
 # mpi4py.MPI, so a multi-rank run is unchanged.
 from libcuflynx.utilities.mpi_utils import get_MPI as _get_MPI
+from libcuflynx.utilities.paths import (default_generated_models_dir, default_resources_dir,
+                                        default_user_inputs_dir)
 
 MPI = _get_MPI()
 
@@ -28,7 +29,7 @@ if __name__ == '__main__':
     ## TODO This script should be updated to use the user_inputs parser and tested
 
     try:
-        user_inputs_dir= os.path.join(root_dir, 'user_run_files')
+        user_inputs_dir = default_user_inputs_dir()
 
         with open(os.path.join(user_inputs_dir, 'user_inputs.yaml'), 'r') as file:
             inp_data_dict = yaml.load(file, Loader=yaml.FullLoader)
@@ -57,9 +58,8 @@ if __name__ == '__main__':
             print(f'Starting multi-run parameter ID with {num_procs} MPI rank(s)')
 
 
-        resources_dir= os.path.join(root_dir, 'resources')
-        param_id_dir = os.path.join(root_dir, 'src/libcuflynx/param_id')
-        generated_models_dir = os.path.join(root_dir, 'generated_models')
+        resources_dir = default_resources_dir()
+        generated_models_dir = default_generated_models_dir()
 
         param_id_method = inp_data_dict['param_id_method']
         file_prefix = inp_data_dict['file_prefix']

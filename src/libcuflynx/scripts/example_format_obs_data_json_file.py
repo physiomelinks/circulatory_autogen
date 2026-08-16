@@ -3,9 +3,9 @@ import pandas as pd
 import yaml
 import json
 import os, sys
-root_dir = os.path.join(os.path.dirname(__file__), '../../..')
-scripts_dir = os.path.join(root_dir, 'src/libcuflynx/scripts')
-example_data_dir = os.path.join(scripts_dir, 'example_data')
+from libcuflynx.utilities.paths import default_resources_dir
+# Package data (read-only): the example CSV ships next to this script.
+example_data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'example_data')
 from libcuflynx.utilities.obs_data_helpers import ObsDataCreator
 
 def example_format_obs_data_json_file(output_path=None):
@@ -24,7 +24,7 @@ def example_format_obs_data_json_file(output_path=None):
     # output path for the JSON file
     # change this to the desired output path
     if output_path is None:
-        output_path = os.path.join(root_dir, 'resources', 'NKE_pump_obs_data.json')
+        output_path = os.path.join(default_resources_dir(), 'NKE_pump_obs_data.json')
     data = pd.read_csv(data_file)
 
     # access the data in the way you want it
@@ -96,5 +96,5 @@ def example_format_obs_data_json_file(output_path=None):
 
 if __name__ == "__main__":
     example_format_obs_data_json_file()
-    print(f"Observation data JSON file created at: {os.path.join(root_dir, 'resources', 'NKE_pump_obs_data.json')}")
+    print(f"Observation data JSON file created at: {os.path.join(default_resources_dir(), 'NKE_pump_obs_data.json')}")
     # This script demonstrates how to create a JSON file for observation data

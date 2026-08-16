@@ -10,9 +10,9 @@ import re
 import traceback
 import yaml
 import numpy as np
-root_dir = os.path.join(os.path.dirname(__file__), '../../..')
+from libcuflynx.utilities.paths import default_user_inputs_dir
 
-user_inputs_dir= os.path.join(root_dir, 'user_run_files')
+user_inputs_dir = default_user_inputs_dir()
 
 from libcuflynx.parsers.ModelParsers import CSV0DModelParser
 from libcuflynx.generators.CVSCellMLGenerator import CVS0DCellMLGenerator

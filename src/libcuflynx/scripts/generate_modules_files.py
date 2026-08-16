@@ -13,9 +13,12 @@ import yaml
 
 import libcellml as lc
     
-root_dir = os.path.join(os.path.dirname(__file__), '../../..')
-user_inputs_dir = os.path.join(root_dir, 'user_run_files')
-src_dir = os.path.join(os.path.dirname(__file__), '..')
+from libcuflynx.utilities.paths import default_module_config_user_dir, default_user_inputs_dir
+
+user_inputs_dir = default_user_inputs_dir()
+# Package data: the built-in units.cellml ships inside libcuflynx (#432 makes it declared
+# package data read through importlib.resources).
+package_dir_path = os.path.join(os.path.dirname(__file__), '..')
 import libcuflynx.utilities.libcellml_helper_funcs as cellml
 import libcuflynx.utilities.libcellml_utilities as libcellml_utils
 
@@ -24,8 +27,8 @@ import libcuflynx.utilities.libcellml_utilities as libcellml_utils
 # - Add support for automatically generating the ports in the module_config.json file. Currently the ports are not generated automatically.
 
 # Define file paths
-user_units_cellml = os.path.join(root_dir, 'module_config_user/user_units.cellml')
-units_cellml = os.path.join(src_dir, 'generators/resources/units.cellml')
+user_units_cellml = os.path.join(default_module_config_user_dir(), 'user_units.cellml')
+units_cellml = os.path.join(package_dir_path, 'generators/resources/units.cellml')
 user_inputs_yaml = os.path.join(user_inputs_dir, 'user_inputs.yaml')
 
 # Define file_prefix, vessel_name and data_reference for the model
@@ -142,7 +145,7 @@ def _generate_module_config(variables, constants, states, file_prefix, component
 
     module_config = [config]
 
-    file_path = os.path.join(root_dir, 'module_config_user', f"{file_prefix}_module_config.json")
+    file_path = os.path.join(default_module_config_user_dir(), f"{file_prefix}_module_config.json")
 
     with open(file_path, "w") as fh:
         json.dump(module_config, fh, indent=2)
@@ -220,7 +223,7 @@ def _generate_cellml_module(input_model, states, file_prefix):
     cellml_str = cellml_str.replace('math:', '')
 
     # Write the modified cellml
-    file_path = os.path.join(root_dir, 'module_config_user', f"{file_prefix}_modules.cellml")
+    file_path = os.path.join(default_module_config_user_dir(), f"{file_prefix}_modules.cellml")
     with open(file_path, "w", encoding="UTF-8") as f:
         f.write(cellml_str)
 

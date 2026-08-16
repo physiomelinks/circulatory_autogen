@@ -17,9 +17,7 @@ import sys
 
 import numpy as np
 
-_ROOT_DIR = os.path.join(os.path.dirname(__file__), '../../..')
-_USER_INPUTS_DIR = os.path.join(_ROOT_DIR, 'user_run_files')
-
+from libcuflynx.utilities.paths import default_user_inputs_dir
 from libcuflynx.solver_wrappers import get_simulation_helper
 from libcuflynx.protocol_runners.protocol_executor import ProtocolExecutor
 
@@ -63,7 +61,7 @@ class ProtocolRunner:
     def __init__(self, model_path, inp_data_dict=None, solver='CVODE_myokit', model_type=None):
         if inp_data_dict is None:
             import yaml
-            with open(os.path.join(_USER_INPUTS_DIR, 'user_inputs.yaml'), 'r') as fh:
+            with open(os.path.join(default_user_inputs_dir(), 'user_inputs.yaml'), 'r') as fh:
                 inp_data_dict = yaml.load(fh, Loader=yaml.FullLoader)
             override = inp_data_dict.get('user_inputs_path_override')
             if override:

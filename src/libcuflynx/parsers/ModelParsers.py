@@ -14,8 +14,12 @@ import json
 import re
 import os
 
+from libcuflynx.utilities.paths import default_module_config_user_dir
+
+# Package data: the built-in CellML module library ships inside libcuflynx, so this stays
+# anchored to the package. #432 turns it into declared package data read through
+# importlib.resources; until then the on-disk path next to this source is the right one.
 generator_resources_dir_path = os.path.join(os.path.dirname(__file__), '../generators/resources')
-base_dir = os.path.join(os.path.dirname(__file__), '../../..')
 
 # The columns a {prefix}_parameters.csv must provide. They are looked up by header name, so a file
 # may list them in any order and may carry extra columns (FTU_wCVS_parameters.csv has a 'comp_env'
@@ -41,7 +45,7 @@ class CSV0DModelParser(object):
         self.external_modules_dir = inp_data_dict['external_modules_dir']
         self.parameter_id_dir = parameter_id_dir
         self.module_config_dir = generator_resources_dir_path
-        self.module_config_user_dir = os.path.join(base_dir, 'module_config_user')
+        self.module_config_user_dir = default_module_config_user_dir()
         self.csv_parser = CSVFileParser()
         self.json_parser = JSONFileParser()
 
