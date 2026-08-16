@@ -20,7 +20,7 @@ This comprehensive approach allows modelers to understand not only which paramet
 
 - A generated model and `obs_data.json` file (see [Parameter Identification](parameter-identification.md)).
 - A `params_for_id.csv` file defining parameter ranges.
-- OpenCOR Python environment with MPI if running in parallel.
+- `pip install "libcuflynx[mpi]"` (and a system MPI toolchain) if running in parallel.
 
 ## SA in Circulatory_Autogen
 Since Sensitivity Analysis (SA) is intertwined with parameter identification, you will need the same input files as required for parameter identification. This includes both the **`params_for_id.csv`** and the **`obs_data.json`** files. However, the exact values of the data terms in the observation file are not critical for SA itself, as you are simply exploring parameter space and variance, not matching the simulation output to observed data.
@@ -78,4 +78,4 @@ You should have Sobol index plots saved to `sa_options.output_dir`.
 ## Troubleshooting
 
 - If you see errors about `params_for_id_path`, confirm your `params_for_id.csv` filename and `resources_dir`.
-- If MPI errors occur, ensure `mpiexec` is available and `mpi4py` is installed in the OpenCOR Python environment.
+- If MPI errors occur, ensure `mpiexec` is available and `mpi4py` is installed in the environment you are running from — it is the `[mpi]` extra, not part of a plain `pip install libcuflynx`.

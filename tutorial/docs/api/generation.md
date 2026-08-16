@@ -3,8 +3,8 @@
 Generate a flat CellML (or Python / C++ / CasADi) model from the vessel and
 parameter CSV arrays referenced by the configuration dict.
 
-::: scripts.script_generate_with_new_architecture.generate_with_new_architecture
+::: libcuflynx.scripts.script_generate_with_new_architecture.generate_with_new_architecture
 
 ## Converting 0D vessels to 1D
 
-::: scripts.convert_0d_to_1d.convert_0d_to_1d
+::: libcuflynx.scripts.convert_0d_to_1d.convert_0d_to_1d

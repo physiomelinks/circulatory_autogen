@@ -5,4 +5,4 @@ through a multi-experiment / sub-experiment protocol with given parameter
 values — useful for re-simulating with calibrated parameters outside the
 param-id loop.
 
-::: protocol_runners.protocol_runner.ProtocolRunner
+::: libcuflynx.protocol_runners.protocol_runner.ProtocolRunner

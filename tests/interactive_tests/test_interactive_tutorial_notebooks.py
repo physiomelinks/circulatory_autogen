@@ -91,11 +91,8 @@ def _sanitize_generation_and_calibration_test(source: str) -> str:
             """\
             print("Imports done")
 
-            # Ensure local src is importable
+            # libcuflynx is imported from the installed package; only the repo data dirs are needed.
             project_root = Path("/home/farg967/Documents/git_projects/circulatory_autogen")
-            src_path = project_root / "src"
-            if str(src_path) not in sys.path:
-                sys.path.append(str(src_path))
 
             # Set up paths
             resources_dir = project_root / "resources" # TODO: change to the downloads dir if using Phlynx output directly
@@ -113,9 +110,6 @@ def _sanitize_generation_and_calibration_test(source: str) -> str:
 
             project_root = Path(os.environ["INTERACTIVE_TEST_PROJECT_ROOT"]).resolve()
             test_output_root = Path(os.environ["INTERACTIVE_TEST_OUTPUT_DIR"]).resolve()
-            src_path = project_root / "src"
-            if str(src_path) not in sys.path:
-                sys.path.append(str(src_path))
 
             resources_dir = project_root / "resources"
             generated_models_dir = test_output_root / "generated_models"
@@ -248,11 +242,7 @@ def _sanitize_image_to_hemodynamics(source: str) -> str:
             CA_root = Path(__file__).resolve().parent.parent.parent if "__file__" in globals() else Path.cwd().parent.parent
             resources_path = CA_root / Path("resources")
 
-            #################### TODO make this automatic in Docker ####################################
-
-            src_path = os.path.join(CA_root, "src")
-            if str(src_path) not in sys.path:
-                sys.path.append(str(src_path))
+            # libcuflynx is imported from the installed package; nothing goes on the import path.
             """
         ),
         textwrap.dedent(
@@ -262,10 +252,6 @@ def _sanitize_image_to_hemodynamics(source: str) -> str:
             this_dir = project_root / "tutorial" / "interactive"
             CA_root = project_root
             resources_path = project_root / "resources"
-
-            src_path = project_root / "src"
-            if str(src_path) not in sys.path:
-                sys.path.append(str(src_path))
             """
         ),
     )

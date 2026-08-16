@@ -22,7 +22,7 @@ In the `vessel_array` file, there are five columns: **name**, **BC_type**, **ves
 !!! info
     A vessel with "output flow" BC must be connected to a vessel with "input pressure" BC and vice versa. E.g. a "vp" can only have either a "vv" or "vp" vessel as ouputs. This is checked in the software, and will throw an error if there are incorrect BC connections.
 
-The **vessel_type** and **BC_type** must match a module with the same vessel_type and BC_type in the modules config JSON files defined at `[CA_dir]/src/generators/resources/`. 
+The **vessel_type** and **BC_type** must match a module with the same vessel_type and BC_type in the modules config JSON files defined at `[CA_dir]/src/libcuflynx/generators/resources/`. 
 
 These files define the variables of each module and the connection ports that allow linking between modules; each module links to a CellML module. For more information, refer to [Designing a model](design-model.md#creating-a-new-model).
 

@@ -1,3 +1,20 @@
+"""Worked example of building an ``obs_data.json`` in Python instead of by hand.
+
+This file is meant to be **copied** and edited for your own calibration task -- it ships inside
+the package (``libcuflynx.scripts``), so edits made in place are lost the next time the package
+is upgraded. Copy it somewhere of your own::
+
+    python -c "import libcuflynx.scripts.example_format_obs_data_json_file as m; print(m.__file__)"
+
+then change the data loading, the protocol and the data items. Everything it uses is imported
+from the ``libcuflynx`` namespace, so no directory has to be added to the import path; the
+example CSV it reads is package data, located with ``importlib.resources``, not a repo-relative
+path.
+
+Run as shipped with::
+
+    python -m libcuflynx.scripts.example_format_obs_data_json_file
+"""
 import numpy as np
 import pandas as pd
 import yaml

@@ -19,9 +19,9 @@ This software is designed so the user can easily make their own modules and coup
 
 2. Put your cellml model into the `[module_category]_modules.cellml` file.
 
-3. Create a corresponding module configuration entry in a JSON file within `[project_dir]/module_config_user/`. The code loads all `*.json` files in `module_config_user` (and in `src/generators/resources`), so you can name it with your category (e.g. `[module_category]_modules_config.json`). These module declarations detail the variables that can be accessed, the constants that must be defined, and the available ports of the module.
+3. Create a corresponding module configuration entry in a JSON file within `[project_dir]/module_config_user/`. The code loads all `*.json` files in `module_config_user` (and in `src/libcuflynx/generators/resources`), so you can name it with your category (e.g. `[module_category]_modules_config.json`). These module declarations detail the variables that can be accessed, the constants that must be defined, and the available ports of the module.
 
-4. When possible, use units defined in `[project_dir]/src/generators/resources/units.cellml`. If you need to define new units, define them in `[project_dir]/module_config_user/user_units.cellml` (or in an external modules directory; see below).
+4. When possible, use units defined in `[project_dir]/src/libcuflynx/generators/resources/units.cellml`. If you need to define new units, define them in `[project_dir]/module_config_user/user_units.cellml` (or in an external modules directory; see below).
 
 5. Include your new module into a `[CA_user_dir]/[file_prefix]_vessel_array.csv` file.
 
@@ -46,7 +46,7 @@ One standard vessel array file contains five important columns as elaborated in 
 
 - **vessel_name** is the name of a common organ or part of the cardiovascular system.
 - **BC_type** is the type of the boundary condition for the vessel's input and output or more generally, the subtype of the module.
-- **vessel_type** can be defined as the desired module which exists in the `[project_dir]/src/generators/resources/*_modules_config.json` files or one of the `[project_dir]/module_config_user/*_config.json` files. 
+- **vessel_type** can be defined as the desired module which exists in the `[project_dir]/src/libcuflynx/generators/resources/*_modules_config.json` files or one of the `[project_dir]/module_config_user/*_config.json` files. 
 - **inp_vessel** is the input of each part.
 - **out_vessel** is the output of each part.
 
@@ -90,7 +90,7 @@ The following is an example of a parameter file.
 
 ### Modules and definition of a new module
 
-In the `[CA_dir]/src/generators/resources` directory, there are several CellML files which contain the modules that can be coupled together in your model. Each module file has a corresponding `*_modules_config.json` file that defines connection ports and variables. Additionally, CellML and JSON files in `module_config_user` contain extra modules you define locally.
+In the `[CA_dir]/src/libcuflynx/generators/resources` directory, there are several CellML files which contain the modules that can be coupled together in your model. Each module file has a corresponding `*_modules_config.json` file that defines connection ports and variables. Additionally, CellML and JSON files in `module_config_user` contain extra modules you define locally.
 
 ![Modules](images/module-folder.png)
 
@@ -123,7 +123,7 @@ The entries in the module config JSON file are detailed as follows:
 - **vessel_type**: This will be the "vessel_type" entry in the vessel_array file
 - **BC_type**: This will be the "BC_type" entry in the vessel_array file
 - **module_format**: Currently only cellml is supported but in the future, cpp modules and others will be allowed.
-- **module_file**: The file within `[CA_dir]/src/generators/resources/`, `[CA_dir]/module_config_user/`, or your `external_modules_dir` that contains the CellML module this config entry links to.
+- **module_file**: The file within `[CA_dir]/src/libcuflynx/generators/resources/`, `[CA_dir]/module_config_user/`, or your `external_modules_dir` that contains the CellML module this config entry links to.
 - **module_type**: The name of the module/computational_environment within the module cellml file.
 - **entrance_ports**: Specification of the port types that this module can take if it is connected as an "out_vessel" to another module. If a port_type matches to the port_type of a exit_port in a module coupled as an input, then the port_types variables, e.g. [v_in, u] get mapped to the variables in the coupled modules exit port e.g. [v, u_out].
 - **exit_ports**: Specification of the port types that this module can take if it is connected as an "inp_vessel" to another module.
@@ -148,7 +148,7 @@ The entries in the module config JSON file are detailed as follows:
 ## Converting an existing CellML model to run in Circulatory Autogen
 
 Circulatory Autogen provides a script to convert an existing CellML model (with parameters hardcoded in the modules) to a format that can be used with Circulatory_Autogen. This format defines parameters in a separate file so they can be used for calibration and specifies modules in a config file with ports for easy coupling.
-You can find the script **"generate_modules_files.py"** at `[CA_dir]/src/scripts`.
+You can find the script **"generate_modules_files.py"** at `[CA_dir]/src/libcuflynx/scripts`.
 
 Update the script to change the `input_model` variable to the path of your CellML model and `output_dir` variable to the directory where you need to create the resources files and the new `[file_prefix]_user_inputs.yaml` file.
 
@@ -157,7 +157,7 @@ This script generates `[file_prefix]_modules.cellml` and `[file_prefix]_module_c
 You only need to update the `user_inputs.yaml` file at the `user_run_files` directory to set **`user_inputs_path_override:`** to `[output_dir]/[file_prefix]_user_inputs.yaml` to run model autogeneration.
 
 !!! Note
-    You can update the **file_prefix**, **vessel_name** and the **data_reference** variables in the `generate_modules_files.py` at the `src/scripts` directory before running the script, so it will generate files with the defined variables.
+    You can update the **file_prefix**, **vessel_name** and the **data_reference** variables in the `generate_modules_files.py` at the `src/libcuflynx/scripts` directory before running the script, so it will generate files with the defined variables.
 
 !!! Warning
     You need to specify the variable name of time as the **time_variable**.
