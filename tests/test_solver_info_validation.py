@@ -13,6 +13,7 @@ from libcuflynx.parsers.PrimitiveParsers import (
     PARAM_ID_METHODS,
     valid_param_id_methods,
     param_id_method_options,
+    get_solver_info_default,
     SOLVER_SCHEMA,
     SOLVER_INFO_FIELDS,
     solver_info_fields,
@@ -1734,3 +1735,28 @@ def test_deprecated_mcmc_options_kwarg_still_reaches_UQ_options(capsys):
 
     with pytest.raises(ValueError, match='not both'):
         _resolve_UQ_options({'num_steps': 9}, {'num_steps': 5})
+
+
+@pytest.mark.unit
+def test_a_config_that_names_no_solver_gets_one_a_pip_install_can_provide():
+    """`cellml` must default to CVODE_myokit, not CVODE_opencor.
+
+    OpenCOR's Python module is not on PyPI, so `CVODE_opencor` is the one backend a
+    `pip install libcuflynx` cannot supply. Defaulting to it meant a user who wrote a
+    minimal config and left `solver` out was routed straight at the unavailable one --
+    invisible in a checkout, because the shipped `user_inputs.yaml` sets it explicitly,
+    and invisible in CI for the same reason.
+
+    Pinned because nothing else pins it. The change that fixed this shipped no test, and
+    upstream then renamed the key this value hangs off (`cellml_only` -> `cellml`) in a
+    separate branch. Merging the two would have restored the old default silently, with
+    every suite still green -- three independent reads (the schema, the solver_info
+    default, and the implicit fallback in `parse_user_inputs_file`) all agreeing on the
+    wrong answer.
+    """
+    assert SOLVER_SCHEMA['default_solver_by_model_type']['cellml'] == 'CVODE_myokit'
+    assert get_solver_info_default('cellml')['solver'] == 'CVODE_myokit'
+    # Still *offered*, just not the default: it works fine inside OpenCOR, and removing it
+    # would make `solver: CVODE_opencor` fail validation instead of reaching the message
+    # that names CVODE_myokit as the replacement.
+    assert 'CVODE_opencor' in SOLVER_SCHEMA['solvers_by_model_type']['cellml']

@@ -23,6 +23,7 @@ from libcuflynx import _deprecated_aliases
 from libcuflynx._deprecated_aliases import PACKAGE, REMOVAL_VERSION, SHIM_ROOTS
 
 _SRC = pathlib.Path(__file__).resolve().parents[1] / "src"
+_TESTS = pathlib.Path(__file__).resolve().parent
 
 
 def _forget(root):
@@ -178,3 +179,39 @@ def test_the_package_never_imports_its_own_deprecated_names():
                 if name.partition(".")[0] in SHIM_ROOTS:
                     offenders.append("{}:{}: {}".format(path, node.lineno, name))
     assert offenders == []
+
+
+@pytest.mark.unit
+def test_the_test_suite_never_imports_the_deprecated_names_either():
+    """The same rule for `tests/`, because a flat import can arrive without a conflict.
+
+    Merging upstream into the packaging branch walked one back in: a test added on master
+    used a function-local ``from parsers.PrimitiveParsers import ObsAndParamDataParser``,
+    and since this branch had never touched those lines git auto-merged it cleanly. Its two
+    siblings were fixed by hand only because git happened to raise them as conflicts. That
+    asymmetry recurs on every merge from master while the shims exist, and the package-only
+    sweep above cannot see it.
+
+    Exercising the shims is this file's job, so this file is the one exemption. Everything
+    else must import ``libcuflynx.*`` -- including function-local imports, which is why this
+    walks the whole AST rather than reading the top of each file.
+    """
+    offenders = []
+    for path in sorted(_TESTS.rglob("*.py")):
+        if path.resolve() == pathlib.Path(__file__).resolve():
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and not node.level:
+                names = [node.module or ""]
+            else:
+                continue
+            for name in names:
+                if name.partition(".")[0] in SHIM_ROOTS:
+                    offenders.append("{}:{}: {}".format(path, node.lineno, name))
+    assert offenders == [], (
+        "these import circulatory_autogen through a deprecated flat name, which is removed "
+        "in {}; import the libcuflynx.* path instead:\n  ".format(
+            _deprecated_aliases.REMOVAL_VERSION) + "\n  ".join(offenders))
