@@ -12,7 +12,7 @@ the corner plots and the saved ``mcmc_chain.npy`` all keep working unchanged).
 pymc and pytensor are imported lazily, inside the sampler. They are not CA dependencies:
 ``paramID.py`` is imported by every calibration run, so importing them at module level (as the
 original patch did) would break every user who has not installed them, to no benefit for anyone
-not doing UQ. Install with ``pip install -e ".[uq]"``.
+not doing UQ. Install with ``pip install "libcuflynx[uq]"``.
 
 The one place the two backends are not interchangeable is *how* the chain reaches disk while it
 is being sampled (#417). emcee's ``sample()`` is a generator, so the caller checkpoints between
@@ -34,8 +34,9 @@ except ImportError:                                            # pragma: no cove
 
 _INSTALL_HINT = (
     "The pyMC UQ backend needs pymc and pytensor, which are not installed. "
-    "Install them with:  pip install -e \".[uq]\"  (or set UQ_options: library: emcee to use "
-    "the built-in ensemble sampler instead)."
+    "Install them with:  pip install \"libcuflynx[uq]\"  (about 65 MB; from a checkout, "
+    "pip install -e \".[uq]\"). Or set UQ_options: library: emcee to use the built-in "
+    "ensemble sampler instead."
 )
 
 

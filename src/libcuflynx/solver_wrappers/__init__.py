@@ -23,11 +23,38 @@ def _record_import_error(name, exc):
         traceback.format_exception_only(type(exc), exc)).strip()
 
 
+#: The pip extra that installs each optional backend, for the message a user gets when it is
+#: missing (#435). "CasADi is not available" is only half an answer when CasADi is an extra --
+#: the actionable half is which extra. Backends with no extra (OpenCOR, AADC) are absent from
+#: this map on purpose: neither is on PyPI under a libcuflynx extra.
+BACKEND_EXTRAS = {
+    'CasADi': 'casadi',
+    'emulator': 'emulation',
+}
+
+
+def _install_hint(backend):
+    """`pip install "libcuflynx[x]"` for a backend that has an extra, else ''."""
+    extra = BACKEND_EXTRAS.get(backend)
+    if not extra:
+        return ''
+    return f' Install it with `pip install "libcuflynx[{extra}]"`.'
+
+
 def _unavailable_message(backend, solver):
-    """The error for a solver whose backend did not import, naming the underlying cause."""
+    """The error for a solver whose backend did not import, naming the underlying cause.
+
+    Three cases, because they have three different fixes. A missing package is an install, and
+    the message ends with the command. An import that raised for some other reason is *not* an
+    install, and saying so stops a user reinstalling a package that is already there. A backend
+    that never recorded a reason at all falls back to the plain statement.
+    """
     reason = BACKEND_IMPORT_ERRORS.get(backend)
     if not reason:
-        return f"{backend} solver requested but {backend} is not available"
+        return f"{backend} solver requested but {backend} is not available.{_install_hint(backend)}"
+    if reason.startswith('ModuleNotFoundError'):
+        return (f"{solver} solver requested but the {backend} backend is not installed: "
+                f"{reason}.{_install_hint(backend)}")
     return (f"{solver} solver requested but the {backend} backend failed to import: {reason}. "
             f"If {backend} is installed, this is not an installation problem -- the import "
             f"itself raised, and that error is the one to fix.")
@@ -148,9 +175,7 @@ def get_simulation_helper(model_path: str = None, solver: str = None,
             # Same reason-carrying message as every other backend (#410): "not
             # available" hides the difference between "autoemulate is missing"
             # and "the import itself raised", and only one of those is an install.
-            raise RuntimeError(
-                _unavailable_message('emulator', 'use_emulator')
-                + ' Install it with `pip install "circulatory_autogen[emulation]"`.')
+            raise RuntimeError(_unavailable_message('emulator', 'use_emulator'))
         return EmulatorSimulationHelper(emulator_dir, dt, sim_time, solver_info,
                                         pre_time=pre_time, bundle=emulator_bundle,
                                         out_of_bounds=out_of_bounds)

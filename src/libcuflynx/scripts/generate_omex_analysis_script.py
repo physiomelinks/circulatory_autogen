@@ -60,7 +60,6 @@ import importlib.util
 from pathlib import Path
 
 import numpy as np
-from mpi4py import MPI
 
 THIS_FILE = Path(__file__).resolve()
 # Empty unless this script was generated from a circulatory_autogen checkout; an
@@ -75,6 +74,16 @@ from libcuflynx.identifiabilty_analysis.identifiabilityAnalysis import Identifia
 from libcuflynx.param_id.paramID import CVS0DParamID
 from libcuflynx.parsers.OMEXParsers import OMEXArchiveParser
 from libcuflynx.sensitivity_analysis.sensitivityAnalysis import SensitivityAnalysis
+
+# Not `from mpi4py import MPI`, for the same reason no module in libcuflynx does it either
+# (#396, #435): that import initialises MPI and registers an atexit MPI_Finalize in a script
+# that is usually run on one rank, and mpi4py is now an optional [mpi] extra. get_MPI hands
+# back the real mpi4py.MPI under mpiexec and a one-rank stub otherwise, so a multi-rank run of
+# this pipeline is unchanged. It has to come after the sys.path insert above, since that is
+# what makes libcuflynx importable.
+from libcuflynx.utilities.mpi_utils import get_MPI as _get_MPI
+
+MPI = _get_MPI()
 
 
 OMEX_PATH = Path(r"$omex_path")

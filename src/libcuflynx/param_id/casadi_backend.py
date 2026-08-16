@@ -29,12 +29,18 @@ except ImportError:
     ca = None
 
 
+#: Kept as a module constant so the solver factory and the run scripts can say the same thing
+#: (#435). CasADi is an optional extra because it is 221 MB -- by far the largest thing in the
+#: dependency set after autoemulate's torch -- and nothing but the casadi_python model type and
+#: the symbolic-AD gradient path ever touches it.
+CASADI_MISSING_MESSAGE = (
+    "CasADi is required for symbolic or casadi_python workflows but is not installed. "
+    'Install it with `pip install "libcuflynx[casadi]"` (it adds about 221 MB).')
+
+
 def require_casadi():
     if ca is None:
-        raise ImportError(
-            "CasADi is required for symbolic or casadi_python workflows but is not installed. "
-            "Install the casadi package (for example: pip install casadi)."
-        )
+        raise ImportError(CASADI_MISSING_MESSAGE)
 
 
 def as_casadi_column(x):

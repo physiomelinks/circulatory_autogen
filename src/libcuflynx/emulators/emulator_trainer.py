@@ -25,8 +25,8 @@ from libcuflynx.emulators.emulator_bundle import (METADATA_FILE, TRAINING_DATA_F
 
 AUTOEMULATE_MISSING_MESSAGE = (
     'autoemulate is not installed. Install it with `pip install '
-    '"circulatory_autogen[emulation]"` (it needs Python >=3.10,<3.13 and pulls in torch, '
-    'gpytorch and lightgbm).')
+    '"libcuflynx[emulation]"` (it needs Python >=3.10,<3.13, and pulls in torch, gpytorch '
+    'and lightgbm -- about 750 MB).')
 
 SAMPLE_TYPES = ('sobol', 'latin_hypercube', 'random')
 

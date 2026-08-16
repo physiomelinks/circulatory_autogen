@@ -398,7 +398,7 @@ def _load_model(path_without_suffix):
         # that does not have it -- say so, rather than reporting a bare missing module.
         raise RuntimeError(
             f'could not load the emulator at {path}: {error}. If it was fitted with '
-            f'autoemulate, install it with `pip install "circulatory_autogen[emulation]"` '
+            f'autoemulate, install it with `pip install "libcuflynx[emulation]"` '
             f'(needs Python >=3.10,<3.13).') from error
 
 
