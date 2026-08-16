@@ -239,7 +239,7 @@ class HeatFEniCSxModel:
 
         left_facets = dmesh.locate_entities_boundary(
             self._mesh, fdim, lambda x: np.isclose(x[0], 0.0, atol=tol))
-        rest_facets = locate_entities_boundary(
+        rest_facets = dmesh.locate_entities_boundary(
             self._mesh, fdim,
             lambda x: (np.isclose(x[0], 1.0, atol=tol)
                        | np.isclose(x[1], 0.0, atol=tol)
