@@ -1,7 +1,7 @@
-"""A FEniCSx (dolfinx) heat-equation solver, plugged into CA as an ``external_python`` model.
+"""A FEniCSx (dolfinx) heat-equation solver, plugged into libCUFLynx as an ``external_python`` model.
 
 This is the flagship example of the ``model_type: external_python`` / ``solver: external``
-backend: a solver that owns its own time-stepping. CA does not integrate anything here --
+backend: a solver that owns its own time-stepping. libCUFLynx does not integrate anything here --
 it hands over ``dt``/``sim_time``/``pre_time``, asks for a run, and reads three probe
 traces back. Everything between those two points is dolfinx.
 
@@ -60,7 +60,7 @@ want that end of the box to be informative.
 
 MPI
 ---
-The mesh is built on ``MPI.COMM_SELF``, not ``COMM_WORLD``. CA parallelises over
+The mesh is built on ``MPI.COMM_SELF``, not ``COMM_WORLD``. libCUFLynx parallelises over
 *independent simulations* -- each rank runs its own parameter sample -- so every rank must
 own a complete serial mesh. Building on ``COMM_WORLD`` would instead distribute one mesh
 across the ranks and deadlock the moment two ranks asked for different parameters.
@@ -72,7 +72,7 @@ handful of calls whose names have moved between releases -- the function-space c
 the bounding-box tree, the PETSc assembly helpers -- are looked up through
 :func:`_resolve`, which raises a message naming the tested versions rather than an
 ``AttributeError`` from three frames down. That shim, and the rest of the material that is
-incidental to the CA contract, lives at the foot of this file. See ``README.md`` for the
+incidental to the libCUFLynx contract, lives at the foot of this file. See ``README.md`` for the
 install line.
 """
 import numpy as np
@@ -116,45 +116,67 @@ DEFAULT_NX = 16
 class HeatFEniCSxModel:
     """Transient heat conduction on the unit square, solved with dolfinx.
 
-    Implements CA's ``external_python`` contract: ``init_solver`` / ``update_times`` /
+    Implements libCUFLynx's ``external_python`` contract: ``init_solver`` / ``update_times`` /
     ``set_param_vals`` / ``run`` / ``get_results``, plus the optional ``reset``,
     ``get_init_param_vals``, ``extra_plots`` and ``close``.
     """
 
     # --- self description -------------------------------------------------------------
-    # Literal values only: CA's tooling reads these by parsing the file, without importing
+    # Literal values only: libCUFLynx's tooling reads these by parsing the file, without importing
     # it, so that a machine with no dolfinx can still list the model's parameters.
-    # u_D defaults to 0.25, not 0: at u_D == FIXED_TEMP the left edge is indistinguishable
-    # from the other three, p1 and p3 become identical by symmetry, and the whole point of
-    # the boundary split disappears at exactly the point the example is demonstrated from.
     parameters = {"heat/k": 0.05, "heat/u_D": 0.25}
     output_names = ["heat/T_p1", "heat/T_p2", "heat/T_p3"]
 
     def __init__(self):
-        self._mesh = None
-        self._V = None
-        self._k_const = None
-        self._uD_const = None
-        self._dt_const = None
-        self._a_form = None
-        self._L_form = None
-        self._bcs = None
-        self._u_n = None
-        self._uh = None
-        self._probe_points = None
-        self._probe_cells = None
-        self._dof_coords = None
-        self._solver = None
-        self._matrix = None
-        self._rhs_vector = None
-        self._fixed_const = None
+        # ---------------------------------------------------------------------------
+        # The contract: state every external_python model has, whatever it solves.
+        # ---------------------------------------------------------------------------
+        # The run window libCUFLynx sets through update_times. `num_steps` is derived
+        # from it by the contract's own arithmetic, and `_times` is the record grid
+        # those steps land on -- `start_time + i*dt`, pre_time samples included.
         self.dt = None
         self.start_time = 0.0
         self.sim_time = None
         self.pre_time = 0.0
         self.num_steps = 0
-        self._samples = None
         self._times = None
+        # What get_results hands back: {output_name: trace}, one entry per
+        # `output_names`, filled in by run(). None until the first run.
+        self._samples = None
+
+        # ---------------------------------------------------------------------------
+        # This model: dolfinx objects the contract knows nothing about. Everything
+        # below is heat-equation-specific, and is what you would replace wholesale to
+        # wrap a different solver.
+        # ---------------------------------------------------------------------------
+        # Built once in init_solver and reused for every run: mesh, function space,
+        # compiled forms, boundary conditions, and the linear solver.
+        self._mesh = None
+        self._V = None
+        self._a_form = None
+        self._L_form = None
+        self._bcs = None
+        self._solver = None
+        # The calibratable parameters and dt live in the compiled forms as
+        # fem.Constants, which is what makes set_param_vals and update_times in-place
+        # writes rather than a re-compilation. _fixed_const holds the three edges that
+        # are not calibrated.
+        self._k_const = None
+        self._uD_const = None
+        self._dt_const = None
+        self._fixed_const = None
+        # The solution and the previous step, plus the PETSc objects rebuilt per run
+        # because `k` changes the stiffness matrix.
+        self._u_n = None
+        self._uh = None
+        self._matrix = None
+        self._rhs_vector = None
+        # Where the probes are, resolved once to (points, containing cells) so that
+        # sampling them every step is an evaluation rather than a search.
+        self._probe_points = None
+        self._probe_cells = None
+        self._dof_coords = None
+        # Field snapshots kept for extra_plots(); nothing else reads them.
         self._snapshot_mid = None
         self._snapshot_final = None
         self._snapshot_mid_time = None
@@ -313,7 +335,7 @@ class HeatFEniCSxModel:
         """Set the output grid. Cheap by construction: nothing is re-assembled here.
 
         ``run`` then produces samples at ``start_time + i*dt`` for ``i`` in ``0..N``, with
-        ``N = int(pre_time/dt) + int(sim_time/dt)`` -- the same arithmetic CA uses, so the
+        ``N = int(pre_time/dt) + int(sim_time/dt)`` -- the same arithmetic libCUFLynx uses, so the
         two agree on the length exactly rather than approximately.
         """
         if self._dt_const is None:
@@ -467,7 +489,7 @@ class HeatFEniCSxModel:
         """The three probe traces on the record grid, ``pre_time`` samples included.
 
         Returns:
-            dict: ``{output_name: 1D np.ndarray}``, each of length ``N + 1``. CA discards
+            dict: ``{output_name: 1D np.ndarray}``, each of length ``N + 1``. libCUFLynx discards
             the leading ``int(pre_time/dt)`` samples itself.
         """
         if self._samples is None:
@@ -493,7 +515,7 @@ class HeatFEniCSxModel:
     def extra_plots(self):
         """Two figures: the field at mid-time and at the final time.
 
-        Returned rather than shown or saved, so CA (and the CUFLynx GUI) decides where they
+        Returned rather than shown or saved, so libCUFLynx (and the CUFLynx GUI) decides where they
         go. ``matplotlib.figure.Figure`` is used directly rather than ``pyplot`` -- no global
         state and no backend to configure, which is what makes this safe on a headless node.
         """
@@ -558,7 +580,7 @@ class HeatFEniCSxModel:
             self._matrix = None
 
 
-#: What CA looks for when it loads this file. Part of the contract, so it stays here,
+#: What libCUFLynx looks for when it loads this file. Part of the contract, so it stays here,
 #: immediately under the class it names, rather than at the foot of the file.
 SIM_HELPER = HeatFEniCSxModel
 
@@ -614,7 +636,7 @@ def _scalar_type():
 
 
 if __name__ == '__main__':
-    # Drive the model without CA -- the quickest way to check an install, and how the
+    # Drive the model without libCUFLynx -- the quickest way to check an install, and how the
     # numbers in heat_fenics_obs_data.json are regenerated exactly. Prints every observable
     # the shipped obs_data scores, in its order, so the values can be pasted straight in.
     # See README.md.
