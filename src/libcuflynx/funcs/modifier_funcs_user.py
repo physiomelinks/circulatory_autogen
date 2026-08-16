@@ -1,4 +1,5 @@
-"""User-defined modifier functions for params_for_id entries (issue #383).
+"""Shipped modifier functions for params_for_id entries (issue #383), plus the decorator that
+user-written modifier files import.
 
 A modifier function maps one calibrated value (theta) to each model parameter its entry
 names in ``modifies``. (An *operation* acts on an output and belongs in obs_data; a *modifier*
@@ -22,10 +23,17 @@ automatically; undecorated helpers are ignored. A params_for_id entry uses one b
     {"name": "q_tot", "modifies": ["heart/q_lv_init"], "modifier": "remainder",
      "inputs": {"subtract": ["pvn/q_init", "par/q_init"]}, "min": 4e-3, "max": 6e-3}
 
-(``scale`` and ``remainder`` are built in -- see src/param_id/modifier_funcs.py. Redefining a
-built-in name here deliberately overrides it.)
+``scale`` and ``remainder`` are built in -- see ``libcuflynx/param_id/modifier_funcs.py``.
+This module currently ships no modifiers beyond those two; it exists as the third tier of the
+registry (built-ins, this module, then the external file) and as the import site for the
+decorator.
 
-Example (uncomment to use):
+This module is *library* code (issue #433): do not add your own modifiers here, because an
+upgrade of libcuflynx replaces the file. Put them in your own file and name it with the
+``modifier_funcs_external_path`` config key -- redefining a built-in name there deliberately
+overrides it. See ``funcs_user/modifier_funcs_example.py``::
+
+    from libcuflynx.funcs.modifier_funcs_user import modifier_func
 
     @modifier_func(inputs={'reference': 'float'},
                    description='target = theta + reference')

@@ -705,7 +705,7 @@ def test_sample_type_choices_match_sobolsa_dispatch():
 def test_cost_func_metadata_discovers_builtins():
     """The obs-data editor discovers valid cost_type values + flags at runtime (costs are a
     user-extensible registry, not a static schema)."""
-    from funcs_user.cost_funcs_user import cost_func_metadata
+    from libcuflynx.funcs.cost_funcs_user import cost_func_metadata
     meta = cost_func_metadata()
     # built-in costs are all present
     assert {'gaussian_MLE', 'MSE', 'AE', 'multimodal_gaussian', 'additive', 'norm_additive'} \
@@ -722,7 +722,7 @@ def test_cost_registry_excludes_organisational_accessors():
     """The organisational helpers in cost_funcs_user (register/build/get accessors and the
     cost_func_metadata accessor) must not be registered as selectable cost functions -- otherwise
     a bogus 'cost_func_metadata' cost shows up and even self-references in its own output (#259)."""
-    from funcs_user.cost_funcs_user import get_cost_funcs_dict_for_mode, cost_func_metadata
+    from libcuflynx.funcs.cost_funcs_user import get_cost_funcs_dict_for_mode, cost_func_metadata
     costs = get_cost_funcs_dict_for_mode("numpy")
     for accessor in ('cost_func_metadata', 'get_cost_funcs_dict_for_mode',
                      'build_cost_funcs_dict', 'register_cost_funcs'):

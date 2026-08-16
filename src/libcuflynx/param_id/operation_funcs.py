@@ -321,17 +321,14 @@ _EXTERNAL_OP_EXCLUDE = frozenset({"series_to_constant", "register_user_operation
 
 
 def build_operation_funcs_dict(backend, external_path=None):
-    """Build the observable-operation registry: built-in core ops, then the user ops in
-    ``operation_funcs_user.py``, then (if given) the ops in the external file ``external_path``
-    (issue #303). Later registrations win, so an external func may override a user/core one."""
+    """Build the observable-operation registry: built-in core ops, then the shipped ops in
+    ``libcuflynx.funcs.operation_funcs_user``, then (if given) the ops in the external file
+    ``external_path`` (issue #303). Later registrations win, so an external func may override a
+    shipped/core one."""
     registry = {}
     register_core_operations(registry, backend)
-    try:
-        import operation_funcs_user as ofu
-    except ImportError:
-        pass
-    else:
-        ofu.register_user_operations(registry, backend)
+    from libcuflynx.funcs import operation_funcs_user as ofu
+    ofu.register_user_operations(registry, backend)
     if external_path:
         from libcuflynx.param_id.external_funcs import register_funcs_from_file
         register_funcs_from_file(external_path, registry, backend, exclude=_EXTERNAL_OP_EXCLUDE)

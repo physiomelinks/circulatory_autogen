@@ -130,7 +130,7 @@ def test_validate_cost_kwargs_is_a_noop_when_nothing_declares_any():
 @pytest.mark.unit
 def test_the_builtin_cost_funcs_still_receive_std_and_weight():
     """Regression guard: the shipped funcs must keep getting what they always got."""
-    from funcs_user.cost_funcs_user import get_cost_funcs_dict_for_mode
+    from libcuflynx.funcs.cost_funcs_user import get_cost_funcs_dict_for_mode
 
     funcs = get_cost_funcs_dict_for_mode('numpy')
     offered = framework_kwargs_for(funcs['gaussian_MLE'], std=1.0, weight=1.0)

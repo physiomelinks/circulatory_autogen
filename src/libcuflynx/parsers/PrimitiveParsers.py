@@ -867,7 +867,7 @@ def save_param_modifiers(param_id_info, output_dir):
 def param_modifiers(external_path=None):
     """The modifier functions available to params_for_id entries, as introspectable data.
 
-    One record per registered modifier function -- built-ins, ``funcs_user`` and (when
+    One record per registered modifier function -- the built-ins the package ships and (when
     ``external_path`` is given) an external file -- each carrying ``description``,
     ``applies_to``, ``inputs`` (``{name: 'float'|'list'}``: what the entry must supply
     qnames for) and ``user_defined``. Built-ins with static UI metadata (scale's
@@ -1751,7 +1751,6 @@ def warn_if_casadi_nonzero_pre_time(
 user_inputs_dir = os.path.join(root_dir, 'user_run_files')
 src_dir = os.path.join(os.path.dirname(__file__), '..')
 base_dir = os.path.join(src_dir, '..', '..')
-operation_funcs_user_dir = os.path.join(base_dir, 'funcs_user')
 
 class scriptFunctionParser(object):
     '''
@@ -1759,16 +1758,14 @@ class scriptFunctionParser(object):
     '''
 
     def __init__(self, operation_funcs_external_path=None, cost_funcs_external_path=None):
-        # funcs_user is a repo directory, not part of the package, and the built-in
-        # cost funcs are still imported from it by bare name (see #433).
-        sys.path.append(operation_funcs_user_dir)
         '''
         Constructor
 
         ``operation_funcs_external_path`` / ``cost_funcs_external_path`` (issue #303): optional
         paths to external Python files with additional user operation / cost funcs, merged in
         alongside the built-ins by ``get_operation_funcs_dict`` / ``get_cost_funcs_dict`` (and
-        ``cost_func_metadata``). ``None``/empty -> only the built-in and funcs_user funcs.
+        ``cost_func_metadata``). ``None``/empty -> only the built-in funcs shipped in
+        ``libcuflynx.funcs``.
         '''
         self.operation_funcs_external_path = operation_funcs_external_path
         self.cost_funcs_external_path = cost_funcs_external_path
@@ -1792,7 +1789,7 @@ class scriptFunctionParser(object):
         return cost_funcs_dict
 
     def get_cost_funcs_dict(self, mode="numpy"):
-        import cost_funcs_user
+        from libcuflynx.funcs import cost_funcs_user
 
         return cost_funcs_user.get_cost_funcs_dict_for_mode(
             mode, external_path=self.cost_funcs_external_path)
@@ -1800,7 +1797,7 @@ class scriptFunctionParser(object):
     def cost_func_metadata(self, mode="numpy"):
         """Discoverable cost metadata (see cost_funcs_user.cost_func_metadata), including any
         external costs from ``cost_funcs_external_path``."""
-        import cost_funcs_user
+        from libcuflynx.funcs import cost_funcs_user
 
         return cost_funcs_user.cost_func_metadata(
             mode, external_path=self.cost_funcs_external_path)
@@ -3962,9 +3959,8 @@ class ObsAndParamDataParser(object):
                 if modifier not in modifier_funcs:
                     raise ValueError(
                         f'params_for_id entry {idx} has unknown modifier {modifier!r}. '
-                        f'Registered modifier functions: {sorted(modifier_funcs)} (built-ins '
-                        f'plus funcs_user/modifier_funcs_user.py and '
-                        f'modifier_funcs_external_path).')
+                        f'Registered modifier functions: {sorted(modifier_funcs)} (the '
+                        f'built-ins, plus any file named by modifier_funcs_external_path).')
                 entry['modifier'] = modifier
                 entry['inputs'] = cls._validate_modifier_inputs(
                     idx, modifier, modifier_funcs[modifier], entry.get('inputs'))

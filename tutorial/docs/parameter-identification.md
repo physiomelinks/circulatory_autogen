@@ -257,7 +257,7 @@ The rules are:
 - **String values can reference an earlier observable.** A string value that matches the
   `name_for_plotting` of an earlier `data_item` is replaced, at run time, by that observable's
   computed value. This is how an observable is built from other observables -- see
-  `calculate_two_observable_difference` in `funcs_user/operation_funcs_user.py` and
+  `calculate_two_observable_difference` in `libcuflynx/funcs/operation_funcs_user.py` and
   `resources/3compartment_extra_ops_obs_data.json`. A string that matches no earlier observable is
   passed through unchanged, so plain string options still work. Note that the referenced item must
   appear **earlier** in `data_items` than the item that references it.
@@ -267,8 +267,9 @@ The rules are:
   `null` reach the operation func as-is.
 
 User-defined operation funcs receive `operation_kwargs` exactly like the built-ins. This includes
-funcs in `funcs_user/operation_funcs_user.py`, funcs in a file pointed to by
-`operation_funcs_external_path` in `user_inputs.yaml`, and funcs registered from python with
+the operations libcuflynx ships in `libcuflynx/funcs/operation_funcs_user.py`, funcs in a file
+pointed to by `operation_funcs_external_path` in `user_inputs.yaml`, and funcs registered from
+python with
 `add_user_operation_func()`.
 
 When building obs data in python rather than as a file, pass the same field through
@@ -285,7 +286,7 @@ An observable can therefore be computed from observables defined earlier in `dat
 the string-reference rule described above: a string in `operation_kwargs` that matches an earlier
 item's `name_for_plotting` is replaced by that item's computed value.
 
-`funcs_user/operation_funcs_user.py` ships `calculate_two_observable_difference` for the two-term
+libcuflynx ships `calculate_two_observable_difference` for the two-term
 case. It takes its inputs as `pred1` and `pred2` and returns `pred2 - pred1`:
 
 ```json
@@ -333,7 +334,7 @@ Three things to get right:
   raising, so a typo shows up as a strange result rather than a failure.
 
 To combine more than two observables, or to combine them some other way, write your own operation
-func in `funcs_user/operation_funcs_user.py` (see
+func in a file named by `operation_funcs_external_path` (see
 [Creating your own operations](#creating-your-own-operations)) and name it in `operation`. It
 receives the referenced values as keyword arguments, so it needs to accept them -- either by
 declaring them explicitly or with `**kwargs`. `@series_to_constant` marks it as returning a
@@ -388,7 +389,7 @@ After calibration, the following directory will be created with your generated m
 ## Creating your own operations
 
 To enable flexibility we allow you to create your own user-defined operation functions in python to extract features from your model outputs and compare to data in the calibration.
-Available operation functions can be found in `src/param_id/operation_funcs.py` and in the file made for adding your own operation functions in `funcs_user/operation_funcs_user.py`.
+The operation functions libcuflynx ships can be found in `src/libcuflynx/param_id/operation_funcs.py` and `src/libcuflynx/funcs/operation_funcs_user.py`. Those are library files -- do not edit them, since an upgrade replaces them. Write your own in a file of your own and name it with `operation_funcs_external_path` in `user_inputs.yaml`; `funcs_user/operation_funcs_example.py` is a template to copy.
 Here is an example of an operation function for calculating the ratio of the two peaks (used for mitral valve flow).
 
 ![Operation func example](images/E-A-ratio.png)
@@ -402,7 +403,7 @@ Note:
 
 ## Creating your own cost functions
 
-To allow even more flexibility, we also allow users to define their own cost functions (or likelihood functions). These can be found at `funcs_user/cost_funcs_user.py`.
+To allow even more flexibility, we also allow users to define their own cost functions (or likelihood functions). The ones libcuflynx ships are at `src/libcuflynx/funcs/cost_funcs_user.py` -- a library file, so do not edit it. Write your own in a file of your own and name it with `cost_funcs_external_path` in `user_inputs.yaml`; `funcs_user/cost_funcs_example.py` is a template to copy.
 An example for the maximum likelihood estimator for gaussian noise (equivalent to weighted mean squared error) is:
 
 ![cost func example](images/cost-func.png)

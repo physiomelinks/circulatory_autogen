@@ -55,7 +55,7 @@ def _obs_doc():
         # cost_type pinned rather than defaulted: the chain-rule test below differentiates
         # the cost by hand, so it must know which cost it is differentiating. Leaving it to
         # CA's default made the test silently wrong when that default changed from MSE to
-        # gaussian_MLE (which is exactly 0.5x MSE -- see funcs_user/cost_funcs_user.py).
+        # gaussian_MLE (which is exactly 0.5x MSE -- see libcuflynx/funcs/cost_funcs_user.py).
         return {"variable": var, "name_for_plotting": var, "data_type": "constant",
                 "operation": "min", "operands": [operand], "unit": "dimensionless",
                 "weight": 1.0, "value": gt, "std": std, "cost_type": "gaussian_MLE",
