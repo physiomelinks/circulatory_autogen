@@ -6,7 +6,6 @@ Created on 29/10/2021
 
 import sys
 import os
-from distutils import util, dir_util
 
 # Not `from mpi4py import MPI`: that import initialises MPI and registers an
 # atexit MPI_Finalize, and with no launcher present that finalise is what aborts
