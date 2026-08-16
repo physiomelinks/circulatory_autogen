@@ -10,6 +10,7 @@ files, because what they need is a class that is *wrong* in one specific way. Th
 example, the scipy ODE in ``funcs_user/example_model_scipy/``, has its own file
 (``tests/test_scipy_ode_example.py``).
 """
+import json
 import os
 import shutil
 import textwrap
@@ -18,7 +19,7 @@ import numpy as np
 import pytest
 from mpi4py import MPI
 
-from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
+from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser, YamlFileParser
 from libcuflynx.solver_wrappers import get_simulation_helper, get_simulation_helper_from_inp_data_dict
 from libcuflynx.solver_wrappers.external_simulation_helper import SimulationHelper as ExternalSimulationHelper
 from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
@@ -30,8 +31,11 @@ _EXAMPLE_DIR = os.path.realpath(
     os.path.join(os.path.dirname(__file__), '..', 'funcs_user', 'example_model_external')
 )
 _MODEL_PATH = os.path.join(_EXAMPLE_DIR, 'heat1d_model.py')
+_OBS_DATA_PATH = os.path.join(_EXAMPLE_DIR, 'heat1d_obs_data.json')
 # Ground truth used to build heat1d_obs_data.json (the defaults are k=0.4, u_D=0.0).
 _TRUE_K, _TRUE_U_D = 0.25, 0.1
+# The window the three probe means in heat1d_obs_data.json were computed on.
+_DT, _SIM_TIME = 0.005, 0.5
 _SOLVER_INFO = {'solver': 'external', 'method': 'external'}
 
 
@@ -64,8 +68,8 @@ def _heat1d_config(base_user_inputs, temp_output_dir, temp_generated_models_dir)
         'resources_dir': resources_dir,
         'param_id_method': 'genetic_algorithm',
         'pre_time': 0.0,
-        'sim_time': 0.5,
-        'dt': 0.005,
+        'sim_time': _SIM_TIME,
+        'dt': _DT,
         'DEBUG': True,
         'do_uq': False,
         'do_ad': False,
@@ -116,6 +120,40 @@ _MINIMAL_MODEL = '''
 
     SIM_HELPER = Tiny
 '''
+
+
+# ---------------------------------------------------------------------------
+# The shipped obs_data
+# ---------------------------------------------------------------------------
+@pytest.mark.unit
+def test_the_shipped_obs_data_carries_the_window_its_values_were_computed_on():
+    """``heat1d_obs_data.json`` must name its own run window in ``protocol_info``.
+
+    The three probe means below it are means over the 0.5 s window and nothing else, so the
+    window belongs in the file rather than in whatever ``user_inputs.yaml`` happens to say. It
+    is also the only place the CUFLynx GUI looks when it sizes a run: an example with no
+    ``protocol_info`` cannot be run from it at all.
+
+    (This is about what the *example* ships, not about what the parser allows. CA still
+    accepts a bare list of data_items and synthesises a protocol from the yaml's window;
+    ``tests/test_operation_kwargs.py::test_shipped_extra_ops_obs_data_json_still_validates``
+    is where that support is pinned.)
+    """
+    with open(_OBS_DATA_PATH) as handle:
+        shipped = json.load(handle)
+
+    protocol = shipped['protocol_info']
+    # pre_times is per experiment; sim_times is per experiment, per subexperiment. One
+    # experiment of one 0.5 s stretch, from t = 0, with no spin-up to discard.
+    assert protocol['pre_times'] == [0.0]
+    assert protocol['sim_times'] == [[_SIM_TIME]]
+
+    # And it still parses -- with no pre_time/sim_time offered, so the file has to be
+    # self-sufficient rather than falling back on the yaml's window.
+    parsed = ObsAndParamDataParser().parse_obs_data_json(param_id_obs_path=_OBS_DATA_PATH)
+    assert parsed['protocol_info']['pre_times'] == [0.0]
+    assert parsed['protocol_info']['sim_times'] == [[_SIM_TIME]]
+    assert len(parsed['gt_df']) == len(shipped['data_items']) == 3
 
 
 # ---------------------------------------------------------------------------

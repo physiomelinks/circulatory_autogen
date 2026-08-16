@@ -127,7 +127,7 @@ def run_fitzhugh_nagumo(base_config, resources_dir, output_dir, generated_models
     }
     multi_start_fsa = {
         'param_id_method': 'multi_start_sp_minimize',
-        'model_type': 'cellml_only', 'solver': 'CVODE_myokit', 'do_ad': True,
+        'model_type': 'cellml', 'solver': 'CVODE_myokit', 'do_ad': True,
         'solver_info': {'rtol': 1e-9, 'atol': 1e-9},
         'generated_models_dir': fsa_models,
     }
@@ -149,7 +149,7 @@ def run_fitzhugh_nagumo(base_config, resources_dir, output_dir, generated_models
             'CasADi model generation should succeed for FitzHugh-Nagumo'
         fsa_cfg = config.copy(); fsa_cfg.update(multi_start_fsa)
         assert generate_with_new_architecture(False, fsa_cfg), \
-            'FSA (cellml_only) model generation should succeed for FitzHugh-Nagumo'
+            'FSA (cellml) model generation should succeed for FitzHugh-Nagumo'
         if include_aadc:
             aadc_cfg = config.copy(); aadc_cfg.update(multi_start_aadc)
             assert generate_with_new_architecture(False, aadc_cfg), \
@@ -301,7 +301,7 @@ def three_compartment_config(base_config, resources_dir, output_dir, generated_m
     config.update({
         'file_prefix': '3compartment',
         'input_param_file': '3compartment_parameters.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         # Myokit (not OpenCOR) so the gradient-free baselines run in CI without OpenCOR.
         'solver': 'CVODE_myokit',
         'pre_time': 20,
@@ -337,7 +337,7 @@ def run_three_compartment(base_config, resources_dir, output_dir, generated_mode
     """
     rank = mpi_comm.Get_rank()
     casadi_models = os.path.join(generated_models_dir, 'casadi')
-    # GA/CMA-ES (base config) and the FSA variant are all cellml_only + CVODE_myokit, so they
+    # GA/CMA-ES (base config) and the FSA variant are all cellml + CVODE_myokit, so they
     # share one generated Myokit model. (The CasADi bdf variant needs its own casadi_python
     # model.) Every method's generated_models_dir must point at a model that actually gets
     # generated below, or that method fails at load with FileNotFoundError.
@@ -348,7 +348,7 @@ def run_three_compartment(base_config, resources_dir, output_dir, generated_mode
 
     multi_start_fsa = {
         'param_id_method': 'multi_start_sp_minimize',
-        'model_type': 'cellml_only', 'solver': 'CVODE_myokit', 'do_ad': True,
+        'model_type': 'cellml', 'solver': 'CVODE_myokit', 'do_ad': True,
         'solver_info': {'MaximumStep': 0.005, 'MaximumNumberOfSteps': 50000,
                         'rtol': 1e-9, 'atol': 1e-9},
         'generated_models_dir': myokit_models,
@@ -380,9 +380,9 @@ def run_three_compartment(base_config, resources_dir, output_dir, generated_mode
     }
 
     if rank == 0:
-        # Base cellml_only (Myokit) model, used by GA / CMA-ES and the FSA multi-start.
+        # Base cellml (Myokit) model, used by GA / CMA-ES and the FSA multi-start.
         assert generate_with_new_architecture(False, config), \
-            'Myokit (cellml_only) model generation should succeed for 3compartment'
+            'Myokit (cellml) model generation should succeed for 3compartment'
         casadi_cfg = config.copy(); casadi_cfg.update(multi_start_casadi)
         assert generate_with_new_architecture(False, casadi_cfg), \
             'CasADi bdf model generation should succeed for 3compartment'
@@ -496,7 +496,7 @@ def goodwin_config(base_config, resources_dir, output_dir, generated_models_dir,
         'file_prefix': 'Goodwin',
         'input_param_file': 'Goodwin_parameters.csv',  # unused: x0 comes from the CellML itself
         'params_for_id_file': 'Goodwin_params_for_id.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'solver': 'CVODE_myokit',
         'param_id_method': param_id_method,
         'pre_time': 0.0,
@@ -541,12 +541,12 @@ def run_goodwin(base_config, resources_dir, output_dir, generated_models_dir,
 
     multi_start_fd = {
         'param_id_method': 'multi_start_sp_minimize',
-        'model_type': 'cellml_only', 'solver': 'CVODE_myokit', 'do_ad': False,
+        'model_type': 'cellml', 'solver': 'CVODE_myokit', 'do_ad': False,
         'generated_models_dir': models,
     }
     multi_start_fsa = {
         'param_id_method': 'multi_start_sp_minimize',
-        'model_type': 'cellml_only', 'solver': 'CVODE_myokit', 'do_ad': True,
+        'model_type': 'cellml', 'solver': 'CVODE_myokit', 'do_ad': True,
         'solver_info': {'MaximumStep': 0.01, 'MaximumNumberOfSteps': 50000,
                         'rtol': 1e-9, 'atol': 1e-9},
         'generated_models_dir': models,
@@ -640,7 +640,7 @@ def teusink_config(base_config, resources_dir, output_dir, generated_models_dir,
         'file_prefix': 'Teusink',
         'input_param_file': 'Teusink_parameters.csv',  # unused: x0 comes from the CellML itself
         'params_for_id_file': 'Teusink_params_for_id.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'solver': 'CVODE_myokit',
         'param_id_method': param_id_method,
         'pre_time': 0.0,
@@ -702,12 +702,12 @@ def run_teusink(base_config, resources_dir, output_dir, generated_models_dir,
 
     multi_start_fd = {
         'param_id_method': 'multi_start_sp_minimize',
-        'model_type': 'cellml_only', 'solver': 'CVODE_myokit', 'do_ad': False,
+        'model_type': 'cellml', 'solver': 'CVODE_myokit', 'do_ad': False,
         'generated_models_dir': models,
     }
     multi_start_fsa = {
         'param_id_method': 'multi_start_sp_minimize',
-        'model_type': 'cellml_only', 'solver': 'CVODE_myokit', 'do_ad': True,
+        'model_type': 'cellml', 'solver': 'CVODE_myokit', 'do_ad': True,
         'generated_models_dir': models,
     }
     extra = {'multi_start (FD)': multi_start_fd, 'multi_start (Myokit FSA)': multi_start_fsa}

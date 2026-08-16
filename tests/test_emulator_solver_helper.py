@@ -36,7 +36,7 @@ def _config(base_user_inputs, resources_dir, tmp_path, **overrides):
     config.update({
         'file_prefix': 'Simple_ODE_Benchmark',
         'input_param_file': 'Simple_ODE_Benchmark_parameters.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'resources_dir': resources_dir,
         'param_id_obs_path': os.path.join(resources_dir,
                                           'Simple_ODE_Benchmark_obs_data.json'),
@@ -119,7 +119,7 @@ def test_helper_returns_one_predicted_feature_per_data_item(base_user_inputs, re
     bundle, obs_info, param_id_info = _write_bundle(config)
 
     helper = get_simulation_helper(
-        solver='CVODE_myokit', model_type='cellml_only', model_path='not/used.cellml',
+        solver='CVODE_myokit', model_type='cellml', model_path='not/used.cellml',
         dt=0.01, sim_time=5.0, use_emulator=True,
         emulator_dir=config['emulator_settings']['emulator_dir'])
     assert helper.emulates_features is True
@@ -149,7 +149,7 @@ def test_helper_keeps_the_time_axis_the_executor_relies_on(base_user_inputs, res
     config = _config(base_user_inputs, resources_dir, tmp_path)
     _write_bundle(config)
     helper = get_simulation_helper(
-        solver='CVODE_myokit', model_type='cellml_only', model_path='not/used.cellml',
+        solver='CVODE_myokit', model_type='cellml', model_path='not/used.cellml',
         dt=0.01, sim_time=5.0, use_emulator=True,
         emulator_dir=config['emulator_settings']['emulator_dir'])
 
@@ -168,7 +168,7 @@ def test_helper_refuses_to_invent_traces(base_user_inputs, resources_dir, tmp_pa
     config = _config(base_user_inputs, resources_dir, tmp_path)
     _write_bundle(config)
     helper = get_simulation_helper(
-        solver='CVODE_myokit', model_type='cellml_only', model_path='not/used.cellml',
+        solver='CVODE_myokit', model_type='cellml', model_path='not/used.cellml',
         dt=0.01, sim_time=5.0, use_emulator=True,
         emulator_dir=config['emulator_settings']['emulator_dir'])
 
@@ -186,7 +186,7 @@ def test_helper_refuses_a_parameter_it_cannot_see(base_user_inputs, resources_di
     config = _config(base_user_inputs, resources_dir, tmp_path)
     _write_bundle(config)
     helper = get_simulation_helper(
-        solver='CVODE_myokit', model_type='cellml_only', model_path='not/used.cellml',
+        solver='CVODE_myokit', model_type='cellml', model_path='not/used.cellml',
         dt=0.01, sim_time=5.0, use_emulator=True,
         emulator_dir=config['emulator_settings']['emulator_dir'])
 
@@ -203,7 +203,7 @@ def test_helper_serves_defaults_recorded_at_training_time(base_user_inputs, reso
     config = _config(base_user_inputs, resources_dir, tmp_path)
     _, _, param_id_info = _write_bundle(config)
     helper = get_simulation_helper(
-        solver='CVODE_myokit', model_type='cellml_only', model_path='not/used.cellml',
+        solver='CVODE_myokit', model_type='cellml', model_path='not/used.cellml',
         dt=0.01, sim_time=5.0, use_emulator=True,
         emulator_dir=config['emulator_settings']['emulator_dir'])
 

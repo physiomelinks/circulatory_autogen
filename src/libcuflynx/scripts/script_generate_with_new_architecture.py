@@ -102,7 +102,7 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
     if do_generation_with_fit_parameters:
         param_id_output_dir_abs_path = inp_data_dict['param_id_output_dir_abs_path']
         # check if uncalibrated model is cellml2.0
-        if inp_data_dict['model_type'] == 'cellml_only':
+        if inp_data_dict['model_type'] == 'cellml':
             uncalibrated_model_path = inp_data_dict['uncalibrated_model_path']
             if _is_cellml2_model_with_libcellml(uncalibrated_model_path):
                 best_param_vals_path = os.path.join(param_id_output_dir_abs_path, 'best_param_vals.npy')
@@ -132,7 +132,7 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
         print("Check point 0")
         print("\n")
 
-    if inp_data_dict['model_type'] == 'cellml_only':
+    if inp_data_dict['model_type'] == 'cellml':
         code_generator = CVS0DCellMLGenerator(model, inp_data_dict)
         success = code_generator.generate_files()
     elif inp_data_dict['model_type'] in ['python', 'casadi_python', 'aadc_python']:
@@ -263,7 +263,7 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
             success = False
 
     else: 
-        print('model_type must be either cellml_only or cpp, not ' + inp_data_dict['model_type'])
+        print('model_type must be either cellml or cpp, not ' + inp_data_dict['model_type'])
         success = False
     
     return success

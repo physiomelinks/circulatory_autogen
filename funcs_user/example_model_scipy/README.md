@@ -33,7 +33,7 @@ one.
 | `oscillator_model.py` | The model class plus `SIM_HELPER = Oscillator`. |
 | `oscillator_params_for_id.csv` | Parameters to calibrate / sweep (`c`, `k`) with bounds. |
 | `oscillator_parameters.csv` | Default parameter values (the calibration start point). |
-| `oscillator_obs_data.json` | Target observables — `mean(x)`, `min(x)`, `range(v)` at the "true" `c=0.7, k=5.0`. |
+| `oscillator_obs_data.json` | The `protocol_info` (the run window) plus target observables — `mean(x)`, `min(x)`, `range(v)` at the "true" `c=0.7, k=5.0`. |
 
 `oscillator/energy` is exposed as an output but not scored by any observable; it is there to show
 that an algebraic quantity needs no special hook under this contract — it is one more key in the
@@ -106,13 +106,36 @@ solver_info:
   # Free-form; handed to init_solver as config['solver_info']['user_config']. This model uses it
   # for the solve_ivp settings CA used to own when it did the integrating.
   user_config: {method: RK45, rtol: 1.0e-8, atol: 1.0e-8}
-pre_time: 0.0
-sim_time: 10.0
+# No pre_time/sim_time here: the run window lives in oscillator_obs_data.json's
+# protocol_info (pre_times: [0.0], sim_times: [[10.0]]), because it is the window the
+# target values were computed on. dt is still a yaml setting.
 dt: 0.05
 param_id_method: genetic_algorithm
 ```
 
 There is **no code generation step**: `run_autogeneration.sh` only checks that the file exists.
+
+## The run window is in the obs_data
+
+`oscillator_obs_data.json` opens with a `protocol_info`:
+
+```json
+"protocol_info": {
+  "pre_times": [0.0],
+  "sim_times": [[10.0]],
+  "params_to_change": {}
+}
+```
+
+`pre_times` holds one entry per experiment and `sim_times` one list per experiment, one entry
+per subexperiment — here a single experiment of a single 10 s stretch, run from `t = 0` with no
+spin-up. That protocol is what CA drives the model with, and what the CUFLynx GUI reads to know
+the window; a `pre_time`/`sim_time` in `user_inputs.yaml` is only the fallback for an obs_data
+that has no `protocol_info` at all.
+
+The three values below it are `mean(x)`, `min(x)` and `range(v)` **over exactly that window**.
+Change `sim_times` and they no longer describe this model — regenerate them (below) rather than
+leaving the mismatch.
 
 ## Running
 

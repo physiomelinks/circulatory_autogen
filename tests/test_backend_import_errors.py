@@ -69,7 +69,7 @@ def test_requesting_a_backend_that_failed_to_import_surfaces_the_reason(monkeypa
 
     with pytest.raises(RuntimeError) as excinfo:
         get_simulation_helper(model_path='m.cellml', solver='CVODE_myokit',
-                              model_type='cellml_only', dt=0.01, sim_time=1.0)
+                              model_type='cellml', dt=0.01, sim_time=1.0)
 
     message = str(excinfo.value)
     assert "no module named 'configparser'" in message

@@ -188,9 +188,9 @@ def test_param_fit_scale_uses_ranges_then_falls_back():
 
 
 def test_laplace_gradient_source_not_available_for_model(tmp_path):
-    # AD is not a valid source for cellml_only + CVODE_opencor (only FD is). Must raise clearly.
+    # AD is not a valid source for cellml + CVODE_opencor (only FD is). Must raise clearly.
     pid = _well_conditioned_pid()
-    pid.model_type = 'cellml_only'
+    pid.model_type = 'cellml'
     pid.solver_info = {'solver': 'CVODE_opencor'}
     ia = _make_ia(pid, [1.0, 1.0], str(tmp_path))
     with pytest.raises(ValueError, match="not available"):

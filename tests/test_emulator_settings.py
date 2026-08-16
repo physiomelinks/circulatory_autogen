@@ -292,7 +292,7 @@ def test_gradient_menu_over_an_emulator_offers_finite_differences_only():
     Offering AD there would mean the optimiser descends a different function than the cost it
     reports, so the menu a front-end builds must not contain it.
     """
-    for model_type in ('cellml_only', 'casadi_python', 'aadc_python', 'python'):
+    for model_type in ('cellml', 'casadi_python', 'aadc_python', 'python'):
         values = [s['value'] for s in gradient_sources(model_type, use_emulator=True)]
         assert values == ['FD'], f'{model_type} offered {values} over an emulator'
     # ... and the ordinary menu is untouched

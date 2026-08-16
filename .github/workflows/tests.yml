@@ -395,9 +395,10 @@ jobs:
 
   # The FEniCSx flagship for `model_type: external_python` (funcs_user/heat_fenics). It is a
   # finite-element solver written against dolfinx, and dolfinx is a conda-forge package that
-  # pip cannot provide -- so no other job here can install it, and without this one
-  # tests/test_heat_fenics_example.py skips at collection and the shipped example goes
-  # untested. That is the failure this job exists to prevent: an example that stops working
+  # pip cannot provide -- so no other job here can install it, and without this one every
+  # test in tests/test_heat_fenics_example.py that actually solves something skips and the
+  # shipped example goes untested. (Only its obs_data check runs elsewhere: that one reads a
+  # JSON file.) That is the failure this job exists to prevent: an example that stops working
   # against a new dolfinx, or against a change to the external backend, with CI still green.
   #
   # Its own job rather than extra cases on `test`, for the same reason test-uq is its own job:

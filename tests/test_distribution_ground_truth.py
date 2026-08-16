@@ -72,7 +72,7 @@ def _parse(items, tmp_path):
     path.write_text(json.dumps(_obs_data(items)))
     parser = ObsAndParamDataParser()
     parsed = parser.parse_obs_data_json(param_id_obs_path=str(path), pre_time=0.0, sim_time=1.0,
-                                        model_type="cellml_only")
+                                        model_type="cellml")
     return parser.process_obs_info(gt_df=parsed["gt_df"], output_dir=str(tmp_path), dt=0.01)
 
 
@@ -154,7 +154,7 @@ def test_an_obs_data_with_no_data_items_is_still_valid(tmp_path):
     path = tmp_path / "obs_data.json"
     path.write_text(json.dumps(_obs_data([])))
     parsed = ObsAndParamDataParser().parse_obs_data_json(
-        param_id_obs_path=str(path), pre_time=0.0, sim_time=1.0, model_type="cellml_only")
+        param_id_obs_path=str(path), pre_time=0.0, sim_time=1.0, model_type="cellml")
 
     assert len(parsed["gt_df"]) == 0
 

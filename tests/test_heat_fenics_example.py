@@ -6,8 +6,11 @@ tests that run the real library rather than a stub -- which is what the ``test-f
 job in ``.github/workflows/tests.yml`` exists for: it installs ``fenics-dolfinx`` from
 conda-forge and runs this file.
 
-Five layers, in increasing order of how much of CA they involve:
+Six layers, in increasing order of how much of CA they involve:
 
+* **the shipped obs_data** -- ``heat_fenics_obs_data.json`` names the run window its six
+  values were computed on, in its ``protocol_info``. Plain JSON, so this one runs without
+  dolfinx: it is a statement about the fixture, not about the solver.
 * **smoke** -- load the file, set it up, run it, and check the record grid is exactly the
   length the contract promises. Also that a second ``run()`` at the same parameters is
   bit-identical, because a calibration reuses one instance for thousands of samples.
@@ -26,8 +29,9 @@ Five layers, in increasing order of how much of CA they involve:
   fingerprint covers ``protocol_info``'s ``pre_times``/``sim_times``, so training on one
   timeline and calibrating on another is refused as stale rather than answered.
 
-Everything here skips cleanly without dolfinx (and the last two without autoemulate), so the
-file collects on a machine with neither.
+Everything that touches the solver skips cleanly without dolfinx (and the last two without
+autoemulate), so the file collects on a machine with neither -- and the obs_data layer still
+runs there.
 """
 import importlib.util
 import json
@@ -38,9 +42,13 @@ import time
 import numpy as np
 import pytest
 
-# dolfinx is a conda-forge package that most CA environments do not have. Nothing below this
-# line can be imported without it, so the whole file skips rather than erroring at collection.
-dolfinx = pytest.importorskip('dolfinx')
+
+# dolfinx is a conda-forge package that most CA environments do not have, so every test that
+# actually solves something skips through this. It is *not* module level: the shipped obs_data
+# is plain JSON, and the test that it names its window is worth running everywhere rather than
+# only on the one CI job with FEniCSx installed.
+def _require_dolfinx():
+    return pytest.importorskip('dolfinx')
 
 
 _EXAMPLE_DIR = os.path.realpath(
@@ -72,6 +80,18 @@ _FAST_CONFIG = {
 _OVERSHOOT_TOL = 0.02
 
 
+#: The window ``heat_fenics_obs_data.json``'s six values were computed on, and therefore the
+#: window its ``protocol_info`` has to name. From the README's "Time scales" section: 100 steps
+#: of 0.02 s, which at the default k = 0.05 is about two time constants of the plate.
+_SHIPPED_WINDOW = {'pre_time': 0.0, 'sim_time': 2.0, 'dt': 0.02}
+
+
+def _shipped_obs_data():
+    """The whole shipped obs_data document: its ``protocol_info`` and its ``data_items``."""
+    with open(_OBS_DATA_PATH) as handle:
+        return json.load(handle)
+
+
 def _shipped_obs_items():
     """The data_items the example actually ships, in file order.
 
@@ -79,12 +99,12 @@ def _shipped_obs_items():
     ``heat_fenics_obs_data.json`` -- which has happened once already, from two items to six --
     does not leave a stale number behind here to fail on.
     """
-    with open(_OBS_DATA_PATH) as handle:
-        return json.load(handle)
+    return _shipped_obs_data()['data_items']
 
 
 def _load_model_class():
     """Load the example exactly the way CA's external backend does: by file path."""
+    _require_dolfinx()
     spec = importlib.util.spec_from_file_location('heat_fenics_model_under_test', _MODEL_PATH)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -110,6 +130,47 @@ def model(model_class):
 def _expected_num_samples(config):
     """The contract's own arithmetic, spelled out so a mismatch names the rule it broke."""
     return int(config['pre_time'] / config['dt']) + int(config['sim_time'] / config['dt']) + 1
+
+
+# ---------------------------------------------------------------------------------------
+# The shipped obs_data. No dolfinx: this is a statement about a JSON file.
+# ---------------------------------------------------------------------------------------
+@pytest.mark.unit
+def test_the_shipped_obs_data_carries_the_window_its_values_were_computed_on():
+    """``heat_fenics_obs_data.json`` must name its own run window in ``protocol_info``.
+
+    The six values in it are the model's output on the README's ``dt = 0.02`` /
+    ``sim_time = 2.0`` grid -- ``min(T_p*)`` is *the temperature reached by the end of the
+    window*, so read off a shorter one it is a different number entirely. Carrying the window
+    in the file is what keeps the two from being separately editable.
+
+    It is also the only place the CUFLynx GUI looks when it sizes a run, so an example with no
+    ``protocol_info`` cannot be run from the GUI at all. (CA itself still accepts a bare list
+    of data_items -- that is about the parser, and is pinned in
+    ``tests/test_operation_kwargs.py``. This is about what the example ships.)
+
+    Deliberately outside the dolfinx skip: nothing here solves anything, and this is exactly
+    the assertion that must not go quiet on the machines without FEniCSx -- which is most of
+    them.
+    """
+    shipped = _shipped_obs_data()
+
+    protocol = shipped['protocol_info']
+    # pre_times is per experiment; sim_times is per experiment, per subexperiment. One
+    # experiment of one 2 s stretch, from t = 0, with no spin-up to discard.
+    assert protocol['pre_times'] == [_SHIPPED_WINDOW['pre_time']]
+    assert protocol['sim_times'] == [[_SHIPPED_WINDOW['sim_time']]]
+
+    # And it still parses -- with no pre_time/sim_time offered, so the file has to be
+    # self-sufficient rather than falling back on a yaml's window.
+    from parsers.PrimitiveParsers import ObsAndParamDataParser
+
+    parsed = ObsAndParamDataParser().parse_obs_data_json(param_id_obs_path=_OBS_DATA_PATH)
+    assert parsed['protocol_info']['pre_times'] == [_SHIPPED_WINDOW['pre_time']]
+    assert parsed['protocol_info']['sim_times'] == [[_SHIPPED_WINDOW['sim_time']]]
+    assert len(parsed['gt_df']) == len(shipped['data_items'])
+    # The window and dt divide into the whole number of steps the README quotes.
+    assert _expected_num_samples(_SHIPPED_WINDOW) == 101
 
 
 @pytest.mark.integration
@@ -334,20 +395,46 @@ def test_extra_plots_before_a_run_says_so(model):
 #: GUI, and the point of stating the timeline once here is that this file cannot reproduce it
 #: by accident -- it reproduces it deliberately, at the end of the calibration test.
 #:
+#: ``pre_time``/``sim_time`` here are not yaml keys any more: the obs_data's ``protocol_info``
+#: is the run window, so ``_copy_resources`` writes them into the copy it hands these tests.
+#: ``dt`` still is a yaml key.
+#:
 #: A coarse grid on a coarse mesh: 10 steps of an 8x8 problem per training sample, over the 1 s
-#: window the k in [0.001, 0.2] box actually shows cooling in. The features still move over the
-#: whole params_for_id box, which is all the emulator needs, and a few dozen of them take
-#: seconds rather than minutes.
+#: window the k in [0.001, 0.2] box actually shows cooling in -- a third of the shipped window,
+#: which none of the assertions below need. The features still move over the whole
+#: params_for_id box, which is all the emulator needs, and a few dozen of them take seconds
+#: rather than minutes.
 _EMULATOR_TIMELINE = {'pre_time': 0.0, 'sim_time': 1.0, 'dt': 0.1}
 
 
-def _copy_resources(temp_output_dir):
+def _copy_resources(temp_output_dir, sim_time=None, subdir='heat_fenics_resources'):
     """The example's CSV/JSON in a per-test directory, so a run never writes back into the
-    repo's ``funcs_user/heat_fenics``."""
-    resources_dir = os.path.join(temp_output_dir, 'heat_fenics_resources')
+    repo's ``funcs_user/heat_fenics``.
+
+    The copy's ``protocol_info`` is rewritten to ``sim_time`` on the way (default:
+    ``_EMULATOR_TIMELINE``'s). The shipped file names the 2 s window its six values were
+    computed on; these tests want the shorter one, and since the window now lives in the
+    obs_data rather than in ``user_inputs.yaml``, wanting a different window means writing a
+    different obs_data. That is also how the stale-emulator check below gets a *second*
+    timeline to ask for -- a ``sim_time`` key in the config would no longer change anything.
+    """
+    if sim_time is None:
+        sim_time = _EMULATOR_TIMELINE['sim_time']
+    resources_dir = os.path.join(temp_output_dir, subdir)
     os.makedirs(resources_dir, exist_ok=True)
     for name in _RESOURCE_FILES:
         shutil.copy(os.path.join(_EXAMPLE_DIR, name), os.path.join(resources_dir, name))
+
+    obs_path = os.path.join(resources_dir, 'heat_fenics_obs_data.json')
+    obs_data = _shipped_obs_data()
+    obs_data['protocol_info']['pre_times'] = [_EMULATOR_TIMELINE['pre_time']]
+    obs_data['protocol_info']['sim_times'] = [[sim_time]]
+    obs_data['protocol_info']['comment'] = (
+        f'Test copy: the window has been shortened to {sim_time} s. The values below are the '
+        f'shipped ones, computed on the 2 s window, so nothing here may assert that they are '
+        f'recovered.')
+    with open(obs_path, 'w') as handle:
+        json.dump(obs_data, handle, indent=2)
     return resources_dir
 
 
@@ -372,7 +459,9 @@ def _emulator_config(base_user_inputs, temp_output_dir, temp_generated_models_di
         'resources_dir': resources_dir,
         'param_id_method': 'genetic_algorithm',
         # See _EMULATOR_TIMELINE: shared with the calibration that uses the emulator, because
-        # the bundle's fingerprint covers it.
+        # the bundle's fingerprint covers it. pre_time/sim_time are the fallback the parser
+        # only reaches for when an obs_data has no protocol_info -- this one has, written by
+        # _copy_resources -- and are set to the same values so the two cannot disagree.
         **_EMULATOR_TIMELINE,
         'solver_info': {'user_config': {'nx': 8}},
         'DEBUG': False,
@@ -447,6 +536,7 @@ def test_an_emulator_trained_on_the_fenics_model_agrees_with_it(
     The comparison is against the *solver's own* features at a held-out theta rather than
     against a hardcoded number, so it does not need to know what the right answer is.
     """
+    _require_dolfinx()
     pytest.importorskip('autoemulate')
 
     from libcuflynx.emulators.emulator_trainer import EmulatorTrainer
@@ -554,6 +644,7 @@ def test_a_calibration_through_the_emulator_completes_with_parameters_in_the_box
     this grid, so there is no theta that reproduces them and a recovery assertion would be
     measuring the fixture's provenance rather than CA.
     """
+    _require_dolfinx()
     pytest.importorskip('autoemulate')
 
     from mpi4py import MPI
@@ -613,8 +704,21 @@ def test_a_calibration_through_the_emulator_completes_with_parameters_in_the_box
     # calibration at the wrong sim_time look like a successful one. (Found through the GUI:
     # train at one sim_time, calibrate at another, EmulatorQualityError. Everything above uses
     # _EMULATOR_TIMELINE for both halves precisely so it never happens by accident here.)
+    #
+    # The other timeline is a second obs_data naming a doubled window, because that is now the
+    # only place a window is stated: a `sim_time` key in the config is the fallback the parser
+    # never reaches for once a protocol_info exists, so perturbing it would perturb nothing and
+    # this assertion would pass on an emulator that was never asked to be stale. The file name
+    # is unchanged, so resolve_emulator_dir still points at the bundle just trained.
     # one_rank because only rank 0 gets here: CVS0DParamID's constructor barriers otherwise,
     # and a barrier one rank reaches alone is a hang, not a failure.
-    stale = dict(calibration, sim_time=2.0 * calibration['sim_time'], one_rank=True)
+    stale_resources = _copy_resources(temp_output_dir,
+                                      sim_time=2.0 * _EMULATOR_TIMELINE['sim_time'],
+                                      subdir='heat_fenics_resources_other_window')
+    stale = dict(calibration,
+                 param_id_obs_path=os.path.join(stale_resources, 'heat_fenics_obs_data.json'),
+                 one_rank=True)
+    assert resolve_emulator_dir(stale) == resolve_emulator_dir(config), (
+        'the stale check must reach the bundle just trained, or it proves nothing')
     with pytest.raises(EmulatorQualityError, match='stale'):
         CVS0DParamID.init_from_dict(stale)

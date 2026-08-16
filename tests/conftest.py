@@ -93,9 +93,9 @@ _SESSION_START = None
 _PARAM_ID_RESULTS_FILE = os.path.join(os.path.dirname(__file__), "..", ".pytest_param_id_results")
 _TEST_OUTPUT_ROOT = os.path.join(os.path.dirname(__file__), "test_outputs")
 # _AUTOGEN_CONFIGS = [
-#     {"file_prefix": "3compartment", "input_param_file": "3compartment_parameters.csv", "model_type": "cellml_only", "solver": "CVODE"},
-#     {"file_prefix": "simple_physiological", "input_param_file": "simple_physiological_parameters.csv", "model_type": "cellml_only", "solver": "CVODE"},
-#     {"file_prefix": "test_fft", "input_param_file": "test_fft_parameters.csv", "model_type": "cellml_only", "solver": "CVODE"},
+#     {"file_prefix": "3compartment", "input_param_file": "3compartment_parameters.csv", "model_type": "cellml", "solver": "CVODE"},
+#     {"file_prefix": "simple_physiological", "input_param_file": "simple_physiological_parameters.csv", "model_type": "cellml", "solver": "CVODE"},
+#     {"file_prefix": "test_fft", "input_param_file": "test_fft_parameters.csv", "model_type": "cellml", "solver": "CVODE"},
 # ]
 _LOCK_FILE = os.path.realpath(os.path.join(_TEST_ROOT, ".pytest_param_id_lock"))
 _PARAM_ID_TRIGGERS = ("test_param_id", "compare_optimisers", "test_sensitivity_analysis",
@@ -645,7 +645,7 @@ def generated_cellml_model_factory(base_user_inputs, resources_dir, temp_generat
             "DEBUG": True,
             "file_prefix": file_prefix,
             "input_param_file": input_param_file,
-            "model_type": "cellml_only",
+            "model_type": "cellml",
             "solver": solver,
             "pre_time": 0.0,
             "sim_time": 0.1,
@@ -685,19 +685,19 @@ def test_model_configs():
     """
     return [
         # CellML models
-        ('ports_test', 'ports_test_parameters.csv', 'cellml_only', 'CVODE'),
-        ('3compartment', '3compartment_parameters.csv', 'cellml_only', 'CVODE'),
-        ('simple_physiological', 'simple_physiological_parameters.csv', 'cellml_only', 'CVODE'),
-        ('parasympathetic_model', 'parasympathetic_model_parameters.csv', 'cellml_only', 'CVODE'),
-        ('test_fft', 'test_fft_parameters.csv', 'cellml_only', 'CVODE'),
-        ('neonatal', 'neonatal_parameters.csv', 'cellml_only', 'CVODE'),
-        ('generic_junction_test_closed_loop', 'generic_junction_test_closed_loop_parameters.csv', 'cellml_only', 'CVODE'),
-        ('generic_junction_test2_closed_loop', 'generic_junction_test_closed_loop_parameters.csv', 'cellml_only', 'CVODE'),
-        ('generic_junction_test_open_loop', 'generic_junction_test_open_loop_parameters.csv', 'cellml_only', 'CVODE'),
-        ('generic_junction_test2_open_loop', 'generic_junction_test_open_loop_parameters.csv', 'cellml_only', 'CVODE'),
-        ('SN_simple', 'SN_simple_parameters.csv', 'cellml_only', 'CVODE'),
-        ('physiological', 'physiological_parameters.csv', 'cellml_only', 'CVODE'),
-        ('control_phys', 'control_phys_parameters.csv', 'cellml_only', 'CVODE'),
+        ('ports_test', 'ports_test_parameters.csv', 'cellml', 'CVODE'),
+        ('3compartment', '3compartment_parameters.csv', 'cellml', 'CVODE'),
+        ('simple_physiological', 'simple_physiological_parameters.csv', 'cellml', 'CVODE'),
+        ('parasympathetic_model', 'parasympathetic_model_parameters.csv', 'cellml', 'CVODE'),
+        ('test_fft', 'test_fft_parameters.csv', 'cellml', 'CVODE'),
+        ('neonatal', 'neonatal_parameters.csv', 'cellml', 'CVODE'),
+        ('generic_junction_test_closed_loop', 'generic_junction_test_closed_loop_parameters.csv', 'cellml', 'CVODE'),
+        ('generic_junction_test2_closed_loop', 'generic_junction_test_closed_loop_parameters.csv', 'cellml', 'CVODE'),
+        ('generic_junction_test_open_loop', 'generic_junction_test_open_loop_parameters.csv', 'cellml', 'CVODE'),
+        ('generic_junction_test2_open_loop', 'generic_junction_test_open_loop_parameters.csv', 'cellml', 'CVODE'),
+        ('SN_simple', 'SN_simple_parameters.csv', 'cellml', 'CVODE'),
+        ('physiological', 'physiological_parameters.csv', 'cellml', 'CVODE'),
+        ('control_phys', 'control_phys_parameters.csv', 'cellml', 'CVODE'),
         # CPP models
         ('aortic_bif_1d', 'aortic_bif_1d_parameters.csv', 'cpp', 'RK4'),
     ]
@@ -1408,7 +1408,7 @@ def minimal_param_id_config(base_user_inputs, resources_dir, temp_output_dir):
     """
     config = base_user_inputs.copy()
     config.update({
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'solver': 'CVODE',
         'param_id_method': 'genetic_algorithm',
         'pre_time': 1,

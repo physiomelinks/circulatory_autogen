@@ -253,7 +253,7 @@ class CVS0DCellMLGenerator(object):
             solver_info = {'MaximumStep': 0.00001, 'MaximumNumberOfSteps': 5000}
             sim_helper = get_simulation_helper(
                 model_path=cellml_path,
-                model_type='cellml_only',
+                model_type='cellml',
                 solver='CVODE_myokit',
                 dt=0.00001,
                 sim_time=0.00001,

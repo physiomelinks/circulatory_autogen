@@ -121,7 +121,7 @@ INP_DATA_DICT = {{
     "DEBUG": True,
     "file_prefix": FILE_PREFIX,
     "input_param_file": FILE_PREFIX + "_parameters.csv",
-    "model_type": "cellml_only",
+    "model_type": "cellml",
     "solver": "CVODE",
     "solver_info": {{
         "solver": "CVODE_myokit",
@@ -214,7 +214,7 @@ def build_runtime_state():
     inp_data_dict["model_path"] = str(cellml_path)
     inp_data_dict["one_rank"] = MPI.COMM_WORLD.Get_size() == 1
     inp_data_dict["solver_info"] = dict(inp_data_dict["solver_info"])
-    if inp_data_dict["model_type"] == "cellml_only" and not OPENCOR_AVAILABLE and MYOKIT_AVAILABLE:
+    if inp_data_dict["model_type"] == "cellml" and not OPENCOR_AVAILABLE and MYOKIT_AVAILABLE:
         inp_data_dict["solver_info"]["solver"] = "CVODE_myokit"
     return parser, inp_data_dict, obs_data_dict, PARAMS_FOR_ID
 

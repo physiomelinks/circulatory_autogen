@@ -22,6 +22,8 @@ from libcuflynx.parsers.PrimitiveParsers import (
     uq_options,
     _SOLVER_INTEGRATOR_KEYS,
     _CASADI_ADJOINT_METHODS,
+    MODEL_TYPE_ALIASES,
+    normalise_model_type,
 )
 
 # The descriptor shape shared by optimiser_options, solver_info fields, and analysis options.
@@ -119,6 +121,54 @@ def test_solver_info_fields_schema_well_formed():
         f'solvers without solver_info fields: {all_solvers - set(SOLVER_INFO_FIELDS)}'
     assert SOLVER_SCHEMA['solver_info_fields_by_solver'] is SOLVER_INFO_FIELDS
     assert solver_info_fields('CVODE_myokit') and solver_info_fields('not_a_solver') == []
+
+
+@pytest.mark.unit
+def test_the_schema_offers_current_model_type_names_only():
+    """A renamed model_type is accepted but never *advertised*.
+
+    SOLVER_SCHEMA is what a downstream tool builds its menu from (CUFLynx reads it
+    to populate the "Generated model format" dropdown), so a name on its way out
+    must not appear there -- otherwise the rename never finishes, because the GUI
+    keeps writing the old spelling into new configs.
+    """
+    for old, current in MODEL_TYPE_ALIASES.items():
+        assert old not in SOLVER_SCHEMA['model_types'], old
+        assert old not in SOLVER_SCHEMA['solvers_by_model_type'], old
+        assert old not in SOLVER_SCHEMA['default_solver_by_model_type'], old
+        # The name it maps to has to be a real one, or the alias sends configs nowhere.
+        assert current in SOLVER_SCHEMA['model_types'], current
+
+    # 'cellml' specifically: it is the default, so it must be selectable.
+    assert 'cellml' in SOLVER_SCHEMA['model_types']
+
+
+@pytest.mark.unit
+def test_the_old_cellml_only_spelling_still_resolves():
+    """`cellml_only` was the default model_type, so it is written in every
+    user_inputs.yaml that predates the rename -- including the dated copies CA
+    archives beside every run. It has to keep working."""
+    assert normalise_model_type('cellml_only') == 'cellml'
+    # Everything else passes through untouched: this translates, it does not
+    # validate. An invalid name must reach the caller's own check unchanged, so
+    # the error names what the user actually wrote.
+    assert normalise_model_type('cellml') == 'cellml'
+    assert normalise_model_type('casadi_python') == 'casadi_python'
+    assert normalise_model_type('not_a_model_type') == 'not_a_model_type'
+    assert normalise_model_type(None) is None
+
+
+@pytest.mark.unit
+def test_a_config_written_before_the_rename_still_parses(tmp_path, base_user_inputs):
+    """The end-to-end version of the above: the whole point of the alias is that a
+    yaml saying `cellml_only` still resolves a model path rather than exiting."""
+    inp = dict(base_user_inputs)
+    inp['model_type'] = 'cellml_only'
+    inp['generated_models_dir'] = str(tmp_path / 'generated')
+    parsed = YamlFileParser().parse_user_inputs_file(
+        inp, obs_path_needed=False, do_generation_with_fit_parameters=False)
+    assert parsed['model_type'] == 'cellml'
+    assert parsed['model_path'].endswith('.cellml')
 
 
 def test_solver_integrator_keys_derived_from_schema():
@@ -1065,17 +1115,17 @@ def test_dt_solver_alongside_the_new_key_is_not_a_duplicate(capsys):
 
 
 def test_myokit_default_solver_info_needs_no_migration():
-    """CA's own cellml_only default must validate for myokit, not just opencor --
+    """CA's own cellml default must validate for myokit, not just opencor --
     otherwise the default config would be rejected by its own validator."""
     from libcuflynx.parsers.PrimitiveParsers import _solver_info_default_for
 
-    defaults = _solver_info_default_for('cellml_only', 'CVODE_myokit')
+    defaults = _solver_info_default_for('cellml', 'CVODE_myokit')
     assert 'MaximumNumberOfSteps' not in defaults
     assert defaults['MaximumStep'] == 0.001
     validate_solver_info('CVODE_myokit', defaults)
 
     # opencor keeps it: it is a real setting there.
-    opencor = _solver_info_default_for('cellml_only', 'CVODE_opencor')
+    opencor = _solver_info_default_for('cellml', 'CVODE_opencor')
     assert opencor['MaximumNumberOfSteps'] == 5000
     validate_solver_info('CVODE_opencor', opencor)
 
@@ -1143,7 +1193,7 @@ def test_gradient_sources_well_formed_and_match_get_gradient_dispatch():
     """gradient_sources(model_type, solver) must advertise exactly the sources CA can actually
     produce, keyed to the top-level do_ad flag, so a front-end can build a gradient menu without
     hand-mirroring CA's rules. Pinned to OpencorParamID.get_gradient's dispatch: the AD-capable
-    model types are AD_GRADIENT_MODEL_TYPES, and cellml_only+CVODE_myokit gets FSA.
+    model types are AD_GRADIENT_MODEL_TYPES, and cellml+CVODE_myokit gets FSA.
     """
     from libcuflynx.param_id.optimisers import AD_GRADIENT_MODEL_TYPES
 
@@ -1172,14 +1222,14 @@ def test_gradient_sources_well_formed_and_match_get_gradient_dispatch():
         ad = [s for s in srcs if s['value'] == 'AD']
         assert len(ad) == 1 and ad[0]['do_ad'] is True, mt
 
-    # cellml_only gets the Myokit CVODES FSA source only with the Myokit solver.
-    myokit = gradient_sources('cellml_only', 'CVODE_myokit')
+    # cellml gets the Myokit CVODES FSA source only with the Myokit solver.
+    myokit = gradient_sources('cellml', 'CVODE_myokit')
     _check_shape(myokit)
     fsa = [s for s in myokit if s['value'] == 'FSA']
     assert len(fsa) == 1 and fsa[0]['do_ad'] is True
 
-    # No analytic source for cellml_only under a non-FSA solver, or for non-AD model types.
-    for mt, sv in [('cellml_only', 'CVODE_opencor'), ('python', 'solve_ivp'), ('cpp', 'RK4')]:
+    # No analytic source for cellml under a non-FSA solver, or for non-AD model types.
+    for mt, sv in [('cellml', 'CVODE_opencor'), ('python', 'solve_ivp'), ('cpp', 'RK4')]:
         srcs = gradient_sources(mt, sv)
         _check_shape(srcs)
         assert [s['value'] for s in srcs] == ['FD'], (mt, sv)
@@ -1230,8 +1280,8 @@ def test_gradient_sources_gates_analytic_source_on_integrator_method():
 
     # Myokit FSA: offered for the CVODE method (the only, and FSA-suitable, method).
     assert 'FSA' in [s['value'] for s in
-                     gradient_sources('cellml_only', 'CVODE_myokit', method='CVODE')]
-    assert 'FSA' in [s['value'] for s in gradient_sources('cellml_only', 'CVODE_myokit')]
+                     gradient_sources('cellml', 'CVODE_myokit', method='CVODE')]
+    assert 'FSA' in [s['value'] for s in gradient_sources('cellml', 'CVODE_myokit')]
 
     # AADC AD has no per-integrator gate (its tape method is independent of this menu).
     assert 'AD' in [s['value'] for s in gradient_sources('aadc_python', method='semi_implicit')]

@@ -62,7 +62,7 @@ def _config(base_user_inputs, resources_dir, temp_output_dir, temp_generated_mod
     config.update({
         'file_prefix': 'Simple_ODE_Benchmark',
         'input_param_file': 'Simple_ODE_Benchmark_parameters.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'solver': 'CVODE_myokit',
         'param_id_method': 'genetic_algorithm',
         'pre_time': 0.0,
@@ -346,7 +346,7 @@ def _benchmark_infos(base_user_inputs, resources_dir, tmp_path):
     config.update({
         'file_prefix': 'Simple_ODE_Benchmark',
         'input_param_file': 'Simple_ODE_Benchmark_parameters.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'resources_dir': resources_dir,
         'pre_time': 0.0,
         'sim_time': 8.0,

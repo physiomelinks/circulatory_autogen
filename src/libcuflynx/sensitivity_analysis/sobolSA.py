@@ -365,7 +365,7 @@ class sobol_SA():
         # inferring it from the file extension when it wasn't supplied.
         model_type = self.model_type
         if model_type is None:
-            model_type = "python" if str(self.model_path).endswith(".py") else "cellml_only"
+            model_type = "python" if str(self.model_path).endswith(".py") else "cellml"
         return get_simulation_helper(
             model_path=self.model_path,
             solver=solver,

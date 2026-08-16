@@ -14,13 +14,15 @@ file_prefix: 3compartment
 input_param_file: 3compartment_parameters.csv
 
 # cpp generation inputs
-# model_type can be cellml_only, python, cpp, casadi_python, aadc_python or external_python.
+# model_type can be cellml (the default), python, cpp, casadi_python, aadc_python or
+# external_python. `cellml` used to be spelled `cellml_only`; that still works and warns,
+# but update it -- the old name will be removed.
 # The first five are generated from the vessel/module CSV arrays; external_python is the one way
 # to bring a model of your own -- a Python class that owns its time stepping, registered as
 # SIM_HELPER and pointed at by external_model_path. See tutorial/docs/external-python-solvers.md
 # and funcs_user/example_model_scipy/ for a small worked example.
 # model_type: cpp
-model_type: cellml_only
+model_type: cellml
 # model_type: casadi_python
 # model_type: external_python
 

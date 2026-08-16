@@ -7,6 +7,7 @@ users arriving with "I have an ODE" need, so it gets its own coverage rather tha
 ``tests/test_external_simulation_helper.py`` (which exercises the wrapper's contract enforcement
 against a hand-marched PDE).
 """
+import json
 import os
 import shutil
 
@@ -14,7 +15,7 @@ import numpy as np
 import pytest
 from mpi4py import MPI
 
-from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
+from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser, YamlFileParser
 from libcuflynx.solver_wrappers import get_simulation_helper, get_simulation_helper_from_inp_data_dict
 from libcuflynx.solver_wrappers.external_simulation_helper import SimulationHelper as ExternalSimulationHelper
 from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
@@ -25,6 +26,7 @@ _EXAMPLE_DIR = os.path.realpath(
     os.path.join(os.path.dirname(__file__), '..', 'funcs_user', 'example_model_scipy')
 )
 _MODEL_PATH = os.path.join(_EXAMPLE_DIR, 'oscillator_model.py')
+_OBS_DATA_PATH = os.path.join(_EXAMPLE_DIR, 'oscillator_obs_data.json')
 # Ground truth used to build oscillator_obs_data.json (the defaults are c=0.5, k=4.0).
 _TRUE_C, _TRUE_K = 0.7, 5.0
 _SOLVER_INFO = {'solver': 'external', 'method': 'external'}
@@ -80,6 +82,36 @@ def _oscillator_config(base_user_inputs, temp_output_dir, temp_generated_models_
         'debug_optimiser_options': {'num_calls_to_function': 160, 'cost_type': 'gaussian_MLE'},
     })
     return config
+
+
+# ---------------------------------------------------------------------------
+# The shipped obs_data
+# ---------------------------------------------------------------------------
+@pytest.mark.unit
+def test_the_shipped_obs_data_carries_the_window_its_values_were_computed_on():
+    """``oscillator_obs_data.json`` must name its own run window in ``protocol_info``.
+
+    The three targets below it are ``mean(x)``, ``min(x)`` and ``range(v)`` over the 10 s
+    window and nothing else -- read them off a different window and they are simply wrong. So
+    the window travels in the file rather than in whatever ``user_inputs.yaml`` happens to say,
+    which is also the only thing the CUFLynx GUI reads to size a run: an example with no
+    ``protocol_info`` cannot be run from it at all.
+    """
+    with open(_OBS_DATA_PATH) as handle:
+        shipped = json.load(handle)
+
+    protocol = shipped['protocol_info']
+    # pre_times is per experiment; sim_times is per experiment, per subexperiment. One
+    # experiment of one 10 s stretch, from t = 0, with no spin-up to discard.
+    assert protocol['pre_times'] == [0.0]
+    assert protocol['sim_times'] == [[_SIM_TIME]]
+
+    # And it still parses -- with no pre_time/sim_time offered, so the file has to be
+    # self-sufficient rather than falling back on the yaml's window.
+    parsed = ObsAndParamDataParser().parse_obs_data_json(param_id_obs_path=_OBS_DATA_PATH)
+    assert parsed['protocol_info']['pre_times'] == [0.0]
+    assert parsed['protocol_info']['sim_times'] == [[_SIM_TIME]]
+    assert len(parsed['gt_df']) == len(shipped['data_items']) == 3
 
 
 # ---------------------------------------------------------------------------

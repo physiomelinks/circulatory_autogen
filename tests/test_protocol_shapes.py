@@ -385,9 +385,9 @@ def paced_cellml(tmp_path):
 def _run(model_path, protocol_info):
     from libcuflynx.protocol_runners.protocol_runner import ProtocolRunner
 
-    inp = {"dt": 0.1, "solver_info": {"MaximumStep": 0.01}, "model_type": "cellml_only"}
+    inp = {"dt": 0.1, "solver_info": {"MaximumStep": 0.01}, "model_type": "cellml"}
     runner = ProtocolRunner(
-        model_path=model_path, inp_data_dict=inp, solver="CVODE_myokit", model_type="cellml_only"
+        model_path=model_path, inp_data_dict=inp, solver="CVODE_myokit", model_type="cellml"
     )
     t_list, res_list, _ = runner.run_protocols(model_path, protocol_info=protocol_info)
     idx = runner.get_var2idx_dict()
@@ -553,7 +553,7 @@ def test_myokit_refuses_two_paced_variables_in_one_subexperiment(
     model_path = generated_cellml_model_factory(
         "Lotka_Volterra", "Lotka_Volterra_parameters.csv", solver="CVODE_myokit")
     h = get_simulation_helper(
-        model_path=model_path, model_type="cellml_only", solver="CVODE_myokit",
+        model_path=model_path, model_type="cellml", solver="CVODE_myokit",
         dt=0.01, sim_time=1.0, pre_time=0.0,
         solver_info={"MaximumStep": 0.01, "MaximumNumberOfSteps": 5000})
     h.set_protocol_info({

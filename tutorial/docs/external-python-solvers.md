@@ -15,7 +15,7 @@ letting CA build the model for you and writing it yourself:
 
 | | You provide | CA does the time-stepping | Use when |
 |---|---|---|---|
-| `cellml_only` | CellML modules and a vessel array | yes (OpenCOR / Myokit CVODE) | the model is a network of reusable CellML components |
+| `cellml` | CellML modules and a vessel array | yes (OpenCOR / Myokit CVODE) | the model is a network of reusable CellML components |
 | `python` | the same, emitted as Python | yes (`scipy.solve_ivp`) | you want CA's generated model in Python |
 | **`external_python`** | **a solver class with its own `run()`** | **no — you do** | **the model is code you already have, or an ODE you would rather write directly** |
 
@@ -286,8 +286,8 @@ external_model_path: <CA_dir>/funcs_user/heat_fenics/heat_fenics_model.py
 resources_dir: <CA_dir>/funcs_user/heat_fenics
 param_id_obs_path: <CA_dir>/funcs_user/heat_fenics/heat_fenics_obs_data.json
 
-pre_time: 0.0
-sim_time: 2.0
+# No pre_time/sim_time: the run window comes from the obs_data's protocol_info
+# (pre_times: [0.0], sim_times: [[2.0]]). dt is still a yaml setting.
 dt: 0.02
 
 param_id_method: genetic_algorithm
@@ -306,8 +306,11 @@ heat,         k,           const,       0.001, 0.2,   k
 heat,         u_D,         const,       -0.5,  0.5,   u_{D}
 ```
 
-and `heat_fenics_obs_data.json` holds six scalar targets — the `mean` and the `min` of each of
-the three probes, so every probe is scored rather than just the centre one.
+and `heat_fenics_obs_data.json` holds the run window and six scalar targets — the `mean` and the
+`min` of each of the three probes, so every probe is scored rather than just the centre one. The
+window is its `protocol_info` (`pre_times: [0.0]`, `sim_times: [[2.0]]`), which is where it
+belongs: the six values are what *that* window produces, so the two cannot drift apart, and the
+CUFLynx GUI reads the window from there rather than from the yaml.
 
 ### 5. Calibrate and sweep it
 

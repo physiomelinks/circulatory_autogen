@@ -241,7 +241,7 @@ def test_the_fsa_arm_no_longer_refuses_modifiers(monkeypatch):
             pass
 
     pid = _Stub()
-    pid.model_type = 'cellml_only'
+    pid.model_type = 'cellml'
     pid.do_ad = True
     pid.param_id_info = _modifier_info()
     pid.sim_helper = _FakeSimHelper({'v': {'a/C': _S_A, 'b/C': _S_B}}, ['a/C', 'b/C'])

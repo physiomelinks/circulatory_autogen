@@ -888,7 +888,7 @@ class SimulationHelper:
                     "inaccurate or unstable on stiff systems (e.g. ~2e4% error vs CVODE on "
                     "3compartment), so both the forward solve and the AADC gradient are likely "
                     "wrong here. Use model_type 'casadi_python' with solver_info method 'bdf', "
-                    "or a Myokit CVODES forward-sensitivity run (model_type 'cellml_only', "
+                    "or a Myokit CVODES forward-sensitivity run (model_type 'cellml', "
                     "solver 'CVODE_myokit', do_ad: true), for stiff models.")
         except Exception:
             # A diagnostic must never break the actual simulation.

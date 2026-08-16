@@ -83,7 +83,7 @@ whole run **milliseconds** once the forms are compiled; the one-off FFCx compila
 |---|---|
 | `heat_fenics_model.py` | The solver class (`parameters`, `output_names`, `init_solver`, `update_times`, `set_param_vals`, `run`, `get_results`, `reset`, `extra_plots`, `close`) and `SIM_HELPER`. |
 | `heat_fenics_params_for_id.csv` | The calibration box: `heat/k ∈ [0.001, 0.2]`, `heat/u_D ∈ [-0.5, 0.5]`. |
-| `heat_fenics_obs_data.json` | Six scalar observables — `mean` and `min` of each of the three probes, so every probe is scored against a ground truth rather than only the centre one. |
+| `heat_fenics_obs_data.json` | The `protocol_info` (the `dt = 0.02` / `sim_time = 2.0` window, above) plus six scalar observables — `mean` and `min` of each of the three probes, so every probe is scored against a ground truth rather than only the centre one. |
 
 !!! warning "Why not `max(T_p*)`?"
     The maximum of every probe is its *initial* value, which is the uniform `1.0` for every
@@ -140,8 +140,9 @@ external_model_path: <CA_dir>/funcs_user/heat_fenics/heat_fenics_model.py
 resources_dir: <CA_dir>/funcs_user/heat_fenics
 param_id_obs_path: <CA_dir>/funcs_user/heat_fenics/heat_fenics_obs_data.json
 
-pre_time: 0.0
-sim_time: 2.0
+# No pre_time/sim_time here: the run window lives in heat_fenics_obs_data.json's
+# protocol_info (pre_times: [0.0], sim_times: [[2.0]]), because it is the window the six
+# target values were computed on. dt is still a yaml setting.
 dt: 0.02
 
 param_id_method: genetic_algorithm
@@ -180,8 +181,24 @@ See [Emulators](../../tutorial/docs/emulators.md) for the rest.
 
 ## About the numbers in `heat_fenics_obs_data.json`
 
+The file opens with the window they belong to, so the two travel together:
+
+```json
+"protocol_info": {
+  "pre_times": [0.0],
+  "sim_times": [[2.0]],
+  "params_to_change": {}
+}
+```
+
+`pre_times` holds one entry per experiment and `sim_times` one list per experiment, one entry
+per subexperiment — here a single experiment of a single 2 s stretch, run from `t = 0` with no
+spin-up. That protocol is what CA drives the model with, and what the CUFLynx GUI reads to know
+the window; a `pre_time`/`sim_time` in `user_inputs.yaml` is only the fallback for an obs_data
+that has no `protocol_info` at all.
+
 The six values are the model's own output at the default parameters `k = 0.05`,
-`u_D = 0.25` on the suggested `dt = 0.02` / `sim_time = 2.0` grid — **estimates**, computed
+`u_D = 0.25` on that `dt = 0.02` / `sim_time = 2.0` grid — **estimates**, computed
 from a matched finite-difference solve of the same problem rather than from dolfinx itself
 (the authoring machine had no FEniCSx), and quoted with a `std` that comfortably covers both
 the FD-vs-P1-FEM gap and the discretisation error of the 16×16 backward-Euler scheme. They
@@ -196,7 +213,9 @@ order):
 python funcs_user/heat_fenics/heat_fenics_model.py
 ```
 
-Changing `nx`, `dt` or `sim_time` changes them, so regenerate after any such change.
+Changing `nx`, `dt` or `sim_times` changes them, so regenerate after any such change — and
+change `sim_times` in the `protocol_info` above, not only in the `__main__` block, or the file
+will name one window and hold another's numbers.
 
 ## See also
 

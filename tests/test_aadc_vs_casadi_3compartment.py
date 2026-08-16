@@ -122,7 +122,7 @@ def _max_state_rel_l2_vs_cvode(cvode_helper, other_helper):
 
 def _cvode_reference(cellml_path):
     ref = get_simulation_helper(
-        model_path=cellml_path, solver='CVODE_myokit', model_type='cellml_only',
+        model_path=cellml_path, solver='CVODE_myokit', model_type='cellml',
         dt=_DT, sim_time=_SIM_TIME, pre_time=0.0,
         solver_info={'MaximumStep': 1e-4, 'rtol': 1e-8, 'atol': 1e-10},
     )
@@ -205,7 +205,7 @@ def test_3compartment_casadi_bdf_substep_robust_vs_cvode(models_3compartment, dt
     """
     paths = models_3compartment["casadi"]
     ref = get_simulation_helper(
-        model_path=paths["cellml"], solver='CVODE_myokit', model_type='cellml_only',
+        model_path=paths["cellml"], solver='CVODE_myokit', model_type='cellml',
         dt=dt, sim_time=1.0, pre_time=0.0,
         solver_info={'MaximumStep': 1e-4, 'rtol': 1e-8, 'atol': 1e-10},
     )

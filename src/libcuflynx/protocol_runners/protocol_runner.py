@@ -54,7 +54,7 @@ class ProtocolRunner:
         solver: Solver identifier passed to
             [`get_simulation_helper`][solver_wrappers.get_simulation_helper],
             e.g. ``'CVODE_myokit'`` or ``'CVODE_opencor'``.
-        model_type: Backend family (``'cellml_only'`` / ``'python'`` /
+        model_type: Backend family (``'cellml'`` / ``'python'`` /
             ``'casadi_python'``); falls back to ``inp_data_dict['model_type']``.
     """
 
@@ -78,7 +78,7 @@ class ProtocolRunner:
 
         self.inp_data_dict = inp_data_dict
         self.solver = solver
-        # model_type selects the backend family (cellml_only / python / casadi_python).
+        # model_type selects the backend family (cellml / python / casadi_python).
         # Falls back to inp_data_dict['model_type'] when not passed explicitly.
         self.model_type = model_type if model_type is not None else inp_data_dict.get('model_type')
 
