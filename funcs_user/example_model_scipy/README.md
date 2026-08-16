@@ -12,37 +12,19 @@ Start here if your model is an ODE you can write down. Start with
 model with a hand-written scheme (a 1D heat equation, NumPy only), or with
 [`../heat_fenics/`](../heat_fenics/) for the heavyweight case (a FEniCSx finite-element solver).
 
-## Migrating from `python_user_defined`
+## The grid is the only bookkeeping you owe
 
-`model_type: python_user_defined` (solver `user_defined`) has been **removed**. It asked for a
-module of `PARAMETERS` / `STATES` / `OUTPUT_NAMES` dicts plus an `rhs(t, y, params)` and called
-`solve_ivp` for you. `external_python` covers the same case — you make the `solve_ivp` call
-yourself, which is the `run()` below — and having two "bring your own Python" model types whose
-names did not distinguish them cost more than the shortcut saved.
+libCUFLynx tells your class the run window through `update_times` and expects `get_results()` to
+return arrays of exactly `N + 1` samples at `start_time + i*dt`, **including the `pre_time`
+ones** — it slices those off itself. Compute
 
-`oscillator_model.py` **is** the retired `funcs_user/example_model/oscillator_wrapper.py`,
-rewritten under this contract, so the diff is the whole migration:
+```
+N = int(pre_time/dt) + int(sim_time/dt)
+```
 
-| `python_user_defined` | `external_python` |
-|---|---|
-| module-level `PARAMETERS` dict | literal class attribute `parameters` |
-| module-level `STATES` dict | the initial condition your `run()` starts from |
-| module-level `OUTPUT_NAMES` list | literal class attribute `output_names` |
-| `rhs(t, y, params)` | a method, handed to `solve_ivp` by your `run()` |
-| `compute_outputs(t, y, params)` | just another entry in the dict `get_results()` returns |
-| `solver_info: {method, rtol, atol}` | `solver_info: {user_config: {...}}`, read in `init_solver` |
-| `model_wrapper_path` in `user_inputs.yaml` | `external_model_path` |
-| CA owned the sample grid | you produce it: `N = int(pre_time/dt) + int(sim_time/dt)` |
-
-That last row is the only real work. CA tells your class the grid through `update_times` and
-expects `get_results()` to return arrays of exactly `N + 1` samples at `start_time + i*dt`,
-**including the `pre_time` ones** — CA slices those off itself. Compute `N` with that exact
-integer arithmetic rather than `np.arange` on floats, so your length and CA's agree exactly
-rather than approximately; a short array is a hard error, not a padded one.
-
-A config that still names the removed type does not fail vaguely: the parser refuses
-`model_type: python_user_defined`, `solver: user_defined` and a leftover `model_wrapper_path`
-key with these instructions.
+with that exact integer arithmetic rather than an `np.arange` over floats, so your length and the
+framework's agree exactly rather than approximately; a short array is a hard error, not a padded
+one.
 
 ## Files
 

@@ -7,25 +7,16 @@ with ``c`` (damping) and ``k`` (stiffness) as the calibrated parameters.
 This is the *simple* end of ``model_type: external_python``. The sibling example
 ``funcs_user/example_model_external/`` marches a 1D heat equation with a scheme it wrote itself;
 here there is no scheme to write, because the model is an ODE and ``scipy.integrate.solve_ivp``
-already integrates ODEs. The class still owns the call -- that is the whole difference from the
-retired ``python_user_defined`` type, which took ``rhs`` and made the call for you.
+already integrates ODEs. The class still owns the call, which is what the contract asks for.
 
-MIGRATING FROM ``python_user_defined``
---------------------------------------
-This file is the retired ``funcs_user/example_model/oscillator_wrapper.py`` rewritten under the
-surviving contract, so it doubles as the migration guide. The mapping is mechanical:
-
-    PARAMETERS  dict           ->  the literal class attribute `parameters`
-    STATES      dict           ->  the initial condition run() starts from (_INITIAL_STATE here)
-    OUTPUT_NAMES list          ->  the literal class attribute `output_names`
-    rhs(t, y, params)          ->  a method, handed to solve_ivp by your own run()
-    compute_outputs(...)       ->  just another entry in the dict get_results() returns
-    solver_info.method/rtol/.. ->  solver_info['user_config'], read in init_solver
-
-and the bookkeeping CA used to do on your behalf is the six lines in ``update_times`` and
-``run`` below: the sample grid is ``start_time + i*dt`` for ``i`` in ``0..N`` with
+THE ONLY BOOKKEEPING YOU OWE
+----------------------------
+The sample grid: ``start_time + i*dt`` for ``i`` in ``0..N`` with
 ``N = int(pre_time/dt) + int(sim_time/dt)``, and ``get_results`` returns the whole of it,
-pre_time samples included, because CA discards those itself.
+pre_time samples included, because libCUFLynx discards those itself. That is the six lines in
+``update_times`` and ``run`` below. Compute ``N`` with that exact integer arithmetic rather than
+an ``np.arange`` over floats, so your length and the framework's agree exactly rather than
+approximately -- a short array is a hard error, not a padded one.
 
 See README.md in this directory for the ``user_inputs.yaml`` settings, and
 ``src/solver_wrappers/external_simulation_helper.py`` for the contract this class implements.
@@ -33,8 +24,7 @@ See README.md in this directory for the ``user_inputs.yaml`` settings, and
 import numpy as np
 from scipy.integrate import solve_ivp
 
-# Initial condition [x, v]: released from unit displacement, at rest. Fixed, not calibrated --
-# exactly as the retired wrapper's STATES were.
+# Initial condition [x, v]: released from unit displacement, at rest. Fixed, not calibrated.
 _INITIAL_STATE = np.array([1.0, 0.0])
 
 # Defaults for the free-form user_config options, so the class runs with none supplied.
@@ -53,16 +43,16 @@ class Oscillator:
         "oscillator/c": 0.5,    # damping
         "oscillator/k": 4.0,    # stiffness
     }
-    # Two states and one algebraic quantity. Under the retired type the algebraic one needed a
-    # separate `compute_outputs` hook; here it is just another array in the returned dict.
+    # Two states and one algebraic quantity. An algebraic output needs no special hook: it is
+    # just another array in the dict get_results() returns.
     output_names = ["oscillator/x", "oscillator/v", "oscillator/energy"]
 
     # ---- required contract ----
     def init_solver(self, config):
         """One-off setup. Nothing is expensive for an ODE this size, so this only reads the
-        integrator options out of the free-form user_config -- which is where the retired type's
-        ``solver_info.method`` / ``rtol`` / ``atol`` now live, since CA no longer chooses the
-        integrator for a model it does not integrate."""
+        integrator options out of the free-form ``solver_info['user_config']`` -- the framework
+        does not choose the integrator for a model it does not integrate, so ``method`` / ``rtol``
+        / ``atol`` are yours to read here."""
         self._param_vals = dict(self.parameters)
         user_config = (config.get('solver_info') or {}).get('user_config') or {}
         self.method = str(user_config.get('method', _DEFAULT_METHOD))
@@ -75,7 +65,7 @@ class Oscillator:
         """Record the sample grid CA wants, and nothing else -- it is called on every
         sub-experiment, so it must stay cheap.
 
-        This is the arithmetic CA used to do for a python_user_defined wrapper. Use exactly it,
+        Use exactly this arithmetic,
         not ``np.arange(start, stop, dt)``: the wrapper checks the returned array lengths against
         this count, and a float-edge difference of one sample is a hard error.
         """
@@ -147,8 +137,8 @@ class Oscillator:
 
     # ---- internals ----
     def _rhs(self, t, y):
-        """dy/dt for y = [x, v]. This is the retired wrapper's module-level ``rhs``, now a
-        method: the parameters come off self instead of being passed in."""
+        """dy/dt for y = [x, v]. A method rather than a free function, so the parameters come
+        off self and solve_ivp needs no extra args."""
         x, v = y
         c = self._param_vals["oscillator/c"]
         k = self._param_vals["oscillator/k"]
