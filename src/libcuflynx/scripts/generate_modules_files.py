@@ -292,7 +292,7 @@ def _modify_state_variables(root, states):
 # Modify component name
 def _modify_component_name(root):
     for component in root.findall(f".//{{{cellml_namespace}}}component[@name='{component_name}']"):
-        new_name = f"{file_prefix}_{component.attrib["name"]}_type"
+        new_name = f"{file_prefix}_{component.attrib['name']}_type"
         component.set("name", new_name)
 
 # Generate user_inputs.yaml
@@ -317,14 +317,14 @@ def main():
     # args = _parse_args()
     args = {"input_model": input_model, "output_dir": output_dir}
     if not os.path.isfile(args["input_model"]):
-        print(f"Input file '{args["input_model"]}' not found.")
+        print(f"Input file '{args['input_model']}' not found.")
         sys.exit(1)
 
     if not os.path.exists(args["output_dir"]):
         os.makedirs(args["output_dir"])
 
     if not os.path.isdir(args["output_dir"]):
-        print(f"'{args["output_dir"]}' is not a valid directory")
+        print(f"'{args['output_dir']}' is not a valid directory")
         sys.exit(2)
 
     with open(args["input_model"]) as fh:
