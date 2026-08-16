@@ -140,7 +140,12 @@ SOLVER_SCHEMA = {
     },
     # Default solver for each model_type (used when none is specified).
     'default_solver_by_model_type': {
-        'cellml_only': 'CVODE_opencor',
+        # CVODE_myokit, not CVODE_opencor: the default has to be a backend a pip install can
+        # actually provide, and OpenCOR is the one backend it cannot (`opencor` is not on
+        # PyPI). CVODE_opencor stays a *valid* choice everywhere else in this schema so an
+        # explicit `solver: CVODE_opencor` still validates and reaches the runtime message
+        # (or works, inside OpenCOR).
+        'cellml_only': 'CVODE_myokit',
         'python': 'solve_ivp',
         'cpp': 'CVODE',
         'casadi_python': 'casadi_integrator',
@@ -2007,7 +2012,7 @@ class YamlFileParser(object):
 
         if solver_name is None:
             if inp_data_dict.get('model_type') == 'cellml_only':
-                solver_name = 'CVODE_opencor'
+                solver_name = 'CVODE_myokit'
             elif inp_data_dict.get('model_type') == 'python':
                 solver_name = 'solve_ivp'
             elif inp_data_dict.get('model_type') == 'cpp':
@@ -2602,7 +2607,7 @@ def _solver_info_default_for(model_type, solver_name):
 def get_solver_info_default(model_type):
     if model_type == 'cellml_only':
         return {
-            'solver': 'CVODE_opencor',
+            'solver': 'CVODE_myokit',
             'MaximumStep': 0.001,
             'MaximumNumberOfSteps': 5000,
             'rtol': 1e-8,
