@@ -1105,12 +1105,19 @@ def _set_expected_summary_totals(autogen_count: int, misc_count: int, solver_cou
     os.environ["SOLVER_SUMMARY_TOTAL"] = str(solver_count)
 
 
-def _should_wait_for_result_files(exitstatus, terminalreporter) -> bool:
+def _should_wait_for_result_files(exitstatus, terminalreporter, config) -> bool:
     """
     Only wait for one-rank result files when pytest completed normal test
     execution. Collection/import/internal errors never produce those files and
     would otherwise stall the summary for the full timeout.
+
+    ``--collect-only`` is the same trap wearing a clean exit status: collection
+    still counts the one-rank tests into the *_SUMMARY_TOTAL environment
+    variables, but no test runs, so nothing ever appends to the result files and
+    the summary blocks for 1800 s per file -- 90 minutes to list the suite.
     """
+    if config.getoption("collectonly", False):
+        return False
     if terminalreporter.stats.get("error"):
         return False
     return exitstatus in (0, 1)
@@ -1194,7 +1201,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     if rank != 0:
         return
 
-    if _should_wait_for_result_files(exitstatus, terminalreporter):
+    if _should_wait_for_result_files(exitstatus, terminalreporter, config):
         _wait_for_expected_result_count(
             _AUTOGEN_RESULTS_FILE,
             int(os.environ.get("AUTOGEN_SUMMARY_TOTAL", "0")),
