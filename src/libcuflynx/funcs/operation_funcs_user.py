@@ -4,7 +4,11 @@ import sys
 from libcuflynx.param_id.operation_funcs import series_to_constant
 try:
     import sympy
-except ImportError:  # optional dependency
+except ImportError:
+    # Not a declared dependency of libcuflynx (#435): nothing under src/libcuflynx imports it,
+    # and the only users are the four RICRI terminal-frequency funcs below, whose closed-form
+    # roots were *derived* with sympy rather than needing it at runtime. Anyone calling those
+    # installs sympy themselves; everything else in this file works without it.
     sympy = None
 from scipy.signal import find_peaks
 
