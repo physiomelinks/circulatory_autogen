@@ -14,6 +14,10 @@ import copy
 import warnings
 import yaml
 try:
+    # Not a declared dependency (#435). libcuflynx parses YAML with pyyaml; a ScalarFloat only
+    # ever reaches here inside a config dict handed over by a *caller* that parsed it with
+    # ruamel (CUFLynx does, to keep comments), and such a caller has ruamel installed by
+    # definition. So the guard is the whole feature, not a fallback.
     from ruamel.yaml.scalarfloat import ScalarFloat
 except Exception:
     ScalarFloat = None

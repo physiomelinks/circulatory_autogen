@@ -39,9 +39,11 @@ def run_param_id(inp_data_dict=None):
         try:
             import casadi  # noqa: F401
         except ImportError as exc:
+            from libcuflynx.param_id.casadi_backend import CASADI_MISSING_MESSAGE
             raise ImportError(
                 "The solver is set to casadi_integrator but the casadi package is not installed. "
-                "Install casadi (for example: pip install casadi) or change the solver in your configuration."
+                + CASADI_MISSING_MESSAGE
+                + " Or change the solver in your configuration."
             ) from exc
     dt = inp_data_dict['dt']
     # Get optimiser_options (parser already merged any legacy ga_options/debug_ga_options)

@@ -147,6 +147,35 @@ def mpi_available():
     return importlib.util.find_spec('mpi4py') is not None
 
 
+#: What to say when real MPI is needed and mpi4py is not installed.
+#:
+#: mpi4py is an optional extra (#435): it is about 5 MB, but it needs a working MPI
+#: toolchain present at *install* time, which is the commonest pip failure on
+#: macOS and Windows -- and a serial calibration needs none of it. The cost of
+#: that choice is this message: a multi-rank run must say which extra to install
+#: rather than surfacing a bare ``ModuleNotFoundError: No module named 'mpi4py'``
+#: from inside each rank, which says nothing about how to fix it.
+MPI4PY_MISSING_MESSAGE = (
+    'This run needs real MPI, but mpi4py is not installed. mpi4py is an optional '
+    'extra because it requires an MPI toolchain (libopenmpi-dev / mpich) at install '
+    'time, and a serial run needs none of it. Install it with:\n'
+    '    pip install "libcuflynx[mpi]"\n'
+    'and make sure an MPI toolchain is present first (Ubuntu: apt install '
+    'libopenmpi-dev; macOS: brew install open-mpi). To run serially instead, launch '
+    'without mpiexec -- one rank needs no MPI at all.')
+
+
+def require_mpi4py():
+    """Raise with the install command when real MPI is needed and mpi4py is absent.
+
+    Called by :func:`get_MPI` on the one path that cannot fall back to the serial
+    stub: a process an MPI launcher started, which really is one of several ranks
+    and really does have to talk to the others.
+    """
+    if not mpi_available():
+        raise ImportError(MPI4PY_MISSING_MESSAGE)
+
+
 # ---------------------------------------------------------------------------
 # One rank, no MPI
 # ---------------------------------------------------------------------------
@@ -294,10 +323,19 @@ def get_MPI(env=None):
 
     mpi4py already being imported means MPI is initialised regardless, so the
     real module is handed back -- a stub would then be the odd one out.
+
+    Under a launcher with mpi4py missing there is no honest fallback -- the stub
+    would answer "rank 0 of 1" in every one of N ranks, and N duplicate runs
+    silently overwriting each other's output is worse than a failure. So that
+    case raises :data:`MPI4PY_MISSING_MESSAGE`, which names the extra to install.
+    This is the single place the three ``mpiexec`` runners (param id, sensitivity
+    analysis, emulator training) reach MPI, so guarding it here covers all of
+    them without touching a shell script.
     """
     import sys
 
     if launched_by_mpiexec(env) or 'mpi4py.MPI' in sys.modules:
+        require_mpi4py()
         from mpi4py import MPI
         return MPI
     return _SerialMPI

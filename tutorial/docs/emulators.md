@@ -25,10 +25,11 @@ the emulator instead of running the solver.
 ## Installation
 
 The emulator backend is [autoemulate](https://pypi.org/project/autoemulate/), an optional
-dependency (it pulls in torch, gpytorch and lightgbm, and needs Python ≥3.10, <3.13):
+dependency (it pulls in torch, gpytorch and lightgbm — about 750 MB — and needs Python ≥3.10,
+<3.13):
 
 ```bash
-pip install "circulatory_autogen[emulation]"
+pip install "libcuflynx[emulation]"
 ```
 
 Everything else in CA works without it; only `do_emulation` / `use_emulator` need it. CA never
