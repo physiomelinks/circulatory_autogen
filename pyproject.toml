@@ -34,7 +34,7 @@ classifiers = [
 ]
 
 # What a plain `pip install libcuflynx` must bring: everything a generate + simulate +
-# calibrate run imports, and nothing else. Measured at about 539 MB of site-packages in a
+# calibrate run imports, and nothing else. Measured at about 540 MB of site-packages in a
 # fresh venv. The expensive things are kept out of it -- casadi (+221 MB), autoemulate/torch
 # (+750 MB), pymc (+65 MB) -- along with mpi4py, which is only 5 MB but needs a system MPI
 # toolchain at install time and is the commonest pip failure on macOS and Windows. See

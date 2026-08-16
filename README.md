@@ -27,7 +27,7 @@ companion directories (`scipy.libs`, `numpy.libs`) and every transitive dependen
 
 | install | on disk | what it buys |
 |---|---|---|
-| `libcuflynx` | **≈ 539 MB** | generation, simulation, calibration, Sobol SA, emcee MCMC, Laplace identifiability |
+| `libcuflynx` | **≈ 540 MB** | generation, simulation, calibration, Sobol SA, emcee MCMC, Laplace identifiability |
 | `libcuflynx[mpi]` | **+5 MB**, and a system MPI toolchain | multi-rank runs under `mpiexec` |
 | `libcuflynx[casadi]` | **+221 MB** | `model_type: casadi_python`, `solver: casadi_integrator`, symbolic AD gradients |
 | `libcuflynx[uq]` | **+65 MB** | the pyMC sampler (`UQ_options: library: pymc`) |
