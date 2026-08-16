@@ -15,6 +15,7 @@ generators_dir_path = os.path.dirname(__file__)
 from libcuflynx.generators.CVSCellMLGenerator import CVS0DCellMLGenerator
 from libcuflynx.parsers.PrimitiveParsers import CSVFileParser
 from libcuflynx.generators.Python1DModelFilesGenerator import generate1DPythonModelFiles, generate1DPythonSimInitFile
+from libcuflynx.utilities.package_resources import generator_template
 
 LIBCELLML_available = True
 try:
@@ -1759,8 +1760,7 @@ public:
 
         """
 
-        with open(generators_dir_path+'/cppGeneratorTemplateFunctions.cpp', 'r') as file:
-            lines_tmp = file.readlines()
+        lines_tmp = generator_template('cppGeneratorTemplateFunctions.cpp').read_text().splitlines(True)
         
         iStart = None
         iEnd = None
@@ -3644,8 +3644,7 @@ int main(int argc, char* argv[]){
         
         if (self.create_main and self.couple_to_1d):
             #XXX create also the main script main0d.cpp to be used to run the 0d model from the 1d-0d coupler
-            with open(generators_dir_path+'/main0dTemplate.cpp', 'r') as file:
-                lines = file.readlines()
+            lines = generator_template('main0dTemplate.cpp').read_text().splitlines(True)
 
             mainScript = """
 """

@@ -8,13 +8,13 @@ Created on 29/10/2021
 from libcuflynx.parsers.PrimitiveParsers import CSVFileParser, JSONFileParser
 from libcuflynx.models.LumpedModels import CVS0DModel
 from libcuflynx.checks.LumpedModelChecks import LumpedCompositeCheck, LumpedBCVesselCheck, LumpedIDParamsCheck, LumpedPortVariableCheck
+from libcuflynx.utilities.package_resources import builtin_modules_dir
 import pandas as pd
 import numpy as np
 import json
 import re
 import os
 
-generator_resources_dir_path = os.path.join(os.path.dirname(__file__), '../generators/resources')
 base_dir = os.path.join(os.path.dirname(__file__), '../../..')
 
 # The columns a {prefix}_parameters.csv must provide. They are looked up by header name, so a file
@@ -40,7 +40,10 @@ class CSV0DModelParser(object):
         self.parameter_filename = inp_data_dict['parameters_csv_abs_path']
         self.external_modules_dir = inp_data_dict['external_modules_dir']
         self.parameter_id_dir = parameter_id_dir
-        self.module_config_dir = generator_resources_dir_path
+        # The built-in module configs are package data, so they are located through
+        # importlib.resources; json_to_dataframe_with_user_dir() lists the directory, so a
+        # real path is needed rather than a Traversable.
+        self.module_config_dir = builtin_modules_dir()
         self.module_config_user_dir = os.path.join(base_dir, 'module_config_user')
         self.csv_parser = CSVFileParser()
         self.json_parser = JSONFileParser()
