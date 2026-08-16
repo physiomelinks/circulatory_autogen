@@ -23,7 +23,7 @@ with [`../example_model_scipy/`](../example_model_scipy/) instead — same contr
 | `heat1d_model.py` | The solver class plus `SIM_HELPER = Heat1D`. |
 | `heat1d_params_for_id.csv` | Parameters to calibrate / sweep (`k`, `u_D`) with bounds. |
 | `heat1d_parameters.csv` | Default parameter values (the calibration start point). |
-| `heat1d_obs_data.json` | Target observables — the three probe means at the "true" `k=0.25, u_D=0.1`. |
+| `heat1d_obs_data.json` | The `protocol_info` (the run window) plus target observables — the three probe means at the "true" `k=0.25, u_D=0.1`. |
 
 ## The contract
 
@@ -92,13 +92,35 @@ solver_info:
   # Free-form; handed to init_solver as config['solver_info']['user_config']. This model uses
   # it for the explicit scheme's stability margin.
   user_config: {stability_target: 0.4}
-pre_time: 0.0
-sim_time: 0.5
+# No pre_time/sim_time here: the run window lives in heat1d_obs_data.json's protocol_info
+# (pre_times: [0.0], sim_times: [[0.5]]), because it is the window the target values were
+# computed on. dt is still a yaml setting.
 dt: 0.005
 param_id_method: genetic_algorithm
 ```
 
 There is **no code generation step**: `run_autogeneration.sh` only checks that the file exists.
+
+## The run window is in the obs_data
+
+`heat1d_obs_data.json` opens with a `protocol_info`:
+
+```json
+"protocol_info": {
+  "pre_times": [0.0],
+  "sim_times": [[0.5]],
+  "params_to_change": {}
+}
+```
+
+`pre_times` holds one entry per experiment and `sim_times` one list per experiment, one entry
+per subexperiment — here a single experiment of a single 0.5 s stretch, run from `t = 0` with no
+spin-up. That protocol is what CA drives the model with, and what the CUFLynx GUI reads to know
+the window; a `pre_time`/`sim_time` in `user_inputs.yaml` is only the fallback for an obs_data
+that has no `protocol_info` at all.
+
+The three probe means below it are computed **over exactly that window**, so changing
+`sim_times` invalidates them.
 
 ## Running
 
