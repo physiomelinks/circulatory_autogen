@@ -17,7 +17,7 @@ import json
 import numpy as np
 import pytest
 
-from funcs_user import cost_funcs_user
+from libcuflynx.funcs import cost_funcs_user
 from libcuflynx.param_id.cost_kwargs import call_cost_func, ground_truth_param_name
 from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser
 from libcuflynx.utilities.obs_data_helpers import VALID_DATA_TYPES

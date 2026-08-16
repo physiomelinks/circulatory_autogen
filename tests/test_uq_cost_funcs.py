@@ -8,7 +8,7 @@ makes the optimiser walk away from the data.
 import numpy as np
 import pytest
 
-from funcs_user.cost_funcs_user import (
+from libcuflynx.funcs.cost_funcs_user import (
     cost_func_metadata, gaussian_MLE, kernel_density_estimation, poisson_MLE)
 
 

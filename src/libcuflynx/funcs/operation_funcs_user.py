@@ -20,6 +20,11 @@ Needed if you want to plot the series ontop of estimated constants
 
 "mb" is the math backend for optionally differentiable operations, can be "numpy" or "casadi"
 
+This module is *library* code (issue #433): do not add your own operations here, because an
+upgrade of libcuflynx replaces the file. Put them in your own file and name it with the
+``operation_funcs_external_path`` config key -- they are merged into the same registry as the
+operations below, decorators and all. See ``funcs_user/operation_funcs_example.py``.
+
 Observable operations: every top-level function defined in this module is registered automatically,
 except private names (leading ``_``), ``series_to_constant``, ``register_user_operations``, ``ml_to_m3``,
 and names starting with ``RICRI_`` (CellML parameter helpers). Put other helpers in another module or

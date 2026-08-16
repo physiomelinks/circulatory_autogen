@@ -4,8 +4,14 @@ from libcuflynx.param_id.differentiable import differentiable
 from libcuflynx.param_id.math_backend import make_math_backend, bind_backend
 
 """
-These functions can be used as cost functions. Specify a name of one of these functions as the "cost_type" in obs_data.json to
+The cost functions libcuflynx ships. Specify a name of one of these functions as the "cost_type" in obs_data.json to
 use it as the cost.
+
+This module is *library* code (issue #433): do not add your own costs here, because an upgrade
+of libcuflynx replaces the file. Put them in your own file and name it with the
+``cost_funcs_external_path`` config key -- they are merged into the same registry as the
+built-ins below, decorators and all, and may override a built-in by reusing its name. See
+``libcuflynx/funcs/__init__.py`` and ``funcs_user/cost_funcs_example.py``.
 
 When making your own cost function make sure it works for scalars and vectors. Otherwise put an error message so that if it is used
 for the wrong data type it gets called out and stopped.

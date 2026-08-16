@@ -27,9 +27,10 @@ and theta's starting value is derived by inverting the mapping at the baseline. 
 verified numerically at setup (``probe_affine``) and a non-affine function is refused there,
 before it can produce a silently wrong gradient.
 
-User-defined functions live in ``funcs_user/modifier_funcs_user.py`` (kept outside ``src/`` so
-users edit it freely), or in an external file named by the ``modifier_funcs_external_path``
-config key -- mirroring the operation-func (outputs) and cost-func registries.
+Shipped functions live here and in ``libcuflynx.funcs.modifier_funcs_user``. User-defined
+functions go in an external file named by the ``modifier_funcs_external_path`` config key --
+mirroring the operation-func (outputs) and cost-func registries. See
+``funcs_user/modifier_funcs_example.py`` in the repository for a template.
 """
 import functools
 import importlib
@@ -108,7 +109,8 @@ def _external_funcs_cached(abspath):
 
 
 def get_modifier_funcs(external_path=None):
-    """The full modifier-function registry: built-ins, then ``funcs_user``, then external.
+    """The full modifier-function registry: built-ins, then the shipped
+    ``libcuflynx.funcs.modifier_funcs_user``, then external.
 
     Later sources win on a name clash, matching the operation/cost func registries: a user
     redefining ``scale`` gets their version, deliberately. Only functions carrying the
@@ -118,17 +120,8 @@ def get_modifier_funcs(external_path=None):
     ``register_funcs_from_file`` does.
     """
     funcs = dict(BUILTIN_MODIFIER_FUNCS)
-    try:
-        user_module = importlib.import_module('modifier_funcs_user')
-    except ImportError:
-        user_module = None
-    if user_module is None:
-        try:
-            user_module = importlib.import_module('funcs_user.modifier_funcs_user')
-        except ImportError:
-            user_module = None
-    if user_module is not None:
-        funcs.update(_collect_decorated(user_module))
+    funcs.update(_collect_decorated(
+        importlib.import_module('libcuflynx.funcs.modifier_funcs_user')))
     if external_path:
         if not os.path.exists(external_path):
             raise FileNotFoundError(

@@ -987,7 +987,7 @@ def test_param_id_SN_simple_CVODE_myokit_ga_smoke(
     """
     Short GA smoke test for SN_simple using Myokit CVODE (matches SN_full-style calibration).
 
-    Observables exercise `funcs_user/operation_funcs_user.py` (calc_spike_frequency_windowed,
+    Observables exercise `libcuflynx/funcs/operation_funcs_user.py` (calc_spike_frequency_windowed,
     first_peak_time, steady_state_avg, steady_state_min, calc_spike_period, calc_min_peak)
     plus core `max`, mirroring the operation mix in `resources/SN_simple_obs_data.json`
     (max + windowed spike rate + first_peak_time) on a compact two-subexperiment protocol.
