@@ -6,7 +6,7 @@ import os
 # mpi4py.MPI, so a multi-rank run is unchanged.
 from libcuflynx.utilities.mpi_utils import get_MPI as _get_MPI
 from libcuflynx.sensitivity_analysis.sensitivityAnalysis import SensitivityAnalysis
-import traceback
+from libcuflynx.scripts import _cli
 import yaml
 from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
 
@@ -34,12 +34,14 @@ def run_SA(inp_data_dict=None):
         SA_agent.set_params_for_id(inp_data_dict['params_for_id'])
     SA_agent.run_sensitivity_analysis()
 
+def main(argv=None):
+    """Entry point for the ``cuflynx-sensitivity`` command."""
+    parser = _cli.build_parser(
+        'Run a Sobol sensitivity analysis of the configured observables with respect to the '
+        'parameters listed for identification.')
+    parser.parse_args(argv)
+    return _cli.run_stage(run_SA, MPI)
+
+
 if __name__ == '__main__':
-    comm = MPI.COMM_WORLD
-    try:
-        run_SA()
-        MPI.Finalize()
-    except:
-        print(traceback.format_exc())
-        comm.Abort()
-        MPI.Finalize()
+    sys.exit(main())

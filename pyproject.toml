@@ -62,6 +62,22 @@ dependencies = [
     "scikit-learn"
 ]
 
+[project.scripts]
+# The commands user_run_files/*.sh invoke. Console entry points rather than file paths so a
+# launcher never has to know where the package was installed -- `mpiexec -n 4 cuflynx-param-id`
+# works the same from a checkout, a wheel, or a conda env, and resolves through PATH like any
+# other program. Every target is a `main()` in the named module; tests/test_console_entry_points.py
+# is table-driven off this block, so a new entry point cannot be added without being tested.
+cuflynx-generate = "libcuflynx.scripts.script_generate_with_new_architecture:main"
+cuflynx-param-id = "libcuflynx.scripts.param_id_run_script:main"
+# Declared even though the stage is not currently implemented: the module says why, and
+# `cuflynx-sequential-param-id` reports it in one line instead of the command not existing.
+cuflynx-sequential-param-id = "libcuflynx.scripts.sequential_param_id_run_script:main"
+cuflynx-sensitivity = "libcuflynx.scripts.sensitivity_analysis_run_script:main"
+cuflynx-identifiability = "libcuflynx.scripts.identifiability_run_script:main"
+cuflynx-train-emulator = "libcuflynx.scripts.train_emulator_run_script:main"
+cuflynx-plot = "libcuflynx.scripts.plot_param_id_script:main"
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 include-package-data = true

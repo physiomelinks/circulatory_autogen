@@ -14,7 +14,7 @@ from libcuflynx.utilities.mpi_utils import get_MPI as _get_MPI
 
 MPI = _get_MPI()
 from libcuflynx.param_id.paramID import CVS0DParamID, ensure_mle_cost_type_for_bayesian_inner, mcmc_object
-import traceback
+from libcuflynx.scripts import _cli
 import yaml
 import numpy as np
 from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
@@ -165,13 +165,14 @@ def run_param_id(inp_data_dict=None):
             print('Identifiability analysis complete')
         
 
+def main(argv=None):
+    """Entry point for the ``cuflynx-param-id`` command."""
+    parser = _cli.build_parser(
+        'Calibrate a generated model against the observables named in the configuration, '
+        'then optionally run MCMC and identifiability analysis on the result.')
+    parser.parse_args(argv)
+    return _cli.run_stage(run_param_id, MPI)
+
+
 if __name__ == '__main__':
-    comm = MPI.COMM_WORLD
-    try:
-        run_param_id()
-        MPI.Finalize()
-    except:
-        print(traceback.format_exc())
-        comm.Abort()
-        MPI.Finalize()
-        exit()
+    sys.exit(main())
