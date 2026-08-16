@@ -163,7 +163,7 @@ def test_the_shipped_obs_data_carries_the_window_its_values_were_computed_on():
 
     # And it still parses -- with no pre_time/sim_time offered, so the file has to be
     # self-sufficient rather than falling back on a yaml's window.
-    from parsers.PrimitiveParsers import ObsAndParamDataParser
+    from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser
 
     parsed = ObsAndParamDataParser().parse_obs_data_json(param_id_obs_path=_OBS_DATA_PATH)
     assert parsed['protocol_info']['pre_times'] == [_SHIPPED_WINDOW['pre_time']]
