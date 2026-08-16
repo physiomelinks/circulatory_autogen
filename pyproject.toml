@@ -182,13 +182,17 @@ dev = [
     "black>=22.0.0",
     "flake8>=4.0.0",
     "mypy>=0.950",
-    # tests/conftest.py does `from mpi4py import MPI` at module scope, so without this the
-    # suite does not collect at all -- not one test, not even the serial ones.
-    "mpi4py>=3.0.0",
+    # Whole extras, not a hand-picked subset of them. `[dev]` listing `mpi4py` on its own
+    # was enough to collect the suite (tests/conftest.py does `from mpi4py import MPI` at
+    # module scope) but not to run it: paramID's multi-rank branch imports `schwimmbad`,
+    # the other half of `[mpi]`, and every mpi-marked test died on ModuleNotFoundError.
+    # Naming the extra means a dependency added to `[mpi]` or `[casadi]` later cannot go
+    # missing here again.
+    "libcuflynx[mpi]",
     # The casadi tests are `importorskip`, so leaving casadi out would not turn CI red -- it
     # would quietly stop running the CasADi arm of eleven test modules on the jobs that
     # install `.[dev]`. A developer environment covers the code, so it carries the extra.
-    "casadi>=3.7.2",
+    "libcuflynx[casadi]",
 ]
 docs = [
     "mkdocs-material>=9.0",
