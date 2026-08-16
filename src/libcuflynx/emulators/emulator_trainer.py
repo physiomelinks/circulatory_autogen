@@ -499,8 +499,8 @@ def resolve_emulator_dir(inp_data_dict):
         return settings['emulator_dir']
     # Same fallback CVS0DParamID uses for param_id_output_dir, so training and the run that
     # uses the emulator land on the same directory even when neither names one.
-    root = inp_data_dict.get('param_id_output_dir') or os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'param_id_output')
+    from libcuflynx.utilities.paths import default_param_id_output_dir
+    root = inp_data_dict.get('param_id_output_dir') or default_param_id_output_dir()
     prefix = inp_data_dict.get('file_prefix', 'model')
     obs_path = inp_data_dict.get('param_id_obs_path') or ''
     obs_prefix = os.path.splitext(os.path.basename(obs_path))[0] if obs_path else 'obs'
@@ -580,12 +580,18 @@ def _provenance(pid):
         provenance['autoemulate_version'] = version('autoemulate')
     except Exception:                                     # pragma: no cover - env dependent
         pass
-    try:
-        provenance['ca_git_sha'] = subprocess.check_output(
-            ['git', 'rev-parse', 'HEAD'], cwd=os.path.dirname(os.path.abspath(__file__)),
-            stderr=subprocess.DEVNULL).decode().strip()
-    except Exception:                                     # pragma: no cover - not always a repo
-        pass
+    # Only meaningful when running out of a checkout. Installed there is no CA git repo, and
+    # asking git from inside site-packages would report whatever unrelated repo happens to be
+    # above it (#431).
+    from libcuflynx.utilities.paths import repo_root
+    checkout = repo_root()
+    if checkout is not None:
+        try:
+            provenance['ca_git_sha'] = subprocess.check_output(
+                ['git', 'rev-parse', 'HEAD'], cwd=checkout,
+                stderr=subprocess.DEVNULL).decode().strip()
+        except Exception:                                 # pragma: no cover - not always a repo
+            pass
     return provenance
 
 

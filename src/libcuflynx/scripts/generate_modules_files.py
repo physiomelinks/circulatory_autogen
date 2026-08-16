@@ -13,9 +13,9 @@ import yaml
 
 import libcellml as lc
     
-root_dir = os.path.join(os.path.dirname(__file__), '../../..')
-user_inputs_dir = os.path.join(root_dir, 'user_run_files')
-src_dir = os.path.join(os.path.dirname(__file__), '..')
+from libcuflynx.utilities.paths import default_module_config_user_dir, default_user_inputs_dir
+
+user_inputs_dir = default_user_inputs_dir()
 import libcuflynx.utilities.libcellml_helper_funcs as cellml
 import libcuflynx.utilities.libcellml_utilities as libcellml_utils
 from libcuflynx.utilities.package_resources import builtin_module_file
@@ -25,7 +25,7 @@ from libcuflynx.utilities.package_resources import builtin_module_file
 # - Add support for automatically generating the ports in the module_config.json file. Currently the ports are not generated automatically.
 
 # Define file paths
-user_units_cellml = os.path.join(root_dir, 'module_config_user/user_units.cellml')
+user_units_cellml = os.path.join(default_module_config_user_dir(), 'user_units.cellml')
 # Package data, so a Traversable rather than a path -- it is only ever read.
 units_cellml = builtin_module_file('units.cellml')
 user_inputs_yaml = os.path.join(user_inputs_dir, 'user_inputs.yaml')
@@ -144,7 +144,7 @@ def _generate_module_config(variables, constants, states, file_prefix, component
 
     module_config = [config]
 
-    file_path = os.path.join(root_dir, 'module_config_user', f"{file_prefix}_module_config.json")
+    file_path = os.path.join(default_module_config_user_dir(), f"{file_prefix}_module_config.json")
 
     with open(file_path, "w") as fh:
         json.dump(module_config, fh, indent=2)
@@ -222,7 +222,7 @@ def _generate_cellml_module(input_model, states, file_prefix):
     cellml_str = cellml_str.replace('math:', '')
 
     # Write the modified cellml
-    file_path = os.path.join(root_dir, 'module_config_user', f"{file_prefix}_modules.cellml")
+    file_path = os.path.join(default_module_config_user_dir(), f"{file_prefix}_modules.cellml")
     with open(file_path, "w", encoding="UTF-8") as f:
         f.write(cellml_str)
 

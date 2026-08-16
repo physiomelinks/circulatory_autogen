@@ -25,6 +25,7 @@ from libcuflynx.utilities import diagnostics
 from libcuflynx.utilities import utility_funcs
 import traceback
 from libcuflynx.utilities.utility_funcs import Normalise_class
+from libcuflynx.utilities.paths import default_param_id_output_dir, default_resources_dir
 paperPlotSetup.Setup_Plot(3)
 from libcuflynx.solver_wrappers import get_simulation_helper
 from libcuflynx.protocol_runners.protocol_executor import ProtocolExecutor
@@ -297,7 +298,7 @@ class CVS0DParamID():
         case_type = f'{param_id_method}_{file_name_prefix}_{self.param_id_obs_file_prefix}'
         if self.rank == 0:
             if param_id_output_dir is None:
-                self.param_id_output_dir = os.path.join(os.path.dirname(__file__), '../../../param_id_output')
+                self.param_id_output_dir = default_param_id_output_dir()
             else:
                 self.param_id_output_dir = param_id_output_dir
             
@@ -316,7 +317,7 @@ class CVS0DParamID():
             self.output_dir = None
         
         if resources_dir is None:
-            self.resources_dir = os.path.join(os.path.dirname(__file__), '../../../resources')
+            self.resources_dir = default_resources_dir()
         else:
             self.resources_dir = resources_dir
 
@@ -4311,7 +4312,7 @@ class MCMC_plotter:
         case_type = f'{param_id_method}_{file_name_prefix}_{self.param_id_obs_file_prefix}'
         if self.rank == 0:
             if param_id_output_dir is None:
-                self.param_id_output_dir = os.path.join(os.path.dirname(__file__), '../../../param_id_output')
+                self.param_id_output_dir = default_param_id_output_dir()
             else:
                 self.param_id_output_dir = param_id_output_dir
             
@@ -4325,7 +4326,7 @@ class MCMC_plotter:
                 os.mkdir(self.plot_dir)
         
         if resources_dir is None:
-            self.resources_dir = os.path.join(os.path.dirname(__file__), '../../../resources')
+            self.resources_dir = default_resources_dir()
         else:
             self.resources_dir = resources_dir
 

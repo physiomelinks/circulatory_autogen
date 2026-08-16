@@ -12,6 +12,7 @@ from pathlib import Path
 from string import Template
 
 from libcuflynx.parsers.OMEXParsers import OMEXArchiveParser
+from libcuflynx.utilities.paths import repo_root
 
 
 def _indent_python(data, spaces: int = 4) -> str:
@@ -25,7 +26,11 @@ def _build_script_contents(omex_path: str, parser: OMEXArchiveParser, file_prefi
     }
     observable_specs = parser.build_direct_series_observable_specs(observable_dataset_index_by_variable)
     observable_dataset_options = parser.get_direct_series_selection_options()
-    project_root = Path(__file__).resolve().parents[3]
+    # Only a checkout has a src/ to put on sys.path; a pip-installed libcuflynx imports
+    # without any. repo_root() answers None in that case and the emitted script skips the
+    # sys.path surgery rather than pointing at a directory inside site-packages (#431).
+    checkout = repo_root()
+    project_root = str(checkout) if checkout is not None else ''
     observable_summary = [
         {
             "plot_index": spec.plot_index,
@@ -58,10 +63,13 @@ import numpy as np
 from mpi4py import MPI
 
 THIS_FILE = Path(__file__).resolve()
-PROJECT_ROOT = Path(r"$project_root")
-SRC_DIR = PROJECT_ROOT / "src"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
+# Empty unless this script was generated from a circulatory_autogen checkout; an
+# installed libcuflynx imports with no sys.path surgery at all.
+PROJECT_ROOT = Path(r"$project_root") if r"$project_root" else None
+if PROJECT_ROOT is not None:
+    SRC_DIR = PROJECT_ROOT / "src"
+    if SRC_DIR.is_dir() and str(SRC_DIR) not in sys.path:
+        sys.path.insert(0, str(SRC_DIR))
 
 from libcuflynx.identifiabilty_analysis.identifiabilityAnalysis import IdentifiabilityAnalysis
 from libcuflynx.param_id.paramID import CVS0DParamID
@@ -278,7 +286,7 @@ if __name__ == "__main__":
 '''
     template = template.replace("{{", "{").replace("}}", "}")
     return Template(template).substitute(
-        project_root=str(project_root),
+        project_root=project_root,
         omex_path=omex_path,
         file_prefix=file_prefix,
         params_for_id=_indent_python(params_for_id),

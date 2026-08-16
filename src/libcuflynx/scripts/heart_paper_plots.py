@@ -20,12 +20,12 @@ from libcuflynx.utilities import paperPlotSetup
 matplotlib.use('Agg')
 paperPlotSetup.Setup_Plot(3)
 
-root_dir_path = os.path.join(os.path.dirname(__file__), '../../..')
+from libcuflynx.utilities.paths import (default_generated_models_dir, default_resources_dir,
+                                        user_data_root)
 
-resources_dir_path = os.path.join(root_dir_path, 'resources')
-param_id_dir_path = os.path.join(root_dir_path, 'src/libcuflynx/param_id')
-user_plots_path = os.path.join(root_dir_path, 'user_plots')
-generated_models_dir_path = os.path.join(root_dir_path, 'generated_models')
+resources_dir_path = default_resources_dir()
+user_plots_path = os.path.join(user_data_root(), 'user_plots')
+generated_models_dir_path = default_generated_models_dir()
 
 from libcuflynx.param_id.paramID import CVS0DParamID
 from libcuflynx.utilities.utility_funcs import obj_to_string

@@ -10,7 +10,6 @@ import time
 import numpy as np
 from distutils import util, dir_util
 
-root_dir = os.path.join(os.path.dirname(__file__), '../../..')
 # Not `from mpi4py import MPI`: that import initialises MPI and registers an
 # atexit MPI_Finalize, and with no launcher present that finalise is what aborts
 # on macOS when a NIC goes away (#396). Under mpiexec get_MPI hands back the real
@@ -19,7 +18,9 @@ from libcuflynx.utilities.mpi_utils import get_MPI as _get_MPI
 
 MPI = _get_MPI()
 
-user_inputs_dir = os.path.join(root_dir, 'user_run_files')
+from libcuflynx.utilities.paths import default_user_inputs_dir
+
+user_inputs_dir = default_user_inputs_dir()
 
 from libcuflynx.param_id.sequential_paramID import SequentialParamID
 import traceback

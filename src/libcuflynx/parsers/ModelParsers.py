@@ -15,7 +15,7 @@ import json
 import re
 import os
 
-base_dir = os.path.join(os.path.dirname(__file__), '../../..')
+from libcuflynx.utilities.paths import default_module_config_user_dir
 
 # The columns a {prefix}_parameters.csv must provide. They are looked up by header name, so a file
 # may list them in any order and may carry extra columns (FTU_wCVS_parameters.csv has a 'comp_env'
@@ -42,9 +42,10 @@ class CSV0DModelParser(object):
         self.parameter_id_dir = parameter_id_dir
         # The built-in module configs are package data, so they are located through
         # importlib.resources; json_to_dataframe_with_user_dir() lists the directory, so a
-        # real path is needed rather than a Traversable.
+        # real path is needed rather than a Traversable (#432). The user dir is a checkout
+        # directory resolved outside the package (#431).
         self.module_config_dir = builtin_modules_dir()
-        self.module_config_user_dir = os.path.join(base_dir, 'module_config_user')
+        self.module_config_user_dir = default_module_config_user_dir()
         self.csv_parser = CSVFileParser()
         self.json_parser = JSONFileParser()
 

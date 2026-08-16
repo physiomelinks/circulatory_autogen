@@ -12,6 +12,7 @@ import sys
 import json
 from sys import exit
 generators_dir_path = os.path.dirname(__file__)
+from libcuflynx.utilities.paths import default_resources_dir
 from libcuflynx.generators.CVSCellMLGenerator import CVS0DCellMLGenerator
 from libcuflynx.parsers.PrimitiveParsers import CSVFileParser
 from libcuflynx.generators.Python1DModelFilesGenerator import generate1DPythonModelFiles, generate1DPythonSimInitFile
@@ -63,7 +64,7 @@ class CVS0DCppGenerator(object):
         self.file_prefix = file_prefix
         self.file_prefix_with_ids = f'{self.file_prefix}-with-ids'
         if resources_dir is None:
-            self.resources_dir = os.path.join(generators_dir_path, '../../../resources')
+            self.resources_dir = default_resources_dir()
         else:
             self.resources_dir = resources_dir 
         self.generated_model_file_path = os.path.join(self.generated_model_subdir, 
@@ -3814,7 +3815,7 @@ class CVS1DCppGenerator(object):
         if not os.path.exists(self.output_path):
             os.mkdir(self.output_path)
         self.file_prefix = file_prefix
-        self.user_resources_path = os.path.join(generators_dir_path, '../../../resources')
+        self.user_resources_path = default_resources_dir()
 
     
     def generate_files(self):
@@ -3835,7 +3836,7 @@ class CVSCoupledCppGenerator(object):
         if not os.path.exists(self.output_path):
             os.mkdir(self.output_path)
         self.file_prefix = file_prefix
-        self.user_resources_path = os.path.join(generators_dir_path, '../../../resources')
+        self.user_resources_path = default_resources_dir()
     
     def generate_files(self):
         zeroD_generator = CVS0DCppGenerator(self.model, self.output_path, self.file_prefix)

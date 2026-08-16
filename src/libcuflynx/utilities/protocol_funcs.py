@@ -11,8 +11,7 @@ ProtocolRunner class instead.
 import os
 import sys
 
-_ROOT_DIR = os.path.join(os.path.dirname(__file__), '../../..')
-_USER_INPUTS_DIR = os.path.join(_ROOT_DIR, 'user_run_files')
+from libcuflynx.utilities.paths import default_user_inputs_dir
 
 # Re-export ProtocolRunner from its canonical location.
 from libcuflynx.protocol_runners.protocol_runner import ProtocolRunner
@@ -25,7 +24,7 @@ def _load_inp_data_dict(inp_data_dict=None):
     if inp_data_dict is not None:
         return inp_data_dict
     import yaml
-    with open(os.path.join(_USER_INPUTS_DIR, 'user_inputs.yaml'), 'r') as fh:
+    with open(os.path.join(default_user_inputs_dir(), 'user_inputs.yaml'), 'r') as fh:
         inp_data_dict = yaml.load(fh, Loader=yaml.FullLoader)
     override = inp_data_dict.get('user_inputs_path_override')
     if override:
