@@ -1,7 +1,73 @@
+import traceback
 import warnings
 
-import opencor as oc
+# `opencor` is the Python module OpenCOR's own interpreter provides. It is not on PyPI and
+# cannot be shipped in a wheel, so `pip install libcuflynx` has every solver except this one.
+# Importing this module must therefore not be fatal: the factory in solver_wrappers/__init__.py
+# imports every backend eagerly, direct importers (plotting helpers, scripts) only want the
+# class object, and a user who never asks for CVODE_opencor should never see OpenCOR mentioned.
+# The failure belongs at the point the solver is *selected* -- see require_opencor(), which
+# SimulationHelper.__init__ calls, i.e. when get_simulation_helper() constructs the backend.
+try:
+    import opencor as oc
+except ImportError as _opencor_exc:
+    oc = None
+    #: Formatted `ImportError` from the attempted `import opencor`, or None when it succeeded.
+    OPENCOR_IMPORT_ERROR = ''.join(
+        traceback.format_exception_only(type(_opencor_exc), _opencor_exc)).strip()
+else:
+    OPENCOR_IMPORT_ERROR = None
+
 from libcuflynx.solver_wrappers.name_resolver import VariableNameResolver
+
+#: Where the docs describe the (deprecated) OpenCOR route.
+OPENCOR_DOCS_URL = ('https://physiomelinks.github.io/circulatory_autogen/'
+                    'getting-started/#deprecated-opencor-based-setup')
+
+
+class OpenCORUnavailableError(RuntimeError):
+    """`CVODE_opencor` was requested but this interpreter has no `opencor` module.
+
+    A `RuntimeError` subclass so that callers catching the factory's documented
+    `RuntimeError` for an unavailable backend keep working unchanged.
+    """
+
+
+def is_opencor_available():
+    """True when the `opencor` module imported, i.e. `CVODE_opencor` can actually run."""
+    return oc is not None
+
+
+def opencor_unavailable_message(solver='CVODE_opencor'):
+    """The message a user gets when they ask for OpenCOR in an environment without it.
+
+    Names the drop-in alternative rather than only stating the problem: `CVODE_myokit`
+    runs the same CellML model through the same CVODE integrator with no OpenCOR involved,
+    so for almost every user it is a one-word edit in `user_inputs.yaml`.
+    """
+    return (
+        f"The {solver} solver is not available: this Python cannot import `opencor` "
+        f"({OPENCOR_IMPORT_ERROR or 'module not found'}). OpenCOR's Python module is not "
+        "distributed on PyPI, so a pip install of libcuflynx ships every solver except this "
+        "one.\n"
+        "  - Use `solver: CVODE_myokit` instead. It is a drop-in replacement for "
+        "CVODE_opencor: the same CellML model, integrated by CVODE, with no OpenCOR "
+        "needed.\n"
+        "  - Or run inside OpenCOR, whose bundled interpreter provides `opencor`. That "
+        f"route is deprecated and documented at {OPENCOR_DOCS_URL}\n"
+        "It is expected to be replaced by `pip install libopencor` once libOpenCOR reaches "
+        "PyPI."
+    )
+
+
+def require_opencor(solver='CVODE_opencor'):
+    """Raise `OpenCORUnavailableError` unless the `opencor` module is importable.
+
+    A no-op when OpenCOR is present, so nothing about a real OpenCOR run changes.
+    """
+    if oc is None:
+        raise OpenCORUnavailableError(opencor_unavailable_message(solver))
+
 
 warnings.filterwarnings(
     "ignore",
@@ -21,6 +87,10 @@ class SimulationHelper():
     def __init__(self, cellml_path, dt,
                  sim_time, solver_info=None,
                  pre_time=0.0):
+
+        # Before anything else: constructing this helper is the moment CVODE_opencor is
+        # actually selected, and it is the last point at which we can say why it will not work.
+        require_opencor()
 
         # TODO comment this out
         # self.resource_module = import_module('psutil')
