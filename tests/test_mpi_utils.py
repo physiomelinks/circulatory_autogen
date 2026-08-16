@@ -266,3 +266,30 @@ def test_point_to_point_refuses_rather_than_deadlocking():
         comm.recv(source=0, tag=1)
     with pytest.raises(RuntimeError, match='no'):
         comm.isend(1, dest=1, tag=1)
+
+
+# ---------------------------------------------------------------------------
+# Ending the job
+#
+# The stage entry points (libcuflynx/scripts/_cli.py) end with `MPI.Finalize()`
+# and, on failure, `comm.Abort()`. Both used to be missing from the stub, so a
+# one-rank `cuflynx-param-id` raised AttributeError *after* finishing its work.
+# ---------------------------------------------------------------------------
+def test_finalizing_a_job_that_never_started_is_a_no_op():
+    assert mpi_utils._SerialMPI.Finalize() is None
+
+
+def test_abort_does_not_return_and_exits_non_zero():
+    """`comm.Abort()` is written at every call site as the last thing that happens.
+
+    Real MPI_Abort never returns, so the lines after it are unreachable; a stub that
+    returned would let them run and a failed serial run exit 0.
+    """
+    comm = mpi_utils._SerialMPI.COMM_WORLD
+    with pytest.raises(SystemExit) as excinfo:
+        comm.Abort()
+    assert excinfo.value.code == 1
+
+    with pytest.raises(SystemExit) as excinfo:
+        comm.Abort(3)
+    assert excinfo.value.code == 3

@@ -21,21 +21,25 @@ This file documents the conventions, gotchas, and entry points an agent needs th
 
 ## How users actually drive it
 
-Runs are launched via shell scripts in `user_run_files/`, which call entry-point scripts in `src/scripts/`. All read config from **`user_run_files/user_inputs.yaml`** (overridable via `user_inputs_path_override` in that file).
+Runs are launched via shell scripts in `user_run_files/`. Each one invokes a **console command** declared in `[project.scripts]` — `mpiexec -n 4 cuflynx-param-id`, not a path into `src/` — so a launcher never has to know where the package was installed. That means **`pip install -e .` is a prerequisite for every one of them**; without it the command is not on `PATH` and `user_run_files/cuflynx_entry_point.sh` says so before `mpiexec` is reached. All read config from **`user_run_files/user_inputs.yaml`** (overridable via `user_inputs_path_override` in that file).
 
-| Shell script (`user_run_files/`) | Entry script (`src/scripts/`) | Purpose |
+| Shell script (`user_run_files/`) | Command → `libcuflynx.scripts.` | Purpose |
 |---|---|---|
-| `run_autogeneration.sh` | `script_generate_with_new_architecture.py` | Generate model from CSV arrays |
-| `run_autogeneration_with_id_params.sh` | (same) | Regenerate using previously fitted params |
-| `run_param_id.sh` (arg: `num_processors`, uses `mpiexec`) | `param_id_run_script.py` | Generate + calibrate |
-| `run_sequential_param_id.sh` | `sequential_param_id_run_script.py` | Staged/sequential calibration |
-| `run_multiple_param_id.sh` | `run_multiple_param_id.py` | Batch calibration over models |
-| `run_sensitivity_analysis.sh` | `sensitivity_analysis_run_script.py` | Sobol SA (`mpiexec`) |
-| `run_identifiability_analysis.sh` | `identifiability_run_script.py` | Laplace / profile-likelihood |
-| `run_emulator_training.sh` (arg: `num_processors`, uses `mpiexec`) | `train_emulator_run_script.py` | Train a surrogate of the obs features |
-| `plot_param_id.sh` | `plot_param_id_script.py` | Plot calibration results |
+| `run_autogeneration.sh` | `cuflynx-generate False` → `script_generate_with_new_architecture` | Generate model from CSV arrays |
+| `run_autogeneration_with_id_params.sh` | `cuflynx-generate True` → (same) | Regenerate using previously fitted params |
+| `run_param_id.sh` (arg: `num_processors`, uses `mpiexec`) | `cuflynx-param-id` → `param_id_run_script` | Generate + calibrate |
+| `run_sequential_param_id.sh` | `cuflynx-sequential-param-id` → `sequential_param_id_run_script` | Staged/sequential calibration — **not currently implemented**, the `SequentialParamID` class it drives is not in the tree; the command says so and exits 2 |
+| `run_multiple_param_id.sh` | *(no command yet)* → `run_multiple_param_id.py` by path | Batch calibration over models |
+| `run_sensitivity_analysis.sh` | `cuflynx-sensitivity` → `sensitivity_analysis_run_script` | Sobol SA (`mpiexec`) |
+| `run_identifiability_analysis.sh` | `cuflynx-identifiability` → `identifiability_run_script` | Laplace / profile-likelihood |
+| `run_emulator_training.sh` (arg: `num_processors`, uses `mpiexec`) | `cuflynx-train-emulator` → `train_emulator_run_script` | Train a surrogate of the obs features |
+| `plot_param_id.sh` | `cuflynx-plot` → `plot_param_id_script` | Plot calibration results |
 
-Other useful scripts in `src/scripts/`: `generate_obs_json.py`, `example_format_obs_data_json_file.py`, `generate_modules_files.py`, `convert_0d_to_1d.py`, `read_and_insert_parameters.py`, `generate_omex_analysis_script.py`.
+Every command takes `--help` and no options beyond the optional `True|False` the two generation launchers pass; the configuration is the yaml. Each is a `main()` in the named module — `tests/test_console_entry_points.py` is table-driven off `[project.scripts]`, so a new entry point cannot be added without being tested.
+
+`python_path.sh` / `opencor_pythonshell_path.sh` are **not** sourced by these launchers any more; they remain for the OpenCOR route and for `run_pytest.sh`. To run a stage under a specific interpreter without putting its `bin/` on `PATH`, set `CUFLYNX_PYTHON` and the launcher uses `$CUFLYNX_PYTHON -m libcuflynx.scripts.<module>` instead.
+
+Other useful scripts in `src/libcuflynx/scripts/`: `generate_obs_json.py`, `example_format_obs_data_json_file.py`, `generate_modules_files.py`, `convert_0d_to_1d.py`, `read_and_insert_parameters.py`, `generate_omex_analysis_script.py`.
 
 ## Calling from Python (programmatic API)
 

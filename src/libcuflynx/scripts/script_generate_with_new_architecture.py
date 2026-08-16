@@ -19,6 +19,7 @@ from libcuflynx.generators.CVSCellMLGenerator import CVS0DCellMLGenerator
 from libcuflynx.generators.PythonGenerator import PythonGenerator
 from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
 from libcuflynx.utilities.utility_funcs import change_parameter_values_and_save
+from libcuflynx.scripts import _cli
 
 try:
     import libcellml as lc
@@ -268,10 +269,25 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
     return success
 
 
+def main(argv=None):
+    """Entry point for the ``cuflynx-generate`` command."""
+    parser = _cli.build_parser(
+        'Generate a model from the vessel/module and parameter CSV arrays, in the configured '
+        'model_type (CellML, Python, C++ or CasADi).')
+    parser.add_argument(
+        'with_fit_parameters', nargs='?', default=False, type=_cli.boolean,
+        metavar='True|False',
+        help='regenerate using the parameter values a previous calibration fitted, instead of '
+             'the defaults in the parameters CSV (default: False)')
+    args = parser.parse_args(argv)
+
+    # Deliberately not `return 0 if success else 1`: generation has always exited 0 whether
+    # or not it succeeded (one branch returns None outright), and run_param_id.sh tests that
+    # status. Turning a False return into a non-zero exit here would silently change which
+    # runs continue past generation, which belongs in its own change.
+    generate_with_new_architecture(args.with_fit_parameters)
+    return 0
+
+
 if __name__ == '__main__':
-    if len(sys.argv) > 1:
-        do_generation_with_fit_parameters = sys.argv[1] in ['true', 'True']
-    else:
-        do_generation_with_fit_parameters = False
-    
-    generate_with_new_architecture(do_generation_with_fit_parameters)
+    sys.exit(main())

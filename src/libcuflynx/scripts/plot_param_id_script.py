@@ -6,7 +6,6 @@ Created on 29/10/2021
 
 import sys
 import os
-from distutils import util
 import re
 
 # Not `from mpi4py import MPI`: that import initialises MPI and registers an
@@ -25,8 +24,7 @@ from libcuflynx.param_id.paramID import CVS0DParamID, MCMC_plotter
 from libcuflynx.identifiabilty_analysis.identifiabilityAnalysis import IdentifiabilityAnalysis
 from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
 from libcuflynx.utilities.utility_funcs import obj_to_string, change_parameter_values_and_save
-import traceback
-from distutils import util
+from libcuflynx.scripts import _cli
 import yaml
 from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
 import numpy as np
@@ -152,16 +150,22 @@ def plot_param_id(inp_data_dict=None, generate=True):
     
     return
 
+def main(argv=None):
+    """Entry point for the ``cuflynx-plot`` command."""
+    parser = _cli.build_parser(
+        'Plot the results of a calibration: simulate with the best-fit parameters, plot the '
+        'observables against the data, and plot the MCMC and identifiability results if those '
+        'stages were run.')
+    parser.add_argument(
+        'generate', nargs='?', default=True, type=_cli.boolean, metavar='True|False',
+        help='regenerate the model with the best-fit parameters before plotting '
+             '(default: True)')
+    args = parser.parse_args(argv)
+
+    # finalize=False: this stage never called MPI.Finalize(). It is single-rank by
+    # construction -- plot_param_id() returns immediately on every rank but 0.
+    return _cli.run_stage(lambda: plot_param_id(generate=args.generate), MPI, finalize=False)
+
+
 if __name__ == '__main__':
-    comm = MPI.COMM_WORLD
-    # get argument of whether to run the autogeneration, defaults to True
-    if len(sys.argv) == 2:
-        generate = util.strtobool(sys.argv[1])
-    else:
-        generate = True
-    try:
-        plot_param_id(generate=generate)
-    except:
-        print(traceback.format_exc())
-        comm.Abort()
-        exit()
+    sys.exit(main())

@@ -14,12 +14,12 @@ from libcuflynx.utilities.mpi_utils import get_MPI as _get_MPI
 
 MPI = _get_MPI()
 from libcuflynx.param_id.paramID import CVS0DParamID, ensure_mle_cost_type_for_bayesian_inner
-import traceback
 import yaml
 import numpy as np
 from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
 from libcuflynx.identifiabilty_analysis.identifiabilityAnalysis import IdentifiabilityAnalysis
 from libcuflynx.parsers.PrimitiveParsers import CSVFileParser, JSONFileParser
+from libcuflynx.scripts import _cli
 
 def run_identifiability_analysis(inp_data_dict=None):
 
@@ -83,13 +83,14 @@ def run_identifiability_analysis(inp_data_dict=None):
         print('Identifiability analysis complete')
         
 
+def main(argv=None):
+    """Entry point for the ``cuflynx-identifiability`` command."""
+    parser = _cli.build_parser(
+        'Run identifiability analysis (Laplace or profile likelihood) around the parameter '
+        'values a previous calibration wrote to the param_id output directory.')
+    parser.parse_args(argv)
+    return _cli.run_stage(run_identifiability_analysis, MPI)
+
+
 if __name__ == '__main__':
-    comm = MPI.COMM_WORLD
-    try:
-        run_identifiability_analysis()
-        MPI.Finalize()
-    except:
-        print(traceback.format_exc())
-        comm.Abort()
-        MPI.Finalize()
-        exit()
+    sys.exit(main())

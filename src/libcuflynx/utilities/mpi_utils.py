@@ -214,6 +214,17 @@ class _SerialComm(object):
     def Get_size(self):
         return 1
 
+    def Abort(self, errorcode=1):
+        """Kill the job, as ``MPI_Abort`` does -- here the job is this process.
+
+        The run scripts call ``comm.Abort()`` from their top-level exception
+        handler. Real ``MPI_Abort`` never returns, so the handler that follows it
+        is written as unreachable; a stub that merely returned would fall through
+        and let a failed serial run exit 0. Raising ``SystemExit`` keeps both
+        properties: the call does not return, and the exit status is non-zero.
+        """
+        raise SystemExit(errorcode)
+
     def Barrier(self):
         return None
 
@@ -294,6 +305,16 @@ class _SerialMPI(object):
 
     COMM_WORLD = _SerialComm()
     Request = _SerialRequest
+
+    @staticmethod
+    def Finalize():
+        """No-op: nothing was initialised, so there is nothing to finalise.
+
+        The run scripts end with ``MPI.Finalize()``. Without this the stub raised
+        ``AttributeError`` *after* the work had completed successfully, so a
+        one-rank ``cuflynx-param-id`` printed a traceback over a finished run.
+        """
+        return None
 
     DOUBLE = 'double'
     FLOAT = 'float'
