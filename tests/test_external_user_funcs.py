@@ -5,15 +5,15 @@ import textwrap
 
 import pytest
 
-from parsers.PrimitiveParsers import scriptFunctionParser
-from param_id.external_funcs import register_funcs_from_file
-from param_id.math_backend import make_math_backend
+from libcuflynx.parsers.PrimitiveParsers import scriptFunctionParser
+from libcuflynx.param_id.external_funcs import register_funcs_from_file
+from libcuflynx.param_id.math_backend import make_math_backend
 
 
 _EXTERNAL_OPS = textwrap.dedent('''
-    from param_id.operation_funcs import series_to_constant
-    from param_id.differentiable import differentiable
-    from param_id.math_backend import make_math_backend
+    from libcuflynx.param_id.operation_funcs import series_to_constant
+    from libcuflynx.param_id.differentiable import differentiable
+    from libcuflynx.param_id.math_backend import make_math_backend
     mb = make_math_backend("numpy")
 
     @differentiable
@@ -29,8 +29,8 @@ _EXTERNAL_OPS = textwrap.dedent('''
 
 _EXTERNAL_COSTS = textwrap.dedent('''
     from cost_funcs_user import is_MLE
-    from param_id.differentiable import differentiable
-    from param_id.math_backend import make_math_backend
+    from libcuflynx.param_id.differentiable import differentiable
+    from libcuflynx.param_id.math_backend import make_math_backend
     mb = make_math_backend("numpy")
 
     @differentiable
@@ -95,7 +95,7 @@ def test_init_from_dict_forwards_external_paths():
     """CVS0DParamID.init_from_dict must forward the two config keys to the engine (they are in its
     consumed arg_options), so a config-driven run picks up the external funcs."""
     import inspect
-    from param_id.paramID import CVS0DParamID
+    from libcuflynx.param_id.paramID import CVS0DParamID
     src = inspect.getsource(CVS0DParamID.init_from_dict)
     assert "operation_funcs_external_path" in src and "cost_funcs_external_path" in src
     params = inspect.signature(CVS0DParamID.__init__).parameters

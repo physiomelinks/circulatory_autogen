@@ -29,7 +29,7 @@ import os
 import numpy as np
 import pytest
 
-from param_id.paramID import CVS0DParamID
+from libcuflynx.param_id.paramID import CVS0DParamID
 
 TEST_INPUTS = os.path.join(os.path.dirname(__file__), 'test_inputs')
 
@@ -60,7 +60,7 @@ def casadi_models(tmp_path_factory):
     -- there is no second, hand-maintained copy of the model that could drift from the first.
     """
     pytest.importorskip('casadi')
-    from generators.PythonGenerator import PythonGenerator
+    from libcuflynx.generators.PythonGenerator import PythonGenerator
     out = str(tmp_path_factory.mktemp('scaling_casadi'))
     return {arm: PythonGenerator(os.path.join(TEST_INPUTS, f'scaling_{arm}.cellml'),
                                  output_dir=out, casadi_compat=True).generate()

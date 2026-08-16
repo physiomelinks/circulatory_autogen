@@ -4,5 +4,5 @@ if [[ $# -eq 0 ]] ; then
 fi
 source python_path.sh
 ./run_autogeneration.sh
-mpiexec -n $1 ${python_path} ../src/scripts/sequential_param_id_run_script.py
+mpiexec -n $1 ${python_path} ../src/libcuflynx/scripts/sequential_param_id_run_script.py
 

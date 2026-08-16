@@ -10,7 +10,7 @@ was not installed -- when it was, and the real error had already been discarded.
 """
 import pytest
 
-from solver_wrappers import (
+from libcuflynx.solver_wrappers import (
     BACKEND_IMPORT_ERRORS, _record_import_error, _unavailable_message, get_simulation_helper)
 
 
@@ -58,7 +58,7 @@ def test_a_genuinely_absent_backend_still_reads_as_absent():
 @pytest.mark.unit
 def test_requesting_a_backend_that_failed_to_import_surfaces_the_reason(monkeypatch):
     """End to end through the factory: the RuntimeError a caller sees carries the cause."""
-    import solver_wrappers
+    from libcuflynx import solver_wrappers
 
     monkeypatch.setattr(solver_wrappers, 'MyokitSimulationHelper', None)
     monkeypatch.setitem(solver_wrappers.BACKEND_IMPORT_ERRORS, 'Myokit',
@@ -79,7 +79,7 @@ def test_every_optional_backend_records_its_failures():
     silent-None behaviour this replaces."""
     import inspect
 
-    import solver_wrappers
+    from libcuflynx import solver_wrappers
 
     source = inspect.getsource(solver_wrappers)
     # Each optional import is a try/except that records, rather than swallowing.

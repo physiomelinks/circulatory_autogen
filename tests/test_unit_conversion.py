@@ -8,14 +8,9 @@ import xml.etree.ElementTree as ET
 import json  
 import pandas as pd  
   
-# Add src to path  
-_TEST_ROOT = os.path.join(os.path.dirname(__file__), '..')  
-_SRC_DIR = os.path.join(_TEST_ROOT, 'src')  
-if _SRC_DIR not in sys.path:  
-    sys.path.insert(0, _SRC_DIR)  
   
-from scripts.script_generate_with_new_architecture import generate_with_new_architecture  
-from solver_wrappers import get_simulation_helper  
+from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture  
+from libcuflynx.solver_wrappers import get_simulation_helper  
   
   
 @pytest.fixture  
@@ -230,7 +225,7 @@ def test_summation_with_unit_conversion(temp_model_dir, create_unit_conversion_t
     assert unit_converter_found, "Unit converter component not found in generated CellML"
 
     # Run simulation to verify results  
-    from solver_wrappers import get_simulation_helper  
+    from libcuflynx.solver_wrappers import get_simulation_helper  
       
     sim_helper = get_simulation_helper(  
         model_path=cellml_file,  

@@ -7,8 +7,8 @@ import os
 import pytest
 import yaml
 
-import parsers.PrimitiveParsers as primitive_parsers
-from scripts.script_generate_with_new_architecture import generate_with_new_architecture
+import libcuflynx.parsers.PrimitiveParsers as primitive_parsers
+from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
 
 
 @pytest.mark.integration
@@ -312,7 +312,7 @@ def test_generate_model_with_invalid_parameters_fails(base_user_inputs, resource
 
 def test_casadi_if_else_transform_replaces_ternaries():
     """Unit test: Python ternary expressions become ca.if_else in casadi_compat mode."""
-    from generators.PythonGenerator import PythonGenerator
+    from libcuflynx.generators.PythonGenerator import PythonGenerator
 
     source = (
         "def compute_rates(voi, states, rates, variables):\n"
@@ -327,7 +327,7 @@ def test_casadi_if_else_transform_replaces_ternaries():
 
 def test_casadi_division_guard_wraps_denominators():
     """Unit test: divisions become guarded with ca.fmax(fabs(denom), 1e-300) in casadi_compat mode."""
-    from generators.PythonGenerator import PythonGenerator
+    from libcuflynx.generators.PythonGenerator import PythonGenerator
 
     source = (
         "def compute_rates(voi, states, rates, variables):\n"
@@ -340,7 +340,7 @@ def test_casadi_division_guard_wraps_denominators():
 
 def test_casadi_compat_utilities_use_if_else_helpers():
     """Unit test: casadi_compat utilities emit ca.if_else comparison helpers."""
-    from generators.PythonGenerator import PythonGenerator
+    from libcuflynx.generators.PythonGenerator import PythonGenerator
 
     lines = PythonGenerator._comparison_helper_lines(casadi_compat=True)
     code = "\n".join(lines)

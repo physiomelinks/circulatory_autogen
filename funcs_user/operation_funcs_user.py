@@ -1,15 +1,15 @@
 import numpy as np
 import os
 import sys
-from param_id.operation_funcs import series_to_constant
+from libcuflynx.param_id.operation_funcs import series_to_constant
 try:
     import sympy
 except ImportError:  # optional dependency
     sympy = None
 from scipy.signal import find_peaks
 
-from param_id.differentiable import differentiable
-from param_id.math_backend import make_math_backend, bind_backend
+from libcuflynx.param_id.differentiable import differentiable
+from libcuflynx.param_id.math_backend import make_math_backend, bind_backend
 
 mb = make_math_backend("numpy")
 """

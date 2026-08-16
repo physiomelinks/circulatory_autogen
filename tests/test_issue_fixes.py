@@ -21,14 +21,14 @@ import pytest
 # #83 -- skip macOS AppleDouble '._*.json' sidecar files
 # ---------------------------------------------------------------------------
 def test_is_json_module_file_skips_appledouble():
-    from parsers.PrimitiveParsers import JSONFileParser
+    from libcuflynx.parsers.PrimitiveParsers import JSONFileParser
     assert JSONFileParser._is_json_module_file('boundary_condition_modules_config.json')
     assert not JSONFileParser._is_json_module_file('._boundary_condition_modules_config.json')
     assert not JSONFileParser._is_json_module_file('notes.txt')
 
 
 def test_json_reader_ignores_appledouble_sidecar(tmp_path):
-    from parsers.PrimitiveParsers import JSONFileParser
+    from libcuflynx.parsers.PrimitiveParsers import JSONFileParser
     good = tmp_path / 'good'
     empty = tmp_path / 'empty'
     good.mkdir()
@@ -56,7 +56,7 @@ class _StubModel:
 def _bare_generator(**attrs):
     """A CVS0DCellMLGenerator with only the attributes a single method needs (skips __init__,
     which would build a whole model)."""
-    from generators.CVSCellMLGenerator import CVS0DCellMLGenerator
+    from libcuflynx.generators.CVSCellMLGenerator import CVS0DCellMLGenerator
     gen = CVS0DCellMLGenerator.__new__(CVS0DCellMLGenerator)
     for k, v in attrs.items():
         setattr(gen, k, v)
@@ -95,7 +95,7 @@ def test_finished_parameters_csv_written_to_output_dir(tmp_path):
 # #157 -- solver Make files are copied into the generated model directory
 # ---------------------------------------------------------------------------
 def test_solver_make_files_copied_into_model_dir(tmp_path):
-    from generators.CVSCellMLGenerator import solver_make_files_dir
+    from libcuflynx.generators.CVSCellMLGenerator import solver_make_files_dir
     if not os.path.isdir(solver_make_files_dir):
         pytest.skip('solver Make_files directory not present in this checkout')
     expected = [f for f in os.listdir(solver_make_files_dir)
@@ -126,7 +126,7 @@ def test_microvasculature_config_has_no_duplicate_input_flow_modules():
     assert 'P_inlet' not in vessel_types
     assert 'Q_inlet' not in vessel_types
 
-    bc = os.path.join(root, 'src', 'generators', 'resources',
+    bc = os.path.join(root, 'src', 'libcuflynx', 'generators', 'resources',
                       'boundary_condition_modules_config.json')
     with open(bc) as rf:
         bc_entries = json.load(rf)
@@ -139,7 +139,7 @@ def test_microvasculature_config_has_no_duplicate_input_flow_modules():
 # #167 -- sanitise sensitivity-analysis plot filenames
 # ---------------------------------------------------------------------------
 def test_sanitize_for_filename_strips_unsafe_characters():
-    from sensitivity_analysis.sobolSA import sanitize_for_filename
+    from libcuflynx.sensitivity_analysis.sobolSA import sanitize_for_filename
     raw = r"u_{A_{R}} - experiment0, subexperiment0"
     safe = sanitize_for_filename(raw)
     for bad in '{}\\/ ,':
@@ -161,8 +161,8 @@ def _reduce(tmp_path, header, rows, variables_and_units=None):
     real __init__ would parse a whole model.
     """
     import pandas as pd
-    from parsers.ModelParsers import CSV0DModelParser
-    from parsers.PrimitiveParsers import CSVFileParser
+    from libcuflynx.parsers.ModelParsers import CSV0DModelParser
+    from libcuflynx.parsers.PrimitiveParsers import CSVFileParser
 
     csv_path = tmp_path / 'x_parameters.csv'
     csv_path.write_text('\n'.join([header] + rows) + '\n')
@@ -253,7 +253,7 @@ def test_parameters_csv_unit_mismatch_still_exits(tmp_path):
 # ---------------------------------------------------------------------------
 def _cpp_solver_init(solver, reltol=1e-7, abstol=1e-9):
     """The emitted set_ode_solver body, built without generating a whole model."""
-    from generators.CVSCppGenerator import CVS0DCppGenerator
+    from libcuflynx.generators.CVSCppGenerator import CVS0DCppGenerator
 
     gen = CVS0DCppGenerator.__new__(CVS0DCppGenerator)
     gen.solver = solver
@@ -300,7 +300,7 @@ def test_generate_script_reads_tolerances_from_solver_info():
     """The generator only gets the user's values if the cpp branch of the generate script passes
     them, and the defaults there are what keeps existing configs byte-identical."""
     import inspect
-    from scripts import script_generate_with_new_architecture as gen_script
+    from libcuflynx.scripts import script_generate_with_new_architecture as gen_script
 
     source = inspect.getsource(gen_script.generate_with_new_architecture)
     assert "solver_info.get('rtol', 1e-7)" in source

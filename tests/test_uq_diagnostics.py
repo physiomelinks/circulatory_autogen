@@ -12,7 +12,7 @@ import os
 import numpy as np
 import pytest
 
-from param_id.paramID import CVS0DParamID
+from libcuflynx.param_id.paramID import CVS0DParamID
 
 
 def _plotter(tmp_path=None, num_params=2):

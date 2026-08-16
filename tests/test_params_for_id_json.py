@@ -11,7 +11,7 @@ import pathlib
 import numpy as np
 import pytest
 
-from parsers.PrimitiveParsers import (
+from libcuflynx.parsers.PrimitiveParsers import (
     ObsAndParamDataParser, PARAMS_FOR_ID_ENTRY_KEYS, PARAMS_FOR_ID_JSON_VERSION)
 
 RESOURCES = pathlib.Path(__file__).resolve().parent.parent / 'resources'

@@ -357,7 +357,7 @@ def _emulator_config(base_user_inputs, temp_output_dir, temp_generated_models_di
     Nothing here is special-cased for an external model beyond the three keys that name it
     (``model_type``, ``solver``, ``external_model_path``) -- which is the point.
     """
-    from parsers.PrimitiveParsers import YamlFileParser
+    from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
 
     resources_dir = _copy_resources(temp_output_dir)
     config = base_user_inputs.copy()
@@ -449,7 +449,7 @@ def test_an_emulator_trained_on_the_fenics_model_agrees_with_it(
     """
     pytest.importorskip('autoemulate')
 
-    from emulators.emulator_trainer import EmulatorTrainer
+    from libcuflynx.emulators.emulator_trainer import EmulatorTrainer
 
     config = _emulator_config(base_user_inputs, temp_output_dir, temp_generated_models_dir)
     trainer = EmulatorTrainer.init_from_dict(config)
@@ -558,9 +558,9 @@ def test_a_calibration_through_the_emulator_completes_with_parameters_in_the_box
 
     from mpi4py import MPI
 
-    from emulators.emulator_bundle import EmulatorQualityError
-    from emulators.emulator_trainer import EmulatorTrainer, resolve_emulator_dir
-    from param_id.paramID import CVS0DParamID
+    from libcuflynx.emulators.emulator_bundle import EmulatorQualityError
+    from libcuflynx.emulators.emulator_trainer import EmulatorTrainer, resolve_emulator_dir
+    from libcuflynx.param_id.paramID import CVS0DParamID
 
     comm = MPI.COMM_WORLD
 

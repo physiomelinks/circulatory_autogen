@@ -33,7 +33,7 @@ import os
 import numpy as np
 import pytest
 
-from param_id.paramID import CVS0DParamID
+from libcuflynx.param_id.paramID import CVS0DParamID
 
 # The fixture pair lives in tests/test_inputs/ -- it is test scaffolding (an analytically
 # solvable toy), not a resource a user would run, which is what resources/ is for.
@@ -284,7 +284,7 @@ def test_tightening_rtol_past_the_floor_degrades_the_gradient_and_warns(
     degradation it is warning about, so the day Myokit fixes its side, this test fails and
     the guard can be dropped.
     """
-    from solver_wrappers.myokit_helper import FSA_MIN_SAFE_REL_TOL
+    from libcuflynx.solver_wrappers.myokit_helper import FSA_MIN_SAFE_REL_TOL
 
     tight = {'solver': 'CVODE_myokit', 'rtol': 1e-12, 'atol': 1e-12}
     engine = _engine(tmp_path, 'native', _NATIVE_PARAMS, solver_info=tight)

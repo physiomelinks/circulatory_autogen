@@ -19,7 +19,7 @@ rather than a bug worth fixing.
 
 import pytest
 
-from solver_wrappers.myokit_helper import _import_myokit_tolerating_first_run_race
+from libcuflynx.solver_wrappers.myokit_helper import _import_myokit_tolerating_first_run_race
 
 pytestmark = pytest.mark.unit
 

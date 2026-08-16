@@ -7,7 +7,7 @@ magnitude, and the old selection step assumed neither.
 import numpy as np
 import pytest
 
-from param_id.optimisers import GeneticAlgorithmOptimiser
+from libcuflynx.param_id.optimisers import GeneticAlgorithmOptimiser
 
 
 class _StubEngine:

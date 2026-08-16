@@ -13,7 +13,7 @@ import os
 import numpy as np
 import pytest
 
-from param_id.plot_outputs import ParamIDPlotOutputs
+from libcuflynx.param_id.plot_outputs import ParamIDPlotOutputs
 
 
 class _Client:

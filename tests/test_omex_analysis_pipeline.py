@@ -10,8 +10,8 @@ import sys
 import numpy as np
 import pytest
 
-from parsers.OMEXParsers import OMEXArchiveParser
-from scripts.generate_omex_analysis_script import generate_omex_analysis_script
+from libcuflynx.parsers.OMEXParsers import OMEXArchiveParser
+from libcuflynx.scripts.generate_omex_analysis_script import generate_omex_analysis_script
 
 
 def _venv_python(project_root):

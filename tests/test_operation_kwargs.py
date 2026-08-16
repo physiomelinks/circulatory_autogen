@@ -12,14 +12,14 @@ import textwrap
 import numpy as np
 import pytest
 
-from param_id.operation_funcs import (
+from libcuflynx.param_id.operation_funcs import (
     RESERVED_OPERATION_KWARGS,
     check_operation_kwargs,
     get_operation_kwarg_spec,
     resolve_operation_kwargs,
     validate_operation_kwargs,
 )
-from parsers.PrimitiveParsers import ObsAndParamDataParser, scriptFunctionParser
+from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser, scriptFunctionParser
 
 
 # ---------------------------------------------------------------------------
@@ -333,9 +333,9 @@ def test_contract_helpers_are_not_registered_as_operations():
 # ---------------------------------------------------------------------------
 
 _EXTERNAL_OPS = textwrap.dedent('''
-    from param_id.operation_funcs import series_to_constant
-    from param_id.differentiable import differentiable
-    from param_id.math_backend import make_math_backend
+    from libcuflynx.param_id.operation_funcs import series_to_constant
+    from libcuflynx.param_id.differentiable import differentiable
+    from libcuflynx.param_id.math_backend import make_math_backend
     mb = make_math_backend("numpy")
 
     @differentiable

@@ -36,7 +36,9 @@ import time
 
 
 def _add_root_to_path(root):
-    """Import the project from ``root`` (its ``src/`` plus the repo root itself)."""
+    """Import a checkout at ``root``: its ``src/`` (which holds ``libcuflynx``) plus the
+    repo root itself, since this profiler is pointed at an arbitrary tree rather than
+    at whatever is installed."""
     for path in (os.path.join(root, "src"), root):
         if path not in sys.path:
             sys.path.insert(0, path)
@@ -66,7 +68,7 @@ def build_comparison(root, benchmark, method, num_calls, work_dir, comm):
     """Generate the model (rank 0) and return an OptimiserComparison ready to run ``method``."""
     from benchmarks import benchmark_specs as specs
     from benchmarks.compare_optimisers import OptimiserComparison
-    from scripts.script_generate_with_new_architecture import generate_with_new_architecture
+    from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
 
     builder_name = _CONFIG_BUILDERS.get(benchmark)
     if builder_name is None or not hasattr(specs, builder_name):

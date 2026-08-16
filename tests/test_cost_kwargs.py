@@ -8,7 +8,7 @@ data_item may add its own keyword arguments.
 """
 import pytest
 
-from param_id.cost_kwargs import (
+from libcuflynx.param_id.cost_kwargs import (
     RESERVED_COST_KWARGS, call_cost_func, check_cost_kwargs, framework_kwargs_for,
     get_cost_kwarg_spec, resolve_cost_kwargs, validate_cost_kwargs)
 

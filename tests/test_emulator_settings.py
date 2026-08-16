@@ -12,10 +12,10 @@ import os
 import numpy as np
 import pytest
 
-from emulators.emulator_bundle import (EmulatorBoundsError, EmulatorBundle,
+from libcuflynx.emulators.emulator_bundle import (EmulatorBoundsError, EmulatorBundle,
                                        EmulatorQualityError, fingerprint)
-from param_id.paramID import OpencorParamID
-from parsers.PrimitiveParsers import ANALYSIS_OPTIONS, YamlFileParser, gradient_sources
+from libcuflynx.param_id.paramID import OpencorParamID
+from libcuflynx.parsers.PrimitiveParsers import ANALYSIS_OPTIONS, YamlFileParser, gradient_sources
 
 pytestmark = pytest.mark.unit
 
@@ -353,7 +353,7 @@ def test_the_default_is_used_only_when_neither_says_anything():
 def test_out_of_bounds_defaults_to_what_the_emulator_was_trained_with(tmp_path):
     """Passed through the helper rather than _use_time_setting, because the bundle
     is not loaded until the helper loads it."""
-    from solver_wrappers.emulator_solver_helper import SimulationHelper as EmulatorHelper
+    from libcuflynx.solver_wrappers.emulator_solver_helper import SimulationHelper as EmulatorHelper
 
     bundle = _bundle_trained_with(out_of_bounds='clip')
     helper = EmulatorHelper(str(tmp_path), bundle=bundle, out_of_bounds=None)

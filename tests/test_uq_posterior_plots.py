@@ -9,7 +9,7 @@ import os
 import numpy as np
 import pytest
 
-from param_id.paramID import CVS0DParamID, integrate_trapezoid
+from libcuflynx.param_id.paramID import CVS0DParamID, integrate_trapezoid
 
 
 class _StubEngine:

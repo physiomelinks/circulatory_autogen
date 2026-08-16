@@ -12,7 +12,7 @@ TIME_VARIABLE="t"
 COMPONENT_NAME="main"
 
 # Run the script with all arguments
-${opencor_pythonshell_path} ../src/scripts/generate_modules_files.py \
+${opencor_pythonshell_path} ../src/libcuflynx/scripts/generate_modules_files.py \
     -i "${INPUT_MODEL}" \
     -o "${OUTPUT_DIR}" \
     --file-prefix "${FILE_PREFIX}" \

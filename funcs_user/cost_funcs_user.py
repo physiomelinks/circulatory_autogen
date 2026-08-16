@@ -1,7 +1,7 @@
 import numpy as np
 
-from param_id.differentiable import differentiable
-from param_id.math_backend import make_math_backend, bind_backend
+from libcuflynx.param_id.differentiable import differentiable
+from libcuflynx.param_id.math_backend import make_math_backend, bind_backend
 
 """
 These functions can be used as cost functions. Specify a name of one of these functions as the "cost_type" in obs_data.json to
@@ -233,7 +233,7 @@ def build_cost_funcs_dict(backend, external_path=None):
     registry = {}
     register_cost_funcs(registry, backend)
     if external_path:
-        from param_id.external_funcs import register_funcs_from_file
+        from libcuflynx.param_id.external_funcs import register_funcs_from_file
         register_funcs_from_file(external_path, registry, backend, exclude=_EXTERNAL_COST_EXCLUDE)
     return registry
 
@@ -252,7 +252,7 @@ def cost_func_metadata(mode="numpy", external_path=None):
     - ``is_combiner``: combines the per-observable costs (e.g. additive), not a per-item cost.
     - ``differentiable``: safe for CasADi symbolic execution (AD gradients).
     """
-    from param_id.differentiable import is_circulatory_differentiable
+    from libcuflynx.param_id.differentiable import is_circulatory_differentiable
     meta = {}
     for name, func in get_cost_funcs_dict_for_mode(mode, external_path=external_path).items():
         meta[name] = {

@@ -23,8 +23,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from param_id.paramID import CVS0DParamID
-from scripts.param_id_run_script import run_param_id
+from libcuflynx.param_id.paramID import CVS0DParamID
+from libcuflynx.scripts.param_id_run_script import run_param_id
 # mpi_comm is a fixture defined in test_param_id, so it has to be imported here to be visible to
 # these tests -- not merely referenced in their signatures.
 #

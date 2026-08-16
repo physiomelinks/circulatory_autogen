@@ -12,7 +12,7 @@ import os
 import numpy as np
 import pytest
 
-from param_id.paramID import OpencorMCMC
+from libcuflynx.param_id.paramID import OpencorMCMC
 
 
 class _StubMCMC:

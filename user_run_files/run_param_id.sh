@@ -9,7 +9,7 @@ source python_path.sh
 if [ $? -eq 0 ]; then
   echo "Autogeneration completed successfully."
 
-  mpiexec -n $1 ${python_path} ../src/scripts/param_id_run_script.py
+  mpiexec -n $1 ${python_path} ../src/libcuflynx/scripts/param_id_run_script.py
 
 else
   echo "Error: Autogeneration failed. Aborting."

@@ -2,7 +2,7 @@
 Tests for ProtocolExecutor and ProtocolRunner.
 
 These tests verify that the centralised protocol-running code in
-src/protocol_runners/ works correctly in the same ways it is used by:
+src/libcuflynx/protocol_runners/ works correctly in the same ways it is used by:
 
   - ProcessData (standalone ProtocolRunner)
   - OpencorParamID / sobol_SA (ProtocolExecutor with pre-built sim_helper)
@@ -20,13 +20,10 @@ import numpy as np
 import pytest
 
 _TEST_ROOT = os.path.join(os.path.dirname(__file__), '..')
-_SRC_DIR = os.path.join(_TEST_ROOT, 'src')
-if _SRC_DIR not in sys.path:
-    sys.path.insert(0, _SRC_DIR)
 
-from parsers.PrimitiveParsers import validate_params_to_change
-from solver_wrappers import get_simulation_helper
-from protocol_runners import ProtocolExecutor, ProtocolRunner
+from libcuflynx.parsers.PrimitiveParsers import validate_params_to_change
+from libcuflynx.solver_wrappers import get_simulation_helper
+from libcuflynx.protocol_runners import ProtocolExecutor, ProtocolRunner
 
 # ---------------------------------------------------------------------------
 # Shared fixtures / helpers

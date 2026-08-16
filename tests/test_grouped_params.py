@@ -8,7 +8,7 @@ was calibrating a single vessel.
 import numpy as np
 import pytest
 
-from solver_wrappers.param_grouping import (
+from libcuflynx.solver_wrappers.param_grouping import (
     as_name_list, as_value_list, pair_names_with_values)
 
 
@@ -79,7 +79,7 @@ def test_sobol_keeps_groups_for_setting_and_flattens_only_for_labels():
     Collapsing to the first name for both is what made a grouped SA vary one vessel while
     calibration varied all of them -- the two silently answered different questions.
     """
-    from sensitivity_analysis.sobolSA import sobol_SA
+    from libcuflynx.sensitivity_analysis.sobolSA import sobol_SA
 
     sa = sobol_SA.__new__(sobol_SA)
     sa.param_id_info = {
@@ -107,7 +107,7 @@ def test_the_casadi_backend_now_supports_groups_by_folding_per_member_derivative
     that remains is against an *unflattened* name reaching the helper, which would silently
     reintroduce the first-member-only bug.
     """
-    from param_id.casadi_backend import flatten_entries, fold_entry_rows
+    from libcuflynx.param_id.casadi_backend import flatten_entries, fold_entry_rows
 
     info = {'param_names': [['a/C', 'b/C'], ['heart/R']]}
     flat, entry_map = flatten_entries(info)

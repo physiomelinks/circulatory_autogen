@@ -8,18 +8,18 @@ import os
 import pytest
 import numpy as np
 from mpi4py import MPI
-from param_id.paramID import CVS0DParamID
-from parsers.PrimitiveParsers import YamlFileParser
+from libcuflynx.param_id.paramID import CVS0DParamID
+from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
 
-from scripts.script_generate_with_new_architecture import generate_with_new_architecture
-from scripts.param_id_run_script import run_param_id
-from scripts.plot_param_id_script import plot_param_id
-from scripts.example_format_obs_data_json_file import example_format_obs_data_json_file
+from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
+from libcuflynx.scripts.param_id_run_script import run_param_id
+from libcuflynx.scripts.plot_param_id_script import plot_param_id
+from libcuflynx.scripts.example_format_obs_data_json_file import example_format_obs_data_json_file
 
 
 def test_casadi_differentiability_assert_passes_for_core_ops_and_costs():
-    from param_id.differentiable import assert_casadi_differentiable
-    from parsers.PrimitiveParsers import scriptFunctionParser
+    from libcuflynx.param_id.differentiable import assert_casadi_differentiable
+    from libcuflynx.parsers.PrimitiveParsers import scriptFunctionParser
 
     sfp = scriptFunctionParser()
     ops = sfp.get_operation_funcs_dict("casadi")
@@ -42,8 +42,8 @@ def test_operation_and_cost_dicts_are_backend_independent():
     silently used the casadi backend and ``mean`` (``ca.sum(x)/x.numel()``) crashed on numpy
     operands. bind_backend makes each registry independent regardless of build order.
     """
-    from param_id.differentiable import is_circulatory_differentiable
-    from parsers.PrimitiveParsers import scriptFunctionParser
+    from libcuflynx.param_id.differentiable import is_circulatory_differentiable
+    from libcuflynx.parsers.PrimitiveParsers import scriptFunctionParser
     ca = pytest.importorskip("casadi")
 
     sfp = scriptFunctionParser()
@@ -70,8 +70,8 @@ def test_operation_and_cost_dicts_are_backend_independent():
 
 
 def test_mcmc_and_laplace_require_is_mle_cost():
-    from param_id.differentiable import assert_mle_cost_for_bayesian
-    from parsers.PrimitiveParsers import scriptFunctionParser
+    from libcuflynx.param_id.differentiable import assert_mle_cost_for_bayesian
+    from libcuflynx.parsers.PrimitiveParsers import scriptFunctionParser
 
     sfp = scriptFunctionParser()
     costs = sfp.get_cost_funcs_dict("numpy")
@@ -82,7 +82,7 @@ def test_mcmc_and_laplace_require_is_mle_cost():
     with pytest.raises(ValueError, match="is_MLE"):
         assert_mle_cost_for_bayesian("AE", costs, "Laplace approximation")
 def test_casadi_differentiability_assert_raises_on_plain_operation():
-    from param_id.differentiable import assert_casadi_differentiable
+    from libcuflynx.param_id.differentiable import assert_casadi_differentiable
 
     def f(x):
         return x
@@ -1059,8 +1059,8 @@ def test_param_id_SN_simple_CVODE_myokit_ga_smoke(
 
         matplotlib.use("Agg", force=True)
 
-        from parsers.PrimitiveParsers import YamlFileParser
-        from param_id.paramID import CVS0DParamID
+        from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
+        from libcuflynx.param_id.paramID import CVS0DParamID
 
         saved_best_cost = float(np.load(best_cost_path))
         saved_best_param_vals = np.load(best_param_vals_path)
@@ -1495,7 +1495,7 @@ def test_param_id_lotka_volterra_sp_minimize_gt_vs_calculated_params(base_user_i
         mpi_comm: MPI communicator fixture
     """
     import json
-    from solver_wrappers import get_simulation_helper
+    from libcuflynx.solver_wrappers import get_simulation_helper
     
     rank = mpi_comm.Get_rank()
     
@@ -1717,8 +1717,8 @@ def test_3compartment_nonstiff_casadi_forward_and_gradient(
     """
     pytest.importorskip("casadi")
     import json
-    from parsers.PrimitiveParsers import YamlFileParser
-    from solver_wrappers import get_simulation_helper
+    from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
+    from libcuflynx.solver_wrappers import get_simulation_helper
 
     config = base_user_inputs.copy()
     config.update({
@@ -1780,7 +1780,7 @@ def test_3compartment_nonstiff_casadi_forward_and_gradient(
     assert cost_float >= 0, f"Forward cost should be non-negative, got {cost_float}"
 
     if config.get('DEBUG', False):
-        from utilities.casadi_solver_diagnostics import (
+        from libcuflynx.utilities.casadi_solver_diagnostics import (
             diagnose_casadi_solver_after_forward,
             log_casadi_gradient_diagnostic,
         )
@@ -2421,7 +2421,7 @@ def test_param_id_3compartment_nonstiff_casadi_succeeds(
     """
     pytest.importorskip("casadi")
     import json
-    from solver_wrappers import get_simulation_helper
+    from libcuflynx.solver_wrappers import get_simulation_helper
 
     import csv as csv_module
 
@@ -3202,7 +3202,7 @@ def test_offline_pre_time_3compartment_python_outputs_match(
 
 def test_parse_obs_data_json_rejects_value_and_npy_paths(tmp_path):
     """Series items must use embedded value OR t_path/value_path, not both."""
-    from parsers.PrimitiveParsers import ObsAndParamDataParser
+    from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser
 
     t_path = tmp_path / "t.npy"
     v_path = tmp_path / "y.npy"
@@ -3239,7 +3239,7 @@ def test_parse_obs_data_json_rejects_value_and_npy_paths(tmp_path):
 
 def test_parse_obs_data_json_series_std_scalar_from_npy_paths(tmp_path):
     """Scalar std in JSON is expanded to match series length loaded from .npy."""
-    from parsers.PrimitiveParsers import ObsAndParamDataParser
+    from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser
 
     t_path = tmp_path / "t.npy"
     v_path = tmp_path / "y.npy"
@@ -3277,7 +3277,7 @@ def test_parse_obs_data_json_series_std_scalar_from_npy_paths(tmp_path):
 
 def test_parse_obs_data_json_series_std_required_for_npy_paths(tmp_path):
     """Series items loaded from .npy must specify std in the JSON."""
-    from parsers.PrimitiveParsers import ObsAndParamDataParser
+    from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser
 
     t_path = tmp_path / "t.npy"
     v_path = tmp_path / "y.npy"
@@ -3359,7 +3359,7 @@ def test_sp_minimize_streams_cost_history_per_iteration(temp_output_dir):
     iteration (not just a start + end pair), so the live progress plots update
     during a gradient-based calibration. Uses a Rosenbrock cost so L-BFGS-B takes
     several iterations; no model/casadi needed."""
-    from param_id.optimisers import SciPyMinimizeOptimiser
+    from libcuflynx.param_id.optimisers import SciPyMinimizeOptimiser
 
     mins = np.array([-10.0, -10.0])
     maxs = np.array([10.0, 10.0])
@@ -3428,7 +3428,7 @@ def test_sp_minimize_streams_gradient_history_per_iteration(temp_output_dir):
     Checks: the header names the parameters; the first gradient row equals the analytic gradient
     at the start point; there is exactly one gradient row per cost row; and the gradient collapses
     towards zero as the descent converges to the Rosenbrock minimum."""
-    from param_id.optimisers import SciPyMinimizeOptimiser
+    from libcuflynx.param_id.optimisers import SciPyMinimizeOptimiser
 
     mins = np.array([-10.0, -10.0])
     maxs = np.array([10.0, 10.0])
@@ -3558,7 +3558,7 @@ def _two_well_param_id_info():
 
 def _make_multi_start_optimiser(output_dir, param_id_obj, optimiser_options,
                                 model_type='casadi_python', do_ad=True):
-    from param_id.optimisers import MultiStartSciPyMinimizeOptimiser
+    from libcuflynx.param_id.optimisers import MultiStartSciPyMinimizeOptimiser
 
     return MultiStartSciPyMinimizeOptimiser(
         param_id_obj=param_id_obj, param_id_info=_two_well_param_id_info(),
@@ -3762,7 +3762,7 @@ def _read_keyed_stream_rows(path):
 def test_sp_minimize_saves_best_params_before_the_run_finishes(temp_output_dir):
     """A cancelled sp_minimize run must leave a best_param_vals.npy holding the best-so-far in
     ACTUAL (unnormalised) parameter space, not just write one at the very end (issue #300)."""
-    from param_id.optimisers import SciPyMinimizeOptimiser
+    from libcuflynx.param_id.optimisers import SciPyMinimizeOptimiser
 
     # The full descent from (1.9, 1.9) takes ~13 cost evaluations, so cancelling after 8 lands
     # partway through, several accepted L-BFGS-B iterations in.
@@ -4496,7 +4496,7 @@ def test_series_interpolation_uses_the_correct_sample_times():
     different factors, so they drift apart over a long simulation — about a full observation
     sample over the 60 s below — and the residuals are taken at the wrong times.
     """
-    from param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import OpencorParamID
 
     dt = 0.1
     obs_dt = 0.25
@@ -4530,7 +4530,7 @@ def test_series_interpolation_matches_between_numpy_and_casadi_paths():
     """The numeric and symbolic costs must resample a series identically, otherwise the same
     model calibrated as cellml_only and as casadi_python would have different cost surfaces."""
     import casadi as ca
-    from param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import OpencorParamID
 
     dt = 0.1
     obs_dt = 0.25
@@ -4565,7 +4565,7 @@ def test_series_interpolation_matches_between_numpy_and_casadi_paths():
 def test_series_interpolation_does_not_invent_data_past_the_end_of_the_simulation():
     """np.interp clamps to the last value, which would compare a flat fabricated tail against
     real observations. Observation times past the end of the simulation are dropped instead."""
-    from param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import OpencorParamID
 
     dt = 0.1
     obs_dt = 0.25
@@ -4918,7 +4918,7 @@ def test_offline_pre_time_rejects_initial_state_parameters():
     to a +25% perturbation drops from 8.49% to 0.0000% once an offline warm-up is used, so this
     must fail loudly rather than quietly produce an unidentifiable parameter.
     """
-    from param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import OpencorParamID
 
     class _Stub:
         """Minimal stand-in exposing only what the detection reads."""
@@ -4952,7 +4952,7 @@ def test_offline_pre_time_rejects_initial_state_parameters():
 @pytest.mark.unit
 def test_offline_pre_time_error_message_explains_the_reformulation():
     """The error must tell the user how to proceed, not just that they cannot."""
-    from param_id.paramID import OFFLINE_PRE_TIME_INIT_STATE_ERROR as msg
+    from libcuflynx.param_id.paramID import OFFLINE_PRE_TIME_INIT_STATE_ERROR as msg
     assert "varying initial state (quantity) requires doing it from the actual initial state" in msg
     assert "offline_pre_time can't be used" in msg
     # and it must point at the reformulation, with the concrete example
@@ -5020,8 +5020,8 @@ def _build_lotka_offline_gradient_runner(
     parsed['one_rank'] = True
 
     # Spy on the offline warm-up so callers can assert it really ran (see the tests below).
-    import solver_wrappers.myokit_helper as _mh
-    import solver_wrappers.casadi_python_solver_helper as _ch
+    import libcuflynx.solver_wrappers.myokit_helper as _mh
+    import libcuflynx.solver_wrappers.casadi_python_solver_helper as _ch
     backend = _mh.SimulationHelper if model_type == 'cellml_only' else _ch.SimulationHelper
     original = backend.run_offline_pre_and_set_default_state
 

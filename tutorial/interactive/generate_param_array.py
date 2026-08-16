@@ -23,16 +23,12 @@ def generate_param_array(inp_data_dict=None):
     root_dir = os.path.dirname(root_dir)
     root_dir = os.path.dirname(root_dir)
 
-    src_path = os.path.join(root_dir, 'src')
-    if src_path not in sys.path:
-        sys.path.append(src_path)
-
     # 2. Import Classes (Lazy Load)
-    from parsers.ModelParsers import CSV0DModelParser
-    from generators.CVSCellMLGenerator import CVS0DCellMLGenerator
-    from generators.CVSCppGenerator import CVS0DCppGenerator
-    from parsers.PrimitiveParsers import YamlFileParser
-    from parsers.PrimitiveParsers import CSVFileParser
+    from libcuflynx.parsers.ModelParsers import CSV0DModelParser
+    from libcuflynx.generators.CVSCellMLGenerator import CVS0DCellMLGenerator
+    from libcuflynx.generators.CVSCppGenerator import CVS0DCppGenerator
+    from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
+    from libcuflynx.parsers.PrimitiveParsers import CSVFileParser
     # --- LAZY LOADING END ---
 
     user_inputs_dir = os.path.join(root_dir, 'user_run_files')

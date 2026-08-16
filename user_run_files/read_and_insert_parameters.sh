@@ -1,2 +1,2 @@
 source python_path.sh
-${python_path} ../src/scripts/read_and_insert_parameters.py $1
+${python_path} ../src/libcuflynx/scripts/read_and_insert_parameters.py $1

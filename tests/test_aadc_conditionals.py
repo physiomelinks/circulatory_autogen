@@ -12,7 +12,7 @@ import os
 
 import pytest
 
-from scripts.script_generate_with_new_architecture import generate_with_new_architecture
+from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
 
 
 def _model_config(model_type, temp_generated_models_dir):

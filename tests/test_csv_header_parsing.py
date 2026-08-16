@@ -8,7 +8,7 @@ differ from the shipped files and requiring identical results.
 import pandas as pd
 import pytest
 
-from parsers.PrimitiveParsers import CSVFileParser
+from libcuflynx.parsers.PrimitiveParsers import CSVFileParser
 
 
 def _write(tmp_path, name, header, rows):

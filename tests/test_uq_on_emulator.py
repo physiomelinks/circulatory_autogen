@@ -36,9 +36,9 @@ import os
 import numpy as np
 import pytest
 
-from param_id.paramID import CVS0DParamID
-from parsers.PrimitiveParsers import YamlFileParser
-from scripts.script_generate_with_new_architecture import generate_with_new_architecture
+from libcuflynx.param_id.paramID import CVS0DParamID
+from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
+from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
 
 try:
     from mpi4py import MPI
@@ -104,7 +104,7 @@ def _agree(mpi_comm, problem):
 
 def _emulator_available():
     try:
-        from emulators.emulator_trainer import autoemulate_available
+        from libcuflynx.emulators.emulator_trainer import autoemulate_available
 
         return autoemulate_available()
     except Exception:
@@ -174,7 +174,7 @@ BIMODAL_OBS_PATH = os.path.join(_TESTS_DIR, 'test_inputs',
 
 
 def _train_emulator(config, comm):
-    from emulators.emulator_trainer import EmulatorTrainer
+    from libcuflynx.emulators.emulator_trainer import EmulatorTrainer
 
     trainer = EmulatorTrainer.init_from_dict(config, comm=comm)
     return trainer.train()

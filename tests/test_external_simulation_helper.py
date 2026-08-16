@@ -18,12 +18,12 @@ import numpy as np
 import pytest
 from mpi4py import MPI
 
-from parsers.PrimitiveParsers import YamlFileParser
-from solver_wrappers import get_simulation_helper, get_simulation_helper_from_inp_data_dict
-from solver_wrappers.external_simulation_helper import SimulationHelper as ExternalSimulationHelper
-from scripts.script_generate_with_new_architecture import generate_with_new_architecture
-from scripts.sensitivity_analysis_run_script import run_SA
-from scripts.param_id_run_script import run_param_id
+from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
+from libcuflynx.solver_wrappers import get_simulation_helper, get_simulation_helper_from_inp_data_dict
+from libcuflynx.solver_wrappers.external_simulation_helper import SimulationHelper as ExternalSimulationHelper
+from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
+from libcuflynx.scripts.sensitivity_analysis_run_script import run_SA
+from libcuflynx.scripts.param_id_run_script import run_param_id
 
 
 _EXAMPLE_DIR = os.path.realpath(
@@ -592,7 +592,7 @@ def test_fd_observable_sensitivities_on_an_external_model(base_user_inputs, temp
     not own -- so FD is the whole story here, and it has to work through the ordinary param-id
     object rather than a special path.
     """
-    from param_id.paramID import CVS0DParamID
+    from libcuflynx.param_id.paramID import CVS0DParamID
 
     if MPI.COMM_WORLD.Get_rank() != 0:
         pytest.skip('single-rank check')

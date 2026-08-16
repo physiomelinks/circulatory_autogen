@@ -73,10 +73,6 @@ try:
     root_dir = os.path.dirname(root_dir) # Go up one level
     root_dir = os.path.dirname(root_dir) # Go up another level (to reach project root)
     
-    src_path = os.path.join(root_dir, 'src')
-    if src_path not in sys.path:
-        sys.path.append(src_path)
-
     # NOTE: If you have imports from other local files, add them here too
     # print("--- [DEBUG] Importing local modules...", file=sys.stderr)
     # from generate_param_array import VesselNetwork
@@ -759,15 +755,10 @@ class VesselNetwork():
         root_dir = os.path.dirname(root_dir)
         root_dir = os.path.dirname(root_dir)
 
-        # 2. Add to sys.path (Only if missing, prevents duplicates)
-        src_path = os.path.join(root_dir, 'src')
-        if src_path not in sys.path:
-            sys.path.append(src_path)
-
         # 3. Import Parsers
         try:
-            from parsers.PrimitiveParsers import YamlFileParser
-            from parsers.ModelParsers import CSV0DModelParser
+            from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
+            from libcuflynx.parsers.ModelParsers import CSV0DModelParser
         except ImportError as e:
             # If this fails, it usually means the 'src' path calculation is wrong for your folder structure
             print(f"CRITICAL ERROR: Could not import parsers. Checked path: {src_path}")

@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from parsers.PrimitiveParsers import (DEFAULT_PARAM_PRIOR_TYPE, PARAM_PRIOR_TYPES,
+from libcuflynx.parsers.PrimitiveParsers import (DEFAULT_PARAM_PRIOR_TYPE, PARAM_PRIOR_TYPES,
                                       ObsAndParamDataParser, normalise_prior_type)
 
 
@@ -27,7 +27,7 @@ def _info(csv):
 def test_every_declared_prior_is_handled_by_the_likelihood():
     """PARAM_PRIOR_TYPES and get_lnprior_from_params must not drift apart: a prior
     the schema advertises but the likelihood cannot evaluate would raise mid-run."""
-    from param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import OpencorParamID
 
     pid = OpencorParamID.__new__(OpencorParamID)
     for prior in PARAM_PRIOR_TYPES:
@@ -96,7 +96,7 @@ def test_a_mis_spelled_prior_no_longer_unbounds_the_parameter():
     """The regression this all exists for. 'Normal' used to survive the parser
     verbatim, match no branch, and leave the parameter unbounded: lnprior was 0
     at a value far outside [min, max] where it must be -inf."""
-    from param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import OpencorParamID
 
     info = _info("vessel_name,param_name,min,max,prior\na,k,1,2,Normal\n")
     pid = OpencorParamID.__new__(OpencorParamID)
@@ -107,7 +107,7 @@ def test_a_mis_spelled_prior_no_longer_unbounds_the_parameter():
 
 def test_a_prior_the_parser_never_saw_raises_rather_than_falling_through():
     """Defence in depth for param_id_info built by hand rather than parsed."""
-    from param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import OpencorParamID
 
     pid = OpencorParamID.__new__(OpencorParamID)
     pid.param_id_info = {
@@ -128,11 +128,11 @@ def test_a_prior_the_parser_never_saw_raises_rather_than_falling_through():
 # express most of what a prior is for, and nothing told the user the number was
 # fixed. They are declared in the schema and settable per row now.
 # ---------------------------------------------------------------------------
-from parsers.PrimitiveParsers import PARAM_PRIOR_PARAM_NAMES, normalise_prior_params
+from libcuflynx.parsers.PrimitiveParsers import PARAM_PRIOR_PARAM_NAMES, normalise_prior_params
 
 
 def _lnprior(csv, vals):
-    from param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import OpencorParamID
 
     pid = OpencorParamID.__new__(OpencorParamID)
     pid.param_id_info = _info(csv)
@@ -232,7 +232,7 @@ def test_bounds_still_win_over_the_stated_values():
 
 def test_a_config_without_the_new_key_keeps_its_behaviour():
     """param_id_info assembled by hand, or from before these columns existed."""
-    from param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import OpencorParamID
 
     pid = OpencorParamID.__new__(OpencorParamID)
     pid.param_id_info = {
@@ -316,7 +316,7 @@ def test_bounds_supplied_in_a_bare_dict_are_honoured():
 # NaN and every calibration with it, so "unbounded" means the range is derived
 # from the prior rather than typed -- wide enough not to bind, and finite.
 # ---------------------------------------------------------------------------
-from parsers.PrimitiveParsers import (PARAM_UNBOUNDED_COLUMN, UNBOUNDED_SIGMA_SPAN,
+from libcuflynx.parsers.PrimitiveParsers import (PARAM_UNBOUNDED_COLUMN, UNBOUNDED_SIGMA_SPAN,
                                       derive_bounds_from_prior, prior_supports_unbounded)
 
 
@@ -343,7 +343,7 @@ def test_the_derived_range_is_finite():
 def test_an_unbounded_prior_is_not_truncated():
     """The derived range exists for the optimiser, not as a bound the user asked
     for, so the prior must not cut off at it."""
-    from param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import OpencorParamID
 
     info = _info(
         "vessel_name,param_name,min,max,prior,prior_mean,prior_std,unbounded\n"
@@ -356,7 +356,7 @@ def test_an_unbounded_prior_is_not_truncated():
 
 
 def test_a_bounded_parameter_is_still_truncated():
-    from param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import OpencorParamID
 
     info = _info("vessel_name,param_name,min,max,prior\na,k,0,10,normal\n")
     pid = OpencorParamID.__new__(OpencorParamID)
@@ -427,7 +427,7 @@ def test_derive_bounds_is_span_times_the_scale():
 # computes from it, and a downstream editor shows the same number in the blank
 # field's placeholder -- so the two cannot drift.
 # ---------------------------------------------------------------------------
-from parsers.PrimitiveParsers import eval_prior_default, prior_param_default
+from libcuflynx.parsers.PrimitiveParsers import eval_prior_default, prior_param_default
 
 
 def test_the_normal_defaults_are_the_documented_ones():
@@ -457,7 +457,7 @@ def test_a_division_by_zero_yields_no_default():
 # ---------------------------------------------------------------------------
 def test_the_exponential_is_unchanged_when_nothing_is_stated():
     """origin 0 and scale max/lambda reproduce the original -lambda*x/max exactly."""
-    from param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import OpencorParamID
 
     info = _info("vessel_name,param_name,min,max,prior\na,k,0,10,exponential\n")
     pid = OpencorParamID.__new__(OpencorParamID)
@@ -467,7 +467,7 @@ def test_the_exponential_is_unchanged_when_nothing_is_stated():
 
 
 def test_a_stated_rate_still_steepens_it():
-    from param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import OpencorParamID
 
     info = _info(
         "vessel_name,param_name,min,max,prior,prior_lambda\na,k,0,10,exponential,4.0\n")
@@ -477,7 +477,7 @@ def test_a_stated_rate_still_steepens_it():
 
 
 def test_a_stated_scale_is_in_the_parameters_own_units():
-    from param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import OpencorParamID
 
     info = _info(
         "vessel_name,param_name,min,max,prior,prior_scale\na,k,0,10,exponential,2.0\n")
@@ -508,7 +508,7 @@ def test_an_unbounded_exponential_needs_a_scale():
 
 
 def test_an_unbounded_exponential_is_not_truncated():
-    from param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import OpencorParamID
 
     info = _info(
         "vessel_name,param_name,min,max,prior,prior_origin,prior_scale,unbounded\n"

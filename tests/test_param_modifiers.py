@@ -7,7 +7,7 @@ variable to the sampler, N parameters to set -- which is the distinction #376 al
 import numpy as np
 import pytest
 
-from parsers.PrimitiveParsers import (
+from libcuflynx.parsers.PrimitiveParsers import (
     DEFAULT_PARAM_MODIFIER, ObsAndParamDataParser, PARAM_MODIFIERS,
     expand_modifier_param_vals, param_modifiers, resolve_modifier_baselines)
 
@@ -294,7 +294,7 @@ def test_expansion_is_a_noop_without_modifiers():
 def test_the_expanded_values_pair_positionally_with_the_target_names():
     """The seam with #376: N names against N values is paired positionally, which is why no
     backend needs to know modifiers exist."""
-    from solver_wrappers.param_grouping import pair_names_with_values
+    from libcuflynx.solver_wrappers.param_grouping import pair_names_with_values
 
     info = _info(_doc())
     resolve_modifier_baselines(info, _FakeHelper({'aortic_root/C': 2.0, 'par/C': 5.0}))

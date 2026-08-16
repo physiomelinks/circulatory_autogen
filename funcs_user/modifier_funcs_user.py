@@ -32,4 +32,4 @@ Example (uncomment to use):
     def offset_from(theta, baseline, reference):
         return theta + reference
 """
-from param_id.modifier_funcs import modifier_func  # noqa: F401  (decorator for user funcs)
+from libcuflynx.param_id.modifier_funcs import modifier_func  # noqa: F401  (decorator for user funcs)
