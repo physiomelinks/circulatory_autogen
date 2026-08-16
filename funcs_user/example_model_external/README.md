@@ -14,8 +14,7 @@ interior probes.
 `external_python` is the only way to bring your own Python model, and this is its *harder* half:
 a scheme the model owns and marches itself. If your model is an ODE you can write down, start
 with [`../example_model_scipy/`](../example_model_scipy/) instead — same contract, with
-`scipy.integrate.solve_ivp` called inside `run()`. That example is also the migration guide for
-the removed `model_type: python_user_defined`, which took an `rhs` and integrated it for you.
+`scipy.integrate.solve_ivp` called inside `run()`.
 
 ## Files
 

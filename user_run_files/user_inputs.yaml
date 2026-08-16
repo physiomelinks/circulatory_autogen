@@ -14,8 +14,7 @@ input_param_file: 3compartment_parameters.csv
 # The first five are generated from the vessel/module CSV arrays; external_python is the one way
 # to bring a model of your own -- a Python class that owns its time stepping, registered as
 # SIM_HELPER and pointed at by external_model_path. See tutorial/docs/external-python-solvers.md
-# and funcs_user/example_model_scipy/ (the retired 'python_user_defined' rhs backend was removed;
-# that example is its replacement).
+# and funcs_user/example_model_scipy/ for a small worked example.
 # model_type: cpp
 model_type: cellml_only
 # model_type: casadi_python

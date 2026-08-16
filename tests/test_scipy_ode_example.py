@@ -1,14 +1,11 @@
 """Tests for the scipy-ODE example of the ``model_type: external_python`` contract.
 
 ``funcs_user/example_model_scipy/`` is the damped oscillator that used to be the
-``python_user_defined`` example, rewritten as a class that calls ``scipy.integrate.solve_ivp``
+example of an ODE solved by a class that calls ``scipy.integrate.solve_ivp``
 inside its own ``run()``. It is the simple end of the external contract, and it is the shape most
 users arriving with "I have an ODE" need, so it gets its own coverage rather than riding on
 ``tests/test_external_simulation_helper.py`` (which exercises the wrapper's contract enforcement
 against a hand-marched PDE).
-
-The second half of this file pins the removal of ``python_user_defined`` itself: a config still
-naming it must be told what to write instead, not handed a generic "Invalid model type".
 """
 import os
 import shutil
@@ -17,7 +14,7 @@ import numpy as np
 import pytest
 from mpi4py import MPI
 
-from parsers.PrimitiveParsers import YamlFileParser, check_for_removed_model_types
+from parsers.PrimitiveParsers import YamlFileParser
 from solver_wrappers import get_simulation_helper, get_simulation_helper_from_inp_data_dict
 from solver_wrappers.external_simulation_helper import SimulationHelper as ExternalSimulationHelper
 from scripts.script_generate_with_new_architecture import generate_with_new_architecture
@@ -123,7 +120,7 @@ def test_the_config_resolves_to_the_example_and_the_external_solver(
 def test_the_grid_length_is_the_documented_arithmetic():
     """N = int(pre_time/dt) + int(sim_time/dt) samples plus the endpoint, and the pre_time
     samples are produced by the model and dropped by CA -- the bookkeeping the retired
-    python_user_defined backend used to do for the user, which this example now shows."""
+    framework does not do for you, which this example shows."""
     sim = ExternalSimulationHelper(_MODEL_PATH, _DT, _SIM_TIME, dict(_SOLVER_INFO), pre_time=1.0)
 
     assert sim.pre_steps == int(1.0 / _DT)
@@ -241,72 +238,3 @@ def test_param_id_scipy_example_recovers_the_stiffness(base_user_inputs, temp_ou
         # defaults and towards the truth.
         assert k == pytest.approx(_TRUE_K, abs=1.0)
         assert c == pytest.approx(_TRUE_C, abs=0.4)
-
-
-# ---------------------------------------------------------------------------
-# The removed python_user_defined backend
-# ---------------------------------------------------------------------------
-_MIGRATION_MARKERS = ('external_python', 'SIM_HELPER', 'external_model_path',
-                      'example_model_scipy')
-
-
-@pytest.mark.unit
-@pytest.mark.parametrize('config, expected', [
-    ({'model_type': 'python_user_defined'}, 'model_type: python_user_defined'),
-    ({'model_type': 'external_python', 'solver': 'user_defined'}, 'solver: user_defined'),
-    ({'model_type': 'external_python', 'solver_info': {'solver': 'user_defined'}},
-     'solver: user_defined'),
-    ({'model_type': 'external_python', 'model_wrapper_path': '/tmp/oscillator_wrapper.py'},
-     'model_wrapper_path'),
-])
-def test_a_config_naming_the_removed_backend_is_told_how_to_migrate(config, expected):
-    """The removal has to be loud in all three of the ways an existing user_inputs.yaml can
-    still carry it. A generic "Invalid model type"/"Invalid solver" -- or a KeyError out of a
-    schema lookup -- tells a v0.3.0 user their config is wrong without telling them the feature
-    moved, so each message names what was found and what to write instead."""
-    with pytest.raises(ValueError) as excinfo:
-        check_for_removed_model_types(dict(config))
-    message = str(excinfo.value)
-    assert expected in message
-    for marker in _MIGRATION_MARKERS:
-        assert marker in message, f'migration message does not mention {marker}'
-
-
-@pytest.mark.unit
-def test_the_parser_refuses_the_removed_backend_before_anything_else(
-        base_user_inputs, temp_output_dir, temp_generated_models_dir):
-    """Through the real entry point, not just the helper: parse_user_inputs_file must raise the
-    migration error rather than exit() with 'Invalid model type'."""
-    config = _oscillator_config(base_user_inputs, temp_output_dir, temp_generated_models_dir)
-    config['model_type'] = 'python_user_defined'
-    config['solver'] = 'user_defined'
-
-    with pytest.raises(ValueError, match='has been removed'):
-        YamlFileParser().parse_user_inputs_file(config, obs_path_needed=False)
-
-
-@pytest.mark.unit
-def test_the_factory_refuses_the_removed_solver():
-    """get_simulation_helper is a public entry point (the programmatic API calls it directly),
-    so 'Unknown solver user_defined' would be the confusing message there."""
-    with pytest.raises(ValueError, match='has been removed'):
-        get_simulation_helper(model_path=_MODEL_PATH, solver='user_defined',
-                              model_type='python_user_defined', dt=_DT, sim_time=_SIM_TIME)
-
-
-@pytest.mark.unit
-def test_the_scipy_backend_no_longer_duck_types_a_user_wrapper(tmp_path):
-    """The removed dispatch was not gated on model_type: any module with rhs + PARAMETERS +
-    STATES was treated as a user wrapper. Such a module is now just an invalid python model."""
-    path = tmp_path / 'looks_like_a_wrapper.py'
-    path.write_text(
-        'PARAMETERS = {"m/k": 1.0}\n'
-        'STATES = {"m/x": 1.0}\n'
-        'OUTPUT_NAMES = ["m/x"]\n'
-        'def rhs(t, y, params):\n'
-        '    return [-params["m/k"] * y[0]]\n'
-    )
-    from solver_wrappers.python_solver_helper import SimulationHelper as PythonSimulationHelper
-
-    with pytest.raises(ValueError, match='Model invalid'):
-        PythonSimulationHelper(str(path), _DT, _SIM_TIME, {'method': 'RK45'})

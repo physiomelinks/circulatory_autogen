@@ -9,9 +9,7 @@ Owning the time loop is what makes this shape general. A model that already *has
 finite-element code, a compiled library behind a thin Python binding, a scheme whose time
 stepping is the point -- cannot be squeezed through a per-step RHS callback; and a model that is
 just an ODE loses nothing, because calling ``scipy.integrate.solve_ivp`` inside ``run()`` is four
-lines (see ``funcs_user/example_model_scipy/``). CA used to offer a second type,
-``python_user_defined``, that took the RHS and did the integrating; it was removed because the
-two names did not distinguish them and it bought no capability the contract below lacks.
+lines (see ``funcs_user/example_model_scipy/``).
 
 The contract the user's class must satisfy (see ``funcs_user/example_model_scipy/`` for a small
 ODE and ``funcs_user/example_model_external/`` for a hand-marched PDE)::

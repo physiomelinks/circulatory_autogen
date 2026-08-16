@@ -26,31 +26,6 @@ letting CA build the model for you and writing it yourself:
     survives being squeezed through a per-step RHS callback — and it costs an ODE almost
     nothing, because "integrate this" is one `solve_ivp` call inside your `run()`.
 
-!!! warning "Migrating from `python_user_defined`"
-    CA used to offer a second type, `model_type: python_user_defined` with `solver:
-    user_defined`, which took a module of `PARAMETERS` / `STATES` / `OUTPUT_NAMES` dicts plus an
-    `rhs(t, y, params)` and called `solve_ivp` for you. **It has been removed.** The names did
-    not distinguish the two ("both are user Python"), the detection was duck-typed on the
-    presence of an `rhs` rather than gated on `model_type`, and it bought no capability this one
-    lacks — both offer finite-difference gradients only.
-
-    The migration is mechanical:
-
-    | `python_user_defined` | `external_python` |
-    |---|---|
-    | module-level `PARAMETERS` dict | literal class attribute `parameters` |
-    | module-level `STATES` dict | the initial condition your `run()` starts from |
-    | module-level `OUTPUT_NAMES` list | literal class attribute `output_names` |
-    | `rhs(t, y, params)` | a method, handed to `solve_ivp` by your `run()` |
-    | `compute_outputs(t, y, params)` | one more entry in the dict `get_results()` returns |
-    | `solver_info: {method, rtol, atol}` | `solver_info: {user_config: {…}}`, read in `init_solver` |
-    | `model_wrapper_path:` | `external_model_path:` |
-    | CA owned the sample grid | you produce it — see `update_times` below |
-
-    `funcs_user/example_model_scipy/` **is** the retired oscillator example rewritten under this
-    contract, so its diff is the whole migration. A config still naming the removed type is
-    refused with these instructions rather than a generic "Invalid model type".
-
 ## The contract
 
 Put a class in a Python file and name it `SIM_HELPER` at module level. CA loads the file by
@@ -235,7 +210,7 @@ def run(self):
 
 That is the entire cost of owning the time loop for an ODE — the grid is built once in
 `update_times`, and `get_results()` slices the trajectory into `{name: array}`. Read this one
-first, and copy it if you are coming from `python_user_defined`.
+first, and copy it.
 
 `funcs_user/example_model_external/` is the next step up: the same contract on a 1D heat equation
 with an explicit finite-difference scheme it wrote itself, NumPy only, no external dependencies.
@@ -380,8 +355,7 @@ emulator_settings:
 
 ## See also
 
-* `funcs_user/example_model_scipy/README.md` — the ODE example, and the `python_user_defined`
-  migration table in full.
+* `funcs_user/example_model_scipy/README.md` — the ODE example in detail.
 * `funcs_user/heat_fenics/README.md` — the FEniCSx example in detail, including how to
   regenerate its `obs_data.json` values for your own build.
 * `funcs_user/example_model_external/` — the dependency-free NumPy version of the same contract.

@@ -100,7 +100,6 @@ SOLVER_SCHEMA = {
         # The one way to bring your own Python model: the user supplies a solver CLASS (an FE
         # code, a compiled library, a scipy solve_ivp of their own) that does its own time
         # stepping, and CA only wraps it. See solver_wrappers/external_simulation_helper.py.
-        # The retired 'python_user_defined' (an rhs CA integrated for you) is covered by this
         # too -- see funcs_user/example_model_scipy/ for the same case in the new contract.
         'external_python': ['external'],
     },
@@ -1750,67 +1749,6 @@ def warn_if_casadi_nonzero_pre_time(
             stacklevel=3,
         )
 
-# ``model_type: python_user_defined`` / ``solver: user_defined`` shipped in v0.3.0 and has been
-# removed. It asked for a module of PARAMETERS/STATES/OUTPUT_NAMES dicts plus an
-# ``rhs(t, y, params)`` and integrated it with scipy solve_ivp. ``external_python`` covers the
-# same case -- the user writes the solve_ivp call themselves, which is four lines -- and having
-# two "user Python" model types whose names did not distinguish them cost more than the RHS
-# shortcut saved. A config still naming the removed type must be told what to write instead:
-# reaching the generic "Invalid model type" below (or, worse, a KeyError out of the schema
-# lookups) tells a user their config is wrong without telling them the feature moved.
-REMOVED_PYTHON_USER_DEFINED_MESSAGE = (
-    "model_type 'python_user_defined' (solver 'user_defined') has been removed. It took an "
-    "rhs(t, y, params) with module-level PARAMETERS/STATES/OUTPUT_NAMES dicts and integrated it "
-    "for you with scipy solve_ivp. Use model_type 'external_python' (solver 'external') "
-    "instead -- it is now the one way to bring your own Python model, and an ODE fits it by "
-    "calling solve_ivp yourself inside run().\n"
-    "To migrate:\n"
-    "  1. user_inputs.yaml: set model_type: external_python and solver: external, and rename "
-    "model_wrapper_path to external_model_path (or drop the key -- the default is "
-    "funcs_user/{file_prefix}_model.py).\n"
-    "  2. Turn the module into a class. PARAMETERS becomes the literal class attribute "
-    "`parameters`, OUTPUT_NAMES becomes the literal class attribute `output_names`, and STATES "
-    "becomes the initial condition your own run() starts from.\n"
-    "  3. Implement the contract: init_solver(config), update_times(dt, start_time, sim_time, "
-    "pre_time), set_param_vals(param_dict), run() -> bool, get_results() -> "
-    "{output_name: array} covering the whole grid including the pre_time samples; optionally "
-    "get_init_param_vals / reset / extra_plots / close. Then add `SIM_HELPER = YourClass` at "
-    "module level.\n"
-    "funcs_user/example_model_scipy/ is the retired damped-oscillator example rewritten under "
-    "the new contract -- copy it. The full contract is documented in "
-    "tutorial/docs/external-python-solvers.md and "
-    "src/solver_wrappers/external_simulation_helper.py."
-)
-
-
-def check_for_removed_model_types(inp_data_dict):
-    """Refuse a config that still names the removed ``python_user_defined`` backend.
-
-    Checked before anything reads model_type/solver, so the three ways an old config can carry
-    the removed backend -- the model_type, the solver, and the ``model_wrapper_path`` key that
-    pointed at the rhs module -- all produce the migration instructions rather than a generic
-    "Invalid model type"/"Invalid solver" or a KeyError from a schema lookup.
-
-    Raises:
-        ValueError: naming which key still refers to the removed backend, and how to migrate.
-    """
-    if inp_data_dict is None:
-        return
-    model_type = inp_data_dict.get('model_type')
-    solver_name = (inp_data_dict.get('solver_info') or {}).get('solver') \
-        or inp_data_dict.get('solver')
-    if model_type == 'python_user_defined':
-        found = "user_inputs.yaml sets model_type: python_user_defined"
-    elif solver_name == 'user_defined':
-        found = "user_inputs.yaml sets solver: user_defined"
-    elif 'model_wrapper_path' in inp_data_dict:
-        found = ("user_inputs.yaml still sets model_wrapper_path, which only ever named a "
-                 "python_user_defined rhs module")
-    else:
-        return
-    raise ValueError(f"{found}. {REMOVED_PYTHON_USER_DEFINED_MESSAGE}")
-
-
 user_inputs_dir = os.path.join(root_dir, 'user_run_files')
 src_dir = os.path.join(os.path.dirname(__file__), '..')
 param_id_dir = os.path.join(src_dir, 'param_id')
@@ -1901,11 +1839,6 @@ class YamlFileParser(object):
             print('no inp_data_dict provided and user_inputs.yaml not found, exiting')
             exit()
             
-        # Before any of the model_type/solver handling below, so a config still naming the
-        # removed python_user_defined backend gets migration instructions instead of a generic
-        # "Invalid model type".
-        check_for_removed_model_types(inp_data_dict)
-
         if 'file_prefix' not in inp_data_dict.keys():
             print('file_prefix not found in inp_data_dict, exiting')
             exit()

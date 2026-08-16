@@ -151,17 +151,6 @@ def get_simulation_helper(model_path: str = None, solver: str = None,
     is_aadc_python_model = (model_type == 'aadc_python')
     is_external_model = (model_type == 'external_python')
 
-    # The removed RHS-only backend. Caught here as well as in the config parser, because the
-    # factory is a public entry point (get_simulation_helper is called directly from the
-    # programmatic API) and "Unknown solver user_defined" would not say that the feature moved.
-    if solver == 'user_defined' or model_type == 'python_user_defined':
-        raise ValueError(
-            "model_type 'python_user_defined' / solver 'user_defined' has been removed. Use "
-            "model_type='external_python' with solver='external': write a class that owns its "
-            "own time stepping (call scipy solve_ivp inside its run() for an ODE), declare "
-            "literal `parameters` / `output_names` class attributes, register it with "
-            "`SIM_HELPER = YourClass`, and point external_model_path at the file. See "
-            "funcs_user/example_model_scipy/ for the same ODE example under the new contract.")
 
     # Check for explicit solver specification with validation
     if solver == 'CVODE_opencor':
