@@ -3,7 +3,33 @@
 Notable changes to libcuflynx (circulatory_autogen). Entries under *Unreleased* ship with the
 next release; add to that section as you land a change.
 
-## Unreleased
+## Unreleased — 0.4.0
+
+The release that makes the project installable: `pip install libcuflynx` now gives you
+generation, simulation and calibration from any directory, with no checkout and nothing to put
+on `sys.path`. The distribution is named `libcuflynx` and every module moved under the
+`libcuflynx` namespace.
+
+### Breaking — the flat import names are deprecated, and go away in 0.5.0
+
+`import parsers`, `from param_id.paramID import CVS0DParamID` and the rest of the flat names
+still work in 0.4.0: each is a shim that emits one `DeprecationWarning` and then hands back the
+real `libcuflynx.*` package — the *same* module object, so `isinstance` checks and
+monkeypatching against classes reached through the old name are unaffected. **They are removed
+in 0.5.0**, which is one full release of overlap. Migrate by prefixing the import:
+
+```python
+from param_id.paramID import CVS0DParamID            # 0.4.0: warns
+from libcuflynx.param_id.paramID import CVS0DParamID  # do this instead
+```
+
+### Changed — `cellml_only` defaults to `CVODE_myokit`
+
+A config that omits `solver` used to be routed to `CVODE_opencor`, the one backend a pip
+install cannot provide (OpenCOR's `opencor` module is not on PyPI). The default is now
+`CVODE_myokit`, which is a drop-in replacement: same CellML model, same CVODE integrator, no
+OpenCOR. `solver: CVODE_opencor` is unchanged and still works inside an OpenCOR install; asking
+for it anywhere else now fails with a message naming `CVODE_myokit` rather than a traceback.
 
 ### Breaking — action required if you edited `funcs_user/*_funcs_user.py`
 
