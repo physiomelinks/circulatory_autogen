@@ -510,7 +510,7 @@ def test_myokit_multi_trace_protocol():
     try:
         helper = get_simulation_helper(
             model_path=cellml_path,
-            model_type="cellml_only",
+            model_type="cellml",
             solver="CVODE_myokit",
             dt=dt,
             sim_time=1.0,   # overridden per-experiment below
@@ -601,11 +601,11 @@ def _lotka_sim_helper(generated_cellml_model_factory, temp_model_dir, model_type
 
 @pytest.mark.integration
 @pytest.mark.solver
-@pytest.mark.parametrize("model_type", ["cellml_only", "casadi_python"])
+@pytest.mark.parametrize("model_type", ["cellml", "casadi_python"])
 def test_params_to_change_affects_targeted_subexperiment_output(
         model_type, generated_cellml_model_factory, temp_model_dir):
     """A params_to_change value must change the simulated output of the sub-experiment it targets,
-    and only that one -- on both the Myokit (cellml_only) and CasADi backends.
+    and only that one -- on both the Myokit (cellml) and CasADi backends.
 
     Lotka-Volterra with gamma (the predator decay rate) changed between two sub-experiments: gamma
     is the model default in sub 0 and set per-run in sub 1. Running two different sub-1 values,
@@ -681,7 +681,7 @@ def test_trace_step_input_equals_discrete_subexperiment_change(
         return np.concatenate([ys[0], ys[1][1:]])
 
     # Reference: Myokit, one sub-experiment, gamma driven by a step trace (0-order step at t=T).
-    hT = _lotka_sim_helper(generated_cellml_model_factory, temp_model_dir, "cellml_only", dt, 2 * T)
+    hT = _lotka_sim_helper(generated_cellml_model_factory, temp_model_dir, "cellml", dt, 2 * T)
     hT.set_protocol_info({"pre_times": [0.0], "sim_times": [[2 * T]],
                           "params_to_change": {GAMMA: [["g_step"]]},
                           "protocol_traces": {"g_step": {"t": [0.0, T, T, 2 * T],
@@ -693,7 +693,7 @@ def test_trace_step_input_equals_discrete_subexperiment_change(
     trace = np.asarray(hT.get_results([[Y]], flatten=True)[0]).flatten()
     hT.close_simulation()
 
-    for model_type in ("cellml_only", "casadi_python"):
+    for model_type in ("cellml", "casadi_python"):
         disc = discrete_2sub(model_type)
         n = min(len(trace), len(disc))
         assert n > 10 and len(trace) == len(disc), \
@@ -817,7 +817,7 @@ def test_myokit_set_constant_preserved_after_rebind():
         try:
             helper = get_simulation_helper(
                 model_path=cellml_path,
-                model_type="cellml_only",
+                model_type="cellml",
                 solver="CVODE_myokit",
                 dt=dt,
                 sim_time=sim_time,
@@ -905,7 +905,7 @@ def test_init_states_myokit(generated_cellml_model_factory):
     dt = 0.01
     sim_time = 0.1
     solver_info = {"MaximumStep": 0.001, "MaximumNumberOfSteps": 5000}
-    helper = get_simulation_helper(model_path=cellml_path, model_type="cellml_only", dt=dt, sim_time=sim_time, 
+    helper = get_simulation_helper(model_path=cellml_path, model_type="cellml", dt=dt, sim_time=sim_time, 
                                    solver_info=solver_info, pre_time=0.0, solver="CVODE_myokit")
     result = helper.run()
     assert result, "Myokit simulation failed for init_states_test"
@@ -942,10 +942,10 @@ def _run_and_get_initial_state(helper, state_name):
 @pytest.mark.integration
 @pytest.mark.solver
 @pytest.mark.parametrize("solver,model_type,solver_info", [
-    ("CVODE_myokit", "cellml_only", {"MaximumStep": 0.001, "MaximumNumberOfSteps": 5000}),
+    ("CVODE_myokit", "cellml", {"MaximumStep": 0.001, "MaximumNumberOfSteps": 5000}),
     pytest.param(
         "CVODE_opencor",
-        "cellml_only",
+        "cellml",
         {"MaximumStep": 0.001, "MaximumNumberOfSteps": 5000},
         marks=pytest.mark.need_opencor,
     ),
@@ -1105,7 +1105,7 @@ def test_cellml_solvers(model_name, input_param_file, solver, solver_info, gener
     try:
         helper = get_simulation_helper(
             model_path=full_model_path,
-            model_type="cellml_only",
+            model_type="cellml",
             solver=solver,
             dt=dt,
             sim_time=sim_time,
@@ -1139,7 +1139,7 @@ def test_cellml_solvers(model_name, input_param_file, solver, solver_info, gener
 
 
 _SN_SIMPLE_XFAIL = (
-    "SN_simple's CellML initialises states from *_init parameters, which libCellML's Analyser rejects (ANALYSER_VARIABLE_NON_CONSTANT_INITIALISATION), so PythonGenerator cannot emit it (#151). cellml_only + Myokit accept the same model. strict=True on purpose: when a libCellML upgrade makes this pass, the XPASS fails the suite and says so, rather than leaving a permanently-red test that everyone has learned to ignore."
+    "SN_simple's CellML initialises states from *_init parameters, which libCellML's Analyser rejects (ANALYSER_VARIABLE_NON_CONSTANT_INITIALISATION), so PythonGenerator cannot emit it (#151). cellml + Myokit accept the same model. strict=True on purpose: when a libCellML upgrade makes this pass, the XPASS fails the suite and says so, rather than leaving a permanently-red test that everyone has learned to ignore."
 )
 
 
@@ -1277,8 +1277,8 @@ def _run_all_solvers_and_compare(model_name, full_model_path_cellml, temp_model_
         # (== the 0.01% comparison gate), so without this the reference trajectory is only
         # converged to the gate and cross-solver agreement is build-dependent (passes locally,
         # fails on CI's sundials build). Both solvers must be well-converged for a stable compare.
-        ("CVODE_opencor",  "CVODE_opencor",    "cellml_only",   full_model_path_cellml, {"MaximumStep": 0.0001, "rtol": 1e-8, "atol": 1e-10}),
-        ("CVODE_myokit",   "CVODE_myokit",     "cellml_only",   full_model_path_cellml, {"MaximumStep": 0.0001, "rtol": 1e-8, "atol": 1e-10}),
+        ("CVODE_opencor",  "CVODE_opencor",    "cellml",   full_model_path_cellml, {"MaximumStep": 0.0001, "rtol": 1e-8, "atol": 1e-10}),
+        ("CVODE_myokit",   "CVODE_myokit",     "cellml",   full_model_path_cellml, {"MaximumStep": 0.0001, "rtol": 1e-8, "atol": 1e-10}),
         ("solve_ivp_BDF",  "solve_ivp",        "python",        python_model_path,      {"method": "BDF", "max_step": 0.0001, "rtol": 1e-8, "atol": 1e-10}),
     ]
     if include_casadi:
@@ -1578,7 +1578,7 @@ def test_cvode_myokit_vs_casadi_semi_implicit_euler(
     ).generate()
 
     ref = get_simulation_helper(
-        model_path=cellml_path, model_type="cellml_only", solver="CVODE_myokit",
+        model_path=cellml_path, model_type="cellml", solver="CVODE_myokit",
         dt=dt, sim_time=sim_time, pre_time=0.0,
         solver_info={"MaximumStep": 1e-4, "rtol": 1e-8, "atol": 1e-10},
     )
@@ -1630,7 +1630,7 @@ def test_van_der_pol_stiff_semi_implicit_euler_convergence(
     errors = []
     for dt in dts:
         ref = get_simulation_helper(
-            model_path=cellml_path, model_type="cellml_only", solver="CVODE_myokit",
+            model_path=cellml_path, model_type="cellml", solver="CVODE_myokit",
             dt=dt, sim_time=sim_time, pre_time=0.0,
             solver_info={"MaximumStep": 1e-4, "rtol": 1e-9, "atol": 1e-11},
         )
@@ -1670,7 +1670,7 @@ def test_set_param_vals_changes_state_init_without_explicit_reset(generated_cell
     model_path = generated_cellml_model_factory(
         "3compartment", "3compartment_parameters.csv", solver="CVODE_myokit")
     helper = get_simulation_helper(
-        model_path=model_path, model_type="cellml_only", solver="CVODE_myokit",
+        model_path=model_path, model_type="cellml", solver="CVODE_myokit",
         dt=0.01, sim_time=0.1, pre_time=0.0,
         solver_info={"MaximumStep": 0.001, "MaximumNumberOfSteps": 5000})
     q_name = _find_state_series_name(helper, "q_lv")
@@ -1712,7 +1712,7 @@ def test_offline_pre_time_equals_the_same_total_warmup(generated_cellml_model_fa
 
     def helper(pre_time):
         return get_simulation_helper(
-            model_path=model_path, model_type="cellml_only", solver="CVODE_myokit",
+            model_path=model_path, model_type="cellml", solver="CVODE_myokit",
             dt=dt, sim_time=sim_time, pre_time=pre_time, solver_info=solver_info)
 
     # Reference: all warmup as a single logged pre_time.
@@ -1753,7 +1753,7 @@ def test_set_param_vals_change_states_false_rejects_states(generated_cellml_mode
     model_path = generated_cellml_model_factory(
         "3compartment", "3compartment_parameters.csv", solver="CVODE_myokit")
     helper = get_simulation_helper(
-        model_path=model_path, model_type="cellml_only", solver="CVODE_myokit",
+        model_path=model_path, model_type="cellml", solver="CVODE_myokit",
         dt=0.01, sim_time=0.1, pre_time=0.0,
         solver_info={"MaximumStep": 0.001, "MaximumNumberOfSteps": 5000})
 
@@ -1776,7 +1776,7 @@ def test_offline_pre_time_zero_is_a_noop(generated_cellml_model_factory):
     model_path = generated_cellml_model_factory(
         "3compartment", "3compartment_parameters.csv", solver="CVODE_myokit")
     h = get_simulation_helper(
-        model_path=model_path, model_type="cellml_only", solver="CVODE_myokit",
+        model_path=model_path, model_type="cellml", solver="CVODE_myokit",
         dt=0.01, sim_time=0.5, pre_time=0.0,
         solver_info={"MaximumStep": 0.001, "MaximumNumberOfSteps": 50000})
     before = list(h.simulation.default_state())
@@ -1817,7 +1817,7 @@ def test_aadc_semi_implicit_signed_forward_tracks_cvode(temp_model_dir,
     ).generate()
 
     cvode = get_simulation_helper(
-        model_path=cellml_path, model_type="cellml_only", solver="CVODE_myokit",
+        model_path=cellml_path, model_type="cellml", solver="CVODE_myokit",
         dt=dt, sim_time=sim_time, pre_time=pre_time,
         solver_info={"MaximumStep": 0.0001, "rtol": 1e-8, "atol": 1e-10})
     assert cvode.run(), "CVODE_myokit reference did not run"

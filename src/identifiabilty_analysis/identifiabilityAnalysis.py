@@ -64,7 +64,7 @@ class IdentifiabilityAnalysis():
 
     Args:
         model_path: Path to the generated model file.
-        model_type: ``'cellml_only'``, ``'python'`` or ``'casadi_python'``.
+        model_type: ``'cellml'``, ``'python'`` or ``'casadi_python'``.
         file_name_prefix: Model name prefix (names the saved result files).
         DEBUG: Enable debug behaviour.
         param_id_output_dir: Root output directory.
@@ -160,7 +160,7 @@ class IdentifiabilityAnalysis():
 
         ``J[k, j] = d(observable feature k)/d(param j)`` at the best fit, from
         ``OpencorParamID.get_observable_sensitivities`` -- the CasADi jacobian for
-        ``casadi_python`` ('AD') or the Myokit CVODES sensitivities for ``cellml_only`` +
+        ``casadi_python`` ('AD') or the Myokit CVODES sensitivities for ``cellml`` +
         ``CVODE_myokit`` ('FSA'), i.e. the sources ``gradient_sources(model_type, solver)``
         advertises. At the MLE this Gauss-Newton matrix is the positive-definite negative Hessian
         of the Gaussian log-likelihood, so the Laplace covariance is its inverse. Scalar (const)

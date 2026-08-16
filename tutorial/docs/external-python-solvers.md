@@ -15,7 +15,7 @@ letting CA build the model for you and writing it yourself:
 
 | | You provide | CA does the time-stepping | Use when |
 |---|---|---|---|
-| `cellml_only` | CellML modules and a vessel array | yes (OpenCOR / Myokit CVODE) | the model is a network of reusable CellML components |
+| `cellml` | CellML modules and a vessel array | yes (OpenCOR / Myokit CVODE) | the model is a network of reusable CellML components |
 | `python` | the same, emitted as Python | yes (`scipy.solve_ivp`) | you want CA's generated model in Python |
 | **`external_python`** | **a solver class with its own `run()`** | **no — you do** | **the model is code you already have, or an ODE you would rather write directly** |
 

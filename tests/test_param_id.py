@@ -329,7 +329,7 @@ def _ensure_cellml_model_generated(config, mpi_comm):
 
     CI checkouts omit gitignored generated_models/; local runs may already have artifacts.
     """
-    if config.get("model_type") != "cellml_only":
+    if config.get("model_type") != "cellml":
         return
     rank = mpi_comm.Get_rank()
     if rank == 0:
@@ -359,7 +359,7 @@ def test_param_id_nke_pump_succeeds(base_user_inputs, resources_dir, temp_output
     config.update({
         'file_prefix': 'NKE_pump',
         'input_param_file': 'NKE_pump_parameters.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'solver': 'CVODE',
         'param_id_method': 'genetic_algorithm',
         # Keep runtime short under MPI tests
@@ -423,7 +423,7 @@ def test_param_id_3compartment_succeeds(base_user_inputs, resources_dir, temp_ou
     config.update({
         'file_prefix': '3compartment',
         'input_param_file': '3compartment_parameters.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'solver': 'CVODE',
         'param_id_method': 'genetic_algorithm',
         'pre_time': 20,
@@ -478,7 +478,7 @@ def test_param_id_3compartment_genetic_algorithm_myokit_fast(
     config.update({
         'file_prefix': '3compartment',
         'input_param_file': '3compartment_parameters.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'solver': 'CVODE_myokit',
         'param_id_method': 'genetic_algorithm',
         'pre_time': 2,
@@ -587,7 +587,7 @@ def test_param_id_3compartment_extra_ops_succeeds(base_user_inputs, resources_di
     config.update({
         'file_prefix': '3compartment_extra_ops',
         'input_param_file': '3compartment_extra_ops_parameters.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'solver': 'CVODE',
         'param_id_method': 'genetic_algorithm',
         'pre_time': 20,
@@ -648,7 +648,7 @@ def test_param_id_3compartment_cmaes_succeeds(base_user_inputs, resources_dir, t
     config.update({
         'file_prefix': '3compartment',
         'input_param_file': '3compartment_parameters.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'solver': 'CVODE',
         'param_id_method': 'CMA-ES',
         'pre_time': 20,
@@ -776,7 +776,7 @@ def test_param_id_test_fft_cost_is_zero(base_user_inputs, resources_dir, temp_ou
     config.update({
         'file_prefix': 'test_fft',
         'input_param_file': 'test_fft_parameters.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'solver': 'CVODE',
         'param_id_method': 'genetic_algorithm',
         'pre_time': 1,
@@ -872,7 +872,7 @@ def test_param_id_calibration_outputs_match_rerun(base_user_inputs, resources_di
         "file_prefix": "3compartment",
         "input_param_file": "3compartment_parameters.csv",
         "params_for_id_file": params_for_id_path,
-        "model_type": "cellml_only",
+        "model_type": "cellml",
         "solver": "CVODE_myokit",
         "param_id_method": "genetic_algorithm",
         "pre_time": 0.0,
@@ -1006,7 +1006,7 @@ def test_param_id_SN_simple_CVODE_myokit_ga_smoke(
             "file_prefix": "SN_simple",
             "input_param_file": "SN_simple_parameters.csv",
             "params_for_id_file": "SN_simple_params_for_id.csv",
-            "model_type": "cellml_only",
+            "model_type": "cellml",
             "solver": "CVODE_myokit",
             "param_id_method": "genetic_algorithm",
             "pre_time": 0.1,
@@ -1134,7 +1134,7 @@ def test_param_id_simple_physiological_succeeds(base_user_inputs, resources_dir,
     config.update({
         'file_prefix': 'simple_physiological',
         'input_param_file': 'simple_physiological_parameters.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'solver': 'CVODE',
         'param_id_method': 'genetic_algorithm',
         'pre_time': 20,
@@ -2068,7 +2068,7 @@ def _build_3compartment_fsa_runner(
     pre_time=20.0, sim_time=2.0, obs_file='3compartment_obs_data.json',
     params_for_id=None,
 ):
-    """Generate the (stiff) 3compartment cellml_only model, run through Myokit, and build a
+    """Generate the (stiff) 3compartment cellml model, run through Myokit, and build a
     CVS0DParamID configured for the CVODES forward-sensitivity (FSA) gradient path.
 
     Tight rtol/atol keep the sensitivities and any finite-difference fallback out of the
@@ -2081,7 +2081,7 @@ def _build_3compartment_fsa_runner(
         'file_prefix': '3compartment',
         'input_param_file': '3compartment_parameters.csv',
         'params_for_id_file': '3compartment_params_for_id.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'solver': 'CVODE_myokit',
         'param_id_method': 'sp_minimize',
         'do_ad': True,
@@ -2101,7 +2101,7 @@ def _build_3compartment_fsa_runner(
     })
 
     success = generate_with_new_architecture(False, config)
-    assert success, "cellml_only model generation should succeed for 3compartment"
+    assert success, "cellml model generation should succeed for 3compartment"
 
     parsed = YamlFileParser().parse_user_inputs_file(
         config, obs_path_needed=True, do_generation_with_fit_parameters=False
@@ -2135,7 +2135,7 @@ def test_3compartment_fsa_longrun_gradient(
     """Myokit CVODES forward-sensitivity gradient for the STIFF 3compartment over a LONG
     (nonzero pre_time) run matches central finite differences of the same cost.
 
-    This is the gradient path for cellml_only / CVODE_myokit models. FSA gives d(operand)/dp
+    This is the gradient path for cellml / CVODE_myokit models. FSA gives d(operand)/dp
     for constant parameters; q_lv_init sets a state initial value, so Myokit cannot make it a
     CVODES independent directly. It is handled analytically by the initial-value chain rule
     (issue #270) -- d(obs)/d(q_lv_init) = d(obs)/d(init q_lv) * d(init q_lv)/d(q_lv_init) -- not
@@ -2296,7 +2296,7 @@ def _lotka_multisub_fsa_config(base_user_inputs, resources_dir, output_dir, gene
         'file_prefix': 'Lotka_Volterra',
         'input_param_file': 'Lotka_Volterra_parameters.csv',
         'params_for_id_file': 'Lotka_Volterra_params_for_id.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'solver': 'CVODE_myokit',
         'do_ad': True,
         'pre_time': 0.0,
@@ -2792,7 +2792,7 @@ def test_laplace_approximation_hessian_validation(base_user_inputs, resources_di
     config.update({  
         'file_prefix': 'Simple_ODE_Benchmark',  # Replace with your model name  
         'input_param_file': 'Simple_ODE_Benchmark_parameters.csv',  # Replace with your CSV  
-        'model_type': 'cellml_only',  
+        'model_type': 'cellml',  
         'solver': 'CVODE',  
         'param_id_method': 'genetic_algorithm',  
         'pre_time': 0.5,  
@@ -2895,7 +2895,7 @@ def test_offline_pre_time_lotka_volterra_outputs_match(
         "file_prefix": "Lotka_Volterra",
         "input_param_file": "Lotka_Volterra_parameters.csv",
         "params_for_id_file": "Lotka_Volterra_params_for_id.csv",
-        "model_type": "cellml_only",
+        "model_type": "cellml",
         "solver": "CVODE_myokit",
         "param_id_method": "genetic_algorithm",
         "param_id_obs_path": base_obs_path,
@@ -2957,7 +2957,7 @@ def test_offline_pre_time_3compartment_outputs_match(
         "file_prefix": "3compartment",
         "input_param_file": "3compartment_parameters.csv",
         "params_for_id_file": "3compartment_q_lv_only_params_for_id.csv",
-        "model_type": "cellml_only",
+        "model_type": "cellml",
         "solver": "CVODE_myokit",
         "param_id_method": "genetic_algorithm",
         "param_id_obs_path": base_obs_path,
@@ -3327,7 +3327,7 @@ def test_param_id_archives_input_files(resources_dir, temp_output_dir,
 
     runner = CVS0DParamID.init_from_dict({
         'model_path': model_path,
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'param_id_method': 'genetic_algorithm',
         'file_name_prefix': '3compartment',
         'params_for_id_path': params_for_id_path,
@@ -3902,7 +3902,7 @@ def test_multi_start_reports_both_minima_of_a_two_minimum_model(
         'file_prefix': 'TwoMinima',
         'input_param_file': 'TwoMinima_parameters.csv',
         'params_for_id_file': 'TwoMinima_params_for_id.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'solver': 'CVODE_myokit',
         'param_id_method': 'multi_start_sp_minimize',
         'do_ad': False,
@@ -3998,12 +3998,12 @@ def test_multi_start_lbfgsb_escapes_a_local_minimum_that_traps_single_start(temp
 def test_multi_start_finite_difference_fallback_without_casadi(temp_output_dir):
     """For non-casadi models there is no AD cost, so the optimiser must fall back to
     get_cost_from_params with a finite-difference gradient and still escape the local well."""
-    # a cellml_only model has no AD gradient, so get_gradient would raise if it were called
-    param_id_obj = _TwoWellParamId(param_init=(1.2, 1.2), model_type='cellml_only')
+    # a cellml model has no AD gradient, so get_gradient would raise if it were called
+    param_id_obj = _TwoWellParamId(param_init=(1.2, 1.2), model_type='cellml')
     opt = _make_multi_start_optimiser(
         temp_output_dir, param_id_obj,
         {'num_starts': 8, 'start_sampling': 'sobol', 'seed': 0, 'cost_convergence': 1e-12},
-        model_type='cellml_only', do_ad=False)
+        model_type='cellml', do_ad=False)
     opt.run()
 
     assert param_id_obj.num_jac_calls == 0, \
@@ -4528,7 +4528,7 @@ def test_series_interpolation_uses_the_correct_sample_times():
 @pytest.mark.unit
 def test_series_interpolation_matches_between_numpy_and_casadi_paths():
     """The numeric and symbolic costs must resample a series identically, otherwise the same
-    model calibrated as cellml_only and as casadi_python would have different cost surfaces."""
+    model calibrated as cellml and as casadi_python would have different cost surfaces."""
     import casadi as ca
     from param_id.paramID import OpencorParamID
 
@@ -5022,7 +5022,7 @@ def _build_lotka_offline_gradient_runner(
     # Spy on the offline warm-up so callers can assert it really ran (see the tests below).
     import solver_wrappers.myokit_helper as _mh
     import solver_wrappers.casadi_python_solver_helper as _ch
-    backend = _mh.SimulationHelper if model_type == 'cellml_only' else _ch.SimulationHelper
+    backend = _mh.SimulationHelper if model_type == 'cellml' else _ch.SimulationHelper
     original = backend.run_offline_pre_and_set_default_state
 
     def _spy(self, t, _orig=original):
@@ -5093,7 +5093,7 @@ def test_offline_pre_time_multisub_fsa_gradient(
     offline_calls = []
     runner, baseline = _build_lotka_offline_gradient_runner(
         base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir,
-        model_type='cellml_only', solver='CVODE_myokit',
+        model_type='cellml', solver='CVODE_myokit',
         solver_info={'MaximumStep': 0.005, 'MaximumNumberOfSteps': 50000,
                      'rtol': 1e-10, 'atol': 1e-10},
         offline_calls=offline_calls)
@@ -5164,7 +5164,7 @@ def test_param_id_3compartment_modifier_calibration_fsa(
     """A modifier parameter driven through a real calibration (#378 shipped unit tests only).
 
     One theta scales both compliances (aortic_root/C, par/C) while q_lv_init calibrates
-    normally, on cellml_only + CVODE_myokit + sp_minimize + do_ad -- so the L-BFGS-B gradient
+    normally, on cellml + CVODE_myokit + sp_minimize + do_ad -- so the L-BFGS-B gradient
     comes from the CVODES FSA chain rule over the modifier's members (a column per member,
     combined with baseline weights). Checks the end-to-end contract:
     param_modifiers.json lands in the output dir with the model-default baselines, and the
@@ -5195,7 +5195,7 @@ def test_param_id_3compartment_modifier_calibration_fsa(
     config.update({
         'file_prefix': '3compartment',
         'input_param_file': '3compartment_parameters.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'solver': 'CVODE_myokit',
         'param_id_method': 'sp_minimize',
         'do_ad': True,
@@ -5328,7 +5328,7 @@ def test_param_id_3compartment_remainder_calibration_fsa(
     config.update({
         'file_prefix': '3compartment',
         'input_param_file': '3compartment_parameters.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'solver': 'CVODE_myokit',
         'param_id_method': 'sp_minimize',
         'do_ad': True,

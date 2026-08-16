@@ -177,7 +177,7 @@ def test_summation_with_unit_conversion(temp_model_dir, create_unit_conversion_t
     config = {  
         'file_prefix': 'unit_test',  
         'input_param_file': 'unit_test_parameters.csv',  
-        'model_type': 'cellml_only',  
+        'model_type': 'cellml',  
         'solver': 'CVODE_myokit',  
         'resources_dir': resources_dir,  
         'generated_models_dir': temp_model_dir,  
@@ -234,7 +234,7 @@ def test_summation_with_unit_conversion(temp_model_dir, create_unit_conversion_t
       
     sim_helper = get_simulation_helper(  
         model_path=cellml_file,  
-        model_type='cellml_only',  
+        model_type='cellml',  
         solver='CVODE_myokit',  
         # solver='CVODE',  
         dt=0.01,  

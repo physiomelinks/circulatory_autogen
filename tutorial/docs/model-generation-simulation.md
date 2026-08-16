@@ -52,7 +52,7 @@ The following are the steps for model autogeneration.
 !!! Note
     You can refer to the section [Designing a new model](design-model.md) for more details on creating vessel_array and parameters files.
 
-2. Go to the `[CA_user_dir]` and open the `[file_prefix]_user_inputs.yaml` to edit. You can use your editor of choice. `file_prefix` should be the name of your model, and `input_param_file` should be `[file_prefix]_parameters.csv` as shown below. If you keep the default `user_run_files/user_inputs.yaml`, set `user_inputs_path_override` to point to your `[CA_user_dir]/[file_prefix]_user_inputs.yaml`. Set `model_type` to `cellml_only` (default), `python`, or `cpp` depending on the output you want.
+2. Go to the `[CA_user_dir]` and open the `[file_prefix]_user_inputs.yaml` to edit. You can use your editor of choice. `file_prefix` should be the name of your model, and `input_param_file` should be `[file_prefix]_parameters.csv` as shown below. If you keep the default `user_run_files/user_inputs.yaml`, set `user_inputs_path_override` to point to your `[CA_user_dir]/[file_prefix]_user_inputs.yaml`. Set `model_type` to `cellml` (default), `python`, or `cpp` depending on the output you want.
 
     ![user_inputs.yaml file](images/user-inputs.png)
 
@@ -70,7 +70,7 @@ The following are the steps for model autogeneration.
 
 4. Generated files are located in `[generated_models_dir]/[file_prefix]`. (`generated_models_dir` defaults to `[project_dir]/generated_models` unless you set it in `user_inputs.yaml`.) 
 
-    For `model_type: cellml_only`, four CellML files and a CSV file are generated. The CSV file includes model parameters, and the four CellML files contain the modules, parameters, units/constants, and main model.
+    For `model_type: cellml`, four CellML files and a CSV file are generated. The CSV file includes model parameters, and the four CellML files contain the modules, parameters, units/constants, and main model.
 
     For `model_type: python`, a Python module is also generated alongside the CellML files. For `model_type: cpp`, C++ source files are generated and may be written to `cpp_generated_models_dir` depending on your settings.
 

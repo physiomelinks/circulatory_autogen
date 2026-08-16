@@ -135,7 +135,7 @@ def _config(resources_dir, output_dir, generated_models_dir, emulator_dir,
     config = {
         'file_prefix': 'Simple_ODE_Benchmark',
         'input_param_file': 'Simple_ODE_Benchmark_parameters.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'solver': 'CVODE_myokit',
         'param_id_method': 'genetic_algorithm',
         'pre_time': 0.0,

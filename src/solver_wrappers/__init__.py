@@ -103,7 +103,7 @@ def get_simulation_helper(model_path: str = None, solver: str = None,
               ``model_type='casadi_python'`` (cvodes, idas, collocation, rk).
             - ``'external'``: a user-supplied solver class that does its own time
               stepping, for ``model_type='external_python'``.
-        model_type: ``'cellml_only'``, ``'python'``, ``'casadi_python'`` or
+        model_type: ``'cellml'``, ``'python'``, ``'casadi_python'`` or
             ``'external_python'``.
         dt: Output sampling step (s).
         sim_time: Logged simulation duration (s).
@@ -145,7 +145,11 @@ def get_simulation_helper(model_path: str = None, solver: str = None,
     aadc_solvers = ['aadc_semi_implicit']
     external_solvers = ['external']
 
-    # Determine if this is a Python model
+    # Determine if this is a Python model. Note nothing here tests for 'cellml':
+    # it is the fall-through, so the renamed spelling ('cellml_only', see
+    # PrimitiveParsers.MODEL_TYPE_ALIASES) reaches the right backend untranslated
+    # and this file needs no alias handling of its own. Keep it that way -- an
+    # `== 'cellml'` added here would silently start refusing old configs.
     is_python_model = (model_type == 'python')
     is_casadi_python_model = (model_type == 'casadi_python')
     is_aadc_python_model = (model_type == 'aadc_python')

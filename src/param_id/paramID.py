@@ -218,7 +218,7 @@ class CVS0DParamID():
 
     Args:
         model_path: Path to the generated model file (CellML/Python/CasADi).
-        model_type: One of ``'cellml_only'``, ``'python'``, ``'casadi_python'``.
+        model_type: One of ``'cellml'``, ``'python'``, ``'casadi_python'``.
         param_id_method: Optimiser to use, e.g. ``'genetic_algorithm'``,
             ``'CMA-ES'``, ``'bayesian'``, ``'sp_minimize'``.
         mcmc_instead: If True, build an MCMC sampler instead of an optimiser.
@@ -391,7 +391,7 @@ class CVS0DParamID():
                                            emulator_settings=self.emulator_settings)
             self.n_steps = mcmc_object.n_steps
         else:
-            if model_type in ['cellml_only', 'python', 'casadi_python', 'aadc_python',
+            if model_type in ['cellml', 'python', 'casadi_python', 'aadc_python',
                               'external_python']:
                 self.param_id = OpencorParamID(self.model_path, self.param_id_method,
                                                self.obs_info, self.param_id_info, self.protocol_info,
@@ -3409,7 +3409,7 @@ class OpencorParamID():
           (``aadc_python`` names its arm AD too, but its local SA is not implemented yet and
           says so). Any other backend raises naming the mismatch rather than silently
           reinterpreting.
-        * ``'FSA'`` -- Myokit CVODES forward sensitivities; requires ``cellml_only`` +
+        * ``'FSA'`` -- Myokit CVODES forward sensitivities; requires ``cellml`` +
           ``CVODE_myokit`` + ``do_ad``. Raises naming exactly what is missing otherwise.
         * ``'FD'`` -- central finite differences (``param_id.fd_backend``). Works on any
           backend that runs a forward simulation, which is how AADC and the plain scipy
@@ -3441,7 +3441,7 @@ class OpencorParamID():
             raise ValueError(
                 f"unknown gradient_method '{gradient_method}' for local sensitivity analysis. "
                 "Valid values are 'AD' (exact CasADi jacobian, casadi_python), 'FSA' (Myokit "
-                "CVODES forward sensitivities, cellml_only + CVODE_myokit + do_ad), 'FD' "
+                "CVODES forward sensitivities, cellml + CVODE_myokit + do_ad), 'FD' "
                 "(central finite differences, any backend), or None/'auto'/'analytic' (this "
                 "backend's analytic arm).")
 
@@ -3454,11 +3454,11 @@ class OpencorParamID():
             raise ValueError(
                 f"gradient_method 'AD' needs model_type 'casadi_python' (the exact CasADi "
                 f"jacobian); this run is model_type='{self.model_type}', solver='{solver}'. "
-                "Use 'FSA' for cellml_only + CVODE_myokit + do_ad, or 'FD'.")
+                "Use 'FSA' for cellml + CVODE_myokit + do_ad, or 'FD'.")
         if method == 'FSA' and not fsa_backend.gradient_available(self):
             missing = []
-            if self.model_type != 'cellml_only':
-                missing.append(f"model_type is '{self.model_type}', needs 'cellml_only'")
+            if self.model_type != 'cellml':
+                missing.append(f"model_type is '{self.model_type}', needs 'cellml'")
             if not hasattr(getattr(self, 'sim_helper', None), 'enable_fsa'):
                 missing.append(f"solver is '{solver}', needs 'CVODE_myokit' (its helper "
                                "provides CVODES forward sensitivities)")
@@ -3474,7 +3474,7 @@ class OpencorParamID():
             raise NotImplementedError(
                 "Local (derivative-based) sensitivity analysis is not yet implemented for the "
                 "AADC backend. Use sa_options gradient_method 'FD', or model_type "
-                "'casadi_python', or 'cellml_only' with solver 'CVODE_myokit', or global "
+                "'casadi_python', or 'cellml' with solver 'CVODE_myokit', or global "
                 "Sobol SA (sa_options method 'sobol').")
         elif fsa_backend.gradient_available(self):
             return fsa_backend.observable_feature_sensitivities(self, param_vals)
@@ -3484,7 +3484,7 @@ class OpencorParamID():
                 f"backend, not available for model_type={self.model_type} / solver="
                 f"{self.solver_info.get('solver') if isinstance(self.solver_info, dict) else None}. "
                 "Use sa_options gradient_method 'FD', or model_type 'casadi_python', or "
-                "'cellml_only' with solver 'CVODE_myokit' and do_ad true, or global Sobol SA "
+                "'cellml' with solver 'CVODE_myokit' and do_ad true, or global Sobol SA "
                 "(sa_options method 'sobol').")
 
     def get_cost_and_gradient(self, param_vals):
