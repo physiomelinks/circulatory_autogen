@@ -27,7 +27,7 @@ def _ensure_cellml_model_generated(config, mpi_comm):
 
     CI checkouts omit gitignored generated_models/; local runs may already have artifacts.
     """
-    if config.get("model_type") != "cellml_only":
+    if config.get("model_type") != "cellml":
         return
     rank = mpi_comm.Get_rank()
     if rank == 0:
@@ -57,7 +57,7 @@ def test_sensitivity_analysis_3compartment_succeeds(base_user_inputs, resources_
     config.update({
         'file_prefix': '3compartment',
         'input_param_file': '3compartment_parameters.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'solver': 'CVODE',
         'param_id_method': 'genetic_algorithm',
         'pre_time': 20,
@@ -106,7 +106,7 @@ def test_sensitivity_analysis_3compartment_extra_ops_succeeds(
     config.update({
         'file_prefix': '3compartment_extra_ops',
         'input_param_file': '3compartment_extra_ops_parameters.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'solver': 'CVODE',
         'param_id_method': 'genetic_algorithm',
         'pre_time': 20,
@@ -166,14 +166,14 @@ def _build_local_sa_engine(base_user_inputs, resources_dir, temp_output_dir,
         'do_uq': False,
         'plot_predictions': False,
         'solver_info': {'MaximumStep': 0.005, 'MaximumNumberOfSteps': 50000,
-                        'rtol': 1e-9, 'atol': 1e-9} if model_type == 'cellml_only'
+                        'rtol': 1e-9, 'atol': 1e-9} if model_type == 'cellml'
                        else {'method': 'bdf'},
         'param_id_obs_path': os.path.join(resources_dir, obs_file),
         'param_id_output_dir': temp_output_dir,
         'generated_models_dir': temp_generated_models_dir,
     })
     _ensure_cellml_model_generated(config, mpi_comm)
-    if mpi_comm.Get_rank() == 0 and model_type != 'cellml_only':
+    if mpi_comm.Get_rank() == 0 and model_type != 'cellml':
         assert generate_with_new_architecture(False, config), f"generation failed for {model_type}"
     mpi_comm.Barrier()
 
@@ -201,7 +201,7 @@ def test_local_observable_sensitivities_match_fd(
     test_local_observable_sensitivities_casadi_agrees_with_myokit.)
     """
     import numpy as np
-    model_type, solver = 'cellml_only', 'CVODE_myokit'
+    model_type, solver = 'cellml', 'CVODE_myokit'
     engine_outer = _build_local_sa_engine(
         base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir,
         mpi_comm, model_type, solver)
@@ -301,7 +301,7 @@ def test_sensitivity_analysis_local_method_end_to_end(
     config.update({
         'file_prefix': '3compartment',
         'input_param_file': '3compartment_parameters.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'solver': 'CVODE_myokit',
         'pre_time': 0.3,
         'sim_time': 0.5,
@@ -376,7 +376,7 @@ def test_local_observable_sensitivities_casadi_agrees_with_myokit(
         nominal = np.asarray(eng.sim_helper.get_init_param_vals(pnames), dtype=float).ravel()
         return eng.get_observable_sensitivities(nominal), pnames
 
-    myo, pnames_m = sens_for('cellml_only', 'CVODE_myokit')
+    myo, pnames_m = sens_for('cellml', 'CVODE_myokit')
     cas, pnames_c = sens_for('casadi_python', 'casadi_integrator')
 
     assert pnames_m == pnames_c

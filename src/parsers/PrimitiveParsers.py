@@ -83,16 +83,56 @@ AADC_FORWARD_METHODS = ('adaptive_rk45', 'semi_implicit', 'semi_implicit_signed'
 # Every AADC method that can produce an analytic gradient, by either route.
 AADC_AD_METHODS = AADC_TAPE_CONSISTENT_METHODS + AADC_BDF_AD_METHODS
 
+#: Model types that have been renamed, old spelling -> current one.
+#:
+#: ``cellml_only`` was renamed to ``cellml``: the "_only" said nothing (there is
+#: no ``cellml_and_something`` to be distinguished from), and it is the default
+#: model type, so it is the spelling in every ``user_inputs.yaml`` ever written
+#: -- including the dated copies ``save_dated_user_inputs`` archives beside every
+#: run. Refusing those would make old configs unrunnable to buy nothing, so the
+#: old name keeps working and warns.
+#:
+#: Note this is a different namespace from a module config's ``module_format:
+#: cellml`` (which file format one *module* is written in). A model_type says
+#: what CA generates and runs; they happen to share a word.
+MODEL_TYPE_ALIASES = {'cellml_only': 'cellml'}
+
+_warned_model_type_aliases = set()
+
+
+def normalise_model_type(model_type, source=''):
+    """Map a renamed ``model_type`` onto its current spelling, warning once.
+
+    Anything not in :data:`MODEL_TYPE_ALIASES` -- including ``None`` and names
+    that are simply invalid -- is returned untouched, so this only ever
+    translates and never validates. The caller's own check reports a bad name,
+    with the name the user actually wrote.
+    """
+    current = MODEL_TYPE_ALIASES.get(model_type)
+    if current is None:
+        return model_type
+    if model_type not in _warned_model_type_aliases:
+        _warned_model_type_aliases.add(model_type)
+        where = f' in {source}' if source else ''
+        print(f'Warning: model_type "{model_type}"{where} has been renamed to "{current}". '
+              f'It still works, but update your config: the old name will be removed.')
+    return current
+
+
 # Single source of truth for which generated model_types exist, which solvers are
 # valid for each, and which methods/plugins are valid for each solver. Used for
 # input validation here AND surfaced to downstream tools (e.g. the CUFLynx
 # settings UI) so they don't hardcode these lists. Keep this in sync with
 # solver_wrappers.get_simulation_helper.
+#
+# Renamed model types are NOT listed here -- see MODEL_TYPE_ALIASES. This is the
+# menu of what to write today, and a downstream tool building a dropdown from it
+# should not offer a name that is on its way out.
 SOLVER_SCHEMA = {
-    'model_types': ['cellml_only', 'python', 'cpp', 'casadi_python', 'aadc_python',
+    'model_types': ['cellml', 'python', 'cpp', 'casadi_python', 'aadc_python',
                     'external_python'],
     'solvers_by_model_type': {
-        'cellml_only': ['CVODE_opencor', 'CVODE_myokit'],
+        'cellml': ['CVODE_opencor', 'CVODE_myokit'],
         'python': ['solve_ivp'],
         'cpp': ['CVODE', 'RK4', 'PETSC'],
         'casadi_python': ['casadi_integrator'],
@@ -137,7 +177,7 @@ SOLVER_SCHEMA = {
     },
     # Default solver for each model_type (used when none is specified).
     'default_solver_by_model_type': {
-        'cellml_only': 'CVODE_opencor',
+        'cellml': 'CVODE_opencor',
         'python': 'solve_ivp',
         'cpp': 'CVODE',
         'casadi_python': 'casadi_integrator',
@@ -169,7 +209,7 @@ SOLVER_SCHEMA['forward_methods_by_solver'] = {
     solver: (list(AADC_FORWARD_METHODS) if solver == 'aadc_semi_implicit' else list(methods))
     for solver, methods in SOLVER_SCHEMA['methods_by_solver'].items()
 }
-# Myokit CVODES forward-sensitivity (FSA) is the analytic gradient for stiff cellml_only models;
+# Myokit CVODES forward-sensitivity (FSA) is the analytic gradient for stiff cellml models;
 # its method is 'CVODE' on the CVODE solvers. (CA's get_gradient currently produces FSA only for
 # CVODE_myokit; the CVODE_opencor entry records that its FSA-capable method would likewise be
 # CVODE, so a tool gating a method menu stays correct if/when it is wired up.)
@@ -1242,7 +1282,7 @@ PARAM_ID_METHODS = {
         'label': 'Gradient descent (L-BFGS-B)',
         'gradient_based': True,
         'description': ('Local bounded L-BFGS-B. Uses an automatic-differentiation gradient for '
-                        'casadi_python, aadc_python, or cellml_only + CVODE_myokit + do_ad; '
+                        'casadi_python, aadc_python, or cellml + CVODE_myokit + do_ad; '
                         'finite differences otherwise.'),
         # The gradient source is the top-level `do_ad` user input, not an optimiser_option; the
         # sources available for a given model_type/solver are exposed by gradient_sources().
@@ -1353,7 +1393,7 @@ def gradient_sources(model_type, solver=None, method=None, use_emulator=False):
     ``AD_GRADIENT_MODEL_TYPES`` / ``fsa_gradient_available`` in the optimisers):
       * ``casadi_python``               -> symbolic CasADi AD
       * ``aadc_python``                 -> AADC tape AD (needs a Matlogica licence at runtime)
-      * ``cellml_only`` + ``CVODE_myokit`` -> Myokit CVODES forward sensitivity (FSA)
+      * ``cellml`` + ``CVODE_myokit`` -> Myokit CVODES forward sensitivity (FSA)
       * otherwise                       -> finite differences only
     Finite differences is always available. This is the single source of truth these rules were
     previously duplicated from in downstream tools (e.g. CUFLynx); keep it in step with
@@ -1404,7 +1444,7 @@ def gradient_sources(model_type, solver=None, method=None, use_emulator=False):
             'requires_all_differentiable': False,
             'description': 'Exact AADC tape gradient (requires a Matlogica AADC licence at runtime).',
         })
-    elif model_type == 'cellml_only' and solver == 'CVODE_myokit':
+    elif model_type == 'cellml' and solver == 'CVODE_myokit':
         solver_methods = SOLVER_SCHEMA['methods_by_solver'].get(solver, [])
         fsa_suitable = SOLVER_SCHEMA['fsa_suitable_methods'].get(solver, [])
         if method is None or method not in solver_methods or method in fsa_suitable:
@@ -1412,7 +1452,7 @@ def gradient_sources(model_type, solver=None, method=None, use_emulator=False):
                 'value': 'FSA', 'label': 'Forward sensitivity (Myokit CVODES)', 'do_ad': True,
                 'requires_all_differentiable': False,
                 'description': ('Myokit CVODES forward-sensitivity gradient; the analytic gradient '
-                                'path for stiff cellml_only models.'),
+                                'path for stiff cellml models.'),
             })
     return sources
 
@@ -1447,7 +1487,7 @@ ANALYSIS_OPTIONS = {
              'description': ('For method "local": how to differentiate. "auto" picks the '
                              "backend's own analytic arm and fails where there is none; "
                              '"AD" is the exact CasADi jacobian (casadi_python); "FSA" is '
-                             'Myokit CVODES forward sensitivities (cellml_only + '
+                             'Myokit CVODES forward sensitivities (cellml + '
                              'CVODE_myokit + do_ad); "FD" is central finite differences, '
                              'which works on any backend that runs a forward simulation, at '
                              '2M simulations for M parameters.')},
@@ -1538,7 +1578,7 @@ ANALYSIS_OPTIONS = {
             # The source for the Laplace Hessian. 'FD' uses sub_method below (a finite-difference
             # Hessian of the log-posterior). 'AD'/'FSA' build the Fisher information matrix
             # J^T diag(1/std^2) J from the analytic observable sensitivities (CasADi jacobian for
-            # casadi_python, Myokit CVODES for cellml_only + CVODE_myokit) -- i.e. the same
+            # casadi_python, Myokit CVODES for cellml + CVODE_myokit) -- i.e. the same
             # sources gradient_sources(model_type, solver) advertises for calibration. Which of
             # AD/FSA is actually usable follows from model_type/solver, so a front-end should
             # offer only gradient_sources(...)'s values (plus FD); an unavailable choice raises.
@@ -1546,7 +1586,7 @@ ANALYSIS_OPTIONS = {
              'choices': ['FD', 'AD', 'FSA'],
              'description': ('Source for the Laplace Hessian: FD (finite-difference sub_method), '
                              'AD (exact CasADi, casadi_python), or FSA (Myokit CVODES Fisher '
-                             'information, cellml_only + CVODE_myokit). See '
+                             'information, cellml + CVODE_myokit). See '
                              'gradient_sources(model_type, solver) for what the current model '
                              'supports.')},
             # enum, not str: utility_funcs.calculate_hessian dispatches on these. Only consulted
@@ -1851,9 +1891,9 @@ class YamlFileParser(object):
         if 'param_id_method' not in inp_data_dict.keys():
             inp_data_dict['param_id_method'] = 'genetic_algorithm'
 
-        # cellml_only models get an AD gradient too, via Myokit CVODES forward sensitivity,
+        # cellml models get an AD gradient too, via Myokit CVODES forward sensitivity,
         # when run through the Myokit solver with do_ad set.
-        _fsa_ad = (inp_data_dict.get('model_type') == 'cellml_only'
+        _fsa_ad = (inp_data_dict.get('model_type') == 'cellml'
                    and inp_data_dict.get('solver', 'CVODE_myokit') == 'CVODE_myokit'
                    and inp_data_dict.get('do_ad'))
         if inp_data_dict.get('param_id_method') == 'sp_minimize' and \
@@ -1862,19 +1902,19 @@ class YamlFileParser(object):
             # An emulator is exempt: its gradient comes from finite differences on its own
             # evaluations, which is affordable in a way FD on a solver is not (#333).
             print('Parameter identification with sp_minimize requires model_type to be '
-                  '"casadi_python" or "aadc_python", or "cellml_only" with solver '
+                  '"casadi_python" or "aadc_python", or "cellml" with solver '
                   '"CVODE_myokit" and do_ad: true (Myokit CVODES forward sensitivity) -- or '
                   'use_emulator: true, whose gradient is finite differences on the emulator.')
             exit()
 
         # multi_start_sp_minimize runs on any model type: it uses the AD gradient for
-        # casadi_python (symbolic), aadc_python (tape), and cellml_only + Myokit CVODES FSA
+        # casadi_python (symbolic), aadc_python (tape), and cellml + Myokit CVODES FSA
         # (do_ad), and falls back to finite differences for the others.
         if inp_data_dict.get('param_id_method') == 'multi_start_sp_minimize' and \
                 inp_data_dict.get('model_type') not in ('casadi_python', 'aadc_python') and not _fsa_ad:
             print('Note: multi_start_sp_minimize with model_type '
                   f'"{inp_data_dict.get("model_type")}" will use finite-difference gradients. '
-                  'Set model_type to "casadi_python"/"aadc_python", or use "cellml_only" with '
+                  'Set model_type to "casadi_python"/"aadc_python", or use "cellml" with '
                   'solver "CVODE_myokit" and do_ad: true, to use automatic differentiation.')
 
         # overwrite dir paths if set in user_inputs.yaml
@@ -1924,8 +1964,14 @@ class YamlFileParser(object):
         os.makedirs(inp_data_dict['generated_models_subdir'], exist_ok=True)
             
         if 'model_type' not in inp_data_dict.keys():
-            inp_data_dict['model_type'] = 'cellml_only'
-            
+            inp_data_dict['model_type'] = 'cellml'
+        else:
+            # The one strict door: the if/elif below exits on a model_type it does
+            # not know, so a config still saying `cellml_only` has to be translated
+            # here or it stops being runnable.
+            inp_data_dict['model_type'] = normalise_model_type(
+                inp_data_dict['model_type'], source='user_inputs.yaml')
+
         if inp_data_dict.get('model_type') == 'external_python':
             model_ext = None
             # The "model" is the user's own solver class in funcs_user/, not a generated file.
@@ -1938,7 +1984,7 @@ class YamlFileParser(object):
             inp_data_dict['uncalibrated_model_path'] = external_path
         elif inp_data_dict.get('model_type') in ['python', 'casadi_python']:
             model_ext = '.py'
-        elif inp_data_dict.get('model_type') == 'cellml_only':
+        elif inp_data_dict.get('model_type') == 'cellml':
             model_ext = '.cellml'
         elif inp_data_dict.get('model_type') == 'cpp':
             model_ext = '.cpp'
@@ -1984,7 +2030,7 @@ class YamlFileParser(object):
         # Sourced from the module-level SOLVER_SCHEMA (single source of truth).
         _solvers = SOLVER_SCHEMA['solvers_by_model_type']
         _methods = SOLVER_SCHEMA['methods_by_solver']
-        valid_cellml_solvers = _solvers['cellml_only']
+        valid_cellml_solvers = _solvers['cellml']
         valid_cellml_methods = _methods['CVODE_myokit']
         valid_cpp_solvers = _solvers['cpp']  # TODO should this be different to methods?
         valid_cpp_methods = _solvers['cpp']
@@ -2004,7 +2050,7 @@ class YamlFileParser(object):
             solver_name = 'CVODE_myokit' # default to CVODE_myokit for cellml models
 
         if solver_name is None:
-            if inp_data_dict.get('model_type') == 'cellml_only':
+            if inp_data_dict.get('model_type') == 'cellml':
                 solver_name = 'CVODE_opencor'
             elif inp_data_dict.get('model_type') == 'python':
                 solver_name = 'solve_ivp'
@@ -2583,7 +2629,7 @@ def _solver_info_default_for(model_type, solver_name):
     """``get_solver_info_default`` narrowed to the keys ``solver_name`` accepts.
 
     The defaults are per model_type, but a model_type can host backends with
-    different settings: cellml_only covers both CVODE_opencor (which takes
+    different settings: cellml covers both CVODE_opencor (which takes
     MaximumNumberOfSteps) and CVODE_myokit (which has no such knob). Seeding the
     whole default set would put back exactly what
     migrate_legacy_solver_info_keys just removed, and validate_solver_info would
@@ -2598,7 +2644,7 @@ def _solver_info_default_for(model_type, solver_name):
 
 
 def get_solver_info_default(model_type):
-    if model_type == 'cellml_only':
+    if model_type == 'cellml':
         return {
             'solver': 'CVODE_opencor',
             'MaximumStep': 0.001,

@@ -82,7 +82,7 @@ class SensitivityAnalysis():
 
     Args:
         model_path: Path to the generated model file.
-        model_type: ``'cellml_only'``, ``'python'`` or ``'casadi_python'``.
+        model_type: ``'cellml'``, ``'python'`` or ``'casadi_python'``.
         file_name_prefix: Model name prefix.
         sa_options: SA options dict (``method``, ``sample_type``,
             ``num_samples``, ``output_dir``).
@@ -324,7 +324,7 @@ class SensitivityAnalysis():
         Computes d(observable feature)/d(param) at the nominal parameter values -- the analytic,
         single-solve counterpart to the sampling-based Sobol SA -- via the backend-agnostic
         ``OpencorParamID.get_observable_sensitivities`` (CasADi jacobian for casadi_python;
-        Myokit CVODES sensitivities for cellml_only + CVODE_myokit). On rank 0 it saves the
+        Myokit CVODES sensitivities for cellml + CVODE_myokit). On rank 0 it saves the
         absolute and relative sensitivity matrices to CSV. The result is also available via
         ``get_local_sensitivities()``.
 

@@ -91,7 +91,7 @@ def _engine(tmp_path, model, params_doc, solver_info=None, dt=_DT):
     os.makedirs(out_dir, exist_ok=True)
     outer = CVS0DParamID(
         model_path=os.path.join(TEST_INPUTS, f'affine_{model}.cellml'),
-        model_type='cellml_only', param_id_method='sp_minimize', file_name_prefix='affine',
+        model_type='cellml', param_id_method='sp_minimize', file_name_prefix='affine',
         params_for_id_path=_write(tmp_path, f'{model}_params.json', params_doc),
         param_id_obs_path=_write(tmp_path, f'{model}_obs.json', _obs_doc()),
         sim_time=_T_END, pre_time=0.0, dt=dt,

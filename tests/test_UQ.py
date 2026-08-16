@@ -56,7 +56,7 @@ def _uq_config(base_user_inputs, resources_dir, temp_output_dir, obs_path, libra
         'file_prefix': 'Simple_ODE_Benchmark',
         'input_param_file': 'Simple_ODE_Benchmark_parameters.csv',
         'params_for_id_file': 'Simple_ODE_Benchmark_params_for_id.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'solver': 'CVODE_myokit',
         'param_id_method': 'genetic_algorithm',
         'pre_time': 0.5,

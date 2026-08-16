@@ -223,7 +223,7 @@ def test_fsa_reaches_the_myokit_arm(monkeypatch):
             return []
 
     pid = paramID.OpencorParamID.__new__(paramID.OpencorParamID)
-    pid.model_type = "cellml_only"
+    pid.model_type = "cellml"
     pid.do_ad = True
     pid.sim_helper = _FsaHelper()
     called = []
@@ -237,7 +237,7 @@ def test_ad_on_a_myokit_run_raises_naming_the_mismatch():
     from param_id.paramID import OpencorParamID
 
     pid = OpencorParamID.__new__(OpencorParamID)
-    pid.model_type = "cellml_only"
+    pid.model_type = "cellml"
     pid.solver_info = {"solver": "CVODE_myokit"}
     with pytest.raises(ValueError, match="'AD' needs model_type 'casadi_python'"):
         pid.get_observable_sensitivities([1.0], gradient_method="AD")
@@ -266,7 +266,7 @@ def test_fsa_without_do_ad_names_the_missing_flag():
             return []
 
     pid = OpencorParamID.__new__(OpencorParamID)
-    pid.model_type = "cellml_only"
+    pid.model_type = "cellml"
     pid.solver_info = {"solver": "CVODE_myokit"}
     pid.sim_helper = _FsaHelper()
     pid.do_ad = False

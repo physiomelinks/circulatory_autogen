@@ -416,7 +416,7 @@ Note:
 Before doing calibration, a solver for the model needs to be chosen
 
 - **solver** defines the solver family. Options depend on `model_type`:
-    - CellML (`model_type: cellml_only`): `CVODE` defaults to `CVODE_myokit` (Myokit). Use `CVODE_opencor` explicitly if you want the OpenCOR backend instead.
+    - CellML (`model_type: cellml`): `CVODE` defaults to `CVODE_myokit` (Myokit). Use `CVODE_opencor` explicitly if you want the OpenCOR backend instead.
     - Python (`model_type: python`): `solve_ivp` with `solver_info.method` set to `RK45`, `BDF`, etc.
     - CasADi Python (`model_type: casadi_python`): `casadi_integrator` with `solver_info.method` set to `cvodes`, `idas`, `collocation`, `rk`, `semi_implicit_euler`, or `bdf`.
     - C++ (`model_type: cpp`): `CVODE`, `RK4`, or `PETSC`.
@@ -495,17 +495,17 @@ Before doing calibration, a solver for the model needs to be chosen
       max_step_size: 0.001
     ```
 
-!!! tip "Myokit CVODES forward sensitivity — AD gradients for `cellml_only` models"
-    A `cellml_only` model run through the Myokit backend can produce an exact gradient without
+!!! tip "Myokit CVODES forward sensitivity — AD gradients for `cellml` models"
+    A `cellml` model run through the Myokit backend can produce an exact gradient without
     converting to `casadi_python`, using Myokit's native **CVODES forward-sensitivity analysis
-    (FSA)**. Set `model_type: cellml_only`, `solver: CVODE_myokit`, `do_ad: true`, and a
+    (FSA)**. Set `model_type: cellml`, `solver: CVODE_myokit`, `do_ad: true`, and a
     gradient-based `param_id_method` (`sp_minimize` or `multi_start_sp_minimize`). FSA integrates
     the state and sensitivity equations together with the adaptive stiff CVODES solver, so it
     handles **stiff dynamics and a long `pre_time` warmup natively** while staying as accurate as
     the forward simulation itself.
 
     ```yaml
-    model_type: cellml_only
+    model_type: cellml
     solver: CVODE_myokit
     do_ad: true
     param_id_method: multi_start_sp_minimize
@@ -548,7 +548,7 @@ Before doing calibration, a solver for the model needs to be chosen
     **Multiple sub-experiments / experiments are not yet supported by the AADC wrapper.** The tape
     records one straight-line integration, so a protocol with more than one sub-experiment (or more
     than one experiment) raises rather than silently differentiating the wrong thing. The Myokit
-    CVODES FSA gradient (`model_type: cellml_only` + `solver: CVODE_myokit`) does support multi-sub
+    CVODES FSA gradient (`model_type: cellml` + `solver: CVODE_myokit`) does support multi-sub
     protocols; the AADC equivalent is tracked as future work.
 
 
@@ -606,7 +606,7 @@ To run the parameter identification we need to set a few entries in the `[CA_dir
     !!! note "Automatic-differentiation gradient backends"
         Gradient-based calibration (`do_ad: true`) is provided by two open-source backends:
         **CasADi** (`model_type: casadi_python`, LGPL — symbolic differentiation) and **Myokit
-        CVODES forward sensitivity** (`model_type: cellml_only` + `solver: CVODE_myokit`). Both
+        CVODES forward sensitivity** (`model_type: cellml` + `solver: CVODE_myokit`). Both
         require no proprietary licence and both handle stiff models; see the Solver section for
         which method to pick.
 
@@ -650,7 +650,7 @@ optimiser_options:
 - **Best for**: Smooth optimization landscapes, when you want faster convergence
 
 For an AD gradient use `model_type: casadi_python` (CasADi symbolic differentiation) or a
-`cellml_only` model run through `solver: CVODE_myokit` with `do_ad: true` (Myokit CVODES forward
+`cellml` model run through `solver: CVODE_myokit` with `do_ad: true` (Myokit CVODES forward
 sensitivity — see the Solver section). Any other configuration falls back to a finite-difference
 gradient.
 
@@ -665,7 +665,7 @@ L-BFGS-B only ever finds the minimum of the basin it starts in, so on a multi-mo
 !!! note "Parallel multi-start pays off only for many starts"
     The starts are distributed statically round-robin over the MPI ranks (`run_param_id.sh` with `num_processors > 1`). Because individual L-BFGS-B descents vary a lot in length — some converge in a handful of iterations, some take many — the per-rank workloads only even out when **each rank runs many starts**, i.e. when `num_starts` is much larger than the number of ranks. With `num_starts ≤ num_processors` each rank runs a single descent and the wall-clock is bounded by the slowest one, so extra ranks buy little. As a rule of thumb, run with several times as many starts as ranks. Measured on a 20-core host with 100 starts: ~3.8× on 4 ranks, ~4× on 8. Once any start reaches `cost_convergence`, every rank stops launching new starts, so a converged run doesn't keep the other ranks busy needlessly. `run()` reports the achieved speedup in its final log line.
 
-This works for **any** `model_type`. The gradient comes from `get_gradient()`, which has an AD backend for `casadi_python` (symbolic jacobian), `cellml_only` run through `CVODE_myokit` with `do_ad: true` (Myokit CVODES forward sensitivity), and `aadc_python` (tape reverse pass — non-stiff, state-observable, single-experiment problems only; see the AADC caveat in the Solver section). For every other configuration there is no AD gradient, so the cost is evaluated with the usual simulation cost and the gradient falls back to finite differences.
+This works for **any** `model_type`. The gradient comes from `get_gradient()`, which has an AD backend for `casadi_python` (symbolic jacobian), `cellml` run through `CVODE_myokit` with `do_ad: true` (Myokit CVODES forward sensitivity), and `aadc_python` (tape reverse pass — non-stiff, state-observable, single-experiment problems only; see the AADC caveat in the Solver section). For every other configuration there is no AD gradient, so the cost is evaluated with the usual simulation cost and the gradient falls back to finite differences.
 
 Example configuration:
 ```yaml

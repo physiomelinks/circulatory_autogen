@@ -14,23 +14,23 @@ from scripts.script_generate_with_new_architecture import generate_with_new_arch
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.parametrize("file_prefix,input_param_file,model_type,solver", [
-    ('ports_test', 'ports_test_parameters.csv', 'cellml_only', 'CVODE'),
-    ('test_init_states', 'test_init_states_parameters.csv', 'cellml_only', 'CVODE'),
-    ('3compartment', '3compartment_parameters.csv', 'cellml_only', 'CVODE'),
-    ('3compartment_extra_ops', '3compartment_extra_ops_parameters.csv', 'cellml_only', 'CVODE'),
-    ('simple_physiological', 'simple_physiological_parameters.csv', 'cellml_only', 'CVODE'),
-    ('parasympathetic_model', 'parasympathetic_model_parameters.csv', 'cellml_only', 'CVODE'),
-    ('test_fft', 'test_fft_parameters.csv', 'cellml_only', 'CVODE'),
-    ('neonatal', 'neonatal_parameters.csv', 'cellml_only', 'CVODE'),
-    ('generic_junction_test_closed_loop', 'generic_junction_test_closed_loop_parameters.csv', 'cellml_only', 'CVODE'),
-    ('generic_junction_test2_closed_loop', 'generic_junction_test_closed_loop_parameters.csv', 'cellml_only', 'CVODE'),
-    ('generic_junction_test_open_loop', 'generic_junction_test_open_loop_parameters.csv', 'cellml_only', 'CVODE'),
-    ('generic_junction_test2_open_loop', 'generic_junction_test_open_loop_parameters.csv', 'cellml_only', 'CVODE'),
-    ('SN_simple', 'SN_simple_parameters.csv', 'cellml_only', 'CVODE'),
-    ('physiological', 'physiological_parameters.csv', 'cellml_only', 'CVODE'),
-    ('control_phys', 'control_phys_parameters.csv', 'cellml_only', 'CVODE'),
-    ('control_parasymp', 'control_parasymp_parameters.csv', 'cellml_only', 'CVODE'),
-    ('control_phys_asd', 'control_phys_asd_parameters.csv', 'cellml_only', 'CVODE'),
+    ('ports_test', 'ports_test_parameters.csv', 'cellml', 'CVODE'),
+    ('test_init_states', 'test_init_states_parameters.csv', 'cellml', 'CVODE'),
+    ('3compartment', '3compartment_parameters.csv', 'cellml', 'CVODE'),
+    ('3compartment_extra_ops', '3compartment_extra_ops_parameters.csv', 'cellml', 'CVODE'),
+    ('simple_physiological', 'simple_physiological_parameters.csv', 'cellml', 'CVODE'),
+    ('parasympathetic_model', 'parasympathetic_model_parameters.csv', 'cellml', 'CVODE'),
+    ('test_fft', 'test_fft_parameters.csv', 'cellml', 'CVODE'),
+    ('neonatal', 'neonatal_parameters.csv', 'cellml', 'CVODE'),
+    ('generic_junction_test_closed_loop', 'generic_junction_test_closed_loop_parameters.csv', 'cellml', 'CVODE'),
+    ('generic_junction_test2_closed_loop', 'generic_junction_test_closed_loop_parameters.csv', 'cellml', 'CVODE'),
+    ('generic_junction_test_open_loop', 'generic_junction_test_open_loop_parameters.csv', 'cellml', 'CVODE'),
+    ('generic_junction_test2_open_loop', 'generic_junction_test_open_loop_parameters.csv', 'cellml', 'CVODE'),
+    ('SN_simple', 'SN_simple_parameters.csv', 'cellml', 'CVODE'),
+    ('physiological', 'physiological_parameters.csv', 'cellml', 'CVODE'),
+    ('control_phys', 'control_phys_parameters.csv', 'cellml', 'CVODE'),
+    ('control_parasymp', 'control_parasymp_parameters.csv', 'cellml', 'CVODE'),
+    ('control_phys_asd', 'control_phys_asd_parameters.csv', 'cellml', 'CVODE'),
 ])
 def test_generate_cellml_model_succeeds(file_prefix, input_param_file, model_type, solver, base_user_inputs, resources_dir, temp_generated_models_dir):
     """
@@ -66,7 +66,7 @@ def test_generate_cellml_model_succeeds(file_prefix, input_param_file, model_typ
 
 
 _SN_SIMPLE_XFAIL = (
-    "SN_simple's CellML initialises states from *_init parameters, which libCellML's Analyser rejects (ANALYSER_VARIABLE_NON_CONSTANT_INITIALISATION), so PythonGenerator cannot emit it (#151). cellml_only + Myokit accept the same model. strict=True on purpose: when a libCellML upgrade makes this pass, the XPASS fails the suite and says so, rather than leaving a permanently-red test that everyone has learned to ignore."
+    "SN_simple's CellML initialises states from *_init parameters, which libCellML's Analyser rejects (ANALYSER_VARIABLE_NON_CONSTANT_INITIALISATION), so PythonGenerator cannot emit it (#151). cellml + Myokit accept the same model. strict=True on purpose: when a libCellML upgrade makes this pass, the XPASS fails the suite and says so, rather than leaving a permanently-red test that everyone has learned to ignore."
 )
 
 
@@ -299,7 +299,7 @@ def test_generate_model_with_invalid_parameters_fails(base_user_inputs, resource
     config.update({
         'file_prefix': 'nonexistent_model',
         'input_param_file': 'nonexistent_parameters.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'solver': 'CVODE',
         'generated_models_dir': temp_generated_models_dir,
     })

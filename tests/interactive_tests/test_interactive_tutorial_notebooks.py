@@ -170,7 +170,7 @@ def _sanitize_generation_and_calibration_test(source: str) -> str:
 
             param_id = CVS0DParamID(
                 model_path=inp_data_dict["model_path"],
-                model_type="cellml_only",
+                model_type="cellml",
                 param_id_method="genetic_algorithm",
                 file_name_prefix="3compartment" # name here only needed for saved files
             )

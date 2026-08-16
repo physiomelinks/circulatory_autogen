@@ -6,7 +6,7 @@ arm. This file widens both axes at once:
 * **five members**, spread over an order of magnitude (c = 0.11 .. 0.89), so the chain-rule
   sum is over a number where dropping *any* single member is unambiguous -- with two members
   a bug can hide behind a small one.
-* **both analytic backends**: `cellml_only` + `CVODE_myokit` (CVODES forward sensitivities)
+* **both analytic backends**: `cellml` + `CVODE_myokit` (CVODES forward sensitivities)
   and `casadi_python` + `casadi_integrator` (symbolic AD). CasADi gained modifier/grouped
   support by folding its per-member jacobian with the same affine weights the FSA arm uses;
   this is what proves the two backends answer the same question.
@@ -77,7 +77,7 @@ def _engine(tmp_path, arm, backend, casadi_models=None):
 
     if backend == 'myokit':
         model_path = os.path.join(TEST_INPUTS, f'scaling_{arm}.cellml')
-        model_type, solver_info = 'cellml_only', {'solver': 'CVODE_myokit'}
+        model_type, solver_info = 'cellml', {'solver': 'CVODE_myokit'}
     else:
         model_path = casadi_models[arm]
         model_type = 'casadi_python'
@@ -224,7 +224,7 @@ def test_the_modifier_sums_all_five_members(backend, tmp_path, casadi_models):
     os.makedirs(out_dir, exist_ok=True)
     if backend == 'myokit':
         model_path = os.path.join(TEST_INPUTS, 'scaling_modifier.cellml')
-        model_type, solver_info = 'cellml_only', {'solver': 'CVODE_myokit'}
+        model_type, solver_info = 'cellml', {'solver': 'CVODE_myokit'}
     else:
         model_path = casadi_models['modifier']
         model_type = 'casadi_python'

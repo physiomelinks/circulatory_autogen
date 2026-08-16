@@ -1,6 +1,6 @@
 """Myokit CVODES forward-sensitivity (FSA) gradient for the param-id classes.
 
-This is the analytic-gradient path for stiff / long-warmup ``cellml_only`` models, which
+This is the analytic-gradient path for stiff / long-warmup ``cellml`` models, which
 neither CasADi nor AADC covers. Every public function takes the param-id object as its first
 argument (``pid``); the ``_fsa_*`` bookkeeping stays as instance attributes on it, so
 anything inspecting ``pid._fsa_ineligible_names`` keeps working.
@@ -124,11 +124,11 @@ def observable_feature_sensitivities(pid, param_vals):
 def gradient_available(pid):
     """True when this run can produce an analytic gradient via Myokit CVODES FSA.
 
-    Requires a cellml_only model run through the Myokit backend (whose SimulationHelper
+    Requires a cellml model run through the Myokit backend (whose SimulationHelper
     exposes enable_fsa) with do_ad requested. This is the gradient path for stiff /
     long-warmup models that neither CasADi nor AADC covers.
     """
-    return (pid.model_type == 'cellml_only'
+    return (pid.model_type == 'cellml'
             and getattr(pid, 'do_ad', False)
             and hasattr(pid.sim_helper, 'enable_fsa'))
 
