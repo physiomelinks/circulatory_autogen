@@ -32,7 +32,9 @@ if __name__ == '__main__':
 
         with open(os.path.join(user_inputs_dir, 'user_inputs.yaml'), 'r') as file:
             inp_data_dict = yaml.load(file, Loader=yaml.FullLoader)
-        if inp_data_dict["user_inputs_path_override"]:
+        # .get(): the key is commented out in the shipped user_inputs.yaml, so absent
+        # means "no override", not a KeyError.
+        if inp_data_dict.get("user_inputs_path_override"):
             if os.path.exists(inp_data_dict["user_inputs_path_override"]):
                 user_files_dir = os.path.dirname(inp_data_dict["user_inputs_path_override"])
                 with open(inp_data_dict["user_inputs_path_override"], 'r') as file:

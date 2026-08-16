@@ -1,6 +1,10 @@
 #_______ general inputs ________
 DEBUG: false # TODO change back
-user_inputs_path_override: /home/hsma807/Animus/RA/ANS-BGCVS/Code/CA_user_ANS_BGCVS/BG_volume_control_user_inputs.yaml
+# user_inputs_path_override: when set to an absolute path, every stage reads its config from
+# that file instead of this one -- the way to keep a study's config outside the repo. Leave it
+# commented out unless you are pointing at your own config; a committed value here would send
+# every fresh clone to a file that only exists on one machine. Example:
+# user_inputs_path_override: /abs/path/to/my_study/user_inputs.yaml
 file_prefix: 3compartment 
 # input_param_file must be stored in resources. If first creating a parameters file 
 # set this to parameters_orig.csv and a 
