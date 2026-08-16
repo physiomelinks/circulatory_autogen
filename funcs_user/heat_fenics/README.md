@@ -3,10 +3,11 @@
 A [FEniCSx](https://fenicsproject.org/) (dolfinx) finite-element solver driven by
 Circulatory Autogen through `model_type: external_python` / `solver: external`.
 
-This is the example to copy when **your solver owns its own time-stepping**. libCUFLynx's older
-`python_user_defined` backend asks you for a right-hand side and integrates it with
-`scipy.solve_ivp`; that is the wrong shape for a PDE solver, which has a mesh, an assembled
-operator and a time loop of its own. `external_python` inverts the relationship: libCUFLynx hands
+This is the example to copy when **your solver owns its own time-stepping**. A solver you only
+have to supply a right-hand side for can call `scipy.solve_ivp` inside `run()` — see
+`funcs_user/example_model_scipy/` — but that is the wrong shape for a PDE solver, which has a
+mesh, an assembled operator and a time loop of its own. `external_python` inverts the
+relationship: libCUFLynx hands
 over the record grid, asks for a run, and reads named traces back. Everything in between is
 yours.
 
@@ -202,6 +203,7 @@ Changing `nx`, `dt` or `sim_time` changes them, so regenerate after any such cha
 * `tutorial/docs/external-python-solvers.md` — the full contract, method by method.
 * `funcs_user/example_model_external/` — the same contract on a 1-D NumPy model, with no
   external dependencies at all. Start there if you only want to see the shape of it.
-* `funcs_user/example_model/` — the older `python_user_defined` (RHS-only) backend.
+* `funcs_user/example_model_scipy/` — an ODE solved with `scipy.solve_ivp` inside `run()`,
+  the simple end of the same contract.
 * `tests/test_heat_fenics_example.py` — smoke, physics-sanity, plotting and emulator
   round-trip tests for this example.

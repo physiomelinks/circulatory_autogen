@@ -10,10 +10,16 @@ file_prefix: 3compartment
 input_param_file: 3compartment_parameters.csv
 
 # cpp generation inputs
-# model_type can be cellml_only, cpp, or python, casadi_python atm 
+# model_type can be cellml_only, python, cpp, casadi_python, aadc_python or external_python.
+# The first five are generated from the vessel/module CSV arrays; external_python is the one way
+# to bring a model of your own -- a Python class that owns its time stepping, registered as
+# SIM_HELPER and pointed at by external_model_path. See tutorial/docs/external-python-solvers.md
+# and funcs_user/example_model_scipy/ (the retired 'python_user_defined' rhs backend was removed;
+# that example is its replacement).
 # model_type: cpp
 model_type: cellml_only
 # model_type: casadi_python
+# model_type: external_python
 
 #__________ parameter identification inputs __________
 # param_id_method can be any of [genetic_algorithm, CMA-ES, bayesian, sp_minimize, multi_start_sp_minimize]
@@ -64,7 +70,7 @@ cpp_1d_model_config_path:
 # Output time step (sampling) 
 dt: 0.01 # This should be smaller than all of the dt in your obs_data.json file.
 
-# solver options are: CVODE_myokit (uses Myokit, default), CVODE_opencor (uses OpenCOR), RK4_cpp (RK4 in cpp), for Python models: solve_ivp, or for CasADi Python models: casadi_integrator
+# solver options are: CVODE_myokit (uses Myokit, default), CVODE_opencor (uses OpenCOR), RK4_cpp (RK4 in cpp), for Python models: solve_ivp, for CasADi Python models: casadi_integrator, or for external_python models: external
 solver: CVODE_myokit
 # These are inputs to solver_properties of the solver
 solver_info:

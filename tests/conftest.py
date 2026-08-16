@@ -97,7 +97,7 @@ _TEST_OUTPUT_ROOT = os.path.join(os.path.dirname(__file__), "test_outputs")
 # ]
 _LOCK_FILE = os.path.realpath(os.path.join(_TEST_ROOT, ".pytest_param_id_lock"))
 _PARAM_ID_TRIGGERS = ("test_param_id", "compare_optimisers", "test_sensitivity_analysis",
-                      "test_python_user_defined", "test_UQ")
+                      "test_UQ")
 
 
 def _is_autogen_like_nodeid(nodeid: str) -> bool:

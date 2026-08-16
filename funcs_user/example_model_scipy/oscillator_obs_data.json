@@ -30,7 +30,7 @@
     "operands": ["oscillator/v"],
     "unit": "dimensionless",
     "weight": 1.0,
-    "value": 2.87274456,
+    "value": 2.87274454,
     "std": 0.1,
     "cost_type": "gaussian_MLE",
     "plot_type": "horizontal_from_min"

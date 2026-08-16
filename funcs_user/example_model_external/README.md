@@ -9,17 +9,13 @@ step; it asks for a sample grid and gets one back.
 Calibrated parameters: `k` (diffusivity) and `u_D` (the boundary value). Observables: three fixed
 interior probes.
 
-## `external_python` vs `python_user_defined`
+## Which example do I want?
 
-| | `python_user_defined` | `external_python` |
-|---|---|---|
-| You supply | an `rhs(t, y, params)` function | a solver **class** |
-| Who integrates | CA, with scipy `solve_ivp` | your code |
-| Solver choice | `solver_info.method` (RK45, BDF, …) | yours; CA has none to offer |
-| Good for | an ODE you can write down | an FE/FV code, a compiled library, a scheme that is the point |
-
-Use `python_user_defined` (see `funcs_user/example_model/`) when your model really is just an
-ODE — you get CA's integrators for free. Use `external_python` when it is not.
+`external_python` is the only way to bring your own Python model, and this is its *harder* half:
+a scheme the model owns and marches itself. If your model is an ODE you can write down, start
+with [`../example_model_scipy/`](../example_model_scipy/) instead — same contract, with
+`scipy.integrate.solve_ivp` called inside `run()`. That example is also the migration guide for
+the removed `model_type: python_user_defined`, which took an `rhs` and integrated it for you.
 
 ## Files
 

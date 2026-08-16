@@ -1,18 +1,20 @@
 """Backend for ``model_type: 'external_python'`` (solver ``'external'``).
 
-The sibling type ``python_user_defined`` asks the user for an RHS and CA does the integrating
-(scipy ``solve_ivp``, see :mod:`solver_wrappers.python_solver_helper`). That is the wrong shape
-for a model that already *has* a solver: a finite-element code, a compiled library behind a thin
-Python binding, a scheme whose time stepping is the point. Handing such a model to ``solve_ivp``
-means either rewriting it as an RHS or not using CA at all.
+This is the one way to bring your own Python model. The user supplies a Python file containing a
+**class** that owns its own time stepping; this wrapper adapts it to the ``SimulationHelper``
+surface every other backend implements, so the protocol runner, param_id, sensitivity analysis
+and UQ work against it unchanged.
 
-``external_python`` closes that gap. The user supplies a Python file containing a **class** that
-owns its own time stepping; this wrapper adapts it to the ``SimulationHelper`` surface every
-other backend implements, so the protocol runner, param_id, sensitivity analysis and UQ work
-against it unchanged.
+Owning the time loop is what makes this shape general. A model that already *has* a solver -- a
+finite-element code, a compiled library behind a thin Python binding, a scheme whose time
+stepping is the point -- cannot be squeezed through a per-step RHS callback; and a model that is
+just an ODE loses nothing, because calling ``scipy.integrate.solve_ivp`` inside ``run()`` is four
+lines (see ``funcs_user/example_model_scipy/``). CA used to offer a second type,
+``python_user_defined``, that took the RHS and did the integrating; it was removed because the
+two names did not distinguish them and it bought no capability the contract below lacks.
 
-The contract the user's class must satisfy (see ``funcs_user/example_model_external/`` for a
-worked example)::
+The contract the user's class must satisfy (see ``funcs_user/example_model_scipy/`` for a small
+ODE and ``funcs_user/example_model_external/`` for a hand-marched PDE)::
 
     class MyModel:
         parameters = {"heat/k": 1.0, "heat/u_D": 0.0}     # name -> default, LITERAL values

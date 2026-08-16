@@ -143,15 +143,25 @@ def get_simulation_helper(model_path: str = None, solver: str = None,
     solve_ivp_methods = ['RK45', 'RK23', 'DOP853', 'Radau', 'BDF', 'LSODA', 'RK4', 'forward_euler']
     casadi_solvers = ['casadi_integrator']
     aadc_solvers = ['aadc_semi_implicit']
-    user_defined_solvers = ['user_defined']
     external_solvers = ['external']
 
     # Determine if this is a Python model
     is_python_model = (model_type == 'python')
     is_casadi_python_model = (model_type == 'casadi_python')
     is_aadc_python_model = (model_type == 'aadc_python')
-    is_user_defined_model = (model_type == 'python_user_defined')
     is_external_model = (model_type == 'external_python')
+
+    # The removed RHS-only backend. Caught here as well as in the config parser, because the
+    # factory is a public entry point (get_simulation_helper is called directly from the
+    # programmatic API) and "Unknown solver user_defined" would not say that the feature moved.
+    if solver == 'user_defined' or model_type == 'python_user_defined':
+        raise ValueError(
+            "model_type 'python_user_defined' / solver 'user_defined' has been removed. Use "
+            "model_type='external_python' with solver='external': write a class that owns its "
+            "own time stepping (call scipy solve_ivp inside its run() for an ODE), declare "
+            "literal `parameters` / `output_names` class attributes, register it with "
+            "`SIM_HELPER = YourClass`, and point external_model_path at the file. See "
+            "funcs_user/example_model_scipy/ for the same ODE example under the new contract.")
 
     # Check for explicit solver specification with validation
     if solver == 'CVODE_opencor':
@@ -188,13 +198,6 @@ def get_simulation_helper(model_path: str = None, solver: str = None,
             return AadcPythonSimulationHelper(model_path, dt, sim_time, solver_info, pre_time=pre_time)
         else:
             raise RuntimeError("AADC solver requested but aadc package is not installed. pip install aadc")
-    elif solver in user_defined_solvers:
-        if not is_user_defined_model:
-            raise ValueError(f"Solver {solver} can only be used for user-defined Python models (model_type='python_user_defined').")
-        if not model_path.endswith('.py'):
-            raise ValueError(f"model_path {model_path} does not end with .py, which is required for python_user_defined models (the wrapper module)")
-        # The user wrapper is integrated by the shared SciPy PythonSimulationHelper.
-        return PythonSimulationHelper(model_path, dt, sim_time, solver_info, pre_time=pre_time)
     elif solver in external_solvers:
         if not is_external_model:
             raise ValueError(f"Solver {solver} can only be used for external Python models (model_type='external_python').")
@@ -202,12 +205,12 @@ def get_simulation_helper(model_path: str = None, solver: str = None,
             raise ValueError(f"model_path {model_path} does not end with .py, which is required for external_python models (the file defining SIM_HELPER)")
         if ExternalSimulationHelper is None:
             raise RuntimeError(_unavailable_message('external', solver))
-        # Unlike python_user_defined, the user's class owns its own time stepping; this helper
-        # only wraps it in the shared SimulationHelper surface.
+        # The user's class owns its own time stepping; this helper only wraps it in the shared
+        # SimulationHelper surface.
         return ExternalSimulationHelper(model_path, dt, sim_time, solver_info, pre_time=pre_time)
     elif solver is not None:
         # Unknown solver type
-        raise ValueError(f"Unknown solver {solver}. Valid options are: {cellml_solvers} for CellML models, {python_solvers} for Python models, {casadi_solvers} for CasADi Python models, {user_defined_solvers} for user-defined Python models, and {external_solvers} for external Python models.")
+        raise ValueError(f"Unknown solver {solver}. Valid options are: {cellml_solvers} for CellML models, {python_solvers} for Python models, {casadi_solvers} for CasADi Python models, and {external_solvers} for external Python models.")
 
     # Backward compatibility logic
     if is_python_model:
