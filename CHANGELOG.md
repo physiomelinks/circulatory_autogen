@@ -34,7 +34,16 @@ The API reference's mkdocstrings identifiers moved with them
 per extra, and says in as many words that the repository is `circulatory_autogen` while the
 package is `libcuflynx` — cite the former, `pip install` the latter.
 
-### Changed — `cellml_only` defaults to `CVODE_myokit`
+### Renamed — `model_type: cellml_only` is now `model_type: cellml`
+
+The `_only` distinguished it from nothing. `cellml` is the default `model_type`, so this is the
+most-read name in `user_inputs.yaml`. **The old spelling still works**: it is what every config
+written before this release says — including the dated copies `save_dated_user_inputs` archives
+beside every run — so `cellml_only` is translated with a warning naming the replacement, and
+will be removed in a later release. `SOLVER_SCHEMA` advertises `cellml` only, so a tool building
+its menus from the schema writes the current name into new configs.
+
+### Changed — `cellml` defaults to `CVODE_myokit`
 
 A config that omits `solver` used to be routed to `CVODE_opencor`, the one backend a pip
 install cannot provide (OpenCOR's `opencor` module is not on PyPI). The default is now

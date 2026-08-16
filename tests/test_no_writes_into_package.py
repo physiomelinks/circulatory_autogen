@@ -289,7 +289,7 @@ def test_generation_and_calibration_never_write_into_the_package(
     config.update({
         'file_prefix': _MODEL_PREFIX,
         'input_param_file': f'{_MODEL_PREFIX}_parameters.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'solver': 'CVODE_myokit',
         'param_id_method': 'genetic_algorithm',
         'pre_time': 2,
@@ -374,7 +374,7 @@ def test_generation_works_with_no_checkout_directories_present(
 
     config = get_default_inp_data_dict(_MODEL_PREFIX, f'{_MODEL_PREFIX}_parameters.csv',
                                        str(user_resources))
-    config.update({'model_type': 'cellml_only', 'solver': 'CVODE_myokit',
+    config.update({'model_type': 'cellml', 'solver': 'CVODE_myokit',
                    'pre_time': 2, 'sim_time': 1, 'dt': 0.01})
     for key in ('generated_models_dir', 'param_id_output_dir'):
         assert str(user_dir) in config[key], \

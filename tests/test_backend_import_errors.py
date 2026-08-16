@@ -95,7 +95,7 @@ def test_every_optional_backend_records_its_failures():
 #
 # `opencor` is provided by an OpenCOR install and is not on PyPI, so `pip install libcuflynx`
 # has every solver except CVODE_opencor. Before this, asking for it gave
-# `ModuleNotFoundError: No module named 'opencor'` -- or, on the implicit cellml_only default,
+# `ModuleNotFoundError: No module named 'opencor'` -- or, on the implicit cellml default,
 # `TypeError: 'NoneType' object is not callable` -- neither of which tells a user that the
 # fix is one word in user_inputs.yaml.
 #
@@ -140,7 +140,7 @@ def test_requesting_cvode_opencor_without_opencor_explains_itself(opencor_absent
     """Through the factory, which is where a user's `solver: CVODE_opencor` lands."""
     with pytest.raises(OpenCORUnavailableError) as excinfo:
         get_simulation_helper(model_path='m.cellml', solver='CVODE_opencor',
-                              model_type='cellml_only', dt=0.01, sim_time=1.0)
+                              model_type='cellml', dt=0.01, sim_time=1.0)
 
     message = str(excinfo.value)
     assert 'CVODE_myokit' in message
@@ -157,7 +157,7 @@ def test_the_implicit_cellml_default_explains_itself_too(opencor_absent):
     `TypeError: 'NoneType' object is not callable` from inside the factory."""
     with pytest.raises(OpenCORUnavailableError) as excinfo:
         get_simulation_helper(model_path='m.cellml', solver=None,
-                              model_type='cellml_only', dt=0.01, sim_time=1.0)
+                              model_type='cellml', dt=0.01, sim_time=1.0)
 
     assert 'CVODE_myokit' in str(excinfo.value)
 
