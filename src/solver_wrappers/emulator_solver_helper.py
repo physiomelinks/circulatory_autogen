@@ -45,13 +45,20 @@ class SimulationHelper:
     emulates_features = True
 
     def __init__(self, emulator_dir, dt=0.01, sim_time=1.0, solver_info=None, pre_time=0.0,
-                 bundle=None, out_of_bounds='error'):
+                 bundle=None, out_of_bounds=None):
         self.emulator_dir = emulator_dir
         self.solver_info = solver_info or {}
-        self.out_of_bounds = out_of_bounds
         # Loaded eagerly, on every rank. MCMC's worker ranks block inside the pool and never
         # reach a lazy first call, so a rank-0-only load would leave them without an emulator.
         self.bundle = bundle if bundle is not None else EmulatorBundle.load(emulator_dir)
+        # None means "whatever this emulator was trained under". The caller here is often a
+        # calibration/SA/UQ run whose own settings say nothing about emulation, so defaulting
+        # to 'error' at this seam would override a user's emulator_settings.out_of_bounds
+        # without ever having read it. An explicit value still wins.
+        if out_of_bounds is None:
+            trained_with = (self.bundle.meta or {}).get('settings') or {}
+            out_of_bounds = trained_with.get('out_of_bounds', 'error')
+        self.out_of_bounds = out_of_bounds
         _limit_torch_threads()
 
         self.dt = dt

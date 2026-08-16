@@ -392,7 +392,7 @@ class CVS0DParamID():
             self.n_steps = mcmc_object.n_steps
         else:
             if model_type in ['cellml_only', 'python', 'casadi_python', 'aadc_python',
-                              'python_user_defined', 'external_python']:
+                              'external_python']:
                 self.param_id = OpencorParamID(self.model_path, self.param_id_method,
                                                self.obs_info, self.param_id_info, self.protocol_info,
                                                self.prediction_info, self.solver_info, dt=self.dt,
@@ -2045,8 +2045,10 @@ class OpencorParamID():
                                            solver_info=self.solver_info, pre_time=self.pre_time,
                                            use_emulator=self.use_emulator,
                                            emulator_dir=self.emulator_dir,
+                                           # None -> the helper takes what the emulator was
+                                           # trained with (see _use_time_setting).
                                            out_of_bounds=self.emulator_settings.get(
-                                               'out_of_bounds', 'error'))
+                                               'out_of_bounds'))
         return helper_cls
 
     def _configure_emulator(self):
@@ -2074,9 +2076,33 @@ class OpencorParamID():
             fingerprint(self.param_id_info, self.obs_info, self.protocol_info, self.model_path),
             param_entry_labels=param_entry_labels(self.param_id_info),
             feature_labels=emulated_feature_labels(self.obs_info))
-        bundle.check_quality(self.emulator_settings.get('min_r2', 0.9))
+        bundle.check_quality(self._use_time_setting('min_r2', 0.9, bundle))
         self.sim_helper.set_obs_map(self.obs_info['const_idx_to_obs_idx'],
                                     num_obs=self.obs_info['num_obs'])
+
+    def _use_time_setting(self, name, default, bundle=None):
+        """An ``emulator_settings`` value that is read when the emulator is *used*.
+
+        Most of that block only matters while training, and only training is given
+        it. ``min_r2`` and ``fd_rel_step`` are the exceptions: they are read again
+        by a calibration / SA / UQ run that evaluates the emulator -- and such a run
+        is configured by its own settings, which need say nothing about emulation.
+        Falling straight back to the schema default there meant a user who set
+        ``min_r2: 0.88`` was refused at 0.9 and told 0.9 was "the configured min_r2".
+
+        So the emulator carries its own configuration: the value comes from this
+        run's ``emulator_settings`` when it names one, else from the block saved in
+        the bundle when it was trained, else the default. An explicit setting still
+        wins, which is what lets one run accept a lower-quality emulator without
+        retraining it.
+        """
+        if name in (self.emulator_settings or {}):
+            return self.emulator_settings[name]
+        bundle = bundle if bundle is not None else getattr(self.sim_helper, 'bundle', None)
+        trained_with = (getattr(bundle, 'meta', None) or {}).get('settings') or {}
+        if name in trained_with:
+            return trained_with[name]
+        return default
 
     def add_user_operation_func(self, func):
         if self.model_type == "casadi_python" and not is_circulatory_differentiable(func):
@@ -3312,7 +3338,7 @@ class OpencorParamID():
             # would not be. 2M evaluations is the wrong trade against a solver and the right
             # one here, where an evaluation is a matrix multiply.
             return fd_backend.cost_gradient(
-                self, param_vals, h=float(self.emulator_settings.get('fd_rel_step', 1e-3)))
+                self, param_vals, h=float(self._use_time_setting('fd_rel_step', 1e-3)))
         if self.model_type == 'casadi_python':
             return self.get_jac_cost_ca(param_vals)
         elif self.model_type == 'aadc_python':

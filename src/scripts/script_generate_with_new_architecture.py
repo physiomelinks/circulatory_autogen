@@ -71,18 +71,6 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
     inp_data_dict = yaml_parser.parse_user_inputs_file(inp_data_dict, obs_path_needed=False,
                                                        do_generation_with_fit_parameters=do_generation_with_fit_parameters)
 
-    if inp_data_dict['model_type'] == 'python_user_defined':
-        # No code generation: the "model" is the user's hand-written ODE wrapper
-        # in funcs_user/ (see solver_wrappers.python_solver_helper). Just verify it
-        # exists so misconfiguration fails early with a clear message.
-        wrapper_path = inp_data_dict['model_path']
-        if not os.path.exists(wrapper_path):
-            print(f'python_user_defined wrapper not found: {wrapper_path}')
-            print('Create it (copy funcs_user/model_wrapper_funcs_user.py) or set '
-                  'model_wrapper_path in user_inputs.yaml.')
-            return False
-        return True
-
     if inp_data_dict['model_type'] == 'external_python':
         # No code generation either, and for a stronger reason: the model *is* a solver the user
         # already has (see solver_wrappers.external_simulation_helper). Verify the file exists so
@@ -91,8 +79,8 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
         if not os.path.exists(external_path):
             print(f'external_python model file not found: {external_path}')
             print('Create it (a .py file defining a solver class and SIM_HELPER = ThatClass; '
-                  'see funcs_user/example_model_external/) or set external_model_path in '
-                  'user_inputs.yaml.')
+                  'see funcs_user/example_model_external/ or funcs_user/example_model_scipy/) '
+                  'or set external_model_path in user_inputs.yaml.')
             return False
         return True
 

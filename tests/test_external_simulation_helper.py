@@ -1,14 +1,14 @@
 """Tests for the ``model_type: external_python`` backend.
 
-The user supplies a whole solver *class* -- one that owns its own time stepping -- rather than an
-rhs for CA to integrate (that is ``python_user_defined``, covered by
-``tests/test_python_user_defined.py``). These verify that such a model reaches the calibration,
-sensitivity and local-sensitivity pipelines unchanged, and that the wrapper enforces the parts of
-the contract a user class can get wrong quietly.
+The user supplies a whole solver *class* -- one that owns its own time stepping. These verify
+that such a model reaches the calibration, sensitivity and local-sensitivity pipelines unchanged,
+and that the wrapper enforces the parts of the contract a user class can get wrong quietly.
 
 The end-to-end runs use the shipped 1D heat-equation example in
 ``funcs_user/example_model_external/``; the contract-enforcement tests write throwaway model
-files, because what they need is a class that is *wrong* in one specific way.
+files, because what they need is a class that is *wrong* in one specific way. The other shipped
+example, the scipy ODE in ``funcs_user/example_model_scipy/``, has its own file
+(``tests/test_scipy_ode_example.py``).
 """
 import os
 import shutil
@@ -150,15 +150,12 @@ def test_the_config_resolves_to_the_external_model_and_solver(
 @pytest.mark.unit
 def test_the_default_model_path_follows_the_file_prefix(
         base_user_inputs, temp_output_dir, temp_generated_models_dir):
-    """Without an explicit external_model_path, the model is funcs_user/{prefix}_model.py --
-    and deliberately NOT the python_user_defined key, whose file has a different contract."""
+    """Without an explicit external_model_path, the model is funcs_user/{prefix}_model.py."""
     config = _heat1d_config(base_user_inputs, temp_output_dir, temp_generated_models_dir)
     del config['external_model_path']
-    config['model_wrapper_path'] = '/somewhere/else/oscillator_wrapper.py'
     parsed = YamlFileParser().parse_user_inputs_file(config, obs_path_needed=False)
 
     assert parsed['model_path'].endswith(os.path.join('funcs_user', 'heat1d_model.py'))
-    assert 'oscillator_wrapper.py' not in parsed['model_path']
 
 
 @pytest.mark.unit

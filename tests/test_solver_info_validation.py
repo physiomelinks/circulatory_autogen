@@ -386,9 +386,8 @@ def test_solver_consumer_map_is_derived_from_the_factory_dispatch():
     # Spot-check the two shapes the dispatch uses: `solver == 'x'` and `solver in some_list`.
     assert derived['CVODE_myokit'] == ['solver_wrappers/myokit_helper.py']
     assert derived['casadi_integrator'] == ['solver_wrappers/casadi_python_solver_helper.py']
-    # user_defined is dispatched via a list and shares the scipy helper with solve_ivp.
-    assert derived['user_defined'] == derived['solve_ivp'] \
-        == ['solver_wrappers/python_solver_helper.py']
+    # solve_ivp is dispatched via a list rather than an equality.
+    assert derived['solve_ivp'] == ['solver_wrappers/python_solver_helper.py']
     for solver, modules in derived.items():
         assert solver in SOLVER_INFO_FIELDS, (
             'get_simulation_helper dispatches solver ' + solver + ' but SOLVER_INFO_FIELDS does '

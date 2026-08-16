@@ -640,6 +640,7 @@ if __name__ == '__main__':
     # numbers in heat_fenics_obs_data.json are regenerated exactly. Prints every observable
     # the shipped obs_data scores, in its order, so the values can be pasted straight in.
     # See README.md.
+    # main NOT used in CUFLynx.
     model = HeatFEniCSxModel()
     model.init_solver({'dt': 0.02, 'sim_time': 2.0, 'pre_time': 0.0, 'start_time': 0.0,
                        'solver_info': {'user_config': {'nx': 16}}})

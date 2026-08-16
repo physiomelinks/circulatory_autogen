@@ -14,6 +14,7 @@ import pytest
 
 from emulators.emulator_bundle import (EmulatorBoundsError, EmulatorBundle,
                                        EmulatorQualityError, fingerprint)
+from param_id.paramID import OpencorParamID
 from parsers.PrimitiveParsers import ANALYSIS_OPTIONS, YamlFileParser, gradient_sources
 
 pytestmark = pytest.mark.unit
@@ -296,3 +297,69 @@ def test_gradient_menu_over_an_emulator_offers_finite_differences_only():
         assert values == ['FD'], f'{model_type} offered {values} over an emulator'
     # ... and the ordinary menu is untouched
     assert 'AD' in [s['value'] for s in gradient_sources('casadi_python')]
+
+
+# ---------------------------------------------------------------------------
+# Use-time settings come from the emulator, not from a schema default
+# ---------------------------------------------------------------------------
+# Most of emulator_settings only matters while training, and only training is
+# handed it. min_r2, fd_rel_step and out_of_bounds are the exceptions: they are
+# read again when a calibration / SA / UQ run *evaluates* the emulator, and such
+# a run is configured by its own settings, which need say nothing about
+# emulation. Reading a schema default there told a user who had set
+# `min_r2: 0.88` that they were refused at "the configured min_r2 of 0.9".
+class _UseTimeStub:
+    """The three attributes :meth:`_use_time_setting` touches, and nothing else."""
+
+    def __init__(self, run_settings, bundle):
+        self.emulator_settings = dict(run_settings)
+        self.sim_helper = type('H', (), {'bundle': bundle})()
+
+    _use_time_setting = OpencorParamID._use_time_setting
+
+
+def _bundle_trained_with(**settings):
+    bundle = make_bundle()
+    bundle.meta['settings'] = dict(settings)
+    return bundle
+
+
+@pytest.mark.unit
+def test_a_run_that_says_nothing_about_emulation_gets_the_trained_settings():
+    """The reported bug: min_r2 0.88 at training, refused at 0.9 by a calibration."""
+    bundle = _bundle_trained_with(min_r2=0.88, fd_rel_step=1e-2, out_of_bounds='warn')
+    pid = _UseTimeStub({}, bundle)
+    assert pid._use_time_setting('min_r2', 0.9) == 0.88
+    assert pid._use_time_setting('fd_rel_step', 1e-3) == 1e-2
+    # ... and the emulator that was accepted at training is accepted here.
+    bundle.check_quality(pid._use_time_setting('min_r2', 0.9))
+
+
+@pytest.mark.unit
+def test_an_explicit_run_setting_still_wins():
+    """One run may accept a worse emulator without retraining it."""
+    bundle = _bundle_trained_with(min_r2=0.99)
+    assert _UseTimeStub({'min_r2': 0.5}, bundle)._use_time_setting('min_r2', 0.9) == 0.5
+
+
+@pytest.mark.unit
+def test_the_default_is_used_only_when_neither_says_anything():
+    assert _UseTimeStub({}, make_bundle())._use_time_setting('min_r2', 0.9) == 0.9
+    # A bundle from a CA that predates saved settings has no 'settings' block at all.
+    assert 'settings' not in make_bundle().meta
+
+
+@pytest.mark.unit
+def test_out_of_bounds_defaults_to_what_the_emulator_was_trained_with(tmp_path):
+    """Passed through the helper rather than _use_time_setting, because the bundle
+    is not loaded until the helper loads it."""
+    from solver_wrappers.emulator_solver_helper import SimulationHelper as EmulatorHelper
+
+    bundle = _bundle_trained_with(out_of_bounds='clip')
+    helper = EmulatorHelper(str(tmp_path), bundle=bundle, out_of_bounds=None)
+    assert helper.out_of_bounds == 'clip'
+    # An explicit choice still overrides it.
+    assert EmulatorHelper(str(tmp_path), bundle=bundle, out_of_bounds='error').out_of_bounds == 'error'
+    # And a bundle with no saved settings keeps the historical default.
+    plain = EmulatorHelper(str(tmp_path), bundle=make_bundle(), out_of_bounds=None)
+    assert plain.out_of_bounds == 'error'

@@ -10,20 +10,21 @@ This is `model_type: external_python` with `solver: external`.
 
 ## Which backend do I want?
 
-CA has three ways of getting a model to simulate, and they differ in *who runs the time loop*.
+There is **one** way to bring your own Python, and this is it. The choice is only between
+letting CA build the model for you and writing it yourself:
 
 | | You provide | CA does the time-stepping | Use when |
 |---|---|---|---|
 | `cellml_only` | CellML modules and a vessel array | yes (OpenCOR / Myokit CVODE) | the model is a network of reusable CellML components |
-| `python_user_defined` | a right-hand side `rhs(t, y, p)` | yes (`scipy.solve_ivp`) | you have a small ODE system and want CA's integrator |
-| **`external_python`** | **a solver class with its own `run()`** | **no — you do** | **your solver has a mesh, an assembled operator, an adaptive scheme, or any state that an RHS callback cannot express** |
+| `python` | the same, emitted as Python | yes (`scipy.solve_ivp`) | you want CA's generated model in Python |
+| **`external_python`** | **a solver class with its own `run()`** | **no — you do** | **the model is code you already have, or an ODE you would rather write directly** |
 
 !!! note "The distinction that matters"
-    `python_user_defined` asks you for a derivative and integrates it. That is the wrong shape
-    for a PDE solver: there is a mesh to build, forms to compile, an operator to assemble and a
-    factorisation to reuse, and none of it survives being squeezed through a per-step callback.
-    `external_python` inverts the relationship — CA hands over the record grid, asks for a run,
-    and reads named traces back. Everything in between is yours.
+    CA hands over the record grid, asks for a run, and reads named traces back. Everything in
+    between is yours. That is the shape a real solver needs — a PDE code has a mesh to build,
+    forms to compile, an operator to assemble and a factorisation to reuse, and none of it
+    survives being squeezed through a per-step RHS callback — and it costs an ODE almost
+    nothing, because "integrate this" is one `solve_ivp` call inside your `run()`.
 
 ## The contract
 
@@ -190,12 +191,29 @@ Everything else — `params_for_id`, `obs_data.json`, `param_id_method`, `resour
 exactly as it does for a CellML model. See
 [Parameter Identification](parameter-identification.md).
 
-## A minimal example first
+## The simple case first: an ODE with scipy
 
-`funcs_user/example_model_external/` is the same contract on a one-dimensional NumPy model, with
-no external dependencies at all: a few dozen lines, its own explicit time loop, and the
-`params_for_id` / `obs_data` pair to calibrate it. Read that one first if you only want to see
-the shape of the thing.
+`funcs_user/example_model_scipy/` is the smallest thing this contract can be. A damped
+oscillator `x'' + c·x' + k·x = 0`, integrated by `scipy.integrate.solve_ivp` inside the class's
+own `run()`:
+
+```python
+def run(self):
+    solution = solve_ivp(self._rhs, (self.t_eval[0], self.t_eval[-1]),
+                         y0=_INITIAL_STATE, t_eval=self.t_eval,
+                         method=self.method, rtol=self.rtol, atol=self.atol)
+    if not solution.success or not np.all(np.isfinite(solution.y)):
+        return False
+    self._solution = solution
+    return True
+```
+
+That is the entire cost of owning the time loop for an ODE — the grid is built once in
+`update_times`, and `get_results()` slices the trajectory into `{name: array}`. Read this one
+first, and copy it.
+
+`funcs_user/example_model_external/` is the next step up: the same contract on a 1D heat equation
+with an explicit finite-difference scheme it wrote itself, NumPy only, no external dependencies.
 
 ## Walkthrough: a FEniCSx heat solver
 
@@ -337,11 +355,12 @@ emulator_settings:
 
 ## See also
 
+* `funcs_user/example_model_scipy/README.md` — the ODE example in detail.
 * `funcs_user/heat_fenics/README.md` — the FEniCSx example in detail, including how to
   regenerate its `obs_data.json` values for your own build.
 * `funcs_user/example_model_external/` — the dependency-free NumPy version of the same contract.
-* `tests/test_heat_fenics_example.py` — smoke, physics-sanity, plotting and emulator round-trip
-  tests you can copy for your own model.
+* `tests/test_scipy_ode_example.py` and `tests/test_heat_fenics_example.py` — smoke,
+  physics-sanity, plotting and emulator round-trip tests you can copy for your own model.
 * [Parameter Identification](parameter-identification.md) and
   [Sensitivity Analysis](sensitivity-analysis.md) — the pipelines this backend plugs into.
 * [Emulators (Surrogate Models)](emulators.md) — when a surrogate of your solver is worth

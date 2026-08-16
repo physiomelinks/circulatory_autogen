@@ -440,6 +440,15 @@ class EmulatorTrainer:
             'y_scale': y_scale,
             'model_name': model_name,
             'design': design_meta,
+            # The emulator_settings block this emulator was made with. Saved because
+            # two of these settings -- min_r2 and fd_rel_step -- are read again when
+            # the emulator is USED, by which time the caller may be a calibration /
+            # SA / UQ run that never saw the emulation settings at all. Without this
+            # they silently fell back to the schema defaults (0.9 and 1e-3), so a
+            # user who set min_r2: 0.88 in emulator_settings was refused at 0.9 and
+            # told it was "the configured min_r2". The emulator now carries its own
+            # configuration; see _use_time_setting in param_id/paramID.py.
+            'settings': _jsonable_settings(self.settings),
             'fingerprint': fingerprint(self.pid.param_id_info, self.pid.obs_info,
                                        self.pid.protocol_info, self.pid.model_path),
             'provenance': _provenance(self.pid),
@@ -543,6 +552,23 @@ def _param_labels(pid):
 def _jsonable_names(param_names):
     return [[str(name) for name in (entry if isinstance(entry, (list, tuple)) else [entry])]
             for entry in param_names]
+
+
+def _jsonable_settings(settings):
+    """The emulator_settings block, reduced to what json can hold.
+
+    Anything that will not serialise is dropped rather than failing the save: this
+    is provenance the *use* path reads back, and losing an exotic value is better
+    than losing the emulator that was just trained for it.
+    """
+    out = {}
+    for key, value in (settings or {}).items():
+        if isinstance(value, (bool, int, float, str)) or value is None:
+            out[str(key)] = value
+        elif isinstance(value, (list, tuple)):
+            out[str(key)] = [v for v in value
+                             if isinstance(v, (bool, int, float, str)) or v is None]
+    return out
 
 
 def _provenance(pid):
