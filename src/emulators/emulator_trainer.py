@@ -13,13 +13,15 @@ something the calibration is not fitting.
 The N training runs are paid up front, so the win is real for Sobol, MCMC and identifiability,
 and is *not* real for a single GA calibration, which may well be cheaper run directly.
 """
+import json
 import os
 import warnings
 
 import numpy as np
 from scipy.stats import qmc
 
-from emulators.emulator_bundle import EmulatorBundle, fingerprint
+from emulators.emulator_bundle import (METADATA_FILE, TRAINING_DATA_FILE, EmulatorBundle,
+                                       EmulatorQualityError, EmulatorReuseError, fingerprint)
 
 AUTOEMULATE_MISSING_MESSAGE = (
     'autoemulate is not installed. Install it with `pip install '
@@ -134,6 +136,11 @@ class EmulatorTrainer:
     @property
     def num_train_samples(self):
         return int(self._setting('num_train_samples', 128))
+
+    @property
+    def reuse_samples(self):
+        """Whether to refit the samples already on disk instead of simulating new ones."""
+        return bool(self._setting('reuse_samples', False))
 
     @property
     def feature_labels(self):
@@ -252,15 +259,160 @@ class EmulatorTrainer:
         validation = _validation_report(result.model, x_test, y_test, x_scale, y_scale)
         return (result.model, validation, _result_model_name(result), x_scale, y_scale)
 
-    def train(self):
-        """The whole pipeline. Returns the bundle on rank 0, ``None`` elsewhere."""
-        require_autoemulate()
-        design = self.design()
+    def output_directory(self):
+        """Where this trainer's bundle is written, and read back from when reusing samples."""
+        return getattr(self, 'output_dir', None) or os.getcwd()
+
+    def load_previous_samples(self):
+        """The saved design and simulated features, checked against the run at hand.
+
+        Returns ``(x, y, design_meta)`` -- the same pair :meth:`evaluate` would have produced
+        and the ``meta['design']`` block describing where they came from.
+
+        Every rank runs this rather than only rank 0. It is a metadata read and one small npz,
+        so there is nothing to split, and a refusal seen only by rank 0 would leave the other
+        ranks exiting as though the run had succeeded. Nothing here is collective, so the
+        non-zero ranks that drop out immediately afterwards cannot be left waiting on a
+        barrier rank 0 has skipped.
+        """
+        directory = self.output_directory()
+        bundle = self._load_previous_bundle(directory)
+        x, y = self._checked_previous_samples(bundle, directory)
+
         if self.rank == 0:
-            print(f'[emulator] training on {len(design)} samples across {self.num_procs} rank(s)')
-        x, y = self.evaluate(design)
-        if self.rank != 0:
-            return None
+            print(f'[emulator] reuse_samples: refitting {len(x)} samples already simulated in '
+                  f'{directory}; no simulation will be run')
+            if len(x) != self.num_train_samples:
+                # Never let the requested number stand as though it had been used: the design
+                # is fixed when reusing, and a metadata line claiming 128 samples behind a fit
+                # of 24 is exactly the kind of provenance nobody re-checks.
+                print(f'[emulator] note: emulator_settings.num_train_samples is '
+                      f'{self.num_train_samples}, but the saved design holds {len(x)} usable '
+                      f'sample(s), and that is what is being fitted. num_train_samples, '
+                      f'sample_type and log_scale_params describe the design, which '
+                      f'reuse_samples does not rebuild. Set reuse_samples: false to run a new '
+                      f'design of {self.num_train_samples}.')
+
+        # The saved block already says how those samples were designed (sample_type, seed,
+        # how many failed) and all of it is still true, so it is carried through rather than
+        # overwritten with settings that had no effect on this run.
+        design_meta = dict(bundle.meta.get('design') or {})
+        design_meta.update({
+            'num_used': int(len(x)),
+            'reused_samples': True,
+            # The design seed stays whatever drew the design; this is the one the *fit* and
+            # its train/test split used, which reuse still honours and is worth varying.
+            'fit_random_seed': int(self._setting('random_seed', 0)),
+        })
+        return x, y, design_meta
+
+    def _load_previous_bundle(self, directory):
+        """The previous bundle's metadata and samples, without loading its fitted model.
+
+        Deliberately not ``EmulatorBundle.load``: the fitted emulator is the one part of the
+        artefact reuse replaces, so requiring it to deserialise (torch, joblib, on every rank)
+        would make a refit fail for the sake of an object about to be thrown away.
+        """
+        meta_path = os.path.join(directory, METADATA_FILE)
+        if not os.path.isfile(meta_path):
+            raise EmulatorReuseError(
+                f'emulator_settings.reuse_samples is set, but there is no emulator to reuse the '
+                f'samples of in {directory} ({METADATA_FILE} is missing). Reuse refits samples a '
+                f'previous run simulated, so the first training run has to happen with '
+                f'reuse_samples: false -- that is the run that pays for the simulations.')
+        with open(meta_path) as file:
+            meta = json.load(file)
+        x_train = y_train = None
+        data_path = os.path.join(directory, TRAINING_DATA_FILE)
+        if os.path.isfile(data_path):
+            with np.load(data_path) as data:
+                x_train, y_train = data['x_train'], data['y_train']
+        try:
+            # A bundle with no model: never predicted from, only asked whether its samples
+            # belong to this problem -- which is `check_matches`, the same comparison every
+            # other consumer of a bundle makes.
+            return EmulatorBundle(None, meta, x_train=x_train, y_train=y_train)
+        except ValueError as error:
+            raise EmulatorReuseError(
+                f'the emulator metadata in {directory} cannot be reused: {error}. Retrain with '
+                f'emulator_settings.reuse_samples: false.') from error
+
+    def _checked_previous_samples(self, bundle, directory):
+        """Refuse saved samples that describe a different problem, or that are not there.
+
+        Samples are only meaningful for the parameter box, obs_data, protocol and model they
+        were simulated against. Refitting stale ones produces an emulator that is confidently
+        wrong about a study it was never trained for, and nothing downstream can tell.
+        """
+        if bundle.x_train is None or bundle.y_train is None:
+            raise EmulatorReuseError(
+                f'the emulator in {directory} has no saved training samples to reuse '
+                f'({TRAINING_DATA_FILE} is missing, or it was trained by a CA version that did '
+                f'not keep the samples). Retrain with emulator_settings.reuse_samples: false '
+                f'to simulate and save a design, after which reuse works.')
+        try:
+            bundle.check_matches(
+                fingerprint(self.pid.param_id_info, self.pid.obs_info, self.pid.protocol_info,
+                            self.pid.model_path),
+                # str() to match how train() writes them, or an equal set of labels of a
+                # different type would read as a changed parameter list.
+                param_entry_labels=[str(label) for label in _param_labels(self.pid)],
+                feature_labels=self.feature_labels)
+        except EmulatorQualityError as error:
+            raise EmulatorQualityError(
+                f'{error} emulator_settings.reuse_samples cannot be used here: the samples in '
+                f'{directory} were simulated for a different problem, and refitting them would '
+                f'produce an emulator that is confidently wrong about this one. Retrain with '
+                f'reuse_samples: false, which re-runs the simulations for the current setup.'
+            ) from error
+
+        x = np.asarray(bundle.x_train, dtype=float)
+        y = np.asarray(bundle.y_train, dtype=float)
+        num_params = len(np.asarray(self.pid.param_id_info['param_mins'], dtype=float).reshape(-1))
+        if x.ndim != 2 or y.ndim != 2 or len(x) != len(y) or x.shape[1] != num_params \
+                or y.shape[1] != len(self.feature_labels):
+            raise EmulatorReuseError(
+                f'the saved training samples in {directory} do not fit this run: x_train is '
+                f'{x.shape} and y_train is {y.shape}, but this run has {num_params} parameter(s) '
+                f'and {len(self.feature_labels)} feature(s). Retrain with '
+                f'emulator_settings.reuse_samples: false.')
+        if len(x) < 3:
+            # fit() holds out at least one point and needs two to train on.
+            raise EmulatorReuseError(
+                f'only {len(x)} usable training sample(s) were saved in {directory}, which is '
+                f'not enough to fit and hold out a test set. Retrain with '
+                f'emulator_settings.reuse_samples: false and a larger num_train_samples.')
+        return x, y
+
+    def train(self):
+        """The whole pipeline. Returns the bundle on rank 0, ``None`` elsewhere.
+
+        With ``reuse_samples`` set, the design and the simulations are skipped entirely and the
+        samples a previous run saved are fitted instead -- see :meth:`load_previous_samples`.
+        The rest of the path (fit, metadata, bundle, save) is the same one a fresh run takes,
+        so the artefact is not a lesser kind of emulator.
+        """
+        require_autoemulate()
+        if self.reuse_samples:
+            x, y, design_meta = self.load_previous_samples()
+            if self.rank != 0:
+                return None
+        else:
+            design = self.design()
+            if self.rank == 0:
+                print(f'[emulator] training on {len(design)} samples across '
+                      f'{self.num_procs} rank(s)')
+            x, y = self.evaluate(design)
+            if self.rank != 0:
+                return None
+            design_meta = {'sample_type': self._setting('sample_type', 'sobol'),
+                           'num_train_samples': int(len(design)),
+                           'num_used': int(len(x)),
+                           'num_failed': int(getattr(self, '_n_failed', 0)),
+                           'random_seed': int(self._setting('random_seed', 0)),
+                           'log_scale_params': bool(self._setting('log_scale_params', False)),
+                           # So provenance never has to be read as "presumably simulated here".
+                           'reused_samples': False}
 
         model, validation, model_name, x_scale, y_scale = self.fit(x, y)
         meta = {
@@ -287,19 +439,14 @@ class EmulatorTrainer:
             'x_scale': x_scale,
             'y_scale': y_scale,
             'model_name': model_name,
-            'design': {'sample_type': self._setting('sample_type', 'sobol'),
-                       'num_train_samples': int(len(design)),
-                       'num_used': int(len(x)),
-                       'num_failed': int(getattr(self, '_n_failed', 0)),
-                       'random_seed': int(self._setting('random_seed', 0)),
-                       'log_scale_params': bool(self._setting('log_scale_params', False))},
+            'design': design_meta,
             'fingerprint': fingerprint(self.pid.param_id_info, self.pid.obs_info,
                                        self.pid.protocol_info, self.pid.model_path),
             'provenance': _provenance(self.pid),
         }
         bundle = EmulatorBundle(model, meta, x_train=x, y_train=y,
                                 validation=validation)
-        output_dir = getattr(self, 'output_dir', None) or os.getcwd()
+        output_dir = self.output_directory()
         bundle.save(output_dir)
         print(f'[emulator] saved to {output_dir}')
         for label, score in zip(bundle.feature_labels, meta['feature_r2']):

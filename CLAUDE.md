@@ -98,7 +98,7 @@ Each setting is a descriptor `{name, type, default, required, description, choic
 | `param_id/` | `paramID.py` (calibration), `optimisers.py`, `differentiable.py` + `math_backend.py` + `operation_funcs.py` (AD), `plot_outputs.py`. |
 | `protocol_runners/` | `protocol_runner.py`, `protocol_executor.py` — the multi-experiment/sub-experiment simulation loop. |
 | `sensitivity_analysis/` | `sensitivityAnalysis.py`, `sobolSA.py`. |
-| `emulators/` | `emulator_trainer.py` (design -> simulate -> fit -> validate -> persist), `emulator_bundle.py` (the artefact + every refusal rule, plus `error_stats()` / `error_points()` -- the per-feature held-out statistics and the held-out points themselves, which is what an error analysis is drawn from). Backend: optional `autoemulate`. |
+| `emulators/` | `emulator_trainer.py` (design -> simulate -> fit -> validate -> persist; `emulator_settings.reuse_samples` skips the first two and refits the samples a previous run saved, refusing when their fingerprint no longer matches the run at hand), `emulator_bundle.py` (the artefact + every refusal rule, plus `error_stats()` / `error_points()` -- the per-feature held-out statistics and the held-out points themselves, which is what an error analysis is drawn from). Backend: optional `autoemulate`. |
 | `identifiabilty_analysis/` | `identifiabilityAnalysis.py` (note the dir is spelled `identifiabilty`). |
 | `parsers/` | `ModelParsers.py`, `PrimitiveParsers.py`, `OMEXParsers.py` — CSV/YAML/JSON/OMEX loading. |
 | `models/` | `LumpedModels.py` (`CVS0DModel`). `checks/LumpedModelChecks.py` validates structure/connectivity. |

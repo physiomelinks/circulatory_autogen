@@ -3,10 +3,10 @@
 A [FEniCSx](https://fenicsproject.org/) (dolfinx) finite-element solver driven by
 Circulatory Autogen through `model_type: external_python` / `solver: external`.
 
-This is the example to copy when **your solver owns its own time-stepping**. CA's older
+This is the example to copy when **your solver owns its own time-stepping**. libCUFLynx's older
 `python_user_defined` backend asks you for a right-hand side and integrates it with
 `scipy.solve_ivp`; that is the wrong shape for a PDE solver, which has a mesh, an assembled
-operator and a time loop of its own. `external_python` inverts the relationship: CA hands
+operator and a time loop of its own. `external_python` inverts the relationship: libCUFLynx hands
 over the record grid, asks for a run, and reads named traces back. Everything in between is
 yours.
 
@@ -19,7 +19,7 @@ yours.
 | `set_param_vals` without a re-init | `heat/k` and `heat/u_D` are `fem.Constant`s already in the form; setting them writes `.value` in place |
 | A repeatable `run` | every call restarts from the same uniform initial condition, so a thousand calibration samples reuse one instance |
 | Named scalar outputs | three point probes, evaluated every step, named `heat/T_p1..3` |
-| `extra_plots` | two field snapshots (mid-time and final time), returned as `matplotlib` Figures for CA / the CUFLynx GUI to place |
+| `extra_plots` | two field snapshots (mid-time and final time), returned as `matplotlib` Figures for libCUFLynx / the CUFLynx GUI to place |
 
 ## The model
 
@@ -101,7 +101,7 @@ dolfinx is a **conda-forge** package. It is not on PyPI, and this is *not* legac
 conda create -n fenicsx -c conda-forge fenics-dolfinx python=3.11
 conda activate fenicsx
 
-# 2. CA itself, from your checkout, into that same environment
+# 2. libCUFLynx itself, from your checkout, into that same environment
 cd /path/to/circulatory_autogen
 pip install -e ".[dev,emulation]"
 ```
@@ -115,7 +115,7 @@ Check the install:
 python funcs_user/heat_fenics/heat_fenics_model.py
 ```
 
-That drives the class directly, with no CA involved, and prints the sample count, the two
+That drives the class directly, with no libCUFLynx involved, and prints the sample count, the two
 observable values and the p1/p3 symmetry check. It should finish in a few seconds.
 
 !!! note "Tested against dolfinx 0.8.x and 0.9.x"
@@ -123,9 +123,11 @@ observable values and the p1/p3 symmetry check. It should finish in a few second
     constructor, the bounding-box tree, the PETSc assembly helpers, `Function.x.petsc_vec` —
     are looked up through a small `_resolve` helper that raises a message naming the tested
     versions instead of an `AttributeError` from three frames down. If you are on a newer
-    dolfinx and something raises, that message tells you which call moved.
+    dolfinx and something raises, that message tells you which call moved. The helper lives
+    at the foot of `heat_fenics_model.py`, below the class, so the contract is what you read
+    first.
 
-## Running it from CA
+## Running it from libCUFLynx
 
 Add to `user_run_files/user_inputs.yaml` (paths absolute, or relative to the yaml):
 
@@ -149,14 +151,14 @@ solver_info:
     nx: 16          # mesh resolution; 8 for a fast smoke test, 32 for a finer field
 ```
 
-Then the ordinary CA entry points — nothing about them is special-cased for this model:
+Then the ordinary libCUFLynx entry points — nothing about them is special-cased for this model:
 
 ```bash
 ./run_param_id.sh 4               # calibration on 4 MPI ranks
 ./run_sensitivity_analysis.sh 4   # Sobol sensitivity of the two observables to k and u_D
 ```
 
-Each MPI rank builds its own serial mesh (`MPI.COMM_SELF`), because CA parallelises over
+Each MPI rank builds its own serial mesh (`MPI.COMM_SELF`), because libCUFLynx parallelises over
 *independent simulations* rather than over one mesh. Do not change that to `COMM_WORLD`: two
 ranks solving different parameter samples on a distributed mesh will deadlock.
 

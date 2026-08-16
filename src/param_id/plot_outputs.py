@@ -43,6 +43,37 @@ def distribution_reference_lines(prob_dist_params):
     return []
 
 
+def constant_line_times(t_sub, obs_info, II):
+    """Times a constant's horizontal line should span, as (t_start, t_end).
+
+    An ``*_in_range`` feature is computed over ``[start_frac, end_frac]`` of the
+    subexperiment window, so a line drawn across the whole window claims the
+    value describes data the operation never looked at. Fractions are of the
+    subexperiment span, matching how the operation funcs resolve them.
+    """
+    t_sub = np.asarray(t_sub, dtype=float)
+    if t_sub.size == 0:
+        return t_sub
+    kwargs_list = obs_info.get("operation_kwargs", [])
+    kwargs = kwargs_list[II] if II < len(kwargs_list) else {}
+    if not isinstance(kwargs, dict):
+        return t_sub
+    start_frac = kwargs.get("start_frac")
+    end_frac = kwargs.get("end_frac")
+    if start_frac is None and end_frac is None:
+        return t_sub
+    t_0 = float(t_sub[0])
+    span = float(t_sub[-1]) - t_0
+    try:
+        lo = t_0 + float(0.0 if start_frac is None else start_frac) * span
+        hi = t_0 + float(1.0 if end_frac is None else end_frac) * span
+    except (TypeError, ValueError):
+        return t_sub
+    if not (np.isfinite(lo) and np.isfinite(hi)) or hi <= lo:
+        return t_sub
+    return np.array([lo, hi], dtype=float)
+
+
 class ParamIDPlotOutputs:
     """
     Build and save post-calibration figures for parameter identification.
@@ -354,28 +385,20 @@ class ParamIDPlotOutputs:
                 if not this_obs_waveform_plotted:
                     axs.set_ylabel(f"${obs_name_for_plot}$ ${unit_label}$", fontsize=18)
                     if obs_info["data_types"][II] != "frequency":
-                        for temp_sub_idx in range(
-                            protocol_info["num_sub_per_exp"][exp_idx]
-                        ):
-                            temp_subexp_count = int(
-                                np.sum(protocol_info["num_sub_per_exp"][:exp_idx])
-                                + temp_sub_idx
-                            )
-                            temp_series_per_sub = list_of_all_series[temp_subexp_count]
-                            if temp_sub_idx == 0:
-                                axs.plot(
-                                    tSim_per_sub_count[temp_subexp_count],
-                                    conversion * temp_series_per_sub[II][:],
-                                    color=protocol_info["experiment_colors"][exp_idx],
-                                    label="output",
-                                )
-                            else:
-                                axs.plot(
-                                    tSim_per_sub_count[temp_subexp_count],
-                                    conversion * temp_series_per_sub[II][:],
-                                    color=protocol_info["experiment_colors"][exp_idx],
-                                )
-                        axs.set_xlim(0.0, sim_time_tot_per_exp[exp_idx])
+                        # Only the subexperiment this observable belongs to. A
+                        # settle/pre subexperiment is not what the observable was
+                        # measured on, so drawing it stretches the axis over a
+                        # window the ground truth says nothing about.
+                        axs.plot(
+                            tSim_per_sub_count[subexp_count],
+                            conversion * series_per_sub[II][:],
+                            color=protocol_info["experiment_colors"][exp_idx],
+                            label="output",
+                        )
+                        axs.set_xlim(
+                            tSim_per_sub_count[subexp_count][0],
+                            tSim_per_sub_count[subexp_count][-1],
+                        )
                         axs.set_xlabel("Time [$s$]", fontsize=18)
                     else:
                         axs.plot(
@@ -407,7 +430,10 @@ class ParamIDPlotOutputs:
                 if obs_info["data_types"][II] == "constant":
                     pt = obs_info["plot_type"][II]
                     if pt == "horizontal":
-                        ones = np.ones((n_steps_per_sub_count[subexp_count] + 1,))
+                        t_const = constant_line_times(
+                            tSim_per_sub_count[subexp_count], obs_info, II
+                        )
+                        ones = np.ones_like(t_const)
                         const_plot_bf = best_fit_obs_const[const_idx] * ones
                         gt_lines = distribution_reference_lines(
                             obs_info["ground_truth_prob_dist_params"][II])
@@ -415,14 +441,14 @@ class ParamIDPlotOutputs:
                             gt_lines = [(obs_info["ground_truth_const"][const_idx], "gt")]
                         for gt_val, gt_label in gt_lines:
                             axs.plot(
-                                tSim_per_sub_count[subexp_count],
+                                t_const,
                                 conversion * gt_val * ones,
                                 color=obs_info["plot_colors"][II],
                                 linestyle="--",
                                 label=f'{obs_info["operations"][II]} {gt_label}',
                             )
                         axs.plot(
-                            tSim_per_sub_count[subexp_count],
+                            t_const,
                             conversion * const_plot_bf,
                             color=obs_info["plot_colors"][II],
                             linestyle="-",
@@ -430,21 +456,25 @@ class ParamIDPlotOutputs:
                         )
                     elif pt == "horizontal_from_min":
                         min_val = np.min(series_per_sub[II])
+                        t_const = constant_line_times(
+                            tSim_per_sub_count[subexp_count], obs_info, II
+                        )
+                        ones = np.ones_like(t_const)
                         const_plot_gt = (
                             min_val + obs_info["ground_truth_const"][const_idx]
-                        ) * np.ones((n_steps_per_sub_count[subexp_count] + 1,))
+                        ) * ones
                         const_plot_bf = (
                             min_val + best_fit_obs_const[const_idx]
-                        ) * np.ones((n_steps_per_sub_count[subexp_count] + 1,))
+                        ) * ones
                         axs.plot(
-                            tSim_per_sub_count[subexp_count],
+                            t_const,
                             conversion * const_plot_gt,
                             color=obs_info["plot_colors"][II],
                             linestyle="--",
                             label=f'{obs_info["operations"][II]} gt',
                         )
                         axs.plot(
-                            tSim_per_sub_count[subexp_count],
+                            t_const,
                             conversion * const_plot_bf,
                             color=obs_info["plot_colors"][II],
                             linestyle="-",

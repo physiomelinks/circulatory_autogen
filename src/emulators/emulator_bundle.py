@@ -99,6 +99,10 @@ class EmulatorBoundsError(RuntimeError):
     """Evaluation was asked for outside the box the emulator was trained in."""
 
 
+class EmulatorReuseError(RuntimeError):
+    """``reuse_samples`` was asked for with no previous samples that can be refitted."""
+
+
 class EmulatorBundle:
     """A fitted emulator plus the metadata that makes it checkable.
 
@@ -221,8 +225,11 @@ class EmulatorBundle:
                 raise EmulatorQualityError(
                     f'emulator is stale: {key} has changed since it was trained '
                     f'({stored[key][:12]}... -> {value[:12]}...). The model, parameter bounds, '
-                    f'obs_data operations or protocol differ. Retrain the emulator, or set '
-                    f'emulator_settings.retrain_if_stale to true.')
+                    f'obs_data operations or protocol differ -- including the run window, '
+                    f'since pre_time/sim_time are part of the protocol. Retrain it with '
+                    f'do_emulation: true and emulator_settings.reuse_samples: false; the saved '
+                    f'samples describe the old setup, so refitting them would answer about a '
+                    f'different problem.')
 
     # ------------------------------------------------------------------ error
 

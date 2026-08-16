@@ -18,14 +18,16 @@ dependency:
   Skipped when autoemulate is absent.
 """
 import os
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
-from emulators.emulator_bundle import EmulatorBundle
+from emulators.emulator_bundle import (EmulatorBundle, EmulatorQualityError, EmulatorReuseError,
+                                       fingerprint)
 from emulators.emulator_trainer import EmulatorTrainer, resolve_emulator_dir
-from param_id.paramID import CVS0DParamID
-from parsers.PrimitiveParsers import YamlFileParser
+from param_id.paramID import CVS0DParamID, emulated_feature_labels
+from parsers.PrimitiveParsers import ObsAndParamDataParser, YamlFileParser, param_entry_labels
 from scripts.script_generate_with_new_architecture import generate_with_new_architecture
 
 try:
@@ -322,3 +324,335 @@ def test_a_trained_emulator_recovers_the_analytic_steady_states(
     assert np.all(np.isfinite(gradient))
     # d(feature)/d(p) is 1 and d(feature)/d(q) is 1/3, so neither parameter can look inert.
     assert np.all(np.abs(gradient) > 0)
+
+
+# --------------------------------------------------------------- reuse_samples (#333 follow-up)
+#
+# Training is two costs: the N truth-model runs, which is the whole reason an emulator exists,
+# and the fit, which is seconds. ``reuse_samples`` refits the samples a previous run already
+# simulated and saved, so a second emulator model or a different test_fraction costs the fit
+# alone. What has to be guarded is that the samples still describe *this* problem: refitting a
+# stale design produces an emulator that is confidently wrong about a study it was never
+# trained for, and nothing downstream can tell.
+
+
+def _benchmark_infos(base_user_inputs, resources_dir, tmp_path):
+    """obs_info / protocol_info / param_id_info for the benchmark, with nothing generated.
+
+    Parsed by the same parsers ``CVS0DParamID`` uses, so the fingerprint, the parameter labels
+    and the feature labels are the real ones -- which is exactly what the reuse checks compare.
+    """
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': 'Simple_ODE_Benchmark',
+        'input_param_file': 'Simple_ODE_Benchmark_parameters.csv',
+        'model_type': 'cellml_only',
+        'resources_dir': resources_dir,
+        'pre_time': 0.0,
+        'sim_time': 8.0,
+        'dt': 0.05,
+        'param_id_obs_path': os.path.join(resources_dir, 'Simple_ODE_Benchmark_obs_data.json'),
+        'params_for_id_path': os.path.join(resources_dir,
+                                           'Simple_ODE_Benchmark_params_for_id.csv'),
+        'param_id_output_dir': str(tmp_path / 'param_id_output'),
+    })
+    config = YamlFileParser().parse_user_inputs_file(
+        config, obs_path_needed=True, do_generation_with_fit_parameters=False)
+
+    scratch = str(tmp_path / 'parsed')
+    os.makedirs(scratch, exist_ok=True)
+    parser = ObsAndParamDataParser()
+    parsed = parser.parse_obs_data_json(
+        param_id_obs_path=config['param_id_obs_path'], pre_time=config['pre_time'],
+        sim_time=config['sim_time'], model_type=config['model_type'],
+        method=config['solver_info'].get('method'))
+    obs_info = parser.process_obs_info(gt_df=parsed['gt_df'], output_dir=scratch, dt=config['dt'])
+    protocol_info = parser.process_protocol_and_weights(
+        gt_df=parsed['gt_df'], protocol_info=parsed['protocol_info'], dt=config['dt'])
+    return obs_info, protocol_info, parser.get_param_id_info(config['params_for_id_path'])
+
+
+def _stub_trainer(directory, obs_info, protocol_info, param_id_info, **settings):
+    """A trainer over parsed infos and no solver: enough for everything reuse touches."""
+    pid = SimpleNamespace(sim_helper=SimpleNamespace(emulates_features=False),
+                          obs_info=obs_info, protocol_info=protocol_info,
+                          param_id_info=param_id_info, model_path=None)
+    trainer = EmulatorTrainer(pid, settings)
+    trainer.output_dir = str(directory)
+    return trainer
+
+
+def _write_previous_bundle(directory, obs_info, protocol_info, param_id_info,
+                           num_samples=6, with_samples=True):
+    """A bundle on disk the way a previous training run would have left it."""
+    labels = emulated_feature_labels(obs_info)
+    mins = np.asarray(param_id_info['param_mins'], dtype=float)
+    maxs = np.asarray(param_id_info['param_maxs'], dtype=float)
+    x = mins + np.random.default_rng(0).random((num_samples, mins.size)) * (maxs - mins)
+    y = x[:, :1] * np.arange(1.0, len(labels) + 1.0)
+
+    meta = {
+        'param_entry_labels': [str(label) for label in param_entry_labels(param_id_info)],
+        'param_mins': [float(v) for v in mins],
+        'param_maxs': [float(v) for v in maxs],
+        'param_names': [[str(n) for n in entry] for entry in param_id_info['param_names']],
+        'param_defaults': {str(name): 1.0
+                           for entry in param_id_info['param_names'] for name in entry},
+        'feature_labels': labels,
+        'feature_r2': [0.99] * len(labels),
+        'feature_rmse': [0.01] * len(labels),
+        'x_scale': EmulatorBundle.make_scale(x),
+        'y_scale': EmulatorBundle.make_scale(y),
+        # Deliberately not this run's settings, so the test can tell a carried-through design
+        # block from one rebuilt out of the current (ignored) ones.
+        'design': {'sample_type': 'latin_hypercube', 'num_train_samples': num_samples + 1,
+                   'num_used': num_samples, 'num_failed': 1, 'random_seed': 11,
+                   'log_scale_params': False, 'reused_samples': False},
+        'fingerprint': fingerprint(param_id_info, obs_info, protocol_info),
+    }
+    bundle = EmulatorBundle(_LinearFit(), meta,
+                            x_train=x if with_samples else None,
+                            y_train=y if with_samples else None)
+    bundle.save(str(directory))
+    return bundle
+
+
+@pytest.mark.unit
+def test_reuse_without_a_previous_run_refuses_and_names_the_directory(
+        base_user_inputs, resources_dir, tmp_path):
+    """The first run is the one that pays for the simulations; say so, and say where."""
+    infos = _benchmark_infos(base_user_inputs, resources_dir, tmp_path)
+    directory = tmp_path / 'emulator'
+    trainer = _stub_trainer(directory, *infos, reuse_samples=True)
+
+    with pytest.raises(EmulatorReuseError) as excinfo:
+        trainer.load_previous_samples()
+    message = str(excinfo.value)
+    assert str(directory) in message, 'the refusal must name the directory it looked in'
+    assert 'reuse_samples: false' in message
+
+
+@pytest.mark.unit
+def test_reuse_refuses_a_bundle_that_kept_no_samples(base_user_inputs, resources_dir, tmp_path):
+    """A bundle saved before CA persisted its design has an emulator but nothing to refit."""
+    infos = _benchmark_infos(base_user_inputs, resources_dir, tmp_path)
+    directory = tmp_path / 'emulator'
+    _write_previous_bundle(directory, *infos, with_samples=False)
+    trainer = _stub_trainer(directory, *infos, reuse_samples=True)
+
+    with pytest.raises(EmulatorReuseError) as excinfo:
+        trainer.load_previous_samples()
+    message = str(excinfo.value)
+    assert 'training_data.npz' in message
+    assert str(directory) in message and 'reuse_samples: false' in message
+
+
+@pytest.mark.unit
+def test_reuse_refuses_samples_simulated_for_a_different_problem(
+        base_user_inputs, resources_dir, tmp_path):
+    """Widened bounds mean a different theta -> features map, so the saved y are not this run's.
+
+    Nothing about the samples changes when the study does, which is why this has to be checked
+    rather than noticed -- a refit of them would look entirely healthy and be wrong.
+    """
+    obs_info, protocol_info, param_id_info = _benchmark_infos(
+        base_user_inputs, resources_dir, tmp_path)
+    directory = tmp_path / 'emulator'
+    _write_previous_bundle(directory, obs_info, protocol_info, param_id_info)
+
+    widened = dict(param_id_info)
+    widened['param_maxs'] = np.asarray(param_id_info['param_maxs'], dtype=float) * 2.0
+    trainer = _stub_trainer(directory, obs_info, protocol_info, widened, reuse_samples=True)
+
+    with pytest.raises(EmulatorQualityError) as excinfo:
+        trainer.load_previous_samples()
+    message = str(excinfo.value)
+    assert 'stale' in message
+    assert 'reuse_samples: false' in message, 'the refusal must say how to get a valid emulator'
+
+
+@pytest.mark.unit
+def test_reuse_refuses_when_the_observables_changed(base_user_inputs, resources_dir, tmp_path):
+    """Same idea one level up: the saved targets are features this run no longer computes."""
+    obs_info, protocol_info, param_id_info = _benchmark_infos(
+        base_user_inputs, resources_dir, tmp_path)
+    directory = tmp_path / 'emulator'
+    bundle = _write_previous_bundle(directory, obs_info, protocol_info, param_id_info)
+    bundle.meta['feature_labels'] = ['something the obs_data no longer asks for']
+    bundle.save(str(directory))
+
+    trainer = _stub_trainer(directory, obs_info, protocol_info, param_id_info,
+                            reuse_samples=True)
+    with pytest.raises(EmulatorQualityError, match='trained for observables'):
+        trainer.load_previous_samples()
+
+
+@pytest.mark.unit
+def test_reuse_carries_the_previous_design_and_reports_the_count_it_really_uses(
+        base_user_inputs, resources_dir, tmp_path, capsys):
+    """Provenance must not claim simulations this run did not perform.
+
+    ``num_train_samples``, ``sample_type`` and ``log_scale_params`` describe a design reuse does
+    not rebuild, so they are ignored here and the saved block is carried through as it stands --
+    with ``reused_samples`` marking the fit as one that ran no simulator at all.
+    """
+    infos = _benchmark_infos(base_user_inputs, resources_dir, tmp_path)
+    directory = tmp_path / 'emulator'
+    _write_previous_bundle(directory, *infos, num_samples=6)
+    trainer = _stub_trainer(directory, *infos, reuse_samples=True, num_train_samples=128,
+                            sample_type='random', random_seed=7)
+
+    x, y, design_meta = trainer.load_previous_samples()
+
+    assert len(x) == 6 and len(y) == 6
+    assert design_meta['reused_samples'] is True
+    assert design_meta['num_used'] == 6
+    # From the run that simulated them, not from this run's ignored settings.
+    assert design_meta['sample_type'] == 'latin_hypercube'
+    assert design_meta['num_train_samples'] == 7 and design_meta['num_failed'] == 1
+    assert design_meta['random_seed'] == 11
+    # ... and the seed that did apply here, because it still moves the fit and the split.
+    assert design_meta['fit_random_seed'] == 7
+
+    if trainer.rank == 0:
+        printed = capsys.readouterr().out
+        assert 'reuse_samples' in printed and '6 samples' in printed
+        # The requested count disagrees with what is on disk: say which one is being used.
+        assert 'num_train_samples' in printed and '128' in printed
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.mpi
+def test_reuse_refits_the_saved_samples_without_running_the_model(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm,
+        monkeypatch):
+    """The point of the setting: a second fit that runs no simulations at all.
+
+    The truth-model entry point is made to raise, so a single simulation would fail the test
+    rather than merely make it slow -- which is the only way to tell "reused the samples" from
+    "re-ran them and got the same answer".
+    """
+    config = _config(base_user_inputs, resources_dir, temp_output_dir,
+                     temp_generated_models_dir)
+    _generate_model(config, mpi_comm)
+
+    def fake_fit(x, y):
+        validation = {'r2': [0.97, 0.96], 'rmse': [0.01, 0.02], 'mae': [0.01, 0.02],
+                      'bias': [0.0, 0.0], 'max_abs_error': [0.02, 0.04], 'nrmse': [0.01, 0.02],
+                      'theta': x[:2], 'y_true': y[:2], 'y_pred': y[:2]}
+        return (_LinearFit(), validation, 'LinearStub',
+                EmulatorBundle.make_scale(x), EmulatorBundle.make_scale(y))
+
+    monkeypatch.setattr('emulators.emulator_trainer.require_autoemulate', lambda: None)
+    trainer = EmulatorTrainer.init_from_dict(config, comm=mpi_comm)
+    monkeypatch.setattr(trainer, 'fit', fake_fit)
+    first = trainer.train()
+    mpi_comm.Barrier()
+
+    # A second run that changes only fit settings, and asks for the samples back.
+    reuse_config = _config(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir,
+        emulator_settings={'reuse_samples': True, 'num_train_samples': 512,
+                           'sample_type': 'random', 'random_seed': 7, 'min_r2': 0.5,
+                           'n_iter': 3, 'n_splits': 2})
+    reuser = EmulatorTrainer.init_from_dict(reuse_config, comm=mpi_comm)
+    assert resolve_emulator_dir(reuse_config) == resolve_emulator_dir(config)
+
+    import param_id.fd_backend as fd_backend
+
+    def no_simulations(*args, **kwargs):
+        raise AssertionError('reuse_samples must not evaluate the truth model')
+
+    monkeypatch.setattr(fd_backend, 'observable_features', no_simulations)
+    monkeypatch.setattr(reuser, 'design', no_simulations)
+    monkeypatch.setattr(reuser, 'evaluate', no_simulations)
+    monkeypatch.setattr(reuser, 'fit', fake_fit)
+
+    bundle = reuser.train()
+    if mpi_comm.Get_rank() != 0:
+        assert bundle is None, 'only rank 0 writes the emulator, reused or not'
+        return
+
+    assert bundle is not None
+    saved = EmulatorBundle.load(resolve_emulator_dir(reuse_config))
+    # A bundle indistinguishable in kind from a freshly trained one ...
+    assert saved.feature_labels == reuser.feature_labels
+    assert saved.x_train == pytest.approx(first.x_train)
+    assert saved.y_train == pytest.approx(first.y_train)
+    # ... whose provenance does not claim simulations this run did not perform.
+    assert saved.meta['design']['reused_samples'] is True
+    assert saved.meta['design']['num_used'] == len(first.x_train)
+    assert saved.meta['design']['num_train_samples'] == 24, 'the design that was really run'
+    assert saved.meta['design']['fit_random_seed'] == 7
+    assert first.meta['design']['reused_samples'] is False
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.mpi
+def test_a_reused_fit_emulates_the_same_function_as_the_original(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
+    """Refitting saved samples with a different emulator must still emulate the benchmark.
+
+    Both fits see the same simulated features, so both have to land on the same function -- and
+    that function is known in closed form (``p`` and ``q/3``), so this is checked against
+    arithmetic rather than against the original fit's opinion of itself.
+    """
+    pytest.importorskip('autoemulate')
+
+    config = _config(base_user_inputs, resources_dir, temp_output_dir,
+                     temp_generated_models_dir,
+                     emulator_settings={'num_train_samples': 64, 'sample_type': 'sobol',
+                                        'random_seed': 0, 'min_r2': 0.9, 'n_iter': 2,
+                                        'n_splits': 2})
+    _generate_model(config, mpi_comm)
+    original = EmulatorTrainer.init_from_dict(config, comm=mpi_comm).train()
+    mpi_comm.Barrier()
+
+    # A different emulator and a different fit seed over the same samples: the case the setting
+    # exists for, and the one that used to cost the 64 simulations again. Built on every rank,
+    # like any other trainer -- the engine's constructor is collective, and reuse must leave the
+    # ranks that have nothing to do returning cleanly rather than waiting on rank 0.
+    reuse_config = _config(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir,
+        emulator_settings={'reuse_samples': True, 'random_seed': 5, 'min_r2': 0.9,
+                           'n_iter': 2, 'n_splits': 2, 'models': 'PolynomialRegression'})
+    reuser = EmulatorTrainer.init_from_dict(reuse_config, comm=mpi_comm)
+    refitted = reuser.train()
+    if mpi_comm.Get_rank() != 0:
+        assert refitted is None, 'a reused fit still writes from rank 0 alone'
+        return
+
+    assert refitted is not None
+    assert 'Polynomial' in refitted.meta['model_name'], (
+        f"the reused fit should have used the emulator this run asked for, not "
+        f"{refitted.meta['model_name']}")
+    assert refitted.x_train == pytest.approx(original.x_train)
+
+    reported = np.asarray(refitted.meta['feature_r2'], dtype=float)
+    assert np.all(np.isfinite(reported)) and np.all(reported > 0.99), (
+        f'held-out R2 {reported} from a refit of an almost linear response')
+    refitted.check_quality(0.99)
+
+    mins = np.asarray(reuser.pid.param_id_info['param_mins'], dtype=float)
+    maxs = np.asarray(reuser.pid.param_id_info['param_maxs'], dtype=float)
+    rng = np.random.default_rng(12345)
+    refit_error, disagreement = [], []
+    for _ in range(16):
+        theta = mins + rng.random(mins.size) * (maxs - mins)
+        expected = analytic_features(theta)
+        refit_error.append(np.max(np.abs(refitted.predict(theta) - expected)))
+        disagreement.append(np.max(np.abs(refitted.predict(theta) - original.predict(theta))))
+    # Absolute, like the fresh-training test above: p is sampled down to ~0, where a relative
+    # tolerance says nothing. Measured on this fixture, the refit is off the analytic answer by
+    # 0.023 and off the original fit by 0.006, against a feature range of about 6 -- so 0.1
+    # leaves room for the fit's own variation while a wrong-samples, scaling or ordering bug
+    # (which moves these by whole units) still fails.
+    print(f'[test] refit max error {max(refit_error):.4g}, '
+          f'max disagreement with the original {max(disagreement):.4g}')
+    assert max(refit_error) < 0.1, (
+        f'the emulator refitted from the saved samples is off the benchmark\'s analytic steady '
+        f'states by up to {max(refit_error):.3g}')
+    assert max(disagreement) < 0.1, (
+        f'the two fits of the same samples disagree by up to {max(disagreement):.3g}')

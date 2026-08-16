@@ -508,9 +508,9 @@ def test_analysis_options_schema_well_formed():
     assert ANALYSIS_OPTIONS['uq']['options_key'] == 'UQ_options'
     assert names('identifiability_analysis') == {'method', 'gradient_source', 'sub_method'}
     assert names('emulation') == {
-        'emulator_dir', 'models', 'num_train_samples', 'sample_type', 'log_scale_params',
-        'random_seed', 'test_fraction', 'n_splits', 'n_iter', 'min_r2', 'out_of_bounds',
-        'fd_rel_step'}
+        'emulator_dir', 'models', 'num_train_samples', 'reuse_samples', 'sample_type',
+        'log_scale_params', 'random_seed', 'test_fraction', 'n_splits', 'n_iter', 'min_r2',
+        'out_of_bounds', 'fd_rel_step'}
     assert analysis_options('not_a_mode') == []
     # the enabling flags match the documented user_inputs feature flags
     assert {m['enable_flag'] for m in ANALYSIS_OPTIONS.values()} == {
@@ -523,6 +523,31 @@ def test_analysis_options_schema_well_formed():
 
 def _option(mode, name):
     return next(o for o in analysis_options(mode) if o['name'] == name)
+
+
+def test_reuse_samples_is_a_tickbox_that_says_what_it_does_not_do():
+    """The setting that refits saved samples instead of re-running the simulations.
+
+    A bool descriptor is what makes CUFLynx render a tickbox, so the type is load-bearing
+    rather than cosmetic. The description has to carry the other half of the story too: it
+    reuses a *previous* design, so num_train_samples/sample_type/log_scale_params stop
+    applying, and there has to be a previous training run to reuse. A user who reads only the
+    label would otherwise expect a fresh design of num_train_samples points.
+    """
+    opt = _option('emulation', 'reuse_samples')
+    assert opt['type'] == 'bool', 'a bool is what a settings form renders as a tickbox'
+    assert opt['default'] is False, 'reuse must be opted into; a run defaults to simulating'
+    assert opt['required'] is False
+    description = opt['description']
+    assert 'num_train_samples' in description and 'sample_type' in description, \
+        'the description must say which design settings stop applying'
+    assert 'reuse_samples false' in description or 'reuse_samples: false' in description, \
+        'the description must name the way out: a first run without it'
+
+    # ... and the trainer actually reads it, so the tickbox is not decoration.
+    trainer_src = (pathlib.Path(__file__).resolve().parents[1] / 'src' / 'emulators'
+                   / 'emulator_trainer.py').read_text(encoding='utf-8')
+    assert "'reuse_samples'" in trainer_src
 
 
 def test_every_uq_option_the_code_reads_is_advertised():

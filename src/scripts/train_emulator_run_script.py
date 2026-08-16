@@ -7,6 +7,11 @@ Run through ``user_run_files/run_emulator_training.sh <num_processors>``, or dir
 Reads the same ``user_inputs.yaml`` as every other stage. The training simulations use the
 solver named by ``solver:``; ``use_emulator`` is ignored here, since training always runs the
 real model.
+
+With ``emulator_settings.reuse_samples: true`` there are no simulations to run at all: the
+design and features a previous training run saved beside the emulator are refitted, so a
+different ``models`` or fit setting costs the fit alone. One rank is enough for that, since
+only the simulations were ever spread across ranks.
 """
 import os
 import sys

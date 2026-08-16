@@ -1593,6 +1593,23 @@ ANALYSIS_OPTIONS = {
             {'name': 'num_train_samples', 'type': 'int', 'default': 128, 'required': False,
              'description': ('Number of simulations run to build the training set. This is the '
                              'up-front cost the emulator has to earn back.')},
+            # The only setting here that skips the simulations. Training is two costs -- the
+            # N truth-model runs (minutes to hours, and the whole reason emulators exist) and
+            # the fit (seconds) -- and without this every attempt at a different emulator or a
+            # different fit setting pays the first one again for samples already on disk.
+            {'name': 'reuse_samples', 'type': 'bool', 'default': False, 'required': False,
+             'description': ('Refit using the design and simulated features already saved in '
+                             'emulator_dir (training_data.npz) instead of running the '
+                             'simulations again: the setting for trying a different "models", '
+                             'test_fraction, n_iter, n_splits, min_r2 or random_seed without '
+                             'paying for the truth-model runs a second time. It runs no new '
+                             'simulations, so num_train_samples, sample_type and '
+                             'log_scale_params are ignored -- the saved design is what gets '
+                             'fitted, however many points it holds -- and it needs a previous '
+                             'training run in emulator_dir, so the first run must have '
+                             'reuse_samples false. Refused when the parameter bounds, '
+                             'obs_data, protocol or model have changed since those samples '
+                             'were simulated: retrain with reuse_samples false instead.')},
             # enum, not str: EmulatorTrainer.design dispatches on exactly these three and
             # raises ValueError on anything else, so a free string only defers a typo to
             # run time -- after the model has been generated.
@@ -2321,6 +2338,7 @@ class YamlFileParser(object):
         emulator_settings.setdefault('emulator_dir', None)
         emulator_settings.setdefault('models', 'default')
         emulator_settings.setdefault('num_train_samples', 128)
+        emulator_settings.setdefault('reuse_samples', False)
         emulator_settings.setdefault('sample_type', 'sobol')
         emulator_settings.setdefault('log_scale_params', False)
         emulator_settings.setdefault('random_seed', 0)
