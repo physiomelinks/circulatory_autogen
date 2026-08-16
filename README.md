@@ -4,6 +4,11 @@
 
 This project allows the generation and calibration of cellml (and soon to be more) circulatory system models from an array of module/vessel names and connections.
 
+**The repository is `circulatory_autogen`; the package it installs is `libcuflynx`.** They are the
+same project under two names: papers, issues and this repository say *circulatory_autogen*, while
+PyPI, `pip install` and every `import` say *libcuflynx*. Searching for either name should find you
+this page.
+
 > **Note:** Test results and pass percentage are displayed in the [GitHub Actions workflow summary](https://github.com/physiomelinks/circulatory_autogen/actions/workflows/tests.yml). The badge above shows the overall test status (passing/failing) for `master` of this repository, which is where pull requests are merged. 
 
 # Installing, and what each extra costs
@@ -22,7 +27,7 @@ companion directories (`scipy.libs`, `numpy.libs`) and every transitive dependen
 
 | install | on disk | what it buys |
 |---|---|---|
-| `libcuflynx` | **≈ 520 MB** | generation, simulation, calibration, Sobol SA, emcee MCMC, Laplace identifiability |
+| `libcuflynx` | **≈ 539 MB** | generation, simulation, calibration, Sobol SA, emcee MCMC, Laplace identifiability |
 | `libcuflynx[mpi]` | **+5 MB**, and a system MPI toolchain | multi-rank runs under `mpiexec` |
 | `libcuflynx[casadi]` | **+221 MB** | `model_type: casadi_python`, `solver: casadi_integrator`, symbolic AD gradients |
 | `libcuflynx[uq]` | **+65 MB** | the pyMC sampler (`UQ_options: library: pymc`) |
@@ -35,6 +40,10 @@ is 734 MB on its own — more than the whole default install — and requires Py
 On Linux, pip's default torch wheel also drags in the bundled NVIDIA CUDA libraries, which can
 take it past 2 GB; install a CPU-only torch first if you do not want them. Because `[all]`
 includes `[emulation]`, `[all]` inherits that Python range too.
+
+The per-package numbers below do not add up to the total: the long tail of small transitive
+dependencies (packaging, dateutil, six, typing-extensions, cycler, joblib, threadpoolctl, ...)
+accounts for the rest.
 
 What makes up the default install: scipy 109 (+27 in `scipy.libs`), pandas 65, statsmodels 49,
 scikit-learn 46, numpy 41 (+27 in `numpy.libs`), matplotlib 28 with fontTools 25 / pillow 21,
@@ -64,6 +73,46 @@ Developing on a checkout instead: `pip install -e ".[dev]"`, which adds the test
 tooling plus `mpi4py` (`tests/conftest.py` imports it at module scope, so the suite will not
 even collect without it) and `casadi` (whose tests otherwise `importorskip` themselves into
 silence).
+
+# Quickstart
+
+```
+pip install libcuflynx
+```
+
+No import path setup and no checkout are required — the package is importable, and its
+commands runnable, from any directory:
+
+```python
+from libcuflynx.utilities.utility_funcs import get_default_inp_data_dict
+from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
+from libcuflynx.solver_wrappers import get_simulation_helper_from_inp_data_dict
+from libcuflynx.param_id.paramID import CVS0DParamID
+
+inp = get_default_inp_data_dict(file_prefix, input_param_file, resources_dir)
+generate_with_new_architecture(inp_data_dict=inp)     # CSV arrays -> CellML
+sim = get_simulation_helper_from_inp_data_dict(inp)   # simulate it
+sim.run()
+pid = CVS0DParamID.init_from_dict(inp)                # calibrate it
+```
+
+Each pipeline stage also has a console command, all configured from
+`user_run_files/user_inputs.yaml` and all taking `--help`:
+
+| Command | Stage |
+|---|---|
+| `cuflynx-generate` | generate a model from the CSV arrays |
+| `cuflynx-param-id` | generate + calibrate (`mpiexec -n N` for parallel) |
+| `cuflynx-sequential-param-id` | staged calibration — declared, not yet implemented |
+| `cuflynx-sensitivity` | Sobol sensitivity analysis |
+| `cuflynx-identifiability` | Laplace / profile-likelihood identifiability |
+| `cuflynx-train-emulator` | train a surrogate of the obs features |
+| `cuflynx-plot` | plot calibration results |
+
+**Imports without the `libcuflynx.` prefix are deprecated.** `from param_id.paramID import
+CVS0DParamID` still works in 0.4.0 and emits a `DeprecationWarning`; the shims are **removed in
+0.5.0**. See `CHANGELOG.md` for the migration, including the one for anyone who edited
+`funcs_user/*_funcs_user.py` in place.
 
 # Tutorial
 
@@ -95,6 +144,23 @@ the scripts that support it will be removed then.
 The handful of tests that exercise this backend are marked `need_opencor`. They have **no
 auto-skip**, so without OpenCOR they fail rather than skip — deselect them with
 `-m "not need_opencor"`, which is what CI does.
+
+# Releasing
+
+Releases are cut from a `v*` tag and published to PyPI by
+[`.github/workflows/release.yml`](.github/workflows/release.yml) using trusted publishing
+(OIDC) — no API token is stored anywhere. The procedure, the release-notes checklist, and the
+rules that cannot be undone (the tag must match `version` in `pyproject.toml`; a PyPI version
+can never be re-uploaded) are in [CONTRIBUTING.md](CONTRIBUTING.md#making-a-release).
+
+# Citing this work
+
+Cite the project as **circulatory_autogen** — that is the name used by the publications, the
+repository and any archived DOI. The PyPI distribution `libcuflynx` is the *same* software under
+its packaging name, so a paper citing circulatory_autogen and an environment listing
+`libcuflynx==0.4.0` refer to one artifact, not two. When it helps reproducibility, record both:
+the citation for the project and the exact package version installed, e.g.
+"circulatory_autogen (PyPI package `libcuflynx`, version 0.4.0)".
 
 # License
 circulatory_autogen is fully open source and distributed under the very permissive Apache License 2.0. See LICENSE for more information.

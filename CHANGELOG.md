@@ -23,6 +23,17 @@ from param_id.paramID import CVS0DParamID            # 0.4.0: warns
 from libcuflynx.param_id.paramID import CVS0DParamID  # do this instead
 ```
 
+### Docs — every documented import is now `libcuflynx.`
+
+The tutorial (`tutorial/docs/`, published at
+<https://physiomelinks.github.io/circulatory_autogen/>), the interactive notebooks, the README
+and the shipped `example_format_obs_data_json_file.py` all import from the `libcuflynx`
+namespace, install with `pip install libcuflynx`, and no longer put anything on the import path.
+The API reference's mkdocstrings identifiers moved with them
+(`::: libcuflynx.param_id.paramID.CVS0DParamID`). The README carries the measured install sizes
+per extra, and says in as many words that the repository is `circulatory_autogen` while the
+package is `libcuflynx` — cite the former, `pip install` the latter.
+
 ### Changed — `cellml_only` defaults to `CVODE_myokit`
 
 A config that omits `solver` used to be routed to `CVODE_opencor`, the one backend a pip

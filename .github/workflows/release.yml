@@ -1,0 +1,92 @@
+name: Release
+
+# Publishes libcuflynx to PyPI when a `v*` tag is pushed (issue #438).
+#
+# The filename, the repository and the environment name below are not free choices: PyPI's
+# trusted publisher for this project is registered against
+# `physiomelinks/circulatory_autogen`, workflow `release.yml`, environment `pypi`. Rename any
+# of the three and the OIDC token no longer matches the pending publisher -- the build still
+# succeeds and the upload is rejected.
+#
+# There is no API token anywhere in this file, and there must never be one. The `id-token:
+# write` permission below lets GitHub mint a short-lived OIDC token that PyPI exchanges for a
+# one-off upload credential; nothing long-lived is stored in the repository's secrets.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+# Read-only by default; the publish job asks for what it needs.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build wheel and sdist
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install build tooling
+      run: |
+        python -m pip install --upgrade pip
+        pip install build twine
+
+    # The tag is the release. A tag whose version does not match the one baked into the
+    # wheel produces a release that says one thing on GitHub and another on PyPI, and PyPI
+    # will not let the file be replaced afterwards -- so fail here, before anything is built.
+    - name: Check the tag matches the version in pyproject.toml
+      if: startsWith(github.ref, 'refs/tags/v')
+      run: |
+        tag_version="${GITHUB_REF_NAME#v}"
+        project_version="$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -1)"
+        echo "tag=$tag_version pyproject=$project_version"
+        if [ "$tag_version" != "$project_version" ]; then
+          echo "::error::tag v$tag_version does not match pyproject.toml version $project_version"
+          exit 1
+        fi
+
+    - name: Build
+      run: python -m build
+
+    # Catches the metadata problems PyPI rejects on upload (a bad long_description, a
+    # malformed classifier) while it is still cheap to fix -- a rejected upload cannot be
+    # retried under the same version.
+    - name: Check the distributions
+      run: twine check dist/*
+
+    - name: Upload the distributions
+      uses: actions/upload-artifact@v4
+      with:
+        name: dist
+        path: dist/
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Only a tag publishes. A manual `workflow_dispatch` run builds and checks, and stops.
+    if: startsWith(github.ref, 'refs/tags/v')
+    environment:
+      name: pypi
+      url: https://pypi.org/p/libcuflynx
+    permissions:
+      # Required by trusted publishing: this is what mints the OIDC token PyPI verifies.
+      id-token: write
+    steps:
+    - name: Download the distributions
+      uses: actions/download-artifact@v4
+      with:
+        name: dist
+        path: dist/
+
+    - name: Publish
+      uses: pypa/gh-action-pypi-publish@release/v1

@@ -43,7 +43,9 @@ File path of the `obs_data.json` file should be defined as **param_id_obs_path**
 
 !!! Note
     IMPORTANT: For creating obs_data.json files in python (strongly recommended over modifying the json by hand
-    you can use the helper class in `src/utilities/obs_data_helpers.py`. See `src/scripts/example_format_obs_data_json_file.py` for an example 
+    you can use the helper class `libcuflynx.utilities.obs_data_helpers.ObsDataCreator`. See
+    `libcuflynx/scripts/example_format_obs_data_json_file.py` (in a checkout,
+    `src/libcuflynx/scripts/example_format_obs_data_json_file.py`) for an example 
     that you can copy and change for your parameter identification task.
 
 ### protocol info
@@ -193,7 +195,7 @@ If `obs_dt` is omitted, it is estimated from the mean step in `t_path`. For `std
 !!! warning
     The `dt` or `sample_rate` fields are deprecated for series data. Use `obs_dt` instead.
 Not to be confused with the dt for the model simulation outputs.
-- **operation**: This defines the operation that will be done on the operands/variable. The possible operations to be done on model outputs are defined in `[CA_dir]/src/param_id/operation_funcs.py` and in `[CA_dir]/funcs_user/operation_funcs_user.py` for user defined operations.
+- **operation**: This defines the operation that will be done on the operands/variable. The possible operations to be done on model outputs are the built-ins in `libcuflynx.param_id.operation_funcs` and `libcuflynx.funcs.operation_funcs_user`, plus any user defined operations in the file named by `operation_funcs_external_path` in `user_inputs.yaml` (copy `funcs_user/operation_funcs_example.py` to start). Since the built-in funcs moved into the package, editing them in place is no longer supported — an upgrade replaces them.
 - **operation_kwargs**: An optional dictionary of keyword arguments (kwargs) and their values, passed to the chosen python operation function on top of the operands. Defaults to `{}`. See [operation_kwargs](#operation_kwargs) below for the full contract.
 - **operands**: The above defined "operation" can take in multiple variables. If operands is defined, then the "variable" entry will be a placeholder name for the calculated variable and the operands will define the model variables that are used to calculate the final feature that will be compared to the observable value entry/s.
 - **experiment_idx** and **subexperiment_idx**: Optional indices to link a data item to a specific experiment/subexperiment in `protocol_info`.

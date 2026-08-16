@@ -760,8 +760,10 @@ class VesselNetwork():
             from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
             from libcuflynx.parsers.ModelParsers import CSV0DModelParser
         except ImportError as e:
-            # If this fails, it usually means the 'src' path calculation is wrong for your folder structure
-            print(f"CRITICAL ERROR: Could not import parsers. Checked path: {src_path}")
+            # libcuflynx has to be installed for this: pip install libcuflynx (or pip install -e .
+            # in a checkout). There is no path to fix up any more.
+            print(f"CRITICAL ERROR: Could not import libcuflynx.parsers ({e}). "
+                  f"Install the package with: pip install libcuflynx")
             raise e
         # -------------------------------
 

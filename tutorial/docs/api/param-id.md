@@ -4,7 +4,7 @@
 data, across the genetic-algorithm, CMA-ES, Bayesian, and `sp_minimize`
 optimisers, plus MCMC sampling.
 
-::: param_id.paramID.CVS0DParamID
+::: libcuflynx.param_id.paramID.CVS0DParamID
     options:
       members:
         - init_from_dict
