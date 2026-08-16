@@ -145,6 +145,14 @@ The handful of tests that exercise this backend are marked `need_opencor`. They 
 auto-skip**, so without OpenCOR they fail rather than skip — deselect them with
 `-m "not need_opencor"`, which is what CI does.
 
+# Releasing
+
+Releases are cut from a `v*` tag and published to PyPI by
+[`.github/workflows/release.yml`](.github/workflows/release.yml) using trusted publishing
+(OIDC) — no API token is stored anywhere. The procedure, the release-notes checklist, and the
+rules that cannot be undone (the tag must match `version` in `pyproject.toml`; a PyPI version
+can never be re-uploaded) are in [CONTRIBUTING.md](CONTRIBUTING.md#making-a-release).
+
 # Citing this work
 
 Cite the project as **circulatory_autogen** — that is the name used by the publications, the
