@@ -11,10 +11,13 @@ import os
 import shutil
 import tempfile
 from sys import exit
+from libcuflynx.utilities.package_resources import builtin_modules_dir, package_data_dir
 generators_dir = os.path.dirname(__file__)
 base_dir = os.path.join(os.path.dirname(__file__), '../../..')
-# Build/run scripts copied alongside each generated model so it can be compiled/run standalone.
-solver_make_files_dir = os.path.join(base_dir, 'src', 'libcuflynx', 'solver1d', 'Make_files')
+# Build/run scripts copied alongside each generated model so it can be compiled/run
+# standalone. They are package data of libcuflynx.solver1d, so they are located through
+# importlib.resources; a real directory is needed because they are listed and copied.
+solver_make_files_dir = package_data_dir('libcuflynx.solver1d', 'Make_files')
 LIBCELLML_available = True
 try:
     from libcellml import Annotator, Analyser, AnalyserModel, AnalyserExternalVariable, Generator, GeneratorProfile        
@@ -55,13 +58,18 @@ class CVS0DCellMLGenerator(object):
         else:
             self.resources_dir = inp_data_dict['resources_dir']
 
-        self.base_script = os.path.join(generators_dir, 'resources/base_script.cellml')
+        # The shipped module library is package data: located through importlib.resources so
+        # it resolves from a wheel install as well as from a checkout. A real directory path
+        # is needed here because the library is listed and its entries are mixed into one
+        # list of file paths with the user/external module directories below.
+        builtin_modules = builtin_modules_dir()
+        self.base_script = os.path.join(builtin_modules, 'base_script.cellml')
 
 
         # `not startswith('._')` skips macOS AppleDouble sidecar files that also end in
         # 'modules.cellml' but are binary and break the parser (issue #83).
-        self.module_scripts = [os.path.join(generators_dir, 'resources', filename) for filename in
-                               os.listdir(os.path.join(generators_dir, 'resources'))
+        self.module_scripts = [os.path.join(builtin_modules, filename) for filename in
+                               os.listdir(builtin_modules)
                                if filename.endswith('modules.cellml') and not filename.startswith('._')]
         self.module_scripts += [os.path.join(base_dir, 'module_config_user', filename) for filename in
                                os.listdir(os.path.join(base_dir, 'module_config_user'))
@@ -70,7 +78,7 @@ class CVS0DCellMLGenerator(object):
             self.module_scripts += [os.path.join(self.inp_data_dict['external_modules_dir'], filename) for filename in
                                 os.listdir(os.path.join(self.inp_data_dict['external_modules_dir']))
                                 if filename.endswith('modules.cellml') and not filename.startswith('._')]
-        self.units_scripts = [os.path.join(generators_dir, 'resources/units.cellml'),
+        self.units_scripts = [os.path.join(builtin_modules, 'units.cellml'),
                               os.path.join(base_dir, 'module_config_user/user_units.cellml')]
         self.all_parameters_defined = False
         self.BC_set = {}

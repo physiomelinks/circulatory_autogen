@@ -72,6 +72,24 @@ where = ["src"]
 # find() matches the dotted package name it discovers, hence the namespaced spelling as well.
 exclude = ["obsolete*", "libcuflynx.obsolete*"]
 
+# Non-Python files that are read at runtime and therefore have to ship in the wheel.
+# Without them `pip install libcuflynx` imports fine and then fails at the first
+# generate_with_new_architecture() call. Locate them with importlib.resources (see
+# libcuflynx/utilities/package_resources.py), never by walking up from __file__.
+# Deliberately NOT shipped: src/libcuflynx/coupler/* (C++ sources plus a Makefile for a
+# separately built 1D-0D coupler executable -- nothing in the Python reads them, and
+# building in place would mean writing into site-packages) and
+# src/libcuflynx/param_id/aadc_native/bdf_loop.cpp (source for an optional AADC extension
+# the user compiles themselves; only ever named in a log message).
+[tool.setuptools.package-data]
+# The CellML module library and the built-in module configs (~3 MB, ~0.5 MB compressed),
+# plus the C++ templates CVSCppGenerator reads for model_type: cpp.
+"libcuflynx.generators" = ["resources/*.cellml", "resources/*.json", "*.cpp"]
+# Build/run scripts copied next to each generated model so it is self-contained (#157).
+"libcuflynx.solver1d" = ["Make_files/*"]
+# Example input for example_format_obs_data_json_file(), which is itself shipped.
+"libcuflynx.scripts" = ["example_data/*.csv"]
+
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",

@@ -18,6 +18,7 @@ user_inputs_dir = os.path.join(root_dir, 'user_run_files')
 src_dir = os.path.join(os.path.dirname(__file__), '..')
 import libcuflynx.utilities.libcellml_helper_funcs as cellml
 import libcuflynx.utilities.libcellml_utilities as libcellml_utils
+from libcuflynx.utilities.package_resources import builtin_module_file
 
 # TODO:
 # - Add support for multiple components in a cellml model
@@ -25,7 +26,8 @@ import libcuflynx.utilities.libcellml_utilities as libcellml_utils
 
 # Define file paths
 user_units_cellml = os.path.join(root_dir, 'module_config_user/user_units.cellml')
-units_cellml = os.path.join(src_dir, 'generators/resources/units.cellml')
+# Package data, so a Traversable rather than a path -- it is only ever read.
+units_cellml = builtin_module_file('units.cellml')
 user_inputs_yaml = os.path.join(user_inputs_dir, 'user_inputs.yaml')
 
 # Define file_prefix, vessel_name and data_reference for the model
@@ -235,7 +237,8 @@ def _update_units_file(root):
     user_units = {unit.get("name"): unit for unit in user_units_root.findall(f".//{{{cellml_namespace}}}units")}
 
     # Extract units from units.cellml
-    units_tree = ET.parse(units_cellml)
+    with units_cellml.open('rb') as units_file:
+        units_tree = ET.parse(units_file)
     units_root = units_tree.getroot()
     units = {unit.get("name"): unit for unit in units_root.findall(f".//{{{cellml_namespace}}}units")}
 

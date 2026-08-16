@@ -4,9 +4,8 @@ import yaml
 import json
 import os, sys
 root_dir = os.path.join(os.path.dirname(__file__), '../../..')
-scripts_dir = os.path.join(root_dir, 'src/libcuflynx/scripts')
-example_data_dir = os.path.join(scripts_dir, 'example_data')
 from libcuflynx.utilities.obs_data_helpers import ObsDataCreator
+from libcuflynx.utilities.package_resources import package_data_file
 
 def example_format_obs_data_json_file(output_path=None):
     """
@@ -19,13 +18,16 @@ def example_format_obs_data_json_file(output_path=None):
 
     # Load the data that you want to use as ground truth
     # change this to the path of your data file
-    data_file = os.path.join(example_data_dir, 'example_data_for_conversion.csv')
+    # Shipped example data, so a package resource rather than a repo-relative path.
+    data_file = package_data_file('libcuflynx.scripts', 'example_data',
+                                  'example_data_for_conversion.csv')
 
     # output path for the JSON file
     # change this to the desired output path
     if output_path is None:
         output_path = os.path.join(root_dir, 'resources', 'NKE_pump_obs_data.json')
-    data = pd.read_csv(data_file)
+    with data_file.open('r') as rf:
+        data = pd.read_csv(rf)
 
     # access the data in the way you want it
     time = data['environment | t (second)'].values
