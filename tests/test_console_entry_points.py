@@ -44,7 +44,7 @@ EXPECTED_ENTRY_POINTS = {
 def _parse_project_scripts():
     """``{command: "module:attr"}`` from ``[project.scripts]``.
 
-    tomllib is 3.11+, and this project supports 3.7, so fall back to reading the one
+    tomllib is 3.11+, and this project supports 3.9, so fall back to reading the one
     table by hand. The fallback is deliberately strict about the shape it accepts --
     a line it cannot parse is a test failure, not a silently skipped entry point.
     """

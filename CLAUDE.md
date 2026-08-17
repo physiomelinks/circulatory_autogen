@@ -17,7 +17,7 @@ This file documents the conventions, gotchas, and entry points an agent needs th
 - **Without OpenCOR installed, deselect the tests that truly need it**: `-m "not need_opencor"`. `need_opencor` is a plain marker with **no auto-skip**, so those tests *fail* rather than skip if OpenCOR is absent — that is expected, not a regression.
 - Editable install: `pip install -e ".[dev]"` (the test runner auto-installs dev deps into whatever `python_path` points at, if pytest is missing there).
 - Legacy MPI gotcha, only if you are still on a pythonshell: OpenCOR bundles a **dual-ABI `mpi4py`** (`MPI.mpich.*.so` **and** `MPI.openmpi.*.so`, dispatched by `mpi4py._mpiabi`). If the variant picked at import doesn't match the MPI owning the system `mpiexec`, every rank aborts at `MPI_Init` with `unsupported PMI version PMIx`. Fix by pinning the ABI to the installed launcher — `export MPI4PY_MPIABI=openmpi` (or `mpich`) — **not** by installing a second MPI. A venv's pip-installed `mpi4py` links the single system MPI and avoids the ambiguity entirely; this is one more reason to move off the pythonshell.
-- pyproject.toml holds deps, pytest config, markers, black (line-length 100), coverage. Python `>=3.7`.
+- pyproject.toml holds deps, pytest config, markers, black (line-length 100), coverage. Python `>=3.9` (the floor `importlib.resources.files` needs).
 
 ## How users actually drive it
 

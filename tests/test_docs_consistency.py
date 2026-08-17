@@ -21,6 +21,9 @@ import re
 
 import pytest
 
+from _pyproject import load_pyproject
+from _tracked_files import only_tracked
+
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 TUTORIAL = REPO_ROOT / "tutorial"
 README = REPO_ROOT / "README.md"
@@ -54,7 +57,16 @@ _FLAT_IMPORT_RE = re.compile(
 
 
 def _doc_files():
-    files = [p for p in TUTORIAL.rglob("*") if p.is_file() and p.suffix in _DOC_SUFFIXES]
+    """The documentation git actually tracks.
+
+    An unfiltered rglob also picks up ``tutorial/**/.ipynb_checkpoints/`` and the jupytext
+    ``.py`` written beside a notebook when someone opens it -- gitignored artefacts, not
+    documentation, and both carry the pre-rename import lines the sweeps below forbid. They
+    fail the suite on whichever machine happens to have them and are invisible everywhere
+    else, which is the least useful shape a test failure can have.
+    """
+    files = only_tracked(
+        p for p in TUTORIAL.rglob("*") if p.is_file() and p.suffix in _DOC_SUFFIXES)
     files.append(README)
     return sorted(files)
 
@@ -112,14 +124,13 @@ def test_mkdocstrings_identifiers_are_package_qualified():
 
 
 def _project_scripts():
-    """``{command: target}`` from ``[project.scripts]``, parsed the same way #434's test does."""
-    text = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    try:
-        import tomllib
-    except ImportError:                                     # Python < 3.11
-        tomllib = pytest.importorskip(
-            "tomli", reason="needs tomllib (3.11+) or tomli to read pyproject.toml")
-    return tomllib.loads(text).get("project", {}).get("scripts", {})
+    """``{command: target}`` from ``[project.scripts]``.
+
+    Not ``pytest.importorskip("tomli")``: tomli is not a declared dependency of this
+    project, so that skipped these tests -- silently -- the moment pytest stopped pinning
+    it transitively. See tests/_pyproject.py.
+    """
+    return load_pyproject().get("project", {}).get("scripts", {})
 
 
 @pytest.mark.unit

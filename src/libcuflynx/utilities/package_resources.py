@@ -30,10 +30,10 @@ import pathlib
 import shutil
 import tempfile
 
-try:  # Python >= 3.9
-    from importlib.resources import as_file, files
-except ImportError:  # pragma: no cover - only on Python 3.7/3.8
-    from importlib_resources import as_file, files  # type: ignore
+# `files`/`as_file` are 3.9+, which is why pyproject declares requires-python = ">=3.9".
+# The 3.7/3.8 fallback that used to sit here reached for `importlib_resources`, a package
+# nothing declared as a dependency -- so on the interpreters it existed for, it raised.
+from importlib.resources import as_file, files
 
 # The package that owns the CellML module library, and the data directory inside it.
 BUILTIN_MODULES_ANCHOR = 'libcuflynx.generators'

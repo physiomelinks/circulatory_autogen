@@ -27,19 +27,18 @@ import textwrap
 
 import pytest
 
+from _pyproject import load_pyproject
+
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 SRC = str(REPO_ROOT / 'src')
 
 from libcuflynx.utilities import mpi_utils
 
 
-def _load_pyproject():
-    try:
-        import tomllib
-    except ImportError:                                  # Python < 3.11
-        tomllib = pytest.importorskip(
-            'tomli', reason='needs tomllib (3.11+) or tomli to read pyproject.toml')
-    return tomllib.loads((REPO_ROOT / 'pyproject.toml').read_text(encoding='utf-8'))
+#: Not `pytest.importorskip('tomli')`. tomli is not declared by this project -- it was a
+#: transitive pytest pin -- so an importorskip turned every assertion below about
+#: pyproject.toml into a silent skip the moment that pin moved. See tests/_pyproject.py.
+_load_pyproject = load_pyproject
 
 
 def _run_without(module, body, env=None):

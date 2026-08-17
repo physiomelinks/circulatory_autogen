@@ -14,7 +14,11 @@ name = "libcuflynx"
 version = "0.4.0"
 description = "Generation and calibration of CellML circulatory system models from module/vessel arrays"
 readme = "README.md"
-requires-python = ">=3.7"
+# 3.9 is the real floor, not a conservative label: utilities/package_resources.py needs
+# importlib.resources.files/as_file, which arrived in 3.9. Claiming >=3.7 let pip install
+# happily on 3.7/3.8 and then die on the first generator import, because the
+# `importlib_resources` backport that would have covered it was declared nowhere.
+requires-python = ">=3.9"
 license = {text = "Apache-2.0"}
 authors = [
     {name = "Finbar J. Argus"}
@@ -25,8 +29,6 @@ classifiers = [
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.7",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -182,6 +184,11 @@ dev = [
     "black>=22.0.0",
     "flake8>=4.0.0",
     "mypy>=0.950",
+    # tests/_pyproject.py reads this file to check the dependency lists, the extras and the
+    # entry points against the code. tomllib is 3.11+, and the floor is 3.9 -- so on 3.9/3.10
+    # those tests need tomli. They used to `pytest.importorskip` it and pass by skipping,
+    # which meant a green run said nothing at all about pyproject.toml.
+    "tomli; python_version < '3.11'",
     # Whole extras, not a hand-picked subset of them. `[dev]` listing `mpi4py` on its own
     # was enough to collect the suite (tests/conftest.py does `from mpi4py import MPI` at
     # module scope) but not to run it: paramID's multi-rank branch imports `schwimmbad`,
@@ -265,7 +272,7 @@ exclude_lines = [
 
 [tool.black]
 line-length = 100
-target-version = ['py37', 'py38', 'py39', 'py310', 'py311']
+target-version = ['py39', 'py310', 'py311']
 include = '\.pyi?$'
 extend-exclude = '''
 /(
@@ -285,7 +292,7 @@ extend-exclude = '''
 '''
 
 [tool.mypy]
-python_version = "3.7"
+python_version = "3.9"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false

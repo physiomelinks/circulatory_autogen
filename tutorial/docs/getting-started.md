@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- **Python** 3.9 or newer recommended (the package requires Python ≥3.7 per `pyproject.toml`; use the same interpreter for the whole project).
+- **Python** 3.9 or newer — `pyproject.toml` declares `requires-python = ">=3.9"`, and the package really does need it (`importlib.resources.files`). Use the same interpreter for the whole project.
 - **Git**, to clone the repository.
 - **pip** (usually bundled with Python).
 - **MPI** (optional): needed only if you run parameter identification or sensitivity analysis with multiple processes. See [MPI and system libraries](#mpi-and-system-libraries) below.
