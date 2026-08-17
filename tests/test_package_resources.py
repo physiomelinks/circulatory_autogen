@@ -8,6 +8,11 @@ these tests go through the same accessors the generator does, and read the bytes
 """
 import json
 import os
+import pathlib
+import subprocess
+import sys
+import tarfile
+import zipfile
 
 import pytest
 
@@ -22,6 +27,8 @@ from libcuflynx.utilities.package_resources import (
 
 # Present since the module library existed; the generator reads all three on every run.
 _ALWAYS_SHIPPED = ('base_script.cellml', 'units.cellml', 'BG_modules.cellml')
+
+_REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 @pytest.mark.unit
@@ -86,3 +93,79 @@ def test_other_shipped_data_is_readable():
     assert example.read_text(encoding='utf-8').splitlines()[0]
     make_files = package_data_dir('libcuflynx.solver1d', 'Make_files')
     assert {'Makefile', 'runCVODE.bash'} <= set(os.listdir(make_files))
+
+
+# ---------------------------------------------------------------------------
+# The wheel itself
+# ---------------------------------------------------------------------------
+# Everything above resolves package data against *this checkout*, where the files exist
+# whether or not `pyproject.toml` says to ship them. Delete the whole
+# [tool.setuptools.package-data] block and every assertion above still passes, while
+# `pip install libcuflynx` gets a wheel with zero .cellml in it -- which is issue #432
+# exactly, unfixed and green. So one test has to look inside a built artefact.
+
+
+def _hook(destination, hook, cwd):
+    """Run one setuptools PEP 517 hook in a subprocess and return the artefact it wrote.
+
+    Calls the hook directly rather than running ``python -m build``: build creates an
+    isolated venv and downloads the build requirements over the network, and none of that
+    changes what ends up inside the archive. This is the same hook build would invoke,
+    using the interpreter already running the suite.
+    """
+    program = (
+        "import sys\n"
+        "from setuptools import build_meta\n"
+        "sys.stdout.write(getattr(build_meta, sys.argv[1])(sys.argv[2]))\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", program, hook, str(destination)],
+        cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        universal_newlines=True, timeout=900,
+    )
+    assert result.returncode == 0, f'{hook} failed:\n{result.stderr}'
+    artefact = pathlib.Path(destination) / result.stdout.strip().splitlines()[-1]
+    assert artefact.is_file(), artefact
+    return artefact
+
+
+def _build_wheel(destination):
+    """Build an sdist, unpack it, and build the wheel from *that*.
+
+    The indirection is the point, and it is what ``python -m build`` does by default. A
+    wheel built in the checkout reuses whatever ``build/lib`` a previous build left behind,
+    so a package-data entry deleted from pyproject.toml would still appear in the archive
+    and this test would pass on a stale directory. Building from a freshly unpacked sdist
+    has no history to inherit -- and it checks the sdist carries the data files too, which
+    is the other half of "what gets published".
+    """
+    sdist = _hook(destination, 'build_sdist', _REPO_ROOT)
+    unpacked = pathlib.Path(destination) / 'unpacked'
+    with tarfile.open(sdist) as archive:
+        archive.extractall(str(unpacked))
+    roots = [p for p in unpacked.iterdir() if p.is_dir()]
+    assert len(roots) == 1, roots
+    return _hook(destination, 'build_wheel', roots[0])
+
+
+@pytest.mark.slow
+def test_the_built_wheel_carries_the_data_files_and_not_the_dead_code(tmp_path):
+    """The payload `pip install libcuflynx` actually receives."""
+    with zipfile.ZipFile(_build_wheel(tmp_path)) as archive:
+        names = set(archive.namelist())
+
+    # The CellML module library: without it the generator has nothing to assemble from.
+    assert 'libcuflynx/generators/resources/units.cellml' in names
+    assert 'libcuflynx/generators/resources/BG_modules.cellml' in names
+    assert 'libcuflynx/generators/resources/BG_modules_config.json' in names
+    # The C++ templates CVSCppGenerator reads for model_type: cpp.
+    assert 'libcuflynx/generators/main0dTemplate.cpp' in names
+    # The build/run scripts copied next to each generated 1D model (#157).
+    assert 'libcuflynx/solver1d/Make_files/Makefile' in names
+    # Example input for example_format_obs_data_json_file(), which is itself shipped.
+    assert any(n.startswith('libcuflynx/scripts/example_data/') and n.endswith('.csv')
+               for n in names), sorted(n for n in names if 'example_data' in n)
+
+    # ...and the dead code that packages.find excludes stays excluded.
+    obsolete = sorted(n for n in names if n.startswith('libcuflynx/obsolete/'))
+    assert obsolete == [], obsolete
