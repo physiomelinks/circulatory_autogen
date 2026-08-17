@@ -92,7 +92,7 @@
   "data_items": [
     {
       "variable": "Lotka_Volterra_module/x",
-      "name_for_plotting": "x_max (u_alpha trace)",
+      "name_for_plotting": "x (u_alpha trace)",
       "data_type": "constant",
       "operation": "max",
       "operands": ["Lotka_Volterra_module/x"],
@@ -106,7 +106,7 @@
     },
     {
       "variable": "Lotka_Volterra_module/y",
-      "name_for_plotting": "y_max (u_alpha trace)",
+      "name_for_plotting": "y (u_alpha trace)",
       "data_type": "constant",
       "operation": "max",
       "operands": ["Lotka_Volterra_module/y"],
@@ -120,7 +120,7 @@
     },
     {
       "variable": "Lotka_Volterra_module/x",
-      "name_for_plotting": "x_max (u_gamma trace)",
+      "name_for_plotting": "x (u_gamma trace)",
       "data_type": "constant",
       "operation": "max",
       "operands": ["Lotka_Volterra_module/x"],
@@ -134,7 +134,7 @@
     },
     {
       "variable": "Lotka_Volterra_module/y",
-      "name_for_plotting": "y_max (u_gamma trace)",
+      "name_for_plotting": "y (u_gamma trace)",
       "data_type": "constant",
       "operation": "max",
       "operands": ["Lotka_Volterra_module/y"],
@@ -148,7 +148,7 @@
     },
     {
       "variable": "Lotka_Volterra_module/x",
-      "name_for_plotting": "x_max (u_alpha const)",
+      "name_for_plotting": "x (u_alpha const)",
       "data_type": "constant",
       "operation": "max",
       "operands": ["Lotka_Volterra_module/x"],
@@ -162,7 +162,7 @@
     },
     {
       "variable": "Lotka_Volterra_module/y",
-      "name_for_plotting": "y_max (u_alpha const)",
+      "name_for_plotting": "y (u_alpha const)",
       "data_type": "constant",
       "operation": "max",
       "operands": ["Lotka_Volterra_module/y"],
@@ -176,7 +176,7 @@
     },
     {
       "variable": "Lotka_Volterra_module/x",
-      "name_for_plotting": "x_max (u_gamma const)",
+      "name_for_plotting": "x (u_gamma const)",
       "data_type": "constant",
       "operation": "max",
       "operands": ["Lotka_Volterra_module/x"],
@@ -190,7 +190,7 @@
     },
     {
       "variable": "Lotka_Volterra_module/y",
-      "name_for_plotting": "y_max (u_gamma const)",
+      "name_for_plotting": "y (u_gamma const)",
       "data_type": "constant",
       "operation": "max",
       "operands": ["Lotka_Volterra_module/y"],
