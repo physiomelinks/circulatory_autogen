@@ -77,6 +77,11 @@ operation_funcs_external_path: funcs_user/my_ops.py
 modifier_funcs_external_path:  funcs_user/my_modifiers.py
 ```
 
+Relative paths like those resolve from the repository root (from the directory of the config
+named by `user_inputs_path_override` if you use one, and from `$CUFLYNX_USER_DIR` or the
+current directory when libcuflynx is pip-installed with no checkout). Absolute paths are
+taken as-is.
+
 Nothing else about your functions has to change: the external file's top-level functions are
 merged into the *same* registry as the built-ins, with `@is_MLE` / `@cost_combiner` /
 `@differentiable` / `@series_to_constant` / `@modifier_func` intact and reported by

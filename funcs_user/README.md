@@ -31,7 +31,11 @@ Start from the templates in this directory:
 | `modifier_funcs_example.py` | `modifier_funcs_external_path` | `modifier` values for params_for_id entries |
 
 Copy one, rename it, point the config key at it. Relative paths are resolved from the
-repository root.
+repository root — or, if you set `user_inputs_path_override`, from the directory of the
+config file it names, so a study directory outside the repository is self-contained. From a
+`pip install libcuflynx` with no checkout there is no repository root: set `CUFLYNX_USER_DIR`
+to your working directory, or the process's current directory is used. An absolute path is
+always taken as-is.
 
 ## Upgrading from a version before this change
 

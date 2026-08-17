@@ -61,6 +61,9 @@ sim_time: 2
 # your own and name it here; its funcs are registered alongside the built-ins with the same
 # decorators. Templates: funcs_user/{operation,cost,modifier}_funcs_example.py, and see
 # funcs_user/README.md. Absent/empty => only the built-in funcs.
+# A relative path resolves from the repository root -- or from the directory of the config
+# named by user_inputs_path_override, or from $CUFLYNX_USER_DIR / the current directory when
+# libcuflynx is pip-installed with no checkout. Absolute paths are taken as-is.
 # operation_funcs_external_path: funcs_user/my_operation_funcs.py
 # cost_funcs_external_path: funcs_user/my_cost_funcs.py
 # modifier_funcs_external_path: funcs_user/my_modifier_funcs.py

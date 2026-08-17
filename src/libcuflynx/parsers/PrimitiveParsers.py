@@ -36,10 +36,34 @@ from libcuflynx.param_id.modifier_funcs import (BUILTIN_MODIFIER_FUNCS, get_modi
 from libcuflynx.utilities import mpi_utils as _mpi_utils
 from libcuflynx.utilities.paths import (default_generated_models_dir, default_funcs_user_dir,
                                         default_param_id_output_dir, default_resources_dir,
-                                        default_sensitivity_outputs_dir, default_user_inputs_dir)
+                                        default_sensitivity_outputs_dir, default_user_inputs_dir,
+                                        user_data_root)
 
 mpi_available = _mpi_utils.mpi_available()
 rank = _mpi_utils.rank()
+
+
+def resolve_user_path(path, user_files_dir):
+    """Resolve a user-supplied relative path from ``user_inputs.yaml``.
+
+    Absolute paths are returned unchanged. A relative one is resolved against the directory
+    the config came from when ``user_inputs_path_override`` named one (``user_files_dir``),
+    and otherwise against :func:`~libcuflynx.utilities.paths.user_data_root` -- the
+    checkout root when there is one, ``$CUFLYNX_USER_DIR`` if set, the cwd from a wheel
+    install.
+
+    Not ``os.path.abspath``, which resolves against the *current working directory*. The
+    documented way to start a run is ``cd user_run_files && ./run_param_id.sh 4``, so a
+    config saying ``cost_funcs_external_path: funcs_user/my_costs.py`` -- copied verbatim
+    out of funcs_user/README.md and CHANGELOG.md, both of which promise resolution from the
+    repository root -- looked for ``user_run_files/funcs_user/my_costs.py`` and raised
+    FileNotFoundError.
+    """
+    if not path:
+        return path
+    if os.path.isabs(path):
+        return path
+    return os.path.join(user_files_dir or user_data_root(), path)
 
 
 # ---------------------------------------------------------------------------
@@ -1923,6 +1947,20 @@ class YamlFileParser(object):
                   f'"{inp_data_dict.get("model_type")}" will use finite-difference gradients. '
                   'Set model_type to "casadi_python"/"aadc_python", or use "cellml" with '
                   'solver "CVODE_myokit" and do_ad: true, to use automatic differentiation.')
+
+        # The user's own cost / operation / modifier funcs files, and the user's own solver
+        # class for model_type: external_python. All four are file paths a user types into
+        # user_inputs.yaml, and funcs_user/README.md, CHANGELOG.md and the commented example
+        # in user_inputs.yaml all show them relative and all say they resolve from the
+        # repository root. Nothing resolved them at all: they reached
+        # external_funcs.register_funcs_from_file(), which does os.path.abspath() -- i.e.
+        # relative to the cwd, which for the documented `cd user_run_files && ./run_*.sh`
+        # workflow is the wrong directory, so the README's own example raised
+        # FileNotFoundError.
+        for _key in ('cost_funcs_external_path', 'operation_funcs_external_path',
+                     'modifier_funcs_external_path', 'external_model_path'):
+            if inp_data_dict.get(_key):
+                inp_data_dict[_key] = resolve_user_path(inp_data_dict[_key], user_files_dir)
 
         # overwrite dir paths if set in user_inputs.yaml
         if "resources_dir" in inp_data_dict.keys():

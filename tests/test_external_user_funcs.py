@@ -1,5 +1,6 @@
 """Unit tests for loading user operation/cost funcs from external files (issue #303):
 `operation_funcs_external_path` / `cost_funcs_external_path`. No model/MPI needed."""
+import io
 import os
 import textwrap
 
@@ -291,3 +292,119 @@ def test_a_cost_file_cuflynx_already_wrote_still_loads(tmp_path):
     assert meta["additive"] == {"is_MLE": True, "is_combiner": True, "differentiable": True}
     # the imported decorators are not themselves registered as cost funcs
     assert "is_MLE" not in meta and "cost_combiner" not in meta
+
+
+# ---------------------------------------------------------------------------
+# where a *relative* path in user_inputs.yaml resolves from
+# ---------------------------------------------------------------------------
+
+
+def _parse(config):
+    from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
+
+    return YamlFileParser().parse_user_inputs_file(dict(config), obs_path_needed=False)
+
+
+_MINIMAL_CONFIG = {'file_prefix': '3compartment',
+                   'input_param_file': '3compartment_parameters.csv'}
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('key', ['cost_funcs_external_path',
+                                 'operation_funcs_external_path',
+                                 'modifier_funcs_external_path'])
+def test_a_relative_funcs_path_resolves_from_the_user_directory_not_the_cwd(
+        key, tmp_path, monkeypatch):
+    """funcs_user/README.md, CHANGELOG.md and user_inputs.yaml all show these relative.
+
+    Nothing resolved them, so they reached ``os.path.abspath()`` inside
+    ``external_funcs.register_funcs_from_file`` and came out relative to the *cwd*. The
+    documented way to start a run is ``cd user_run_files && ./run_param_id.sh 4``, which
+    makes the cwd ``user_run_files/`` -- so ``cost_funcs_external_path: funcs_user/my.py``,
+    copied verbatim out of the README, looked for ``user_run_files/funcs_user/my.py``.
+    """
+    user_dir = tmp_path / 'my_study'
+    (user_dir / 'funcs_user').mkdir(parents=True)
+    (user_dir / 'resources').mkdir()
+    written = user_dir / 'funcs_user' / 'my_funcs.py'
+    written.write_text('', encoding='utf-8')
+
+    monkeypatch.setenv('CUFLYNX_USER_DIR', str(user_dir))
+    # ...and run from somewhere else entirely, as every documented launcher does.
+    elsewhere = tmp_path / 'elsewhere'
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+
+    config = dict(_MINIMAL_CONFIG)
+    config[key] = 'funcs_user/my_funcs.py'
+    parsed = _parse(config)
+
+    assert parsed[key] == str(written)
+    assert os.path.isfile(parsed[key])
+
+
+@pytest.mark.unit
+def test_an_absolute_funcs_path_is_left_alone(tmp_path, monkeypatch):
+    absolute = _write(tmp_path, 'my_costs.py', _EXTERNAL_COSTS)
+    user_dir = tmp_path / 'my_study'
+    (user_dir / 'resources').mkdir(parents=True)
+    monkeypatch.setenv('CUFLYNX_USER_DIR', str(user_dir))
+
+    config = dict(_MINIMAL_CONFIG)
+    config['cost_funcs_external_path'] = absolute
+    assert _parse(config)['cost_funcs_external_path'] == absolute
+
+
+@pytest.mark.unit
+def test_an_absent_funcs_path_stays_absent(tmp_path, monkeypatch):
+    """Absent or empty is a documented no-op, and must not become the user directory."""
+    user_dir = tmp_path / 'my_study'
+    (user_dir / 'resources').mkdir(parents=True)
+    monkeypatch.setenv('CUFLYNX_USER_DIR', str(user_dir))
+
+    parsed = _parse(dict(_MINIMAL_CONFIG, cost_funcs_external_path=''))
+    assert parsed['cost_funcs_external_path'] == ''
+    assert 'operation_funcs_external_path' not in parsed
+
+
+@pytest.mark.unit
+def test_a_config_named_by_user_inputs_path_override_resolves_beside_itself(tmp_path):
+    """With an override, the base is the overriding config's own directory.
+
+    That is what ``resources_dir``/``generated_models_dir`` already do, and it is the only
+    reading that lets a study directory outside the repository be self-contained.
+    """
+    from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
+    import yaml
+
+    study = tmp_path / 'study'
+    (study / 'funcs_user').mkdir(parents=True)
+    (study / 'resources').mkdir()
+    written = study / 'funcs_user' / 'my_funcs.py'
+    written.write_text('', encoding='utf-8')
+
+    override = study / 'user_inputs.yaml'
+    override.write_text(yaml.dump(dict(_MINIMAL_CONFIG,
+                                       cost_funcs_external_path='funcs_user/my_funcs.py',
+                                       resources_dir='resources',
+                                       generated_models_dir='generated_models')),
+                        encoding='utf-8')
+
+    parser = YamlFileParser()
+    # parse_user_inputs_file(None) reads user_run_files/user_inputs.yaml first and follows
+    # its user_inputs_path_override; stub that first read rather than editing the repo's.
+    import libcuflynx.parsers.PrimitiveParsers as pp
+    real_open = open
+
+    def _fake_open(path, *args, **kwargs):
+        if str(path).endswith('user_run_files/user_inputs.yaml'):
+            return io.StringIO(yaml.dump({'user_inputs_path_override': str(override)}))
+        return real_open(path, *args, **kwargs)
+
+    pp.open = _fake_open
+    try:
+        parsed = parser.parse_user_inputs_file(None, obs_path_needed=False)
+    finally:
+        del pp.open
+
+    assert parsed['cost_funcs_external_path'] == str(written)
