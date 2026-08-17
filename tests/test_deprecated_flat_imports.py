@@ -18,6 +18,7 @@ them wrong:
 import ast
 import importlib
 import importlib.util
+import os
 import pathlib
 import subprocess
 import sys
@@ -238,7 +239,17 @@ def test_a_shim_import_does_not_hijack_someone_elses_top_level_module(tmp_path):
         print('ok')
     """) % (str(tmp_path), str(_SRC))
 
-    result = subprocess.run([sys.executable, "-c", program],
+    # run_pytest.sh runs the suite under mpiexec, so this process carries PMI_*/OMPI_* in
+    # its environment. A child that inherits them convinces mpi_utils.get_MPI() it was
+    # launched too, and importing libcuflynx.param_id then initialises MPI outside any job
+    # -- which aborts in MPI_Init_thread. Same strip as tests/test_console_entry_points.py.
+    from libcuflynx.utilities.mpi_utils import LAUNCHER_ENV_VARS
+
+    env = dict(os.environ)
+    for var in LAUNCHER_ENV_VARS:
+        env.pop(var, None)
+
+    result = subprocess.run([sys.executable, "-c", program], env=env,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             universal_newlines=True, timeout=180)
     assert result.returncode == 0, result.stdout
