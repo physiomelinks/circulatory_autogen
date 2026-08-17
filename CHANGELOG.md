@@ -23,6 +23,64 @@ from param_id.paramID import CVS0DParamID            # 0.4.0: warns
 from libcuflynx.param_id.paramID import CVS0DParamID  # do this instead
 ```
 
+### Added — a console command per pipeline stage
+
+Every stage now has a command that setuptools puts on `PATH`, so nothing has to know where the
+package was installed:
+
+| Command | Stage |
+|---|---|
+| `cuflynx-generate` | generate a model from the CSV arrays |
+| `cuflynx-param-id` | generate + calibrate (`mpiexec -n N` for parallel) |
+| `cuflynx-sequential-param-id` | staged calibration — declared, not yet implemented |
+| `cuflynx-sensitivity` | Sobol sensitivity analysis |
+| `cuflynx-identifiability` | Laplace / profile-likelihood identifiability |
+| `cuflynx-train-emulator` | train a surrogate of the obs features |
+| `cuflynx-plot` | plot calibration results |
+
+Each takes `--help` and no options beyond the optional `True|False` the two generation
+launchers pass; the configuration is still `user_run_files/user_inputs.yaml`.
+`user_run_files/*.sh` invoke these commands rather than `${python_path}
+../src/libcuflynx/scripts/<file>.py`, which stopped being a real path the moment libcuflynx
+was installed anywhere but a checkout — **so `pip install -e .` (or `pip install libcuflynx`)
+is now a prerequisite for every launcher**, and `cuflynx_entry_point.sh` says so, before
+`mpiexec` is reached, rather than letting rank 3 raise an ImportError an hour into a queue.
+Set `CUFLYNX_PYTHON` to run a stage under a specific interpreter without putting its `bin/`
+on `PATH`. Three utilities without a console command —
+`read_and_insert_parameters.sh`, `run_multiple_param_id.sh`, `run_module_generator.sh` — go
+through `python -m libcuflynx.scripts.<module>` instead.
+
+### Added — `CUFLYNX_USER_DIR`, and nothing is written inside the package
+
+A dozen modules used to compute "the repo root" from their own location, which resolves
+inside `site-packages` once installed — a meaningless place to look for a user's model
+inputs, and a writable one, so per-run artefacts were scattered through the installed package
+(#431). Inputs and outputs now default under a *user directory*: `$CUFLYNX_USER_DIR` if set,
+otherwise the checkout being run from if this is one, otherwise the current working
+directory. `resources_dir`, `generated_models_dir`, `param_id_output_dir` and
+`external_modules_dir` in `user_inputs.yaml` still override individually. The CellML module
+library and the other non-Python files ship as *package data* and are located with
+`importlib.resources` (#432).
+
+### Changed — the heavy dependencies are extras
+
+A default `pip install libcuflynx` brings what a generate + simulate + calibrate run needs
+and nothing else (~540 MB of site-packages). The rest are extras, each named by the error you
+get when it is missing (#435):
+
+| Extra | Brings | Why it is optional |
+|---|---|---|
+| `[mpi]` | mpi4py, schwimmbad | only 5 MB, but it compiles against a system MPI at install time — the commonest `pip install` failure on macOS and Windows. A serial run needs none of it. |
+| `[casadi]` | casadi | 221 MB; only `model_type: casadi_python`, `solver: casadi_integrator` and symbolic-adjoint AD use it |
+| `[uq]` | pymc, arviz | 65 MB and pytensor builds C extensions; the built-in emcee sampler needs neither |
+| `[emulation]` | autoemulate | ~750 MB of torch/gpytorch/lightgbm, and requires Python >=3.10,<3.13 |
+| `[cpp]` | *(nothing)* | `model_type: cpp` needs a toolchain, not a Python package |
+| `[all]` | every runtime extra | inherits `[emulation]`'s narrower Python range |
+
+`requires-python` is `>=3.9` — the floor `importlib.resources.files` actually needs. It
+previously claimed `>=3.7`, on which `pip install` succeeded and the first generator import
+then failed.
+
 ### Docs — every documented import is now `libcuflynx.`
 
 The tutorial (`tutorial/docs/`, published at

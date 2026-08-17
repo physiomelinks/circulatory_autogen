@@ -22,8 +22,15 @@ import traceback
 #: Every stage takes its configuration from the same file, and none of them take
 #: options. Saying so in ``--help`` is the whole of the help text people need.
 CONFIG_EPILOG = (
-    "Configuration is read from user_run_files/user_inputs.yaml in the repository this\n"
-    "libcuflynx was installed from, or from the file named by user_inputs_path_override in it.\n"
+    "Configuration is read from user_run_files/user_inputs.yaml under the user directory,\n"
+    "or from the file named by user_inputs_path_override in it.\n"
+    "\n"
+    "The user directory is $CUFLYNX_USER_DIR if set; otherwise the circulatory_autogen\n"
+    "checkout this libcuflynx was run from, if it is one; otherwise the current directory.\n"
+    "Inputs (resources/, module_config_user/, funcs_user/) and outputs (generated_models/,\n"
+    "param_id_output/) all default under it. After `pip install libcuflynx` there is no\n"
+    "checkout, so set CUFLYNX_USER_DIR or run from your working directory.\n"
+    "\n"
     "Run under a launcher to use more than one rank, e.g. `mpiexec -n 4 <command>`."
 )
 

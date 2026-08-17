@@ -109,6 +109,24 @@ Each pipeline stage also has a console command, all configured from
 | `cuflynx-train-emulator` | train a surrogate of the obs features |
 | `cuflynx-plot` | plot calibration results |
 
+### `CUFLYNX_USER_DIR` — where an installed libcuflynx reads and writes
+
+Every stage needs a directory holding `user_run_files/user_inputs.yaml`, and (unless the
+config overrides them) `resources/`, `module_config_user/`, `funcs_user/`,
+`generated_models/` and `param_id_output/`. It is `$CUFLYNX_USER_DIR` if set; otherwise the
+circulatory_autogen checkout being run from, if this is one — so a clone or a
+`pip install -e .` needs no configuration; otherwise the current working directory.
+
+After a plain `pip install libcuflynx` there is no checkout, so either run from your working
+directory or point the variable at it:
+
+```bash
+export CUFLYNX_USER_DIR=/path/to/my_study
+cuflynx-param-id
+```
+
+Nothing is ever written inside the installed package.
+
 **Imports without the `libcuflynx.` prefix are deprecated.** `from param_id.paramID import
 CVS0DParamID` still works in 0.4.0 and emits a `DeprecationWarning`; the shims are **removed in
 0.5.0**. See `CHANGELOG.md` for the migration, including the one for anyone who edited

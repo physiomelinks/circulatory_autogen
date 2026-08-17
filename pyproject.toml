@@ -164,8 +164,9 @@ uq = [
     "arviz>=0.15",
 ]
 # Surrogate (emulator) models -- issue #333. Optional because autoemulate pulls in torch,
-# gpytorch, pyro-ppl and lightgbm -- about 750 MB, three times the whole default install --
-# and requires Python >=3.10,<3.13, which is narrower than this project's floor. CA imports it
+# gpytorch, pyro-ppl and lightgbm -- about 750 MB, which more than doubles a default install
+# (measured at ~540 MB of site-packages) -- and requires Python >=3.10,<3.13, which is narrower
+# than this project's floor. CA imports it
 # only when do_emulation/use_emulator is set, and says so by name when it is missing.
 emulation = [
     "autoemulate>=2.1,<3",
@@ -219,9 +220,12 @@ all = [
 
 [tool.pytest.ini_options]
 # Pytest configuration
-# NOTE: Tests should be run using the OpenCOR Python shell.
-# Use ./run_pytest.sh to run tests, which automatically uses the Python
-# from python_path.sh
+# Run the suite with ./run_pytest.sh, which starts it under `mpiexec` (the MPI-marked tests
+# need a launcher) using the interpreter named by user_run_files/python_path.sh. Point that at
+# a venv with `pip install -e ".[dev]"` in it. It is NOT the OpenCOR Python shell: that
+# interpreter is deprecated and nothing in the default path needs it -- the default solver is
+# CVODE_myokit, and only the `need_opencor` tests want the OpenCOR backend.
+# Without the script: mpiexec -n 1 venv/bin/python -m pytest -p no:xdist <args>
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]

@@ -122,9 +122,12 @@ def default_user_inputs_dir():
 def default_module_config_user_dir():
     """The user's CellML module library.
 
-    Still a plain directory in the checkout; #432 will ship the built-in module
-    libraries as package data, after which this stays the *user's* half of the split.
-    Callers must tolerate it not existing — in an install it usually will not.
+    The *user's* half of the module library. The built-in libraries ship as package
+    data (#432, done) and are reached through
+    :mod:`libcuflynx.utilities.package_resources`; this directory holds only modules
+    the user wrote. Callers must tolerate it not existing — in an install it usually
+    will not, and anything that writes into it has to create it first (see
+    ``libcuflynx.scripts.generate_modules_files``).
     """
     return os.path.join(user_data_root(), 'module_config_user')
 
@@ -132,8 +135,11 @@ def default_module_config_user_dir():
 def default_funcs_user_dir():
     """The ``funcs_user/`` directory of user cost/operation/modifier funcs.
 
-    The built-in funcs still live here and are imported from it by bare name; #433
-    moves those into the package and leaves this purely a user extension point.
-    Callers must tolerate it not existing.
+    Purely a user extension point: the built-in cost/operation/modifier funcs moved
+    into ``libcuflynx.funcs`` (#433, done), and a user's own go in a file named by
+    ``cost_funcs_external_path`` / ``operation_funcs_external_path`` /
+    ``modifier_funcs_external_path``. Also the default location of an
+    ``external_model_path`` (``funcs_user/{file_prefix}_model.py``). Callers must
+    tolerate it not existing.
     """
     return os.path.join(user_data_root(), 'funcs_user')

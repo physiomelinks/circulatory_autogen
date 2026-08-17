@@ -35,6 +35,31 @@ pip install "libcuflynx[emulation]"  # surrogate models (pulls in torch; big)
     `DeprecationWarning`, and is **removed in 0.5.0**. Use
     `from libcuflynx.param_id.paramID import CVS0DParamID`.
 
+### Where an installed libcuflynx reads and writes: `CUFLYNX_USER_DIR`
+
+Every stage needs a **user directory** — the one holding `user_run_files/user_inputs.yaml`
+and, unless the config overrides them, `resources/`, `module_config_user/`, `funcs_user/`,
+`generated_models/` and `param_id_output/`. It is chosen in this order:
+
+1. **`$CUFLYNX_USER_DIR`**, if set — an absolute path (`~` is expanded).
+2. the **circulatory_autogen checkout** this `libcuflynx` is being run from, if it is one
+   (including `pip install -e .`), so the developer workflow needs no configuration;
+3. otherwise the **current working directory**.
+
+After a plain `pip install libcuflynx` there is no checkout, so rule 2 never fires: either
+run from your working directory, or point the variable at it, which is the only way to run
+from anywhere else without editing a config.
+
+```
+export CUFLYNX_USER_DIR=/path/to/my_study     # holds user_run_files/, resources/, …
+cuflynx-generate False
+```
+
+Nothing is ever written inside the installed package — that was issue #431. Individual
+directories can still be overridden per-run with `resources_dir`, `generated_models_dir`,
+`param_id_output_dir` and `external_modules_dir` in `user_inputs.yaml`; `CUFLYNX_USER_DIR`
+is what the defaults hang off when the config names none.
+
 The rest of this page sets up a **checkout**, which is what the tutorial's shell-script
 workflow (`user_run_files/*.sh`, `resources/`, `module_config_user/`) and any development work
 need. If you only want to drive the library from Python, the `pip install` above is enough —
