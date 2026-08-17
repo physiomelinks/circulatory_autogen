@@ -42,7 +42,6 @@ tmp/
 tutorial/interactive/.ipynb_checkpoints/
 tutorial/interactive/generation_and_calibration.py
 tutorial/site/
-user_run_files/plot_param_id_without_autogen.sh
 
 # Local benchmark runner outputs
 benchmarks/_results/

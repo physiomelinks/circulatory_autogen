@@ -2863,14 +2863,20 @@ def run_image_to_model(target_image_path, resources_path, ilastik_path, model_pa
 
     if run_circ_autogen:
 
-        script_path = Path.cwd().parent.parent / "src/scripts/script_generate_with_new_architecture.py"
-        script_dir = os.path.dirname(script_path)
-
         print("Starting script...")
 
-        # No capture_output=True here. 
+        # `-m` on this kernel's own interpreter, not a path into the checkout: the generator
+        # moved to libcuflynx.scripts, and a notebook run against a pip-installed libcuflynx
+        # has no src/ tree to point at. (The old spelling was
+        # `Path.cwd().parent.parent / "src/scripts/..."`, which had already stopped existing
+        # -- python printed "can't open file", and without check=True this function went on
+        # to report success having generated nothing.)
+        #
+        # No capture_output=True here.
         # The output will stream directly to your console.
         subprocess.run(
-            [sys.executable, "-u", script_path, "False"],  # -u is important for real-time printing!
-            cwd=script_dir
+            # -u is important for real-time printing!
+            [sys.executable, "-u", "-m",
+             "libcuflynx.scripts.script_generate_with_new_architecture", "False"],
+            check=True,
         )

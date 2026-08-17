@@ -22,6 +22,8 @@ import sys
 
 import pytest
 
+from _tracked_files import only_tracked
+
 _REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 _PYPROJECT = _REPO_ROOT / "pyproject.toml"
 _SRC_DIR = _REPO_ROOT / "src"
@@ -175,10 +177,29 @@ def test_entry_point_rejects_unknown_options(name):
 
 _LAUNCHER_DIR = _REPO_ROOT / "user_run_files"
 
-#: launcher -> command it must invoke. These are the scripts CLAUDE.md documents as the
-#: way users drive the pipeline; a path-based invocation in one of them is the bug this
-#: change exists to remove.
-LAUNCHERS = {
+#: Scripts in user_run_files/ that are *sourced*, not run. Everything else there is a
+#: launcher, and the launcher list below is derived rather than written out -- a hardcoded
+#: list is exactly how `plot_param_id_without_autogen.sh` went on invoking
+#: `../src/scripts/plot_param_id_script.py` (deleted in the rename) for the whole of this
+#: change while its converted sibling `plot_param_id.sh` was tested.
+_SOURCED_HELPERS = {
+    "cuflynx_entry_point.sh",
+    "python_path.sh",
+    "opencor_pythonshell_path.sh",
+    "load_mpi.sh",
+}
+
+#: Tracked files only: a developer's own throwaway launcher sitting in user_run_files/ is
+#: not the repository's problem, and asserting things about it fails the suite on one
+#: machine for reasons no reviewer can see.
+_SHELL_SCRIPTS = sorted(p.name for p in only_tracked(_LAUNCHER_DIR.glob("*.sh")))
+
+LAUNCHERS = [name for name in _SHELL_SCRIPTS if name not in _SOURCED_HELPERS]
+
+#: launcher -> command it must invoke, for the pipeline stages CLAUDE.md documents. The
+#: derived sweeps below catch a launcher that invokes *anything* by path; this catches one
+#: that quietly stops driving the stage it is named after.
+PIPELINE_LAUNCHERS = {
     "run_autogeneration.sh": "cuflynx-generate",
     "run_autogeneration_with_id_params.sh": "cuflynx-generate",
     "run_param_id.sh": "cuflynx-param-id",
@@ -187,17 +208,66 @@ LAUNCHERS = {
     "run_identifiability_analysis.sh": "cuflynx-identifiability",
     "run_emulator_training.sh": "cuflynx-train-emulator",
     "plot_param_id.sh": "cuflynx-plot",
+    "plot_param_id_without_autogen.sh": "cuflynx-plot",
 }
 
 
+def _executable_text(name):
+    """A shell script's lines with the comments dropped.
+
+    ``cuflynx_entry_point.sh`` quotes the old path-based invocation in its own header to
+    say what it replaced, and the module-route comment names the three scripts that have no
+    console command. Neither is executed, and neither should fail the sweeps below.
+    """
+    text = (_LAUNCHER_DIR / name).read_text(encoding="utf-8")
+    return "\n".join(
+        line for line in text.splitlines() if not line.lstrip().startswith("#")
+    )
+
+
 @pytest.mark.unit
-@pytest.mark.parametrize("launcher,command", sorted(LAUNCHERS.items()))
-def test_launcher_calls_the_entry_point(launcher, command):
-    text = (_LAUNCHER_DIR / launcher).read_text(encoding="utf-8")
-    assert command in text, f"{launcher} does not mention {command}"
-    assert "src/libcuflynx/scripts" not in text, (
-        f"{launcher} still invokes a script by file path, which stops working the moment "
+def test_the_launcher_list_is_not_empty_or_stale():
+    """Guard the guard: a bad glob would make every sweep below vacuous."""
+    assert len(LAUNCHERS) >= 10, LAUNCHERS
+    assert set(PIPELINE_LAUNCHERS) <= set(LAUNCHERS), (
+        set(PIPELINE_LAUNCHERS) - set(LAUNCHERS)
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("launcher", _SHELL_SCRIPTS)
+def test_no_shell_script_reaches_into_the_source_tree(launcher):
+    """No `../src/` anywhere. A wheel install has no such directory.
+
+    The previous spelling of this assertion was ``"src/libcuflynx/scripts" not in text`` --
+    the *post*-rename path, which sails straight past the pre-rename ``../src/scripts/``
+    form that two launchers were still using and that has not existed in the tree since the
+    package move.
+    """
+    text = _executable_text(launcher)
+    assert re.search(r"\.\./src/", text) is None, (
+        f"{launcher} invokes something by a path into src/, which stops working the moment "
         "libcuflynx is installed anywhere but a checkout"
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("launcher", LAUNCHERS)
+def test_launcher_resolves_its_command_through_the_helper(launcher):
+    """Either a console entry point or ``python -m``, and never python_path.sh."""
+    text = _executable_text(launcher)
+    if "cuflynx_entry_point.sh" not in text:
+        # A launcher that runs no Python at all (gnuplot_fitting_convergence.sh) has
+        # nothing to resolve; it just must not be reaching into src/, checked above.
+        assert "libcuflynx" not in text, (
+            f"{launcher} names libcuflynx but does not source cuflynx_entry_point.sh"
+        )
+        return
+    assert re.search(r"\brequire_cuflynx(_module)?\b", text), (
+        f"{launcher} sources the helper but never calls require_cuflynx/require_cuflynx_module"
+    )
+    assert '${cuflynx_cmd[@]}' in text, (
+        f"{launcher} never runs the command require_cuflynx resolved"
     )
     assert 'source python_path.sh' not in text, (
         f"{launcher} still sources python_path.sh; that file is for the OpenCOR route only "
@@ -206,7 +276,28 @@ def test_launcher_calls_the_entry_point(launcher, command):
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("launcher", sorted(LAUNCHERS))
+@pytest.mark.parametrize("launcher", LAUNCHERS)
+def test_every_module_a_launcher_names_exists(launcher):
+    """``require_cuflynx_module libcuflynx.scripts.foo`` must name a real module.
+
+    Nothing resolves these until the launcher is run, and the three utilities that take
+    this route have no entry point to be caught by the table-driven tests above.
+    """
+    modules = re.findall(r"\blibcuflynx(?:\.[A-Za-z0-9_]+)+", _executable_text(launcher))
+    for module in modules:
+        relative = pathlib.Path(*module.split(".")).with_suffix(".py")
+        assert (_SRC_DIR / relative).is_file(), f"{launcher} names {module}, which is not in the tree"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("launcher,command", sorted(PIPELINE_LAUNCHERS.items()))
+def test_launcher_calls_the_entry_point(launcher, command):
+    text = _executable_text(launcher)
+    assert command in text, f"{launcher} does not mention {command}"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("launcher", LAUNCHERS)
 def test_launcher_is_valid_bash(launcher):
     result = subprocess.run(["bash", "-n", str(_LAUNCHER_DIR / launcher)],
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,

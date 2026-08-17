@@ -29,13 +29,15 @@ Runs are launched via shell scripts in `user_run_files/`. Each one invokes a **c
 | `run_autogeneration_with_id_params.sh` | `cuflynx-generate True` → (same) | Regenerate using previously fitted params |
 | `run_param_id.sh` (arg: `num_processors`, uses `mpiexec`) | `cuflynx-param-id` → `param_id_run_script` | Generate + calibrate |
 | `run_sequential_param_id.sh` | `cuflynx-sequential-param-id` → `sequential_param_id_run_script` | Staged/sequential calibration — **not currently implemented**, the `SequentialParamID` class it drives is not in the tree; the command says so and exits 2 |
-| `run_multiple_param_id.sh` | *(no command yet)* → `run_multiple_param_id.py` by path | Batch calibration over models |
+| `run_multiple_param_id.sh` | *(no console command)* → `python -m libcuflynx.scripts.run_multiple_param_id` | Batch calibration over models |
 | `run_sensitivity_analysis.sh` | `cuflynx-sensitivity` → `sensitivity_analysis_run_script` | Sobol SA (`mpiexec`) |
 | `run_identifiability_analysis.sh` | `cuflynx-identifiability` → `identifiability_run_script` | Laplace / profile-likelihood |
 | `run_emulator_training.sh` (arg: `num_processors`, uses `mpiexec`) | `cuflynx-train-emulator` → `train_emulator_run_script` | Train a surrogate of the obs features |
 | `plot_param_id.sh` | `cuflynx-plot` → `plot_param_id_script` | Plot calibration results |
 
 Every command takes `--help` and no options beyond the optional `True|False` the two generation launchers pass; the configuration is the yaml. Each is a `main()` in the named module — `tests/test_console_entry_points.py` is table-driven off `[project.scripts]`, so a new entry point cannot be added without being tested.
+
+Three utilities have no console command of their own — `read_and_insert_parameters.sh`, `run_multiple_param_id.sh` and `run_module_generator.sh`. They source the same helper and call `require_cuflynx_module libcuflynx.scripts.<module>`, which runs `python -m <module>` on whichever interpreter on `PATH` can import libcuflynx. They are one-off utilities rather than pipeline stages (and `run_multiple_param_id` still has one study's paths baked into it), so promoting them to `[project.scripts]` would advertise more than the code supports.
 
 `python_path.sh` / `opencor_pythonshell_path.sh` are **not** sourced by these launchers any more; they remain for the OpenCOR route and for `run_pytest.sh`. To run a stage under a specific interpreter without putting its `bin/` on `PATH`, set `CUFLYNX_PYTHON` and the launcher uses `$CUFLYNX_PYTHON -m libcuflynx.scripts.<module>` instead.
 
