@@ -510,18 +510,21 @@ class HeatFEniCSxModel:
     # --- optional ----------------------------------------------------------------------
 
     def reset(self):
-        """Back to the initial condition, with an empty set of recorded samples.
+        """Put the solver back to the state a fresh run starts from.
 
-        Deliberately keeps the snapshots the last completed run drew. ``reset()`` restores
-        the *state the next run starts from*; the snapshots are the *record of the run that
-        finished*, and CA's protocol executor calls ``reset_and_clear()`` after the last
-        sub-experiment of every experiment -- so clearing them here destroyed the figures
-        before anything could collect them, and ``extra_plots()`` always found nothing.
-        CA's own wrapper draws the same distinction: it stashes the last results dict in
-        ``reset_and_clear`` before clearing, rather than throwing them away.
+        Optional. Implement it when your solver carries anything between runs that a
+        new run must not inherit -- an evolved field, an accumulating buffer, a
+        parameter you mutated. libCUFLynx calls it through ``reset_and_clear()``
+        between experiments and whenever it returns a helper to its default state, so
+        a calibration reusing one instance for thousands of samples gets an identical
+        starting point every time. Here that means the initial temperature field and
+        empty sample buffers.
 
-        A fresh solve clears them itself (see ``_solve``), so a run that diverges cannot
-        leave the previous run's fields on screen.
+        Restore what the *next* run needs; do not discard what the *last* run
+        produced. Results and anything ``extra_plots()`` draws are read after a run
+        finishes, often after this has been called -- which is why the field
+        snapshots survive it, and why ``_solve`` clears them at the start of a solve
+        instead.
         """
         self._set_initial_condition()
         self._samples = {name: np.zeros(self.num_steps + 1, dtype=float)
