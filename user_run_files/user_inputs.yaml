@@ -177,7 +177,7 @@ ia_options:
 #   do_emulation  - train an emulator (./run_emulator_training.sh <num_processors>)
 #   use_emulator  - make the analyses evaluate the trained emulator
 # `solver` above keeps naming the solver used to TRAIN, and to compare the emulator against.
-# Needs the optional dependency: pip install "circulatory_autogen[emulation]"
+# Needs the optional dependency: pip install "libcuflynx[emulation]"
 do_emulation: false
 use_emulator: false
 emulator_settings:

@@ -28,6 +28,7 @@ import textwrap
 import pytest
 
 from _pyproject import load_pyproject
+from _tracked_files import only_tracked
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 SRC = str(REPO_ROOT / 'src')
@@ -267,17 +268,50 @@ def test_asking_for_an_emulator_without_the_extra_names_it(monkeypatch):
     assert 'pip install "libcuflynx[emulation]"' in str(excinfo.value)
 
 
+#: Where a `pip install "<name>[extra]"` line can be written. The sweep used to cover
+#: `src/libcuflynx/**/*.py` alone, so the one in user_run_files/user_inputs.yaml -- the file
+#: every user opens first, and the only place most of them will ever read about the
+#: emulation extra -- was not covered by the test written to catch exactly that string.
+_INSTALL_INSTRUCTION_SUFFIXES = ('.py', '.yaml', '.yml', '.md', '.sh', '.txt', '.toml',
+                                 '.ipynb', '.cfg')
+
+
+def _files_that_can_carry_install_instructions():
+    paths = []
+    for path in REPO_ROOT.rglob('*'):
+        if not path.is_file() or path.suffix not in _INSTALL_INSTRUCTION_SUFFIXES:
+            continue
+        # Dead code kept for reference, and not shipped.
+        if 'obsolete' in path.parts:
+            continue
+        paths.append(path)
+    # Tracked files only: a venv, a build directory or another checkout underneath this one
+    # is not this repository's documentation. (This test file is the exemption -- it has to
+    # name the wrong string to forbid it.)
+    return [p for p in only_tracked(paths) if p != pathlib.Path(__file__).resolve()]
+
+
 @pytest.mark.unit
 def test_no_message_still_advertises_the_old_package_name():
     """The distribution is `libcuflynx`; `pip install "circulatory_autogen[emulation]"` would
     install something else entirely, or nothing."""
     offenders = []
-    for path in (REPO_ROOT / 'src' / 'libcuflynx').rglob('*.py'):
-        if 'obsolete' in path.parts:
-            continue
-        if 'circulatory_autogen[' in path.read_text(encoding='utf-8'):
-            offenders.append(str(path.relative_to(REPO_ROOT)))
+    for path in _files_that_can_carry_install_instructions():
+        text = path.read_text(encoding='utf-8', errors='replace')
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            if 'circulatory_autogen[' in line:
+                offenders.append('%s:%d: %s' % (path.relative_to(REPO_ROOT), lineno, line.strip()))
     assert offenders == [], offenders
+
+
+@pytest.mark.unit
+def test_the_sweep_for_the_old_package_name_actually_reads_the_docs():
+    """Guard the guard: the sweep above passed for years by only reading .py files."""
+    swept = {p.relative_to(REPO_ROOT).as_posix()
+             for p in _files_that_can_carry_install_instructions()}
+    for expected in ('user_run_files/user_inputs.yaml', 'README.md', 'CHANGELOG.md',
+                     'pyproject.toml'):
+        assert expected in swept, expected
 
 
 # ---------------------------------------------------------------------------
