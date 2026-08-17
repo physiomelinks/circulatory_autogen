@@ -28,13 +28,28 @@ by the ordinary path finder, which loads ``paramID.py`` a second time under the 
 So the shim does both:
 
 1. :class:`_AliasFinder` goes on ``sys.meta_path``. ``sys.meta_path`` is consulted before
-   the parent package's ``__path__``, so the finder gets first refusal on every name under
-   a shim root and answers with a loader that hands back the module that is *already*
-   imported under its ``libcuflynx.`` name rather than loading anything.
+   the parent package's ``__path__``, so the finder gets first refusal on *submodules* of
+   a root that was aliased and answers with a loader that hands back the module that is
+   *already* imported under its ``libcuflynx.`` name rather than loading anything.
 2. :func:`install_shim` rebinds ``sys.modules[<root>]`` to the real package, and is the
    one-line body of each ``src/<root>/__init__.py``. Those directories exist so that the
    old names are found at all (and so setuptools' ``packages.find`` ships them); the
    finder they install is what makes everything below them resolve correctly.
+
+Scope: the finder claims as little as it can get away with
+----------------------------------------------------------
+``SHIM_ROOTS`` is eleven very ordinary words -- ``models``, ``scripts``, ``utilities``,
+``checks``. A finder at ``sys.meta_path[0]`` that answered for any name whose root is in
+that set would mean that importing *one* shim rebinds all eleven process-wide, so a
+downstream project with its own ``utilities.py`` on ``sys.path`` would silently get ours
+from the moment anything did ``import param_id``. Nothing announces that; it is the same
+class of failure the identity work above exists to prevent.
+
+So :meth:`_AliasFinder.find_spec` declines twice over. It declines the *root* name, because
+the physical ``src/<root>/__init__.py`` shim is the correct resolver for it and the ordinary
+path finder locates that -- respecting whatever else is earlier on ``sys.path``. And it
+declines a submodule whose root was not actually aliased in this process, which is the only
+case where first refusal is needed at all.
 
 Exactly one :exc:`DeprecationWarning` is emitted per shim root per process -- not one per
 attribute access and not one per submodule -- because :func:`_warn_once` records the roots
@@ -131,8 +146,21 @@ class _AliasFinder:
     """Resolve ``<root>[.<sub>...]`` to the already-imported ``libcuflynx.<root>...``."""
 
     def find_spec(self, fullname, path=None, target=None):
-        root = fullname.partition(".")[0]
+        root, dot, _ = fullname.partition(".")
         if root not in SHIM_ROOTS:
+            return None
+        if not dot:
+            # The root itself. Declining is not a gap: the physical ``src/<root>/__init__.py``
+            # shim is found by the ordinary path finder and calls install_shim() itself, so
+            # ``import parsers`` still resolves to ``libcuflynx.parsers``. Claiming it here
+            # instead would mean that importing *one* shim silently rebinds all eleven names
+            # process-wide -- ``models``, ``scripts``, ``utilities``, ``checks`` are generic
+            # enough that a downstream project has its own, and it would get ours.
+            return None
+        if not self._root_is_aliased(root):
+            # A submodule of a root this process never aliased. Someone else's ``models``
+            # package with a ``models.io`` inside it is theirs, not ours; only the path
+            # finder can know where it lives.
             return None
         real_name = PACKAGE + "." + fullname
         try:
@@ -150,6 +178,18 @@ class _AliasFinder:
             origin=real_spec.origin,
             is_package=real_spec.submodule_search_locations is not None,
         )
+
+    @staticmethod
+    def _root_is_aliased(root):
+        """Did ``install_shim`` actually take ``root`` over in this process?
+
+        ``sys.modules[root] is sys.modules['libcuflynx.' + root]`` is the state
+        :func:`install_shim` leaves behind and nothing else produces, so it answers the
+        question without a second piece of bookkeeping to keep in step. Both being absent
+        must not read as "yes", hence the explicit ``None`` check.
+        """
+        real = sys.modules.get(PACKAGE + "." + root)
+        return real is not None and sys.modules.get(root) is real
 
     def __repr__(self):
         return "<{} for the pre-{} flat import names>".format(

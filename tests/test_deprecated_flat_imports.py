@@ -11,11 +11,17 @@ them wrong:
   effect, with no error anywhere.
 * **Exactly one warning per shim.** One per attribute access, or one per submodule, turns
   a migration notice into noise people filter out.
+* **No collateral damage.** The shim roots are eleven generic words and the finder that
+  serves them sits at ``sys.meta_path[0]``. Nobody else's ``utilities`` or ``models`` may
+  start resolving to ours because something in the process imported a deprecated name.
 """
 import ast
 import importlib
+import importlib.util
 import pathlib
+import subprocess
 import sys
+import textwrap
 
 import pytest
 
@@ -153,10 +159,88 @@ def test_only_one_finder_is_ever_installed(fresh_shim):
     finders = [f for f in sys.meta_path if isinstance(f, _deprecated_aliases._AliasFinder)]
     assert len(finders) == 1
     # Ahead of the path finder, or a submodule of an aliased root gets loaded a second
-    # time off disk under the alias name and identity is lost.
+    # time off disk under the alias name and identity is lost. Being first is safe only
+    # because find_spec declines everything it is not entitled to -- see
+    # test_a_shim_import_does_not_hijack_someone_elses_top_level_module below, which is the
+    # assertion that stops this position from turning into a global name grab.
     from importlib.machinery import PathFinder
 
     assert sys.meta_path.index(finders[0]) < sys.meta_path.index(PathFinder)
+
+
+@pytest.mark.unit
+def test_find_spec_declines_the_root_name_itself():
+    """The root is resolved by the physical ``src/<root>/__init__.py``, not by the finder.
+
+    Claiming it here is what would make one shim import rebind all eleven generic names.
+    """
+    finder = _deprecated_aliases._AliasFinder()
+    for root in sorted(SHIM_ROOTS):
+        assert finder.find_spec(root) is None, root
+
+
+@pytest.mark.unit
+def test_find_spec_declines_a_submodule_of_a_root_this_process_never_aliased(fresh_shim):
+    fresh_shim("emulators")
+    finder = _deprecated_aliases._AliasFinder()
+    # libcuflynx.emulators.emulator_trainer exists, so this is not declined for lack of a
+    # target -- it is declined because nothing made `emulators` mean libcuflynx.emulators.
+    assert importlib.util.find_spec("libcuflynx.emulators.emulator_trainer") is not None
+    assert finder.find_spec("emulators.emulator_trainer") is None
+    with pytest.warns(DeprecationWarning):
+        importlib.import_module("emulators")
+    assert finder.find_spec("emulators.emulator_trainer") is not None
+
+
+@pytest.mark.unit
+def test_a_shim_import_does_not_hijack_someone_elses_top_level_module(tmp_path):
+    """``import param_id`` must not make `utilities` mean *our* utilities everywhere.
+
+    The shim roots are eleven very ordinary words. A downstream project that has its own
+    ``utilities.py`` (or ``models/``, or ``checks/``) earlier on ``sys.path`` keeps it --
+    both before and after something in the process imports a deprecated flat name. The
+    identity guarantee only ever needed first refusal on submodules of a root the shim
+    actually took over, and that is all it takes now.
+
+    Run in a subprocess: the meta-path finder and the ``sys.modules`` rebinding it does are
+    process-global, so proving what a *fresh* interpreter sees needs a fresh interpreter.
+    """
+    (tmp_path / "utilities.py").write_text("MARKER = 'the user\\'s own module'\n", encoding="utf-8")
+    (tmp_path / "models").mkdir()
+    (tmp_path / "models" / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "models" / "LumpedModels.py").write_text(
+        "MARKER = 'the user\\'s own submodule'\n", encoding="utf-8")
+
+    program = textwrap.dedent("""
+        import importlib.util, sys, warnings
+        warnings.simplefilter('ignore', DeprecationWarning)
+        sys.path.insert(0, %r)   # the user's tree, ahead of everything
+        sys.path.append(%r)      # this checkout's src/, where the shims live
+
+        before = importlib.util.find_spec('utilities').origin
+        import param_id                      # installs the finder
+        after = importlib.util.find_spec('utilities').origin
+        assert before == after, 'importing a shim rebound `utilities`: %%s -> %%s' %% (before, after)
+
+        import utilities
+        assert utilities.MARKER == "the user's own module", utilities
+
+        # ...including a *submodule* of a root name the shims also use, so long as this
+        # process never aliased that root.
+        import models.LumpedModels
+        assert models.LumpedModels.MARKER == "the user's own submodule", models.LumpedModels
+
+        # ...and the deprecated name it did import is still the real thing, not a copy.
+        import param_id.paramID, libcuflynx.param_id.paramID
+        assert param_id.paramID is libcuflynx.param_id.paramID
+        assert param_id is libcuflynx.param_id
+        print('ok')
+    """) % (str(tmp_path), str(_SRC))
+
+    result = subprocess.run([sys.executable, "-c", program],
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            universal_newlines=True, timeout=180)
+    assert result.returncode == 0, result.stdout
 
 
 @pytest.mark.unit
