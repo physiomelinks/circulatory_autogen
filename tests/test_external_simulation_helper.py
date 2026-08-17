@@ -714,3 +714,47 @@ def test_a_hook_that_declines_to_draw_does_not_fail_the_simulation(tmp_path, cap
 
     # And the run itself is unaffected -- the point is that plotting cannot break it.
     assert sim.run() is True
+
+
+# A class that draws from state its last run produced, the way a field solver does.
+_DRAWS_AFTER_RUN_MODEL = _MINIMAL_MODEL.replace(
+    '    SIM_HELPER = Tiny',
+    '''        def reset(self):
+            # Restores what the *next* run starts from. Deliberately leaves `drawn` alone:
+            # that is the record of the run that finished.
+            self.vals = dict(self.parameters)
+
+        def extra_plots(self):
+            if getattr(self, 'drawn', None) is None:
+                return []
+            from matplotlib.figure import Figure
+            return [Figure()]
+
+    SIM_HELPER = Tiny''').replace(
+    '            self.y = self.vals["tiny/a"] * self.t + self.vals["tiny/b"]',
+    '            self.y = self.vals["tiny/a"] * self.t + self.vals["tiny/b"]\n'
+    '            self.drawn = self.y.copy()')
+
+
+@pytest.mark.unit
+def test_figures_survive_the_reset_the_protocol_executor_does_after_each_experiment(tmp_path):
+    """Drawn output has to outlive `reset_and_clear`, or it is never collectable.
+
+    `protocol_executor` calls `sim_helper.reset_and_clear()` after the last sub-experiment of
+    every experiment, and that forwards to the user's `reset()`. A model that clears its
+    drawn state there loses the figures *before* any caller can ask for them -- so
+    `extra_plots()` always found nothing, and the shipped `funcs_user/heat_fenics` model
+    plotted nothing at all through the GUI while looking correct in isolation.
+
+    The distinction the contract draws: `reset()` restores the state the next run starts
+    from; what the last run drew is a record of that run, like the results dict this very
+    method stashes rather than discards.
+    """
+    path = _write_model(tmp_path, _DRAWS_AFTER_RUN_MODEL)
+    sim = ExternalSimulationHelper(path, 0.1, 1.0, dict(_SOLVER_INFO))
+
+    assert sim.run() is True
+    assert len(sim.get_extra_figures()) == 1
+
+    sim.reset_and_clear()
+    assert len(sim.get_extra_figures()) == 1, 'the reset destroyed the figures'

@@ -418,6 +418,12 @@ class HeatFEniCSxModel:
         set_bc = fem_petsc.set_bc
 
         self.reset()
+        # Cleared here rather than in reset(), so they survive the reset_and_clear() the
+        # protocol executor performs after each experiment but never outlive the run that
+        # drew them: a solve that raises below leaves no snapshots rather than stale ones.
+        self._snapshot_mid = None
+        self._snapshot_final = None
+        self._snapshot_mid_time = None
 
         # k changes between runs, so the matrix is rebuilt here rather than in init_solver.
         # It is ~n_dofs entries at this size, so the cost is noise next to the form
@@ -504,13 +510,22 @@ class HeatFEniCSxModel:
     # --- optional ----------------------------------------------------------------------
 
     def reset(self):
-        """Back to the initial condition, with an empty set of recorded samples."""
+        """Back to the initial condition, with an empty set of recorded samples.
+
+        Deliberately keeps the snapshots the last completed run drew. ``reset()`` restores
+        the *state the next run starts from*; the snapshots are the *record of the run that
+        finished*, and CA's protocol executor calls ``reset_and_clear()`` after the last
+        sub-experiment of every experiment -- so clearing them here destroyed the figures
+        before anything could collect them, and ``extra_plots()`` always found nothing.
+        CA's own wrapper draws the same distinction: it stashes the last results dict in
+        ``reset_and_clear`` before clearing, rather than throwing them away.
+
+        A fresh solve clears them itself (see ``_solve``), so a run that diverges cannot
+        leave the previous run's fields on screen.
+        """
         self._set_initial_condition()
         self._samples = {name: np.zeros(self.num_steps + 1, dtype=float)
                          for name in self.output_names}
-        self._snapshot_mid = None
-        self._snapshot_final = None
-        self._snapshot_mid_time = None
 
     def extra_plots(self):
         """Two figures: the field at mid-time and at the final time.

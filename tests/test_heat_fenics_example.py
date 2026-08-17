@@ -376,9 +376,35 @@ def test_extra_plots_returns_two_figures(model):
 
 @pytest.mark.integration
 @pytest.mark.slow
-def test_extra_plots_before_a_run_says_so(model):
-    with pytest.raises(RuntimeError, match='run'):
-        model.extra_plots()
+def test_extra_plots_before_a_run_draws_nothing_rather_than_raising(model):
+    """Nothing to draw is not an error.
+
+    This used to raise, and the exception propagated out through CA's helper as
+    ``Simulation failed: RuntimeError: extra_plots() was called before a successful run()``
+    -- under a banner suggesting a smaller MaximumStep, which pointed nowhere near the
+    cause. A diverged solve is an ordinary event during a calibration (``run()`` reports it
+    by returning False), and decorative output must not decide whether a run succeeded.
+    """
+    assert model.extra_plots() == []
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_the_figures_outlive_the_reset_between_experiments(model):
+    """`reset()` restores what the next run starts from; it must not discard what the last
+    run drew.
+
+    CA's ``protocol_executor`` calls ``reset_and_clear()`` after the last sub-experiment of
+    every experiment, which forwards to this ``reset()``. Clearing the snapshots there meant
+    the figures were destroyed before any caller could collect them -- so the GUI showed no
+    solver plots at all, while every test that ran ``run()`` and ``extra_plots()`` back to
+    back still passed.
+    """
+    assert model.run() is True
+    assert len(model.extra_plots()) == 2
+
+    model.reset()
+    assert len(model.extra_plots()) == 2, "reset() threw away the last run's figures"
 
 
 # ---------------------------------------------------------------------------------------

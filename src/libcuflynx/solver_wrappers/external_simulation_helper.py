@@ -551,6 +551,13 @@ class SimulationHelper:
 
         Mirrors the SciPy backend, where this re-runs ``initialise_variables`` and so puts every
         constant back to its model default.
+
+        **A user ``reset()`` must not throw away what ``extra_plots()`` draws.** The protocol
+        executor calls this after the last sub-experiment of every experiment, which is
+        *before* a caller has had any chance to collect the figures -- so a model that clears
+        its drawn state here silently never plots anything. Note what this method does with
+        the results dict a line below: it stashes them rather than discarding them, for the
+        same reason. Clear that state when a fresh run starts instead.
         """
         if self._has_run:
             self._last_results_dict = self._collect_all_results_dict()
