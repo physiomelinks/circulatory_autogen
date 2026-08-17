@@ -25,6 +25,7 @@ import textwrap
 
 import pytest
 
+from _tracked_files import only_tracked
 from libcuflynx import _deprecated_aliases
 from libcuflynx._deprecated_aliases import PACKAGE, REMOVAL_VERSION, SHIM_ROOTS
 
@@ -281,7 +282,11 @@ def test_the_test_suite_never_imports_the_deprecated_names_either():
     walks the whole AST rather than reading the top of each file.
     """
     offenders = []
-    for path in sorted(_TESTS.rglob("*.py")):
+    # Tracked files only. `tests/test_outputs/` is gitignored generation output -- the OMEX
+    # and notebook tests write .py scripts into it that legitimately use the old flat names
+    # from before the rename, and an unfiltered rglob then fails this test on any machine
+    # that has ever run those tests, and on no other.
+    for path in sorted(only_tracked(_TESTS.rglob("*.py"))):
         if path.resolve() == pathlib.Path(__file__).resolve():
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"), str(path))
