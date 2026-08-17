@@ -678,3 +678,39 @@ def _reference_derivatives():
     d_dk = (features(_TRUE_K + h_k, _TRUE_U_D) - features(_TRUE_K - h_k, _TRUE_U_D)) / (2 * h_k)
     d_du = (features(_TRUE_K, _TRUE_U_D + h_u) - features(_TRUE_K, _TRUE_U_D - h_u)) / (2 * h_u)
     return list(zip(d_dk, d_du))
+
+
+# A class whose extra_plots() refuses, the way a field solver's does when its last run
+# diverged or never happened: the snapshots it draws from are simply not there.
+_REFUSING_PLOTS_MODEL = _MINIMAL_MODEL.replace(
+    '    SIM_HELPER = Tiny',
+    '''        def extra_plots(self):
+            raise RuntimeError('extra_plots() was called before a successful run(); '
+                               'there are no fields to draw yet')
+
+    SIM_HELPER = Tiny''')
+
+
+@pytest.mark.unit
+def test_a_hook_that_declines_to_draw_does_not_fail_the_simulation(tmp_path, capsys):
+    """Decorative output must not decide whether the simulation succeeded.
+
+    ``get_extra_figures`` already tolerates a *missing* ``extra_plots``; it has to tolerate
+    one that raises for the same reason. A field solver draws from state its last run built,
+    so a diverged run -- an ordinary event during a calibration, reported by ``run()``
+    returning False -- leaves it with nothing to draw. Letting that propagate turned a
+    legitimate "no fit at these parameters" into ``Simulation failed:``, under a banner
+    blaming solver tolerances that pointed nowhere near the cause (the shipped
+    ``funcs_user/heat_fenics`` model did exactly this).
+
+    The reason is printed rather than swallowed, so a hook that is genuinely broken is still
+    discoverable.
+    """
+    path = _write_model(tmp_path, _REFUSING_PLOTS_MODEL)
+    sim = ExternalSimulationHelper(path, 0.1, 1.0, dict(_SOLVER_INFO))
+
+    assert sim.get_extra_figures() == []
+    assert 'extra_plots' in capsys.readouterr().out
+
+    # And the run itself is unaffected -- the point is that plotting cannot break it.
+    assert sim.run() is True

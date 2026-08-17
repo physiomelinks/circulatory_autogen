@@ -522,8 +522,11 @@ class HeatFEniCSxModel:
         from matplotlib.figure import Figure  # lazy: plotting is not needed to simulate
 
         if self._snapshot_final is None:
-            raise RuntimeError('extra_plots() was called before a successful run(); there '
-                               'are no fields to draw yet')
+            # No run, or a run that diverged: reset() clears the snapshots and run() returns
+            # False without setting them. Nothing to draw is not an error -- raising here
+            # once turned a diverged parameter set into "Simulation failed", with a message
+            # about solver tolerances that pointed nowhere near the cause.
+            return []
 
         figures = []
         panels = (

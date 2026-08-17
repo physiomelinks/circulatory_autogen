@@ -522,7 +522,19 @@ class SimulationHelper:
         extra_plots = getattr(self.user, 'extra_plots', None)
         if not callable(extra_plots):
             return []
-        figures = extra_plots()
+        try:
+            figures = extra_plots()
+        except Exception as error:                        # noqa: BLE001 - reported, not raised
+            # "Optional" has to cover a hook that declines as well as one that is absent.
+            # A field solver draws from state its last run built, so a run that diverged --
+            # or that has not happened yet -- leaves it with nothing to draw and it raises.
+            # Letting that propagate turns a legitimate "no fit at these parameters" into a
+            # failed simulation, and the message the user sees names solver tolerances
+            # rather than the missing run. Decorative output must not decide whether the
+            # simulation succeeded.
+            print(f'[external] {type(self.user).__name__}.extra_plots() did not draw: '
+                  f'{type(error).__name__}: {error}')
+            return []
         if figures is None:
             return []
         if not isinstance(figures, (list, tuple)):

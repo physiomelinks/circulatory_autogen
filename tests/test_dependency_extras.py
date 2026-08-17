@@ -315,12 +315,23 @@ def test_each_extra_carries_its_package(extra, package):
 
 
 @pytest.mark.unit
-def test_dev_carries_mpi4py():
-    """`tests/conftest.py` does `from mpi4py import MPI` at module scope, so without this the
-    suite does not collect -- not one test, not even the serial ones. This very file would
-    never run."""
+def test_dev_installs_everything_the_suite_imports():
+    """`[dev]` must pull whole extras, not a hand-picked subset of their contents.
+
+    `tests/conftest.py` does `from mpi4py import MPI` at module scope, so without `[mpi]`
+    the suite does not collect -- not one test, not even the serial ones, and this very file
+    would never run. But collecting is not enough: naming `mpi4py` alone once satisfied that
+    and still broke CI, because paramID's multi-rank branch imports `schwimmbad`, the other
+    half of `[mpi]`. Referencing the extra means a package added to it later cannot go
+    missing here again, which naming its contents cannot promise.
+    """
     extras = _load_pyproject()['project']['optional-dependencies']
-    assert any(spec.startswith('mpi4py') for spec in extras['dev']), extras['dev']
+    referenced = {spec.split('[', 1)[1].rstrip(']') for spec in extras['dev']
+                  if spec.startswith('libcuflynx[')}
+    assert {'mpi', 'casadi'} <= referenced, extras['dev']
+    # Every member of a referenced extra therefore arrives, mpi4py and schwimmbad included.
+    assert any(spec.startswith('mpi4py') for spec in extras['mpi']), extras['mpi']
+    assert any(spec.startswith('schwimmbad') for spec in extras['mpi']), extras['mpi']
 
 
 @pytest.mark.unit
