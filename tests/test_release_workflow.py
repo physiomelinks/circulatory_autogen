@@ -13,10 +13,15 @@ so these assertions stand in for the feedback the first release will not give us
 They deliberately do not run anything: no build, no network, no upload. Whether the package
 actually publishes can only be established by publishing it.
 """
+import os
 import pathlib
 import re
+import shutil
+import subprocess
 
 import pytest
+
+from _pyproject import load_pyproject
 
 yaml = pytest.importorskip("yaml")
 
@@ -47,9 +52,10 @@ def _triggers(workflow):
 
 @pytest.mark.unit
 def test_release_workflow_triggers_on_version_tags(workflow):
+    """A *glob* that matches version tags -- `startswith("v")` is satisfied by `verbose`."""
     tags = _triggers(workflow)["push"]["tags"]
-    assert any(t.startswith("v") for t in tags), (
-        "the release must be cut from a v* tag, got %r" % (tags,)
+    assert any(re.fullmatch(r"v[\d*\[].*", t) for t in tags), (
+        "the release must be cut from a version-tag pattern such as 'v*', got %r" % (tags,)
     )
 
 
@@ -85,9 +91,15 @@ def test_publish_job_uses_trusted_publishing(workflow):
 
 @pytest.mark.unit
 def test_no_pypi_token_secret_anywhere_in_the_workflows():
-    """A token in any workflow would defeat the point of the OIDC setup."""
+    """A token in any workflow would defeat the point of the OIDC setup.
+
+    Both suffixes: GitHub reads `.yaml` as readily as `.yml`, so a `*.yml` sweep would have
+    let a credential in through a filename.
+    """
     offenders = []
-    for path in sorted(WORKFLOW_DIR.glob("*.yml")):
+    workflows = sorted(list(WORKFLOW_DIR.glob("*.yml")) + list(WORKFLOW_DIR.glob("*.yaml")))
+    assert workflows, "no workflow files found at %s" % WORKFLOW_DIR
+    for path in workflows:
         text = path.read_text(encoding="utf-8")
         for lineno, line in enumerate(text.splitlines(), start=1):
             if re.search(r"secrets\.[A-Z_]*PYPI[A-Z_]*", line):
@@ -108,18 +120,77 @@ def test_workflow_builds_both_a_wheel_and_an_sdist(workflow):
     )
 
 
+def _version_check_step(workflow):
+    """The step that compares the tag with pyproject's version, or None."""
+    steps = [step for job in workflow["jobs"].values() for step in job.get("steps", [])]
+    matches = [s for s in steps
+               if "GITHUB_REF_NAME" in s.get("run", "") and "pyproject.toml" in s.get("run", "")]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _run_version_check(script, tmp_path, tag, project_version):
+    """Run the workflow's own shell against a pyproject.toml holding ``project_version``."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "libcuflynx"\nversion = "%s"\n' % project_version, encoding="utf-8")
+    return subprocess.run(
+        ["bash", "-c", script], cwd=str(tmp_path),
+        env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "GITHUB_REF_NAME": tag},
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=60,
+    )
+
+
 @pytest.mark.unit
-def test_workflow_refuses_a_tag_that_disagrees_with_pyproject(workflow):
-    """The one check that has to happen before anything is uploaded."""
-    runs = "\n".join(
-        step.get("run", "")
-        for job in workflow["jobs"].values()
-        for step in job.get("steps", [])
+def test_workflow_has_exactly_one_tag_versus_version_step(workflow):
+    """Guard the guard: the two tests below need a step to extract."""
+    assert _version_check_step(workflow) is not None, (
+        "the workflow must have exactly one step comparing the tag with `version` in "
+        "pyproject.toml before building; a mismatched release cannot be corrected, because "
+        "PyPI never accepts a version twice"
     )
-    assert "pyproject.toml" in runs and "GITHUB_REF_NAME" in runs, (
-        "the workflow must compare the tag with `version` in pyproject.toml before building; "
-        "a mismatched release cannot be corrected, because PyPI never accepts a version twice"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("tag,project_version,should_pass", [
+    ("v0.4.0", "0.4.0", True),
+    ("v0.4.0", "0.4.1", False),
+    ("v1.0.0", "0.4.0", False),
+])
+def test_the_tag_versus_version_check_actually_refuses_a_mismatch(
+        workflow, tmp_path, tag, project_version, should_pass):
+    """Run the step's shell, rather than asserting two substrings appear in it.
+
+    The previous version of this test asserted `"pyproject.toml" in runs and
+    "GITHUB_REF_NAME" in runs`. Flip the `!=` to `==`, or delete the `exit 1`, and it stays
+    green -- while the one check standing between a typo'd tag and an unfixable PyPI upload
+    does nothing. Both of those mutations fail here.
+    """
+    script = _version_check_step(workflow)["run"]
+    result = _run_version_check(script, tmp_path, tag, project_version)
+    if should_pass:
+        assert result.returncode == 0, result.stdout
+    else:
+        assert result.returncode != 0, (
+            "the check accepted tag %s against pyproject version %s:\n%s"
+            % (tag, project_version, result.stdout))
+        assert project_version in result.stdout and tag.lstrip("v") in result.stdout, (
+            "a refusal has to say which two versions disagreed:\n%s" % result.stdout)
+
+
+@pytest.mark.unit
+def test_the_tag_versus_version_check_reads_this_repository_s_real_version(workflow, tmp_path):
+    """And it must agree with the version actually declared here, parsed its own way."""
+    version = load_pyproject()["project"]["version"]
+    script = _version_check_step(workflow)["run"]
+    shutil.copy(str(REPO_ROOT / "pyproject.toml"), str(tmp_path / "pyproject.toml"))
+    result = subprocess.run(
+        ["bash", "-c", script], cwd=str(tmp_path),
+        env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+             "GITHUB_REF_NAME": "v" + version},
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, timeout=60,
     )
+    assert result.returncode == 0, (
+        "the workflow's own sed cannot read the version out of this pyproject.toml:\n%s"
+        % result.stdout)
 
 
 @pytest.mark.unit

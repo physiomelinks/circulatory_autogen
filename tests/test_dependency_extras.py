@@ -239,19 +239,47 @@ def test_a_backend_that_broke_for_another_reason_is_not_called_an_install_proble
 # ---------------------------------------------------------------------------
 @pytest.mark.unit
 def test_the_pymc_backend_names_the_uq_extra():
-    from libcuflynx.param_id.pymc_backend import _INSTALL_HINT
+    """Raise it, don't read the constant.
 
-    assert 'libcuflynx[uq]' in _INSTALL_HINT
-    assert 'pymc' in _INSTALL_HINT
+    Asserting the *text* of ``_INSTALL_HINT`` passes whether or not anything ever puts it in
+    front of a user: unhook it from ``_import_pymc()`` and this stays green while
+    ``UQ_options: library: pymc`` goes back to raising a bare ModuleNotFoundError. The
+    casadi tests above have the right shape -- make the dependency look absent, then read
+    what comes out of the code path a user reaches.
+    """
+    result = _run_without('pymc', '''
+        from libcuflynx.param_id import pymc_backend
+        try:
+            pymc_backend._import_pymc()
+        except ImportError as exc:
+            print(exc)
+        else:
+            raise SystemExit('_import_pymc did not raise with pymc absent')
+    ''')
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert 'pip install "libcuflynx[uq]"' in result.stdout
+    assert 'pymc' in result.stdout
 
 
 @pytest.mark.unit
 def test_the_emulator_backend_names_the_emulation_extra():
-    from libcuflynx.emulators.emulator_trainer import AUTOEMULATE_MISSING_MESSAGE
-
-    assert 'pip install "libcuflynx[emulation]"' in AUTOEMULATE_MISSING_MESSAGE
+    """Again through the raise, not the constant -- ``require_autoemulate()`` is the gate
+    every emulation entry point goes through, and it is the gate that has to name the extra.
+    """
+    result = _run_without('autoemulate', '''
+        from libcuflynx.emulators import emulator_trainer
+        assert not emulator_trainer.autoemulate_available()
+        try:
+            emulator_trainer.require_autoemulate()
+        except RuntimeError as exc:
+            print(exc)
+        else:
+            raise SystemExit('require_autoemulate did not raise with autoemulate absent')
+    ''')
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert 'pip install "libcuflynx[emulation]"' in result.stdout
     # and the size, because 750 MB is the reason it is an extra at all
-    assert '750' in AUTOEMULATE_MISSING_MESSAGE
+    assert '750' in result.stdout
 
 
 @pytest.mark.unit
