@@ -35,10 +35,12 @@ user_inputs_yaml = os.path.join(user_inputs_dir, 'user_inputs.yaml')
 
 def _parse_args():
     parser = argparse.ArgumentParser(prog="convert_cellml_for_ca")
-    parser.add_argument("-i", "--input-model", help="import CellML model to convert.",
-                        default="/home/farg967/Documents/git_projects/cellml_models/Gonzalo_H_SMC/smc_hernandez_one_module.cellml")
-    parser.add_argument("-o", "--output-dir", help="output directory for converted model data.",
-                        default="/home/farg967/Documents/git_projects/CA_user/smc_hernandez")
+    # Required, not defaulted: the defaults were one contributor's absolute paths, so for
+    # everyone else a forgotten -i produced "Input file '/home/farg967/...' not found."
+    parser.add_argument("-i", "--input-model", required=True,
+                        help="CellML model to convert.")
+    parser.add_argument("-o", "--output-dir", required=True,
+                        help="output directory for converted model data.")
     parser.add_argument("--file-prefix", help="file prefix for generated files.",
                         default="smc_hernandez")
     parser.add_argument("--vessel-name", help="vessel name.",
@@ -52,14 +54,62 @@ def _parse_args():
     return parser.parse_args()
 
 # Set variables from args or defaults
-args = _parse_args()
-file_prefix = args.file_prefix
-vessel_name = args.vessel_name
-data_reference = args.data_reference
-time_variable = args.time_variable
-component_name = args.component_name
-input_model = args.input_model
-output_dir = args.output_dir
+# Set by main() from the command line; the helpers below read them as globals rather than
+# taking seven parameters each. Parsed in main() and not at import: argparse at module scope
+# meant that merely *importing* this module consumed whatever sys.argv happened to hold --
+# so it could not be imported by a test, by a tool, or by anything but its own __main__.
+file_prefix = None
+vessel_name = None
+data_reference = None
+time_variable = None
+component_name = None
+input_model = None
+output_dir = None
+
+
+def _apply_args(args):
+    global file_prefix, vessel_name, data_reference, time_variable, component_name
+    global input_model, output_dir
+    file_prefix = args.file_prefix
+    vessel_name = args.vessel_name
+    data_reference = args.data_reference
+    time_variable = args.time_variable
+    component_name = args.component_name
+    input_model = args.input_model
+    output_dir = args.output_dir
+    return args
+
+
+def _module_config_user_dir():
+    """The user's CellML module library, created if it is not there yet.
+
+    ``paths.default_module_config_user_dir`` documents that "callers must tolerate it not
+    existing -- in an install it usually will not", and this script is the one that
+    *populates* it. It used to open two files inside it for writing with no makedirs, so a
+    run from anywhere but a checkout that already had the directory died on
+    FileNotFoundError after doing all of the work.
+    """
+    directory = default_module_config_user_dir()
+    os.makedirs(directory, exist_ok=True)
+    return directory
+
+
+def _read_or_create_user_units():
+    """The ``user_units.cellml`` tree this run appends to, created empty if absent.
+
+    Same contract as the directory above. An empty units model is the correct starting
+    state -- the file exists only to accumulate units this converter moves out of converted
+    modules -- and an empty one is exactly what the first conversion in a fresh working
+    directory should begin from.
+    """
+    if os.path.isfile(user_units_cellml):
+        return ET.parse(user_units_cellml)
+    ET.register_namespace("", cellml_namespace)
+    root = ET.Element(f"{{{cellml_namespace}}}model", name="Units")
+    root.set("xmlns:cellml", cellml_namespace)
+    print(f"Creating {user_units_cellml}")
+    return ET.ElementTree(root)
+
 
 # Print errors
 def _print_errors(l):
@@ -144,7 +194,7 @@ def _generate_module_config(variables, constants, states, file_prefix, component
 
     module_config = [config]
 
-    file_path = os.path.join(default_module_config_user_dir(), f"{file_prefix}_module_config.json")
+    file_path = os.path.join(_module_config_user_dir(), f"{file_prefix}_module_config.json")
 
     with open(file_path, "w") as fh:
         json.dump(module_config, fh, indent=2)
@@ -222,7 +272,7 @@ def _generate_cellml_module(input_model, states, file_prefix):
     cellml_str = cellml_str.replace('math:', '')
 
     # Write the modified cellml
-    file_path = os.path.join(default_module_config_user_dir(), f"{file_prefix}_modules.cellml")
+    file_path = os.path.join(_module_config_user_dir(), f"{file_prefix}_modules.cellml")
     with open(file_path, "w", encoding="UTF-8") as f:
         f.write(cellml_str)
 
@@ -231,8 +281,9 @@ def _generate_cellml_module(input_model, states, file_prefix):
 # Move units to user_units.cellml
 def _update_units_file(root):
 
-    # Extract units from user_units.cellml
-    user_units_tree = ET.parse(user_units_cellml)
+    # Extract units from user_units.cellml (created empty if this is the first conversion
+    # in this working directory -- see _read_or_create_user_units).
+    user_units_tree = _read_or_create_user_units()
     user_units_root = user_units_tree.getroot()
     user_units = {unit.get("name"): unit for unit in user_units_root.findall(f".//{{{cellml_namespace}}}units")}
 
@@ -254,6 +305,7 @@ def _update_units_file(root):
     for unit in root.findall(f".//{{{cellml_namespace}}}units"):
         root.remove(unit)
 
+    os.makedirs(os.path.dirname(user_units_cellml), exist_ok=True)
     user_units_tree.write(user_units_cellml, xml_declaration=True, encoding="UTF-8")
 
     print(f"Updated user_units.cellml")
@@ -302,6 +354,16 @@ def _modify_component_name(root):
 def _generate_user_inputs_yaml(output_dir, file_prefix):
     file_path = os.path.join(output_dir, f"{file_prefix}_user_inputs.yaml")
 
+    # The generated config is this one with four keys replaced, so there has to be one to
+    # start from. There is no user_run_files/ in a wheel install, so say what to do rather
+    # than raising a bare FileNotFoundError on a path the user never named.
+    if not os.path.isfile(user_inputs_yaml):
+        raise FileNotFoundError(
+            f"no template config at {user_inputs_yaml}. The generated "
+            f"{file_prefix}_user_inputs.yaml is a copy of user_run_files/user_inputs.yaml "
+            f"with the paths and file_prefix replaced, so one has to exist. Set "
+            f"CUFLYNX_USER_DIR to a directory containing user_run_files/user_inputs.yaml, "
+            f"or run from a checkout.")
     with open(user_inputs_yaml, "r") as file:
         config = yaml.load(file, Loader=yaml.FullLoader)
 
@@ -317,7 +379,7 @@ def _generate_user_inputs_yaml(output_dir, file_prefix):
     print(f"Generated user_inputs.yaml: {file_prefix}_user_inputs.yaml")
 
 def main():
-    # args = _parse_args()
+    _apply_args(_parse_args())
     args = {"input_model": input_model, "output_dir": output_dir}
     if not os.path.isfile(args["input_model"]):
         print(f"Input file '{args['input_model']}' not found.")
