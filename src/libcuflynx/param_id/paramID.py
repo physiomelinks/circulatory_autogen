@@ -192,6 +192,13 @@ _require_casadi = casadi_backend.require_casadi
 _as_casadi_column = casadi_backend.as_casadi_column
 
 
+#: The model types parameter identification can actually run. Deliberately not every entry
+#: in SOLVER_SCHEMA's model types: `cpp` is a valid model_type for *generation*, but neither
+#: this module nor solver_wrappers can simulate one, so it cannot be calibrated. Naming the
+#: set here keeps the check and the error message reading from one list.
+PARAM_ID_MODEL_TYPES = ('cellml', 'python', 'casadi_python', 'aadc_python', 'external_python')
+
+
 class CVS0DParamID():
     """Parameter identification (calibration) for a 0D CVS model.
 
@@ -389,8 +396,7 @@ class CVS0DParamID():
                                            emulator_settings=self.emulator_settings)
             self.n_steps = mcmc_object.n_steps
         else:
-            if model_type in ['cellml', 'python', 'casadi_python', 'aadc_python',
-                              'external_python']:
+            if model_type in PARAM_ID_MODEL_TYPES:
                 self.param_id = OpencorParamID(self.model_path, self.param_id_method,
                                                self.obs_info, self.param_id_info, self.protocol_info,
                                                self.prediction_info, self.solver_info, dt=self.dt,
@@ -403,6 +409,20 @@ class CVS0DParamID():
                                                emulator_dir=self.emulator_dir,
                                                emulator_settings=self.emulator_settings)
                 self.n_steps = self.param_id.n_steps
+            else:
+                # Say so here rather than leaving self.param_id unset. set_output_dir()
+                # dereferences it a few lines below, so an unsupported model_type used to
+                # surface as `'CVS0DParamID' object has no attribute 'param_id'` -- a
+                # message about an attribute, several frames from the config key that
+                # actually caused it (CUFLynx #270). `cpp` is the one that reaches here by
+                # being *valid*: it is a real model_type for generation, but nothing in
+                # param_id or solver_wrappers can run one, so calibrating it was never
+                # going to work and should say which part is missing.
+                raise ValueError(
+                    f'model_type {model_type!r} cannot be used for parameter '
+                    f'identification. Supported: {sorted(PARAM_ID_MODEL_TYPES)}. '
+                    f'(cpp models can be generated, but not calibrated or simulated by '
+                    f'libcuflynx -- build and run the generated code yourself.)')
         if self.rank == 0:
             self.set_output_dir(self.output_dir)
         
