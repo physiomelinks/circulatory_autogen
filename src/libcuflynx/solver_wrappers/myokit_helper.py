@@ -1242,7 +1242,13 @@ class SimulationHelper:
             # get_time() and to the OpenCOR backend's time axis.
             return self.tSim - self.pre_time
         kind, qname = self._resolve_name(name)
-        if self.last_log and kind in ("state", "var"):
+        # `qname in self.last_log` is not redundant: _make_log deliberately leaves constants
+        # out ("Myokit cannot log constants"), while _resolve_name classifies them as "var"
+        # like every other non-state. So a constant reached this branch, was indexed out of a
+        # log that never contained it, and raised KeyError -- even though the `kind == "var"`
+        # arm below already knows how to answer for one, by evaluating it. Falling through is
+        # all that was missing (issue #453).
+        if self.last_log and kind in ("state", "var") and qname in self.last_log:
             data = np.asarray(self.last_log[qname])
             return data
         if kind == "state":
