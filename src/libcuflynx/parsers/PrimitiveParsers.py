@@ -2090,25 +2090,27 @@ class YamlFileParser(object):
         if solver_name is None:
             solver_name = inp_data_dict.get('solver')
         
-        # Backward compatibility: 
-        if solver_name == 'CVODE':
-            solver_name = 'CVODE_myokit' # default to CVODE_myokit for cellml models
+        # Backward compatibility: 'CVODE' meant the CellML CVODE backend before it was split
+        # into CVODE_opencor / CVODE_myokit. Only for CellML models -- 'CVODE' is still a
+        # current, valid solver name for `cpp` (see SOLVER_SCHEMA['solvers_by_model_type']),
+        # and rewriting it there turned a working config into a CellML solver the C++ path
+        # cannot use.
+        if solver_name == 'CVODE' and inp_data_dict.get('model_type') == 'cellml':
+            solver_name = 'CVODE_myokit'
 
         if solver_name is None:
-            if inp_data_dict.get('model_type') == 'cellml':
-                solver_name = 'CVODE_myokit'
-            elif inp_data_dict.get('model_type') == 'python':
-                solver_name = 'solve_ivp'
-            elif inp_data_dict.get('model_type') == 'cpp':
-                solver_name = 'CVODE'
-            elif inp_data_dict.get('model_type') == 'casadi_python':
-                solver_name = 'cvodes'
-            elif inp_data_dict.get('model_type') == 'aadc_python':
-                solver_name = 'aadc_semi_implicit'
-            elif inp_data_dict.get('model_type') == 'external_python':
-                solver_name = 'external'
-            else:
-                print(f'Invalid model type: {inp_data_dict.get("model_type")}')
+            # From the schema, not a ladder of literals. SOLVER_SCHEMA is what CUFLynx and
+            # every other consumer reads, so a second copy here is a second answer waiting
+            # to disagree with it -- and it had: this branch defaulted casadi_python to
+            # 'cvodes', which is a *method* of the casadi_integrator solver rather than a
+            # solver, and the only solver the factory accepts for that model type is
+            # 'casadi_integrator'. Nothing caught it because a defaulted solver skips the
+            # validation in the else arm below.
+            model_type = inp_data_dict.get('model_type')
+            solver_name = SOLVER_SCHEMA['default_solver_by_model_type'].get(model_type)
+            if solver_name is None:
+                print(f'Invalid model type: {model_type}. Valid types: '
+                      f'{sorted(SOLVER_SCHEMA["default_solver_by_model_type"])}')
                 exit()
         else:
             valid_aadc_solvers = SOLVER_SCHEMA['solvers_by_model_type'].get('aadc_python', [])

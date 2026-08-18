@@ -1760,3 +1760,36 @@ def test_a_config_that_names_no_solver_gets_one_a_pip_install_can_provide():
     # would make `solver: CVODE_opencor` fail validation instead of reaching the message
     # that names CVODE_myokit as the replacement.
     assert 'CVODE_opencor' in SOLVER_SCHEMA['solvers_by_model_type']['cellml']
+
+
+@pytest.mark.unit
+def test_the_defaulted_solver_comes_from_the_schema_for_every_model_type():
+    """One source for "which solver if you name none", not a ladder beside the schema.
+
+    SOLVER_SCHEMA is what CUFLynx and every other consumer reads, so a second copy in
+    parse_user_inputs_file is a second answer waiting to disagree -- and it had. The
+    ladder defaulted `casadi_python` to 'cvodes', which is a *method* of the
+    casadi_integrator solver rather than a solver; `get_simulation_helper` accepts only
+    'casadi_integrator' for that model type. Nothing caught it because a defaulted solver
+    skips the validation the explicit path goes through.
+    """
+    defaults = SOLVER_SCHEMA['default_solver_by_model_type']
+
+    # Every model type has one, and it is a solver that model type actually offers.
+    for model_type, solvers in SOLVER_SCHEMA['solvers_by_model_type'].items():
+        assert model_type in defaults, f'{model_type} has no default solver'
+        assert defaults[model_type] in solvers, (
+            f'{model_type} defaults to {defaults[model_type]!r}, which is not one of its '
+            f'solvers {solvers} -- a method name here is the mistake to look for')
+
+
+@pytest.mark.unit
+def test_the_legacy_cvode_alias_leaves_cpp_alone():
+    """'CVODE' is a legacy spelling for CellML *and* a current solver for cpp.
+
+    Before the split into CVODE_opencor / CVODE_myokit, 'CVODE' meant the CellML backend.
+    The compatibility rewrite applied to every model type, so a cpp study that named its
+    own valid solver had it silently replaced with a CellML one.
+    """
+    assert 'CVODE' in SOLVER_SCHEMA['solvers_by_model_type']['cpp']
+    assert 'CVODE' not in SOLVER_SCHEMA['solvers_by_model_type']['cellml']
