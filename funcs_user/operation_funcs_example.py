@@ -26,11 +26,15 @@ from libcuflynx.param_id.operation_funcs import series_to_constant  # noqa: F401
 mb = make_math_backend("numpy")
 
 
-# Delete this and write your own. It is registered as operation: peak_to_peak.
+# Delete this and write your own. It is registered as operation: max_minus_mean.
+#
+# Pick a name the built-ins do not already have -- `max_minus_min` and
+# `max_minus_mean_in_range` are both shipped, and re-registering a built-in name
+# silently replaces it for the whole study.
 @differentiable
 @series_to_constant
-def peak_to_peak(x, series_output=False):
-    """Amplitude of a trace: max minus min."""
+def max_minus_mean(x, series_output=False):
+    """How far the peak of a trace rises above its own average."""
     if series_output:
         return x
-    return mb.max(x) - mb.min(x)
+    return mb.max(x) - mb.mean(x)
