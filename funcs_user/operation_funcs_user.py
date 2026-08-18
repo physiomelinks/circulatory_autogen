@@ -334,6 +334,18 @@ def E_A_ratio(t, x, T, series_output=False):
 
     return E_A_ratio
 
+#included by Aaloka (temporarily)
+@series_to_constant
+def mean_heart_rate_bpm_in_range(x, start_frac=0.0,end_frac=1.0, series_output=False):
+    if series_output:
+        return 60/x
+    else:
+        start_idx = int(start_frac*(len(x)-1))
+        end_idx = int(end_frac*(len(x)-1))
+        range_values = x[start_idx:end_idx]
+        mean_HR = np.mean(60.0 / range_values)
+        return mean_HR
+
 # included by David Shaw
 @series_to_constant
 def peak_times(t, V, series_output=False):
