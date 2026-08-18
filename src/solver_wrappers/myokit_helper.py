@@ -1062,7 +1062,7 @@ class SimulationHelper:
             # get_time() and to the OpenCOR backend's time axis.
             return self.tSim - self.pre_time
         kind, qname = self._resolve_name(name)
-        if self.last_log and kind in ("state", "var"):
+        if self.last_log and kind in ("state", "var") and qname in self.last_log:
             data = np.asarray(self.last_log[qname])
             return data
         if kind == "state":
