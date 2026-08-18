@@ -91,22 +91,59 @@ def configure_mpi4py(env=None):
     return True
 
 
+def mpi_is_live(MPI):
+    """Whether MPI routines may be called on this ``mpi4py.MPI`` at all.
+
+    ``MPI_Initialized`` and ``MPI_Finalized`` are the only two routines the
+    standard permits before ``MPI_Init`` and after ``MPI_Finalize``. Calling any
+    other one in that state is erroneous, and MPICH and Microsoft MPI both handle
+    it by printing
+
+        Attempting to use an MPI routine before initializing MPI
+
+    and killing the process. That is *not* a Python exception -- a ``try/except``
+    around the call cannot make it survivable -- so the question has to be asked
+    first, which is what this is for.
+
+    mpi4py being imported does not answer it. ``MPI4PY_RC_INITIALIZE=0`` (or
+    ``mpi4py.rc.initialize = False``) loads the library and deliberately skips the
+    init, so ``'mpi4py.MPI' in sys.modules`` can be true with MPI never opened.
+    CUFLynx's release build sets exactly that while PyInstaller analyses the
+    bundle -- PyInstaller imports every collected package in one isolated child to
+    scan for DLLs, mpi4py.futures comes first and loads MPI uninitialised, and the
+    child then died importing ``libcuflynx.solver_wrappers``, whose chain reaches
+    ``PrimitiveParsers``' module-scope ``rank = mpi_utils.rank()``.
+    """
+    try:
+        return bool(MPI.Is_initialized()) and not bool(MPI.Is_finalized())
+    except Exception:
+        return False
+
+
 def _comm_or_none():
     """``MPI.COMM_WORLD`` if MPI is already in play, else None.
 
     Deliberately does not *cause* an import: it uses mpi4py only when a launcher
-    started this process, or when something else has already imported it (in
-    which case MPI is initialised anyway and asking costs nothing).
+    started this process, or when something else has already imported it. Having
+    been imported is not enough on its own -- see :func:`mpi_is_live` -- so the
+    communicator is only handed back once MPI is confirmed open.
     """
     import sys
 
-    if not launched_by_mpiexec() and 'mpi4py.MPI' not in sys.modules:
+    launched = launched_by_mpiexec()
+    if not launched and 'mpi4py.MPI' not in sys.modules:
         return None
     try:
         from mpi4py import MPI
-        return MPI.COMM_WORLD
     except Exception:
         return None
+    # Imported is not open. A bare process whose MPI was never initialised really
+    # is rank 0 of 1, so answering serially is right. A rank of a real job is not:
+    # N ranks all believing they are rank 0 would overwrite each other's output,
+    # so there the MPI error is left to stand rather than papered over.
+    if not launched and not mpi_is_live(MPI):
+        return None
+    return MPI.COMM_WORLD
 
 
 def rank():
@@ -342,8 +379,11 @@ def get_MPI(env=None):
     mpi4py, so MPI is never initialised and there is no ``MPI_Finalize`` to
     abort in.
 
-    mpi4py already being imported means MPI is initialised regardless, so the
-    real module is handed back -- a stub would then be the odd one out.
+    mpi4py already being imported *and initialised* means MPI is open regardless,
+    so the real module is handed back -- a stub would then be the odd one out.
+    Imported but never initialised is a third state (``MPI4PY_RC_INITIALIZE=0``),
+    and there the real module is the wrong answer: the first collective would kill
+    the process, where the stub gives the one-rank result correctly.
 
     Under a launcher with mpi4py missing there is no honest fallback -- the stub
     would answer "rank 0 of 1" in every one of N ranks, and N duplicate runs
@@ -355,8 +395,10 @@ def get_MPI(env=None):
     """
     import sys
 
-    if launched_by_mpiexec(env) or 'mpi4py.MPI' in sys.modules:
+    if launched_by_mpiexec(env):
         require_mpi4py()
         from mpi4py import MPI
         return MPI
+    if 'mpi4py.MPI' in sys.modules and mpi_is_live(sys.modules['mpi4py.MPI']):
+        return sys.modules['mpi4py.MPI']
     return _SerialMPI

@@ -5,7 +5,28 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
-Nothing yet.
+### Fixed — an mpi4py that is imported but not initialised no longer kills the process
+
+`mpi_utils` treated "`mpi4py.MPI` is in `sys.modules`" as "MPI is open", and read the rank
+through it. There is a third state: `MPI4PY_RC_INITIALIZE=0` (or `mpi4py.rc.initialize = False`)
+loads the library and skips `MPI_Init`. In that state every routine except `MPI_Initialized` and
+`MPI_Finalized` is erroneous, and MPICH and Microsoft MPI both answer by printing
+
+```
+Attempting to use an MPI routine before initializing MPI
+```
+
+and killing the process — not raising, so the `except Exception` around the call could not help.
+
+`PrimitiveParsers` reads `rank = mpi_utils.rank()` at module scope, so *importing* libcuflynx
+was enough to hit it. It killed the CUFLynx v0.4.0 Windows release build twice: PyInstaller
+imports every bundled package into one isolated child, mpi4py.futures loaded MPI uninitialised,
+and the child then died importing `libcuflynx.solver_wrappers`.
+
+`rank`/`size`/`is_root` and `get_MPI` now ask `mpi_is_live()` first and fall back to the
+one-rank answers, which are the right ones for a process whose MPI was never opened. Nothing
+changes when MPI is genuinely open, and a rank started by a launcher is left alone — N ranks
+each believing they are rank 0 would be worse than the abort.
 
 ## 0.4.0 — 2026-08-18
 

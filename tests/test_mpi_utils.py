@@ -151,6 +151,126 @@ def test_the_real_mpi_wins_if_something_else_already_imported_it():
 
 
 # ---------------------------------------------------------------------------
+# Imported is not initialised
+#
+# `MPI4PY_RC_INITIALIZE=0` (or `mpi4py.rc.initialize = False`) loads mpi4py and
+# skips MPI_Init, so `'mpi4py.MPI' in sys.modules` can be true with MPI never
+# opened. Every routine other than Is_initialized/Is_finalized is then erroneous,
+# and MPICH and Microsoft MPI both answer by printing
+#
+#     Attempting to use an MPI routine before initializing MPI
+#
+# and killing the process -- not raising, so no try/except can survive it.
+#
+# That state is not hypothetical: CUFLynx's release build sets the variable while
+# PyInstaller analyses the bundle (MPI_Init aborts in the Linux runners' UCX). All
+# collected packages are imported into ONE isolated child; mpi4py.futures comes
+# first and loads MPI uninitialised, and the child then died importing
+# libcuflynx.solver_wrappers, whose chain reaches PrimitiveParsers' module-scope
+# `rank = mpi_utils.rank()`. It failed the v0.4.0 Windows release build twice.
+# ---------------------------------------------------------------------------
+
+def _mpi_stub(initialised):
+    """Source that puts a stand-in ``mpi4py.MPI`` into ``sys.modules``.
+
+    A real uninitialised MPI cannot be used here: the process death is the thing
+    under test, so it has to be observable rather than fatal to the test run. The
+    stub reproduces the two behaviours that matter -- what ``Is_initialized``
+    answers, and that any other routine in that state kills the process rather
+    than raising.
+    """
+    return textwrap.dedent("""
+        import importlib.machinery
+        import os
+        import sys
+        import types
+
+        _mpi4py = types.ModuleType('mpi4py')
+        _mpi4py.__spec__ = importlib.machinery.ModuleSpec('mpi4py', None)
+        _mpi4py.__path__ = []
+        _MPI = types.ModuleType('mpi4py.MPI')
+        _MPI.__spec__ = importlib.machinery.ModuleSpec('mpi4py.MPI', None)
+        _INITIALISED = %r
+
+
+        def _routine(name, answer):
+            def call(*args, **kwargs):
+                if not _INITIALISED:
+                    print('Attempting to use an MPI routine before initializing MPI')
+                    os._exit(1)
+                return answer
+            return staticmethod(call)
+
+
+        class _Comm(object):
+            Get_rank = _routine('MPI_Comm_rank', 3)
+            Get_size = _routine('MPI_Comm_size', 8)
+
+
+        _MPI.COMM_WORLD = _Comm()
+        _MPI.Is_initialized = staticmethod(lambda: _INITIALISED)
+        _MPI.Is_finalized = staticmethod(lambda: False)
+        _mpi4py.MPI = _MPI
+        sys.modules['mpi4py'] = _mpi4py
+        sys.modules['mpi4py.MPI'] = _MPI
+        """ % initialised)
+
+
+def test_is_live_distinguishes_imported_from_initialised():
+    """The two routines it asks with are the two the standard allows to be asked."""
+    class _Uninitialised(object):
+        Is_initialized = staticmethod(lambda: False)
+        Is_finalized = staticmethod(lambda: False)
+
+    class _Open(object):
+        Is_initialized = staticmethod(lambda: True)
+        Is_finalized = staticmethod(lambda: False)
+
+    class _Closed(object):
+        Is_initialized = staticmethod(lambda: True)
+        Is_finalized = staticmethod(lambda: True)
+
+    assert mpi_utils.mpi_is_live(_Uninitialised) is False
+    assert mpi_utils.mpi_is_live(_Open) is True
+    assert mpi_utils.mpi_is_live(_Closed) is False
+    # An mpi4py too old to answer, or anything else that raises, is not a reason to
+    # gamble a process abort on the answer.
+    assert mpi_utils.mpi_is_live(object()) is False
+
+
+def test_rank_does_not_call_into_an_uninitialised_mpi():
+    out = _run(_mpi_stub(False) + textwrap.dedent("""
+        from libcuflynx.utilities import mpi_utils
+        print(mpi_utils.rank(), mpi_utils.size(),
+              mpi_utils.get_MPI() is mpi_utils._SerialMPI)
+        """))
+    assert out.split() == ['0', '1', 'True']
+
+
+def test_importing_the_solver_wrappers_survives_an_uninitialised_mpi():
+    """The failure verbatim: the isolated PyInstaller child imports mpi4py first,
+    then this, and the module-scope rank read in PrimitiveParsers killed it."""
+    out = _run(_mpi_stub(False) + textwrap.dedent("""
+        from libcuflynx.solver_wrappers import get_simulation_helper  # noqa: F401
+        from libcuflynx.parsers.PrimitiveParsers import rank
+        print('rank', rank)
+        """))
+    assert out.split() == ['rank', '0']
+
+
+def test_an_initialised_mpi_is_still_the_one_that_answers():
+    """The guard must cost nothing when MPI is genuinely open -- a process that
+    initialised MPI is not rank 0 of 1 just because it never used mpiexec."""
+    out = _run(_mpi_stub(True) + textwrap.dedent("""
+        import sys
+        from libcuflynx.utilities import mpi_utils
+        print(mpi_utils.rank(), mpi_utils.size(),
+              mpi_utils.get_MPI() is sys.modules['mpi4py.MPI'])
+        """))
+    assert out.split() == ['3', '8', 'True']
+
+
+# ---------------------------------------------------------------------------
 # No module may reintroduce the import
 # ---------------------------------------------------------------------------
 def test_no_module_imports_mpi4py_at_module_scope():
