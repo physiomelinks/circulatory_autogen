@@ -678,7 +678,14 @@ def _tape_cache_path(sim_helper):
     key = f"{model_path}|{dt}|{max_step}|{pre_steps}|{n_steps}"
     h = hashlib.md5(key.encode()).hexdigest()[:12]
     import os
-    cache_dir = os.path.join(os.path.dirname(model_path) if model_path else '/tmp', '.aadc_tape_cache')
+    import tempfile
+    # tempfile.gettempdir() rather than a literal '/tmp': it honours TMPDIR/TEMP/TMP,
+    # which is the only lever a user has on an HPC node where /tmp is unwritable, tiny
+    # or purged mid-job -- and setting it needs no privileges. The rest of the engine
+    # already reaches the temp directory this way.
+    cache_dir = os.path.join(
+        os.path.dirname(model_path) if model_path else tempfile.gettempdir(),
+        '.aadc_tape_cache')
     os.makedirs(cache_dir, exist_ok=True)
     return os.path.join(cache_dir, f"bdf_tape_{h}.pkl")
 
