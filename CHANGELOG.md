@@ -3,7 +3,11 @@
 Notable changes to libcuflynx (circulatory_autogen). Entries under *Unreleased* ship with the
 next release; add to that section as you land a change.
 
-## Unreleased — 0.4.0
+## Unreleased
+
+Nothing yet.
+
+## 0.4.0 — 2026-08-18
 
 The release that makes the project installable: `pip install libcuflynx` now gives you
 generation, simulation and calibration from any directory, with no checkout and nothing to put
