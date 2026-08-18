@@ -185,12 +185,93 @@ def test_the_analytic_aliases_do_not_divert_to_fd(alias):
 # The option is declared, so downstream tools can offer it
 # ---------------------------------------------------------------------------
 def test_gradient_method_is_in_the_analysis_schema():
+    """The arms carry their own names -- AD / FSA, matching gradient_sources() and the Laplace
+    gradient_source -- because only an explicit name can be offered, disabled, or reported back
+    by a UI. 'analytic' is still accepted in code as a legacy spelling of 'auto', but is no
+    longer advertised."""
     from parsers.PrimitiveParsers import ANALYSIS_OPTIONS
 
     opts = {o["name"]: o for o in ANALYSIS_OPTIONS["sensitivity_analysis"]["options"]}
     assert "gradient_method" in opts
-    assert opts["gradient_method"]["choices"] == ["analytic", "FD"]
-    assert opts["gradient_method"]["default"] == "analytic"
+    assert opts["gradient_method"]["choices"] == ["auto", "AD", "FSA", "FD"]
+    assert opts["gradient_method"]["default"] == "auto"
+
+
+# ---------------------------------------------------------------------------
+# Explicit arm names: each reaches the arm it names, or errors naming the
+# mismatch -- never a silent reinterpretation (a caller that asked for FSA and
+# silently got something else cannot check what ran).
+# ---------------------------------------------------------------------------
+def test_ad_reaches_the_casadi_arm(monkeypatch):
+    from param_id import paramID
+
+    pid = paramID.OpencorParamID.__new__(paramID.OpencorParamID)
+    pid.model_type = "casadi_python"
+    pid.param_id_info = {"param_names": [["a/x"]]}
+    called = []
+    monkeypatch.setattr(paramID.casadi_backend, "get_observable_sensitivities",
+                        lambda p, v: called.append(p) or {})
+    pid.get_observable_sensitivities([1.0], gradient_method="AD")
+    assert called == [pid]
+
+
+def test_fsa_reaches_the_myokit_arm(monkeypatch):
+    from param_id import paramID
+
+    class _FsaHelper:
+        def enable_fsa(self, deps, indeps):
+            return []
+
+    pid = paramID.OpencorParamID.__new__(paramID.OpencorParamID)
+    pid.model_type = "cellml"
+    pid.do_ad = True
+    pid.sim_helper = _FsaHelper()
+    called = []
+    monkeypatch.setattr(paramID.fsa_backend, "observable_feature_sensitivities",
+                        lambda p, v: called.append(p) or {})
+    pid.get_observable_sensitivities([1.0], gradient_method="FSA")
+    assert called == [pid]
+
+
+def test_ad_on_a_myokit_run_raises_naming_the_mismatch():
+    from param_id.paramID import OpencorParamID
+
+    pid = OpencorParamID.__new__(OpencorParamID)
+    pid.model_type = "cellml"
+    pid.solver_info = {"solver": "CVODE_myokit"}
+    with pytest.raises(ValueError, match="'AD' needs model_type 'casadi_python'"):
+        pid.get_observable_sensitivities([1.0], gradient_method="AD")
+
+
+def test_fsa_on_a_casadi_run_raises_naming_whats_missing():
+    from param_id.paramID import OpencorParamID
+
+    pid = OpencorParamID.__new__(OpencorParamID)
+    pid.model_type = "casadi_python"
+    pid.solver_info = {"solver": "casadi_integrator"}
+    pid.sim_helper = object()   # no enable_fsa
+    with pytest.raises(ValueError, match="'FSA' is not available") as excinfo:
+        pid.get_observable_sensitivities([1.0], gradient_method="FSA")
+    msg = str(excinfo.value)
+    assert "model_type is 'casadi_python'" in msg
+    assert "CVODE_myokit" in msg
+    assert "do_ad" in msg
+
+
+def test_fsa_without_do_ad_names_the_missing_flag():
+    from param_id.paramID import OpencorParamID
+
+    class _FsaHelper:
+        def enable_fsa(self, deps, indeps):
+            return []
+
+    pid = OpencorParamID.__new__(OpencorParamID)
+    pid.model_type = "cellml"
+    pid.solver_info = {"solver": "CVODE_myokit"}
+    pid.sim_helper = _FsaHelper()
+    pid.do_ad = False
+    with pytest.raises(ValueError, match="do_ad must be true"):
+        pid.get_observable_sensitivities([1.0], gradient_method="FSA")
 
 
 # ---------------------------------------------------------------------------

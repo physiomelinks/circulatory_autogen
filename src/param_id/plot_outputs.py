@@ -16,6 +16,64 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
+def distribution_reference_lines(prob_dist_params):
+    """Horizontal reference values summarising a distribution ground truth, as (value, label).
+
+    A data_item scored against a distribution (kernel_density_estimation, multimodal_gaussian,
+    poisson_MLE) has no single ``value`` to draw a ground-truth line at, so draw what the
+    distribution says instead: its modes if it names them, otherwise the spread of the samples
+    it was built from. Quantiles rather than a mean, because the whole point of these costs is
+    that the target need not be unimodal -- the mean of a bimodal sample sits where no
+    measurement ever landed.
+    """
+    if not isinstance(prob_dist_params, dict):
+        return []
+    if "means" in prob_dist_params:
+        return [(float(m), f"gt mean {i}")
+                for i, m in enumerate(prob_dist_params["means"])]
+    if "data_points" in prob_dist_params:
+        points = np.asarray(prob_dist_params["data_points"], dtype=float)
+        if points.size == 0:
+            return []
+        lo, mid, hi = np.percentile(points, [5, 50, 95])
+        return [(float(lo), "gt 5th pct"), (float(mid), "gt median"),
+                (float(hi), "gt 95th pct")]
+    if "k" in prob_dist_params:
+        return [(float(prob_dist_params["k"]), "gt count")]
+    return []
+
+
+def constant_line_times(t_sub, obs_info, II):
+    """Times a constant's horizontal line should span, as (t_start, t_end).
+
+    An ``*_in_range`` feature is computed over ``[start_frac, end_frac]`` of the
+    subexperiment window, so a line drawn across the whole window claims the
+    value describes data the operation never looked at. Fractions are of the
+    subexperiment span, matching how the operation funcs resolve them.
+    """
+    t_sub = np.asarray(t_sub, dtype=float)
+    if t_sub.size == 0:
+        return t_sub
+    kwargs_list = obs_info.get("operation_kwargs", [])
+    kwargs = kwargs_list[II] if II < len(kwargs_list) else {}
+    if not isinstance(kwargs, dict):
+        return t_sub
+    start_frac = kwargs.get("start_frac")
+    end_frac = kwargs.get("end_frac")
+    if start_frac is None and end_frac is None:
+        return t_sub
+    t_0 = float(t_sub[0])
+    span = float(t_sub[-1]) - t_0
+    try:
+        lo = t_0 + float(0.0 if start_frac is None else start_frac) * span
+        hi = t_0 + float(1.0 if end_frac is None else end_frac) * span
+    except (TypeError, ValueError):
+        return t_sub
+    if not (np.isfinite(lo) and np.isfinite(hi)) or hi <= lo:
+        return t_sub
+    return np.array([lo, hi], dtype=float)
+
+
 class ParamIDPlotOutputs:
     """
     Build and save post-calibration figures for parameter identification.
@@ -41,6 +99,9 @@ class ParamIDPlotOutputs:
 
     def plot_outputs(self) -> None:
         print("plotting best observables")
+        if getattr(self.client.param_id, "emulates_features", False):
+            self.save_emulator_outputs()
+            return
         phase = self._uses_phase()
         list_of_obs_dicts, list_of_all_series = self._fetch_best_fit_data()
         tSim_per_sub_count, sim_time_tot_per_exp, n_steps_per_sub_count = (
@@ -64,6 +125,77 @@ class ParamIDPlotOutputs:
         self.print_observable_errors(
             phase, percent_error_vec, phase_error_vec
         )
+
+    def save_emulator_outputs(self) -> None:
+        """Error vectors and error-bar pages for a run that used an emulator.
+
+        An emulator predicts the scalar features and not the traces, so the
+        reconstruction pages cannot be drawn -- but the *errors* are a comparison
+        of feature against ground truth, and those are exactly what it has. Losing
+        them along with the traces would leave a finished calibration with nothing
+        to show for itself, which is what happened before this existed (#333).
+
+        Writes the same ``percent_error_vec`` / ``error_vec_names`` files an
+        ordinary run writes, so every consumer of them -- CA's own plots, and the
+        tools that read the outputs directory -- is unchanged.
+        """
+        percent_error_vec, std_error_vec = self.emulator_error_vectors()
+        self.save_error_vectors(percent_error_vec, std_error_vec)
+        obs_names_for_plot = self._observable_names_for_error_plots()
+        self.plot_percent_error_bar_pages(obs_names_for_plot, percent_error_vec)
+        self.plot_std_error_bar_pages(obs_names_for_plot, std_error_vec)
+        print(
+            "This run used an emulator, so the reconstruction plots (which need the "
+            "simulated traces) were not drawn; the observable errors above are the "
+            "emulator's own features against the ground truth."
+        )
+
+    def emulator_error_vectors(self):
+        """Percent and std error per observable, from the emulator's features.
+
+        Only ``constant`` observables exist on this path -- CA refuses an emulator
+        study whose obs_data holds anything else -- so this is the constant branch
+        of ``plot_reconstruction_pages`` with the plotting removed, and it must
+        stay identical to it: the two numbers are the same quantity, and a run
+        should not report a different error because it drew fewer pictures.
+        """
+        obs_info = self.client.obs_info
+        param_id = self.client.param_id
+        num_obs = obs_info["num_obs"]
+        percent_error_vec = np.zeros((num_obs,))
+        std_error_vec = np.zeros((num_obs,))
+
+        _, operands_list = param_id.get_cost_and_obs_from_params(param_id.best_param_vals)
+        if not operands_list:
+            print("WARNING: the emulator produced no observables; errors not saved")
+            return percent_error_vec, std_error_vec
+
+        # One evaluation per segment, then each observable read from its own --
+        # a data_item names the experiment and sub-experiment it belongs to, and
+        # scoring it against another segment is scoring the wrong thing.
+        num_sub_per_exp = self.client.protocol_info["num_sub_per_exp"]
+        const_by_segment = {}
+        for const_idx, obs_idx in enumerate(obs_info["const_idx_to_obs_idx"]):
+            exp = int(obs_info["experiment_idxs"][obs_idx])
+            sub = int(obs_info["subexperiment_idxs"][obs_idx])
+            flat = sum(num_sub_per_exp[:exp]) + sub
+            if flat >= len(operands_list) or operands_list[flat] is None:
+                continue
+            if flat not in const_by_segment:
+                const_by_segment[flat] = np.asarray(
+                    param_id.get_obs_output_dict(operands_list[flat])["const"], dtype=float
+                )
+            consts = const_by_segment[flat]
+            if const_idx >= len(consts):
+                continue
+            ground_truth = obs_info["ground_truth_const"][const_idx]
+            percent_error_vec[obs_idx] = (
+                100 * (consts[const_idx] - ground_truth) / (ground_truth + 1e-10)
+            )
+            std_error_vec[obs_idx] = (
+                consts[const_idx] - ground_truth
+            ) / obs_info["std_const_vec"][const_idx]
+        return percent_error_vec, std_error_vec
 
     def _uses_phase(self) -> bool:
         gtp = self.client.obs_info["ground_truth_phase"]
@@ -186,7 +318,6 @@ class ParamIDPlotOutputs:
             const_idx = -1
             series_idx = -1
             freq_idx = -1
-            prob_dist_idx = -1
 
             for II in range(obs_info["num_obs"]):
                 if obs_info["data_types"][II] == "constant":
@@ -195,8 +326,6 @@ class ParamIDPlotOutputs:
                     series_idx += 1
                 elif obs_info["data_types"][II] == "frequency":
                     freq_idx += 1
-                elif obs_info["data_types"][II] == "prob_dist":
-                    prob_dist_idx += 1
 
                 if (
                     obs_info["obs_names"][II],
@@ -216,9 +345,6 @@ class ParamIDPlotOutputs:
                 best_fit_obs_series = list_of_obs_dicts[subexp_count]["series"]
                 best_fit_obs_amp = list_of_obs_dicts[subexp_count]["amp"]
                 best_fit_obs_phase = list_of_obs_dicts[subexp_count]["phase"]
-                best_fit_obs_prob_dist = list_of_obs_dicts[subexp_count][
-                    "val_for_prob_dist"
-                ]
 
                 if len(obs_info["ground_truth_series"]) > 0:
                     if obs_info["obs_dt"][series_idx] == self.client.dt:
@@ -259,28 +385,20 @@ class ParamIDPlotOutputs:
                 if not this_obs_waveform_plotted:
                     axs.set_ylabel(f"${obs_name_for_plot}$ ${unit_label}$", fontsize=18)
                     if obs_info["data_types"][II] != "frequency":
-                        for temp_sub_idx in range(
-                            protocol_info["num_sub_per_exp"][exp_idx]
-                        ):
-                            temp_subexp_count = int(
-                                np.sum(protocol_info["num_sub_per_exp"][:exp_idx])
-                                + temp_sub_idx
-                            )
-                            temp_series_per_sub = list_of_all_series[temp_subexp_count]
-                            if temp_sub_idx == 0:
-                                axs.plot(
-                                    tSim_per_sub_count[temp_subexp_count],
-                                    conversion * temp_series_per_sub[II][:],
-                                    color=protocol_info["experiment_colors"][exp_idx],
-                                    label="output",
-                                )
-                            else:
-                                axs.plot(
-                                    tSim_per_sub_count[temp_subexp_count],
-                                    conversion * temp_series_per_sub[II][:],
-                                    color=protocol_info["experiment_colors"][exp_idx],
-                                )
-                        axs.set_xlim(0.0, sim_time_tot_per_exp[exp_idx])
+                        # Only the subexperiment this observable belongs to. A
+                        # settle/pre subexperiment is not what the observable was
+                        # measured on, so drawing it stretches the axis over a
+                        # window the ground truth says nothing about.
+                        axs.plot(
+                            tSim_per_sub_count[subexp_count],
+                            conversion * series_per_sub[II][:],
+                            color=protocol_info["experiment_colors"][exp_idx],
+                            label="output",
+                        )
+                        axs.set_xlim(
+                            tSim_per_sub_count[subexp_count][0],
+                            tSim_per_sub_count[subexp_count][-1],
+                        )
                         axs.set_xlabel("Time [$s$]", fontsize=18)
                     else:
                         axs.plot(
@@ -312,21 +430,25 @@ class ParamIDPlotOutputs:
                 if obs_info["data_types"][II] == "constant":
                     pt = obs_info["plot_type"][II]
                     if pt == "horizontal":
-                        const_plot_gt = obs_info["ground_truth_const"][const_idx] * np.ones(
-                            (n_steps_per_sub_count[subexp_count] + 1,)
+                        t_const = constant_line_times(
+                            tSim_per_sub_count[subexp_count], obs_info, II
                         )
-                        const_plot_bf = best_fit_obs_const[const_idx] * np.ones(
-                            (n_steps_per_sub_count[subexp_count] + 1,)
-                        )
+                        ones = np.ones_like(t_const)
+                        const_plot_bf = best_fit_obs_const[const_idx] * ones
+                        gt_lines = distribution_reference_lines(
+                            obs_info["ground_truth_prob_dist_params"][II])
+                        if not gt_lines:
+                            gt_lines = [(obs_info["ground_truth_const"][const_idx], "gt")]
+                        for gt_val, gt_label in gt_lines:
+                            axs.plot(
+                                t_const,
+                                conversion * gt_val * ones,
+                                color=obs_info["plot_colors"][II],
+                                linestyle="--",
+                                label=f'{obs_info["operations"][II]} {gt_label}',
+                            )
                         axs.plot(
-                            tSim_per_sub_count[subexp_count],
-                            conversion * const_plot_gt,
-                            color=obs_info["plot_colors"][II],
-                            linestyle="--",
-                            label=f'{obs_info["operations"][II]} gt',
-                        )
-                        axs.plot(
-                            tSim_per_sub_count[subexp_count],
+                            t_const,
                             conversion * const_plot_bf,
                             color=obs_info["plot_colors"][II],
                             linestyle="-",
@@ -334,21 +456,25 @@ class ParamIDPlotOutputs:
                         )
                     elif pt == "horizontal_from_min":
                         min_val = np.min(series_per_sub[II])
+                        t_const = constant_line_times(
+                            tSim_per_sub_count[subexp_count], obs_info, II
+                        )
+                        ones = np.ones_like(t_const)
                         const_plot_gt = (
                             min_val + obs_info["ground_truth_const"][const_idx]
-                        ) * np.ones((n_steps_per_sub_count[subexp_count] + 1,))
+                        ) * ones
                         const_plot_bf = (
                             min_val + best_fit_obs_const[const_idx]
-                        ) * np.ones((n_steps_per_sub_count[subexp_count] + 1,))
+                        ) * ones
                         axs.plot(
-                            tSim_per_sub_count[subexp_count],
+                            t_const,
                             conversion * const_plot_gt,
                             color=obs_info["plot_colors"][II],
                             linestyle="--",
                             label=f'{obs_info["operations"][II]} gt',
                         )
                         axs.plot(
-                            tSim_per_sub_count[subexp_count],
+                            t_const,
                             conversion * const_plot_bf,
                             color=obs_info["plot_colors"][II],
                             linestyle="-",
@@ -435,53 +561,34 @@ class ParamIDPlotOutputs:
                             "kx",
                             label="gt",
                         )
-                elif obs_info["data_types"][II] == "prob_dist":
-                    if obs_info["plot_type"][II] == "horizontal":
-                        means = obs_info["ground_truth_prob_dist_params"][
-                            prob_dist_idx
-                        ]["means"]
-                        for mean_idx, val_to_plot in enumerate(means):
-                            mean_plot = val_to_plot * np.ones(
-                                (n_steps_per_sub_count[subexp_count] + 1,)
-                            )
-                            axs.plot(
-                                tSim_per_sub_count[subexp_count],
-                                conversion * mean_plot,
-                                color=obs_info["plot_colors"][II],
-                                linestyle="--",
-                                label=f'{obs_info["operations"][II]} gt mean {mean_idx}',
-                            )
-                        val_bf = (
-                            best_fit_obs_prob_dist[prob_dist_idx]
-                            * np.ones((n_steps_per_sub_count[subexp_count] + 1,))
-                        )
-                        axs.plot(
-                            tSim_per_sub_count[subexp_count],
-                            conversion * val_bf,
-                            color=obs_info["plot_colors"][II],
-                            linestyle="-",
-                            label=f'{obs_info["operations"][II]} output',
-                        )
-                    elif obs_info["plot_type"] is None:
-                        pass
 
                 if (
                     exp_idx == obs_info["experiment_idxs"][II]
                     and this_sub_idx == obs_info["subexperiment_idxs"][II]
                 ):
                     if obs_info["data_types"][II] == "constant":
+                        gt_lines = distribution_reference_lines(
+                            obs_info["ground_truth_prob_dist_params"][II])
+                        if gt_lines:
+                            # Error against the *nearest* reference value. A multimodal target
+                            # has no single right answer, so scoring against a fixed one would
+                            # report a large error for a fit that landed squarely on the other
+                            # mode.
+                            gt_const = min((v for v, _ in gt_lines),
+                                           key=lambda v: abs(best_fit_obs_const[const_idx] - v))
+                            gt_std = np.nan
+                        else:
+                            gt_const = obs_info["ground_truth_const"][const_idx]
+                            gt_std = obs_info["std_const_vec"][const_idx]
                         percent_error_vec[II] = (
                             100
-                            * (
-                                best_fit_obs_const[const_idx]
-                                - obs_info["ground_truth_const"][const_idx]
-                            )
-                            / (obs_info["ground_truth_const"][const_idx] + 1e-10)
+                            * (best_fit_obs_const[const_idx] - gt_const)
+                            / (gt_const + 1e-10)
                         )
                         std_error_vec[II] = (
-                            best_fit_obs_const[const_idx]
-                            - obs_info["ground_truth_const"][const_idx]
-                        ) / obs_info["std_const_vec"][const_idx]
+                            (best_fit_obs_const[const_idx] - gt_const) / gt_std
+                            if np.isfinite(gt_std) and gt_std != 0 else 0.0
+                        )
                     elif obs_info["data_types"][II] == "series":
                         if obs_info["obs_dt"][series_idx] != dt:
                             time_series = np.linspace(
@@ -560,24 +667,6 @@ class ParamIDPlotOutputs:
                                     * obs_info["weight_phase_vec"][freq_idx]
                                 )
                             ) / len(best_fit_obs_phase[freq_idx])
-                    elif obs_info["data_types"][II] == "prob_dist":
-                        print(
-                            "prob dist error not implemented properly yet error from first mean presented"
-                        )
-                        gpp = obs_info["ground_truth_prob_dist_params"][prob_dist_idx]
-                        percent_error_vec[II] = (
-                            100
-                            * (
-                                best_fit_obs_prob_dist[prob_dist_idx] - gpp["means"][0]
-                            )
-                            / (gpp["means"][0] + 1e-10)
-                        )
-                        if "stds" in gpp:
-                            std_error_vec[II] = (
-                                best_fit_obs_prob_dist[prob_dist_idx] - gpp["means"][0]
-                            ) / gpp["stds"][0]
-                        else:
-                            std_error_vec[II] = 0.0
 
             plot_saved = False
 

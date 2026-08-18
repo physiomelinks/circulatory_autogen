@@ -91,12 +91,13 @@ _SESSION_START = None
 _PARAM_ID_RESULTS_FILE = os.path.join(os.path.dirname(__file__), "..", ".pytest_param_id_results")
 _TEST_OUTPUT_ROOT = os.path.join(os.path.dirname(__file__), "test_outputs")
 # _AUTOGEN_CONFIGS = [
-#     {"file_prefix": "3compartment", "input_param_file": "3compartment_parameters.csv", "model_type": "cellml_only", "solver": "CVODE"},
-#     {"file_prefix": "simple_physiological", "input_param_file": "simple_physiological_parameters.csv", "model_type": "cellml_only", "solver": "CVODE"},
-#     {"file_prefix": "test_fft", "input_param_file": "test_fft_parameters.csv", "model_type": "cellml_only", "solver": "CVODE"},
+#     {"file_prefix": "3compartment", "input_param_file": "3compartment_parameters.csv", "model_type": "cellml", "solver": "CVODE"},
+#     {"file_prefix": "simple_physiological", "input_param_file": "simple_physiological_parameters.csv", "model_type": "cellml", "solver": "CVODE"},
+#     {"file_prefix": "test_fft", "input_param_file": "test_fft_parameters.csv", "model_type": "cellml", "solver": "CVODE"},
 # ]
 _LOCK_FILE = os.path.realpath(os.path.join(_TEST_ROOT, ".pytest_param_id_lock"))
-_PARAM_ID_TRIGGERS = ("test_param_id", "compare_optimisers", "test_sensitivity_analysis", "test_python_user_defined")
+_PARAM_ID_TRIGGERS = ("test_param_id", "compare_optimisers", "test_sensitivity_analysis",
+                      "test_UQ")
 
 
 def _is_autogen_like_nodeid(nodeid: str) -> bool:
@@ -203,6 +204,14 @@ def _get_assigned_one_rank_rank(request):
         if key == "one_rank_rank":
             return val
     return 0
+
+
+def pytest_addoption(parser):
+    parser.addoption(
+        '--run-manual', action='store_true', default=False,
+        help='also run the tests marked "manual" -- ones too slow for CI or for a normal local '
+             'run, kept because they check something a faster test only approximates (e.g. the '
+             'full-model UQ posterior recovery, ~80 min, whose emulated equivalents run in ~5).')
 
 
 def pytest_configure(config):
@@ -640,13 +649,13 @@ def generated_cellml_model_factory(base_user_inputs, resources_dir, temp_generat
             "DEBUG": True,
             "file_prefix": file_prefix,
             "input_param_file": input_param_file,
-            "model_type": "cellml_only",
+            "model_type": "cellml",
             "solver": solver,
             "pre_time": 0.0,
             "sim_time": 0.1,
             "dt": 0.01,
             "plot_predictions": False,
-            "do_mcmc": False,
+            "do_uq": False,
             "resources_dir": resources_dir,
             "generated_models_dir": temp_generated_models_dir,
             "solver_info": {"MaximumStep": 0.001, "MaximumNumberOfSteps": 5000},
@@ -680,31 +689,54 @@ def test_model_configs():
     """
     return [
         # CellML models
-        ('ports_test', 'ports_test_parameters.csv', 'cellml_only', 'CVODE'),
-        ('3compartment', '3compartment_parameters.csv', 'cellml_only', 'CVODE'),
-        ('simple_physiological', 'simple_physiological_parameters.csv', 'cellml_only', 'CVODE'),
-        ('parasympathetic_model', 'parasympathetic_model_parameters.csv', 'cellml_only', 'CVODE'),
-        ('test_fft', 'test_fft_parameters.csv', 'cellml_only', 'CVODE'),
-        ('neonatal', 'neonatal_parameters.csv', 'cellml_only', 'CVODE'),
-        ('generic_junction_test_closed_loop', 'generic_junction_test_closed_loop_parameters.csv', 'cellml_only', 'CVODE'),
-        ('generic_junction_test2_closed_loop', 'generic_junction_test_closed_loop_parameters.csv', 'cellml_only', 'CVODE'),
-        ('generic_junction_test_open_loop', 'generic_junction_test_open_loop_parameters.csv', 'cellml_only', 'CVODE'),
-        ('generic_junction_test2_open_loop', 'generic_junction_test_open_loop_parameters.csv', 'cellml_only', 'CVODE'),
-        ('SN_simple', 'SN_simple_parameters.csv', 'cellml_only', 'CVODE'),
-        ('physiological', 'physiological_parameters.csv', 'cellml_only', 'CVODE'),
-        ('control_phys', 'control_phys_parameters.csv', 'cellml_only', 'CVODE'),
+        ('ports_test', 'ports_test_parameters.csv', 'cellml', 'CVODE'),
+        ('3compartment', '3compartment_parameters.csv', 'cellml', 'CVODE'),
+        ('simple_physiological', 'simple_physiological_parameters.csv', 'cellml', 'CVODE'),
+        ('parasympathetic_model', 'parasympathetic_model_parameters.csv', 'cellml', 'CVODE'),
+        ('test_fft', 'test_fft_parameters.csv', 'cellml', 'CVODE'),
+        ('neonatal', 'neonatal_parameters.csv', 'cellml', 'CVODE'),
+        ('generic_junction_test_closed_loop', 'generic_junction_test_closed_loop_parameters.csv', 'cellml', 'CVODE'),
+        ('generic_junction_test2_closed_loop', 'generic_junction_test_closed_loop_parameters.csv', 'cellml', 'CVODE'),
+        ('generic_junction_test_open_loop', 'generic_junction_test_open_loop_parameters.csv', 'cellml', 'CVODE'),
+        ('generic_junction_test2_open_loop', 'generic_junction_test_open_loop_parameters.csv', 'cellml', 'CVODE'),
+        ('SN_simple', 'SN_simple_parameters.csv', 'cellml', 'CVODE'),
+        ('physiological', 'physiological_parameters.csv', 'cellml', 'CVODE'),
+        ('control_phys', 'control_phys_parameters.csv', 'cellml', 'CVODE'),
         # CPP models
         ('aortic_bif_1d', 'aortic_bif_1d_parameters.csv', 'cpp', 'RK4'),
     ]
 
 
-def pytest_collection_modifyitems(items):
+def drop_manual_tests(config, items):
+    """Deselect the ``manual`` tests unless ``--run-manual`` was passed.
+
+    Deselected rather than skipped so they leave the rank-assignment bookkeeping untouched --
+    and because a permanently-skipped test in every run's summary is noise that stops being read.
+
+    A module-level function rather than inline in the hook so it can be tested directly. Testing
+    it by launching a nested pytest is not an option: ``pytest_configure`` deletes the shared
+    ``.pytest_*_results`` files at session start, so an inner session wipes the outer run's
+    accumulated results and the outer run then blocks in ``_wait_for_expected_result_count``
+    for its full 1800 s timeout.
+    """
+    if config.getoption('--run-manual'):
+        return
+    manual = [item for item in items if 'manual' in item.keywords]
+    if manual:
+        items[:] = [item for item in items if item not in manual]
+        config.hook.pytest_deselected(items=manual)
+
+
+def pytest_collection_modifyitems(config, items):
     """
     Ensure autogeneration tests run before param_id tests, which in turn run before others.
     This is useful when running the full suite so that generated assets exist before
     parameter ID tests execute.
     """
     import os
+
+    drop_manual_tests(config, items)
+
     autogen_items = [item for item in items if _is_autogen_like_nodeid(item.nodeid)]
     misc_items = [item for item in items if _is_misc_nodeid(item.nodeid)]
     solver_items = [item for item in items if "test_solvers" in item.nodeid]
@@ -1073,12 +1105,19 @@ def _set_expected_summary_totals(autogen_count: int, misc_count: int, solver_cou
     os.environ["SOLVER_SUMMARY_TOTAL"] = str(solver_count)
 
 
-def _should_wait_for_result_files(exitstatus, terminalreporter) -> bool:
+def _should_wait_for_result_files(exitstatus, terminalreporter, config) -> bool:
     """
     Only wait for one-rank result files when pytest completed normal test
     execution. Collection/import/internal errors never produce those files and
     would otherwise stall the summary for the full timeout.
+
+    ``--collect-only`` is the same trap wearing a clean exit status: collection
+    still counts the one-rank tests into the *_SUMMARY_TOTAL environment
+    variables, but no test runs, so nothing ever appends to the result files and
+    the summary blocks for 1800 s per file -- 90 minutes to list the suite.
     """
+    if config.getoption("collectonly", False):
+        return False
     if terminalreporter.stats.get("error"):
         return False
     return exitstatus in (0, 1)
@@ -1162,7 +1201,7 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
     if rank != 0:
         return
 
-    if _should_wait_for_result_files(exitstatus, terminalreporter):
+    if _should_wait_for_result_files(exitstatus, terminalreporter, config):
         _wait_for_expected_result_count(
             _AUTOGEN_RESULTS_FILE,
             int(os.environ.get("AUTOGEN_SUMMARY_TOTAL", "0")),
@@ -1373,14 +1412,14 @@ def minimal_param_id_config(base_user_inputs, resources_dir, temp_output_dir):
     """
     config = base_user_inputs.copy()
     config.update({
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'solver': 'CVODE',
         'param_id_method': 'genetic_algorithm',
         'pre_time': 1,
         'sim_time': 1,
         'dt': 0.01,
         'DEBUG': True,
-        'do_mcmc': False,
+        'do_uq': False,
         'plot_predictions': False,
         'solver_info': {
             'MaximumStep': 0.001,

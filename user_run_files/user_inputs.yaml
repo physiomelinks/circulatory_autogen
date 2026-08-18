@@ -10,10 +10,17 @@ file_prefix: 3compartment
 input_param_file: 3compartment_parameters.csv
 
 # cpp generation inputs
-# model_type can be cellml_only, cpp, or python, casadi_python atm 
+# model_type can be cellml (the default), python, cpp, casadi_python, aadc_python or
+# external_python. `cellml` used to be spelled `cellml_only`; that still works and warns,
+# but update it -- the old name will be removed.
+# The first five are generated from the vessel/module CSV arrays; external_python is the one way
+# to bring a model of your own -- a Python class that owns its time stepping, registered as
+# SIM_HELPER and pointed at by external_model_path. See tutorial/docs/external-python-solvers.md
+# and funcs_user/example_model_scipy/ for a small worked example.
 # model_type: cpp
-model_type: cellml_only
+model_type: cellml
 # model_type: casadi_python
+# model_type: external_python
 
 #__________ parameter identification inputs __________
 # param_id_method can be any of [genetic_algorithm, CMA-ES, bayesian, sp_minimize, multi_start_sp_minimize]
@@ -64,7 +71,7 @@ cpp_1d_model_config_path:
 # Output time step (sampling) 
 dt: 0.01 # This should be smaller than all of the dt in your obs_data.json file.
 
-# solver options are: CVODE_myokit (uses Myokit, default), CVODE_opencor (uses OpenCOR), RK4_cpp (RK4 in cpp), for Python models: solve_ivp, or for CasADi Python models: casadi_integrator
+# solver options are: CVODE_myokit (uses Myokit, default), CVODE_opencor (uses OpenCOR), RK4_cpp (RK4 in cpp), for Python models: solve_ivp, for CasADi Python models: casadi_integrator, or for external_python models: external
 solver: CVODE_myokit
 # These are inputs to solver_properties of the solver
 solver_info:
@@ -114,18 +121,27 @@ debug_optimiser_options:
   cost_type: gaussian_MLE
   # Note: When DEBUG is True, debug_optimiser_options overrides optimiser_options
 
-#______ mcmc inputs ___________
-do_mcmc: false
-mcmc_options:
+#______ uncertainty quantification inputs ___________
+# Was do_mcmc / mcmc_options: MCMC is one UQ method rather than the whole of it, so `method`
+# below is where other methods are selected as they are added. The old names still work and
+# warn once.
+do_uq: false
+UQ_options:
+  method: mcmc         # only 'mcmc' so far
+  library: emcee       # sampler backend for method: mcmc
   num_steps: 1000
   num_walkers: 64
+  burn_in: 0.5         # < 1 is a fraction of num_steps; >= 1 is a number of steps
   # TODO As above for cost_type
   cost_type: gaussian_MLE
   cost_convergence: 0.001
 
-debug_mcmc_options:
+debug_UQ_options:
+  method: mcmc
+  library: emcee
   num_steps: 5
   num_walkers: 40
+  burn_in: 0.5
   cost_type: gaussian_MLE
   cost_convergence: 0.001
 
@@ -139,5 +155,52 @@ sa_options:
 do_ia: false
 ia_options:
   method: Laplace # profile_likelihood
+
+#______ emulator (surrogate model) inputs ___________
+# An emulator maps the params_for_id parameters to the scalar features of your obs_data.json
+# data items -- the same numbers the cost is computed from. Train it once, and calibration,
+# sensitivity analysis, MCMC/UQ and identifiability analysis can all evaluate it instead of the
+# solver. The N training simulations are paid up front, so this wins for Sobol SA
+# (num_samples*(2M+2) runs), MCMC and identifiability, and does NOT win for a single GA run.
+#
+# The two flags are independent:
+#   do_emulation  - train an emulator (./run_emulator_training.sh <num_processors>)
+#   use_emulator  - make the analyses evaluate the trained emulator
+# `solver` above keeps naming the solver used to TRAIN, and to compare the emulator against.
+# Needs the optional dependency: pip install "circulatory_autogen[emulation]"
+do_emulation: false
+use_emulator: false
+emulator_settings:
+  # Where the trained emulator lives.
+  # Default: <param_id_output_dir>/emulators/<file_prefix>_<obs_prefix>
+  # emulator_dir:
+  # 'default' (autoemulate's default set), 'all', or a comma-separated list of emulator names
+  models: default
+  # Number of simulations run to build the training set
+  num_train_samples: 128
+  # Refit the design and simulated features a previous run already saved in emulator_dir
+  # (training_data.npz) instead of running the simulations again -- for trying a different
+  # `models` or fit setting for the cost of the fit alone. Runs no simulations, so
+  # num_train_samples, sample_type and log_scale_params are ignored; needs a previous training
+  # run (the first one must have this false), and is refused if the parameter bounds, obs_data,
+  # protocol or model have changed since those samples were simulated.
+  reuse_samples: false
+  # Design over the params_for_id box: sobol, latin_hypercube or random
+  sample_type: sobol
+  # Space the design logarithmically (worth it when a bound spans decades; needs min > 0)
+  log_scale_params: false
+  random_seed: 0
+  # Held out and never trained on -- this is what the reported R2/RMSE are measured against
+  test_fraction: 0.2
+  n_splits: 5
+  n_iter: 10
+  # Refuse to USE an emulator whose worst held-out per-feature R2 is below this. An emulator
+  # below it does not fail loudly; it returns plausible wrong numbers.
+  min_r2: 0.9
+  # Outside its training box an emulator is extrapolating with no error estimate:
+  # error (default), warn, or clip
+  out_of_bounds: error
+  # Relative step for the finite-difference gradient over the emulator
+  fd_rel_step: 1.0e-3
 
 plot_predictions: true

@@ -71,15 +71,16 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
     inp_data_dict = yaml_parser.parse_user_inputs_file(inp_data_dict, obs_path_needed=False,
                                                        do_generation_with_fit_parameters=do_generation_with_fit_parameters)
 
-    if inp_data_dict['model_type'] == 'python_user_defined':
-        # No code generation: the "model" is the user's hand-written ODE wrapper
-        # in funcs_user/ (see solver_wrappers.python_solver_helper). Just verify it
-        # exists so misconfiguration fails early with a clear message.
-        wrapper_path = inp_data_dict['model_path']
-        if not os.path.exists(wrapper_path):
-            print(f'python_user_defined wrapper not found: {wrapper_path}')
-            print('Create it (copy funcs_user/model_wrapper_funcs_user.py) or set '
-                  'model_wrapper_path in user_inputs.yaml.')
+    if inp_data_dict['model_type'] == 'external_python':
+        # No code generation either, and for a stronger reason: the model *is* a solver the user
+        # already has (see solver_wrappers.external_simulation_helper). Verify the file exists so
+        # a wrong path fails here rather than at the first simulation.
+        external_path = inp_data_dict['model_path']
+        if not os.path.exists(external_path):
+            print(f'external_python model file not found: {external_path}')
+            print('Create it (a .py file defining a solver class and SIM_HELPER = ThatClass; '
+                  'see funcs_user/example_model_external/ or funcs_user/example_model_scipy/) '
+                  'or set external_model_path in user_inputs.yaml.')
             return False
         return True
 
@@ -101,7 +102,7 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
     if do_generation_with_fit_parameters:
         param_id_output_dir_abs_path = inp_data_dict['param_id_output_dir_abs_path']
         # check if uncalibrated model is cellml2.0
-        if inp_data_dict['model_type'] == 'cellml_only':
+        if inp_data_dict['model_type'] == 'cellml':
             uncalibrated_model_path = inp_data_dict['uncalibrated_model_path']
             if _is_cellml2_model_with_libcellml(uncalibrated_model_path):
                 best_param_vals_path = os.path.join(param_id_output_dir_abs_path, 'best_param_vals.npy')
@@ -131,7 +132,7 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
         print("Check point 0")
         print("\n")
 
-    if inp_data_dict['model_type'] == 'cellml_only':
+    if inp_data_dict['model_type'] == 'cellml':
         code_generator = CVS0DCellMLGenerator(model, inp_data_dict)
         success = code_generator.generate_files()
     elif inp_data_dict['model_type'] in ['python', 'casadi_python', 'aadc_python']:
@@ -158,6 +159,11 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
         dtSample = inp_data_dict['dt']
         dtSolver = solver_info['dt_solver']
         nMaxSteps = solver_info['MaximumNumberOfSteps']
+        # The generated C++ used to hardcode its tolerances, so these were the one part of
+        # solver_info a cpp user could not set (issue #398). The defaults are the literals that
+        # used to be emitted, so a config that sets neither generates exactly what it did before.
+        reltol = solver_info.get('rtol', 1e-7)
+        abstol = solver_info.get('atol', 1e-9)
 
         if inp_data_dict['couple_to_1d']:
             # object from class CVS0DCppGenerator
@@ -192,6 +198,7 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
             code_generator = CVS0DCppGenerator(model, generated_models_subdir, file_prefix, #XXX
                                             resources_dir=resources_dir, solver=solver_cpp, 
                                             dtSample=dtSample, dtSolver=dtSolver, nMaxSteps=nMaxSteps,
+                                            reltol=reltol, abstol=abstol,
                                             couple_to_1d=inp_data_dict['couple_to_1d'],
                                             cpp_generated_models_dir=cpp_generated_models_dir,
                                             model_1d_config_path=model_1d_config_path,
@@ -227,7 +234,8 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
                 print("Check point 1B")
             code_generator = CVS0DCppGenerator(model, generated_models_subdir, file_prefix,
                                             resources_dir=resources_dir, solver=solver_cpp,
-                                            dtSample=dtSample, dtSolver=dtSolver, nMaxSteps=nMaxSteps)
+                                            dtSample=dtSample, dtSolver=dtSolver, nMaxSteps=nMaxSteps,
+                                            reltol=reltol, abstol=abstol)
             if DEBUG:
                 print("Check point 2B")
 
@@ -255,7 +263,7 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
             success = False
 
     else: 
-        print('model_type must be either cellml_only or cpp, not ' + inp_data_dict['model_type'])
+        print('model_type must be either cellml or cpp, not ' + inp_data_dict['model_type'])
         success = False
     
     return success

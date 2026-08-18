@@ -1,7 +1,48 @@
 import os
 import copy
+import time
+import warnings
+
 import numpy as np
-import myokit
+
+from solver_wrappers.param_grouping import pair_names_with_values
+
+
+def _import_myokit_tolerating_first_run_race(attempts=5, delay=0.2):
+    """``import myokit``, surviving the race it loses on its own first import.
+
+    Myokit creates its user config directory at import time with a bare
+    ``if not os.path.exists(DIR_USER): os.makedirs(DIR_USER)`` -- a check and a create with a
+    gap in between. Under ``mpiexec`` every rank imports at once, so on a machine where
+    ``~/.config/myokit`` does not yet exist the ranks all see "missing", all call ``makedirs``,
+    and every one but the winner dies with ``FileExistsError``.
+
+    It only ever happens on the *first* parallel run, because afterwards the directory is there
+    -- which is why it presents as a CI job that passes when re-run, and why it is easy to
+    dismiss as noise. It is not noise: it is equally a user's first ``./run_param_id.sh 4`` on a
+    new machine or a fresh HPC home directory, where it reads as "Myokit is not installed".
+
+    Retrying is the fix rather than pre-creating the directory ourselves, because the path is
+    Myokit's to decide (it has already moved once, from ``~/.myokit``) and a copy of that rule
+    here would stop matching without saying so. A failed import leaves nothing in
+    ``sys.modules``, so the retry genuinely re-runs the module -- by which time the winning rank
+    has created the directory and the import takes the "already exists" branch.
+
+    Only ``FileExistsError`` is retried. Every other import failure is the caller's to see
+    immediately, and is reported with its reason by ``solver_wrappers`` (#410).
+    """
+    for attempt in range(attempts):
+        try:
+            import myokit  # noqa: PLC0415 - the point of this function
+            return myokit
+        except FileExistsError:
+            if attempt == attempts - 1:
+                raise
+            # The winner may still be inside makedirs, or writing myokit.ini.
+            time.sleep(delay * (attempt + 1))
+
+
+myokit = _import_myokit_tolerating_first_run_race()
 from myokit.formats import cellml as cellml_format
 # src_dir = os.path.join(os.path.dirname(__file__), '..')
 # sys.path.append(src_dir)
@@ -10,8 +51,152 @@ from solver_wrappers.name_resolver import VariableNameResolver
 from utilities.protocol_shapes import materialise_shapes, validate_trace_references
 import xml.etree.ElementTree as ET
 import tempfile
+import hashlib
 import re
 import os
+
+
+# Where flattened CellML goes. A flattened model is a pure function of its input file, so
+# it is written under one stable name per input and overwritten on each run. It used to be
+# a fresh ``NamedTemporaryFile(delete=False)`` per simulation -- nothing ever deleted them,
+# and a calibration run flattens once per helper, so /tmp accumulated one ~100 kB file per
+# simulation forever (7,655 of them, 719 MB, on one dev machine).
+FLATTENED_CELLML_DIRNAME = 'circulatory_autogen_flattened'
+
+
+def flattened_cellml_path(path):
+    """The stable path the flattened form of *path* is written to.
+
+    The digest of the absolute input path keeps two models that share a basename in
+    different resources dirs from overwriting each other: silently simulating the wrong
+    model is a far worse failure than the disk use this naming fixes.
+    """
+    resolved = os.path.abspath(path)
+    digest = hashlib.sha1(resolved.encode('utf-8')).hexdigest()[:8]
+    stem = os.path.splitext(os.path.basename(resolved))[0]
+    cache_dir = os.path.join(tempfile.gettempdir(), FLATTENED_CELLML_DIRNAME)
+    os.makedirs(cache_dir, exist_ok=True)
+    return os.path.join(cache_dir, f'{stem}_{digest}_flat.cellml')
+
+
+def write_flattened_cellml(prepared_path, model_string):
+    """Write *model_string* to *prepared_path*, atomically.
+
+    Under ``mpiexec`` every rank flattens the same model to the same path, so a plain
+    open-and-write lets one rank parse what another is still writing. Staging in the same
+    directory and calling os.replace makes the swap atomic, and readers see either the old
+    complete file or the new one.
+    """
+    os.makedirs(os.path.dirname(prepared_path), exist_ok=True)
+    fd, staging_path = tempfile.mkstemp(
+        prefix=f'.{os.path.basename(prepared_path)}.',
+        suffix='.tmp',
+        dir=os.path.dirname(prepared_path),
+        text=True,
+    )
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as wf:
+            wf.write(model_string)
+            wf.flush()
+            os.fsync(wf.fileno())
+        os.replace(staging_path, prepared_path)
+    except Exception:
+        try:
+            os.remove(staging_path)
+        except OSError:
+            pass
+        raise
+
+
+# CA's default CVODES tolerances for the Myokit backend, mirrored by the CVODE_myokit schema
+# defaults in PrimitiveParsers.SOLVER_INFO_FIELDS (a test pins the two equal). abs 1e-8 keeps
+# the absolute floor previous users ran at (the long-standing declared default was 1e-8/1e-8),
+# so existing models do not start failing; rel 1e-6 relaxes only the relative knob, which is
+# where most of the 1e-8/1e-8 solve cost was. Applied whenever the user sets neither value, and
+# used to fill in the partner when only one is set (set_tolerance takes both).
+CA_DEFAULT_ABS_TOL = 1e-8
+CA_DEFAULT_REL_TOL = 1e-6
+
+
+def apply_cvodes_tolerances(simulation, solver_info, fsa_enabled):
+    """Apply solver_info's ``rtol``/``atol`` to a myokit Simulation.
+
+    Myokit's signature is ``set_tolerance(abs_tol, rel_tol)`` -- absolute *first*, the reverse
+    of the rtol-then-atol order CA's schema lists. They were passed positionally in that schema
+    order, so each reached the other argument: invisible while CA's declared default was a
+    symmetric 1e-8/1e-8, and measurable the moment they differ. Keyword arguments make the
+    mapping explicit so it cannot silently swap again.
+
+    With neither tolerance set, CA's own defaults apply (CA_DEFAULT_ABS_TOL /
+    CA_DEFAULT_REL_TOL) -- the declared schema default and the applied value are the same
+    thing, whichever front door the run came through. Under FSA the unset case tightens
+    further to 1e-8/1e-8: CVODES forward sensitivities are only as accurate as the state
+    integration, and a looser tolerance leaves a noise floor that swamps small sensitivities.
+    Explicit user values always win.
+
+    Returns the effective ``(abs_tol, rel_tol)`` -- what the simulation will actually integrate
+    with -- so failure diagnostics can report real values rather than re-deriving them.
+    """
+    rtol = solver_info.get("rtol", None)
+    atol = solver_info.get("atol", None)
+    if (rtol is None and atol is None) and fsa_enabled:
+        rtol, atol = 1e-8, 1e-8
+    abs_tol = atol if atol is not None else CA_DEFAULT_ABS_TOL
+    rel_tol = rtol if rtol is not None else CA_DEFAULT_REL_TOL
+    simulation.set_tolerance(abs_tol=abs_tol, rel_tol=rel_tol)
+    if fsa_enabled:
+        warn_if_sensitivities_are_under_resolved(rel_tol)
+    return abs_tol, rel_tol
+
+
+# Below this relative tolerance the CVODES *sensitivities* get worse, not better -- see
+# warn_if_sensitivities_are_under_resolved. Measured on an analytically-solvable model
+# (tests/test_fsa_analytic_accuracy.py): rel 1e-8 gives a cost gradient accurate to ~1e-7,
+# rel 1e-12 to only ~3e-3.
+FSA_MIN_SAFE_REL_TOL = 1e-9
+
+
+def warn_if_sensitivities_are_under_resolved(rel_tol):
+    """Warn when a tightened `rtol` will *degrade* the FSA gradient (issue #387).
+
+    Myokit configures CVODES with a finite-difference (DQ) sensitivity right-hand side
+    (``CVodeSensInit(..., NULL, ...)``) and never calls ``CVodeSetSensErrCon``, so the
+    sensitivity variables are **excluded from the local error test**: the step size is chosen
+    to control the states alone, and nothing controls the sensitivities. CVODES sizes the DQ
+    perturbation as ``sqrt(max(rtol, uround)) * pbar``, so tightening rtol shrinks that
+    perturbation (more cancellation noise per evaluation) *and* takes more steps (more
+    evaluations to accumulate it) -- the two effects compound and the sensitivities drift.
+
+    Measured on ``affine_native.cellml``, one parameter, cost gradient vs a finite difference
+    of the cost: rel 1e-8 -> 9e-8, rel 1e-10 -> 3e-7, rel 1e-12 -> 3e-3. The states over the
+    same sweep stay accurate to ~1e-11 throughout, which is why this is so easy to miss: the
+    trajectory looks better and better while the gradient quietly gets worse.
+
+    Warn rather than clamp: an explicitly-set tolerance is a deliberate user choice, and a
+    forward-only run at rel 1e-12 is perfectly reasonable. Bounding ``MaximumStep`` recovers
+    much of the loss when a tight tolerance is genuinely needed (1e-12 with MaximumStep 1e-3
+    measured 1.7e-5).
+    """
+    if rel_tol is not None and rel_tol < FSA_MIN_SAFE_REL_TOL:
+        warnings.warn(
+            f"FSA (do_ad) gradients with solver_info rtol={rel_tol:g}: below "
+            f"{FSA_MIN_SAFE_REL_TOL:g} the CVODES sensitivities get *less* accurate as rtol "
+            f"tightens, because Myokit excludes them from the local error test and sizes its "
+            f"finite-difference sensitivity RHS by sqrt(rtol). The states stay accurate, so "
+            f"this is invisible in the trajectory. Prefer rtol >= "
+            f"{FSA_MIN_SAFE_REL_TOL:g} for gradient-based calibration, or bound "
+            f"solver_info MaximumStep to compensate (issue #387).")
+
+
+def stability_hint(solver_info, effective_tolerances):
+    """The one-line hint a failed solve carries: the three solver_info knobs that govern CVODES
+    stability, with their *effective* values (CA defaults included, so 'unset' still reads as
+    a number a user can decrease)."""
+    max_step = solver_info.get("MaximumStep")
+    abs_tol, rel_tol = effective_tolerances
+    max_step_str = "unset (unbounded)" if max_step is None else f"{max_step}"
+    return (f"MaximumStep is {max_step_str}, atol is {abs_tol}, rtol is {rel_tol}; "
+            f"decreasing these (solver_info MaximumStep / atol / rtol) may help stability.")
 
 
 class SimulationHelper:
@@ -232,11 +417,9 @@ class SimulationHelper:
             # Print the flattened model to string
             model_string = cellml.print_model(flat_model)
 
-            # Create temp file with the flattened model
-            with tempfile.NamedTemporaryFile(mode='w+', suffix='.cellml', delete=False) as f:
-                prepared_path = f.name
-            with open(prepared_path, 'w') as f:
-                f.write(model_string)
+            # One file per input model, overwritten, not a new tempfile per run.
+            prepared_path = flattened_cellml_path(path)
+            write_flattened_cellml(prepared_path, model_string)
 
             return prepared_path
 
@@ -275,18 +458,8 @@ class SimulationHelper:
                 self.simulation.set_max_step_size(self.solver_info["MaximumStep"])
             except Exception:
                 pass
-        rtol = self.solver_info.get("rtol", None)
-        atol = self.solver_info.get("atol", None)
-        if (rtol is None and atol is None) and self._fsa_enabled:
-            # CVODES forward sensitivities are only as accurate as the state integration;
-            # the default tolerance leaves a noise floor that swamps small sensitivities,
-            # so tighten it (unless the user set explicit tolerances) when FSA is active.
-            rtol, atol = 1e-8, 1e-8
-        if rtol is not None or atol is not None:
-            self.simulation.set_tolerance(
-                rtol if rtol is not None else 1e-8,
-                atol if atol is not None else 1e-8,
-            )
+        self._effective_tolerances = apply_cvodes_tolerances(
+            self.simulation, self.solver_info, self._fsa_enabled)
         self.last_log = None
         if hasattr(self, "all_vars"):
             self._init_defaults()
@@ -545,6 +718,15 @@ class SimulationHelper:
                 )
             else:
                 print(f"Myokit simulation failed: {e}")
+            # The three solver_info knobs that govern CVODES stability, with their effective
+            # values -- so a failed solve tells the user which numbers to turn, not just that
+            # it failed.
+            warnings.warn(
+                "Myokit simulation failed: "
+                + stability_hint(
+                    self.solver_info,
+                    getattr(self, '_effective_tolerances',
+                            (CA_DEFAULT_ABS_TOL, CA_DEFAULT_REL_TOL))))
             return False
         return True
 
@@ -684,6 +866,12 @@ class SimulationHelper:
                 return np.asarray(self.last_log[model_time_qname])
 
         raise RuntimeError("Unable to determine time series key from Myokit log.")
+
+    def get_default_param_vals(self, param_names):
+        """The model's values as loaded. On this backend get_init_param_vals already reads the
+        default_values snapshot rather than the live simulation, so the two agree -- but the name
+        says which is meant, and other backends do not have that property."""
+        return self.get_init_param_vals(param_names)
 
     def get_init_param_vals(self, param_names):
         param_init = []
@@ -830,11 +1018,8 @@ class SimulationHelper:
         # states they initialise are refreshed afterwards.
         changed_var_qnames = set()
         for idx, name_or_list in enumerate(param_names):
-            names = name_or_list if isinstance(name_or_list, list) else [name_or_list]
-            vals = param_vals[idx]
-            if not isinstance(vals, (list, tuple, np.ndarray)):
-                vals = [vals]
-            for name, val in zip(names, vals):
+            for name, val in pair_names_with_values(name_or_list, param_vals[idx],
+                                                   'set_param_vals'):
                 kind, qname = self._resolve_name(name)
 
                 if kind == "state":
@@ -933,11 +1118,8 @@ class SimulationHelper:
         """
         found_qname = None
         for idx, name_or_list in enumerate(param_names):
-            names = name_or_list if isinstance(name_or_list, list) else [name_or_list]
-            vals = param_vals[idx]
-            if not isinstance(vals, (list, tuple, np.ndarray)):
-                vals = [vals]
-            for name, val in zip(names, vals):
+            for name, val in pair_names_with_values(name_or_list, param_vals[idx],
+                                                   'paced-variable scan'):
                 if isinstance(val, str):
                     kind, qname = self._resolve_name(name)
                     if kind != "var":

@@ -1,4 +1,6 @@
 import importlib.util
+import warnings
+
 import numpy as np
 import copy
 import sys
@@ -140,6 +142,15 @@ class SimulationHelper:
         )
         # Full-length array for model function calls (compute_computed_constants, etc.)
         self.variables_model = list(self._numeric_variables_all)
+        # A frozen copy of the constants array as the model was loaded, taken here rather than in
+        # _store_constants_defaults because self.variables only becomes the constants-only array
+        # (the one _var_idx_to_const_pos indexes) on the line above.
+        #
+        # get_init_param_vals reads the *live* array, so once set_param_vals has written it
+        # reports the current value, not the model default -- unlike the Myokit backend, which
+        # keeps default_values. Anything needing a stable baseline (a scale modifier's
+        # theta * baseline_i) must read this, or the factor compounds across iterations.
+        self.default_variables = list(self.variables)
 
     def _compute_states_symb(self):
         states = self.states.copy()
@@ -153,10 +164,58 @@ class SimulationHelper:
         for i, info in enumerate(self.model.VARIABLE_INFO):
             variables[i] = ca.SX.sym(info["name"])
         self.variables = variables
+        # Keep the per-variable primitives: variables_all_symb is a vertcat, and the algebraic
+        # map needs the element list to substitute computed constants into (#389).
+        self._primitive_variables_symb = list(variables)
         return ca.vertcat(*variables)
 
+    def _variables_all_symb_list(self):
+        """The primitive symbol per model variable, as a list."""
+        return getattr(self, '_primitive_variables_symb', None) or [
+            self.variables_all_symb[i] for i in range(self.variables_all_symb.numel())]
+
+    def _with_computed_constants(self, variables):
+        """A copy of ``variables`` with every COMPUTED_CONSTANT replaced by its expression.
+
+        libCellML splits constants into CONSTANT (a literal initial value) and
+        COMPUTED_CONSTANT (an expression over other constants, evaluated once by
+        ``compute_computed_constants``). This helper gives each variable its own SX symbol, so
+        a computed constant was an *independent* symbol and the relation defining it -- e.g.
+        ``k = theta * c`` -- never entered the symbolic graph. A parameter reaching the
+        dynamics only through such a constant was therefore disconnected from the rates: its
+        AD gradient came out identically zero and the symbolic cost was flat in it, while the
+        numeric path (which re-runs compute_computed_constants) moved normally. Issue #389.
+
+        Running ``compute_computed_constants`` on the *symbolic* array fixes that: each
+        computed slot becomes an expression of the primitive symbols, so everything built from
+        the result depends on the true constants.
+
+        The primitives are left untouched, because ``variables_symb`` is used as a
+        ``ca.Function`` **input** and CasADi requires inputs to be symbolic primitives, not
+        expressions. Computed constants simply stop appearing in the graph; their primitive
+        symbols remain in the input vector, unused, which CasADi allows.
+        """
+        substituted = list(variables)
+        try:
+            self.model.compute_computed_constants(substituted)
+        except Exception as exc:
+            # A model whose computed constants are not symbolically evaluable keeps the old
+            # behaviour rather than failing to load; say so, because the cost of it is a
+            # silently zero gradient for anything that only acts through one.
+            warnings.warn(
+                f"could not evaluate compute_computed_constants symbolically ({exc}); "
+                f"parameters acting only through a computed constant will have a zero "
+                f"AD gradient on this model (issue #389).")
+            return list(variables)
+        return substituted
+
     def _compute_rates_symb(self):
-        self.model.compute_rates(self.start_time, self.states, self.rates, self.variables)
+        # Computed constants first, so a parameter that only feeds one still reaches the
+        # rates symbolically (#389). variables_all_symb stays primitive -- see
+        # _with_computed_constants -- so every ca.Function signature is unchanged.
+        self._symbolic_variables_with_computed = self._with_computed_constants(self.variables)
+        self.model.compute_rates(self.start_time, self.states, self.rates,
+                                 self._symbolic_variables_with_computed)
         return ca.vertcat(*self.variables), ca.vertcat(*self.rates)
 
     def _discover_init_var_state_links(self):
@@ -276,6 +335,28 @@ class SimulationHelper:
             self.states = list(self._sub_carry_state)
 
     # ---- parameter helpers ----
+    def get_default_param_vals(self, param_names):
+        """The model's values as loaded, regardless of what has been written since.
+
+        Same shape as get_init_param_vals, but read from the frozen snapshot rather than the live
+        arrays. See the note in _store_constants_defaults.
+        """
+        vals = []
+        for name_or_list in param_names:
+            if not isinstance(name_or_list, list):
+                name_or_list = [name_or_list]
+            sub = []
+            for name in name_or_list:
+                kind, idx = self._resolver.resolve(name)
+                if kind == "state":
+                    sub.append(self.default_state_inits[idx])
+                elif kind == "var":
+                    sub.append(self.default_variables[self._var_idx_to_const_pos(idx)])
+                else:
+                    raise ValueError(f"Parameter {name!r} not found (resolved kind={kind!r})")
+            vals.append(sub[0] if len(sub) == 1 else sub)
+        return vals
+
     def get_init_param_vals(self, param_names):
         vals = []
         for name_or_list in param_names:
@@ -383,7 +464,10 @@ class SimulationHelper:
         # --- Algebraic map, built once: (t, x, p) -> all algebraic variables ---
         t_symb = ca.SX.sym('t_alg')
         rates = [0.0] * self.STATE_COUNT
-        vars_symb_copy = copy.copy(self.variables_all_symb)
+        # Same substitution as the rates (#389): an algebraic variable -- and therefore an
+        # observable built on one -- that depends on a computed constant would otherwise be
+        # differentiated against an independent symbol and report a zero sensitivity.
+        vars_symb_copy = self._with_computed_constants(list(self._variables_all_symb_list()))
         self.model.compute_rates(t_symb, self.states_symb, rates, vars_symb_copy)
         self.model.compute_variables(t_symb, self.states_symb, rates, vars_symb_copy)
         alg_vec = ca.vertcat(*[vars_symb_copy[self.var_name_to_idx[name]] for name in var_names])
@@ -655,7 +739,31 @@ class SimulationHelper:
         return {name: val for name, val in zip(variable_names, values)}
 
     def _create_param_subset(self, param_names, param_vals=None):
-        param_names = [x[0] for x in param_names]
+        """Build the symbolic parameter subset the cost jacobian is taken against.
+
+        ``param_names`` is **flat**: one name per symbol, one value per name. A grouped
+        params_for_id row or a modifier entry names several model constants, and the caller
+        (``param_id.casadi_backend``) flattens them to their members and expands the values,
+        then folds the per-member derivatives back into one per calibrated variable with the
+        entry's chain-rule weights. Doing the fold there rather than here keeps this helper a
+        plain "symbols for these names" service, and reuses the same weights the Myokit/FSA
+        arm applies (``modifier_weights_by_index``), so the two backends cannot disagree
+        about what d/dtheta means.
+
+        A single-member list is accepted and unwrapped: ``[['a/C'], ['b/R']]`` is the canonical
+        ``param_id_info["param_names"]`` shape and names one constant per entry, so there is
+        nothing to flatten and no ambiguity. Only a *multi-member* group is refused -- taking
+        its first member is the pre-#380 bug (the gradient tracks one constant while the cost
+        moves all of them), and it is the caller's job to expand it.
+        """
+        param_names = [x[0] if isinstance(x, (list, tuple)) and len(x) == 1 else x
+                       for x in param_names]
+        grouped = [x for x in param_names if isinstance(x, (list, tuple))]
+        if grouped:
+            raise ValueError(
+                f"_create_param_subset expects one name per symbol, got multi-member "
+                f"{grouped}. Flatten grouped/modifier entries to their members (and expand "
+                f"their values) before calling; see param_id.casadi_backend.flatten_entries.")
 
         # Resolve each param to its VARIABLE_INFO index, then find its SX symbol
         var_indices = []   # VARIABLE_INFO indices

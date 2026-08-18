@@ -2,6 +2,7 @@
 @author: Finbar J. Argus
 '''
 
+import contextlib
 import numpy as np
 import os
 import sys
@@ -31,24 +32,31 @@ paperPlotSetup.Setup_Plot(3)
 from solver_wrappers import get_simulation_helper
 from protocol_runners.protocol_executor import ProtocolExecutor
 from parsers.PrimitiveParsers import scriptFunctionParser
-from mpi4py import MPI
+# Not `from mpi4py import MPI`: that import initialises MPI and registers an
+# atexit MPI_Finalize, and with no launcher present that finalise is what aborts
+# on macOS when a NIC goes away (#396). get_MPI hands back the real
+# mpi4py.MPI under mpiexec -- a multi-rank run is unchanged -- and a one-rank
+# stub otherwise, so a serial run never opens MPI at all.
+from utilities.mpi_utils import get_MPI as _get_MPI
+
+MPI = _get_MPI()
 import re
 from numpy import genfromtxt
 from importlib import import_module
 # import tqdm # TODO this needs to be installed for corner plot but doesnt need an import here
-mcmc_lib = 'emcee' # TODO make this a user variable
-if mcmc_lib == 'emcee':
-    try:
-        import emcee
-    except ImportError:
-        emcee = None
-elif mcmc_lib == 'zeus':
-    try:
-        import zeus
-    except ImportError:
-        zeus = None
-else:
-    print(f'unknown mcmc lib : {mcmc_lib}')
+# Which sampler a UQ run uses is UQ_options['library'], read in OpencorMCMC._build_sampler -- not
+# the module-level constant this used to be, which meant editing the source to change sampler.
+# Both are imported optionally: emcee is a CA dependency but zeus is not, and pymc is imported
+# only inside its own backend module (it is an optional [uq] extra, and this module is imported
+# by every calibration run, UQ or not).
+try:
+    import emcee
+except ImportError:
+    emcee = None
+try:
+    import zeus
+except ImportError:
+    zeus = None
 try:
     import corner
 except ImportError:
@@ -58,7 +66,7 @@ import shutil
 from datetime import date, datetime
 # from skopt import gp_minimize, Optimizer
 from parsers.PrimitiveParsers import (CSVFileParser, ObsAndParamDataParser, PARAM_ID_METHODS,
-                                      PARAM_PRIOR_TYPES)
+                                      PARAM_PRIOR_TYPES, prior_param_default)
 from param_id.optimisers import GeneticAlgorithmOptimiser, BayesianOptimiser, CMAESOptimiser, \
     SciPyMinimizeOptimiser, MultiStartSciPyMinimizeOptimiser
 from param_id.differentiable import (
@@ -67,6 +75,12 @@ from param_id.differentiable import (
     is_circulatory_differentiable,
 )
 from param_id.operation_funcs import resolve_operation_kwargs, validate_operation_kwargs
+from param_id.cost_kwargs import call_cost_func, ground_truth_param_name, validate_cost_kwargs
+from parsers.PrimitiveParsers import (apply_modifier_identity_nominals,
+                                      expand_modifier_param_vals,
+                                      param_entry_labels,
+                                      resolve_modifier_baselines,
+                                      save_param_modifiers)
 from param_id.plot_outputs import ParamIDPlotOutputs
 from param_id import casadi_backend
 from param_id import fsa_backend
@@ -96,6 +110,40 @@ warnings.filterwarnings( "ignore", module = "matplotlib/..*" )
 # can't be pickled because they are pyqt.
 mcmc_object = None
 
+#: The UQ backends that parallelise across MPI ranks by farming likelihood evaluations out to a
+#: worker pool, rather than by giving each rank chains of its own. See
+#: ``OpencorMCMC.sampler_needs_a_worker_pool`` for why the two arrangements cannot be mixed.
+_POOL_BACKED_UQ_LIBRARIES = ('emcee', 'zeus')
+
+
+# numpy 2.0 renamed trapz to trapezoid and removed the old name; numpy 1.x has only the old one,
+# and this project supports both (CI runs 2.2 while the OpenCOR shell ships 1.26). Bound once here
+# rather than branched at the call site, and named for what it does rather than for either
+# spelling.
+try:
+    from numpy import trapezoid as integrate_trapezoid       # numpy >= 2.0
+except ImportError:                                          # pragma: no cover - numpy < 2.0
+    from numpy import trapz as integrate_trapezoid
+
+
+def _resolve_UQ_options(UQ_options, mcmc_options):
+    """Accept the deprecated ``mcmc_options=`` kwarg wherever ``UQ_options=`` is now taken.
+
+    MCMC is one method of uncertainty quantification rather than the whole of it, so the options
+    moved to ``UQ_options`` with a ``method`` key. Callers passing the old name keep working and
+    are told once. Passing both is refused: the two can disagree, and picking a winner would
+    silently discard one from a caller who believes it is in effect.
+    """
+    if mcmc_options is None:
+        return UQ_options
+    if UQ_options is not None:
+        raise ValueError(
+            "pass either UQ_options or the deprecated mcmc_options, not both -- they are the "
+            "same setting and their values can disagree.")
+    print("WARNING: the 'mcmc_options' argument is deprecated; use 'UQ_options' instead "
+          "(MCMC is now selected with UQ_options={'method': 'mcmc', ...}).")
+    return mcmc_options
+
 
 def ensure_mle_cost_type_for_bayesian_inner(inner, inp_data_dict):
     """
@@ -113,9 +161,13 @@ def ensure_mle_cost_type_for_bayesian_inner(inner, inp_data_dict):
     option_dicts = []
     if inp_data_dict.get("DEBUG"):
         option_dicts.append(inp_data_dict.get("debug_optimiser_options") or {})
-        option_dicts.append(inp_data_dict.get("debug_mcmc_options") or {})
+        option_dicts.append(inp_data_dict.get("debug_UQ_options")
+                            or inp_data_dict.get("debug_mcmc_options") or {})
     option_dicts.append(inp_data_dict.get("optimiser_options") or {})
-    option_dicts.append(inp_data_dict.get("mcmc_options") or {})
+    # The legacy spelling is still read here: parse_user_inputs_file normalises it, but this is
+    # also reachable with a hand-built dict that never went through the parser.
+    option_dicts.append(inp_data_dict.get("UQ_options")
+                        or inp_data_dict.get("mcmc_options") or {})
     for src in option_dicts:
         if not isinstance(src, dict):
             continue
@@ -166,7 +218,7 @@ class CVS0DParamID():
 
     Args:
         model_path: Path to the generated model file (CellML/Python/CasADi).
-        model_type: One of ``'cellml_only'``, ``'python'``, ``'casadi_python'``.
+        model_type: One of ``'cellml'``, ``'python'``, ``'casadi_python'``.
         param_id_method: Optimiser to use, e.g. ``'genetic_algorithm'``,
             ``'CMA-ES'``, ``'bayesian'``, ``'sp_minimize'``.
         mcmc_instead: If True, build an MCMC sampler instead of an optimiser.
@@ -182,7 +234,10 @@ class CVS0DParamID():
         pre_time: Unlogged steady-state spin-up duration (s).
         dt: Output sampling step (s); must be <= every dt in the obs data.
         solver_info: Solver config dict (defaults to ``{"solver": "CVODE_myokit"}``).
-        mcmc_options: Options dict for MCMC (used when ``mcmc_instead=True``).
+        UQ_options: Options dict for uncertainty quantification (used when
+            ``mcmc_instead=True``): ``method`` (only ``'mcmc'`` so far), ``library``,
+            ``num_steps``, ``num_walkers``, ``burn_in``. ``mcmc_options`` is accepted as a
+            deprecated alias.
         optimiser_options: Options dict for the optimiser (e.g. ``cost_convergence``,
             ``max_patience``, ``num_calls_to_function``, ``cost_type``). Sensible
             defaults are used if omitted.
@@ -201,25 +256,34 @@ class CVS0DParamID():
     def __init__(self, model_path, model_type, param_id_method, mcmc_instead=False, file_name_prefix='no_name',
                  params_for_id_path=None,
                  param_id_obs_path=None, sim_time=2.0, pre_time=20.0, dt=0.01,
-                 solver_info=None, mcmc_options=None, optimiser_options=None, 
+                 solver_info=None, UQ_options=None, optimiser_options=None,
                  do_ad=False, DEBUG=False,
                  param_id_output_dir=None, resources_dir=None, one_rank=False,
-                 operation_funcs_external_path=None, cost_funcs_external_path=None):
+                 operation_funcs_external_path=None, cost_funcs_external_path=None,
+                 modifier_funcs_external_path=None, mcmc_options=None,
+                 use_emulator=False, emulator_dir=None, emulator_settings=None):
         self.model_path = model_path
         self.param_id_method = param_id_method
         self.mcmc_instead = mcmc_instead
         self.model_type = model_type
         self.file_name_prefix = file_name_prefix
+        # Emulator mode (#333): the analyses evaluate a trained surrogate instead of the
+        # solver. `solver_info['solver']` still names the solver it was trained against.
+        self.use_emulator = bool(use_emulator)
+        self.emulator_dir = emulator_dir
+        self.emulator_settings = dict(emulator_settings or {})
         # Optional external user-func files (issue #303), threaded into the param-id engine so its
-        # operation/cost dicts merge them in alongside the built-ins.
+        # operation/cost dicts merge them in alongside the built-ins. modifier_funcs (issue #383)
+        # follow the same pattern via the params_for_id parser.
         self.operation_funcs_external_path = operation_funcs_external_path
         self.cost_funcs_external_path = cost_funcs_external_path
+        self.modifier_funcs_external_path = modifier_funcs_external_path
 
         self.comm = MPI.COMM_WORLD
         self.rank = self.comm.Get_rank()
         self.num_procs = self.comm.Get_size()
 
-        self.mcmc_options = mcmc_options
+        self.UQ_options = _resolve_UQ_options(UQ_options, mcmc_options)
         if solver_info is None:
             self.solver_info = {"solver": "CVODE_myokit"}
         else:
@@ -276,7 +340,8 @@ class CVS0DParamID():
         self.prediction_info = None
         self.params_for_id_path = params_for_id_path
         self.optimiser_options = optimiser_options
-        self.obs_and_param_parser = ObsAndParamDataParser()
+        self.obs_and_param_parser = ObsAndParamDataParser(
+            modifier_funcs_external_path=modifier_funcs_external_path)
         if param_id_obs_path:
             # self.__set_obs_names_and_df(param_id_obs_path, sim_time=sim_time, pre_time=pre_time)
             parsed_data = self.obs_and_param_parser.parse_obs_data_json(
@@ -319,11 +384,15 @@ class CVS0DParamID():
             mcmc_object = OpencorMCMC(self.model_path,
                                            self.obs_info, self.param_id_info,
                                            self.protocol_info, self.prediction_info, self.solver_info, dt=self.dt,
-                                           mcmc_options=mcmc_options,
-                                           DEBUG=self.DEBUG, model_type=self.model_type)
+                                           UQ_options=self.UQ_options,
+                                           DEBUG=self.DEBUG, model_type=self.model_type,
+                                           use_emulator=self.use_emulator,
+                                           emulator_dir=self.emulator_dir,
+                                           emulator_settings=self.emulator_settings)
             self.n_steps = mcmc_object.n_steps
         else:
-            if model_type in ['cellml_only', 'python', 'casadi_python', 'aadc_python', 'python_user_defined']:
+            if model_type in ['cellml', 'python', 'casadi_python', 'aadc_python',
+                              'external_python']:
                 self.param_id = OpencorParamID(self.model_path, self.param_id_method,
                                                self.obs_info, self.param_id_info, self.protocol_info,
                                                self.prediction_info, self.solver_info, dt=self.dt,
@@ -331,7 +400,10 @@ class CVS0DParamID():
                                                do_ad=do_ad, DEBUG=self.DEBUG,
                                                model_type=self.model_type,
                                                operation_funcs_external_path=self.operation_funcs_external_path,
-                                               cost_funcs_external_path=self.cost_funcs_external_path)
+                                               cost_funcs_external_path=self.cost_funcs_external_path,
+                                               use_emulator=self.use_emulator,
+                                               emulator_dir=self.emulator_dir,
+                                               emulator_settings=self.emulator_settings)
                 self.n_steps = self.param_id.n_steps
         if self.rank == 0:
             self.set_output_dir(self.output_dir)
@@ -380,16 +452,23 @@ class CVS0DParamID():
         arg_options = [
             'model_path', 'model_type', 'param_id_method', 'mcmc_instead',
             'file_name_prefix', 'params_for_id_path', 'param_id_obs_path',
-            'sim_time', 'pre_time', 'dt', 'solver_info', 'mcmc_options',
+            'sim_time', 'pre_time', 'dt', 'solver_info', 'UQ_options',
             'optimiser_options', 'DEBUG', 'param_id_output_dir', 'resources_dir',
             'one_rank', 'do_ad',
             'operation_funcs_external_path', 'cost_funcs_external_path',
+            'modifier_funcs_external_path', 'use_emulator', 'emulator_settings',
         ]
         kwargs = {key: inp_data_dict[key] for key in arg_options if key in inp_data_dict}
 
         # Support common naming used elsewhere
         if 'file_name_prefix' not in kwargs and 'file_prefix' in inp_data_dict:
             kwargs['file_name_prefix'] = inp_data_dict['file_prefix']
+
+        # Where this config's emulator lives, resolved from the same dict the trainer used, so
+        # a run finds the emulator its own settings produced without naming a path twice.
+        if kwargs.get('use_emulator'):
+            from emulators.emulator_trainer import resolve_emulator_dir
+            kwargs['emulator_dir'] = resolve_emulator_dir(inp_data_dict)
 
         return cls(**kwargs)
 
@@ -464,9 +543,36 @@ class CVS0DParamID():
             except Exception:
                 pass
 
-    def run_mcmc(self):
-        """Run MCMC sampling (requires the instance was built with ``mcmc_instead=True``)."""
+    def run_UQ(self, UQ_options=None, mcmc_options=None):
+        """Run uncertainty quantification (MCMC) on **this** object.
+
+        Callable whether or not the instance was built with ``mcmc_instead=True``:
+
+        * built with it -- runs the UQ engine constructed up front (unchanged behaviour);
+        * built without it -- promotes the calibration engine via
+          ``OpencorMCMC.from_param_id``, so UQ after a calibration reuses the model already
+          compiled instead of building a second CVS0DParamID for it (CUFLynx #217).
+
+        ``UQ_options`` overrides the options the object was built with; omit it to keep them.
+        ``mcmc_options`` is a deprecated alias.
+        """
+        UQ_options = _resolve_UQ_options(UQ_options, mcmc_options)
+        global mcmc_object
+        if not self.mcmc_instead:
+            if getattr(self, 'param_id', None) is None:
+                raise RuntimeError(
+                    "run_UQ needs either mcmc_instead=True or a built param-id engine; this "
+                    "object has neither.")
+            mcmc_object = OpencorMCMC.from_param_id(
+                self.param_id,
+                UQ_options if UQ_options is not None else getattr(self, 'UQ_options', None))
+        elif UQ_options is not None:
+            mcmc_object._init_mcmc(UQ_options, DEBUG=self.DEBUG)
         mcmc_object.run()
+
+    def run_mcmc(self):
+        """Deprecated alias of :meth:`run_UQ`, kept so existing scripts keep working."""
+        return self.run_UQ()
     
     def _check_info_available(self):
         #new check, need ensure 'operands' or 'operation_kwargs' exist
@@ -511,6 +617,16 @@ class CVS0DParamID():
             feature values. If True, a tuple ``(obs_dicts, obs_arrays)`` where
             ``obs_arrays`` holds the time-series for plotting.
         """
+        if getattr(self.param_id, 'emulates_features', False):
+            # Nothing to simulate: the emulator's features *are* the result, and
+            # they were produced by the run that just finished. Returning rather
+            # than raising matters because callers pair this with plot_outputs()
+            # in one try block -- raising here cost the run its observable errors
+            # too, which an emulator can perfectly well report (#333).
+            print('use_emulator is set, so there is no simulation to re-run for the '
+                  'best fit; the emulator predicts the observable features directly.')
+            self.best_output_calculated = True
+            return (None, None) if return_series else None
         if return_series:
             obs_dicts, obs_arrays = self.param_id.simulate_once(reset=reset, only_one_exp=only_one_exp, return_series=return_series)
             self.best_output_calculated = True
@@ -702,6 +818,7 @@ class CVS0DParamID():
             return
 
         samples = np.load(os.path.join(self.output_dir, 'mcmc_chain.npy'))
+        samples = drop_unsampled_draws(samples)
         num_steps = samples.shape[0]
         num_walkers = samples.shape[1]
         num_params = samples.shape[2]  #
@@ -851,6 +968,14 @@ class CVS0DParamID():
         # Also check autocorrelation times for mcmc chain
         tau = self.calculate_autocorrelation_time(samples)
 
+        # Per-parameter posterior summary with ESS and split-R-hat, and the two chain-diagnostic
+        # plots. Printed rather than only returned: R-hat and ESS are the numbers that say
+        # whether the posterior above is trustworthy at all, so a run should not be able to
+        # finish without stating them.
+        self.print_convergence_diagnostics(samples)
+        self.plot_autocorrelation(samples)
+        self.plot_chain_avg(samples)
+
         # check geweke convergence
         if not self.DEBUG:
             # the chain is too short when running debug to do geweke diagnostics
@@ -866,6 +991,496 @@ class CVS0DParamID():
     def calculate_autocorrelation_time(self, samples):
         tau = emcee.autocorr.integrated_time(samples, quiet=True)
         return tau
+
+    # -----------------------------------------------------------------------
+    # Convergence diagnostics (issue #367)
+    # -----------------------------------------------------------------------
+    # Computed here from numpy and emcee rather than through arviz. #367 imported arviz at module
+    # level for these, which would have made every calibration run depend on it -- and arviz is
+    # not a CA dependency, so the diagnostics would then be unavailable in exactly the
+    # environments that need them. R-hat and ESS are short, standard formulas and emcee (already
+    # a dependency) supplies the autocorrelation, so nothing is gained by the dependency.
+
+    def calc_rhat(self, samples):
+        """Split-R-hat (Gelman-Rubin) per parameter, from a ``(steps, walkers, params)`` chain.
+
+        The *split* form: each walker is halved and the halves treated as separate chains, so a
+        single walker that drifts steadily is caught. Plain R-hat cannot see that -- a drifting
+        chain has a large within-chain variance, which is exactly what makes the ratio look fine.
+
+        Returns ``{param_name: rhat}``. Values near 1 indicate the walkers have mixed; the usual
+        working threshold is 1.01.
+        """
+        samples = np.asarray(samples, dtype=float)
+        num_steps, num_walkers, num_params = samples.shape
+
+        half = num_steps // 2
+        if half < 2:
+            return {name: float('nan') for name in self._param_labels(num_params)}
+
+        # (steps, walkers, params) -> (2*walkers chains, half draws, params)
+        chains = np.concatenate([samples[:half], samples[half:2 * half]], axis=1)
+        chains = np.swapaxes(chains, 0, 1)
+        num_chains = chains.shape[0]
+
+        chain_means = chains.mean(axis=1)
+        chain_vars = chains.var(axis=1, ddof=1)
+
+        within = chain_vars.mean(axis=0)
+        between = half * chain_means.var(axis=0, ddof=1) if num_chains > 1 else np.zeros(num_params)
+
+        var_plus = ((half - 1) / half) * within + between / half
+        with np.errstate(divide='ignore', invalid='ignore'):
+            rhat = np.sqrt(np.where(within > 0, var_plus / within, np.nan))
+
+        return dict(zip(self._param_labels(num_params), (float(r) for r in rhat)))
+
+    def calc_effective_sample_size(self, samples):
+        """Effective sample size per parameter: ``N / tau``, with tau the integrated
+        autocorrelation time over the pooled chain.
+
+        MCMC draws are correlated, so the number of samples overstates how much independent
+        information the chain carries. This is the number that should be quoted alongside a
+        posterior mean, not ``num_steps * num_walkers``.
+
+        Returns ``{param_name: ess}``.
+        """
+        samples = np.asarray(samples, dtype=float)
+        num_steps, num_walkers, num_params = samples.shape
+        total = num_steps * num_walkers
+
+        ess = {}
+        for name, idx in zip(self._param_labels(num_params), range(num_params)):
+            try:
+                tau = float(emcee.autocorr.integrated_time(samples[:, :, idx], quiet=True)[0])
+            except Exception:
+                tau = float('nan')
+            if not np.isfinite(tau) or tau <= 0:
+                ess[name] = float('nan')
+            else:
+                # A chain can never carry more independent information than it has draws.
+                ess[name] = float(min(total / tau, total))
+        return ess
+
+    def get_posterior_stats(self, samples):
+        """Per-parameter posterior summary: mean, sd, the 3%/97% credible bounds, ESS and R-hat.
+
+        One table rather than three separate arviz summary calls (#367 built the same dataset and
+        re-ran the summary in each of three accessors, so the expensive part ran three times).
+        """
+        samples = np.asarray(samples, dtype=float)
+        num_steps, num_walkers, num_params = samples.shape
+        flat = samples.reshape(num_steps * num_walkers, num_params)
+
+        ess = self.calc_effective_sample_size(samples)
+        rhat = self.calc_rhat(samples)
+
+        stats = {}
+        for idx, name in enumerate(self._param_labels(num_params)):
+            column = flat[:, idx]
+            stats[name] = {
+                'mean': float(np.mean(column)),
+                'sd': float(np.std(column, ddof=1)) if column.size > 1 else float('nan'),
+                'hdi_3%': float(np.percentile(column, 3)),
+                'hdi_97%': float(np.percentile(column, 97)),
+                'ess': ess[name],
+                'r_hat': rhat[name],
+            }
+        return stats
+
+    def print_convergence_diagnostics(self, samples):
+        """Print the summary table and say plainly whether the chain has converged.
+
+        A diagnostic nobody reads is not a diagnostic, and R-hat / ESS are only useful against
+        their thresholds -- so the verdict is stated rather than left to the reader.
+        """
+        stats = self.get_posterior_stats(samples)
+        print('')
+        print(f'{"parameter":<28s}{"mean":>12s}{"sd":>12s}{"3%":>12s}{"97%":>12s}'
+              f'{"ess":>10s}{"r_hat":>9s}')
+        for name, row in stats.items():
+            print(f'{name:<28s}{row["mean"]:>12.4g}{row["sd"]:>12.4g}{row["hdi_3%"]:>12.4g}'
+                  f'{row["hdi_97%"]:>12.4g}{row["ess"]:>10.1f}{row["r_hat"]:>9.3f}')
+
+        unconverged = [n for n, r in stats.items()
+                       if not np.isfinite(r['r_hat']) or r['r_hat'] > 1.01]
+        if unconverged:
+            print(f'WARNING: r_hat > 1.01 for {unconverged} -- the walkers have not mixed. '
+                  f'Run more steps before trusting the posterior.')
+        else:
+            print('All parameters have r_hat <= 1.01 (walkers mixed).')
+        return stats
+
+    def plot_autocorrelation(self, samples, num_params=None):
+        """One autocorrelation-vs-lag panel per parameter, every walker overlaid.
+
+        The +-0.1 guides are what makes the plot readable: a chain whose autocorrelation has
+        decayed inside them by the end of the trace is producing near-independent draws, and one
+        that has not is still exploring. Returns True when every walker is inside the band over
+        the last fifth of the lags, so a caller can act on it rather than only look at it.
+        """
+        if self.rank != 0:
+            return None
+        samples = np.asarray(samples, dtype=float)
+        if num_params is None:
+            num_params = samples.shape[2]
+
+        fig, axes = plt.subplots(num_params, figsize=(10, 2 * num_params), sharex=True,
+                                 squeeze=False)
+        all_bounded = True
+        labels = self._param_labels(num_params)
+        autocorr = None
+        for idx in range(num_params):
+            ax = axes[idx][0]
+            for walker in range(samples.shape[1]):
+                autocorr = emcee.autocorr.function_1d(samples[:, walker, idx])
+                ax.plot(autocorr, alpha=0.3)
+                window_size = max(1, int(0.2 * len(autocorr)))
+                if np.any(np.abs(autocorr[-window_size:]) > 0.1):
+                    all_bounded = False
+
+            ax.axhline(y=0, color='k', linestyle='--', alpha=0.7)
+            ax.axhline(y=0.1, color='r', linestyle='--', alpha=0.7, linewidth=1.5)
+            ax.axhline(y=-0.1, color='r', linestyle='--', alpha=0.7, linewidth=1.5)
+            ax.set_ylabel(f'${labels[idx]}$')
+            if autocorr is not None:
+                ax.set_xlim(0, len(autocorr))
+
+        axes[-1][0].set_xlabel('Lag')
+        fig.tight_layout()
+        fig.savefig(os.path.join(self.plot_dir,
+                                 f'mcmc_autocorrelation_{self.file_name_prefix}_'
+                                 f'{self.param_id_obs_file_prefix}.pdf'))
+        plt.close(fig)
+        return all_bounded
+
+    def plot_chain_avg(self, samples=None, window_size=10):
+        """Running mean of each walker, one panel per parameter.
+
+        Convergence shows up here as the walkers' running means coming together and flattening;
+        a walker whose mean is still moving has not finished exploring, which a corner plot of
+        the pooled chain hides by averaging it away.
+        """
+        if self.rank != 0:
+            return None
+        if samples is None:
+            chain = self.get_mcmc_samples()
+            if chain is None:
+                return None
+            _, samples, _ = chain
+        samples = np.asarray(samples, dtype=float)
+
+        num_steps, num_chains, num_params = samples.shape
+        if window_size >= num_steps:
+            print(f'Warning: chain-average window {window_size} is not shorter than the '
+                  f'{num_steps} steps available; skipping the chain average plot.')
+            return None
+
+        fig, axes = plt.subplots(num_params, figsize=(10, 2 * num_params), sharex=True,
+                                 squeeze=False)
+        window = np.ones(window_size) / window_size
+        labels = self._param_labels(num_params)
+        for idx in range(num_params):
+            ax = axes[idx][0]
+            for chain_idx in range(num_chains):
+                moving_avg = np.convolve(samples[:, chain_idx, idx], window, mode='valid')
+                ax.plot(np.arange(len(moving_avg)) + window_size - 1, moving_avg, alpha=0.5)
+            ax.set_ylabel(f'${labels[idx]}$')
+
+        axes[-1][0].set_xlabel('Step')
+        fig.tight_layout()
+        fig.savefig(os.path.join(self.plot_dir,
+                                 f'mcmc_chain_average_{self.file_name_prefix}_'
+                                 f'{self.param_id_obs_file_prefix}.pdf'))
+        plt.close(fig)
+        return True
+
+    # -----------------------------------------------------------------------
+    # Posterior-predictive plots (issue #367)
+    # -----------------------------------------------------------------------
+    # seaborn is imported lazily inside each of these. It is a CA dependency, but paramID is
+    # imported by every calibration run and none of these are on that path, so there is no
+    # reason to pay the import for a run that never plots a posterior.
+
+    def get_prior_pdf(self, param_idx, x_values):
+        """The prior density for one parameter, over ``x_values``, normalised on that range.
+
+        Derived from CA's own ``get_lnprior_from_params`` rather than reimplemented. The priors
+        are independent per parameter, so evaluating the log prior along one axis with the others
+        held at their best-fit values recovers that parameter's prior up to a constant, and the
+        constant falls out in the normalisation.
+
+        That matters because the prior vocabulary is not simply uniform/exponential/normal any
+        more: params_for_id carries ``prior_mean``, ``prior_std``, ``prior_origin`` and
+        ``prior_scale``, and an ``unbounded`` flag that suppresses the range truncation. #367
+        restated the *old* defaults here (lambda=1, sigma=(max-min)/6, mu=(max+min)/2), so a
+        plotted prior would have silently disagreed with the one actually being sampled.
+        """
+        engine = mcmc_object if self.mcmc_instead else self.param_id
+        x_values = np.asarray(x_values, dtype=float)
+
+        centre = getattr(engine, 'best_param_vals', None)
+        if centre is None:
+            mins = np.asarray(engine.param_id_info['param_mins'], dtype=float)
+            maxs = np.asarray(engine.param_id_info['param_maxs'], dtype=float)
+            centre = 0.5 * (mins + maxs)
+        centre = np.asarray(centre, dtype=float).copy()
+
+        lnprior = np.empty_like(x_values)
+        for idx, value in enumerate(x_values):
+            trial = centre.copy()
+            trial[param_idx] = value
+            lnprior[idx] = engine.get_lnprior_from_params(trial)
+
+        finite = np.isfinite(lnprior)
+        pdf = np.zeros_like(x_values)
+        if not np.any(finite):
+            return pdf
+        # Subtract the max before exponentiating: the log prior is unnormalised, so its absolute
+        # level is arbitrary and can overflow exp() outright.
+        pdf[finite] = np.exp(lnprior[finite] - np.max(lnprior[finite]))
+        area = integrate_trapezoid(pdf, x_values)
+        if area > 0:
+            pdf /= area
+        return pdf
+
+    def _posterior_predictive_values(self, flat_samples, n_sims=50):
+        """Re-simulate ``n_sims`` posterior draws and collect each observable's value.
+
+        Returns ``{name_for_plotting: {experiment_idx: [values], 'exp_data': [values]}}`` -- the
+        model's predictive distribution per feature, alongside the measurements it is answerable
+        to.
+        """
+        sim_obj = mcmc_object if self.mcmc_instead else self.param_id
+        names = self.obs_info['names_for_plotting']
+        values = {name: {} for name in names}
+
+        flat_samples = np.asarray(flat_samples, dtype=float)
+        n_actual = int(min(n_sims, len(flat_samples)))
+        if n_actual == 0:
+            return values
+        sample_indices = np.random.choice(len(flat_samples), n_actual, replace=False)
+
+        for count, sample_idx in enumerate(sample_indices, start=1):
+            _, obs_list = sim_obj.get_cost_and_obs_from_params(flat_samples[sample_idx, :],
+                                                               reset=True)
+            subexp_count = 0
+            for exp_idx in range(self.protocol_info['num_experiments']):
+                for sub_idx in range(self.protocol_info['num_sub_per_exp'][exp_idx]):
+                    if subexp_count >= len(obs_list) or obs_list[subexp_count] is None:
+                        subexp_count += 1
+                        continue
+                    obs_proc = sim_obj.get_obs_output_dict(obs_list[subexp_count])
+                    subexp_count += 1
+
+                    for obs_idx, name in enumerate(names):
+                        if (self.obs_info['experiment_idxs'][obs_idx] != exp_idx
+                                or self.obs_info['subexperiment_idxs'][obs_idx] != sub_idx):
+                            continue
+                        value = self._predictive_value(obs_proc, obs_idx)
+                        if value is not None:
+                            values[name].setdefault(exp_idx, []).append(value)
+
+            sim_obj.sim_helper.reset_and_clear()
+            print(f'Processed {count}/{n_actual} posterior samples for the predictive plots.')
+
+        self._add_measured_values(values)
+        return values
+
+    def _predictive_value(self, obs_proc, obs_idx):
+        """One observable's scalar out of a simulated obs dict, by its data_type."""
+        data_type = self.obs_info['data_types'][obs_idx]
+        try:
+            if data_type == 'constant':
+                return obs_proc['const'][obs_idx]
+            if data_type == 'series':
+                return np.max(obs_proc['series'][obs_idx])
+            if data_type == 'frequency':
+                return obs_proc['amp'][obs_idx]
+        except (IndexError, KeyError, TypeError):
+            return None
+        return None
+
+    def _add_measured_values(self, values):
+        """Add the measured data each feature is answerable to, under 'exp_data'."""
+        for obs_idx, name in enumerate(self.obs_info['names_for_plotting']):
+            data_type = self.obs_info['data_types'][obs_idx]
+            measured = values[name].setdefault('exp_data', [])
+            if data_type == 'constant':
+                # A constant scored against a distribution already *is* samples -- use them as
+                # given. Otherwise the observation is a mean and a std, so draw from it and the
+                # comparison stays distribution against distribution rather than against a line.
+                params = self.obs_info['ground_truth_prob_dist_params'][obs_idx]
+                if isinstance(params, dict) and 'data_points' in params:
+                    measured.extend(np.asarray(params['data_points'], dtype=float))
+                else:
+                    mean = self.obs_info['ground_truth_const'][obs_idx]
+                    std = self.obs_info['std_const_vec'][obs_idx]
+                    measured.extend(np.random.normal(mean, std, 20))
+
+    def save_posterior_predictions(self, values):
+        """Write the predictive values to posterior_predictions.csv, long-format.
+
+        The plots below are a view of this; the csv is what someone re-plots or re-analyses
+        from without paying for the simulations again.
+        """
+        rows = []
+        for feature, by_experiment in values.items():
+            for key, vals in by_experiment.items():
+                kind = 'experimental' if key == 'exp_data' else 'simulated'
+                for value in vals:
+                    rows.append({'feature': feature, 'experiment_idx': key,
+                                 'value': value, 'data_type': kind})
+        path = os.path.join(self.output_dir, 'posterior_predictions.csv')
+        pd.DataFrame(rows).to_csv(path, index=False)
+        print(f'Saved posterior predictions to {path}')
+        return path
+
+    def plot_boxplots_for_predictions(self, flat_samples, n_sims=50, show_points=True):
+        """Violin + box + jittered points per feature: the model's predictive spread against
+        the measurements, one figure per feature, plus a summary grid.
+
+        This is the plot that answers "does the calibrated model reproduce the data, and with
+        what spread" -- which a best-fit line cannot show.
+        """
+        if self.rank != 0:
+            return None
+        import seaborn as sns
+
+        values = self._posterior_predictive_values(flat_samples, n_sims=n_sims)
+        self.save_posterior_predictions(values)
+
+        written = []
+        for feature, by_experiment in values.items():
+            ordered_keys = sorted(by_experiment.keys(), key=lambda k: str(k))
+            series, labels, colors = [], [], []
+            for key in ordered_keys:
+                if not by_experiment[key]:
+                    continue
+                series.append(by_experiment[key])
+                if key == 'exp_data':
+                    labels.append('Experimental')
+                    colors.append('red')
+                else:
+                    labels.append(self._experiment_label(key))
+                    colors.append(self._experiment_color(key))
+            if not series:
+                continue
+
+            fig, ax = plt.subplots(figsize=(6.5, 4.5))
+            sns.violinplot(data=series, ax=ax, palette=colors, cut=3, inner='box',
+                           saturation=0.8)
+            for idx, collection in enumerate(ax.collections):
+                if idx < len(series):
+                    collection.set_alpha(0.35)
+                    collection.set_edgecolor('none')
+
+            for idx, vals in enumerate(series):
+                mean_v, std_v = np.mean(vals), np.std(vals)
+                ax.scatter(idx, mean_v, marker='D', color='white', edgecolor='black', s=30,
+                           zorder=4)
+                spread = np.max(vals) - np.min(vals)
+                ax.text(idx, np.max(vals) + 0.05 * spread,
+                        fr'${mean_v:.2g} \pm {std_v:.2g}$', ha='center', fontsize=9,
+                        bbox=dict(boxstyle='round,pad=0.2', fc='white', alpha=0.5, ec='none'))
+                if show_points:
+                    ax.scatter(np.random.normal(idx, 0.04, size=len(vals)), vals,
+                               color='black', s=5, alpha=0.2, zorder=2)
+
+            obs_idx = self.obs_info['names_for_plotting'].index(feature)
+            ax.set_xticks(range(len(labels)))
+            ax.set_xticklabels(labels, rotation=15)
+            ax.set_ylabel(f"{feature} ({self.obs_info['units'][obs_idx]})")
+            ax.set_title(feature)
+            sns.despine(ax=ax)
+            fig.tight_layout()
+            # Sanitised, not feature.replace(' ', '_'): a name_for_plotting is LaTeX-ish
+            # (u_{A_{R}}), and braces and slashes do not survive as a filename (#167).
+            # Imported here rather than at module level: sobolSA pulls in SALib, which a
+            # calibration-only install need not have.
+            from sensitivity_analysis.sobolSA import sanitize_for_filename
+
+            path = os.path.join(self.plot_dir, f'posterior_{sanitize_for_filename(feature)}.png')
+            fig.savefig(path, dpi=300)
+            plt.close(fig)
+            written.append(path)
+
+        # Once, after every feature -- #367 called this inside the loop, redrawing the whole
+        # grid once per feature and keeping only the last.
+        self.plot_distribution_grid(values)
+        return written
+
+    def plot_distribution_grid(self, values):
+        """One figure of KDE panels, model posterior against measurement, for every feature."""
+        if self.rank != 0:
+            return None
+        import seaborn as sns
+
+        features = list(self.obs_info['names_for_plotting'])
+        if not features:
+            return None
+        cols = min(3, len(features))
+        rows = (len(features) + cols - 1) // cols
+        fig, axes = plt.subplots(rows, cols, figsize=(cols * 4.5, rows * 4), squeeze=False)
+        flat_axes = axes.flatten()
+
+        for idx, feature in enumerate(features):
+            ax = flat_axes[idx]
+            by_experiment = values.get(feature, {})
+            model_vals = [v for key, vals in by_experiment.items() if key != 'exp_data'
+                          for v in vals]
+            self._draw_density(ax, model_vals, 'Model posterior', '#1f77b4')
+            self._draw_density(ax, by_experiment.get('exp_data', []), 'Experimental', '#d62728')
+
+            ax.set_title(feature, fontweight='bold')
+            ax.set_xlabel(f"Value ({self.obs_info['units'][idx]})")
+            ax.set_ylabel('Density')
+            ax.legend(fontsize=8, frameon=False)
+            sns.despine(ax=ax)
+
+        for empty in range(len(features), len(flat_axes)):
+            flat_axes[empty].axis('off')
+
+        fig.tight_layout()
+        path = os.path.join(self.plot_dir, 'all_features_kde_grid.png')
+        fig.savefig(path, dpi=300)
+        plt.close(fig)
+        return path
+
+    @staticmethod
+    def _draw_density(ax, data, label, color):
+        """A KDE curve, falling back to a histogram when the data has no spread to smooth."""
+        data = np.asarray(list(data), dtype=float)
+        if data.size < 2:
+            return
+        try:
+            from scipy.stats import gaussian_kde
+
+            kde = gaussian_kde(data)
+            pad = 0.5 * np.std(data)
+            grid = np.linspace(np.min(data) - pad, np.max(data) + pad, 200)
+            ax.plot(grid, kde(grid), color=color, lw=2, label=label)
+        except (np.linalg.LinAlgError, ValueError):
+            # gaussian_kde needs a non-singular covariance: identical samples raise here.
+            ax.hist(data, bins=50, density=True, alpha=0.2, color=color, label=label)
+
+    def _experiment_label(self, exp_idx):
+        labels = self.protocol_info.get('experiment_labels') or []
+        return labels[exp_idx] if exp_idx < len(labels) else f'Exp {exp_idx}'
+
+    def _experiment_color(self, exp_idx):
+        colors = self.protocol_info.get('experiment_colors') or []
+        return colors[exp_idx] if exp_idx < len(colors) else f'C{exp_idx}'
+
+    def _param_labels(self, num_params=None):
+        """Parameter names for the diagnostic tables, falling back to indices."""
+        names = None
+        info = getattr(self, 'param_id_info', None)
+        if isinstance(info, dict):
+            names = info.get('param_names_for_plotting')
+        if names is None or (num_params is not None and len(names) != num_params):
+            return [f'param_{idx}' for idx in range(num_params or 0)]
+        return list(names)
 
     def calculate_geweke_convergence(self, samples):
         d = diagnostics.Diagnostics()
@@ -896,6 +1511,10 @@ class CVS0DParamID():
 
     def save_prediction_data(self):
         if self.rank !=0:
+            return
+        if getattr(self.param_id, 'emulates_features', False):
+            print('Prediction variables are not saved when use_emulator is set: they are '
+                  'traces, and the emulator predicts the scalar observable features only.')
             return
         if self.prediction_info['names'] is not None:
             print('Saving prediction data')
@@ -1118,6 +1737,42 @@ class CVS0DParamID():
         print(param_std)
         np.save(os.path.join(self.output_dir, 'params_std.npy'), param_std)
 
+def observable_base_label(obs_info, obs_idx):
+    """``name (operation operand)`` for one data_item -- the label before disambiguation.
+
+    A module function rather than only a method, because an emulator has to record the labels
+    of the features it was trained on and check them against the run using it (#333), and both
+    sides must spell an observable the same way or every reload would look stale.
+    """
+    name = obs_info["names_for_plotting"][obs_idx]
+    op = obs_info["operations"][obs_idx]
+    operands = obs_info["operands"][obs_idx]
+    operand = operands[0] if operands else ''
+    return f"{name} ({op} {operand})" if op else f"{name} ({operand})"
+
+
+def observable_labels(obs_info):
+    """One disambiguated label per data_item, in obs_info order. See ``_observable_label``."""
+    bases = [observable_base_label(obs_info, idx) for idx in range(obs_info["num_obs"])]
+    counts = {}
+    for base in bases:
+        counts[base] = counts.get(base, 0) + 1
+    labels = []
+    for idx, base in enumerate(bases):
+        if counts[base] == 1:
+            labels.append(base)
+        else:
+            labels.append(f'{base} [exp {obs_info["experiment_idxs"][idx]}, '
+                          f'sub {obs_info["subexperiment_idxs"][idx]}]')
+    return labels
+
+
+def emulated_feature_labels(obs_info):
+    """The labels of the scalar features an emulator is trained on, in emulator output order."""
+    labels = observable_labels(obs_info)
+    return [labels[obs_idx] for obs_idx in obs_info["const_idx_to_obs_idx"]]
+
+
 OFFLINE_PRE_TIME_INIT_STATE_ERROR = (
     "varying initial state (quantity) requires doing it from the actual initial state, so "
     "offline_pre_time can't be used. Reformulate to calibrate wrt a constant parameter rather "
@@ -1130,17 +1785,33 @@ class OpencorParamID():
     """
     Class for doing parameter identification on opencor models
     """
+
+    #: True once the sim helper is an emulator of the scalar observable features (#333). A class
+    #: attribute so it is always readable -- the cost, gradient and observable paths branch on
+    #: it, and any of them can be reached on an engine built without the full constructor.
+    emulates_features = False
+
     def __init__(self, model_path, param_id_method,
                  obs_info, param_id_info, protocol_info, prediction_info,
                  solver_info, dt=0.01,
                  optimiser_options=None, do_ad=False,
                  DEBUG=False, model_type=None,
-                 operation_funcs_external_path=None, cost_funcs_external_path=None):
+                 operation_funcs_external_path=None, cost_funcs_external_path=None,
+                 use_emulator=False, emulator_dir=None, emulator_settings=None):
 
         self.model_path = model_path
         self.param_id_method = param_id_method
         self.output_dir = None
         self.model_type = model_type
+
+        # Emulator mode (#333). `solver` still names the truth solver -- the one the emulator
+        # was trained against, and the one to compare it with -- so this is its own flag.
+        self.use_emulator = bool(use_emulator)
+        self.emulator_dir = emulator_dir
+        self.emulator_settings = dict(emulator_settings or {})
+        # Set for real once the helper exists; defined here so anything reading it during
+        # construction sees False rather than an AttributeError.
+        self.emulates_features = False
 
         self.solver_info = solver_info
         self.obs_info = obs_info
@@ -1206,7 +1877,17 @@ class OpencorParamID():
                 self.pre_time = None
 
         self.sim_helper = self.initialise_sim_helper()
+        # Cached rather than probed per evaluation: this decides, on the hot path, whether the
+        # obs `operation` still has to run. getattr keeps every real backend at False untouched.
+        self.emulates_features = bool(getattr(self.sim_helper, 'emulates_features', False))
+        if self.emulates_features:
+            self._configure_emulator()
         self._protocol_executor = ProtocolExecutor(self.sim_helper)
+
+        # Resolve modifier baselines here and nowhere else: the helper exists and nothing has
+        # written a parameter yet. Deriving them later would read values the optimiser had
+        # already scaled, and theta would compound every iteration.
+        resolve_modifier_baselines(self.param_id_info, self.sim_helper)
 
         if self.sim_time is not None and self.pre_time is not None:
             self.sim_helper.update_times(self.dt, 0.0, self.sim_time, self.pre_time)
@@ -1264,7 +1945,14 @@ class OpencorParamID():
         self.pred_collinearity_idx_pairs = None
 
         self.do_ad = do_ad
-        
+        if self.emulates_features and self.do_ad:
+            # Every analytic arm differentiates the real model, so AD over an emulator would
+            # descend a different function than the cost reports. get_gradient answers with
+            # finite differences on the emulator instead, which costs nothing here.
+            print('use_emulator is set, so do_ad is being turned off: gradients over an '
+                  'emulator come from finite differences on its own (near-free) evaluations.')
+            self.do_ad = False
+
         if self.obs_info is not None:
             self.cost_type = self.obs_info["cost_type"]
         else:
@@ -1276,6 +1964,7 @@ class OpencorParamID():
             )
         # Fail fast on a stale obs_data.json rather than part-way through an optimisation (#304).
         validate_operation_kwargs(self.obs_info, self.operation_funcs_dict)
+        validate_cost_kwargs(self.obs_info, self.cost_funcs_dict, self.cost_type)
         self.DEBUG = DEBUG
 
         # Per (experiment, subexperiment) count of observables with non-zero weight. The sum
@@ -1305,13 +1994,11 @@ class OpencorParamID():
                 ws = self.protocol_info["scaled_weight_series_from_exp_sub"][exp_idx][sub_idx]
                 wa = self.protocol_info["scaled_weight_amp_from_exp_sub"][exp_idx][sub_idx]
                 wp = self.protocol_info["scaled_weight_phase_from_exp_sub"][exp_idx][sub_idx]
-                wd = self.protocol_info["scaled_weight_prob_dist_from_exp_sub"][exp_idx][sub_idx]
                 n = int(
                     np.sum(wc != 0)
                     + np.sum(ws != 0)
                     + np.sum(wa != 0)
                     + np.sum(wp != 0)
-                    + np.sum(wd != 0)
                 )
                 row.append(n)
                 total += n
@@ -1355,9 +2042,68 @@ class OpencorParamID():
         solver = self.solver_info.get('solver')
         helper_cls = get_simulation_helper(solver=solver, model_type=self.model_type,
                                            model_path=self.model_path, dt=self.dt, sim_time=self.sim_time,
-                                           solver_info=self.solver_info, pre_time=self.pre_time)
+                                           solver_info=self.solver_info, pre_time=self.pre_time,
+                                           use_emulator=self.use_emulator,
+                                           emulator_dir=self.emulator_dir,
+                                           # None -> the helper takes what the emulator was
+                                           # trained with (see _use_time_setting).
+                                           out_of_bounds=self.emulator_settings.get(
+                                               'out_of_bounds'))
         return helper_cls
-    
+
+    def _configure_emulator(self):
+        """Validate the loaded emulator against this run, and wire its outputs to the obs items.
+
+        Everything here is a refusal that has to happen *before* the first evaluation. An
+        emulator asked to answer for a model, parameter set or protocol it was not trained
+        against does not fail -- it answers, about something else -- and the resulting costs
+        and Sobol indices carry no sign of it (#333).
+        """
+        from emulators.emulator_bundle import fingerprint
+        bundle = self.sim_helper.bundle
+
+        bad = {jj: dtype for jj, dtype in enumerate(self.obs_info['data_types'])
+               if dtype != 'constant'}
+        if bad:
+            raise ValueError(
+                f'use_emulator is set, but obs_data.json has data_type(s) '
+                f'{sorted(set(bad.values()))} at data_item index(es) {sorted(bad)}. The emulator '
+                f'predicts scalar data_item features only; those need the full simulated trace '
+                f'("series") or its FFT ("frequency"). Emulating series outputs is not supported '
+                f'yet -- run with use_emulator: false, or drop those items.')
+
+        bundle.check_matches(
+            fingerprint(self.param_id_info, self.obs_info, self.protocol_info, self.model_path),
+            param_entry_labels=param_entry_labels(self.param_id_info),
+            feature_labels=emulated_feature_labels(self.obs_info))
+        bundle.check_quality(self._use_time_setting('min_r2', 0.9, bundle))
+        self.sim_helper.set_obs_map(self.obs_info['const_idx_to_obs_idx'],
+                                    num_obs=self.obs_info['num_obs'])
+
+    def _use_time_setting(self, name, default, bundle=None):
+        """An ``emulator_settings`` value that is read when the emulator is *used*.
+
+        Most of that block only matters while training, and only training is given
+        it. ``min_r2`` and ``fd_rel_step`` are the exceptions: they are read again
+        by a calibration / SA / UQ run that evaluates the emulator -- and such a run
+        is configured by its own settings, which need say nothing about emulation.
+        Falling straight back to the schema default there meant a user who set
+        ``min_r2: 0.88`` was refused at 0.9 and told 0.9 was "the configured min_r2".
+
+        So the emulator carries its own configuration: the value comes from this
+        run's ``emulator_settings`` when it names one, else from the block saved in
+        the bundle when it was trained, else the default. An explicit setting still
+        wins, which is what lets one run accept a lower-quality emulator without
+        retraining it.
+        """
+        if name in (self.emulator_settings or {}):
+            return self.emulator_settings[name]
+        bundle = bundle if bundle is not None else getattr(self.sim_helper, 'bundle', None)
+        trained_with = (getattr(bundle, 'meta', None) or {}).get('settings') or {}
+        if name in trained_with:
+            return trained_with[name]
+        return default
+
     def add_user_operation_func(self, func):
         if self.model_type == "casadi_python" and not is_circulatory_differentiable(func):
             raise ValueError(
@@ -1389,6 +2135,17 @@ class OpencorParamID():
         self.param_id_info = param_id_info
         self.num_params = len(self.param_id_info["param_names"])
         self.param_norm_obj = Normalise_class(self.param_id_info["param_mins"], self.param_id_info["param_maxs"])
+        # The constructor resolves baselines when param_id_info is already known; entry points
+        # that set it afterwards resolve here instead. Idempotent, and still before any
+        # parameter has been written, which is the property that stops theta compounding.
+        if getattr(self, 'sim_helper', None) is not None:
+            resolve_modifier_baselines(self.param_id_info, self.sim_helper)
+        # Re-check the emulator against the parameters it is now being asked about: the
+        # programmatic API sets these after construction, and an emulator trained for a
+        # different set (or a different box) would answer anyway.
+        if self.emulates_features:
+            self._configure_emulator()
+
     
     def set_protocol_info(self, protocol_info):
         self.protocol_info = protocol_info
@@ -1403,7 +2160,12 @@ class OpencorParamID():
         self.obs_info = obs_info
         self.cost_type = self.obs_info["cost_type"]
         validate_operation_kwargs(self.obs_info, self.operation_funcs_dict)
+        validate_cost_kwargs(self.obs_info, self.cost_funcs_dict, self.cost_type)
         self._refresh_num_weighted_obs_tables()
+        # As in set_param_id_info: the observables just changed, and the emulator's outputs
+        # are tied to the ones it was trained on, feature for feature.
+        if self.emulates_features:
+            self._configure_emulator()
 
     def set_optimiser_options(self, optimiser_options):
         self.optimiser_options = optimiser_options
@@ -1445,6 +2207,16 @@ class OpencorParamID():
             Inserted before ``.npz`` (e.g. ``"_plot"`` for plot-time dumps).
         """
         if MPI.COMM_WORLD.Get_rank() != 0:
+            return
+        if self.emulates_features:
+            # Not a failure -- the run worked, and this is the one thing an emulator of scalar
+            # features genuinely cannot give. Said plainly, at the end of a run, rather than
+            # raised from inside a save.
+            print(
+                "[param_id] the all-outputs npz is not written when use_emulator is set: the "
+                "emulator predicts the scalar observable features, not the traces they came "
+                "from. Re-run with use_emulator: false for simulated outputs."
+            )
             return
         if self.output_dir is None or self.protocol_info is None:
             print(
@@ -1503,7 +2275,23 @@ class OpencorParamID():
         # ________ Do parameter identification ________
 
         # Don't remove the get_init_param_vals, this also checks the parameters names are correct.
-        self.param_init = self.sim_helper.get_init_param_vals(self.param_id_info["param_names"])
+        raw_init = self.sim_helper.get_init_param_vals(self.param_id_info["param_names"])
+        # One x0 slot per calibrated variable (theta), flat. get_init_param_vals returns a
+        # *list* of member values for a multi-name entry, and np.asarray over that ragged
+        # structure is a crash in every optimiser's x0 handling -- a grouped row starts at its
+        # first member's default (the shared value). A modifier's slot is theta, not a model
+        # value, so it starts at the operation's identity (scale -> 1.0), where every target
+        # sits at its baseline; a member's raw default there (~1e-8 for a compliance) would be
+        # taken as a scale factor.
+        self.param_init = apply_modifier_identity_nominals(
+            self.param_id_info,
+            np.array([v[0] if isinstance(v, (list, tuple)) else v for v in raw_init],
+                     dtype=float))
+
+        # The param_modifiers.json written at parse time has baselines: None -- no simulation
+        # helper existed yet. Re-save now they are resolved; without baselines the recorded
+        # theta is uninterpretable, which is the file's whole purpose.
+        save_param_modifiers(self.param_id_info, self.output_dir)
 
         # C_T min and max was 1e-9 and 1e-5 before
 
@@ -1614,13 +2402,23 @@ class OpencorParamID():
         if do_ad:
             reset = False
 
+        if self.emulates_features:
+            # The emulator's input is theta itself. By the time the executor calls
+            # set_param_vals these values have been expanded to one per model parameter, and a
+            # modifier entry's expansion (theta * baseline) is not the theta it was trained on
+            # -- so theta is handed over here, before any of that.
+            self.sim_helper.set_theta(param_vals)
+
         # Run the protocol loop via the shared ProtocolExecutor.
         # reset_after_experiment mirrors the original `reset` flag: when do_ad=True
         # (reset=False) the solver state must be preserved across experiments.
         sim_success, results_by_sub, extra_by_sub, _ = self._protocol_executor.run_protocol(
             self.protocol_info,
             id_param_names=self.param_id_info["param_names"],
-            id_param_vals=param_vals,
+            # A modifier occupies one slot in the optimiser's vector but names N model
+            # parameters, so its slot expands to theta * baseline_i here. Everything else passes
+            # through, and set_param_vals pairs N names with N values positionally (#376).
+            id_param_vals=expand_modifier_param_vals(self.param_id_info, param_vals),
             result_variables=self.obs_info["operands"],
             extra_result_variables=pred_names,
             exp_indices=exp_idxs_to_run,
@@ -1674,13 +2472,11 @@ class OpencorParamID():
                     ws = self.protocol_info["scaled_weight_series_from_exp_sub"][exp_idx][this_sub_idx]
                     wa = self.protocol_info["scaled_weight_amp_from_exp_sub"][exp_idx][this_sub_idx]
                     wp = self.protocol_info["scaled_weight_phase_from_exp_sub"][exp_idx][this_sub_idx]
-                    wd = self.protocol_info["scaled_weight_prob_dist_from_exp_sub"][exp_idx][this_sub_idx]
                     weighted_obs_denominator += int(
                         np.sum(wc != 0)
                         + np.sum(ws != 0)
                         + np.sum(wa != 0)
                         + np.sum(wp != 0)
-                        + np.sum(wd != 0)
                     )
 
         # Mean NLL contribution per weighted observable slot (summed raw sub costs / global count).
@@ -1709,6 +2505,35 @@ class OpencorParamID():
         if flags is None or idx >= len(flags):
             return False
         return bool(flags[idx])
+
+    def _resolved_prior_param(self, idx, prior_type, name):
+        """A prior hyper-parameter with its default resolved from the schema.
+
+        A stated value wins; otherwise the schema's default_expr is evaluated
+        against this parameter's bounds and its sibling values. Raises when the
+        result is unusable -- an unbounded exponential with no scale has nothing
+        to decay by, and guessing one would silently invent a prior.
+        """
+        stated = self._prior_param(idx, name)
+        if stated is not None:
+            return stated
+        bounds = {}
+        lo = self.param_id_info["param_mins"][idx]
+        hi = self.param_id_info["param_maxs"][idx]
+        if np.isfinite(lo):
+            bounds['min'] = float(lo)
+        if np.isfinite(hi):
+            bounds['max'] = float(hi)
+        siblings = dict(self.param_id_info.get("param_prior_params", [{}] * (idx + 1))[idx] or {})
+        for spec in PARAM_PRIOR_TYPES.get(prior_type, {}).get('params', []):
+            siblings.setdefault(spec['name'], spec.get('default'))
+        value = prior_param_default(prior_type, name, bounds, siblings)
+        if value is None:
+            raise ValueError(
+                f"'{name}' is needed for the {prior_type} prior on parameter index {idx} "
+                f"and could not be derived from the parameter's range. State it in "
+                f"params_for_id.")
+        return value
 
     def _prior_param(self, idx, name):
         """One prior hyper-parameter for parameter ``idx``, or its declared default.
@@ -1750,13 +2575,18 @@ class OpencorParamID():
                     pass
             
             elif prior_dist == 'exponential':
-                lamb = self._prior_param(idx, 'prior_lambda')
                 if bounded and (param_val < self.param_id_info["param_mins"][idx] or param_val > self.param_id_info["param_maxs"][idx]):
                     return -np.inf
                 else:
-                    # the normalisation isnt needed here but might be nice to
-                    # make sure prior for each param is between 0 and 1
-                    lnprior += -lamb*param_val/self.param_id_info["param_maxs"][idx]
+                    # -(x - origin)/scale. With both left blank this is exactly the
+                    # original -lambda*x/max: origin defaults to 0 and scale to
+                    # max/lambda. Stating a scale gives the decay a size in the
+                    # parameter's own units, which is what makes an unbounded
+                    # exponential meaningful -- the original rate is defined
+                    # *relative to max*, and an unbounded parameter has no max.
+                    origin = self._resolved_prior_param(idx, 'exponential', 'prior_origin')
+                    scale = self._resolved_prior_param(idx, 'exponential', 'prior_scale')
+                    lnprior += -(param_val - origin) / scale
 
             elif prior_dist == 'normal':
                 if bounded and (param_val < self.param_id_info["param_mins"][idx] or param_val > self.param_id_info["param_maxs"][idx]):
@@ -1767,12 +2597,11 @@ class OpencorParamID():
                     # params_for_id columns (prior_mean / prior_std), because a prior whose
                     # centre is fixed to the middle of the bounds cannot express most of
                     # what a prior is for.
-                    std = self._prior_param(idx, 'prior_std')
-                    if std is None:
-                        std = 1/6*(self.param_id_info["param_maxs"][idx] - self.param_id_info["param_mins"][idx])
-                    mean = self._prior_param(idx, 'prior_mean')
-                    if mean is None:
-                        mean = 0.5*(self.param_id_info["param_maxs"][idx] + self.param_id_info["param_mins"][idx])
+                    # Both defaults come from the schema's default_expr, so the
+                    # number used here and the one a UI shows in the blank field
+                    # are the same statement rather than two copies of it.
+                    std = self._resolved_prior_param(idx, 'normal', 'prior_std')
+                    mean = self._resolved_prior_param(idx, 'normal', 'prior_mean')
                     lnprior += -0.5*((param_val - mean)/std)**2
 
             else:
@@ -1914,6 +2743,33 @@ class OpencorParamID():
 
         return series_entry, ground_truth[:num_in_range], std[:num_in_range]
 
+    def _cost_kwargs_for(self, obs_idx):
+        """The data_item's ``cost_kwargs`` for observable ``obs_idx`` (issue #84).
+
+        Indexed by *observable*, matching cost_type and the weight vectors, so it stays correct
+        when the const/series/amp vectors are compacted to their own index spaces.
+        """
+        raw = self.obs_info.get("cost_kwargs") if self.obs_info else None
+        if not raw or obs_idx >= len(raw):
+            return None
+        return raw[obs_idx] or None
+
+    def _cost_weight_vectors(self, exp_idx, sub_idx):
+        """The four per-data_item weight vectors this sub-experiment's cost is built from.
+
+        A single seam so a subclass can change what weighting the cost uses without
+        reimplementing cost_calc -- OpencorMCMC flattens them, because a weighted likelihood is
+        not a posterior (issue #193).
+
+        Returns them in the order (const, series, amp, phase).
+        """
+        return (
+            self.protocol_info["scaled_weight_const_from_exp_sub"][exp_idx][sub_idx],
+            self.protocol_info["scaled_weight_series_from_exp_sub"][exp_idx][sub_idx],
+            self.protocol_info["scaled_weight_amp_from_exp_sub"][exp_idx][sub_idx],
+            self.protocol_info["scaled_weight_phase_from_exp_sub"][exp_idx][sub_idx],
+        )
+
     def cost_calc(self, obs_dict, exp_idx=0, sub_idx=0, is_symbolic=False):
 
         # Symbolic cost terms use the casadi-mode cost funcs; numeric ones the numpy-mode funcs
@@ -1925,15 +2781,20 @@ class OpencorParamID():
         series = obs_dict['series']
         amp = obs_dict['amp']
         phase = obs_dict['phase']
-        val_for_prob_dist = obs_dict['val_for_prob_dist']
 
-        # update cost weights for this experiment and subexperiment
-        updated_weight_const_vec = self.protocol_info["scaled_weight_const_from_exp_sub"][exp_idx][sub_idx]
-        updated_weight_series_vec = self.protocol_info["scaled_weight_series_from_exp_sub"][exp_idx][sub_idx]
-        updated_weight_amp_vec = self.protocol_info["scaled_weight_amp_from_exp_sub"][exp_idx][sub_idx]
-        updated_weight_phase_vec = self.protocol_info["scaled_weight_phase_from_exp_sub"][exp_idx][sub_idx]
-        updated_weight_prob_dist_vec = self.protocol_info["scaled_weight_prob_dist_from_exp_sub"][exp_idx][sub_idx]
-        
+        # update cost weights for this experiment and subexperiment.
+        #
+        # These are indexed by *data_item row*, not by the per-type compacted counter:
+        # process_protocol_and_weights builds each one full length over all data_items and
+        # zeroes the rows that are not its type. So every read below uses obs_idx, the row
+        # the observable actually came from, the way cost_type already did. Reading them by
+        # const_idx / series_idx / ... only agreed when the items of a type happened to
+        # occupy the leading rows; interleave the types and an observable picked up another
+        # row's weight -- usually a zero, which dropped it from the cost while
+        # _refresh_num_weighted_obs_tables still counted it in the denominator (#349).
+        (updated_weight_const_vec, updated_weight_series_vec, updated_weight_amp_vec,
+         updated_weight_phase_vec) = self._cost_weight_vectors(exp_idx, sub_idx)
+
         # get number of obs that don't have zero weights (cached in __init__ / refresh on obs/protocol change)
         if self._num_weighted_obs_by_exp_sub is not None:
             num_weighted_obs = self._num_weighted_obs_by_exp_sub[exp_idx][sub_idx]
@@ -1943,7 +2804,6 @@ class OpencorParamID():
                 + np.sum(updated_weight_series_vec != 0)
                 + np.sum(updated_weight_amp_vec != 0)
                 + np.sum(updated_weight_phase_vec != 0)
-                + np.sum(updated_weight_prob_dist_vec != 0)
             )
         
         # this subexperiment doesn't have any weighted observables, so no cost
@@ -1955,21 +2815,37 @@ class OpencorParamID():
         if self.obs_info["ground_truth_phase"].all() == None:
             phase = None
 
-        # TODO: Fix for amp, phase, and val_for_prob_dist
+        # TODO: Fix for amp and phase
         if is_symbolic:
             _require_casadi()
             cost = ca.SX(0)
             if const is not None:
                 for const_idx in range(const.size1()):
                     obs_idx = self.obs_info['const_idx_to_obs_idx'][const_idx]
-                    if updated_weight_const_vec[const_idx] != 0:
-                        cost += cost_funcs_dict[self.cost_type[obs_idx]](const[const_idx], self.obs_info["ground_truth_const"][const_idx],
-                                                        self.obs_info["std_const_vec"][const_idx], updated_weight_const_vec[const_idx])
+                    if updated_weight_const_vec[obs_idx] != 0:
+                        cost_func = cost_funcs_dict[self.cost_type[obs_idx]]
+                        # A cost that scores against a distribution builds its density from
+                        # numbers (scipy's gaussian_kde, a mixture) and cannot take a symbol.
+                        # Before #421 these items were data_type prob_dist and were refused
+                        # below with amp/phase; now they are constants, so refuse them here --
+                        # otherwise the symbolic cost silently picks up the nan standing in for
+                        # the `value` such an item deliberately does not have.
+                        if ground_truth_param_name(cost_func) == 'prob_dist_params':
+                            raise NotImplementedError(
+                                f"cost_type '{self.cost_type[obs_idx]}' scores against a "
+                                f"distribution and cannot be differentiated symbolically. Use a "
+                                f"value/std cost (gaussian_MLE, MSE, AE) for this data_item, or "
+                                f"turn off do_ad.")
+                        cost += call_cost_func(cost_func,
+                                               const[const_idx], self.obs_info["ground_truth_const"][const_idx],
+                                               std=self.obs_info["std_const_vec"][const_idx],
+                                               weight=updated_weight_const_vec[obs_idx],
+                                               cost_kwargs=self._cost_kwargs_for(obs_idx))
 
             if series is not None:
                 for series_idx in range(len(series)):
                     obs_idx = self.obs_info['series_idx_to_obs_idx'][series_idx]
-                    weight_entry = updated_weight_series_vec[series_idx]
+                    weight_entry = updated_weight_series_vec[obs_idx]
                     if weight_entry == 0:
                         continue
 
@@ -1986,16 +2862,16 @@ class OpencorParamID():
                     obs_entry = ca.DM(obs_np.reshape(-1, 1))
                     std_entry = ca.DM(std_np.reshape(-1, 1))
 
-                    cost += cost_funcs_dict[self.cost_type[obs_idx]](
-                        series_entry, obs_entry, std_entry, weight_entry)
+                    cost += call_cost_func(cost_funcs_dict[self.cost_type[obs_idx]],
+                        series_entry, obs_entry, std=std_entry, weight=weight_entry,
+                        cost_kwargs=self._cost_kwargs_for(obs_idx))
 
             # Silently returning a zero cost for observables we can't differentiate would look
             # like a perfectly converged fit, so fail loudly instead.
-            if amp is not None or phase is not None or val_for_prob_dist is not None:
+            if amp is not None or phase is not None:
                 raise NotImplementedError(
-                    'automatic differentiation of frequency (amp/phase) and prob_dist '
-                    'observables is not implemented. Use constant or series data items, or '
-                    'turn off do_ad.')
+                    'automatic differentiation of frequency (amp/phase) observables is not '
+                    'implemented. Use constant or series data items, or turn off do_ad.')
 
             return cost
 
@@ -2013,9 +2889,14 @@ class OpencorParamID():
         if const is not None:
             for const_idx in range(len(const)):
                 obs_idx = self.obs_info['const_idx_to_obs_idx'][const_idx]
-                if updated_weight_const_vec[const_idx] != 0:
-                    cost += cost_funcs_dict[self.cost_type[obs_idx]](const[const_idx], self.obs_info["ground_truth_const"][const_idx],
-                                                    self.obs_info["std_const_vec"][const_idx], updated_weight_const_vec[const_idx])
+                if updated_weight_const_vec[obs_idx] != 0:
+                    cost_func = cost_funcs_dict[self.cost_type[obs_idx]]
+                    cost += call_cost_func(cost_func,
+                                           const[const_idx],
+                                           self._ground_truth_for(cost_func, const_idx, obs_idx),
+                                           std=self.obs_info["std_const_vec"][const_idx],
+                                           weight=updated_weight_const_vec[obs_idx],
+                                           cost_kwargs=self._cost_kwargs_for(obs_idx))
         
         # TODO debugging a strange error that occurs occasionally in GA
         # assert not np.isnan(cost), 'cost is nan'
@@ -2045,11 +2926,11 @@ class OpencorParamID():
                 series_entry, obs_entry, std_entry = self._align_series_to_ground_truth(
                     np.asarray(series[series_idx], dtype=float).flatten(), series_idx)
 
-                weight_entry = updated_weight_series_vec[series_idx]
-
                 obs_idx = self.obs_info['series_idx_to_obs_idx'][series_idx]
+                weight_entry = updated_weight_series_vec[obs_idx]
                 if weight_entry != 0:
-                    series_cost += cost_funcs_dict[self.cost_type[obs_idx]](series_entry, obs_entry, std_entry, weight_entry)
+                    series_cost += call_cost_func(cost_funcs_dict[self.cost_type[obs_idx]], series_entry, obs_entry,
+                                                  std=std_entry, weight=weight_entry, cost_kwargs=self._cost_kwargs_for(obs_idx))
 
 
         amp_cost = 0
@@ -2068,14 +2949,16 @@ class OpencorParamID():
                 obs_idx = self.obs_info['freq_idx_to_obs_idx'][amp_idx]
                 amp_entry = amp[amp_idx]
                 obs_entry = self.obs_info["ground_truth_amp"][amp_idx]
-                weight_entry = updated_weight_amp_vec[amp_idx]
+                weight_entry = updated_weight_amp_vec[obs_idx]
                 std_entry = self.obs_info["std_amp_vec"][amp_idx]
                 if hasattr(weight_entry, '__len__'):
                     if not all(val==0 for val in weight_entry):
-                        amp_cost += cost_funcs_dict[self.cost_type[obs_idx]](amp_entry, obs_entry, std_entry, weight_entry)
+                        amp_cost += call_cost_func(cost_funcs_dict[self.cost_type[obs_idx]], amp_entry, obs_entry,
+                                                   std=std_entry, weight=weight_entry, cost_kwargs=self._cost_kwargs_for(obs_idx))
                 else:
                     if weight_entry != 0:
-                        amp_cost += cost_funcs_dict[self.cost_type[obs_idx]](amp_entry, obs_entry, std_entry, weight_entry)
+                        amp_cost += call_cost_func(cost_funcs_dict[self.cost_type[obs_idx]], amp_entry, obs_entry,
+                                                   std=std_entry, weight=weight_entry, cost_kwargs=self._cost_kwargs_for(obs_idx))
 
         phase_cost = 0
         if phase is not None:
@@ -2096,25 +2979,37 @@ class OpencorParamID():
                 phase_entry = phase[phase_idx]
                 std_entry = np.ones(len(phase_entry))
                 obs_entry = self.obs_info["ground_truth_phase"][phase_idx]
-                weight_entry = updated_weight_phase_vec[phase_idx]
+                weight_entry = updated_weight_phase_vec[obs_idx]
                 if hasattr(weight_entry, '__len__'):
                     if not all(val==0 for val in weight_entry):
-                        phase_cost += cost_funcs_dict[self.cost_type[obs_idx]](phase_entry, obs_entry, std_entry, weight_entry)
+                        phase_cost += call_cost_func(cost_funcs_dict[self.cost_type[obs_idx]], phase_entry, obs_entry,
+                                                     std=std_entry, weight=weight_entry, cost_kwargs=self._cost_kwargs_for(obs_idx))
                 else:
                     if weight_entry != 0:
-                        phase_cost += cost_funcs_dict[self.cost_type[obs_idx]](phase_entry, obs_entry, std_entry, weight_entry)
+                        phase_cost += call_cost_func(cost_funcs_dict[self.cost_type[obs_idx]], phase_entry, obs_entry,
+                                                     std=std_entry, weight=weight_entry, cost_kwargs=self._cost_kwargs_for(obs_idx))
 
-        prob_dist_cost = 0
-        if val_for_prob_dist is not None:
-            for prob_dist_idx in range(len(val_for_prob_dist)):
-                obs_idx = self.obs_info['prob_dist_idx_to_obs_idx'][prob_dist_idx]
-                if updated_weight_prob_dist_vec[prob_dist_idx] != 0:
-                    prob_dist_cost += cost_funcs_dict[self.cost_type[obs_idx]](val_for_prob_dist[prob_dist_idx], 
-                                                                    self.obs_info["ground_truth_prob_dist_params"][prob_dist_idx],
-                                                                    updated_weight_prob_dist_vec[prob_dist_idx])
-            
+        return cost + series_cost + amp_cost + phase_cost
 
-        return cost + series_cost + amp_cost + phase_cost + prob_dist_cost
+    def _ground_truth_for(self, cost_func, const_idx, obs_idx):
+        """What this observable is compared against: a number, or a distribution.
+
+        Chosen from the cost func's signature rather than from the data_item's type. A scalar
+        scored against a KDE of measured samples is still a scalar -- ``prob_dist`` used to be a
+        fourth data_type for this, which put those observables in a parallel vector and hid them
+        from everything that works on scalar features, the emulator included (issue #421).
+
+        ``prob_dist_params`` is read by ``obs_idx``, the data_item row, the way ``cost_type`` and
+        the weight vectors are; ``ground_truth_const`` keeps its own compacted ``const_idx``.
+        """
+        if ground_truth_param_name(cost_func) == 'prob_dist_params':
+            params = self.obs_info["ground_truth_prob_dist_params"][obs_idx]
+            if params is None:
+                raise ValueError(
+                    f'cost_type {self.cost_type[obs_idx]!r} scores its data_item against a '
+                    f'distribution, so the data_item needs a "prob_dist_params" entry.')
+            return params
+        return self.obs_info["ground_truth_const"][const_idx]
 
     def _resolve_operation_kwargs(self, JJ, operation_funcs_dict, operands_outputs,
                                   num_operands=None):
@@ -2155,31 +3050,38 @@ class OpencorParamID():
 
         if is_symbolic:
             _require_casadi()
-            # TODO: Test series, amp, phase and prob_dist_vec
+            # TODO: Test series, amp and phase
             obs_const_vec = ca.SX.zeros(len(self.obs_info["ground_truth_const"]), 1)
             obs_series_list_of_arrays = [None]*len(self.obs_info["ground_truth_series"])
             obs_amp_list_of_arrays = [None]*len(self.obs_info["ground_truth_amp"])
             obs_phase_list_of_arrays = [None]*len(self.obs_info["ground_truth_phase"])
-            obs_val_for_prob_dist_vec = ca.SX.zeros(len(self.obs_info["ground_truth_prob_dist_params"]), 1)
         else:     
             obs_const_vec = np.zeros((len(self.obs_info["ground_truth_const"]), ))
             obs_series_list_of_arrays = [None]*len(self.obs_info["ground_truth_series"])
             obs_amp_list_of_arrays = [None]*len(self.obs_info["ground_truth_amp"])
             obs_phase_list_of_arrays = [None]*len(self.obs_info["ground_truth_phase"])
-            obs_val_for_prob_dist_vec = np.zeros((len(self.obs_info["ground_truth_prob_dist_params"]), ))
 
         if get_all_series:
+            # An emulator has no series to give -- it predicts the scalar the series
+            # was reduced to. That used to raise, which was too blunt: the caller
+            # (plot_outputs) wants the *features* as well, and those are exactly what
+            # an emulator does have. Hand back the features with every series None,
+            # and let the caller skip the reconstruction rather than lose the errors
+            # with it (#333).
             obs_series_array_all = [None]*len(operands_outputs)
-        
+
 
         const_count = 0
         series_count = 0
         freq_count = 0
-        prob_dist_count = 0
         for JJ in range(len(operands_outputs)):
             if self.obs_info["data_types"][JJ] == 'frequency':
                 pass
-            elif get_all_series:
+            elif get_all_series and not self.emulates_features:
+                # An emulator has no series for this item; the None left in place
+                # is what says so. Running the operation's series branch on an
+                # already-reduced scalar would put a length-1 "trace" here, which
+                # a plot would draw as a single point and read as real.
                 if self.obs_info["operations"][JJ] is None:
                     obs_series_array_all[JJ] = operands_outputs[JJ][0]
                 elif hasattr(operation_funcs_dict[self.obs_info["operations"][JJ]], 'series_to_constant'):
@@ -2201,7 +3103,14 @@ class OpencorParamID():
 
             # use the function defined in the operation_funcs_dict to calculate the observable
             # from the operands
-            if self.obs_info["operations"][JJ] == None:
+            if self.emulates_features:
+                # The emulator predicts the feature itself, i.e. what the operation would have
+                # returned. Running the operation again would reduce an already-reduced scalar:
+                # harmless for `mean`, but `max_minus_min` of a single value is zero, and the
+                # cost would then be fitting zeros without anything looking wrong.
+                obs = float(np.asarray(operands_outputs[JJ][0]).reshape(-1)[0])
+                self.temp_results[self.obs_info["names_for_plotting"][JJ]] = obs
+            elif self.obs_info["operations"][JJ] == None:
                 obs = operands_outputs[JJ][0]
             else:
                 if self.obs_info["data_types"][JJ] != 'frequency':
@@ -2303,9 +3212,6 @@ class OpencorParamID():
                 # plt.close()
 
                 freq_count += 1
-            elif self.obs_info["data_types"][JJ] == 'prob_dist':
-                obs_val_for_prob_dist_vec[prob_dist_count] = obs
-                prob_dist_count += 1
 
         if const_count == 0:
             obs_const_vec = None
@@ -2314,11 +3220,9 @@ class OpencorParamID():
         if freq_count == 0:
             obs_amp_list_of_arrays = None
             obs_phase_list_of_arrays = None
-        if prob_dist_count == 0:
-            obs_val_for_prob_dist_vec = None
         obs_dict = {'const': obs_const_vec, 'series': obs_series_list_of_arrays,
                     'amp': obs_amp_list_of_arrays, 'phase': obs_phase_list_of_arrays,
-                    'val_for_prob_dist': obs_val_for_prob_dist_vec}
+}
 
         if get_all_series: 
             return obs_dict, obs_series_array_all
@@ -2390,9 +3294,8 @@ class OpencorParamID():
                     ws = self.protocol_info["scaled_weight_series_from_exp_sub"][exp_idx][sub_idx]
                     wa = self.protocol_info["scaled_weight_amp_from_exp_sub"][exp_idx][sub_idx]
                     wp = self.protocol_info["scaled_weight_phase_from_exp_sub"][exp_idx][sub_idx]
-                    wd = self.protocol_info["scaled_weight_prob_dist_from_exp_sub"][exp_idx][sub_idx]
                     D += int(np.sum(wc != 0) + np.sum(ws != 0) + np.sum(wa != 0)
-                             + np.sum(wp != 0) + np.sum(wd != 0))
+                             + np.sum(wp != 0))
         return max(int(D), 1)
 
     def get_jac_cost_fsa(self, param_vals, return_cost=False):
@@ -2413,7 +3316,12 @@ class OpencorParamID():
     # ---- Backend-agnostic cost/gradient interface ----
 
     def get_cost(self, param_vals):
-        """Compute cost J(p), dispatching to CasADi or AADC or numpy."""
+        """Compute cost J(p), dispatching to the emulator, CasADi, AADC or numpy."""
+        if self.emulates_features:
+            # First, and before the model_type branches: a casadi_python model run on an
+            # emulator would otherwise evaluate its real symbolic graph here and quietly
+            # ignore the emulator the user asked for.
+            return float(self.get_cost_from_params(param_vals))
         if self.model_type == 'casadi_python':
             return float(self.get_cost_ca(param_vals))
         if self.model_type == 'aadc_python' and self.do_ad:
@@ -2423,7 +3331,14 @@ class OpencorParamID():
         return float(self.get_cost_from_params(param_vals))
 
     def get_gradient(self, param_vals):
-        """Compute gradient ∇J(p), dispatching to CasADi, AADC, or Myokit FSA."""
+        """Compute gradient ∇J(p), dispatching to the emulator, CasADi, AADC, or Myokit FSA."""
+        if self.emulates_features:
+            # Finite differences on the emulator's own cost -- the same function get_cost
+            # returns, which the analytic arms (all of which differentiate the real model)
+            # would not be. 2M evaluations is the wrong trade against a solver and the right
+            # one here, where an evaluation is a matrix multiply.
+            return fd_backend.cost_gradient(
+                self, param_vals, h=float(self._use_time_setting('fd_rel_step', 1e-3)))
         if self.model_type == 'casadi_python':
             return self.get_jac_cost_ca(param_vals)
         elif self.model_type == 'aadc_python':
@@ -2434,11 +3349,7 @@ class OpencorParamID():
             raise ValueError(f"Gradient not available for model_type={self.model_type}")
 
     def _observable_base_label(self, obs_idx):
-        name = self.obs_info["names_for_plotting"][obs_idx]
-        op = self.obs_info["operations"][obs_idx]
-        operands = self.obs_info["operands"][obs_idx]
-        operand = operands[0] if operands else ''
-        return f"{name} ({op} {operand})" if op else f"{name} ({operand})"
+        return observable_base_label(self.obs_info, obs_idx)
 
     def _ambiguous_observable_labels(self):
         """Base labels shared by more than one observable. Computed once per obs_info."""
@@ -2486,12 +3397,20 @@ class OpencorParamID():
         derivative of the feature. Every arm reports the identical quantity, so a local
         sensitivity analysis is comparable across backends whichever computed it.
 
-        ``gradient_method`` selects how:
+        ``gradient_method`` selects how, in the same FD/AD/FSA vocabulary as
+        ``gradient_sources()`` and the Laplace ``gradient_source`` -- the arm's own name, so a
+        front-end can offer it, disable it, and report back which one ran:
 
-        * ``None`` (default) -- the analytic arm for this backend, raising when there is
-          none. Unchanged behaviour, and deliberately still not a silent fall back to FD:
-          a result quietly computed a different way, at a different cost and accuracy, is
-          not the same result.
+        * ``None`` / ``'auto'`` / ``'analytic'`` (default) -- the analytic arm for this
+          backend, raising when there is none. Deliberately still not a silent fall back to
+          FD: a result quietly computed a different way, at a different cost and accuracy,
+          is not the same result.
+        * ``'AD'`` -- the exact CasADi jacobian; requires ``model_type='casadi_python'``
+          (``aadc_python`` names its arm AD too, but its local SA is not implemented yet and
+          says so). Any other backend raises naming the mismatch rather than silently
+          reinterpreting.
+        * ``'FSA'`` -- Myokit CVODES forward sensitivities; requires ``cellml`` +
+          ``CVODE_myokit`` + ``do_ad``. Raises naming exactly what is missing otherwise.
         * ``'FD'`` -- central finite differences (``param_id.fd_backend``). Works on any
           backend that runs a forward simulation, which is how AADC and the plain scipy
           backend get a local SA at all (issue #338). Costs 2M simulations for M parameters.
@@ -2504,13 +3423,50 @@ class OpencorParamID():
         stopped being hardcoded.
         """
         method = (gradient_method or '').strip().upper()
+        if self.emulates_features:
+            # Over an emulator, FD is the only honest arm: the analytic ones differentiate the
+            # real model, which is not the function being evaluated. It is also free here.
+            if method not in ('', 'ANALYTIC', 'AUTO', 'FD'):
+                raise ValueError(
+                    f"gradient_method '{gradient_method}' differentiates the real model, but "
+                    f"this run evaluates an emulator (use_emulator: true). Only 'FD' is "
+                    f"available over an emulator -- and it costs 2M emulator evaluations, "
+                    f"not 2M simulations.")
+            kwargs = {} if fd_rel_step is None else {'h': float(fd_rel_step)}
+            return fd_backend.observable_feature_sensitivities(self, param_vals, **kwargs)
         if method == 'FD':
             kwargs = {} if fd_rel_step is None else {'h': float(fd_rel_step)}
             return fd_backend.observable_feature_sensitivities(self, param_vals, **kwargs)
-        if method not in ('', 'ANALYTIC', 'AUTO'):
+        if method not in ('', 'ANALYTIC', 'AUTO', 'AD', 'FSA'):
             raise ValueError(
                 f"unknown gradient_method '{gradient_method}' for local sensitivity analysis. "
-                "Valid values are None/'analytic' (this backend's analytic sensitivity) or 'FD'.")
+                "Valid values are 'AD' (exact CasADi jacobian, casadi_python), 'FSA' (Myokit "
+                "CVODES forward sensitivities, cellml + CVODE_myokit + do_ad), 'FD' "
+                "(central finite differences, any backend), or None/'auto'/'analytic' (this "
+                "backend's analytic arm).")
+
+        solver_info = getattr(self, 'solver_info', None)
+        solver = solver_info.get('solver') if isinstance(solver_info, dict) else None
+        # An explicit arm name validates against the backend instead of being silently
+        # reinterpreted -- a caller that asked for FSA must get FSA or an error, never a
+        # different arm with plausible numbers (the same reason FD never stands in above).
+        if method == 'AD' and self.model_type not in ('casadi_python', 'aadc_python'):
+            raise ValueError(
+                f"gradient_method 'AD' needs model_type 'casadi_python' (the exact CasADi "
+                f"jacobian); this run is model_type='{self.model_type}', solver='{solver}'. "
+                "Use 'FSA' for cellml + CVODE_myokit + do_ad, or 'FD'.")
+        if method == 'FSA' and not fsa_backend.gradient_available(self):
+            missing = []
+            if self.model_type != 'cellml':
+                missing.append(f"model_type is '{self.model_type}', needs 'cellml'")
+            if not hasattr(getattr(self, 'sim_helper', None), 'enable_fsa'):
+                missing.append(f"solver is '{solver}', needs 'CVODE_myokit' (its helper "
+                               "provides CVODES forward sensitivities)")
+            if not getattr(self, 'do_ad', False):
+                missing.append("do_ad must be true")
+            raise ValueError(
+                "gradient_method 'FSA' is not available for this run: "
+                + "; ".join(missing) + ". Use 'AD' for casadi_python, or 'FD'.")
 
         if self.model_type == 'casadi_python':
             return casadi_backend.get_observable_sensitivities(self, param_vals)
@@ -2518,7 +3474,7 @@ class OpencorParamID():
             raise NotImplementedError(
                 "Local (derivative-based) sensitivity analysis is not yet implemented for the "
                 "AADC backend. Use sa_options gradient_method 'FD', or model_type "
-                "'casadi_python', or 'cellml_only' with solver 'CVODE_myokit', or global "
+                "'casadi_python', or 'cellml' with solver 'CVODE_myokit', or global "
                 "Sobol SA (sa_options method 'sobol').")
         elif fsa_backend.gradient_available(self):
             return fsa_backend.observable_feature_sensitivities(self, param_vals)
@@ -2528,7 +3484,7 @@ class OpencorParamID():
                 f"backend, not available for model_type={self.model_type} / solver="
                 f"{self.solver_info.get('solver') if isinstance(self.solver_info, dict) else None}. "
                 "Use sa_options gradient_method 'FD', or model_type 'casadi_python', or "
-                "'cellml_only' with solver 'CVODE_myokit' and do_ad true, or global Sobol SA "
+                "'cellml' with solver 'CVODE_myokit' and do_ad true, or global Sobol SA "
                 "(sa_options method 'sobol').")
 
     def get_cost_and_gradient(self, param_vals):
@@ -2590,6 +3546,11 @@ class OpencorParamID():
             reset (bool, optional): if you want to reset the simulation after running.
                                     Gets changed to True for num_experiments > 1. Defaults to True.
         """
+        if self.emulates_features:
+            raise NotImplementedError(
+                'simulate_once needs the full simulated trace, which a feature emulator cannot '
+                'produce -- it predicts the scalar data_item features only. Re-run with '
+                'use_emulator: false to simulate, plot or save outputs.')
         if MPI.COMM_WORLD.Get_rank() != 0:
             print('simulate once should only be done on one rank')
             exit()
@@ -2652,6 +3613,12 @@ class OpencorParamID():
 
                     for obs_idx in range(len(obs)):
                         for key in best_fit_outputs.keys():
+                            # A diagnostic that raises destroys the information it exists to
+                            # print: this block runs *because* something is already wrong, and
+                            # the saved run and the live one need not expose the same variables.
+                            if key not in this_run_outputs:
+                                print(f'parameter {key} is not in this run\'s outputs, skipping')
+                                continue
                             print(f'parameter {key}')
                             best_fit_output = best_fit_outputs[key]
                             this_run_output = this_run_outputs[key]
@@ -2698,7 +3665,107 @@ def calculate_lnlikelihood(param_vals):
     """
     return mcmc_object.get_lnlikelihood_lnprior_from_params(param_vals)
 
-class OpencorMCMC(OpencorParamID): 
+
+def drop_unsampled_draws(samples):
+    """A chain cut back to the draws every walker actually reached.
+
+    Only a *partial* pyMC chain has anything to drop. Its chains are sampled one after another
+    (``cores=1``), so the file written mid-run carries NaN where a chain has not got to a draw
+    yet -- see ``pymc_backend._LiveChainWriter``. A finished chain is dense and this returns it
+    untouched.
+
+    It matters because a cancelled or killed run leaves that partial file exactly where the
+    finished one would be, and every statistic downstream (``np.mean``, ``np.percentile``,
+    arviz's ESS and R-hat) turns a single NaN into a NaN answer for the whole parameter.
+    Truncating to the shortest chain is the conservative reading: every walker is then a real
+    chain of the same length, which is the rectangle the rest of the code is written against.
+
+    Deliberately not ``np.nan_to_num`` or a per-walker compaction: substituting zeros invents
+    draws, and letting walkers have different lengths would push the raggedness into every
+    consumer instead of resolving it here.
+    """
+    samples = np.asarray(samples)
+    if samples.ndim != 3 or not np.isnan(samples).any():
+        return samples
+    complete = ~np.isnan(samples).any(axis=(1, 2))
+    if not complete.any():
+        return samples[:0]
+    # Draws are contiguous from the start, so the first gap ends the usable chain.
+    first_gap = np.argmax(~complete) if (~complete).any() else len(complete)
+    return samples[:first_gap]
+
+
+def save_chain_atomically(path, samples):
+    """Write ``samples`` to ``path`` so a concurrent reader never sees half an array.
+
+    The chain is written *while* it is being sampled, so something else is expected to be
+    polling this file -- a front-end drawing the run, or a user with a notebook open. Writing in
+    place would leave a window in which the file is a truncated array, and ``np.load`` on that
+    raises rather than returning fewer steps. Writing beside it and renaming closes the window:
+    ``os.replace`` is atomic, so a reader sees either the previous chain or the new one.
+
+    ``np.save`` appends ``.npy`` to any path that lacks it, which would turn the temporary name
+    into ``...npy.tmp.npy`` and leave it behind; handing it an open file avoids that.
+    """
+    tmp_path = f'{path}.tmp'
+    with open(tmp_path, 'wb') as tmp_file:
+        np.save(tmp_file, samples)
+    os.replace(tmp_path, path)
+
+
+def sample_with_checkpoints(sampler, initial_state, num_steps, save_chain, save_every,
+                            **sample_kwargs):
+    """Run ``sampler`` for ``num_steps``, saving the chain so far every ``save_every`` steps.
+
+    ``run_mcmc`` is one blocking call that returns only when sampling is done, which is why the
+    chain used to reach disk once, hours in. ``sample()`` is the same loop as a generator, so
+    checkpointing is just doing something on the way round.
+
+    A backend with no generator form can still checkpoint, if it has some hook of its own to do
+    it from: one that sets ``saves_own_checkpoints`` is handed ``save_chain`` and ``save_every``
+    and is trusted to call the hook itself. pyMC is that case -- ``pm.sample`` cannot be stepped
+    but does take a per-draw callback -- and without this it took the fallback below, so a pyMC
+    run's chain appeared only at the end however ``chain_save_every`` was set.
+
+    Falls back to ``run_mcmc`` when ``save_every`` is non-positive (checkpointing off) or the
+    sampler has neither ``sample`` nor its own checkpointing -- zeus is driven through the same
+    code path here, and a backend that only offers ``run_mcmc`` should keep working rather than
+    raise.
+
+    Returns the number of checkpoints written, which is what a test can assert on without
+    reaching into the filesystem.
+    """
+    sample = getattr(sampler, 'sample', None)
+    if save_every > 0 and getattr(sampler, 'saves_own_checkpoints', False):
+        # Counted here rather than trusted to the backend, so "how many were written" means the
+        # same thing -- calls to this hook -- whichever route produced them.
+        checkpoints = 0
+
+        def counted_save(samples):
+            nonlocal checkpoints
+            checkpoints += 1
+            save_chain(samples)
+
+        sampler.run_mcmc(initial_state, num_steps, save_chain=counted_save,
+                         save_every=save_every, **sample_kwargs)
+        return checkpoints
+
+    if save_every <= 0 or sample is None:
+        sampler.run_mcmc(initial_state, num_steps, **sample_kwargs)
+        return 0
+
+    checkpoints = 0
+    for step, _state in enumerate(sample(initial_state, iterations=num_steps, **sample_kwargs),
+                                  start=1):
+        # Not on the last step: the caller saves the finished chain either way, and saving the
+        # same array twice in a row is pure I/O on the largest it will ever be.
+        if step % save_every == 0 and step < num_steps:
+            save_chain(sampler.get_chain())
+            checkpoints += 1
+    return checkpoints
+
+
+class OpencorMCMC(OpencorParamID):
     """
     Class for doing mcmc on opencor models
     
@@ -2707,33 +3774,165 @@ class OpencorMCMC(OpencorParamID):
 
     def __init__(self, model_path,
                  obs_info, param_id_info, protocol_info, prediction_info, solver_info,
-                 dt=0.01, mcmc_options=None, DEBUG=False, model_type=None):
+                 dt=0.01, UQ_options=None, DEBUG=False, model_type=None, mcmc_options=None,
+                 use_emulator=False, emulator_dir=None, emulator_settings=None):
         super().__init__(model_path, "MCMC",
                 obs_info, param_id_info, protocol_info, prediction_info, solver_info,
-                dt=dt, DEBUG=DEBUG, model_type=model_type)
+                dt=dt, DEBUG=DEBUG, model_type=model_type,
+                use_emulator=use_emulator, emulator_dir=emulator_dir,
+                emulator_settings=emulator_settings)
+        self._init_mcmc(_resolve_UQ_options(UQ_options, mcmc_options), DEBUG=DEBUG)
 
+    @classmethod
+    def from_param_id(cls, engine, UQ_options=None, mcmc_options=None):
+        """Adopt an already-built ``OpencorParamID`` instead of constructing a second one.
+
+        Building an engine compiles the model. Because ``mcmc_instead`` selects the inner
+        class at *construction* time, a UQ run following a calibration had to build a second
+        CVS0DParamID and pay that compile again (CUFLynx #217) -- for the same model, the same
+        obs_info and the same parameters.
+
+        ``OpencorMCMC`` only *adds* to ``OpencorParamID``, so the built engine's state is
+        exactly what it needs: adopt its ``__dict__`` (simulation helper, parsed infos,
+        output_dir, and the best_param_vals of the calibration that just ran, which is what
+        seeds the walkers) and then run only the MCMC-specific tail.
+
+        The result **shares** the engine's simulation helper rather than copying it -- that is
+        the point -- which is safe because UQ follows a calibration rather than running beside
+        it. Do not use the engine concurrently afterwards.
+        """
+        obj = cls.__new__(cls)
+        obj.__dict__.update(engine.__dict__)
+        obj.param_id_method = "MCMC"
+        obj._init_mcmc(_resolve_UQ_options(UQ_options, mcmc_options),
+                       DEBUG=getattr(engine, 'DEBUG', False))
+        return obj
+
+    def _init_mcmc(self, UQ_options, DEBUG=False):
+        """The MCMC-specific half of construction, shared by __init__ and from_param_id."""
         # mcmc init stuff
         self.sampler = None
-        if mcmc_options is not None:
-            self.mcmc_options = mcmc_options
-            if 'num_steps' not in self.mcmc_options.keys(): 
-                self.mcmc_options['num_steps'] = 5000
+        if UQ_options is not None:
+            self.UQ_options = UQ_options
+            if 'num_steps' not in self.UQ_options.keys(): 
+                self.UQ_options['num_steps'] = 5000
                 print('number of mcmc steps is not set, choosing default of 5000')
-            if 'num_walkers' not in self.mcmc_options.keys():
-                self.mcmc_options['num_walkers'] = 2*self.num_params
+            if 'num_walkers' not in self.UQ_options.keys():
+                self.UQ_options['num_walkers'] = 2*self.num_params
                 print('number of mcmc walkers is not set, ',
                     'choosing default of 2*num_params')
         else:
-            self.mcmc_options = {}
-            self.mcmc_options['num_steps'] = 5000
-            self.mcmc_options['num_walkers'] = 2*self.num_params
+            self.UQ_options = {}
+            self.UQ_options['num_steps'] = 5000
+            self.UQ_options['num_walkers'] = 2*self.num_params
             print('number of mcmc steps and walkers is not set, ',
                   'choosing defaults of 5000 and 2*num_params')
 
         self.DEBUG = DEBUG
+        self._warned_about_flattened_weights = False
+        # Weights are flattened for the likelihood MCMC samples (#193), but not for costs that
+        # are reported or compared against the calibration -- see calibration_weighting().
+        self._flatten_weights = True
         assert_mle_cost_for_bayesian(
             self.cost_type, self.cost_funcs_dict, "MCMC (log-likelihood uses -cost)"
         )
+
+    def _build_sampler(self, pool=None):
+        """The sampler named by ``UQ_options['library']``, behind emcee's interface.
+
+        Every backend here exposes ``run_mcmc`` and ``get_chain`` returning a
+        ``(steps, walkers, params)`` chain, so the sampling loop, the saved ``mcmc_chain.npy``
+        and everything downstream of it are the same whichever was chosen.
+        """
+        library = (self.UQ_options or {}).get('library', 'emcee')
+        num_walkers = self.UQ_options['num_walkers']
+
+        if library == 'emcee':
+            if pool is not None:
+                return emcee.EnsembleSampler(num_walkers, self.num_params,
+                                             calculate_lnlikelihood, pool=pool)
+            return emcee.EnsembleSampler(num_walkers, self.num_params, calculate_lnlikelihood)
+
+        if library == 'zeus':
+            if zeus is None:
+                raise ImportError("UQ_options library 'zeus' was selected but zeus is not "
+                                  "installed.")
+            if pool is not None:
+                return zeus.EnsembleSampler(num_walkers, self.num_params,
+                                            calculate_lnlikelihood, pool=pool)
+            return zeus.EnsembleSampler(num_walkers, self.num_params, calculate_lnlikelihood)
+
+        if library == 'pymc':
+            # Imported here, not at module level: pymc is an optional extra, and paramID is
+            # imported by every calibration run.
+            from param_id.pymc_backend import PyMCSampler
+            return PyMCSampler(
+                num_walkers, self.num_params, calculate_lnlikelihood,
+                param_id_info=self.param_id_info,
+                num_tune=self.UQ_options.get('num_tune', 1000),
+                method=self.UQ_options.get('pymc_method', 'mcmc'))
+
+        raise ValueError(
+            f"unknown UQ_options library {library!r}. Valid options are 'emcee' and 'pymc'.")
+
+    def _cost_weight_vectors(self, exp_idx, sub_idx):
+        """Every feature entering the likelihood carries equal weight (issue #193).
+
+        Calibration weights are a modelling choice: they say which features the optimiser should
+        care about most. A posterior is not. Under ``ln L = -cost``, a weight w on a feature
+        raises its likelihood term to the power w, which is the same as claiming w independent
+        observations of it -- so a feature weighted 10 shrinks the posterior as if it had been
+        measured ten times, and the credible intervals that come out are not the ones the data
+        supports. The relative weighting between features distorts their trade-off in the same
+        way.
+
+        Zero weights are preserved: a zero does not mean "unimportant", it means the observable
+        is not part of this sub-experiment at all, and reinstating it would add a feature the
+        user excluded. The non-zero count is therefore unchanged, so the cached
+        ``_num_weighted_obs_by_exp_sub`` denominator stays correct.
+
+        Warns once when this actually changed something, so a user who tuned weights for a
+        calibration and then ran UQ on the same obs_data finds out that they no longer apply.
+        """
+        vectors = super()._cost_weight_vectors(exp_idx, sub_idx)
+        if not getattr(self, '_flatten_weights', True):
+            return vectors
+        flattened = tuple(np.asarray(vec != 0, dtype=float) for vec in vectors)
+
+        if not getattr(self, '_warned_about_flattened_weights', False):
+            for original, flat in zip(vectors, flattened):
+                original = np.asarray(original, dtype=float)
+                if original.size and not np.allclose(original, flat):
+                    print(
+                        'WARNING: obs_data weights are ignored for UQ -- every feature entering '
+                        'the likelihood is weighted 1. A weighted likelihood is not a posterior: '
+                        'a weight w on a feature is the same claim as w independent observations '
+                        'of it, so it would shrink the credible intervals by a factor the data '
+                        'does not support (issue #193). Weights of 0 still exclude an observable.'
+                    )
+                    self._warned_about_flattened_weights = True
+                    break
+
+        return flattened
+
+    @contextlib.contextmanager
+    def calibration_weighting(self):
+        """Evaluate costs inside this block with the obs_data weights, not the flat ones.
+
+        The flattening exists for the *likelihood being sampled*: a weighted likelihood is not a
+        posterior (#193). It must not follow the cost out into the artifacts, because best_cost
+        is a calibration artifact -- plot_param_id and simulate_once re-derive it and compare
+        against the saved value, and the calibration itself optimised the weighted cost. A
+        best_cost written on the flat scale is simply a different quantity under the same name,
+        and the two disagree by whatever the weights were (measured on 3compartment: 0.0377 saved
+        against 0.1058 recomputed, which tripped simulate_once's consistency check).
+        """
+        previous = getattr(self, '_flatten_weights', True)
+        self._flatten_weights = False
+        try:
+            yield
+        finally:
+            self._flatten_weights = previous
 
     def run(self):
         comm = MPI.COMM_WORLD
@@ -2743,22 +3942,13 @@ class OpencorMCMC(OpencorParamID):
             print('Running mcmc')
 
 
-        if num_procs > 1:
+        if num_procs > 1 and self.sampler_needs_a_worker_pool():
             # from pathos import multiprocessing
             # from pathos.multiprocessing import ProcessPool
             from schwimmbad import MPIPool
 
             if rank == 0:
-                if self.best_param_vals is not None:
-                    best_param_vals_norm = self.param_norm_obj.normalise(self.best_param_vals)
-                    # create initial params in gaussian ball around best_param_vals estimate
-                    init_param_vals_norm = (np.ones((self.mcmc_options['num_walkers'], self.num_params))*best_param_vals_norm).T + \
-                                       0.1*np.random.randn(self.num_params, self.mcmc_options['num_walkers'])
-                    init_param_vals_norm = np.clip(init_param_vals_norm, 0.001, 0.999)
-                    init_param_vals = self.param_norm_obj.unnormalise(init_param_vals_norm)
-                else:
-                    init_param_vals_norm = np.random.rand(self.num_params, self.mcmc_options['num_walkers'])
-                    init_param_vals = self.param_norm_obj.unnormalise(init_param_vals_norm)
+                init_param_vals = self._initial_walker_positions(ball_scale=0.1)
 
             try:
                 pool = MPIPool() # workers dont get past this line in this try, they wait for work to do
@@ -2769,86 +3959,304 @@ class OpencorMCMC(OpencorParamID):
                 pool.wait()
                 return
 
-            if mcmc_lib == 'emcee':
-                self.sampler = emcee.EnsembleSampler(self.mcmc_options['num_walkers'], self.num_params, calculate_lnlikelihood,
-                                            pool=pool)
-            elif mcmc_lib == 'zeus':
-                self.sampler = zeus.EnsembleSampler(self.mcmc_options['num_walkers'], self.num_params, calculate_lnlikelihood,
-                                                        pool=pool)
+            self.sampler = self._build_sampler(pool=pool)
 
             start_time = time.time()
-            self.sampler.run_mcmc(init_param_vals.T, self.mcmc_options['num_steps'], progress=True, tune=True)
+            self._sample(init_param_vals, progress=True, tune=True)
             print(f'mcmc time = {time.time() - start_time}')
             pool.close()
 
-        else:
-            if self.best_param_vals is not None:
-                best_param_vals_norm = self.param_norm_obj.normalise(self.best_param_vals)
-                init_param_vals_norm = (np.ones((self.mcmc_options['num_walkers'], self.num_params))*best_param_vals_norm).T + \
-                                   0.01*np.random.randn(self.num_params, self.mcmc_options['num_walkers'])
-                init_param_vals_norm = np.clip(init_param_vals_norm, 0.001, 0.999)
-                init_param_vals = self.param_norm_obj.unnormalise(init_param_vals_norm)
-            else:
-                init_param_vals_norm = np.random.rand(self.num_params, self.mcmc_options['num_walkers'])
-                init_param_vals = self.param_norm_obj.unnormalise(init_param_vals_norm)
+        elif num_procs > 1:
+            # Every rank samples its own chains and they are gathered at the end, so no rank is
+            # a worker and no pool is opened. See sampler_needs_a_worker_pool.
+            #
+            # The starting ensemble is drawn once and broadcast rather than drawn per rank: the
+            # ranks must agree on it (best_param_vals is only guaranteed on rank 0, so drawing
+            # locally would put some ranks in a ball around the calibrated fit and others on a
+            # uniform draw over the whole prior box), and each rank then takes the slice of
+            # walkers it is responsible for so the gathered chain covers the ensemble asked for
+            # rather than repeating its first few walkers on every rank.
+            init_param_vals = self._initial_walker_positions(ball_scale=0.1) if rank == 0 else None
+            init_param_vals = comm.bcast(init_param_vals, root=0)
 
-            if mcmc_lib == 'emcee':
-                self.sampler = emcee.EnsembleSampler(self.mcmc_options['num_walkers'], self.num_params, calculate_lnlikelihood)
-            elif mcmc_lib == 'zeus':
-                self.sampler = zeus.EnsembleSampler(self.mcmc_options['num_walkers'], self.num_params, calculate_lnlikelihood)
+            self.sampler = self._build_sampler()
 
             start_time = time.time()
-            self.sampler.run_mcmc(init_param_vals.T, self.mcmc_options['num_steps']) # , progress=True)
+            self._sample(self._walkers_for_rank(init_param_vals, rank, num_procs),
+                         progress=True, tune=True)
+            if rank == 0:
+                print(f'mcmc time = {time.time() - start_time}')
+
+        else:
+            init_param_vals = self._initial_walker_positions(ball_scale=0.01)
+
+            self.sampler = self._build_sampler()
+
+            start_time = time.time()
+            self._sample(init_param_vals) # , progress=True)
             print(f'mcmc time = {time.time()-start_time}')
 
         if rank == 0:
-            # TODO save chains
-            if mcmc_lib == 'emcee':
+            if hasattr(self.sampler, 'acceptance_fraction'):
                 print(f'acceptance fraction was {self.sampler.acceptance_fraction}')
             samples = self.sampler.get_chain()
-            mcmc_chain_path = os.path.join(self.output_dir, 'mcmc_chain.npy')
-            np.save(mcmc_chain_path, samples)
+            mcmc_chain_path = self.mcmc_chain_path()
+            save_chain_atomically(mcmc_chain_path, samples)
             print('mcmc complete')
             print(f'mcmc chain saved in {mcmc_chain_path}')
 
-            # save best param vals and best cost from mcmc mean
-            samples = samples[samples.shape[0]//2:, :, :]
-            # thin = 10
-            # samples = samples[::thin, :, :]
-            flat_samples = samples.reshape(-1, self.num_params)
-            means = np.zeros((self.num_params))
-            medians = np.zeros((self.num_params))
-            for param_idx in range(self.num_params):
-                means[param_idx] = np.mean(flat_samples[:, param_idx])
-                medians[param_idx] = np.median(flat_samples[:, param_idx])
+            flat_samples = samples[self.burn_in_index(samples.shape[0]):, :, :].reshape(
+                -1, self.num_params)
+            self.save_mcmc_statistics(flat_samples)
 
-            # rerun with original and mcmc optimal param vals
-            mcmc_best_param_vals = medians  # means
-            # TODO change the below to get_cost_from_params when inheriting
-            mcmc_best_cost, _ = self.get_cost_and_obs_from_params(mcmc_best_param_vals, reset=True)
-            if self.best_param_vals is None:
-                self.best_param_vals = mcmc_best_param_vals
-                self.best_cost = mcmc_best_cost
-                print('cost from mcmc median param vals is {}'.format(self.best_cost))
-                print('saving best_param_vals and best_cost from mcmc medians')
+    def sampler_needs_a_worker_pool(self):
+        """Whether this backend parallelises across ranks by farming out the likelihood.
 
-                np.save(os.path.join(self.output_dir, 'best_cost'), self.best_cost)
-                np.save(os.path.join(self.output_dir, 'best_param_vals'), self.best_param_vals)
+        The two backends parallelise in opposite directions, and running one arrangement under
+        the other hangs:
+
+        * **emcee and zeus** advance one ensemble in one process. The parallelism is the
+          likelihood: the sampler is handed a ``schwimmbad.MPIPool``, and every other rank sits
+          in ``pool.wait()`` serving evaluations until the master closes the pool.
+        * **pyMC** has no such hook. ``PyMCSampler`` instead gives each rank
+          ``chains_for_rank(...)`` chains of its own and gathers them along the walker axis at
+          the end -- which means every rank must reach ``run_mcmc``, and its ``comm.Barrier()``
+          and ``comm.gather`` are collectives over COMM_WORLD.
+
+        Opening a pool for pyMC therefore deadlocked every ``mpiexec -n >1`` UQ run with
+        ``library: pymc``: the workers were parked inside ``pool.wait()``, blocked in a receive
+        that only the master's ``pool.close()`` ends, so they could never join the master's
+        barrier -- and the master waits on that barrier forever, holding the pool open. Neither
+        side can move, and the run hangs after sampling with no error and no chain written. It
+        was never seen because nothing exercised it: the pyMC tests run on one rank, where this
+        branch is not taken at all.
+        """
+        return (self.UQ_options or {}).get('library', 'emcee') in _POOL_BACKED_UQ_LIBRARIES
+
+    def _initial_walker_positions(self, ball_scale):
+        """Starting positions for the ensemble, ``(num_walkers, num_params)``.
+
+        A gaussian ball of relative width ``ball_scale`` around the calibrated fit, in
+        normalised space, or a uniform draw over the prior box when there is no fit to start
+        from. Was written out twice, once per branch of ``run``, with the two copies differing
+        only in ``ball_scale`` -- a third branch is not worth a third copy.
+        """
+        num_walkers = self.UQ_options['num_walkers']
+        if self.best_param_vals is not None:
+            best_param_vals_norm = self.param_norm_obj.normalise(self.best_param_vals)
+            # create initial params in gaussian ball around best_param_vals estimate
+            init_param_vals_norm = (np.ones((num_walkers, self.num_params))*best_param_vals_norm).T + \
+                               ball_scale*np.random.randn(self.num_params, num_walkers)
+            init_param_vals_norm = np.clip(init_param_vals_norm, 0.001, 0.999)
+        else:
+            init_param_vals_norm = np.random.rand(self.num_params, num_walkers)
+        return self.param_norm_obj.unnormalise(init_param_vals_norm).T
+
+    @staticmethod
+    def _walkers_for_rank(init_param_vals, rank, num_procs):
+        """The slice of the starting ensemble this rank is responsible for.
+
+        Mirrors ``PyMCSampler.chains_for_rank``, which decides how many chains the rank runs
+        from the same two numbers -- if these two disagree, a rank either starts chains from
+        another rank's positions or is handed positions it never uses.
+
+        Indices wrap, because ``chains_for_rank`` never returns zero: with more ranks than
+        walkers every rank still runs one chain, and the ranks past the end of the ensemble
+        start over at its beginning rather than being handed nothing.
+        """
+        num_walkers = len(init_param_vals)
+        per_rank = max(1, num_walkers // num_procs)
+        return init_param_vals[(rank*per_rank + np.arange(per_rank)) % num_walkers]
+
+    def mcmc_chain_path(self):
+        """Where the chain is written -- the same path during the run as at the end of it.
+
+        Deliberately one file rather than a partial one that is renamed at the end: everything
+        that reads a chain (``load_mcmc_chain``, the plotters, a front-end) then needs no notion
+        of "the run has finished", and a run that is cancelled or killed leaves its chain exactly
+        where the tooling already looks for it.
+        """
+        return os.path.join(self.output_dir, 'mcmc_chain.npy')
+
+    def _sample(self, initial_state, **sample_kwargs):
+        """Sample, leaving a readable chain behind on the way rather than only at the end."""
+        return sample_with_checkpoints(
+            self.sampler, initial_state, self.UQ_options['num_steps'],
+            lambda samples: save_chain_atomically(self.mcmc_chain_path(), samples),
+            self.UQ_options.get('chain_save_every', 50),
+            **sample_kwargs)
+
+    def burn_in_index(self, num_steps):
+        """The first step to keep, from ``UQ_options['burn_in']``.
+
+        A value below 1 is a fraction of the chain; 1 or above is a number of steps. Defaults to
+        half the chain, which is what this used to hardcode. Always leaves at least one step, so
+        a burn_in longer than the run degrades to "keep the last sample" rather than producing an
+        empty array and a stack of nan statistics.
+        """
+        burn_in = (self.UQ_options or {}).get('burn_in', 0.5)
+        try:
+            burn_in = float(burn_in)
+        except (TypeError, ValueError):
+            print(f"WARNING: UQ_options burn_in {burn_in!r} is not a number; using half the chain.")
+            burn_in = 0.5
+
+        index = int(num_steps * burn_in) if burn_in < 1 else int(burn_in)
+        if index >= num_steps:
+            print(f'WARNING: burn_in discards all {num_steps} steps of the chain; '
+                  f'keeping the last one. Run more steps, or lower burn_in.')
+            index = num_steps - 1
+        return max(0, index)
+
+    def flat_param_names(self):
+        """One name per calibrated parameter, for labelling the statistics.
+
+        A grouped row calibrates one value shared across several model variables, so it is one
+        parameter with several names; the first stands for the group, as it does elsewhere.
+        """
+        # len(), never truthiness: param_id_info holds these as numpy arrays, and `not array`
+        # raises rather than answering.
+        info = self.param_id_info or {}
+        names = info.get('param_names_for_plotting')
+        if names is None or len(names) != self.num_params:
+            names = info.get('param_names')
+        if names is None:
+            names = []
+        flat = []
+        for idx in range(self.num_params):
+            if idx < len(names):
+                entry = names[idx]
+                flat.append(str(entry[0] if isinstance(entry, (list, tuple)) else entry))
             else:
-                original_best_cost, _ = self.get_cost_and_obs_from_params(self.best_param_vals, reset=True)
-                if mcmc_best_cost < original_best_cost:
-                    self.best_param_vals = mcmc_best_param_vals
-                    self.best_cost = mcmc_best_cost
-                    print('cost from mcmc median param vals is {}'.format(self.best_cost))
-                    print('resaving best_param_vals and best_cost from mcmc medians')
+                flat.append(f'param_{idx}')
+        return flat
 
-                    np.save(os.path.join(self.output_dir, 'best_cost'), self.best_cost)
-                    np.save(os.path.join(self.output_dir, 'best_param_vals'), self.best_param_vals)
-                else:
-                    self.best_cost = original_best_cost
-                    # leave the original best fit param val as the best fit value, mcmc just gives distributions
-                    print('cost from mcmc median param vals is {}'.format(mcmc_best_cost))
-                    print('Keeping the genetic algorithm best fit as it is lower, ({})'.format(self.best_cost))
+    def posterior_statistics(self, flat_samples):
+        """Per-parameter summary of the posterior, plus the cost at its point summaries.
+
+        A posterior is a distribution, and the honest summary of one is a spread rather than a
+        single number -- so mean *and* median *and* the quartiles and the 95% interval, not a
+        winner. The costs are reported for comparison with the calibration's best, deliberately
+        without acting on that comparison: see save_mcmc_statistics.
+        """
+        flat_samples = np.asarray(flat_samples, dtype=float)
+        names = self.flat_param_names()
+
+        means = flat_samples.mean(axis=0)
+        medians = np.median(flat_samples, axis=0)
+
+        stats = {}
+        for idx, name in enumerate(names):
+            column = flat_samples[:, idx]
+            stats[name] = {
+                'mean': float(means[idx]),
+                'median': float(medians[idx]),
+                'sd': float(np.std(column, ddof=1)) if column.size > 1 else float('nan'),
+                'q2.5': float(np.percentile(column, 2.5)),
+                'q25': float(np.percentile(column, 25)),
+                'q75': float(np.percentile(column, 75)),
+                'q97.5': float(np.percentile(column, 97.5)),
+                'min': float(np.min(column)),
+                'max': float(np.max(column)),
+            }
+        return stats, means, medians
+
+    def calibration_best_cost(self):
+        """The calibration's best cost as a finite float, or None if there isn't one.
+
+        Prefers the value on disk: a UQ run is often handed the calibration's *parameters*
+        (set_best_param_vals) without its cost, leaving the in-memory best_cost at inf. Reporting
+        inf would put a JSON Infinity in the file -- which strict JSON parsers reject -- and make
+        every posterior median look like it had beaten the calibration.
+        """
+        candidates = [self.best_cost]
+        path = os.path.join(self.output_dir, 'best_cost.npy')
+        if os.path.isfile(path):
+            try:
+                candidates.append(np.load(path))
+            except Exception:
+                pass
+        for candidate in candidates:
+            if candidate is None:
+                continue
+            try:
+                value = float(np.ravel(candidate)[0])
+            except (TypeError, ValueError, IndexError):
+                continue
+            if np.isfinite(value):
+                return value
+        return None
+
+    def save_mcmc_statistics(self, flat_samples):
+        """Write ``mcmc_statistics.json``, and leave the calibration's best fit alone.
+
+        This used to overwrite best_param_vals.npy and best_cost.npy with the posterior median
+        whenever that median scored a lower cost. Two different estimators were being conflated:
+        a posterior median summarises a distribution, a calibration best is an argmin, and they
+        answer different questions. Silently replacing one with the other meant a UQ run mutated
+        the calibration's answer -- and the file gave no clue which estimator it held.
+
+        The comparison is still reported, because it is genuinely informative (a median that
+        beats the optimum usually means the calibration stopped early, or that the posterior is
+        skewed), but nothing is decided on it. Choosing between the two is the user's call, and
+        both are now on disk to choose from.
+
+        The one exception is a UQ run with no calibration behind it at all: nothing else has
+        written a best fit, so the median is the only estimate there is, and the rest of the
+        pipeline (plotting, predictions) needs one. That is recorded in the file's `source`.
+        """
+        stats, means, medians = self.posterior_statistics(flat_samples)
+
+        # Weighted like the calibration, not like the likelihood: these sit in the same file as
+        # calibration_best_cost and are read against it, so all three have to be the same
+        # quantity. The flat weighting (#193) is for the likelihood being sampled, and must not
+        # follow the cost out into the artifacts.
+        with self.calibration_weighting():
+            median_cost = float(np.ravel(
+                self.get_cost_and_obs_from_params(medians, reset=True)[0])[0])
+            mean_cost = float(np.ravel(
+                self.get_cost_and_obs_from_params(means, reset=True)[0])[0])
+
+        document = {
+            'parameters': stats,
+            'num_samples': int(np.asarray(flat_samples).shape[0]),
+            'cost_at_posterior_median': median_cost,
+            'cost_at_posterior_mean': mean_cost,
+            'calibration_best_cost': self.calibration_best_cost(),
+        }
+
+        if self.best_param_vals is None:
+            # No calibration behind this run, so this is not an overwrite: it is the only
+            # estimate available, and downstream plotting/prediction needs one.
+            self.best_param_vals = medians
+            self.best_cost = median_cost
+            document['source'] = 'posterior_median'
+            document['calibration_best_cost'] = None
+            np.save(os.path.join(self.output_dir, 'best_cost'), self.best_cost)
+            np.save(os.path.join(self.output_dir, 'best_param_vals'), self.best_param_vals)
+            print('No calibration best fit existed, so best_param_vals and best_cost were '
+                  'written from the posterior median.')
+        else:
+            document['source'] = 'calibration'
+            calibration_cost = document['calibration_best_cost']
+            reported = 'unknown' if calibration_cost is None else calibration_cost
+            print(f'cost at the posterior median is {median_cost}, at the posterior mean is '
+                  f'{mean_cost}; the calibration best fit ({reported}) is left unchanged '
+                  f'(a posterior median is not an optimum -- see mcmc_statistics.json for the '
+                  f'full posterior summary).')
+            # Only when there is a real number to beat. The engine's in-memory best_cost is inf
+            # on a UQ run that adopted a calibration's parameters without its cost, and
+            # "lower than inf" is true of everything.
+            if calibration_cost is not None and median_cost < calibration_cost:
+                print('NOTE: the posterior median scores a lower cost than the calibration best '
+                      'fit. That usually means the calibration stopped early or the posterior '
+                      'is skewed. Both are on disk; choosing between them is yours to make.')
+
+        path = os.path.join(self.output_dir, 'mcmc_statistics.json')
+        with open(path, 'w') as write_file:
+            json.dump(document, write_file, indent=2)
+        print(f'mcmc statistics saved in {path}')
+        return document
 
     def calculate_pred_from_posterior_samples(self, flat_samples, n_sims=100):
         # idxs of output are [exp_idx][sim_idx, pred_idx, time_idx]
@@ -2882,7 +4290,7 @@ class MCMC_plotter:
                  params_for_id_path=None, num_calls_to_function=1000,
                  param_id_obs_path=None, sim_time=2.0, pre_time=20.0, 
                  solver_info=None, 
-                 dt=0.01, mcmc_options=None, 
+                 dt=0.01, UQ_options=None, mcmc_options=None,
                  param_id_output_dir=None, resources_dir=None,
                  DEBUG=False):
 
@@ -2928,7 +4336,7 @@ class MCMC_plotter:
         self.best_param_vals = None
         self.best_param_names = None
 
-        self.mcmc_options = mcmc_options
+        self.UQ_options = _resolve_UQ_options(UQ_options, mcmc_options)
 
         # thresholds for identifiability TODO optimise these
         self.threshold_param_importance = 0.1
@@ -2953,7 +4361,7 @@ class MCMC_plotter:
                                     param_id_obs_path=self.param_id_obs_path,
                                     sim_time=self.sim_time, pre_time=self.pre_time, dt=self.dt,
                                     param_id_output_dir=self.param_id_output_dir, resources_dir=self.resources_dir,
-                                    solver_info=self.solver_info, mcmc_options=self.mcmc_options,
+                                    solver_info=self.solver_info, UQ_options=self.UQ_options,
                                     DEBUG=self.DEBUG, one_rank=True)
                 if os.path.exists(os.path.join(mcmc.output_dir, 'param_names_to_remove.csv')):
                     with open(os.path.join(mcmc.output_dir, 'param_names_to_remove.csv'), 'r') as r:

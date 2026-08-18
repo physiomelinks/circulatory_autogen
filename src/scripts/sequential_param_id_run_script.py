@@ -6,13 +6,20 @@ Created on 26/04/2022
 
 import sys
 import os
-from mpi4py import MPI
 import time
 import numpy as np
 from distutils import util, dir_util
 
 root_dir = os.path.join(os.path.dirname(__file__), '../..')
 sys.path.append(os.path.join(root_dir, 'src'))
+# Not `from mpi4py import MPI`: that import initialises MPI and registers an
+# atexit MPI_Finalize, and with no launcher present that finalise is what aborts
+# on macOS when a NIC goes away (#396). Placed after the sys.path
+# bootstrap above, which is what makes `utilities` importable. Under mpiexec
+# get_MPI hands back the real mpi4py.MPI, so a multi-rank run is unchanged.
+from utilities.mpi_utils import get_MPI as _get_MPI
+
+MPI = _get_MPI()
 
 user_inputs_dir = os.path.join(root_dir, 'user_run_files')
 
@@ -52,17 +59,17 @@ if __name__ == '__main__':
         param_id_output_dir = inp_data_dict['param_id_output_dir']
         plot_predictions = inp_data_dict['plot_predictions']
         do_sensitivity = inp_data_dict['do_sensitivity']
-        do_mcmc = inp_data_dict['do_mcmc']
+        do_uq = inp_data_dict['do_uq']
         input_params_path = inp_data_dict['input_params_path']
         num_calls_to_function = inp_data_dict['num_calls_to_function']
-        mcmc_options = inp_data_dict['mcmc_options']
+        UQ_options = inp_data_dict['UQ_options']
 
 
         seq_param_id = SequentialParamID(model_path, model_type, param_id_method, file_prefix,
                                 input_params_path=input_params_path,
                                 param_id_obs_path=param_id_obs_path,
                                 num_calls_to_function=num_calls_to_function,
-                                solver_info=solver_info, dt=dt, mcmc_options=mcmc_options, ga_options=ga_options,
+                                solver_info=solver_info, dt=dt, UQ_options=UQ_options, ga_options=ga_options,
                                 DEBUG=DEBUG, 
                                 param_id_output_dir=param_id_output_dir, resources_dir=resources_dir)
 

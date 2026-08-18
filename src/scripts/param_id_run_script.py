@@ -6,9 +6,16 @@ Created on 29/10/2021
 
 import sys
 import os
-from mpi4py import MPI
 root_dir = os.path.join(os.path.dirname(__file__), '../..')
 sys.path.append(os.path.join(root_dir, 'src'))
+# Not `from mpi4py import MPI`: that import initialises MPI and registers an
+# atexit MPI_Finalize, and with no launcher present that finalise is what aborts
+# on macOS when a NIC goes away (#396). Placed after the sys.path
+# bootstrap above, which is what makes `utilities` importable. Under mpiexec
+# get_MPI hands back the real mpi4py.MPI, so a multi-rank run is unchanged.
+from utilities.mpi_utils import get_MPI as _get_MPI
+
+MPI = _get_MPI()
 from param_id.paramID import CVS0DParamID, ensure_mle_cost_type_for_bayesian_inner, mcmc_object
 import traceback
 import yaml
@@ -108,14 +115,14 @@ def run_param_id(inp_data_dict=None):
         print('param id complete with method:', param_id_method)
 
     # param_id.close_simulation() comment for identifiability analysis run otherwise the model will be closed before analysis
-    do_mcmc = inp_data_dict['do_mcmc']
+    do_uq = inp_data_dict['do_uq']
 
     if DEBUG:
-        mcmc_options = inp_data_dict['debug_mcmc_options']
+        UQ_options = inp_data_dict['debug_UQ_options']
     else:
-        mcmc_options = inp_data_dict['mcmc_options']
+        UQ_options = inp_data_dict['UQ_options']
 
-    if do_mcmc:
+    if do_uq:
 
         if rank == 0:
             print('running mcmc')
@@ -124,7 +131,7 @@ def run_param_id(inp_data_dict=None):
                                 params_for_id_path=params_for_id_path,
                                 param_id_obs_path=param_id_obs_path,
                                 sim_time=sim_time, pre_time=pre_time,
-                                solver_info=solver_info, dt=dt, mcmc_options=mcmc_options, DEBUG=DEBUG,
+                                solver_info=solver_info, dt=dt, UQ_options=UQ_options, DEBUG=DEBUG,
                                 param_id_output_dir=param_id_output_dir, resources_dir=resources_dir,
                                 operation_funcs_external_path=operation_funcs_external_path,
                                 cost_funcs_external_path=cost_funcs_external_path)

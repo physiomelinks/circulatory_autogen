@@ -30,7 +30,14 @@ import paperPlotSetup
 from utility_funcs import calculate_hessian
 paperPlotSetup.Setup_Plot(3)
 from parsers.PrimitiveParsers import scriptFunctionParser
-from mpi4py import MPI
+# Not `from mpi4py import MPI`: that import initialises MPI and registers an
+# atexit MPI_Finalize, and with no launcher present that finalise is what aborts
+# on macOS when a NIC goes away (#396). get_MPI hands back the real
+# mpi4py.MPI under mpiexec -- a multi-rank run is unchanged -- and a one-rank
+# stub otherwise, so a serial run never opens MPI at all.
+from utilities.mpi_utils import get_MPI as _get_MPI
+
+MPI = _get_MPI()
 import re
 from numpy import genfromtxt
 from importlib import import_module
@@ -57,7 +64,7 @@ class IdentifiabilityAnalysis():
 
     Args:
         model_path: Path to the generated model file.
-        model_type: ``'cellml_only'``, ``'python'`` or ``'casadi_python'``.
+        model_type: ``'cellml'``, ``'python'`` or ``'casadi_python'``.
         file_name_prefix: Model name prefix (names the saved result files).
         DEBUG: Enable debug behaviour.
         param_id_output_dir: Root output directory.
@@ -153,7 +160,7 @@ class IdentifiabilityAnalysis():
 
         ``J[k, j] = d(observable feature k)/d(param j)`` at the best fit, from
         ``OpencorParamID.get_observable_sensitivities`` -- the CasADi jacobian for
-        ``casadi_python`` ('AD') or the Myokit CVODES sensitivities for ``cellml_only`` +
+        ``casadi_python`` ('AD') or the Myokit CVODES sensitivities for ``cellml`` +
         ``CVODE_myokit`` ('FSA'), i.e. the sources ``gradient_sources(model_type, solver)``
         advertises. At the MLE this Gauss-Newton matrix is the positive-definite negative Hessian
         of the Gaussian log-likelihood, so the Laplace covariance is its inverse. Scalar (const)
@@ -163,17 +170,26 @@ class IdentifiabilityAnalysis():
 
         pid = self.param_id
         solver = pid.solver_info.get('solver') if isinstance(pid.solver_info, dict) else None
-        available = {s['value'] for s in gradient_sources(pid.model_type, solver)}
+        # use_emulator collapses this to FD alone: the analytic arms differentiate the real
+        # model, so on an emulator run they would build the Fisher information from
+        # sensitivities of a model that is not being evaluated (#333).
+        emulating = bool(getattr(pid, 'emulates_features', False))
+        available = {s['value'] for s in gradient_sources(pid.model_type, solver,
+                                                          use_emulator=emulating)}
         if gradient_source not in available:
             raise ValueError(
                 f"Laplace gradient_source '{gradient_source}' is not available for model_type "
-                f"'{pid.model_type}' / solver '{solver}'. Available: {sorted(available)}. "
+                f"'{pid.model_type}' / solver '{solver}'"
+                + (" with use_emulator: true" if emulating else "")
+                + f". Available: {sorted(available)}. "
                 "(gradient_sources(model_type, solver) lists the analytic sources per model; use "
                 "'FD' for finite differences.)")
 
         sens = pid.get_observable_sensitivities(np.asarray(self.best_param_vals, dtype=float))
-        param_names = [n[0] if isinstance(n, (list, tuple)) else n
-                       for n in pid.param_id_info['param_names']]
+        # The arms key their result dicts by entry label (one per calibrated theta, matching
+        # best_param_vals); first-member qnames would miss every grouped column and read 0.0.
+        from parsers.PrimitiveParsers import param_entry_labels
+        param_names = param_entry_labels(pid.param_id_info)
         obs_info = pid.obs_info
         const_to_obs = obs_info['const_idx_to_obs_idx']
         stds = np.asarray(obs_info['std_const_vec'], dtype=float)

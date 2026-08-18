@@ -6,7 +6,14 @@ genetic algorithm, bayesian optimisation, and scipy minimizers.
 '''
 
 import numpy as np
-from mpi4py import MPI
+# Not `from mpi4py import MPI`: that import initialises MPI and registers an
+# atexit MPI_Finalize, and with no launcher present that finalise is what aborts
+# on macOS when a NIC goes away (#396). get_MPI hands back the real
+# mpi4py.MPI under mpiexec -- a multi-rank run is unchanged -- and a one-rank
+# stub otherwise, so a serial run never opens MPI at all.
+from utilities.mpi_utils import get_MPI as _get_MPI
+
+MPI = _get_MPI()
 import math
 import os
 import csv
@@ -118,6 +125,92 @@ class GeneticAlgorithmOptimiser(Optimiser):
     #: (see ``_debug_population()``).
     _POPULATION_KEYS = ('num_elite', 'num_survivors', 'num_mutations_per_survivor',
                         'num_cross_breed')
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.objective_function = self.optimiser_options.get('objective_function', 'cost')
+        if self.objective_function not in ('cost', 'likelihood'):
+            raise ValueError(
+                f"Invalid objective_function: {self.objective_function!r}. "
+                f"Must be 'cost' or 'likelihood'.")
+
+    def _objective(self, param_vals):
+        """The scalar this GA minimises, for the selected ``objective_function``.
+
+        ``'likelihood'`` is **negated**: get_lnlikelihood_lnprior_from_params returns a log
+        posterior, where higher is better, and every optimiser here minimises. Handing it over
+        unnegated (as #367 did) would have made the GA search for the *least* probable
+        parameters -- and worse, an out-of-prior point returns -inf, which minimisation would
+        score as the best point there is. Negated, that same -inf becomes +inf, which is exactly
+        the "reject and resample" signal the population loop below already handles.
+        """
+        if self.objective_function == 'likelihood':
+            return -self.param_id_obj.get_lnlikelihood_lnprior_from_params(param_vals)
+        return self.param_id_obj.get_cost_from_params(param_vals)
+
+    def _loss_has_stalled(self, cost, last_loss):
+        """Whether this generation counts towards ``max_patience``.
+
+        The absolute ``cost_convergence`` test alone is scale dependent: a likelihood objective
+        whose values sit in the hundreds never moves by less than 1e-4, so the run only ever
+        stops on the generation budget. Opting in to ``use_relative_cost_tolerance`` also stops when
+        the *fractional* change falls below ``relative_cost_tolerance``. Either criterion counts, so
+        turning it on can only make a run stop sooner, never later.
+        """
+        diff = abs(cost - last_loss)
+        if diff < self.optimiser_options["cost_convergence"]:
+            return True
+        if self.optimiser_options.get('use_relative_cost_tolerance', False):
+            relative_change = diff / max(abs(last_loss), 1e-10)
+            return relative_change < self.optimiser_options.get('relative_cost_tolerance', 1e-3)
+        return False
+
+    @staticmethod
+    def _survival_probabilities(costs):
+        """Selection weights for the non-elite population, as a normalised probability vector.
+
+        The inverse-cost rule ``cost**-1`` is kept wherever it is valid, which is every ordinary
+        calibration: it assumes a strictly positive cost, and that is what a weighted cost
+        function returns. Keeping it means this change is invisible to existing runs -- see
+        below for why that matters more than it looks.
+
+        It breaks for ``objective_function='likelihood'``, where the objective is a negative log
+        posterior. That goes negative wherever the posterior density exceeds 1, and a negative
+        weight is not a probability: np.random.choice raises, or -- with mixed signs summing
+        near zero -- silently returns nonsense. Even where it stays positive it barely
+        discriminates, because the values are large and close together (1/800 vs 1/830 is almost
+        uniform selection, i.e. a GA that has stopped selecting at all).
+
+        So that case falls back to Boltzmann selection, on costs shifted to start at zero and
+        scaled by their own spread. Both are necessary: the shift because ``exp(-cost)``
+        underflows to zero for every member once the objective passes about 745 (softmax is
+        shift invariant, so this changes no probability), and the scaling because an unscaled
+        ``exp(-cost)`` makes selection pressure depend on the objective's absolute magnitude.
+        #367 used the unscaled, unshifted form for *every* run, which on a measured 3compartment
+        GA population (costs 5.3 to 17.3) collapses the effective number of distinct survivors
+        from 5.4 of 6 to 1.3 of 6 -- near-deterministic selection, which is the diversity a GA
+        exists to keep.
+        """
+        costs = np.asarray(costs, dtype=float)
+
+        if np.all(np.isfinite(costs)) and np.all(costs > 0):
+            inverse = costs ** -1
+            total = np.sum(inverse)
+            if np.isfinite(total) and total > 0:
+                return inverse / total
+
+        finite = costs[np.isfinite(costs)]
+        if finite.size == 0:
+            return np.full(costs.shape, 1.0 / costs.size)
+        # Non-finite members must not win, and must not poison the normalisation.
+        costs = np.where(np.isfinite(costs), costs, np.max(finite))
+        spread = np.max(costs) - np.min(costs)
+        scale = spread if spread > 0 else 1.0
+        weights = np.exp(-(costs - np.min(costs)) / scale)
+        total = np.sum(weights)
+        if not np.isfinite(total) or total <= 0:
+            return np.full(costs.shape, 1.0 / costs.size)
+        return weights / total
 
     @classmethod
     def _debug_population(cls):
@@ -255,7 +348,7 @@ class GeneticAlgorithmOptimiser(Optimiser):
                         success = True
                         break
                     
-                    cost_proc[II] = self.param_id_obj.get_cost_from_params(param_vals_proc[:, II])
+                    cost_proc[II] = self._objective(param_vals_proc[:, II])
                     
                     if cost_proc[II] == np.inf:
                         print('... choosing a new random point')
@@ -309,7 +402,7 @@ class GeneticAlgorithmOptimiser(Optimiser):
                 
                 #count the repeat number
                 if last_loss is not None:
-                    if abs(cost[0]-last_loss) < self.optimiser_options["cost_convergence"]:
+                    if self._loss_has_stalled(cost[0], last_loss):
                         loss_repeat_counter += 1
                     else:
                         loss_repeat_counter = 0
@@ -339,7 +432,7 @@ class GeneticAlgorithmOptimiser(Optimiser):
                         if cost[idx] > 1e25:
                             cost[idx] = 1e25
                     
-                    survive_prob = cost[num_elite:num_pop]**-1/sum(cost[num_elite:num_pop]**-1)
+                    survive_prob = self._survival_probabilities(cost[num_elite:num_pop])
                     rand_survivor_idxs = np.random.choice(np.arange(num_elite, num_pop),
                                                         size=num_survivors-num_elite, p=survive_prob)
                     param_vals_norm[:, num_elite:num_survivors] = param_vals_norm[:, rand_survivor_idxs]
@@ -625,7 +718,10 @@ class CMAESOptimiser(Optimiser):
                 for i in out_of_bounds:
                     param_name = param_names[i] if i < len(param_names) else f'Parameter {i}'
                     print(f'  Parameter: {param_name}')
-                    print(f'    Value from CSV: {self.param_id_obj.param_init[i] if self.param_id_obj.param_init else "N/A"}')
+                    # param_init is an ndarray (one flat theta slot per calibrated variable),
+                    # so guard with `is not None` -- bare truthiness on an array raises.
+                    print(f'    Value from CSV: '
+                          f'{self.param_id_obj.param_init[i] if self.param_id_obj.param_init is not None else "N/A"}')
                     print(f'    Bounds: [{self.param_mins[i]:.6e}, {self.param_maxs[i]:.6e}]')
                     print(f'    Setting to mean: {x0[i]:.6e}')
                 print('='*80 + '\n')
@@ -1144,7 +1240,7 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
         self.do_ad = do_ad
         self.model_type = model_type
         # param_id_obj.get_gradient() has an AD backend for casadi (symbolic) and aadc
-        # (tape) models, and for cellml_only models run through Myokit CVODES forward
+        # (tape) models, and for cellml models run through Myokit CVODES forward
         # sensitivity (advertised via fsa_gradient_available); for anything else it raises,
         # so those fall back to finite differences.
         fsa_available = getattr(param_id_obj, 'fsa_gradient_available', None)
@@ -1309,10 +1405,12 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
             pass
 
     def _param_labels(self):
-        """Column labels for the parameters (a param shared across vessels uses its first name),
-        with '/' replaced by ' ' -- matching multi_start_summary.csv so both files line up."""
-        return [(names[0] if isinstance(names, (list, tuple)) else str(names)).replace('/', ' ')
-                for names in self.param_id_info["param_names"]]
+        """Column labels for the parameters (one per calibrated variable: a grouped row joins
+        its qnames, a modifier uses its own name), with '/' replaced by ' ' -- matching
+        multi_start_summary.csv so both files line up."""
+        from parsers.PrimitiveParsers import param_entry_labels
+        return [label.replace('/', ' ')
+                for label in param_entry_labels(self.param_id_info)]
 
     def _append_start_params(self, start_idx, iteration, x_norm):
         """Append one ``start_idx, iteration, <param values>`` row to the live per-start parameter
@@ -1733,8 +1831,8 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
 
     def _write_start_summary(self, all_results):
         """One row per start, so the basins the starts fell into can be inspected."""
-        param_labels = [names[0] if isinstance(names, (list, tuple)) else str(names)
-                        for names in self.param_id_info["param_names"]]
+        from parsers.PrimitiveParsers import param_entry_labels
+        param_labels = param_entry_labels(self.param_id_info)
 
         summary_path = os.path.join(self.output_dir, 'multi_start_summary.csv')
         with open(summary_path, 'w') as file:
@@ -1787,8 +1885,8 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
         clusters.sort(key=lambda c: c['count'], reverse=True)
         self.convergence_clusters = clusters
 
-        param_labels = [names[0] if isinstance(names, (list, tuple)) else str(names)
-                        for names in self.param_id_info["param_names"]]
+        from parsers.PrimitiveParsers import param_entry_labels
+        param_labels = param_entry_labels(self.param_id_info)
         path = os.path.join(self.output_dir, 'multi_start_convergence_clusters.csv')
         with open(path, 'w') as file:
             writer = csv.writer(file)

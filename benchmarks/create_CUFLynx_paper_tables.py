@@ -3,7 +3,7 @@
 Two tables are produced into a single ``.tex`` file:
 
 1. **Calibration summary** -- one row per benchmark model: wall-clock calibration time and
-   maximum absolute parameter error. By default each model is represented by its best optimiser
+   maximum relative parameter error. By default each model is represented by its best optimiser
    (lowest max param err, ties broken by wall-clock); ``--all-methods`` lists every optimiser
    grouped under its model instead.
 2. **Parallel scaling** -- for the slowest model (auto-detected as the one with the largest total
@@ -362,8 +362,9 @@ def table_calibration(by_name, order, all_methods=False, label="tab:ca-calibrati
              r"  \caption{Calibration performance of CUFLynx across the benchmark models. "
              r"Wall-clock time is the full parameter-identification run; the maximum parameter "
              r"error is the largest deviation of a recovered parameter from its known true "
-             r"value (absolute, except 3CVS whose parameters span five orders of magnitude and "
-             r"which reports relative error). "
+             r"value, relative to that true value. Relative for every model: parameters "
+             r"within one model span orders of magnitude, so an absolute maximum would "
+             r"report only the largest. "
              + (rf"Models --- {acronym_legend(order)}." if acronym_legend(order) else "")
              + r"}",
              rf"  \label{{{label}}}",

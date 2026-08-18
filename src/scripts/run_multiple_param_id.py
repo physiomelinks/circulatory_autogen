@@ -6,11 +6,18 @@ Created on 29/10/2021
 
 import sys
 import os
-from mpi4py import MPI
 from distutils import util, dir_util
 
 root_dir = os.path.join(os.path.dirname(__file__), '../..')
 sys.path.append(os.path.join(root_dir, 'src'))
+# Not `from mpi4py import MPI`: that import initialises MPI and registers an
+# atexit MPI_Finalize, and with no launcher present that finalise is what aborts
+# on macOS when a NIC goes away (#396). Placed after the sys.path
+# bootstrap above, which is what makes `utilities` importable. Under mpiexec
+# get_MPI hands back the real mpi4py.MPI, so a multi-rank run is unchanged.
+from utilities.mpi_utils import get_MPI as _get_MPI
+
+MPI = _get_MPI()
 
 from param_id.paramID import CVS0DParamID
 from scripts.read_and_insert_parameters import insert_parameters
@@ -158,19 +165,19 @@ if __name__ == '__main__':
 
             # best_param_vals = param_id.get_best_param_vals()
             param_id.close_simulation()
-            # do_mcmc = inp_data_dict['do_mcmc']
+            # do_uq = inp_data_dict['do_uq']
             #
             # if DEBUG:
-            #     mcmc_options = inp_data_dict['debug_mcmc_options']
+            #     UQ_options = inp_data_dict['debug_UQ_options']
             # else:
-            #     mcmc_options = inp_data_dict['mcmc_options']
+            #     UQ_options = inp_data_dict['UQ_options']
             #
-            # if do_mcmc:
+            # if do_uq:
             #     mcmc = CVS0DParamID(model_path, model_type, param_id_method, True, file_prefix,
             #                             input_params_path=input_params_path,
             #                             param_id_obs_path=param_id_obs_path,
             #                             sim_time=sim_time, pre_time=pre_time,
-            #                             solver_info=solver_info, dt=dt, mcmc_options=mcmc_options, DEBUG=DEBUG)
+            #                             solver_info=solver_info, dt=dt, UQ_options=UQ_options, DEBUG=DEBUG)
             #     mcmc.set_best_param_vals(best_param_vals)
             #     # mcmc.set_mcmc_parameters() TODO
             #     mcmc.run_mcmc()

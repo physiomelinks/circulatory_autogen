@@ -95,7 +95,7 @@ def test_generate_omex_analysis_pipeline_runs_successfully(temp_output_dir):
     assert "OBSERVABLE_DATASET_INDEX_BY_VARIABLE =" in generated_script
     assert "OBSERVABLE_DATASET_OPTIONS =" in generated_script
     assert "run_pipeline()" in generated_script
-    assert '"model_type": "cellml_only"' in generated_script
+    assert '"model_type": "cellml"' in generated_script
     assert '"solver": "CVODE"' in generated_script
     assert '"num_calls_to_function": 200' in generated_script
     assert "'V': 0" in generated_script

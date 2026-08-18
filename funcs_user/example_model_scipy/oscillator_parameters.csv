@@ -1,0 +1,3 @@
+variable_name,units,value,data_reference
+c,dimensionless,0.5,external_python
+k,dimensionless,4.0,external_python

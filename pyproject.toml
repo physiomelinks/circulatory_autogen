@@ -4,7 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "circulatory-autogen"
-version = "0.1.0"
+# Keep in step with the release tag: every release is accompanied by a chore PR bumping this.
+# It had drifted to 0.1.0 while the published release was Version_0_2, so anything built from
+# the tree reported a version lower than the one already out.
+version = "0.3.0"
 description = "Generation and calibration of CellML circulatory system models from module/vessel arrays"
 readme = "README.md"
 requires-python = ">=3.7"
@@ -69,10 +72,23 @@ dev = [
     "flake8>=4.0.0",
     "mypy>=0.950",
 ]
+# Optional UQ backends. Kept out of the core list on purpose: pytensor builds C
+# extensions, and param_id/paramID.py is imported by every calibration run, so a hard
+# dependency would make an ordinary calibration fail to import for anyone not doing UQ.
+uq = [
+    "pymc>=5.0",
+]
 docs = [
     "mkdocs-material>=9.0",
     "mkdocstrings[python]>=0.24",
     "black>=22.0.0",  # used by mkdocstrings to format rendered signatures
+]
+# Surrogate (emulator) models -- issue #333. Optional because autoemulate pulls in torch,
+# gpytorch, pyro-ppl and lightgbm, and requires Python >=3.10,<3.13, which is narrower than
+# this project's floor. CA imports it only when do_emulation/use_emulator is set, and says so
+# by name when it is missing.
+emulation = [
+    "autoemulate>=2.1,<3",
 ]
 
 [tool.pytest.ini_options]
@@ -91,6 +107,7 @@ addopts = [
 ]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "manual: never collected without --run-manual; too slow for CI or a normal local run",
     "integration: marks tests as integration tests",
     "unit: marks tests as unit tests",
     "mpi: marks tests that require MPI",
@@ -103,6 +120,7 @@ markers = [
     "autogen_rank(idx): autogeneration test assigned rank index",
     "solver_task: marks a solver test that signals completion",
     "compare_optimisers: marks compare_optimisers tests",
+    "full_scale_model: calibrates a whole-circulation model rather than a small one, so it takes minutes rather than seconds; CI splits the param_id jobs on this marker to halve their wall clock",
     "xdist_group(name): group marker used by pytest-xdist to serialize groups",
 ]
 # Coverage options

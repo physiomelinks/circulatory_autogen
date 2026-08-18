@@ -21,14 +21,19 @@ import re
 from datetime import date
 
 from utilities.protocol_shapes import materialise_shapes, validate_trace_references
+from utilities.obs_data_helpers import (DEFAULT_COST_TYPE, PREVIOUS_DEFAULT_COST_TYPE,
+                                        VALID_DATA_TYPES)
+from param_id.modifier_funcs import (BUILTIN_MODIFIER_FUNCS, get_modifier_funcs,
+                                     probe_affine)
 
-try:
-    from mpi4py import MPI
-    mpi_available = True
-    rank = MPI.COMM_WORLD.Get_rank()
-except:
-    mpi_available = False
-    rank=0
+# Rank only -- no collectives here. Importing mpi4py for it initialised MPI and
+# registered an atexit MPI_Finalize in every process that merely parsed a config,
+# and that finalise aborts on macOS when a NIC goes away (#396). mpi_utils
+# answers without opening MPI when nothing launched this process.
+from utilities import mpi_utils as _mpi_utils
+
+mpi_available = _mpi_utils.mpi_available()
+rank = _mpi_utils.rank()
 
 root_dir = os.path.join(os.path.dirname(__file__), '../..')
 sys.path.append(os.path.join(root_dir, 'src'))
@@ -78,22 +83,65 @@ AADC_FORWARD_METHODS = ('adaptive_rk45', 'semi_implicit', 'semi_implicit_signed'
 # Every AADC method that can produce an analytic gradient, by either route.
 AADC_AD_METHODS = AADC_TAPE_CONSISTENT_METHODS + AADC_BDF_AD_METHODS
 
+#: Model types that have been renamed, old spelling -> current one.
+#:
+#: ``cellml_only`` was renamed to ``cellml``: the "_only" said nothing (there is
+#: no ``cellml_and_something`` to be distinguished from), and it is the default
+#: model type, so it is the spelling in every ``user_inputs.yaml`` ever written
+#: -- including the dated copies ``save_dated_user_inputs`` archives beside every
+#: run. Refusing those would make old configs unrunnable to buy nothing, so the
+#: old name keeps working and warns.
+#:
+#: Note this is a different namespace from a module config's ``module_format:
+#: cellml`` (which file format one *module* is written in). A model_type says
+#: what CA generates and runs; they happen to share a word.
+MODEL_TYPE_ALIASES = {'cellml_only': 'cellml'}
+
+_warned_model_type_aliases = set()
+
+
+def normalise_model_type(model_type, source=''):
+    """Map a renamed ``model_type`` onto its current spelling, warning once.
+
+    Anything not in :data:`MODEL_TYPE_ALIASES` -- including ``None`` and names
+    that are simply invalid -- is returned untouched, so this only ever
+    translates and never validates. The caller's own check reports a bad name,
+    with the name the user actually wrote.
+    """
+    current = MODEL_TYPE_ALIASES.get(model_type)
+    if current is None:
+        return model_type
+    if model_type not in _warned_model_type_aliases:
+        _warned_model_type_aliases.add(model_type)
+        where = f' in {source}' if source else ''
+        print(f'Warning: model_type "{model_type}"{where} has been renamed to "{current}". '
+              f'It still works, but update your config: the old name will be removed.')
+    return current
+
+
 # Single source of truth for which generated model_types exist, which solvers are
 # valid for each, and which methods/plugins are valid for each solver. Used for
 # input validation here AND surfaced to downstream tools (e.g. the CUFLynx
 # settings UI) so they don't hardcode these lists. Keep this in sync with
 # solver_wrappers.get_simulation_helper.
+#
+# Renamed model types are NOT listed here -- see MODEL_TYPE_ALIASES. This is the
+# menu of what to write today, and a downstream tool building a dropdown from it
+# should not offer a name that is on its way out.
 SOLVER_SCHEMA = {
-    'model_types': ['cellml_only', 'python', 'cpp', 'casadi_python', 'aadc_python', 'python_user_defined'],
+    'model_types': ['cellml', 'python', 'cpp', 'casadi_python', 'aadc_python',
+                    'external_python'],
     'solvers_by_model_type': {
-        'cellml_only': ['CVODE_opencor', 'CVODE_myokit'],
+        'cellml': ['CVODE_opencor', 'CVODE_myokit'],
         'python': ['solve_ivp'],
         'cpp': ['CVODE', 'RK4', 'PETSC'],
         'casadi_python': ['casadi_integrator'],
         'aadc_python': ['aadc_semi_implicit'],
-        # The user supplies their own ODE wrapper in funcs_user/; it is integrated
-        # by the shared SciPy PythonSimulationHelper (see solver_wrappers).
-        'python_user_defined': ['user_defined'],
+        # The one way to bring your own Python model: the user supplies a solver CLASS (an FE
+        # code, a compiled library, a scipy solve_ivp of their own) that does its own time
+        # stepping, and CA only wraps it. See solver_wrappers/external_simulation_helper.py.
+        # too -- see funcs_user/example_model_scipy/ for the same case in the new contract.
+        'external_python': ['external'],
     },
     # Methods/plugins valid for each solver.
     'methods_by_solver': {
@@ -120,18 +168,21 @@ SOLVER_SCHEMA = {
         # stiff models, or model_type 'casadi_python' for a differentiable symbolic BDF.
         'aadc_semi_implicit': ['adaptive_rk45', 'semi_implicit', 'semi_implicit_signed',
                                'implicit_euler_ift', 'implicit_newton', 'bdf_newton', 'rk4'],
-        # The user wrapper supplies the rhs; the framework integrates it with the
-        # same scipy solve_ivp methods as model_type 'python'.
-        'user_defined': ['RK45', 'RK23', 'DOP853', 'Radau', 'BDF', 'LSODA', 'forward_euler'],
+        # A single placeholder method, because there is nothing here for CA to choose: the
+        # external class owns its own integration scheme. The entry exists so every solver has
+        # a method menu (a downstream form would otherwise have an empty control), and so the
+        # derived tables below -- forward_methods_by_solver, stiff_suitable_methods -- have
+        # something to name.
+        'external': ['external'],
     },
     # Default solver for each model_type (used when none is specified).
     'default_solver_by_model_type': {
-        'cellml_only': 'CVODE_opencor',
+        'cellml': 'CVODE_opencor',
         'python': 'solve_ivp',
         'cpp': 'CVODE',
         'casadi_python': 'casadi_integrator',
         'aadc_python': 'aadc_semi_implicit',
-        'python_user_defined': 'user_defined',
+        'external_python': 'external',
     },
 }
 
@@ -158,7 +209,7 @@ SOLVER_SCHEMA['forward_methods_by_solver'] = {
     solver: (list(AADC_FORWARD_METHODS) if solver == 'aadc_semi_implicit' else list(methods))
     for solver, methods in SOLVER_SCHEMA['methods_by_solver'].items()
 }
-# Myokit CVODES forward-sensitivity (FSA) is the analytic gradient for stiff cellml_only models;
+# Myokit CVODES forward-sensitivity (FSA) is the analytic gradient for stiff cellml models;
 # its method is 'CVODE' on the CVODE solvers. (CA's get_gradient currently produces FSA only for
 # CVODE_myokit; the CVODE_opencor entry records that its FSA-capable method would likewise be
 # CVODE, so a tool gating a method menu stays correct if/when it is wired up.)
@@ -203,7 +254,6 @@ SOLVER_SCHEMA['stiff_suitable_methods'] = {
     'CVODE_opencor': ['CVODE'],
     'CVODE': ['CVODE'],
     'solve_ivp': ['Radau', 'BDF', 'LSODA'],
-    'user_defined': ['Radau', 'BDF', 'LSODA'],
     'casadi_integrator': ['cvodes', 'idas', 'bdf', 'semi_implicit_euler'],
     'aadc_semi_implicit': ['semi_implicit', 'semi_implicit_signed', 'implicit_newton'],
     # Explicitly empty rather than absent: the cpp RK4 solver offers only a fixed-step explicit
@@ -212,6 +262,11 @@ SOLVER_SCHEMA['stiff_suitable_methods'] = {
     # every solver in methods_by_solver has an entry here (enforced by the schema tests).
     'RK4': [],
     'PETSC': [],
+    # Not empty, and not an assessment either: 'external' is a placeholder for "whatever scheme
+    # the user's class implements", so CA cannot say whether it is stiff-safe -- only the author
+    # can. An empty list would make a remove-only method filter (CUFLynx's) strip the solver's
+    # one method and leave a stiff-model menu with nothing in it.
+    'external': ['external'],
 }
 
 # Recommended default integrator per solver, for a front-end to pre-select an AD-friendly method:
@@ -240,13 +295,38 @@ _SI_RTOL = {'name': 'rtol', 'type': 'float', 'default': 1e-8, 'required': False,
             'description': 'Relative integration tolerance.'}
 _SI_ATOL = {'name': 'atol', 'type': 'float', 'default': 1e-8, 'required': False,
             'description': 'Absolute integration tolerance.'}
-# CVODE-family backends (opencor, and the cpp CVODE/RK4/PETSC) share the same fields.
+# The OpenCOR CVODE backend, which forwards solver_info straight into OpenCOR's own
+# odeSolverProperties() (rtol/atol translated to RelativeTolerance/AbsoluteTolerance).
 _CVODE_FAMILY_SOLVER_INFO = [
     {'name': 'MaximumStep', 'type': 'float', 'default': 0.001, 'required': False,
      'description': 'Maximum integrator step size.'},
     {'name': 'MaximumNumberOfSteps', 'type': 'int', 'default': 5000, 'required': False,
      'description': 'Maximum number of internal integrator steps per output step.'},
     _SI_RTOL, _SI_ATOL,
+]
+
+# Derived, so the migration below and the model_type menu cannot name different sets of solvers.
+_CPP_SOLVERS = frozenset(SOLVER_SCHEMA['solvers_by_model_type']['cpp'])
+
+# The cpp solvers (CVODE/RK4/PETSC) are not run through a SimulationHelper at all: their
+# solver_info is baked into the emitted C++ by the cpp branch of
+# script_generate_with_new_architecture, which forwards these values to CVSCppGenerator (plus the
+# framework key `dt_solver`, which becomes the solver step).
+#
+# 'MaximumStep' is deliberately absent: the generated C++ integrates at the fixed `dt_solver`, so
+# there is no maximum-step-size knob for it to control. Advertising a setting nothing reads makes
+# a downstream tool (e.g. CUFLynx) render a control the user can change with no effect and no way
+# to tell -- the same reasoning as the notes on 'CVODE_myokit' and 'aadc_semi_implicit'. Configs
+# that already set it are migrated with a warning, not rejected (migrate_legacy_solver_info_keys).
+# rtol/atol used to be absent for the same reason; they came back once the generator stopped
+# hardcoding them (#398). The defaults are the literals the generator used to emit.
+_CPP_SOLVER_INFO = [
+    {'name': 'MaximumNumberOfSteps', 'type': 'int', 'default': 5000, 'required': False,
+     'description': 'Maximum number of internal integrator steps (emitted as CVODE mxsteps).'},
+    {**_SI_RTOL, 'default': 1e-7,
+     'description': 'Relative integration tolerance (emitted as the generated solver\'s reltol).'},
+    {**_SI_ATOL, 'default': 1e-9,
+     'description': 'Absolute integration tolerance (emitted as the generated solver\'s abstol).'},
 ]
 
 # CVODE_myokit is deliberately NOT in that family. myokit.Simulation exposes only
@@ -259,12 +339,21 @@ _CVODE_FAMILY_SOLVER_INFO = [
 _MYOKIT_SOLVER_INFO = [
     {'name': 'MaximumStep', 'type': 'float', 'default': 0.001, 'required': False,
      'description': 'Maximum integrator step size (myokit Simulation.set_max_step_size).'},
-    _SI_RTOL, _SI_ATOL,
+    # rel 1e-6 / abs 1e-8, not the 1e-8/1e-8 the rest of the CVODE family declares. abs stays
+    # at the 1e-8 floor previous users ran at, so existing models do not start failing; rel is
+    # relaxed to 1e-6 because the relative knob is where most of the 1e-8/1e-8 interactive
+    # solve cost was (1e-8/1e-8 measured ~2.3x slower than Myokit's own defaults on
+    # 3compartment). Front-ends seed interactive solves from these declared defaults, and the
+    # helper applies the same values when the user sets neither, so declared and effective
+    # cannot drift (mirrored by myokit_helper.CA_DEFAULT_*; a test pins them equal). FSA still
+    # forces 1e-8/1e-8 when the user set none -- a sloppy forward solve makes a poor gradient
+    # (see myokit_helper.apply_cvodes_tolerances).
+    {**_SI_RTOL, 'default': 1e-6},
+    {**_SI_ATOL, 'default': 1e-8},
 ]
 
-# Shared by 'solve_ivp' and 'user_defined': the user wrapper supplies only the RHS and is
-# integrated by the same scipy solve_ivp helper, so the two accept an identical settings set.
-# Shared rather than duplicated so they cannot drift apart.
+# The scipy solve_ivp settings, for the libCellML-generated 'python' models the shared SciPy
+# helper integrates.
 _SOLVE_IVP_SOLVER_INFO = [
     _SI_RTOL, _SI_ATOL,
     {'name': 'max_step', 'type': 'float', 'default': 0.001, 'required': False,
@@ -280,11 +369,19 @@ _SOLVE_IVP_SOLVER_INFO = [
 SOLVER_INFO_FIELDS = {
     'CVODE_opencor': _CVODE_FAMILY_SOLVER_INFO,
     'CVODE_myokit': _MYOKIT_SOLVER_INFO,
-    'CVODE': _CVODE_FAMILY_SOLVER_INFO,
-    'RK4': _CVODE_FAMILY_SOLVER_INFO,
-    'PETSC': _CVODE_FAMILY_SOLVER_INFO,
+    'CVODE': _CPP_SOLVER_INFO,
+    'RK4': _CPP_SOLVER_INFO,
+    'PETSC': _CPP_SOLVER_INFO,
     'solve_ivp': _SOLVE_IVP_SOLVER_INFO,
-    'user_defined': _SOLVE_IVP_SOLVER_INFO,
+    # Deliberately one free-form field and no integrator knobs. CA does not integrate an
+    # external model, so rtol/max_step/... would be settings nothing reads -- and what an
+    # external solver does need to be told (a mesh, a device, a scheme's own tolerance) is not
+    # something CA can enumerate. The whole dict is handed to the user's init_solver.
+    'external': [
+        {'name': 'user_config', 'type': 'dict', 'default': None, 'required': False,
+         'description': "free-form options dict passed to the user class's init_solver via "
+                        "config['solver_info']"},
+    ],
     'casadi_integrator': [
         {'name': 'max_step_size', 'type': 'float', 'default': 0.001, 'required': False,
          'description': 'Maximum step size for the adaptive CasADi integrators (cvodes/idas/etc).'},
@@ -391,6 +488,27 @@ _OPT_GA_NUM_CROSS_BREED = {
     'description': 'Genetic algorithm: cross-bred (recombined) offspring per generation. '
                    'Reduced to 10 when DEBUG is on.',
 }
+# What the GA minimises. 'likelihood' is the log posterior, negated so that lower is still
+# better -- it lets the GA search the same objective MCMC samples, which is what makes a GA a
+# usable way to find a starting point for UQ.
+_OPT_OBJECTIVE_FUNCTION = {
+    'name': 'objective_function', 'type': 'enum', 'default': 'cost', 'required': False,
+    'choices': ['cost', 'likelihood'],
+    'description': "Genetic algorithm: what to minimise. 'cost' is the weighted cost function; "
+                   "'likelihood' is the negative log posterior (log likelihood + log prior).",
+}
+_OPT_USE_RELATIVE_COST_TOLERANCE = {
+    'name': 'use_relative_cost_tolerance', 'type': 'bool', 'default': False, 'required': False,
+    'description': 'Genetic algorithm: also count a generation as stalled when the *fractional* '
+                   'change in cost falls below relative_cost_tolerance, not only when the absolute '
+                   'change falls below cost_convergence. Useful when the objective is large in '
+                   'magnitude (e.g. a log posterior), where an absolute threshold never trips.',
+}
+_OPT_RELATIVE_COST_TOLERANCE = {
+    'name': 'relative_cost_tolerance', 'type': 'float', 'default': 1e-3, 'required': False,
+    'description': 'Genetic algorithm: the fractional cost change below which a generation '
+                   'counts as stalled. Only read when use_relative_cost_tolerance is true.',
+}
 
 
 # Single source of truth for the prior distributions a params_for_id `prior` column may name,
@@ -418,24 +536,37 @@ PARAM_PRIOR_TYPES = {
     },
     'exponential': {
         'label': 'Exponential',
-        'description': ('Decays across [min, max] at rate prior_lambda / max, favouring '
-                        'smaller values.'),
+        'description': ('Decays from prior_origin with scale prior_scale, favouring smaller '
+                        'values. Truncated to [min, max] unless the parameter is unbounded.'),
+        # One-sided: it decays away from its origin in one direction, so an unbounded
+        # exponential's derived range runs from the origin rather than straddling it.
+        'support': 'one_sided',
         'params': [
             {'name': 'prior_lambda', 'type': 'float', 'default': 1.0, 'positive': True,
              'role': 'rate',
-             'description': ('Decay rate, scaled by the parameter maximum. Larger values '
-                             'concentrate the prior harder towards min.')},
+             'description': ('Decay rate relative to max, the original parameterisation. '
+                             'Only used when prior_scale is not given.')},
+            {'name': 'prior_origin', 'type': 'float', 'default': 0.0, 'positive': False,
+             'role': 'location', 'default_expr': '0',
+             'description': 'Where the decay starts. Defaults to zero, as it always was.'},
+            {'name': 'prior_scale', 'type': 'float', 'default': None, 'positive': True,
+             'role': 'scale', 'default_expr': 'max / prior_lambda',
+             'description': ('Decay scale, in the parameter\'s own units. Defaults to '
+                             'max / prior_lambda, which reproduces the original rate. '
+                             'Required when unbounded, since there is then no max.')},
         ],
     },
     'normal': {
         'label': 'Normal',
         'description': 'Gaussian, truncated to [min, max] unless the parameter is unbounded.',
+        'support': 'symmetric',
         'params': [
             {'name': 'prior_mean', 'type': 'float', 'default': None, 'positive': False,
              'within_bounds': True, 'role': 'location',
+             'default_expr': '(min + max) / 2',
              'description': 'Centre of the Gaussian. Defaults to the centre of [min, max].'},
             {'name': 'prior_std', 'type': 'float', 'default': None, 'positive': True,
-             'role': 'scale',
+             'role': 'scale', 'default_expr': '(max - min) / 6',
              'description': ('Standard deviation. Defaults to one sixth of the range, which '
                              'puts [min, max] at +/- 3 sigma.')},
         ],
@@ -447,6 +578,381 @@ PARAM_PRIOR_TYPES = {
 # from that prior instead of typed.
 PARAM_UNBOUNDED_COLUMN = 'unbounded'
 
+# ---------------------------------------------------------------------------------------------
+# params_for_id as JSON.
+#
+# The CSV is still readable and always will be, but it is converted to this structure on read, so
+# there is exactly one code path behind the front door. The JSON shape exists because the CSV
+# cannot express two things the user asked for: a group of parameters with *different* names
+# (a CSV row has one param_name for all its vessels), and a parameter that modifies other
+# parameters. `targets` -- a list of full component/param qnames -- removes the first restriction;
+# the second arrives with modifier entries in a follow-up.
+PARAMS_FOR_ID_JSON_VERSION = 1
+
+# What a modifier parameter can do to the parameters it names. Exported as data, not hardcoded
+# downstream: a front-end builds its menu by reading this, the same way it reads PARAM_PRIOR_TYPES
+# and the cost-func registry, so adding an operation here is the only edit needed.
+#
+# `default_min`/`default_max` are advisory bounds for the UI. A scale multiplier is
+# dimensionless, so unlike every other parameter its bounds are not physical values -- which is
+# the most likely user error, and the reason the UI should be able to offer sane ones.
+PARAM_MODIFIERS = {
+    'scale': {
+        'description': 'one calibrated multiplier applied to every target\'s default value',
+        'applies_to': 'value',
+        'dimensionless': True,
+        'default_min': 0.5,
+        'default_max': 2.0,
+        # The theta at which the operation leaves every target at its baseline. Local
+        # sensitivity analysis evaluates there: theta's model-default is not a model value
+        # (reading a target's default as theta would scale every target by it).
+        'identity': 1.0,
+    },
+}
+DEFAULT_PARAM_MODIFIER = 'scale'
+# Legacy spellings (issue #383 review): "operations" act on *outputs* (obs_data); what acts on
+# *parameters* is a modifier. Kept as aliases so #378-era importers keep working.
+PARAM_MODIFIER_OPERATIONS = PARAM_MODIFIERS
+DEFAULT_PARAM_MODIFIER_OPERATION = DEFAULT_PARAM_MODIFIER
+
+
+def _modifier_name(mod):
+    """The modifier function's name from a modifiers record.
+
+    Reads the legacy 'operation' field too, so a param_modifiers.json saved by a #378-era run
+    still resolves.
+    """
+    return mod.get("modifier") or mod.get("operation") or DEFAULT_PARAM_MODIFIER
+
+
+def resolve_modifier_baselines(param_id_info, sim_helper):
+    """Fill in each modifier's `baselines`, `resolved_inputs` and `affine` from the model, once.
+
+    Resolved once at setup and never re-derived, because on some backends
+    ``get_init_param_vals`` reads the live parameter array: after ``set_param_vals`` has written,
+    it returns the value just written, not the model default. Re-deriving a scale baseline from
+    it mid-calibration would apply theta to an already-scaled value and compound the factor every
+    iteration -- theta=1.2 twice giving 1.44x. ``get_default_param_vals`` reads the frozen
+    snapshot instead, and this runs before any parameter has been set.
+
+    Idempotent: a modifier whose baselines are already resolved is left alone.
+    """
+    # param_id_info is not always set by the time a simulation helper exists -- several entry
+    # points build the helper first and call set_param_id_info afterwards -- so this has to be a
+    # no-op rather than an error when there is nothing to resolve yet. The later call from
+    # set_param_id_info does the work in that case.
+    if not param_id_info:
+        return param_id_info
+    modifiers = param_id_info.get("modifiers") or []
+    if not modifiers:
+        return param_id_info
+
+    if not hasattr(sim_helper, 'get_default_param_vals'):
+        raise NotImplementedError(
+            f"{type(sim_helper).__name__} does not implement get_default_param_vals, which a "
+            f"modifier parameter needs to resolve its baselines. A modifier applies "
+            f"theta * baseline_i, and reading the baseline from the live parameter array would "
+            f"compound the factor across calibration iterations.")
+
+    funcs = get_modifier_funcs(param_id_info.get("modifier_funcs_external_path"))
+
+    def _default(qname):
+        value = sim_helper.get_default_param_vals([[qname]])[0]
+        if isinstance(value, (list, tuple)):
+            value = value[0]
+        return float(value)
+
+    for mod in modifiers:
+        if mod.get("baselines") is None:
+            raw = sim_helper.get_default_param_vals([[q] for q in mod["targets"]])
+            baselines = []
+            for value in raw:
+                if isinstance(value, (list, tuple)):
+                    value = value[0]
+                baselines.append(float(value))
+            mod["baselines"] = baselines
+
+        fn = funcs.get(_modifier_name(mod))
+        if fn is None:
+            raise ValueError(
+                f"modifier '{mod['name']}' uses modifier function {_modifier_name(mod)!r}, "
+                f"which is not in the registry. Registered: {sorted(funcs)}.")
+
+        # Declared inputs resolve to model defaults exactly once, like the baselines -- a
+        # value read mid-calibration would already have been written by the optimiser.
+        if mod.get("resolved_inputs") is None:
+            resolved = {}
+            for name, qnames in (mod.get("inputs") or {}).items():
+                if isinstance(qnames, list):
+                    resolved[name] = [_default(q) for q in qnames]
+                else:
+                    resolved[name] = _default(qnames)
+            mod["resolved_inputs"] = resolved
+
+        # p_i = a_i*theta + b_i, probed numerically per target. a_i is the constant
+        # chain-rule weight the analytic gradients apply (dp_i/dtheta); a non-affine
+        # function is refused here, before it can make a gradient silently wrong.
+        if mod.get("affine") is None:
+            a_list, b_list = [], []
+            for baseline in mod["baselines"]:
+                a, b = probe_affine(fn, baseline, mod["resolved_inputs"],
+                                    _modifier_name(mod))
+                a_list.append(a)
+                b_list.append(b)
+            mod["affine"] = {"a": a_list, "b": b_list}
+    return param_id_info
+
+
+def expand_modifier_param_vals(param_id_info, param_vals):
+    """Turn the optimiser's parameter vector into the values set_param_vals receives.
+
+    A modifier occupies one slot in the vector (its theta) but names N model parameters, so its
+    slot expands to N values, one per target. Everything else passes through untouched.
+
+    The expansion is the whole of the modifier's arithmetic: the entry's modifier function is
+    called per target, ``p_i = fn(theta, baseline_i, **resolved_inputs)`` -- ``scale`` is just
+    the built-in ``theta * baseline_i``.
+
+    N names against N values is paired positionally by pair_names_with_values (#376), which is
+    why no backend needs to know modifiers exist.
+    """
+    modifiers = param_id_info.get("modifiers") or []
+    if not modifiers:
+        return list(param_vals)
+
+    funcs = get_modifier_funcs(param_id_info.get("modifier_funcs_external_path"))
+    by_index = {mod["index"]: mod for mod in modifiers}
+    out = []
+    for idx, value in enumerate(param_vals):
+        mod = by_index.get(idx)
+        if mod is None:
+            out.append(value)
+            continue
+        baselines = mod.get("baselines")
+        if baselines is None:
+            raise ValueError(
+                f"modifier '{mod['name']}' has no resolved baselines. Call "
+                f"resolve_modifier_baselines(param_id_info, sim_helper) once at setup, before "
+                f"any parameter has been written.")
+        fn = funcs.get(_modifier_name(mod))
+        if fn is None:
+            raise NotImplementedError(
+                f"modifier function {_modifier_name(mod)!r} is declared but not in the "
+                f"registry. Registered: {sorted(funcs)}.")
+        declared = getattr(fn, 'modifier_inputs', {}) or {}
+        resolved = mod.get("resolved_inputs")
+        if declared and resolved is None:
+            raise ValueError(
+                f"modifier '{mod['name']}' has unresolved inputs {sorted(declared)}. Call "
+                f"resolve_modifier_baselines(param_id_info, sim_helper) once at setup.")
+        out.append([float(fn(float(value), b, **(resolved or {}))) for b in baselines])
+    return out
+
+
+def param_name_for_gen(vessel, param_name):
+    """The name a flat generated model gives a module's constant.
+
+    ``('global', 'q_init') -> 'q_init'``; ``('aortic_root', 'C') -> 'C_aortic_root'``.
+
+    Pure and model-free: no simulation helper, no libCellML, no built ``param_id_info`` and no
+    output directory. That matters because the rule is needed at *upload* time by tools that
+    have only a file (CUFLynx #210), while CA itself only published it as run artifacts --
+    ``param_id_info["param_names_for_gen"]`` and ``param_names_for_gen.csv``. A tool that
+    reimplements the rule does not fail loudly when CA changes it; it silently resolves to a
+    *different* variable, seeds the wrong slider and writes the wrong constant into a
+    calibrated CellML. This function is the single statement of the rule --
+    ``_build_param_id_info_from_entries`` calls it rather than restating it.
+    """
+    return str(param_name) if str(vessel) == 'global' else f'{param_name}_{vessel}'
+
+
+def model_qname_candidates(qname):
+    """Names a flat model may have given ``qname``, most specific first.
+
+    ``'aortic_root/C' -> ['aortic_root/C', 'parameters/C_aortic_root',
+    'parameters_global/C_aortic_root', 'C_aortic_root']``
+
+    CA answers the *rule*; the caller decides which candidate exists, because only it has the
+    uploaded model's variable set. Ordering is meaningful: the first hit wins, so the
+    component-qualified name is offered before any flattened alias and the bare name last.
+
+    Mirrors the alias list in ``solver_wrappers.name_resolver.VariableNameResolver``, which is
+    equivalent but cannot be imported without pulling in ``solver_wrappers/__init__`` (and thus
+    scipy) -- see the module note there.
+    """
+    text = str(qname).strip()
+    if '/' not in text:
+        return [text] if text else []
+    vessel, param = text.rsplit('/', 1)
+    vessel, param = vessel.strip(), param.strip()
+    gen = param_name_for_gen(vessel, param)
+
+    candidates = [f'{vessel}/{param}']
+    if vessel.endswith('_module'):
+        candidates.append(f'{vessel[:-len("_module")]}/{param}')
+    else:
+        candidates.append(f'{vessel}_module/{param}')
+    candidates += [f'parameters/{gen}', f'parameters_{vessel}/{param}',
+                   f'parameters_global/{gen}', gen]
+    # order-preserving de-duplication: 'global/x' makes several candidates coincide
+    seen, ordered = set(), []
+    for candidate in candidates:
+        if candidate not in seen:
+            seen.add(candidate)
+            ordered.append(candidate)
+    return ordered
+
+
+def param_entry_labels(param_id_info):
+    """One reporting label per calibrated variable (theta), for anything keyed by parameter.
+
+    Reads ``param_labels`` (a grouped row joins its qnames, a modifier uses its own name), with
+    the same fallback as ``sobolSA._param_labels`` for a param_id_info built by hand or loaded
+    from before the key existed (#355). Sensitivities and their consumers key on this rather
+    than on a row's first member: a grouped derivative is d/dtheta over all members, and
+    labelling it with one member's qname would report it as a different quantity.
+    """
+    labels = param_id_info.get("param_labels")
+    if labels is not None:
+        return list(labels)
+    return ['+'.join(n) if isinstance(n, (list, tuple)) else str(n)
+            for n in param_id_info["param_names"]]
+
+
+def apply_modifier_identity_nominals(param_id_info, nominal_vals):
+    """Overwrite each modifier's slot in ``nominal_vals`` with the theta that leaves its
+    targets at their baselines.
+
+    A nominal parameter vector read from the model (``get_init_param_vals`` over first members)
+    is right for ordinary and grouped rows, but a modifier's slot is theta, not a model value --
+    the first target's default there would be fed to the modifier function as theta. The right
+    nominal is the theta at which the targets sit at their model defaults: invert the affine
+    mapping at the first target, ``theta0 = (baseline_0 - b_0) / a_0`` (for scale that is
+    exactly the identity, 1.0). Multi-target entries whose targets would invert to different
+    thetas keep the first target exact -- the others are as close as one theta allows, which
+    is the entry's own approximation, not this function's. Falls back to the operation's
+    static ``identity`` metadata for records without probed coefficients (built by hand or
+    saved before the probe existed). Returns ``nominal_vals``, modified in place.
+    """
+    for mod in param_id_info.get("modifiers") or []:
+        modifier = _modifier_name(mod)
+        affine = mod.get("affine")
+        baselines = mod.get("baselines")
+        if affine is not None and baselines:
+            a0, b0 = float(affine["a"][0]), float(affine["b"][0])
+            if a0 == 0.0:
+                raise ValueError(
+                    f"modifier '{mod['name']}' ({modifier!r}) has dp/dtheta = 0 at its first "
+                    f"target -- theta does not move it, so no nominal theta exists and "
+                    f"calibrating it is meaningless.")
+            nominal_vals[mod["index"]] = (float(baselines[0]) - b0) / a0
+            continue
+        meta = PARAM_MODIFIERS.get(modifier)
+        if meta is None or 'identity' not in meta:
+            raise NotImplementedError(
+                f"modifier function {modifier!r} has no affine coefficients resolved and no "
+                f"identity value; cannot choose a nominal theta for '{mod['name']}'. Call "
+                f"resolve_modifier_baselines(param_id_info, sim_helper) first.")
+        nominal_vals[mod["index"]] = meta['identity']
+    return nominal_vals
+
+
+def modifier_weights_by_index(param_id_info):
+    """Per-entry chain-rule weights: ``{entry_index: [w_i per member]}`` for modifier entries.
+
+    A calibrated theta that governs several model parameters has
+    ``d(anything)/d(theta) = sum_i w_i * d(anything)/d(p_i)`` with ``w_i = dp_i/dtheta``. Every
+    modifier function is affine in theta (``p_i = a_i*theta + b_i``, enforced by the probe at
+    resolve time), so ``w_i = a_i`` -- for the built-in scale that is the baseline itself.
+    Shared-value groups (``w_i = 1``) are not in the map -- absence means unit weights. Raises
+    if a modifier is unresolved, because a weight guessed at is a gradient silently wrong.
+    """
+    out = {}
+    for mod in param_id_info.get("modifiers") or []:
+        baselines = mod.get("baselines")
+        if baselines is None:
+            raise ValueError(
+                f"modifier '{mod['name']}' has no resolved baselines. Call "
+                f"resolve_modifier_baselines(param_id_info, sim_helper) once at setup, before "
+                f"any parameter has been written.")
+        affine = mod.get("affine")
+        if affine is not None:
+            out[mod["index"]] = [float(a) for a in affine["a"]]
+        elif _modifier_name(mod) == 'scale':
+            # A record from before the affine probe existed (or built by hand): for scale,
+            # dp_i/dtheta is the baseline itself, so the old behaviour is still exact.
+            out[mod["index"]] = [float(b) for b in baselines]
+        else:
+            raise ValueError(
+                f"modifier '{mod['name']}' ({_modifier_name(mod)!r}) has no affine coefficients. "
+                f"Call resolve_modifier_baselines(param_id_info, sim_helper) once at setup.")
+    return out
+
+
+def save_param_modifiers(param_id_info, output_dir):
+    """Write ``param_modifiers.json`` to ``output_dir`` (rank 0 only; no-op without modifiers).
+
+    A scale result is uninterpretable without this record -- best_param_vals holds theta, and
+    theta alone does not say what any model parameter ended up at. Recording the baselines
+    means reproducing a result does not depend on the model file being unchanged. Callable at
+    any point (idempotent overwrite): the parse-time save happens before baselines can be
+    resolved, so the calibration run saves again once they are.
+    """
+    modifiers = param_id_info.get("modifiers") or []
+    if modifiers and rank == 0:
+        modifiers_path = os.path.join(output_dir, 'param_modifiers.json')
+        with open(modifiers_path, 'w') as f:
+            json.dump(modifiers, f, indent=2)
+
+
+def param_modifiers(external_path=None):
+    """The modifier functions available to params_for_id entries, as introspectable data.
+
+    One record per registered modifier function -- built-ins, ``funcs_user`` and (when
+    ``external_path`` is given) an external file -- each carrying ``description``,
+    ``applies_to``, ``inputs`` (``{name: 'float'|'list'}``: what the entry must supply
+    qnames for) and ``user_defined``. Built-ins with static UI metadata (scale's
+    ``default_min``/``default_max``/``dimensionless``/``identity``) keep those keys. A
+    front-end builds its modifier form from this rather than hardcoding CA's vocabulary,
+    the same way it reads the cost-func registry.
+    """
+    out = {}
+    for name, fn in get_modifier_funcs(external_path).items():
+        meta = {
+            'description': getattr(fn, 'modifier_description', name),
+            'applies_to': 'value',
+            'inputs': dict(getattr(fn, 'modifier_inputs', {}) or {}),
+            'user_defined': BUILTIN_MODIFIER_FUNCS.get(name) is not fn,
+        }
+        static = PARAM_MODIFIERS.get(name)
+        if static is not None and BUILTIN_MODIFIER_FUNCS.get(name) is fn:
+            meta = {**static, **meta, 'description': static.get('description',
+                                                               meta['description'])}
+        out[name] = meta
+    return out
+
+
+# Legacy name (#378): "operations" act on outputs; these are modifiers. Same callable.
+param_modifier_operations = param_modifiers
+
+
+# Keys an entry may carry. Anything else is a typo and is refused, on the same reasoning as
+# operation_kwargs/cost_kwargs: a key nothing reads changes nothing and gives no sign it was
+# ignored.
+PARAMS_FOR_ID_ENTRY_KEYS = frozenset({
+    'name', 'targets', 'param_type', 'min', 'max', 'name_for_plotting',
+    'prior', 'prior_params', PARAM_UNBOUNDED_COLUMN, 'comment',
+    # A modifier entry names the parameters it acts on with `modifies` instead of `targets`, and
+    # says what it does to them with `modifier` -- the name of a registered modifier function
+    # (built-in, funcs_user, or modifier_funcs_external_path). `inputs` supplies the model
+    # qname(s) for each input the function declares; their *default* values are what the
+    # function receives. min/max/prior belong to the modifier's own calibrated value, not to
+    # the parameters it modifies. ("Operations" act on *outputs*, in obs_data; what acts on
+    # parameters is a modifier -- 'operation' is accepted as a deprecated alias of 'modifier'.)
+    'modifies', 'modifier', 'operation', 'inputs',
+})
+
+
 # How wide the derived range is, in standard deviations either side of the prior's centre.
 # Five puts ~1 sample in 3.5 million outside it, so the box is not meaningfully constraining
 # while staying finite -- which it must be. min/max are not only the prior's truncation: they
@@ -455,6 +961,75 @@ PARAM_UNBOUNDED_COLUMN = 'unbounded'
 # normalisation NaN and every calibration with it, so "unbounded" has to mean "wide enough not
 # to bind", not "absent".
 UNBOUNDED_SIGMA_SPAN = 5.0
+
+
+def eval_prior_default(expr, bounds=None, params=None):
+    """Evaluate a ``default_expr`` against a row's bounds and its other prior params.
+
+    The expressions live in PARAM_PRIOR_TYPES so there is one statement of what a
+    blank field means -- CA computes the default from it, and a downstream editor
+    shows the same number in the field's placeholder. Previously the formulas were
+    written twice: once in get_lnprior_from_params and once in whatever prose a UI
+    chose, which is how "the centre of the range" and the value actually used drift
+    apart.
+
+    Deliberately tiny: names (min/max/other params), numbers, and arithmetic. No
+    calls, no attributes, no comprehensions -- these come from CA's own schema, but
+    an evaluator that can only do arithmetic cannot become something else later.
+    Returns None when a name it needs is unavailable (an unbounded row has no max).
+    """
+    import ast as _ast
+
+    names = dict(bounds or {})
+    names.update({k: v for k, v in (params or {}).items() if v is not None})
+
+    def _ev(node):
+        if isinstance(node, _ast.Expression):
+            return _ev(node.body)
+        if isinstance(node, _ast.Constant):
+            if isinstance(node.value, (int, float)) and not isinstance(node.value, bool):
+                return float(node.value)
+            raise ValueError('non-numeric constant')
+        if isinstance(node, _ast.Name):
+            if node.id not in names or names[node.id] is None:
+                raise KeyError(node.id)
+            return float(names[node.id])
+        if isinstance(node, _ast.UnaryOp) and isinstance(node.op, (_ast.UAdd, _ast.USub)):
+            v = _ev(node.operand)
+            return v if isinstance(node.op, _ast.UAdd) else -v
+        if isinstance(node, _ast.BinOp) and isinstance(
+                node.op, (_ast.Add, _ast.Sub, _ast.Mult, _ast.Div)):
+            a, b = _ev(node.left), _ev(node.right)
+            if isinstance(node.op, _ast.Add):
+                return a + b
+            if isinstance(node.op, _ast.Sub):
+                return a - b
+            if isinstance(node.op, _ast.Mult):
+                return a * b
+            if b == 0:
+                raise ZeroDivisionError
+            return a / b
+        raise ValueError(f'unsupported expression node {type(node).__name__}')
+
+    try:
+        value = _ev(_ast.parse(str(expr), mode='eval'))
+    except (KeyError, ZeroDivisionError, ValueError, SyntaxError, TypeError):
+        return None
+    return value if np.isfinite(value) else None
+
+
+def prior_param_default(prior_type, name, bounds=None, params=None):
+    """The value a blank ``name`` takes for ``prior_type``: its literal default, or
+    the one derived from the row's bounds. None when it cannot be derived."""
+    for spec in PARAM_PRIOR_TYPES.get(prior_type, {}).get('params', []):
+        if spec['name'] != name:
+            continue
+        if spec.get('default_expr'):
+            derived = eval_prior_default(spec['default_expr'], bounds, params)
+            if derived is not None:
+                return derived
+        return spec.get('default')
+    return None
 
 
 def _truthy_flag(value):
@@ -522,8 +1097,13 @@ def derive_bounds_from_prior(prior_type, params, row_idx=None):
             f"'{PARAM_UNBOUNDED_COLUMN}' is set{where}, so {' and '.join(missing)} must be "
             f"given: without a range there is nothing left to derive them from.")
 
-    half = UNBOUNDED_SIGMA_SPAN * float(scale)
-    return (float(loc) - half, float(loc) + half)
+    span = UNBOUNDED_SIGMA_SPAN * float(scale)
+    # A symmetric prior straddles its centre; a one-sided one decays away from its
+    # origin in a single direction, so a range centred on that origin would put half
+    # the box where the prior has no mass at all.
+    if PARAM_PRIOR_TYPES[prior_type].get('support') == 'one_sided':
+        return (float(loc), float(loc) + span)
+    return (float(loc) - span, float(loc) + span)
 
 # Every `params` entry above names a params_for_id column. Collected once so the parser can
 # tell a prior hyper-parameter column from an unrelated one, and so a downstream tool can
@@ -531,6 +1111,11 @@ def derive_bounds_from_prior(prior_type, params, row_idx=None):
 PARAM_PRIOR_PARAM_NAMES = tuple(
     spec['name'] for meta in PARAM_PRIOR_TYPES.values() for spec in meta['params']
 )
+
+# The CSV columns that become prior_params entries in the JSON structure rather than top-level
+# keys. Derived from the prior declarations so the converter cannot miss a newly added
+# hyper-parameter (params_for_id JSON, issue #355 follow-up).
+PARAMS_FOR_ID_CSV_PRIOR_COLUMNS = tuple(PARAM_PRIOR_PARAM_NAMES)
 
 # What an absent, blank or NaN `prior` entry means -- and what the whole column defaults to
 # when params_for_id has no `prior` at all.
@@ -654,9 +1239,20 @@ PARAM_ID_METHODS = {
         'label': 'Genetic algorithm',
         'gradient_based': False,
         'description': 'Gradient-free population-based global search.',
+        # This order is the order a front-end lays the form out in, so the stopping rules sit
+        # together: the relative one is the same decision as cost_convergence/max_patience, not
+        # a separate feature, and is unreadable parked at the far end past the population sizes.
         'options': [_OPT_NUM_CALLS, _OPT_COST_CONVERGENCE, _OPT_MAX_PATIENCE,
+                    # Only the GA reads these two, for the same reason it alone reads
+                    # objective_function below: a log-posterior objective sits in the hundreds
+                    # and never moves by less than an absolute threshold.
+                    _OPT_USE_RELATIVE_COST_TOLERANCE, _OPT_RELATIVE_COST_TOLERANCE,
                     _OPT_GA_NUM_ELITE, _OPT_GA_NUM_SURVIVORS,
-                    _OPT_GA_NUM_MUTATIONS_PER_SURVIVOR, _OPT_GA_NUM_CROSS_BREED],
+                    _OPT_GA_NUM_MUTATIONS_PER_SURVIVOR, _OPT_GA_NUM_CROSS_BREED,
+                    # Only the GA reads this: it is the one optimiser that can be driven by a
+                    # log-posterior (it needs no gradient of it), and the one whose selection
+                    # step had to change to cope with the negative costs that produces.
+                    _OPT_OBJECTIVE_FUNCTION],
     },
     'CMA-ES': {
         'label': 'CMA-ES',
@@ -686,7 +1282,7 @@ PARAM_ID_METHODS = {
         'label': 'Gradient descent (L-BFGS-B)',
         'gradient_based': True,
         'description': ('Local bounded L-BFGS-B. Uses an automatic-differentiation gradient for '
-                        'casadi_python, aadc_python, or cellml_only + CVODE_myokit + do_ad; '
+                        'casadi_python, aadc_python, or cellml + CVODE_myokit + do_ad; '
                         'finite differences otherwise.'),
         # The gradient source is the top-level `do_ad` user input, not an optimiser_option; the
         # sources available for a given model_type/solver are exposed by gradient_sources().
@@ -742,13 +1338,39 @@ def param_id_method_options(param_id_method):
     return []
 
 
+def uq_options(library=None):
+    """The `UQ_options` settings a given sampler `library` reads, for tools that auto-populate
+    the UQ settings form.
+
+    The samplers do not take the same settings: `num_tune` and `pymc_method` are pyMC's alone,
+    and `_build_sampler` passes them to no other backend. Until now that was said only in each
+    description ("Ignored by emcee"), which a form cannot act on -- so an emcee user was offered
+    a tuning count that nothing would read and a pyMC algorithm that would not run, and had no
+    way to tell those apart from the settings that do apply.
+
+    A descriptor carrying `libraries` applies to those backends only; one without it applies to
+    every backend, which is the common case and keeps the annotation to the exceptions. Returns
+    every option when `library` is None, so a caller wanting the whole schema (or a tool that
+    has not chosen a backend yet) still gets it.
+
+    Unknown library names return the library-agnostic options rather than nothing: a front-end
+    on a newer CA than its schema knows should degrade to the settings that are certainly
+    right, not to an empty form.
+    """
+    options = ANALYSIS_OPTIONS['uq']['options']
+    if library is None:
+        return list(options)
+    return [opt for opt in options
+            if 'libraries' not in opt or library in opt['libraries']]
+
+
 def solver_info_fields(solver):
     """The `solver_info` settings a given solver accepts (see SOLVER_INFO_FIELDS), for tools that
     auto-populate the solver settings form. Empty list for an unknown solver."""
     return SOLVER_INFO_FIELDS.get(solver, [])
 
 
-def gradient_sources(model_type, solver=None, method=None):
+def gradient_sources(model_type, solver=None, method=None, use_emulator=False):
     """The gradient sources available for the gradient-based param-id methods (`sp_minimize`,
     `multi_start_sp_minimize`) with this `model_type` + `solver` (+ optional integrator `method`),
     for a front-end that offers a "Gradient" menu without hardcoding CA's rules.
@@ -771,11 +1393,14 @@ def gradient_sources(model_type, solver=None, method=None):
     ``AD_GRADIENT_MODEL_TYPES`` / ``fsa_gradient_available`` in the optimisers):
       * ``casadi_python``               -> symbolic CasADi AD
       * ``aadc_python``                 -> AADC tape AD (needs a Matlogica licence at runtime)
-      * ``cellml_only`` + ``CVODE_myokit`` -> Myokit CVODES forward sensitivity (FSA)
+      * ``cellml`` + ``CVODE_myokit`` -> Myokit CVODES forward sensitivity (FSA)
       * otherwise                       -> finite differences only
     Finite differences is always available. This is the single source of truth these rules were
     previously duplicated from in downstream tools (e.g. CUFLynx); keep it in step with
     get_gradient.
+
+    ``use_emulator`` (issue #333) collapses the menu to finite differences alone: the analytic
+    arms differentiate the real model, and an emulator run is not evaluating it.
 
     When ``method`` (the integrator plugin) is given, the analytic source is additionally gated on
     per-integrator suitability (``SOLVER_SCHEMA['ad_suitable_methods']`` /
@@ -789,6 +1414,12 @@ def gradient_sources(model_type, solver=None, method=None):
         'description': ('Central finite differences of the cost; works for any model_type, at '
                         'the cost of extra simulations per gradient.'),
     }]
+    if use_emulator:
+        # Every analytic arm differentiates the real model, which is not the function an
+        # emulator run evaluates -- offering one would mean descending a different function
+        # than the cost reports. FD on the emulator is exact for what is being minimised, and
+        # costs 2M matrix multiplies rather than 2M simulations (#333).
+        return sources
     if model_type == 'casadi_python':
         casadi_methods = SOLVER_SCHEMA['methods_by_solver']['casadi_integrator']
         ad_suitable = SOLVER_SCHEMA['ad_suitable_methods']['casadi_integrator']
@@ -813,7 +1444,7 @@ def gradient_sources(model_type, solver=None, method=None):
             'requires_all_differentiable': False,
             'description': 'Exact AADC tape gradient (requires a Matlogica AADC licence at runtime).',
         })
-    elif model_type == 'cellml_only' and solver == 'CVODE_myokit':
+    elif model_type == 'cellml' and solver == 'CVODE_myokit':
         solver_methods = SOLVER_SCHEMA['methods_by_solver'].get(solver, [])
         fsa_suitable = SOLVER_SCHEMA['fsa_suitable_methods'].get(solver, [])
         if method is None or method not in solver_methods or method in fsa_suitable:
@@ -821,7 +1452,7 @@ def gradient_sources(model_type, solver=None, method=None):
                 'value': 'FSA', 'label': 'Forward sensitivity (Myokit CVODES)', 'do_ad': True,
                 'requires_all_differentiable': False,
                 'description': ('Myokit CVODES forward-sensitivity gradient; the analytic gradient '
-                                'path for stiff cellml_only models.'),
+                                'path for stiff cellml models.'),
             })
     return sources
 
@@ -845,15 +1476,21 @@ ANALYSIS_OPTIONS = {
             # Only read by method 'local'. Declared so downstream tools offer the choice
             # rather than hardcoding it, and so FD is something the user picks by name: it
             # costs 2M simulations and its accuracy depends on a step size the analytic arms
-            # do not have, so it must never stand in silently for them.
-            {'name': 'gradient_method', 'type': 'enum', 'default': 'analytic', 'required': False,
-             'choices': ['analytic', 'FD'],
-             'description': ('For method "local": how to differentiate. "analytic" uses the '
-                             "backend's own sensitivity (the CasADi jacobian, or Myokit "
-                             'CVODES forward sensitivities) and fails where there is none; '
-                             '"FD" uses central finite differences and works on any backend '
-                             'that runs a forward simulation, at 2M simulations for M '
-                             'parameters.')},
+            # do not have, so it must never stand in silently for them. The arms carry their
+            # own names -- AD / FSA, the same vocabulary as gradient_sources() and the Laplace
+            # gradient_source -- because only an explicit name can be offered, disabled, or
+            # reported back by a UI; each validates against the backend rather than being
+            # silently reinterpreted. 'analytic' remains accepted in code as a legacy spelling
+            # of 'auto' but is no longer advertised.
+            {'name': 'gradient_method', 'type': 'enum', 'default': 'auto', 'required': False,
+             'choices': ['auto', 'AD', 'FSA', 'FD'],
+             'description': ('For method "local": how to differentiate. "auto" picks the '
+                             "backend's own analytic arm and fails where there is none; "
+                             '"AD" is the exact CasADi jacobian (casadi_python); "FSA" is '
+                             'Myokit CVODES forward sensitivities (cellml + '
+                             'CVODE_myokit + do_ad); "FD" is central finite differences, '
+                             'which works on any backend that runs a forward simulation, at '
+                             '2M simulations for M parameters.')},
             # Only read by method 'local' with gradient_method 'FD'. Declared because it is
             # not a tuning detail: on Lotka-Volterra, moving it from 1e-3 to 1e-2 changes a
             # sensitivity coefficient by up to 48%, since `max` of an oscillating trace is a
@@ -876,15 +1513,58 @@ ANALYSIS_OPTIONS = {
                              'for Sobol, where M is the number of parameters.')},
         ],
     },
-    'mcmc': {
-        'label': 'MCMC posterior sampling',
-        'enable_flag': 'do_mcmc',
-        'options_key': 'mcmc_options',
+    # Named 'uq' rather than 'mcmc' because MCMC is one method of uncertainty quantification, not
+    # the whole of it: 'method' below is the seam other UQ methods (SMC, surrogate/history
+    # matching -- #333/#334) are added at, the same way sa_options and ia_options already select
+    # their method. The legacy 'mcmc_options'/'do_mcmc' spelling is still accepted and normalised
+    # onto these names with a warning; see _normalise_uq_option_names.
+    'uq': {
+        'label': 'Uncertainty quantification',
+        'enable_flag': 'do_uq',
+        'options_key': 'UQ_options',
         'options': [
+            {'name': 'method', 'type': 'enum', 'default': 'mcmc', 'required': False,
+             'choices': ['mcmc'],
+             'description': 'Uncertainty-quantification method. Only posterior sampling by MCMC '
+                            'is implemented so far.'},
+            {'name': 'library', 'type': 'enum', 'default': 'emcee', 'required': False,
+             'choices': ['emcee', 'pymc'],
+             'description': 'Sampler backend for method=mcmc. emcee is the built-in affine '
+                            'invariant ensemble sampler; pymc adds Metropolis and sequential '
+                            'Monte Carlo and needs the optional [uq] extra.'},
             {'name': 'num_steps', 'type': 'int', 'default': 5000, 'required': False,
              'description': 'Number of MCMC steps per walker.'},
             {'name': 'num_walkers', 'type': 'int', 'default': None, 'required': False,
              'description': 'Number of ensemble walkers (defaults to 2 * number of parameters).'},
+            {'name': 'burn_in', 'type': 'float', 'default': 0.5, 'required': False,
+             'description': 'Samples discarded before the chain is used. A value below 1 is a '
+                            'fraction of num_steps; 1 or above is a number of steps.'},
+            # Read by OpencorMCMC._build_sampler for the pymc backend. It was read but not
+            # advertised, which is the same defect as advertising a setting nothing reads, only
+            # inverted: the knob exists and matters (it triples the iteration count at its
+            # default) but no front-end could discover or change it.
+            {'name': 'num_tune', 'type': 'int', 'default': 1000, 'required': False,
+             'libraries': ['pymc'],
+             'description': 'Tuning (warm-up) draws the pymc backend discards before sampling. '
+                            'Ignored by emcee, which tunes as it goes. These are on top of '
+                            'num_steps, so 1000 tune plus 500 draws is 1500 iterations.'},
+            # The backend's other undeclared setting, and the one that changes the answer rather
+            # than what it costs to get it. Same defect as num_tune above: _build_sampler reads
+            # it with a hardcoded fallback, so it sat at 'mcmc' with nothing able to reach it.
+            {'name': 'pymc_method', 'type': 'enum', 'default': 'mcmc', 'required': False,
+             'choices': ['mcmc', 'smc'],
+             'libraries': ['pymc'],
+             'description': "pyMC sampling algorithm: 'mcmc' is Metropolis, 'smc' is sequential "
+                            'Monte Carlo, which can cross a low-probability region between modes '
+                            'that Metropolis gets stuck on one side of. Ignored by emcee.'},
+            {'name': 'chain_save_every', 'type': 'int', 'default': 50, 'required': False,
+             'description': 'Steps between writes of the partial chain to mcmc_chain.npy, so a '
+                            'running chain can be watched and a cancelled one is not lost. 0 '
+                            'saves only at the end, which a very wide chain on a slow shared '
+                            'filesystem may prefer. Under pymc it counts post-tuning draws and '
+                            "the partial chain holds rank 0's draws so far as a single walker; "
+                            "pymc_method 'smc' has no per-draw hook, so it saves only at the "
+                            'end whatever this is set to.'},
         ],
     },
     'identifiability_analysis': {
@@ -898,7 +1578,7 @@ ANALYSIS_OPTIONS = {
             # The source for the Laplace Hessian. 'FD' uses sub_method below (a finite-difference
             # Hessian of the log-posterior). 'AD'/'FSA' build the Fisher information matrix
             # J^T diag(1/std^2) J from the analytic observable sensitivities (CasADi jacobian for
-            # casadi_python, Myokit CVODES for cellml_only + CVODE_myokit) -- i.e. the same
+            # casadi_python, Myokit CVODES for cellml + CVODE_myokit) -- i.e. the same
             # sources gradient_sources(model_type, solver) advertises for calibration. Which of
             # AD/FSA is actually usable follows from model_type/solver, so a front-end should
             # offer only gradient_sources(...)'s values (plus FD); an unavailable choice raises.
@@ -906,7 +1586,7 @@ ANALYSIS_OPTIONS = {
              'choices': ['FD', 'AD', 'FSA'],
              'description': ('Source for the Laplace Hessian: FD (finite-difference sub_method), '
                              'AD (exact CasADi, casadi_python), or FSA (Myokit CVODES Fisher '
-                             'information, cellml_only + CVODE_myokit). See '
+                             'information, cellml + CVODE_myokit). See '
                              'gradient_sources(model_type, solver) for what the current model '
                              'supports.')},
             # enum, not str: utility_funcs.calculate_hessian dispatches on these. Only consulted
@@ -919,14 +1599,129 @@ ANALYSIS_OPTIONS = {
                             '(used when gradient_source is FD).'},
         ],
     },
+    # Emulation is the odd one out among these modes: it has a *train* step and a *use* step,
+    # so it carries a second flag. `enable_flag` (do_emulation) trains an emulator against the
+    # solver named by `solver`; `use_flag` (use_emulator) makes calibration, SA, MCMC and IA
+    # evaluate the trained emulator instead of that solver. They are independent -- training
+    # once and then using it across several runs is the normal shape (#333).
+    'emulation': {
+        'label': 'Emulator (surrogate model)',
+        'enable_flag': 'do_emulation',
+        'use_flag': 'use_emulator',
+        'options_key': 'emulator_settings',
+        'options': [
+            {'name': 'emulator_dir', 'type': 'str', 'default': None, 'required': False,
+             'description': ('Directory holding the trained emulator. Defaults to '
+                             '<param_id_output_dir>/emulators/<file_prefix>_<obs_prefix>.')},
+            # A str rather than a list: descriptor types are scalar, and the accepted names are
+            # a runtime property of the installed autoemulate, discoverable through
+            # emulators.emulator_trainer.emulator_model_names() -- so a tool offers that list
+            # and joins the selection with commas, instead of a menu hardcoded here.
+            {'name': 'models', 'type': 'str', 'default': 'default', 'required': False,
+             'description': ('Which emulators to fit and compare: "default" for autoemulate\'s '
+                             'default set, "all" for every registered one, or a comma-separated '
+                             'list of names (see emulator_model_names()).')},
+            {'name': 'num_train_samples', 'type': 'int', 'default': 128, 'required': False,
+             'description': ('Number of simulations run to build the training set. This is the '
+                             'up-front cost the emulator has to earn back.')},
+            # The only setting here that skips the simulations. Training is two costs -- the
+            # N truth-model runs (minutes to hours, and the whole reason emulators exist) and
+            # the fit (seconds) -- and without this every attempt at a different emulator or a
+            # different fit setting pays the first one again for samples already on disk.
+            {'name': 'reuse_samples', 'type': 'bool', 'default': False, 'required': False,
+             'description': ('Refit using the design and simulated features already saved in '
+                             'emulator_dir (training_data.npz) instead of running the '
+                             'simulations again: the setting for trying a different "models", '
+                             'test_fraction, n_iter, n_splits, min_r2 or random_seed without '
+                             'paying for the truth-model runs a second time. It runs no new '
+                             'simulations, so num_train_samples, sample_type and '
+                             'log_scale_params are ignored -- the saved design is what gets '
+                             'fitted, however many points it holds -- and it needs a previous '
+                             'training run in emulator_dir, so the first run must have '
+                             'reuse_samples false. Refused when the parameter bounds, '
+                             'obs_data, protocol or model have changed since those samples '
+                             'were simulated: retrain with reuse_samples false instead.')},
+            # enum, not str: EmulatorTrainer.design dispatches on exactly these three and
+            # raises ValueError on anything else, so a free string only defers a typo to
+            # run time -- after the model has been generated.
+            {'name': 'sample_type', 'type': 'enum', 'default': 'sobol', 'required': False,
+             'choices': ['sobol', 'latin_hypercube', 'random'],
+             'description': ('Design of experiments over the params_for_id box. Same vocabulary '
+                             'as optimiser_options.start_sampling.')},
+            {'name': 'log_scale_params', 'type': 'bool', 'default': False, 'required': False,
+             'description': ('Space the design logarithmically in each parameter. Worth setting '
+                             'when a bound spans decades; requires every min to be positive.')},
+            {'name': 'random_seed', 'type': 'int', 'default': 0, 'required': False,
+             'description': 'Seed for the design and the fit, so a training run is repeatable.'},
+            {'name': 'test_fraction', 'type': 'float', 'default': 0.2, 'required': False,
+             'description': ('Fraction of the design held out and never trained on, which is '
+                             'what the reported R2/RMSE are measured against.')},
+            {'name': 'n_splits', 'type': 'int', 'default': 5, 'required': False,
+             'description': 'Cross-validation folds autoemulate uses when comparing emulators.'},
+            {'name': 'n_iter', 'type': 'int', 'default': 10, 'required': False,
+             'description': 'Hyper-parameter settings sampled per emulator during tuning.'},
+            # The refusal that makes the rest of it safe. An emulator below this is not slower
+            # or noisier -- it is confidently wrong, and nothing downstream can tell.
+            {'name': 'min_r2', 'type': 'float', 'default': 0.9, 'required': False,
+             'description': ('Refuse to use an emulator whose worst held-out per-feature R2 is '
+                             'below this. Raise it for results you intend to publish.')},
+            # enum, not str: EmulatorBundle.check_bounds dispatches on these, and the default
+            # has to be the strict one -- outside its design an emulator is an extrapolation
+            # with no error estimate at all.
+            {'name': 'out_of_bounds', 'type': 'enum', 'default': 'error', 'required': False,
+             'choices': ['error', 'warn', 'clip'],
+             'description': ('What to do when a parameter falls outside the box the emulator '
+                             'was trained in: refuse, warn and extrapolate, or clip to the box.')},
+            {'name': 'fd_rel_step', 'type': 'float', 'default': 1e-3, 'required': False,
+             'description': ('Relative step for the finite-difference gradient over the '
+                             'emulator, which is the only gradient source an emulator has.')},
+        ],
+    },
 }
 
 
 def analysis_options(mode):
     """The option descriptors for a non-calibration analysis mode ('sensitivity_analysis',
-    'mcmc', 'identifiability_analysis'); an empty list for an unknown mode."""
+    'uq', 'identifiability_analysis'); an empty list for an unknown mode."""
     meta = ANALYSIS_OPTIONS.get(mode)
     return meta['options'] if meta else []
+
+
+# The pre-UQ spellings, kept working. MCMC is one UQ method rather than the whole of it, so the
+# settings moved to UQ_options/do_uq with a 'method' key other methods can be added at. A config
+# written for the old names keeps running and is told, once, what to rename.
+_LEGACY_UQ_KEY_RENAMES = (
+    ('mcmc_options', 'UQ_options'),
+    ('debug_mcmc_options', 'debug_UQ_options'),
+    ('do_mcmc', 'do_uq'),
+)
+
+
+def _normalise_uq_option_names(inp_data_dict):
+    """Move legacy ``mcmc_options``/``debug_mcmc_options``/``do_mcmc`` onto their UQ names.
+
+    Migrating rather than rejecting keeps existing user_inputs.yaml files working. Setting both
+    spellings is refused instead of migrated: the two values can disagree, and silently preferring
+    either would discard one from a user who believes it is in effect -- the same reasoning as
+    ``_raise_duplicate_solver_info_key``.
+    """
+    for old_key, new_key in _LEGACY_UQ_KEY_RENAMES:
+        if old_key not in inp_data_dict:
+            continue
+        if new_key in inp_data_dict:
+            raise ValueError(
+                f'user_inputs sets both {old_key!r} and {new_key!r}. These are the same setting: '
+                f'{old_key!r} is the legacy name for {new_key!r}, which is the one CA uses now. '
+                f'Remove {old_key!r} (keeping {new_key!r}) so there is one value, not two.'
+            )
+        inp_data_dict[new_key] = inp_data_dict.pop(old_key)
+        print(
+            f'WARNING: user_inputs key {old_key!r} has been renamed to {new_key!r}; its value was '
+            f'applied to {new_key!r}. MCMC is now one method of uncertainty quantification '
+            f"(UQ_options: method: mcmc), so other methods can be added alongside it. Rename it "
+            f'in your user_inputs to silence this.'
+        )
+    return inp_data_dict
 
 
 def save_dated_user_inputs(inp_data_dict):
@@ -993,6 +1788,7 @@ def warn_if_casadi_nonzero_pre_time(
             UserWarning,
             stacklevel=3,
         )
+
 user_inputs_dir = os.path.join(root_dir, 'user_run_files')
 src_dir = os.path.join(os.path.dirname(__file__), '..')
 param_id_dir = os.path.join(src_dir, 'param_id')
@@ -1095,26 +1891,30 @@ class YamlFileParser(object):
         if 'param_id_method' not in inp_data_dict.keys():
             inp_data_dict['param_id_method'] = 'genetic_algorithm'
 
-        # cellml_only models get an AD gradient too, via Myokit CVODES forward sensitivity,
+        # cellml models get an AD gradient too, via Myokit CVODES forward sensitivity,
         # when run through the Myokit solver with do_ad set.
-        _fsa_ad = (inp_data_dict.get('model_type') == 'cellml_only'
+        _fsa_ad = (inp_data_dict.get('model_type') == 'cellml'
                    and inp_data_dict.get('solver', 'CVODE_myokit') == 'CVODE_myokit'
                    and inp_data_dict.get('do_ad'))
         if inp_data_dict.get('param_id_method') == 'sp_minimize' and \
-                inp_data_dict.get('model_type') not in ('casadi_python', 'aadc_python') and not _fsa_ad:
+                inp_data_dict.get('model_type') not in ('casadi_python', 'aadc_python') \
+                and not _fsa_ad and not inp_data_dict.get('use_emulator'):
+            # An emulator is exempt: its gradient comes from finite differences on its own
+            # evaluations, which is affordable in a way FD on a solver is not (#333).
             print('Parameter identification with sp_minimize requires model_type to be '
-                  '"casadi_python" or "aadc_python", or "cellml_only" with solver '
-                  '"CVODE_myokit" and do_ad: true (Myokit CVODES forward sensitivity).')
+                  '"casadi_python" or "aadc_python", or "cellml" with solver '
+                  '"CVODE_myokit" and do_ad: true (Myokit CVODES forward sensitivity) -- or '
+                  'use_emulator: true, whose gradient is finite differences on the emulator.')
             exit()
 
         # multi_start_sp_minimize runs on any model type: it uses the AD gradient for
-        # casadi_python (symbolic), aadc_python (tape), and cellml_only + Myokit CVODES FSA
+        # casadi_python (symbolic), aadc_python (tape), and cellml + Myokit CVODES FSA
         # (do_ad), and falls back to finite differences for the others.
         if inp_data_dict.get('param_id_method') == 'multi_start_sp_minimize' and \
                 inp_data_dict.get('model_type') not in ('casadi_python', 'aadc_python') and not _fsa_ad:
             print('Note: multi_start_sp_minimize with model_type '
                   f'"{inp_data_dict.get("model_type")}" will use finite-difference gradients. '
-                  'Set model_type to "casadi_python"/"aadc_python", or use "cellml_only" with '
+                  'Set model_type to "casadi_python"/"aadc_python", or use "cellml" with '
                   'solver "CVODE_myokit" and do_ad: true, to use automatic differentiation.')
 
         # overwrite dir paths if set in user_inputs.yaml
@@ -1164,21 +1964,27 @@ class YamlFileParser(object):
         os.makedirs(inp_data_dict['generated_models_subdir'], exist_ok=True)
             
         if 'model_type' not in inp_data_dict.keys():
-            inp_data_dict['model_type'] = 'cellml_only'
-            
-        if inp_data_dict.get('model_type') == 'python_user_defined':
+            inp_data_dict['model_type'] = 'cellml'
+        else:
+            # The one strict door: the if/elif below exits on a model_type it does
+            # not know, so a config still saying `cellml_only` has to be translated
+            # here or it stops being runnable.
+            inp_data_dict['model_type'] = normalise_model_type(
+                inp_data_dict['model_type'], source='user_inputs.yaml')
+
+        if inp_data_dict.get('model_type') == 'external_python':
             model_ext = None
-            # The "model" is the user's hand-written ODE wrapper in funcs_user/,
-            # not a generated file. Default to funcs_user/{file_prefix}_wrapper.py,
-            # but allow an explicit override via 'model_wrapper_path'.
-            wrapper_path = inp_data_dict.get('model_wrapper_path')
-            if not wrapper_path:
-                wrapper_path = os.path.join(base_dir, 'funcs_user', f'{file_prefix}_wrapper.py')
-            inp_data_dict['model_path'] = wrapper_path
-            inp_data_dict['uncalibrated_model_path'] = wrapper_path
+            # The "model" is the user's own solver class in funcs_user/, not a generated file.
+            # Default to funcs_user/{file_prefix}_model.py, overridable via
+            # 'external_model_path'.
+            external_path = inp_data_dict.get('external_model_path')
+            if not external_path:
+                external_path = os.path.join(base_dir, 'funcs_user', f'{file_prefix}_model.py')
+            inp_data_dict['model_path'] = external_path
+            inp_data_dict['uncalibrated_model_path'] = external_path
         elif inp_data_dict.get('model_type') in ['python', 'casadi_python']:
             model_ext = '.py'
-        elif inp_data_dict.get('model_type') == 'cellml_only':
+        elif inp_data_dict.get('model_type') == 'cellml':
             model_ext = '.cellml'
         elif inp_data_dict.get('model_type') == 'cpp':
             model_ext = '.cpp'
@@ -1224,7 +2030,7 @@ class YamlFileParser(object):
         # Sourced from the module-level SOLVER_SCHEMA (single source of truth).
         _solvers = SOLVER_SCHEMA['solvers_by_model_type']
         _methods = SOLVER_SCHEMA['methods_by_solver']
-        valid_cellml_solvers = _solvers['cellml_only']
+        valid_cellml_solvers = _solvers['cellml']
         valid_cellml_methods = _methods['CVODE_myokit']
         valid_cpp_solvers = _solvers['cpp']  # TODO should this be different to methods?
         valid_cpp_methods = _solvers['cpp']
@@ -1233,7 +2039,7 @@ class YamlFileParser(object):
         valid_casadi_solvers = _solvers['casadi_python']
         valid_casadi_solver_plugins = _methods['casadi_integrator']
         valid_aadc_solvers = _solvers.get('aadc_python', [])
-        valid_user_defined_solvers = _solvers.get('python_user_defined', [])
+        valid_external_solvers = _solvers.get('external_python', [])
 
         solver_name = inp_data_dict.get('solver_info', {}).get('solver')
         if solver_name is None:
@@ -1244,7 +2050,7 @@ class YamlFileParser(object):
             solver_name = 'CVODE_myokit' # default to CVODE_myokit for cellml models
 
         if solver_name is None:
-            if inp_data_dict.get('model_type') == 'cellml_only':
+            if inp_data_dict.get('model_type') == 'cellml':
                 solver_name = 'CVODE_opencor'
             elif inp_data_dict.get('model_type') == 'python':
                 solver_name = 'solve_ivp'
@@ -1254,8 +2060,8 @@ class YamlFileParser(object):
                 solver_name = 'cvodes'
             elif inp_data_dict.get('model_type') == 'aadc_python':
                 solver_name = 'aadc_semi_implicit'
-            elif inp_data_dict.get('model_type') == 'python_user_defined':
-                solver_name = 'user_defined'
+            elif inp_data_dict.get('model_type') == 'external_python':
+                solver_name = 'external'
             else:
                 print(f'Invalid model type: {inp_data_dict.get("model_type")}')
                 exit()
@@ -1266,7 +2072,7 @@ class YamlFileParser(object):
                 solver_name not in valid_python_solvers and
                 solver_name not in valid_casadi_solvers and
                 solver_name not in valid_aadc_solvers and
-                solver_name not in valid_user_defined_solvers):
+                solver_name not in valid_external_solvers):
                 print(f'Invalid solver: {solver_name}')
                 exit()
         
@@ -1296,8 +2102,8 @@ class YamlFileParser(object):
                     inp_data_dict['solver_info']['max_step'] = defaults.get('max_step', 0.001)
             elif inp_data_dict.get('model_type') == 'aadc_python':
                 pass  # AADC solver handles its own defaults
-            elif inp_data_dict.get('model_type') == 'python_user_defined':
-                pass  # user wrapper handles its own integration
+            elif inp_data_dict.get('model_type') == 'external_python':
+                pass  # the external solver class handles its own integration
             elif ('MaximumNumberOfSteps' in defaults
                   and 'MaximumNumberOfSteps' not in inp_data_dict['solver_info']):
                 inp_data_dict['solver_info']['MaximumNumberOfSteps'] = defaults['MaximumNumberOfSteps']
@@ -1350,9 +2156,10 @@ class YamlFileParser(object):
                     inp_data_dict['solver_info']['method'] = solver_method # TODO Bea: add specific solver to be used within PETSC (CN / BDF1 / BDF2 / ...)
                 else:
                     print(f'solver set {solver_name} not compatible with model_type cpp : change this in the user_inputs.yaml file')
-            elif solver_name in valid_user_defined_solvers:
-                # The user wrapper is integrated by solve_ivp; default to RK45.
-                solver_method = 'RK45'
+            elif solver_name in valid_external_solvers:
+                # There is no method to choose: the external class owns its scheme. The
+                # placeholder keeps solver_info the same shape as every other model_type's.
+                solver_method = 'external'
                 inp_data_dict['solver_info']['method'] = solver_method
             else:
                 if solver_name.startswith('CVODE'):
@@ -1374,14 +2181,14 @@ class YamlFileParser(object):
             and solver_name not in valid_cpp_solvers
             and solver_name not in valid_casadi_solvers
             and solver_name not in valid_aadc_solvers
-            and solver_name not in valid_user_defined_solvers):
+            and solver_name not in valid_external_solvers):
             print(f'Invalid solver: {solver_name}')
             print(f'Valid CellML solvers: {valid_cellml_solvers}')
             print(f'Valid Python solvers: {valid_python_solvers}')
             print(f'Valid Cpp solvers: {valid_cpp_solvers}')
             print(f'Valid CasADi solvers: {valid_casadi_solvers}')
             print(f'Valid AADC solvers: {valid_aadc_solvers}')
-            print(f'Valid user-defined solvers: {valid_user_defined_solvers}')
+            print(f'Valid external solvers: {valid_external_solvers}')
             exit()
         
         
@@ -1392,9 +2199,9 @@ class YamlFileParser(object):
                 print(f'Use {valid_python_solvers} for Python models')
                 exit()
 
-        # solve_ivp methods can only be used with Python models (generated or user-defined)
+        # solve_ivp methods can only be used with the libCellML-generated Python models
         if solver_method in valid_solve_ivp_methods:
-            if inp_data_dict.get('model_type') not in ['python', 'python_user_defined', None]:
+            if inp_data_dict.get('model_type') not in ['python', None]:
                 print(f'solve_ivp method {solver_method} requires model_type to be "python"')
                 print('Use CVODE_opencor (or legacy CVODE) or CVODE_myokit for CellML models')
                 print('Use CVODE or RK4 or PETSC for Cpp models')
@@ -1423,6 +2230,17 @@ class YamlFileParser(object):
                 print(f'Use {valid_aadc_solvers} for AADC Python models')
                 exit()
 
+        # The external solver wraps a user-supplied solver class, and nothing else can.
+        if inp_data_dict.get('model_type') == 'external_python' and solver_name not in valid_external_solvers:
+                print(f'Solver {solver_name} cannot be used with external Python models (model_type="external_python")')
+                print(f'Use {valid_external_solvers} for external Python models')
+                exit()
+        if solver_name in valid_external_solvers and inp_data_dict.get('model_type') != 'external_python':
+                print(f'Solver {solver_name} requires model_type to be "external_python"')
+                print('It wraps a user-supplied solver class that does its own time stepping '
+                      '(the class registered as SIM_HELPER in external_model_path)')
+                exit()
+
         # CasADi solvers can only be used with CasADi Python models.
         # aadc_python is exempted here so that a stale config carrying the removed AADC
         # method 'bdf' falls through to validate_solver_info below, which names the methods
@@ -1447,13 +2265,17 @@ class YamlFileParser(object):
             method=(inp_data_dict.get('solver_info') or {}).get('method'),
         )
 
-        if 'DEBUG' in inp_data_dict.keys(): 
+        # Before the debug merge below, so a legacy config's debug_mcmc_options is already
+        # debug_UQ_options by the time it is merged onto UQ_options.
+        _normalise_uq_option_names(inp_data_dict)
+
+        if 'DEBUG' in inp_data_dict.keys():
             if inp_data_dict['DEBUG']:
                 # For backwards compatibility, still set ga_options if debug_ga_options exists
                 if 'debug_ga_options' in inp_data_dict.keys():
                     inp_data_dict['ga_options'] = inp_data_dict['debug_ga_options']
-                if 'debug_mcmc_options' in inp_data_dict.keys():
-                    inp_data_dict['mcmc_options'] = inp_data_dict['debug_mcmc_options']
+                if 'debug_UQ_options' in inp_data_dict.keys():
+                    inp_data_dict['UQ_options'] = inp_data_dict['debug_UQ_options']
             else:
                 pass
         else:
@@ -1514,7 +2336,32 @@ class YamlFileParser(object):
             if 'method' not in inp_data_dict['ia_options'].keys():
                 print('No method specified for identifiability analysis, setting to Laplace by default')
                 inp_data_dict['ia_options']['method'] = 'Laplace'
-        
+
+        # Emulator settings (#333). Two flags, because emulation has two steps: do_emulation
+        # trains one against the solver named by `solver`, use_emulator makes the analyses
+        # evaluate it. Defaults here must match ANALYSIS_OPTIONS['emulation'], which is what a
+        # settings form shows the user.
+        if 'do_emulation' not in inp_data_dict.keys():
+            inp_data_dict['do_emulation'] = False
+        if 'use_emulator' not in inp_data_dict.keys():
+            inp_data_dict['use_emulator'] = False
+        if inp_data_dict.get('emulator_settings') is None:
+            inp_data_dict['emulator_settings'] = {}
+        emulator_settings = inp_data_dict['emulator_settings']
+        emulator_settings.setdefault('emulator_dir', None)
+        emulator_settings.setdefault('models', 'default')
+        emulator_settings.setdefault('num_train_samples', 128)
+        emulator_settings.setdefault('reuse_samples', False)
+        emulator_settings.setdefault('sample_type', 'sobol')
+        emulator_settings.setdefault('log_scale_params', False)
+        emulator_settings.setdefault('random_seed', 0)
+        emulator_settings.setdefault('test_fraction', 0.2)
+        emulator_settings.setdefault('n_splits', 5)
+        emulator_settings.setdefault('n_iter', 10)
+        emulator_settings.setdefault('min_r2', 0.9)
+        emulator_settings.setdefault('out_of_bounds', 'error')
+        emulator_settings.setdefault('fd_rel_step', 1e-3)
+
         # Parse optimiser_options - this is the new unified way to specify options
         # Handle backwards compatibility: if ga_options or debug_ga_options is specified, merge into optimiser_options
         if 'optimiser_options' not in inp_data_dict.keys():
@@ -1698,6 +2545,32 @@ def migrate_legacy_solver_info_keys(solver_name, solver_info):
                 'control accuracy.',
             )
             solver_info.pop('MaximumNumberOfSteps', None)
+    elif solver_name in _CPP_SOLVERS:
+        # The generated C++ integrates at a fixed step, taken from the framework key
+        # 'dt_solver'. rtol/atol are NOT touched here: the generator emits them since #398.
+        if 'MaximumStep' in solver_info:
+            if 'dt_solver' in solver_info:
+                # Both given: dt_solver is the one the generated code reads, so MaximumStep
+                # stops applying and says so. Not an error -- a config written for a CVODE
+                # backend has to keep running.
+                _warn_dropped_solver_info_key(
+                    solver_name, 'MaximumStep',
+                    'The generated C++ integrates at the fixed step in '
+                    "'dt_solver', which is already set.",
+                )
+            else:
+                # Carried across rather than discarded. Dropping it lost the only step the
+                # user had given -- and this runs *before* the parser's own
+                # MaximumStep -> dt_solver fallback, so there was nothing left for that to
+                # find and generation died with KeyError: 'dt_solver' on every cpp config
+                # that had not already been rewritten to the new key.
+                #
+                # A maximum adaptive step and a fixed step are not the same quantity, but
+                # reading the former as the latter is conservative, and is exactly what that
+                # fallback already did.
+                solver_info['dt_solver'] = solver_info['MaximumStep']
+                _warn_renamed_solver_info_key(solver_name, 'MaximumStep', 'dt_solver')
+            solver_info.pop('MaximumStep', None)
 
     return solver_info
 
@@ -1756,7 +2629,7 @@ def _solver_info_default_for(model_type, solver_name):
     """``get_solver_info_default`` narrowed to the keys ``solver_name`` accepts.
 
     The defaults are per model_type, but a model_type can host backends with
-    different settings: cellml_only covers both CVODE_opencor (which takes
+    different settings: cellml covers both CVODE_opencor (which takes
     MaximumNumberOfSteps) and CVODE_myokit (which has no such knob). Seeding the
     whole default set would put back exactly what
     migrate_legacy_solver_info_keys just removed, and validate_solver_info would
@@ -1771,7 +2644,7 @@ def _solver_info_default_for(model_type, solver_name):
 
 
 def get_solver_info_default(model_type):
-    if model_type == 'cellml_only':
+    if model_type == 'cellml':
         return {
             'solver': 'CVODE_opencor',
             'MaximumStep': 0.001,
@@ -1811,13 +2684,13 @@ def get_solver_info_default(model_type):
             'tol': 1e-8,
             'threads': 4,
         }
-    if model_type == 'python_user_defined':
+    if model_type == 'external_python':
+        # No tolerances or step sizes: the external class integrates itself. 'user_config' is
+        # left out rather than defaulted to {} so the user class can tell "not configured" from
+        # "configured empty".
         return {
-            'solver': 'user_defined',
-            'method': 'RK45',
-            'max_step': 0.001,
-            'rtol': 1e-8,
-            'atol': 1e-8,
+            'solver': 'external',
+            'method': 'external',
         }
     raise ValueError(f'Invalid model type: {model_type}')
 
@@ -1886,6 +2759,13 @@ class CSVFileParser(object):
             csv_dataframe = pd.read_csv(filename, dtype=str)
         else:
             csv_dataframe = pd.read_csv(filename, dtype=str, header=None)
+
+        # Strip the header names as well as the values. Callers address these columns by name
+        # (issue #159), so a stray space after a comma in the header row would otherwise make a
+        # column unfindable under the name the user can see in their file.
+        if has_header:
+            csv_dataframe = csv_dataframe.rename(
+                columns=lambda name: name.strip() if isinstance(name, str) else name)
 
         for column_name in csv_dataframe.columns:
             csv_dataframe[column_name] = csv_dataframe[column_name].str.strip()
@@ -2099,8 +2979,12 @@ def validate_params_to_change(protocol_info):
 
 
 class ObsAndParamDataParser(object):
-    def __init__(self):
-        pass
+    def __init__(self, modifier_funcs_external_path=None):
+        # Optional external file of user modifier functions (issue #383), threaded from the
+        # `modifier_funcs_external_path` config key -- mirrors operation/cost funcs. Modifier
+        # entries validate against the merged registry, and the path is recorded on the built
+        # param_id_info so the expansion and resolve steps load the same registry later.
+        self.modifier_funcs_external_path = modifier_funcs_external_path
 
     def parse_obs_data_json(
         self,
@@ -2481,14 +3365,23 @@ class ObsAndParamDataParser(object):
                 "operands": {"types": (list, tuple, np.ndarray), "default": REQUIRED},
                 "operation": {"types": (str,), "default": None},
                 "operation_kwargs": {"types": (dict,), "default": lambda df: [{} for _ in range(len(df))]},
-                "value": {"types": (int, float, np.integer, np.floating, list, np.ndarray), "default": REQUIRED},
-                "std": {"types": (int, float, np.integer, np.floating, list, np.ndarray), "default": REQUIRED},
+                # Extra keyword arguments for the data_item's cost_type func (issue #84), the
+                # cost-side counterpart of operation_kwargs. std and weight are supplied by CA
+                # from the fields above and are rejected here -- see param_id.cost_kwargs.
+                "cost_kwargs": {"types": (dict,), "default": lambda df: [{} for _ in range(len(df))]},
+                # The scalar ground truth, and required as such -- but only for an item that
+                # has one. An item whose cost scores it against a distribution states its
+                # ground truth in "prob_dist_params" instead, and carrying a dummy value/std
+                # alongside would be a number nothing reads (issue #421). Enforced per row
+                # below rather than by REQUIRED, which is per column.
+                "value": {"types": (int, float, np.integer, np.floating, list, np.ndarray), "default": np.nan},
+                "std": {"types": (int, float, np.integer, np.floating, list, np.ndarray), "default": np.nan},
                 "experiment_idx": {"types": (int, np.integer), "default": 0},
                 "subexperiment_idx": {"types": (int, np.integer), "default": 0},
                 "plot_type": {"types": (str,), "default": None},
                 "plot_color": {"types": (str,), "default": None},
                 "comment": {"types": (str,), "default": None},
-                "cost_type": {"types": (str,), "default": "MSE"},
+                "cost_type": {"types": (str,), "default": DEFAULT_COST_TYPE},
                 "obs_type": {"types": (str,), "default": None},
                 "frequencies": {"types": (list, tuple, np.ndarray, int, float, np.integer, np.floating), "default": None},
                 # If omitted, phase weighting should follow the same weighting as amplitude.
@@ -2554,6 +3447,42 @@ class ObsAndParamDataParser(object):
                     f"Missing required data_item keys: {sorted(missing_required_cols)}"
                 )
 
+            # An obs_data with no data_items is valid -- a protocol-only file says how to drive
+            # the model without yet saying what to measure -- and the schema loop above is
+            # skipped for it, so none of these columns exist to validate.
+            bad_data_types = sorted({str(dt) for dt in gt_df["data_type"]}
+                                    - set(VALID_DATA_TYPES)) if len(gt_df) else []
+            if "prob_dist" in bad_data_types:
+                raise ValueError(
+                    'data_type "prob_dist" has been removed (issue #421). It described the '
+                    'ground truth rather than the data: the feature is an ordinary scalar, and '
+                    'comparing it against a distribution is the cost function\'s job. Write '
+                    '"data_type": "constant" with a cost_type that scores against a '
+                    'distribution (kernel_density_estimation, multimodal_gaussian, '
+                    'poisson_MLE), keep the item\'s "prob_dist_params", and drop its now-unread '
+                    '"value" and "std".')
+            if bad_data_types:
+                raise ValueError(
+                    f"Unknown data_item data_type(s) {bad_data_types}. "
+                    f"Valid data_types: {list(VALID_DATA_TYPES)}.")
+
+            missing_ground_truth = []
+            for row_idx in range(len(gt_df)):
+                row = gt_df.iloc[row_idx]
+                if not _is_missing_scalar(row["prob_dist_params"]):
+                    continue
+                absent = [key for key in ("value", "std") if _is_missing_scalar(row[key])]
+                if absent:
+                    missing_ground_truth.append(
+                        f"'{row['name_for_plotting']}' (cost_type '{row['cost_type']}') is "
+                        f"missing {' and '.join(absent)}")
+            if missing_ground_truth:
+                raise ValueError(
+                    "Every data_item needs a ground truth to be scored against: either "
+                    "'value' and 'std', or 'prob_dist_params' for a cost that compares "
+                    "against a distribution (kernel_density_estimation, multimodal_gaussian, "
+                    "poisson_MLE). " + "; ".join(missing_ground_truth))
+
             if len(type_errors) > 0:
                 raise ValueError(
                     "Invalid data_item value types:\n" + "\n".join(type_errors)
@@ -2605,12 +3534,6 @@ class ObsAndParamDataParser(object):
                             'change "plot_type" in obs_data.json to change this')
                         warning_printed = True
                     obs_info["plot_type"].append("horizontal")
-                elif gt_df.iloc[II]["data_type"] == "prob_dist":
-                    if not warning_printed:
-                        print('prob_dist data types plot type defaults to horizontal lines',
-                            'change "plot_type" in obs_data.json to change this')
-                        warning_printed = True
-                    obs_info["plot_type"].append("horizontal")
                 elif gt_df.iloc[II]["data_type"] == "series":
                     obs_info["plot_type"].append("series")
                 elif gt_df.iloc[II]["data_type"] == "frequency":
@@ -2628,6 +3551,7 @@ class ObsAndParamDataParser(object):
         obs_info["operations"] = []
         obs_info["operands"] = []
         obs_info["operation_kwargs"] = [gt_df.iloc[II].get("operation_kwargs", {}) for II in range(N)]
+        obs_info["cost_kwargs"] = [gt_df.iloc[II].get("cost_kwargs", {}) for II in range(N)]
         obs_info["freqs"] = [gt_df.iloc[II].get("frequencies") for II in range(N)]
         obs_info["names_for_plotting"] = [gt_df.iloc[II].get("name_for_plotting", obs_info["obs_names"][II]) for II in range(N)]
 
@@ -2661,7 +3585,6 @@ class ObsAndParamDataParser(object):
         obs_info["weight_const_vec"] = weights[data_types == "constant"]
         obs_info["weight_series_vec"] = weights[data_types == "series"]
         obs_info["weight_amp_vec"] = weights[data_types == "frequency"]
-        obs_info["weight_prob_dist_vec"] = weights[data_types == "prob_dist"]
 
         phase_weights = gt_df.apply(
             lambda row: row["phase_weight"] if row.get("phase_weight") is not None else row["weight"],
@@ -2669,7 +3592,21 @@ class ObsAndParamDataParser(object):
         )
         obs_info["weight_phase_vec"] = phase_weights[data_types == "frequency"].to_numpy()
 
-        obs_info["cost_type"] = [gt_df.iloc[II].get("cost_type", "MSE") for II in range(N)]
+        obs_info["cost_type"] = [gt_df.iloc[II].get("cost_type", DEFAULT_COST_TYPE)
+                                 for II in range(N)]
+        # The default changed from MSE to gaussian_MLE (CUFLynx #212), so a study whose
+        # obs_data omits cost_type is now scored differently than it was. Say so once, naming
+        # the items and how to keep the old behaviour -- a silent re-scoring is exactly the
+        # kind of change that makes an old result irreproducible with no sign anything moved.
+        defaulted = [str(gt_df.iloc[II].get("variable", II)) for II in range(N)
+                     if not gt_df.iloc[II].get("cost_type")]
+        if defaulted and DEFAULT_COST_TYPE != PREVIOUS_DEFAULT_COST_TYPE:
+            warnings.warn(
+                f"{len(defaulted)} obs_data item(s) do not set 'cost_type' and now default to "
+                f"'{DEFAULT_COST_TYPE}' (previously '{PREVIOUS_DEFAULT_COST_TYPE}'): "
+                f"{defaulted[:8]}{' ...' if len(defaulted) > 8 else ''}. Costs from before this "
+                f"change are not comparable. Set \"cost_type\": \"{PREVIOUS_DEFAULT_COST_TYPE}\" "
+                f"on those items to keep the old scoring.")
 
         obs_info = self.get_ground_truth_values(gt_df, obs_info, output_dir, dt)
         
@@ -2692,9 +3629,19 @@ class ObsAndParamDataParser(object):
         ground_truth_amp = np.array([gt_df.iloc[II]["value"] for II in range(gt_df.shape[0])
                                         if gt_df.iloc[II]["data_type"] == "frequency"])
 
-        # then for ground truth probability distributions
-        ground_truth_prob_dist_params = np.array([gt_df.iloc[II]["prob_dist_params"] for II in range(gt_df.shape[0])
-                                            if gt_df.iloc[II]["data_type"] == "prob_dist"])
+        # The distribution a data_item is compared against, for a cost that scores against one
+        # (kernel_density_estimation, multimodal_gaussian, poisson_MLE) rather than against a
+        # value/std. Such an item is an ordinary scalar observable -- prob_dist used to be a
+        # data_type of its own, which filed it in a parallel vector and hid it from everything
+        # that works on scalar features, the emulator included (issue #421).
+        #
+        # Full length over all data_items and indexed by row, like cost_type and the weight
+        # vectors, so it stays correct when the per-type vectors are compacted to their own
+        # index spaces (the #349 rule).
+        ground_truth_prob_dist_params = [
+            gt_df.iloc[II]["prob_dist_params"] if isinstance(
+                gt_df.iloc[II]["prob_dist_params"], dict) else None
+            for II in range(gt_df.shape[0])]
 
 
         # _______ and the phase of the freq data
@@ -2765,11 +3712,9 @@ class ObsAndParamDataParser(object):
         const_count = 0
         series_count = 0
         freq_count = 0
-        prob_dist_count = 0
         obs_info["const_idx_to_obs_idx"] = []
         obs_info["series_idx_to_obs_idx"] = []
         obs_info["freq_idx_to_obs_idx"] = []
-        obs_info["prob_dist_idx_to_obs_idx"] = []
         for obs_idx in range(obs_info["num_obs"]):
             if obs_info["data_types"][obs_idx] == "constant":
                 obs_info["const_idx_to_obs_idx"].append(obs_idx)
@@ -2780,9 +3725,6 @@ class ObsAndParamDataParser(object):
             elif obs_info["data_types"][obs_idx] == "frequency":
                 obs_info["freq_idx_to_obs_idx"].append(obs_idx)
                 freq_count += 1
-            elif obs_info["data_types"][obs_idx] == "prob_dist":
-                obs_info["prob_dist_idx_to_obs_idx"].append(obs_idx)
-                prob_dist_count += 1
 
         return obs_info
 
@@ -2847,7 +3789,6 @@ class ObsAndParamDataParser(object):
         series_map = [[[] for _ in range(protocol['num_sub_per_exp'][exp_idx])] for exp_idx in range(N_exp)]
         amp_map = [[[] for _ in range(protocol['num_sub_per_exp'][exp_idx])] for exp_idx in range(N_exp)]
         phase_map = [[[] for _ in range(protocol['num_sub_per_exp'][exp_idx])] for exp_idx in range(N_exp)]
-        prob_dist_map = [[[] for _ in range(protocol['num_sub_per_exp'][exp_idx])] for exp_idx in range(N_exp)]
 
         
         # --- Calculate Scaled Weight Maps ---
@@ -2860,7 +3801,7 @@ class ObsAndParamDataParser(object):
                 
                 # Iterate over all possible data types
                 for data_type, weight_map in [
-                    ("constant", const_map), ("series", series_map), ("frequency", amp_map), ("prob_dist", prob_dist_map)
+                    ("constant", const_map), ("series", series_map), ("frequency", amp_map)
                 ]:
                     # Create the full weight vector (Weight if matched, 0.0 otherwise)
                     full_weights = np.where(mask & (df["data_type"] == data_type), df["weight"], 0.0)
@@ -2884,19 +3825,347 @@ class ObsAndParamDataParser(object):
         protocol["scaled_weight_series_from_exp_sub"] = series_map
         protocol["scaled_weight_amp_from_exp_sub"] = amp_map
         protocol["scaled_weight_phase_from_exp_sub"] = phase_map
-        protocol["scaled_weight_prob_dist_from_exp_sub"] = prob_dist_map
         
         return protocol
     
+    @staticmethod
+    def _qname_to_vessel_and_param(qname):
+        """Split a 'component/param' qname. rsplit so a component containing '/' still works."""
+        if '/' not in qname:
+            raise ValueError(
+                f"params_for_id target {qname!r} is not a 'component/param' name. Targets are "
+                f"full qualified names, e.g. 'aortic_root/C' or 'global/q_lv_init'.")
+        vessel, param = qname.rsplit('/', 1)
+        return vessel.strip(), param.strip()
+
+    @classmethod
+    def params_for_id_csv_to_json(cls, csv_text_or_path):
+        """Convert a legacy params_for_id CSV into the canonical JSON structure.
+
+        Pure: text (or a path) in, dict out. No model, no solver, no simulation helper -- so a
+        front-end can show a user's existing CSV as JSON in an editor without loading anything.
+        The mapping is documented in the tutorial as well as implemented here, because a tool
+        without circulatory_autogen on sys.path has to be able to reproduce it.
+
+        Per row:
+            vessel_name='a b', param_name='C'  ->  targets: ['a/C', 'b/C']
+            min/max/param_type/name_for_plotting/comment  ->  same keys
+            prior + prior_mean/prior_std/...   ->  prior + prior_params: {...}
+            unbounded                          ->  unbounded (bool)
+            (none)                             ->  name, defaulting to the first target
+        """
+        import io
+
+        if isinstance(csv_text_or_path, str) and ('\n' in csv_text_or_path
+                                                  or ',' in csv_text_or_path.split('\n')[0]) \
+                and not os.path.exists(csv_text_or_path):
+            handle = io.StringIO(csv_text_or_path)
+        else:
+            handle = csv_text_or_path
+
+        df = pd.read_csv(handle, dtype=str)
+        df = df.rename(columns=lambda c: c.strip())
+        for column in df.columns:
+            df[column] = df[column].apply(lambda v: v.strip() if isinstance(v, str) else v)
+
+        def _present(value):
+            if value is None:
+                return False
+            if isinstance(value, float) and np.isnan(value):
+                return False
+            return str(value).strip() != ''
+
+        params = []
+        for idx in range(df.shape[0]):
+            row = df.iloc[idx]
+            vessels = [v for v in str(row.get('vessel_name', '') or '').split() if v]
+            param_name = str(row.get('param_name', '') or '').strip()
+            if not vessels or not param_name:
+                raise ValueError(
+                    f'params_for_id CSV row {idx}: both vessel_name and param_name are required '
+                    f'(got vessel_name={row.get("vessel_name")!r}, param_name={param_name!r}).')
+
+            entry = {'targets': [f'{v}/{param_name}' for v in vessels]}
+            entry['name'] = entry['targets'][0]
+
+            for key in ('param_type', 'name_for_plotting', 'comment', 'prior'):
+                if key in df.columns and _present(row.get(key)):
+                    entry[key] = str(row[key]).strip()
+            for key in ('min', 'max'):
+                if key in df.columns and _present(row.get(key)):
+                    entry[key] = str(row[key]).strip()
+            if PARAM_UNBOUNDED_COLUMN in df.columns and _present(row.get(PARAM_UNBOUNDED_COLUMN)):
+                entry[PARAM_UNBOUNDED_COLUMN] = _truthy_flag(row[PARAM_UNBOUNDED_COLUMN])
+
+            prior_params = {name: str(row[name]).strip()
+                            for name in PARAMS_FOR_ID_CSV_PRIOR_COLUMNS
+                            if name in df.columns and _present(row.get(name))}
+            if prior_params:
+                entry['prior_params'] = prior_params
+
+            params.append(entry)
+
+        return {'version': PARAMS_FOR_ID_JSON_VERSION, 'defaults': {}, 'params': params}
+
+    @classmethod
+    def resolve_params_for_id_doc(cls, doc, modifier_funcs=None):
+        """Validate a params_for_id document and fold `defaults` into each entry.
+
+        Resolution is a shallow per-key override -- an entry's own key wins over `defaults`, which
+        wins over whatever circulatory_autogen derives later (the prior machinery's default_expr).
+        `prior_params` merges per key too, so a defaults block setting prior_std does not wipe an
+        entry's prior_mean.
+
+        ``modifier_funcs`` is the registry modifier entries validate against (operation names,
+        declared inputs); defaults to the built-in + funcs_user registry. Pass
+        ``get_modifier_funcs(external_path)`` to also accept externally-defined functions.
+        """
+        if modifier_funcs is None:
+            modifier_funcs = get_modifier_funcs(None)
+        if not isinstance(doc, dict):
+            raise ValueError(
+                f'params_for_id JSON must be an object with a "params" list, got '
+                f'{type(doc).__name__}.')
+
+        version = doc.get('version', PARAMS_FOR_ID_JSON_VERSION)
+        if int(version) != PARAMS_FOR_ID_JSON_VERSION:
+            raise ValueError(
+                f'params_for_id JSON version {version} is not supported by this version of '
+                f'circulatory_autogen (expected {PARAMS_FOR_ID_JSON_VERSION}).')
+
+        params = doc.get('params')
+        if not isinstance(params, list) or not params:
+            raise ValueError('params_for_id JSON needs a non-empty "params" list.')
+
+        defaults = doc.get('defaults') or {}
+        if not isinstance(defaults, dict):
+            raise ValueError(
+                f'params_for_id "defaults" must be an object, got {type(defaults).__name__}.')
+        unknown_defaults = set(defaults) - PARAMS_FOR_ID_ENTRY_KEYS
+        if unknown_defaults:
+            raise ValueError(
+                f'params_for_id "defaults" has unknown key(s) {sorted(unknown_defaults)}. '
+                f'Valid keys are the entry keys: {sorted(PARAMS_FOR_ID_ENTRY_KEYS)}.')
+
+        resolved = []
+        seen_names = {}
+        for idx, raw in enumerate(params):
+            if not isinstance(raw, dict):
+                raise ValueError(
+                    f'params_for_id entry {idx} must be an object, got {type(raw).__name__}.')
+            unknown = set(raw) - PARAMS_FOR_ID_ENTRY_KEYS
+            if unknown:
+                raise ValueError(
+                    f'params_for_id entry {idx} has unknown key(s) {sorted(unknown)}. Valid '
+                    f'keys: {sorted(PARAMS_FOR_ID_ENTRY_KEYS)}.')
+
+            entry = {k: v for k, v in defaults.items() if k != 'prior_params'}
+            entry.update({k: v for k, v in raw.items() if k != 'prior_params'})
+            merged_prior = dict(defaults.get('prior_params') or {})
+            merged_prior.update(raw.get('prior_params') or {})
+            if merged_prior:
+                entry['prior_params'] = merged_prior
+
+            # 'operation' is the #378 spelling; operations act on outputs (obs_data), so the
+            # key acting on parameters is now 'modifier'. Normalise before any other check.
+            if entry.get('operation') is not None:
+                if entry.get('modifier') is not None:
+                    raise ValueError(
+                        f'params_for_id entry {idx} sets both "modifier" and "operation" '
+                        f'(the deprecated alias). Set only "modifier".')
+                warnings.warn(
+                    f'params_for_id entry {idx}: "operation" is deprecated for modifier '
+                    f'entries; use "modifier" (operations act on outputs, modifiers act on '
+                    f'parameters).')
+                entry['modifier'] = entry.pop('operation')
+
+            has_targets = entry.get('targets') is not None
+            has_modifies = entry.get('modifies') is not None
+            if has_targets and has_modifies:
+                raise ValueError(
+                    f'params_for_id entry {idx} sets both "targets" and "modifies". An entry is '
+                    f'either a parameter (targets) or a modifier of parameters (modifies), not '
+                    f'both.')
+            if not has_targets and not has_modifies:
+                raise ValueError(
+                    f'params_for_id entry {idx} needs a non-empty "targets" list of '
+                    f'component/param names (or "modifies" for a modifier entry).')
+
+            key = 'modifies' if has_modifies else 'targets'
+            names = entry.get(key)
+            if isinstance(names, str):
+                names = [names]
+            if not names or not isinstance(names, list):
+                raise ValueError(
+                    f'params_for_id entry {idx} needs a non-empty "{key}" list of '
+                    f'component/param names.')
+            names = [str(t).strip() for t in names]
+            for qname in names:
+                cls._qname_to_vessel_and_param(qname)
+            entry[key] = names
+
+            if has_modifies:
+                modifier = entry.get('modifier') or DEFAULT_PARAM_MODIFIER
+                if modifier not in modifier_funcs:
+                    raise ValueError(
+                        f'params_for_id entry {idx} has unknown modifier {modifier!r}. '
+                        f'Registered modifier functions: {sorted(modifier_funcs)} (built-ins '
+                        f'plus funcs_user/modifier_funcs_user.py and '
+                        f'modifier_funcs_external_path).')
+                entry['modifier'] = modifier
+                entry['inputs'] = cls._validate_modifier_inputs(
+                    idx, modifier, modifier_funcs[modifier], entry.get('inputs'))
+                # A multiplier range that straddles zero flips the sign of every target
+                # somewhere inside it. That is legal arithmetic and almost never intended.
+                try:
+                    lo, hi = float(entry.get('min')), float(entry.get('max'))
+                except (TypeError, ValueError):
+                    lo = hi = None
+                if lo is not None and modifier == 'scale' and lo <= 0 < hi:
+                    warnings.warn(
+                        f'params_for_id entry {idx} ({entry.get("name", "?")}) is a scale '
+                        f'modifier with min={lo} and max={hi}, a range crossing zero. Every '
+                        f'target changes sign inside it; scale bounds are multipliers, not '
+                        f'physical values.')
+            elif entry.get('modifier') is not None:
+                raise ValueError(
+                    f'params_for_id entry {idx} sets "modifier" but has no "modifies". '
+                    f'modifier only applies to a modifier entry.')
+            elif entry.get('inputs') is not None:
+                raise ValueError(
+                    f'params_for_id entry {idx} sets "inputs" but has no "modifies". '
+                    f'inputs supply a modifier function\'s extra model constants.')
+
+            entry.setdefault('name', entry[key][0])
+            name = str(entry['name'])
+            if name in seen_names:
+                raise ValueError(
+                    f'params_for_id entry {idx} reuses the name {name!r}, already used by entry '
+                    f'{seen_names[name]}. Entry names identify a parameter and must be unique.')
+            seen_names[name] = idx
+            entry['name'] = name
+            resolved.append(entry)
+
+        cls._validate_modifier_relationships(resolved)
+        return resolved
+
+    @classmethod
+    def _validate_modifier_inputs(cls, idx, modifier, fn, raw_inputs):
+        """Normalise and validate a modifier entry's ``inputs`` against the function's
+        declaration.
+
+        The function declares each input's name and type on the decorator
+        (``@modifier_func(inputs={'subtract': 'list'})``); the entry supplies the model
+        qname(s) whose *default* values the function will receive: a single qname string for
+        ``'float'``, a non-empty list of qnames for ``'list'``. Everything is checked here, at
+        parse time, so a typo'd input never reaches a calibration as a silently-absent kwarg.
+        """
+        declared = dict(getattr(fn, 'modifier_inputs', {}) or {})
+        raw_inputs = dict(raw_inputs or {})
+
+        unknown = set(raw_inputs) - set(declared)
+        if unknown:
+            raise ValueError(
+                f'params_for_id entry {idx}: modifier {modifier!r} does not take input(s) '
+                f'{sorted(unknown)}. Declared inputs: {declared or "none"}.')
+        missing = set(declared) - set(raw_inputs)
+        if missing:
+            raise ValueError(
+                f'params_for_id entry {idx}: modifier {modifier!r} requires input(s) '
+                f'{sorted(missing)} ({ {k: declared[k] for k in sorted(missing)} }), naming '
+                f'the model constant(s) whose default values the function receives.')
+
+        normalised = {}
+        for name, kind in declared.items():
+            value = raw_inputs[name]
+            if kind == 'float':
+                if not isinstance(value, str) or not value.strip():
+                    raise ValueError(
+                        f'params_for_id entry {idx}: input {name!r} of modifier '
+                        f'{modifier!r} is type "float" and takes a single component/param '
+                        f'qname string, got {value!r}.')
+                qnames = [value.strip()]
+                normalised[name] = qnames[0]
+            else:  # 'list'
+                if isinstance(value, str):
+                    value = [value]
+                if not isinstance(value, list) or not value:
+                    raise ValueError(
+                        f'params_for_id entry {idx}: input {name!r} of modifier '
+                        f'{modifier!r} is type "list" and takes a non-empty list of '
+                        f'component/param qnames, got {value!r}.')
+                qnames = [str(q).strip() for q in value]
+                normalised[name] = qnames
+            for qname in qnames:
+                cls._qname_to_vessel_and_param(qname)
+        return normalised
+
+    @staticmethod
+    def _validate_modifier_relationships(entries):
+        """Cross-entry rules that only make sense once every entry is known.
+
+        Both are refusals rather than warnings because both produce a calibration that runs,
+        converges and means nothing.
+        """
+        free_owner = {}
+        for entry in entries:
+            for qname in entry.get('targets', []):
+                free_owner.setdefault(qname, entry['name'])
+
+        modifier_names = {e['name'] for e in entries if e.get('modifies')}
+
+        # 3. Two modifiers on the same parameter multiply: p = theta_1 * theta_2 * baseline, so
+        #    only the product is identifiable and each factor alone is meaningless -- the same
+        #    flat ridge as rule 1, reached a different way.
+        modified_by = {}
+        for entry in entries:
+            for qname in entry.get('modifies', []):
+                if qname in modified_by:
+                    raise ValueError(
+                        f"params_for_id: '{qname}' is modified by both "
+                        f"'{modified_by[qname]}' and '{entry['name']}'. Two modifiers on one "
+                        f"parameter multiply, so only their product is identifiable and neither "
+                        f"factor means anything on its own. Combine them into one modifier.")
+                modified_by[qname] = entry['name']
+
+        for entry in entries:
+            modifies = entry.get('modifies')
+            if not modifies:
+                continue
+            for qname in modifies:
+                # 1. A modified parameter must not also be calibrated freely. (theta, p) and
+                #    (theta*k, p/k) give an identical cost, so the optimiser wanders a flat
+                #    ridge and both reported values are meaningless.
+                if qname in free_owner:
+                    raise ValueError(
+                        f"params_for_id: '{qname}' is modified by '{entry['name']}' and is also "
+                        f"a free parameter in entry '{free_owner[qname]}'. That is structurally "
+                        f"unidentifiable -- scaling the modifier and dividing the free parameter "
+                        f"by the same factor gives an identical cost, so neither value means "
+                        f"anything. Remove one of the two entries.")
+                # 2. One level, no chains: a modifier of a modifier has no defined baseline.
+                if qname in modifier_names:
+                    raise ValueError(
+                        f"params_for_id: '{entry['name']}' modifies '{qname}', which is itself a "
+                        f"modifier. Modifiers apply to model parameters only -- chains are not "
+                        f"supported.")
+
     def get_param_id_info(self, params_for_id_path, idxs_to_ignore= None):
     
         if not params_for_id_path:
             print(f'params_for_id_path cannot be None, exiting')
             return None
 
-        csv_parser = CSVFileParser()
-        input_params = csv_parser.get_data_as_dataframe_multistrings(params_for_id_path)
-        return self._build_param_id_info_from_df(input_params, idxs_to_ignore=idxs_to_ignore)
+        # One code path behind the front door: a .csv is converted to the JSON structure on read,
+        # and everything downstream sees only resolved JSON entries.
+        if str(params_for_id_path).lower().endswith('.json'):
+            with open(params_for_id_path, 'r') as f:
+                doc = json.load(f)
+        else:
+            doc = self.params_for_id_csv_to_json(params_for_id_path)
+        entries = self.resolve_params_for_id_doc(
+            doc, modifier_funcs=get_modifier_funcs(self.modifier_funcs_external_path))
+        return self._build_param_id_info_from_entries(entries, idxs_to_ignore=idxs_to_ignore)
 
     def get_param_id_info_from_entries(self, params_for_id_entries, idxs_to_ignore=None):
         """
@@ -2921,108 +4190,92 @@ class ObsAndParamDataParser(object):
         input_params = pd.DataFrame(params_for_id_entries)
         return self._build_param_id_info_from_df(input_params, idxs_to_ignore=idxs_to_ignore)
 
-    def _build_param_id_info_from_df(self, input_params, idxs_to_ignore=None):
-        if input_params is None or input_params.empty:
+    def _build_param_id_info_from_entries(self, entries, idxs_to_ignore=None):
+        """Build param_id_info from resolved params_for_id entries (the canonical JSON shape).
+
+        This is the single builder; the CSV and the programmatic dict API both convert to entries
+        first. Output shape is unchanged from the CSV-driven builder it replaces -- param_names is
+        still a list of qname lists, one per calibrated variable -- so every consumer, including
+        #376's grouped set_param_vals and the Sobol split, keeps working untouched.
+        """
+        if not entries:
             raise ValueError("No parameter entries provided")
 
-        required_cols = {"vessel_name", "param_name", "min", "max"}
-        missing = required_cols - set(input_params.columns)
-        if missing:
-            raise ValueError(f"params_for_id is missing required columns: {sorted(list(missing))}")
-
-        input_params = input_params.copy()
-
-        def _to_list(val):
-            if isinstance(val, list):
-                return val
-            if val is None:
-                return []
-            if isinstance(val, float) and np.isnan(val):
-                return []
-            val_str = str(val).strip()
-            if val_str == "":
-                return []
-            return [entry.strip() for entry in val_str.split()]
-
-        input_params["vessel_name"] = input_params["vessel_name"].apply(_to_list)
-
-        # --- 1. Filter the DataFrame first ---
-        # Create a mask for indices to KEEP (not ignore)
         if idxs_to_ignore is not None:
-            all_indices = set(range(input_params.shape[0]))
-            valid_indices = sorted(list(all_indices - set(idxs_to_ignore)))
-            filtered_params = input_params.iloc[valid_indices].reset_index(drop=True)
-        else:
-            filtered_params = input_params.reset_index(drop=True)
+            ignore = set(idxs_to_ignore)
+            entries = [e for i, e in enumerate(entries) if i not in ignore]
+            if not entries:
+                raise ValueError("No parameter entries provided")
 
-        N_params = filtered_params.shape[0]
-
+        N_params = len(entries)
         param_id_info = {}
+        # A modifier looks exactly like a grouped row to every consumer: one variable to the
+        # sampler and to the optimiser, N parameters to set. The only difference is what value
+        # each of the N receives, which is resolved when the values are expanded (see
+        # expand_modifier_param_vals) rather than here.
+        param_id_info["param_names"] = [
+            list(e["modifies"]) if e.get("modifies") else list(e["targets"]) for e in entries]
+
+        # Simplified names for the generator, per target rather than per entry. Deciding the whole
+        # row from the first vessel meant a row mixing 'global' with named vessels emitted one gen
+        # name and dropped the rest, while param_names kept all of them, so the two positional
+        # lists stopped describing the same parameters (#350).
         param_names_for_gen = []
-        param_id_info["param_names"] = []
+        for entry, qnames in zip(entries, param_id_info["param_names"]):
+            gen = []
+            for qname in qnames:
+                vessel, param = self._qname_to_vessel_and_param(qname)
+                # One statement of the rule (#210): param_name_for_gen is what tools import.
+                gen.append(param_name_for_gen(vessel, param))
+            param_names_for_gen.append(gen)
 
-        # --- 2. Iterate ONLY over the filtered data ---
-        for II in range(N_params):
-            # Current row data from the filtered DataFrame
-            row = filtered_params.iloc[II]
+        def _numeric(key):
+            out = np.empty(N_params, dtype=float)
+            for II, entry in enumerate(entries):
+                raw = entry.get(key)
+                try:
+                    out[II] = float(raw) if raw is not None and str(raw).strip() != '' else np.nan
+                except (TypeError, ValueError):
+                    out[II] = np.nan
+            return out
 
-            # A. Build the full, complex names (e.g., 'vessel_name/param_name')
-            param_full_names = [
-                row["vessel_name"][JJ] + '/' + row["param_name"]
-                for JJ in range(len(row["vessel_name"]))
-            ]
-            param_id_info["param_names"].append(param_full_names)
+        param_id_info["param_mins"] = _numeric("min")
+        param_id_info["param_maxs"] = _numeric("max")
 
-            # B. Build the simplified names for generator/code
-            if row["vessel_name"][0] == 'global':
-                param_names_for_gen.append([row["param_name"]])
-            else:
-                param_gen_names = [
-                    row["param_name"] + '_' + row["vessel_name"][JJ]
-                    for JJ in range(len(row["vessel_name"]))
-                ]
-                param_names_for_gen.append(param_gen_names)
+        def _plot_name(entry):
+            raw = entry.get("name_for_plotting")
+            if raw is None or (isinstance(raw, float) and np.isnan(raw)) or str(raw).strip() == '':
+                # A modifier falls back to its own name, not to one of the parameters it
+                # modifies -- theta is its own quantity (dimensionless for scale) and labelling
+                # it with a target's name would misreport what was calibrated.
+                return entry["name"] if entry.get("modifies") else entry["targets"][0]
+            return raw
 
-        # --- 3. Set Arrays using the filtered DataFrame ---
-        param_id_info["param_mins"] = pd.to_numeric(
-            filtered_params["min"], errors="coerce").to_numpy(dtype=float)
-        param_id_info["param_maxs"] = pd.to_numeric(
-            filtered_params["max"], errors="coerce").to_numpy(dtype=float)
+        param_id_info["param_names_for_plotting"] = np.array(
+            [_plot_name(entry) for entry in entries])
 
-        if "name_for_plotting" in filtered_params.columns:
-            param_id_info["param_names_for_plotting"] = filtered_params["name_for_plotting"].to_numpy()
-        else:
-            param_id_info["param_names_for_plotting"] = np.array([p_names[0]
-                                                                  for p_names in param_id_info["param_names"]])
+        param_id_info["param_prior_types"] = np.array([
+            normalise_prior_type(entries[II].get("prior"), row_idx=II) for II in range(N_params)
+        ])
 
-        if "prior" in filtered_params.columns:
-            # Validated and canonicalised here, at the one place the column is read, so an
-            # unusable prior is a parse error naming the row rather than a parameter that
-            # quietly stops being bounded once the sampler starts.
-            param_id_info["param_prior_types"] = np.array([
-                normalise_prior_type(filtered_params["prior"].iloc[II], row_idx=II)
-                for II in range(N_params)
-            ])
-        else:
-            param_id_info["param_prior_types"] = np.array([DEFAULT_PARAM_PRIOR_TYPE] * N_params)
-
-        # The values each prior takes (the exponential's rate, the normal's mean and std),
-        # one dict per parameter. Validated against what that row's prior actually declares,
-        # so a hyper-parameter set on a prior that ignores it is a parse error rather than a
-        # silently different posterior.
+        # normalise_prior_params takes anything with .get(), so the entry's prior_params mapping
+        # is passed straight in -- the hyper-parameters live under their own key in JSON, but the
+        # validation that owns which prior takes which is unchanged.
+        # min/max travel with the hyper-parameters: normalise_prior_params checks a centre
+        # declared `within_bounds` against the row's own range, and every prior is truncated to
+        # [min, max], so a mean outside it describes a peak the sampler can never reach. Passing
+        # prior_params alone silently disabled that check (#365).
         param_id_info["param_prior_params"] = [
             normalise_prior_params(
-                param_id_info["param_prior_types"][II], filtered_params.iloc[II], row_idx=II)
+                param_id_info["param_prior_types"][II],
+                {**dict(entries[II].get("prior_params") or {}),
+                 'min': entries[II].get('min'), 'max': entries[II].get('max')},
+                row_idx=II)
             for II in range(N_params)
         ]
 
-        # An unbounded parameter has no range of its own: its prior says where it lives, and
-        # the range CA needs for everything else is derived from that prior. Done after the
-        # priors are parsed, because that is what it is derived from.
         param_id_info["param_unbounded"] = np.array([
-            _truthy_flag(filtered_params.iloc[II].get(PARAM_UNBOUNDED_COLUMN)
-                         if PARAM_UNBOUNDED_COLUMN in filtered_params.columns else None)
-            for II in range(N_params)
+            _truthy_flag(entries[II].get(PARAM_UNBOUNDED_COLUMN)) for II in range(N_params)
         ])
         for II in range(N_params):
             if not param_id_info["param_unbounded"][II]:
@@ -3041,8 +4294,113 @@ class ObsAndParamDataParser(object):
             param_id_info["param_maxs"][II] = hi
 
         param_id_info["param_names_for_gen"] = param_names_for_gen
+        param_id_info["param_entry_names"] = [e["name"] for e in entries]
+
+        # One display label per calibrated variable. A grouped row joins its qnames; a modifier
+        # uses its own name. Downstream (the SALib problem, plots) reads this rather than
+        # rebuilding it, so the two cannot drift.
+        param_id_info["param_labels"] = [
+            str(param_id_info["param_names_for_plotting"][II]) if entries[II].get("modifies")
+            else '+'.join(param_id_info["param_names"][II])
+            for II in range(N_params)
+        ]
+
+        # The modifier record downstream tools code against. `index` is a position in
+        # param_names/param_labels and is computed *after* idxs_to_ignore filtering, so it is
+        # always valid for the param_id_info it ships with -- but match on `name` if you carry a
+        # modifier between two different builds. `baselines` is filled in once a simulation
+        # helper is available (resolve_modifier_baselines); it is None until then rather than
+        # absent, so a consumer can tell "not resolved yet" from "no baseline".
+        param_id_info["modifiers"] = [
+            {
+                "index": II,
+                "name": entries[II]["name"],
+                "modifier": entries[II].get("modifier", DEFAULT_PARAM_MODIFIER),
+                "targets": list(entries[II]["modifies"]),
+                "baselines": None,
+                # The model constants the modifier function's declared inputs name (qnames);
+                # their default values land in `resolved_inputs` alongside the baselines.
+                "inputs": dict(entries[II].get("inputs") or {}),
+                "resolved_inputs": None,
+                # Per-target affine coefficients of p_i = a_i*theta + b_i, probed at resolve
+                # time: a_i is the gradient chain-rule weight, and inverting at the first
+                # target's baseline gives theta's starting value.
+                "affine": None,
+            }
+            for II in range(N_params) if entries[II].get("modifies")
+        ]
+        # Recorded so resolve_modifier_baselines / expand_modifier_param_vals load the same
+        # registry (including external functions) that the entries were validated against.
+        param_id_info["modifier_funcs_external_path"] = getattr(
+            self, 'modifier_funcs_external_path', None)
 
         return param_id_info
+
+    def _build_param_id_info_from_df(self, input_params, idxs_to_ignore=None):
+        """Adapter for the programmatic entries API (vessel_name / param_name dicts).
+
+        The documented in-code form of params_for_id is a list of
+        {vessel_name, param_name, min, max, name_for_plotting}, and vessel_name may be a list
+        sharing one calibrated value. That is converted to canonical entries here so it goes
+        through the same builder as the CSV and the JSON -- one code path, three front doors.
+        """
+        if input_params is None or getattr(input_params, 'empty', False):
+            raise ValueError("No parameter entries provided")
+
+        required_cols = {"vessel_name", "param_name", "min", "max"}
+        missing = required_cols - set(input_params.columns)
+        if missing:
+            raise ValueError(f"params_for_id is missing required columns: {sorted(list(missing))}")
+
+        def _vessels(val):
+            if isinstance(val, list):
+                return [str(v).strip() for v in val]
+            if val is None or (isinstance(val, float) and np.isnan(val)):
+                return []
+            return [v.strip() for v in str(val).strip().split() if v.strip()]
+
+        def _present(value):
+            if value is None:
+                return False
+            if isinstance(value, float) and np.isnan(value):
+                return False
+            return str(value).strip() != ''
+
+        entries = []
+        for II in range(input_params.shape[0]):
+            row = input_params.iloc[II]
+            vessels = _vessels(row["vessel_name"])
+            param_name = str(row["param_name"]).strip()
+            if not vessels or not param_name:
+                raise ValueError(
+                    f'params_for_id entry {II}: both vessel_name and param_name are required.')
+            entry = {'targets': [f'{v}/{param_name}' for v in vessels]}
+            entry['name'] = entry['targets'][0]
+            for key in ('param_type', 'name_for_plotting', 'comment', 'prior', 'min', 'max'):
+                if key in input_params.columns and _present(row.get(key)):
+                    entry[key] = row[key]
+            if PARAM_UNBOUNDED_COLUMN in input_params.columns \
+                    and _present(row.get(PARAM_UNBOUNDED_COLUMN)):
+                entry[PARAM_UNBOUNDED_COLUMN] = _truthy_flag(row[PARAM_UNBOUNDED_COLUMN])
+            prior_params = {name: row[name] for name in PARAMS_FOR_ID_CSV_PRIOR_COLUMNS
+                            if name in input_params.columns and _present(row.get(name))}
+            if prior_params:
+                entry['prior_params'] = prior_params
+            entries.append(entry)
+
+        # Names come from the first target here, so duplicates are possible in a way the JSON
+        # front door forbids; de-duplicate positionally rather than refusing a form that has
+        # always been legal.
+        seen = {}
+        for entry in entries:
+            base = entry['name']
+            if base in seen:
+                seen[base] += 1
+                entry['name'] = f'{base}#{seen[base]}'
+            else:
+                seen[base] = 0
+
+        return self._build_param_id_info_from_entries(entries, idxs_to_ignore=idxs_to_ignore)
 
     def save_param_names(self, param_id_info, output_dir):
         """
@@ -3061,6 +4419,18 @@ class ObsAndParamDataParser(object):
             with open(param_gen_path, 'w', newline='') as f:
                 wr = csv.writer(f)
                 wr.writerows(param_id_info["param_names_for_gen"])
+
+            # 3. Save the modifier records (see save_param_modifiers). At this point the
+            #    baselines may still be None -- parsing happens before a simulation helper
+            #    exists -- so the calibration run re-saves once they are resolved.
+            save_param_modifiers(param_id_info, output_dir)
+
+            # 4. Save the parameter bounds. best_param_vals_history.csv is NORMALISED, so
+            #    without these it cannot be turned back into parameter values from the run
+            #    directory alone -- which is what param_id.run_history.read_run_history needs
+            #    in order not to require a live param_id_info (CUFLynx #210).
+            from param_id.run_history import save_param_bounds
+            save_param_bounds(param_id_info, output_dir)
         return
 
 

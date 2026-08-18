@@ -21,6 +21,8 @@ always something they chose.
 """
 import numpy as np
 
+from parsers.PrimitiveParsers import param_entry_labels
+
 
 def _step(pj, pmin, pmax, h):
     """The central-difference step for one parameter.
@@ -37,7 +39,7 @@ def _step(pj, pmin, pmax, h):
     return h * rng if rng > 0 else h
 
 
-def _features(pid, param_vals):
+def observable_features(pid, param_vals):
     """The scalar (const) observable features at ``param_vals``.
 
     Evaluated through the same path the cost uses, so a feature here is the
@@ -82,12 +84,58 @@ def _features(pid, param_vals):
     return out
 
 
+#: Public name kept as the internal one too, so existing call sites read unchanged. This is
+#: also the function an emulator is trained against (issue #333): training targets and the
+#: features the cost is computed from are then the same function, not two implementations of it.
+_features = observable_features
+
+
+def cost_gradient(pid, param_vals, h=1e-3):
+    """dJ/dtheta by central differences on the cost -- the backend-agnostic gradient.
+
+    Deliberately differentiates ``get_cost_from_params``, the same function the optimiser
+    minimises, so the jacobian and the objective cannot describe different functions. The step
+    is ``_step``'s per-parameter relative one, for the same reason it is there: CA parameters
+    span many orders of magnitude and one absolute step cannot suit them all.
+
+    Costs 2M evaluations. That is the wrong trade against a real solver -- which is why the
+    analytic arms remain the default there -- and the right one against an emulator, where an
+    evaluation is a matrix multiply.
+    """
+    param_vals = np.asarray(param_vals, dtype=float)
+    mins = np.asarray(pid.param_id_info["param_mins"], dtype=float)
+    maxs = np.asarray(pid.param_id_info["param_maxs"], dtype=float)
+
+    grad = np.zeros_like(param_vals)
+    for j in range(param_vals.size):
+        step = _step(float(param_vals[j]), mins[j], maxs[j], h)
+        # Kept inside [min, max], and the denominator is the span actually used. At a bound
+        # the difference simply becomes one-sided. This matters for an emulator, which is only
+        # valid inside its training box: without it, a gradient evaluated at a bound would ask
+        # the emulator to extrapolate and (rightly) be refused mid-optimisation.
+        upper = min(float(param_vals[j]) + step, float(maxs[j]))
+        lower = max(float(param_vals[j]) - step, float(mins[j]))
+        span = upper - lower
+        if span <= 0:
+            grad[j] = 0.0
+            continue
+        p_plus = param_vals.copy()
+        p_plus[j] = upper
+        p_minus = param_vals.copy()
+        p_minus[j] = lower
+        grad[j] = (pid.get_cost_from_params(p_plus) - pid.get_cost_from_params(p_minus)) / span
+    return grad
+
+
 def observable_feature_sensitivities(pid, param_vals, h=1e-3):
     """d(observable feature)/d(param) by central finite differences.
 
-    Returns ``{observable_label: {param_name: d(feature)/d(param)}}`` -- the same
-    shape and the same quantity as the CasADi and CVODES arms, so a local
-    sensitivity analysis is comparable across backends whichever computed it.
+    Returns ``{observable_label: {param_label: d(feature)/d(param)}}`` -- the same
+    shape and the same quantity as the CasADi and CVODES arms, keyed by
+    ``param_entry_labels``, so a local sensitivity analysis is comparable across
+    backends whichever computed it. The perturbation is in theta, which
+    ``get_cost_obs_and_pred_from_params`` expands to every member of a grouped or
+    modifier entry, so those derivatives are d(feature)/d(theta) already.
 
     Costs ``2M`` simulations for M parameters. A parameter whose perturbed runs
     do not both converge is reported as None rather than as a number derived
@@ -95,8 +143,7 @@ def observable_feature_sensitivities(pid, param_vals, h=1e-3):
     instead of reading a plausible-looking zero.
     """
     param_vals = np.asarray(param_vals, dtype=float)
-    names = [n[0] if isinstance(n, (list, tuple)) else n
-             for n in pid.param_id_info["param_names"]]
+    names = param_entry_labels(pid.param_id_info)
     mins = np.asarray(pid.param_id_info["param_mins"], dtype=float)
     maxs = np.asarray(pid.param_id_info["param_maxs"], dtype=float)
 

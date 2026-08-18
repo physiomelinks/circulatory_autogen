@@ -329,7 +329,7 @@ def _ensure_cellml_model_generated(config, mpi_comm):
 
     CI checkouts omit gitignored generated_models/; local runs may already have artifacts.
     """
-    if config.get("model_type") != "cellml_only":
+    if config.get("model_type") != "cellml":
         return
     rank = mpi_comm.Get_rank()
     if rank == 0:
@@ -359,7 +359,7 @@ def test_param_id_nke_pump_succeeds(base_user_inputs, resources_dir, temp_output
     config.update({
         'file_prefix': 'NKE_pump',
         'input_param_file': 'NKE_pump_parameters.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'solver': 'CVODE',
         'param_id_method': 'genetic_algorithm',
         # Keep runtime short under MPI tests
@@ -367,7 +367,7 @@ def test_param_id_nke_pump_succeeds(base_user_inputs, resources_dir, temp_output
         'sim_time': 2,
         'dt': 0.01,
         'DEBUG': True,
-        'do_mcmc': False,
+        'do_uq': False,
         'plot_predictions': True,
         'solver_info': {
             'MaximumStep': 0.001,
@@ -423,14 +423,14 @@ def test_param_id_3compartment_succeeds(base_user_inputs, resources_dir, temp_ou
     config.update({
         'file_prefix': '3compartment',
         'input_param_file': '3compartment_parameters.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'solver': 'CVODE',
         'param_id_method': 'genetic_algorithm',
         'pre_time': 20,
         'sim_time': 2,
         'dt': 0.01,
         'DEBUG': True,
-        'do_mcmc': True,
+        'do_uq': True,
         'plot_predictions': True,
         'do_ia': True,
         'ia_options': {'method': 'Laplace'},
@@ -478,14 +478,14 @@ def test_param_id_3compartment_genetic_algorithm_myokit_fast(
     config.update({
         'file_prefix': '3compartment',
         'input_param_file': '3compartment_parameters.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'solver': 'CVODE_myokit',
         'param_id_method': 'genetic_algorithm',
         'pre_time': 2,
         'sim_time': 1,
         'dt': 0.01,
         'DEBUG': True,
-        'do_mcmc': False,
+        'do_uq': False,
         'plot_predictions': False,
         'do_ia': False,
         'solver_info': {'MaximumStep': 0.001, 'MaximumNumberOfSteps': 5000},
@@ -539,7 +539,7 @@ def test_param_id_3compartment_casadi_genetic_algorithm_fast(
         'sim_time': 1,
         'dt': 0.01,
         'DEBUG': True,
-        'do_mcmc': False,
+        'do_uq': False,
         'plot_predictions': False,
         'do_ia': False,
         'solver_info': {'method': 'bdf'},
@@ -587,14 +587,14 @@ def test_param_id_3compartment_extra_ops_succeeds(base_user_inputs, resources_di
     config.update({
         'file_prefix': '3compartment_extra_ops',
         'input_param_file': '3compartment_extra_ops_parameters.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'solver': 'CVODE',
         'param_id_method': 'genetic_algorithm',
         'pre_time': 20,
         'sim_time': 2,
         'dt': 0.01,
         'DEBUG': True,
-        'do_mcmc': True,
+        'do_uq': True,
         'plot_predictions': True,
         'do_ia': True,
         'ia_options': {'method': 'Laplace'},
@@ -648,14 +648,14 @@ def test_param_id_3compartment_cmaes_succeeds(base_user_inputs, resources_dir, t
     config.update({
         'file_prefix': '3compartment',
         'input_param_file': '3compartment_parameters.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'solver': 'CVODE',
         'param_id_method': 'CMA-ES',
         'pre_time': 20,
         'sim_time': 2,
         'dt': 0.01,
         'DEBUG': True,
-        'do_mcmc': False,
+        'do_uq': False,
         'plot_predictions': False,
         'do_ia': False,
         'solver_info': {
@@ -720,7 +720,7 @@ def test_param_id_3compartment_python_succeeds(base_user_inputs, resources_dir, 
         'sim_time': 0.3,
         'dt': 0.01,
         'DEBUG': True,
-        'do_mcmc': False,
+        'do_uq': False,
         'plot_predictions': False,
         'do_ia': False,
         'solver_info': {
@@ -776,14 +776,14 @@ def test_param_id_test_fft_cost_is_zero(base_user_inputs, resources_dir, temp_ou
     config.update({
         'file_prefix': 'test_fft',
         'input_param_file': 'test_fft_parameters.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'solver': 'CVODE',
         'param_id_method': 'genetic_algorithm',
         'pre_time': 1,
         'sim_time': 1,
         'dt': 0.01,
         'DEBUG': True,
-        'do_mcmc': False,
+        'do_uq': False,
         'plot_predictions': False,
         'do_ia': True,  # Enable identifiability analysis to test covariance matrix calculation
         'ia_options': {'method': 'Laplace'},
@@ -872,14 +872,14 @@ def test_param_id_calibration_outputs_match_rerun(base_user_inputs, resources_di
         "file_prefix": "3compartment",
         "input_param_file": "3compartment_parameters.csv",
         "params_for_id_file": params_for_id_path,
-        "model_type": "cellml_only",
+        "model_type": "cellml",
         "solver": "CVODE_myokit",
         "param_id_method": "genetic_algorithm",
         "pre_time": 0.0,
         "sim_time": 0.2,
         "dt": 0.01,
         "DEBUG": True,
-        "do_mcmc": False,
+        "do_uq": False,
         "plot_predictions": False,
         "do_ia": False,
         "solver_info": {
@@ -1006,14 +1006,14 @@ def test_param_id_SN_simple_CVODE_myokit_ga_smoke(
             "file_prefix": "SN_simple",
             "input_param_file": "SN_simple_parameters.csv",
             "params_for_id_file": "SN_simple_params_for_id.csv",
-            "model_type": "cellml_only",
+            "model_type": "cellml",
             "solver": "CVODE_myokit",
             "param_id_method": "genetic_algorithm",
             "pre_time": 0.1,
             "sim_time": 1.3,
             "dt": 0.005,
             "DEBUG": True,
-            "do_mcmc": False,
+            "do_uq": False,
             "plot_predictions": False,
             "do_ia": False,
             "solver_info": {
@@ -1116,6 +1116,7 @@ def test_param_id_SN_simple_CVODE_myokit_ga_smoke(
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.mpi
+@pytest.mark.full_scale_model
 def test_param_id_simple_physiological_succeeds(base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
     """
     Test that parameter identification succeeds for simple_physiological model.
@@ -1133,14 +1134,14 @@ def test_param_id_simple_physiological_succeeds(base_user_inputs, resources_dir,
     config.update({
         'file_prefix': 'simple_physiological',
         'input_param_file': 'simple_physiological_parameters.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'solver': 'CVODE',
         'param_id_method': 'genetic_algorithm',
         'pre_time': 20,
         'sim_time': 2,
         'dt': 0.01,
         'DEBUG': True,
-        'do_mcmc': True,
+        'do_uq': True,
         'plot_predictions': True,
         'do_ia': False,
         'ia_options': {'method': 'Laplace'},
@@ -1204,7 +1205,7 @@ def test_param_id_lotka_volterra_sp_minimize_succeeds(base_user_inputs, resource
         'sim_time': 0.3,
         'dt': 0.01,
         'DEBUG': True,
-        'do_mcmc': False,
+        'do_uq': False,
         'plot_predictions': False,
         'do_ia': False,
         'solver_info': {
@@ -1289,7 +1290,7 @@ def test_param_id_lotka_volterra_sp_minimize_ad_vs_fd(base_user_inputs, resource
         'sim_time': 5.0,
         'dt': 0.01,
         'DEBUG': True,
-        'do_mcmc': False,
+        'do_uq': False,
         'plot_predictions': False,
         'do_ia': False,
         'solver_info': {
@@ -1424,7 +1425,7 @@ def test_param_id_lotka_volterra_sp_minimize_ad_vs_fd_aadc(base_user_inputs, res
         'sim_time': 5.0,
         'dt': 0.01,
         'DEBUG': True,
-        'do_mcmc': False,
+        'do_uq': False,
         'plot_predictions': False,
         'do_ia': False,
         # fixed-step, and exactly what the AADC tape records: with an adaptive integrator the
@@ -1523,7 +1524,7 @@ def test_param_id_lotka_volterra_sp_minimize_gt_vs_calculated_params(base_user_i
         'sim_time': 5.0,
         'dt': 1.0,
         'DEBUG': True,
-        'do_mcmc': False,
+        'do_uq': False,
         'plot_predictions': False,
         'do_ia': False,
         'solver_info': {
@@ -1732,7 +1733,7 @@ def test_3compartment_nonstiff_casadi_forward_and_gradient(
         'sim_time': 0.3,
         'dt': 0.01,
         'DEBUG': False,
-        'do_mcmc': False,
+        'do_uq': False,
         'plot_predictions': False,
         'do_ia': False,
         'solver_info': {
@@ -1862,7 +1863,7 @@ def _build_3compartment_casadi_runner(
         'sim_time': sim_time,
         'dt': 0.01,
         'DEBUG': False,
-        'do_mcmc': False,
+        'do_uq': False,
         'plot_predictions': False,
         'do_ia': False,
         'solver_info': {
@@ -2067,7 +2068,7 @@ def _build_3compartment_fsa_runner(
     pre_time=20.0, sim_time=2.0, obs_file='3compartment_obs_data.json',
     params_for_id=None,
 ):
-    """Generate the (stiff) 3compartment cellml_only model, run through Myokit, and build a
+    """Generate the (stiff) 3compartment cellml model, run through Myokit, and build a
     CVS0DParamID configured for the CVODES forward-sensitivity (FSA) gradient path.
 
     Tight rtol/atol keep the sensitivities and any finite-difference fallback out of the
@@ -2080,7 +2081,7 @@ def _build_3compartment_fsa_runner(
         'file_prefix': '3compartment',
         'input_param_file': '3compartment_parameters.csv',
         'params_for_id_file': '3compartment_params_for_id.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'solver': 'CVODE_myokit',
         'param_id_method': 'sp_minimize',
         'do_ad': True,
@@ -2088,7 +2089,7 @@ def _build_3compartment_fsa_runner(
         'sim_time': sim_time,
         'dt': 0.01,
         'DEBUG': False,
-        'do_mcmc': False,
+        'do_uq': False,
         'plot_predictions': False,
         'do_ia': False,
         'solver_info': {'MaximumStep': 0.005, 'MaximumNumberOfSteps': 50000,
@@ -2100,7 +2101,7 @@ def _build_3compartment_fsa_runner(
     })
 
     success = generate_with_new_architecture(False, config)
-    assert success, "cellml_only model generation should succeed for 3compartment"
+    assert success, "cellml model generation should succeed for 3compartment"
 
     parsed = YamlFileParser().parse_user_inputs_file(
         config, obs_path_needed=True, do_generation_with_fit_parameters=False
@@ -2134,7 +2135,7 @@ def test_3compartment_fsa_longrun_gradient(
     """Myokit CVODES forward-sensitivity gradient for the STIFF 3compartment over a LONG
     (nonzero pre_time) run matches central finite differences of the same cost.
 
-    This is the gradient path for cellml_only / CVODE_myokit models. FSA gives d(operand)/dp
+    This is the gradient path for cellml / CVODE_myokit models. FSA gives d(operand)/dp
     for constant parameters; q_lv_init sets a state initial value, so Myokit cannot make it a
     CVODES independent directly. It is handled analytically by the initial-value chain rule
     (issue #270) -- d(obs)/d(q_lv_init) = d(obs)/d(init q_lv) * d(init q_lv)/d(q_lv_init) -- not
@@ -2295,14 +2296,14 @@ def _lotka_multisub_fsa_config(base_user_inputs, resources_dir, output_dir, gene
         'file_prefix': 'Lotka_Volterra',
         'input_param_file': 'Lotka_Volterra_parameters.csv',
         'params_for_id_file': 'Lotka_Volterra_params_for_id.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'solver': 'CVODE_myokit',
         'do_ad': True,
         'pre_time': 0.0,
         'sim_time': 3.0,
         'dt': 0.15,
         'DEBUG': False,
-        'do_mcmc': False,
+        'do_uq': False,
         'plot_predictions': False,
         'do_ia': False,
         'solver_info': {'MaximumStep': 0.005, 'MaximumNumberOfSteps': 50000,
@@ -2456,7 +2457,7 @@ def test_param_id_3compartment_nonstiff_casadi_succeeds(
         'sim_time': 0.3,
         'dt': 0.01,
         'DEBUG': True,
-        'do_mcmc': False,
+        'do_uq': False,
         'plot_predictions': False,
         'do_ia': False,
         'solver_info': {
@@ -2619,7 +2620,7 @@ def test_param_id_3compartment_nonstiff_python_succeeds(
         'sim_time': 0.3,
         'dt': 0.01,
         'DEBUG': True,
-        'do_mcmc': False,
+        'do_uq': False,
         'plot_predictions': False,
         'do_ia': False,
         'solver_info': {
@@ -2707,7 +2708,7 @@ def test_param_id_lotka_volterra_sp_minimize_numpy_only_operation(base_user_inpu
         'sim_time': 0.5,
         'dt': 0.01,
         'DEBUG': True,
-        'do_mcmc': False,
+        'do_uq': False,
         'plot_predictions': False,
         'do_ia': False,
         'solver_info': {
@@ -2791,7 +2792,7 @@ def test_laplace_approximation_hessian_validation(base_user_inputs, resources_di
     config.update({  
         'file_prefix': 'Simple_ODE_Benchmark',  # Replace with your model name  
         'input_param_file': 'Simple_ODE_Benchmark_parameters.csv',  # Replace with your CSV  
-        'model_type': 'cellml_only',  
+        'model_type': 'cellml',  
         'solver': 'CVODE',  
         'param_id_method': 'genetic_algorithm',  
         'pre_time': 0.5,  
@@ -2799,7 +2800,7 @@ def test_laplace_approximation_hessian_validation(base_user_inputs, resources_di
         'cost_type': 'gaussian_MLE',
         'dt': 0.1,  
         'DEBUG': False,  
-        'do_mcmc': False,  
+        'do_uq': False,  
         'plot_predictions': False,  
         'do_ia': True,  
         'ia_options': {'method': 'Laplace', 'sub_method': 'numdifftools_finite_diff'},  # Options: numdifftools_finite_diff, AD, parabola_fit
@@ -2894,7 +2895,7 @@ def test_offline_pre_time_lotka_volterra_outputs_match(
         "file_prefix": "Lotka_Volterra",
         "input_param_file": "Lotka_Volterra_parameters.csv",
         "params_for_id_file": "Lotka_Volterra_params_for_id.csv",
-        "model_type": "cellml_only",
+        "model_type": "cellml",
         "solver": "CVODE_myokit",
         "param_id_method": "genetic_algorithm",
         "param_id_obs_path": base_obs_path,
@@ -2956,7 +2957,7 @@ def test_offline_pre_time_3compartment_outputs_match(
         "file_prefix": "3compartment",
         "input_param_file": "3compartment_parameters.csv",
         "params_for_id_file": "3compartment_q_lv_only_params_for_id.csv",
-        "model_type": "cellml_only",
+        "model_type": "cellml",
         "solver": "CVODE_myokit",
         "param_id_method": "genetic_algorithm",
         "param_id_obs_path": base_obs_path,
@@ -3326,7 +3327,7 @@ def test_param_id_archives_input_files(resources_dir, temp_output_dir,
 
     runner = CVS0DParamID.init_from_dict({
         'model_path': model_path,
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'param_id_method': 'genetic_algorithm',
         'file_name_prefix': '3compartment',
         'params_for_id_path': params_for_id_path,
@@ -3901,7 +3902,7 @@ def test_multi_start_reports_both_minima_of_a_two_minimum_model(
         'file_prefix': 'TwoMinima',
         'input_param_file': 'TwoMinima_parameters.csv',
         'params_for_id_file': 'TwoMinima_params_for_id.csv',
-        'model_type': 'cellml_only',
+        'model_type': 'cellml',
         'solver': 'CVODE_myokit',
         'param_id_method': 'multi_start_sp_minimize',
         'do_ad': False,
@@ -3909,7 +3910,7 @@ def test_multi_start_reports_both_minima_of_a_two_minimum_model(
         'sim_time': 5.0,
         'dt': 0.05,
         'DEBUG': False,
-        'do_mcmc': False,
+        'do_uq': False,
         'plot_predictions': False,
         'do_ia': False,
         'solver_info': {'MaximumStep': 0.01, 'MaximumNumberOfSteps': 5000},
@@ -3997,12 +3998,12 @@ def test_multi_start_lbfgsb_escapes_a_local_minimum_that_traps_single_start(temp
 def test_multi_start_finite_difference_fallback_without_casadi(temp_output_dir):
     """For non-casadi models there is no AD cost, so the optimiser must fall back to
     get_cost_from_params with a finite-difference gradient and still escape the local well."""
-    # a cellml_only model has no AD gradient, so get_gradient would raise if it were called
-    param_id_obj = _TwoWellParamId(param_init=(1.2, 1.2), model_type='cellml_only')
+    # a cellml model has no AD gradient, so get_gradient would raise if it were called
+    param_id_obj = _TwoWellParamId(param_init=(1.2, 1.2), model_type='cellml')
     opt = _make_multi_start_optimiser(
         temp_output_dir, param_id_obj,
         {'num_starts': 8, 'start_sampling': 'sobol', 'seed': 0, 'cost_convergence': 1e-12},
-        model_type='cellml_only', do_ad=False)
+        model_type='cellml', do_ad=False)
     opt.run()
 
     assert param_id_obj.num_jac_calls == 0, \
@@ -4527,7 +4528,7 @@ def test_series_interpolation_uses_the_correct_sample_times():
 @pytest.mark.unit
 def test_series_interpolation_matches_between_numpy_and_casadi_paths():
     """The numeric and symbolic costs must resample a series identically, otherwise the same
-    model calibrated as cellml_only and as casadi_python would have different cost surfaces."""
+    model calibrated as cellml and as casadi_python would have different cost surfaces."""
     import casadi as ca
     from param_id.paramID import OpencorParamID
 
@@ -4644,7 +4645,7 @@ def _aadc_lotka_volterra_config(base_user_inputs, resources_dir, temp_output_dir
         'sim_time': 5.0,
         'dt': 0.01,
         'DEBUG': False,
-        'do_mcmc': False,
+        'do_uq': False,
         'plot_predictions': False,
         'do_ia': False,
         # fixed-step, and exactly what the AADC tape records
@@ -4758,7 +4759,7 @@ def _aadc_3compartment_config(base_user_inputs, resources_dir, temp_output_dir,
         'sim_time': 0.3,
         'dt': 0.01,
         'DEBUG': False,
-        'do_mcmc': False,
+        'do_uq': False,
         'plot_predictions': False,
         'do_ia': False,
         'solver_info': {'method': 'semi_implicit'},  # fixed-step, tape-consistent
@@ -4810,7 +4811,7 @@ def _aadc_fitzhugh_nagumo_config(base_user_inputs, resources_dir, temp_output_di
         # dt differs from the obs_dt of 0.2, so this exercises the tape's series interpolation
         'dt': 0.02,
         'DEBUG': False,
-        'do_mcmc': False,
+        'do_uq': False,
         'plot_predictions': False,
         'do_ia': False,
         'solver_info': {'method': 'rk4'},  # fixed-step, what the AADC tape records
@@ -5001,7 +5002,7 @@ def _build_lotka_offline_gradient_runner(
         'sim_time': 3.0,
         'dt': 0.01,
         'DEBUG': False,
-        'do_mcmc': False,
+        'do_uq': False,
         'plot_predictions': False,
         'do_ia': False,
         'solver_info': solver_info,
@@ -5021,7 +5022,7 @@ def _build_lotka_offline_gradient_runner(
     # Spy on the offline warm-up so callers can assert it really ran (see the tests below).
     import solver_wrappers.myokit_helper as _mh
     import solver_wrappers.casadi_python_solver_helper as _ch
-    backend = _mh.SimulationHelper if model_type == 'cellml_only' else _ch.SimulationHelper
+    backend = _mh.SimulationHelper if model_type == 'cellml' else _ch.SimulationHelper
     original = backend.run_offline_pre_and_set_default_state
 
     def _spy(self, t, _orig=original):
@@ -5092,7 +5093,7 @@ def test_offline_pre_time_multisub_fsa_gradient(
     offline_calls = []
     runner, baseline = _build_lotka_offline_gradient_runner(
         base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir,
-        model_type='cellml_only', solver='CVODE_myokit',
+        model_type='cellml', solver='CVODE_myokit',
         solver_info={'MaximumStep': 0.005, 'MaximumNumberOfSteps': 50000,
                      'rtol': 1e-10, 'atol': 1e-10},
         offline_calls=offline_calls)
@@ -5153,3 +5154,232 @@ def test_offline_pre_time_multisub_casadi_ad_gradient(
 
     _assert_gradient_matches_fd(inner, p)
     runner.close_simulation()
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.mpi
+def test_param_id_3compartment_modifier_calibration_fsa(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
+    """A modifier parameter driven through a real calibration (#378 shipped unit tests only).
+
+    One theta scales both compliances (aortic_root/C, par/C) while q_lv_init calibrates
+    normally, on cellml + CVODE_myokit + sp_minimize + do_ad -- so the L-BFGS-B gradient
+    comes from the CVODES FSA chain rule over the modifier's members (a column per member,
+    combined with baseline weights). Checks the end-to-end contract:
+    param_modifiers.json lands in the output dir with the model-default baselines, and the
+    reported theta is a dimensionless value inside its own bounds -- interpretable against
+    those baselines, not a raw compliance.
+    """
+    import json
+
+    rank = mpi_comm.Get_rank()
+
+    params_doc = {
+        'version': 1,
+        'params': [
+            {'name': 'q_lv_init', 'targets': ['global/q_lv_init'],
+             'min': 200e-6, 'max': 1500e-6, 'name_for_plotting': 'q_{sbv}'},
+            {'name': 'C_scale', 'modifies': ['aortic_root/C', 'par/C'],
+             'modifier': 'scale', 'min': 0.5, 'max': 2.0,
+             'name_for_plotting': r'\theta_{C}'},
+        ],
+    }
+    params_path = os.path.join(temp_output_dir, '3compartment_modifier_params_for_id.json')
+    if rank == 0:
+        with open(params_path, 'w') as f:
+            json.dump(params_doc, f)
+    mpi_comm.Barrier()
+
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': '3compartment',
+        'input_param_file': '3compartment_parameters.csv',
+        'model_type': 'cellml',
+        'solver': 'CVODE_myokit',
+        'param_id_method': 'sp_minimize',
+        'do_ad': True,
+        'pre_time': 2,
+        'sim_time': 1,
+        'dt': 0.01,
+        'DEBUG': True,
+        'do_uq': False,
+        'plot_predictions': False,
+        'do_ia': False,
+        'solver_info': {'MaximumStep': 0.001, 'MaximumNumberOfSteps': 5000},
+        'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
+        # os.path.join(resources_dir, <absolute path>) resolves to the absolute path, the same
+        # way every test's absolute param_id_obs_path passes through its own join.
+        'params_for_id_file': params_path,
+        'param_id_output_dir': temp_output_dir,
+        'generated_models_dir': temp_generated_models_dir,
+        # A loose tolerance: the point is the path through the FSA chain rule and the output
+        # contract, not the optimum. L-BFGS-B stops after a few iterations.
+        'debug_optimiser_options': {'cost_convergence': 1e-2},
+    })
+
+    _ensure_cellml_model_generated(config, mpi_comm)
+    run_param_id(config)
+
+    if rank == 0:
+        out_dir = os.path.join(temp_output_dir, 'sp_minimize_3compartment_3compartment_obs_data')
+        best_cost = float(np.load(os.path.join(out_dir, 'best_cost.npy')))
+        assert np.isfinite(best_cost) and best_cost >= 0, \
+            f'expected a finite, non-negative best cost, got {best_cost}'
+
+        best_params = np.load(os.path.join(out_dir, 'best_param_vals.npy')).ravel()
+        assert best_params.shape[0] == 2, best_params
+        q_lv, theta = float(best_params[0]), float(best_params[1])
+        assert 200e-6 <= q_lv <= 1500e-6, f'q_lv_init out of bounds: {q_lv}'
+        # theta is dimensionless; a raw compliance (~1e-8) landing here would mean the
+        # modifier slot was treated as a model value.
+        assert 0.5 <= theta <= 2.0, f'theta out of bounds: {theta}'
+
+        # The record that makes theta interpretable: without baselines, best_param_vals alone
+        # does not say what any compliance ended up at.
+        modifiers_path = os.path.join(out_dir, 'param_modifiers.json')
+        assert os.path.exists(modifiers_path), \
+            f'param_modifiers.json should land in the output dir: {modifiers_path}'
+        with open(modifiers_path) as f:
+            modifiers = json.load(f)
+        assert len(modifiers) == 1
+        mod = modifiers[0]
+        assert mod['name'] == 'C_scale'
+        assert mod['modifier'] == 'scale'
+        assert mod['targets'] == ['aortic_root/C', 'par/C']
+        # Model defaults from 3compartment_parameters.csv (C_aortic_root, C_par).
+        assert mod['baselines'] == pytest.approx([1.2028e-8, 3.09077e-10], rel=1e-6), \
+            f'baselines should be the model defaults, got {mod["baselines"]}'
+    mpi_comm.Barrier()
+
+
+# Every constant that carries blood volume at t=0 in 3compartment (issue #383: q_tot is only
+# a total if nothing is left out). global/q_lv_init is the remainder's target; the rest are
+# subtracted. Derived from each module's own convention, per BG_modules.cellml /
+# heart_modules.cellml:
+#   heart chambers   q(0) = q_*_init          (q_*_us only shapes pressure, E*(q - q_us):
+#                                              adding it would double-count)
+#   arterial_simple  q(0) = q_0               (q = q_C + q_C_d + q_0, states start at 0)
+#   terminal         q(0) = q_init            (q_us only shapes pressure, (q - q_us)/C_T)
+#   venous (vp)      q(0) = q_C_init + q_us_0 (exact for ANY Delta_q_us: the module's total
+#                                              is q = q_C_change + q_us_0 -- q_us_wCont
+#                                              cancels, venoconstriction only re-partitions
+#                                              stressed vs unstressed, never the total)
+_3COMP_OTHER_VOLUMES = {
+    'global/q_ra_init': 4e-6,
+    'global/q_rv_init': 1e-5,
+    'global/q_la_init': 4e-6,
+    'aortic_root/q_0': 6.94e-6,
+    'par/q_0': 0.0,
+    'systemic_T/q_init': 2.45e-3,
+    'pvn/q_C_init': 1e-4,
+    'pvn/q_us_0': 0.0,
+    'venous_svc/q_C_init': 1.3e-3,
+    'venous_svc/q_us_0': 0.0,
+}
+_3COMP_Q_LV_DEFAULT = 2e-3
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.mpi
+def test_param_id_3compartment_remainder_calibration_fsa(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
+    """The #383 motivating case driven through a real calibration: calibrate the total blood
+    volume q_tot and derive q_lv_init = q_tot - sum(every other initial volume) through the
+    built-in ``remainder`` modifier function, on the FSA gradient path.
+
+    Every non-LV constant carrying blood volume at t=0 is subtracted -- chamber inits,
+    arterial reference volumes (q_0), the terminal q_init, and the venous stressed inits plus
+    their unstressed constants (q_us_0) -- so theta is the volume the volume_sum module would
+    report at init; q_tot is only a total if nothing is left out (see _3COMP_OTHER_VOLUMES for
+    each module family's convention). Checks the end-to-end contract: the run starts with
+    q_lv_init at its model default (theta x0 auto-inverts to q_lv_default + sum(others)),
+    param_modifiers.json records the inputs, their resolved default values and the probed
+    affine coefficients, and the reported theta is a volume interpretable against them.
+    """
+    import json
+
+    rank = mpi_comm.Get_rank()
+
+    others_sum = sum(_3COMP_OTHER_VOLUMES.values())          # 3.868e-3
+    q_tot_baseline = _3COMP_Q_LV_DEFAULT + others_sum        # 5.868e-3
+
+    params_doc = {
+        'version': 1,
+        'params': [
+            {'name': 'q_tot', 'modifies': ['global/q_lv_init'],
+             'modifier': 'remainder',
+             'inputs': {'subtract': sorted(_3COMP_OTHER_VOLUMES)},
+             # A box around the baseline total; q_lv_init = theta - 3.868e-3 stays positive
+             # everywhere inside it.
+             'min': 4.5e-3, 'max': 7e-3, 'name_for_plotting': 'q_{tot}'},
+            {'name': 'C_ao', 'targets': ['aortic_root/C'],
+             'min': 1e-9, 'max': 5e-8, 'name_for_plotting': 'C_{ao}'},
+        ],
+    }
+    params_path = os.path.join(temp_output_dir, '3compartment_remainder_params_for_id.json')
+    if rank == 0:
+        with open(params_path, 'w') as f:
+            json.dump(params_doc, f)
+    mpi_comm.Barrier()
+
+    config = base_user_inputs.copy()
+    config.update({
+        'file_prefix': '3compartment',
+        'input_param_file': '3compartment_parameters.csv',
+        'model_type': 'cellml',
+        'solver': 'CVODE_myokit',
+        'param_id_method': 'sp_minimize',
+        'do_ad': True,
+        'pre_time': 2,
+        'sim_time': 1,
+        'dt': 0.01,
+        'DEBUG': True,
+        'do_uq': False,
+        'plot_predictions': False,
+        'do_ia': False,
+        'solver_info': {'MaximumStep': 0.001, 'MaximumNumberOfSteps': 5000},
+        'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
+        'params_for_id_file': params_path,
+        'param_id_output_dir': temp_output_dir,
+        'generated_models_dir': temp_generated_models_dir,
+        'debug_optimiser_options': {'cost_convergence': 1e-2},
+    })
+
+    _ensure_cellml_model_generated(config, mpi_comm)
+    run_param_id(config)
+
+    if rank == 0:
+        out_dir = os.path.join(temp_output_dir, 'sp_minimize_3compartment_3compartment_obs_data')
+        best_cost = float(np.load(os.path.join(out_dir, 'best_cost.npy')))
+        assert np.isfinite(best_cost) and best_cost >= 0, \
+            f'expected a finite, non-negative best cost, got {best_cost}'
+
+        best_params = np.load(os.path.join(out_dir, 'best_param_vals.npy')).ravel()
+        assert best_params.shape[0] == 2, best_params
+        q_tot, c_ao = float(best_params[0]), float(best_params[1])
+        assert 4.5e-3 <= q_tot <= 7e-3, f'q_tot out of bounds: {q_tot}'
+        assert 1e-9 <= c_ao <= 5e-8, f'C_ao out of bounds: {c_ao}'
+        # The interpretability contract: theta is the total, and the derived LV volume is
+        # theta minus the recorded subtractions -- positive and of LV magnitude.
+        q_lv = q_tot - others_sum
+        assert 0 < q_lv < 4e-3, f'derived q_lv_init implausible: {q_lv}'
+
+        with open(os.path.join(out_dir, 'param_modifiers.json')) as f:
+            (mod,) = json.load(f)
+        assert mod['name'] == 'q_tot'
+        assert mod['modifier'] == 'remainder'
+        assert mod['targets'] == ['global/q_lv_init']
+        assert mod['inputs'] == {'subtract': sorted(_3COMP_OTHER_VOLUMES)}
+        assert mod['baselines'] == pytest.approx([_3COMP_Q_LV_DEFAULT], rel=1e-6)
+        # Resolved defaults, in the entry's (sorted) qname order.
+        expected_resolved = [_3COMP_OTHER_VOLUMES[q] for q in sorted(_3COMP_OTHER_VOLUMES)]
+        assert mod['resolved_inputs']['subtract'] == pytest.approx(expected_resolved, rel=1e-6)
+        # remainder is affine with slope 1; b = -sum(subtract). Inverting at the baseline is
+        # theta0 = q_lv_default + sum(others), i.e. the run started from the baseline total.
+        assert mod['affine']['a'] == pytest.approx([1.0])
+        assert mod['affine']['b'] == pytest.approx([-others_sum], rel=1e-6)
+        assert q_tot_baseline == pytest.approx(
+            (mod['baselines'][0] - mod['affine']['b'][0]) / mod['affine']['a'][0], rel=1e-6)
+    mpi_comm.Barrier()

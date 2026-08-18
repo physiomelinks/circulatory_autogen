@@ -24,7 +24,14 @@ import matplotlib.ticker as tick
 import paperPlotSetup
 paperPlotSetup.Setup_Plot(3)
 from parsers.PrimitiveParsers import scriptFunctionParser
-from mpi4py import MPI
+# Not `from mpi4py import MPI`: that import initialises MPI and registers an
+# atexit MPI_Finalize, and with no launcher present that finalise is what aborts
+# on macOS when a NIC goes away (#396). get_MPI hands back the real
+# mpi4py.MPI under mpiexec -- a multi-rank run is unchanged -- and a one-rank
+# stub otherwise, so a serial run never opens MPI at all.
+from utilities.mpi_utils import get_MPI as _get_MPI
+
+MPI = _get_MPI()
 import re
 from numpy import genfromtxt
 from importlib import import_module
@@ -75,7 +82,7 @@ class SensitivityAnalysis():
 
     Args:
         model_path: Path to the generated model file.
-        model_type: ``'cellml_only'``, ``'python'`` or ``'casadi_python'``.
+        model_type: ``'cellml'``, ``'python'`` or ``'casadi_python'``.
         file_name_prefix: Model name prefix.
         sa_options: SA options dict (``method``, ``sample_type``,
             ``num_samples``, ``output_dir``).
@@ -92,7 +99,9 @@ class SensitivityAnalysis():
     def __init__(self, model_path, model_type, file_name_prefix, sa_options, DEBUG=False,
                  param_id_output_dir=None, resources_dir=None, model_out_names=[],
                  solver_info={}, dt=0.01, optimiser_options={}, param_id_obs_path=None, params_for_id_path=None,
-                 operation_funcs_external_path=None, cost_funcs_external_path=None):
+                 operation_funcs_external_path=None, cost_funcs_external_path=None,
+                 modifier_funcs_external_path=None,
+                 use_emulator=False, emulator_dir=None, emulator_settings=None):
 
         self.model_path = model_path
         self.model_type = model_type
@@ -111,13 +120,17 @@ class SensitivityAnalysis():
         # local-sensitivity engine so their operation/cost dicts merge them alongside the built-ins.
         self.operation_funcs_external_path = operation_funcs_external_path
         self.cost_funcs_external_path = cost_funcs_external_path
+        self.modifier_funcs_external_path = modifier_funcs_external_path
         sa_output_dir = sa_options['output_dir']
 
         self.SA_manager = sobol_SA(self.model_path, self.model_out_names, self.solver_info, sa_options, self.dt,
                             sa_output_dir, param_id_path=self.param_id_obs_path, params_for_id_path=self.params_for_id_path,
                             verbose=False, use_MPI=True, model_type=self.model_type,
                             operation_funcs_external_path=operation_funcs_external_path,
-                            cost_funcs_external_path=cost_funcs_external_path)
+                            cost_funcs_external_path=cost_funcs_external_path,
+                            modifier_funcs_external_path=modifier_funcs_external_path,
+                            use_emulator=use_emulator, emulator_dir=emulator_dir,
+                            emulator_settings=emulator_settings)
 
         # For the local (derivative-based) method, which -- unlike Sobol -- runs through a
         # backend-agnostic param-id engine (mirroring IdentifiabilityAnalysis), not the Sobol
@@ -150,6 +163,7 @@ class SensitivityAnalysis():
             'resources_dir', 'model_out_names', 'solver_info',
             'dt', 'optimiser_options', 'param_id_obs_path', 'params_for_id_path',
             'operation_funcs_external_path', 'cost_funcs_external_path',
+            'modifier_funcs_external_path', 'use_emulator', 'emulator_settings',
         ]
         kwargs = {key: inp_data_dict[key] for key in arg_options if key in inp_data_dict}
 
@@ -157,12 +171,20 @@ class SensitivityAnalysis():
         if 'file_name_prefix' not in kwargs and 'file_prefix' in inp_data_dict:
             kwargs['file_name_prefix'] = inp_data_dict['file_prefix']
 
+        if kwargs.get('use_emulator'):
+            from emulators.emulator_trainer import resolve_emulator_dir
+            kwargs['emulator_dir'] = resolve_emulator_dir(inp_data_dict)
+
         sa = cls(**kwargs)
         # Keep the parsed config so the local method can build a param-id engine from it.
         sa._inp_data_dict = inp_data_dict
         return sa
 
+    @classmethod
     def init_from_all_dicts(cls, inp_data_dict, obs_data_dict, params_for_id_dict, sa_options):
+        """Build a fully-configured `SensitivityAnalysis` from the four input dicts (issue #369:
+        without the decorator this was an instance method, so calling it on the class -- its only
+        sensible use -- raised a TypeError)."""
         sa = cls.init_from_dict(inp_data_dict)
         sa.set_ground_truth_data(obs_data_dict)
         sa.set_params_for_id(params_for_id_dict)
@@ -302,7 +324,7 @@ class SensitivityAnalysis():
         Computes d(observable feature)/d(param) at the nominal parameter values -- the analytic,
         single-solve counterpart to the sampling-based Sobol SA -- via the backend-agnostic
         ``OpencorParamID.get_observable_sensitivities`` (CasADi jacobian for casadi_python;
-        Myokit CVODES sensitivities for cellml_only + CVODE_myokit). On rank 0 it saves the
+        Myokit CVODES sensitivities for cellml + CVODE_myokit). On rank 0 it saves the
         absolute and relative sensitivity matrices to CSV. The result is also available via
         ``get_local_sensitivities()``.
 
@@ -314,13 +336,24 @@ class SensitivityAnalysis():
         if sa_options is not None:
             self.set_sa_options(sa_options)
 
+        from parsers.PrimitiveParsers import (apply_modifier_identity_nominals,
+                                              param_entry_labels)
+
         engine = self._build_local_engine().param_id
-        param_names = [n[0] if isinstance(n, list) else n
-                       for n in engine.param_id_info["param_names"]]
-        nominal = engine.sim_helper.get_init_param_vals(param_names)
+        # One column per calibrated variable (theta). Labels, not first-member qnames: a
+        # grouped or modifier entry's sensitivity is d/dtheta over all its members, and the
+        # arms key their result dicts the same way -- a mismatched key here would silently
+        # read 0.0 for every grouped column.
+        param_names = param_entry_labels(engine.param_id_info)
+        first_member_names = [n[0] if isinstance(n, list) else n
+                              for n in engine.param_id_info["param_names"]]
+        nominal = engine.sim_helper.get_init_param_vals(first_member_names)
         nominal = np.asarray(
             [float(v[0]) if isinstance(v, (list, tuple, np.ndarray)) else float(v)
              for v in nominal], dtype=float)
+        # A modifier's slot is theta, not a model value: evaluate at the operation's
+        # identity (scale -> 1.0), where every target sits at its resolved baseline.
+        apply_modifier_identity_nominals(engine.param_id_info, nominal)
 
         # 'analytic' (the default) keeps the backend's own sensitivity; 'FD' opts into
         # central finite differences, the only local SA available on a backend with no

@@ -1,4 +1,6 @@
+import ast
 import pathlib
+import re
 import warnings
 
 import pytest
@@ -17,8 +19,11 @@ from parsers.PrimitiveParsers import (
     gradient_sources,
     ANALYSIS_OPTIONS,
     analysis_options,
+    uq_options,
     _SOLVER_INTEGRATOR_KEYS,
     _CASADI_ADJOINT_METHODS,
+    MODEL_TYPE_ALIASES,
+    normalise_model_type,
 )
 
 # The descriptor shape shared by optimiser_options, solver_info fields, and analysis options.
@@ -77,7 +82,9 @@ def test_param_id_method_options_match_optimiser_reads():
     # Keys each optimiser reads from optimiser_options (see param_id/optimisers.py).
     assert names('genetic_algorithm') == {'num_calls_to_function', 'cost_convergence',
                                           'max_patience', 'num_elite', 'num_survivors',
-                                          'num_mutations_per_survivor', 'num_cross_breed'}
+                                          'num_mutations_per_survivor', 'num_cross_breed',
+                                          'objective_function', 'use_relative_cost_tolerance',
+                                          'relative_cost_tolerance'}
     assert names('CMA-ES') == {'num_calls_to_function', 'sigma0', 'cost_convergence',
                                'max_patience'}
     assert names('bayesian') == {'num_calls_to_function'}
@@ -87,6 +94,20 @@ def test_param_id_method_options_match_optimiser_reads():
         'no_new_starts_on_convergence', 'convergence_cluster_tol_frac', 'cost_convergence'}
     # multi-start is a superset of sp_minimize's gradient-descent settings
     assert names('sp_minimize') <= names('multi_start_sp_minimize')
+
+
+def test_the_ga_stopping_rules_are_listed_together():
+    """Option order is form order in a front-end that renders this schema, so it is part of the
+    contract rather than incidental. The relative-tolerance pair is the same decision as
+    cost_convergence and max_patience -- when to stop -- and belongs with them, not parked past
+    the population sizes where a reader takes it for something unrelated."""
+    order = [opt['name'] for opt in param_id_method_options('genetic_algorithm')]
+    stopping = ['cost_convergence', 'max_patience',
+                'use_relative_cost_tolerance', 'relative_cost_tolerance']
+    first = order.index(stopping[0])
+    assert order[first:first + len(stopping)] == stopping
+    # and the switch comes before the value it gates, which reads backwards otherwise
+    assert order.index('use_relative_cost_tolerance') < order.index('relative_cost_tolerance')
 
 
 def test_solver_info_fields_schema_well_formed():
@@ -100,6 +121,54 @@ def test_solver_info_fields_schema_well_formed():
         f'solvers without solver_info fields: {all_solvers - set(SOLVER_INFO_FIELDS)}'
     assert SOLVER_SCHEMA['solver_info_fields_by_solver'] is SOLVER_INFO_FIELDS
     assert solver_info_fields('CVODE_myokit') and solver_info_fields('not_a_solver') == []
+
+
+@pytest.mark.unit
+def test_the_schema_offers_current_model_type_names_only():
+    """A renamed model_type is accepted but never *advertised*.
+
+    SOLVER_SCHEMA is what a downstream tool builds its menu from (CUFLynx reads it
+    to populate the "Generated model format" dropdown), so a name on its way out
+    must not appear there -- otherwise the rename never finishes, because the GUI
+    keeps writing the old spelling into new configs.
+    """
+    for old, current in MODEL_TYPE_ALIASES.items():
+        assert old not in SOLVER_SCHEMA['model_types'], old
+        assert old not in SOLVER_SCHEMA['solvers_by_model_type'], old
+        assert old not in SOLVER_SCHEMA['default_solver_by_model_type'], old
+        # The name it maps to has to be a real one, or the alias sends configs nowhere.
+        assert current in SOLVER_SCHEMA['model_types'], current
+
+    # 'cellml' specifically: it is the default, so it must be selectable.
+    assert 'cellml' in SOLVER_SCHEMA['model_types']
+
+
+@pytest.mark.unit
+def test_the_old_cellml_only_spelling_still_resolves():
+    """`cellml_only` was the default model_type, so it is written in every
+    user_inputs.yaml that predates the rename -- including the dated copies CA
+    archives beside every run. It has to keep working."""
+    assert normalise_model_type('cellml_only') == 'cellml'
+    # Everything else passes through untouched: this translates, it does not
+    # validate. An invalid name must reach the caller's own check unchanged, so
+    # the error names what the user actually wrote.
+    assert normalise_model_type('cellml') == 'cellml'
+    assert normalise_model_type('casadi_python') == 'casadi_python'
+    assert normalise_model_type('not_a_model_type') == 'not_a_model_type'
+    assert normalise_model_type(None) is None
+
+
+@pytest.mark.unit
+def test_a_config_written_before_the_rename_still_parses(tmp_path, base_user_inputs):
+    """The end-to-end version of the above: the whole point of the alias is that a
+    yaml saying `cellml_only` still resolves a model path rather than exiting."""
+    inp = dict(base_user_inputs)
+    inp['model_type'] = 'cellml_only'
+    inp['generated_models_dir'] = str(tmp_path / 'generated')
+    parsed = YamlFileParser().parse_user_inputs_file(
+        inp, obs_path_needed=False, do_generation_with_fit_parameters=False)
+    assert parsed['model_type'] == 'cellml'
+    assert parsed['model_path'].endswith('.cellml')
 
 
 def test_solver_integrator_keys_derived_from_schema():
@@ -140,14 +209,8 @@ def test_schema_settings_are_actually_read_by_the_code():
     always consumed by its own helper. PrimitiveParsers.py is excluded because that is where the
     schema declares the names in the first place.
 
-    KNOWN LIMITATION -- this check is per *setting*, not per *solver*, and a name that merely
-    passes through counts as "read". Both together let CVODE_myokit advertise
-    MaximumNumberOfSteps for a long time: the name appears in protocol_runner.py, but only to be
-    relayed into get_simulation_helper's solver_info, and myokit_helper drops it on the floor
-    (myokit.Simulation exposes only set_max_step_size / set_min_step_size / set_tolerance). This
-    docstring previously cited that relay as proof the setting was read, which is exactly the
-    reasoning to distrust. Tightening this to per-solver, consumption-aware checking is the real
-    fix; until then, a name appearing in the corpus is necessary but NOT sufficient.
+    This is the weak, repo-wide half of the check; the per-solver half is
+    test_each_solver_setting_is_read_by_that_solvers_consumer below (issue #330).
     """
     src_dir = pathlib.Path(__file__).resolve().parent.parent / 'src'
     corpus = '\n'.join(
@@ -178,27 +241,445 @@ def test_schema_settings_are_actually_read_by_the_code():
         'Either wire the option up or remove it from PARAM_ID_METHODS.')
 
 
+# ---------------------------------------------------------------------------
+# Per-solver, consumption-aware schema check (issue #330)
+# ---------------------------------------------------------------------------
+# A setting must be read by *its own* solver's backend, not merely appear somewhere in src/:
+# protocol_runner.py relays every key into get_simulation_helper's solver_info whether or not the
+# backend does anything with it, so a repo-wide substring search counts a pass-through as a read.
+#
+# The solver -> backend-module mapping below is DERIVED from get_simulation_helper's own dispatch
+# rather than hand-written. A hand-maintained map is the very failure mode this check exists to
+# prevent: it drifts silently, and a solver whose entry went stale gets checked against the wrong
+# file -- or, if its entry is simply missing, is not checked at all.
+
+_SRC_DIR = pathlib.Path(__file__).resolve().parent.parent / 'src'
+_RELAY_FILES = ('protocol_runners/protocol_runner.py', 'parsers/PrimitiveParsers.py')
+
+# Genuine cross-module consumers, listed explicitly because they are not reachable from the
+# factory's dispatch. Keep this list short and justified -- every entry is a hole in the
+# derivation.
+_EXTRA_CONSUMERS = {
+    # AADC's settings are split: the integrator knobs are read by the helper the factory returns,
+    # but the gradient knobs (jac_lag, gradient_strategy) are read by the tape/kernel gradient
+    # paths, which the forward-solve helper never touches.
+    'aadc_semi_implicit': ['param_id/aadc_backend.py'],
+}
+
+# Solvers with no Python backend at all, so the factory has nothing to dispatch to. cpp models are
+# never run through a SimulationHelper: solver_info is baked into the emitted C++ by the cpp branch
+# of script_generate_with_new_architecture, which hands the values to CVSCppGenerator. Those two
+# files are therefore the real consumer, and the fields are checked against them exactly as a
+# helper module would be -- this is a different consumer, not an exemption.
+_GENERATED_CODE_CONSUMERS = {
+    solver: ['scripts/script_generate_with_new_architecture.py',
+             'generators/CVSCppGenerator.py']
+    for solver in ('CVODE', 'RK4', 'PETSC')
+}
+
+
+def _import_aliases(tree):
+    """{local alias: src-relative module path} for `from x.y import Z as Alias` imports."""
+    aliases = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            for name in node.names:
+                if name.asname:
+                    aliases[name.asname] = node.module.replace('.', '/') + '.py'
+    return aliases
+
+
+def _local_string_lists(func):
+    """{var: [strings]} for `name = ['a', 'b']` assignments inside `func`.
+
+    The dispatch tests membership against these (`solver in casadi_solvers`), so resolving them
+    is what lets the derivation see solvers that are not compared to a literal.
+    """
+    out = {}
+    for node in ast.walk(func):
+        if isinstance(node, ast.Assign) and isinstance(node.value, (ast.List, ast.Tuple)):
+            values = [e.value for e in node.value.elts
+                      if isinstance(e, ast.Constant) and isinstance(e.value, str)]
+            if values and len(values) == len(node.value.elts):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        out[target.id] = values
+    return out
+
+
+def _derive_solver_consumers():
+    """Read solver -> backend module out of `get_simulation_helper`'s if/elif dispatch."""
+    factory_path = _SRC_DIR / 'solver_wrappers' / '__init__.py'
+    tree = ast.parse(factory_path.read_text())
+    aliases = _import_aliases(tree)
+    func = next(n for n in ast.walk(tree)
+                if isinstance(n, ast.FunctionDef) and n.name == 'get_simulation_helper')
+    string_lists = _local_string_lists(func)
+
+    def solvers_matched_by(test):
+        """The solver names a branch condition selects (`== 'x'` or `in some_list`)."""
+        names = []
+        for node in ast.walk(test):
+            if not isinstance(node, ast.Compare):
+                continue
+            if not (isinstance(node.left, ast.Name) and node.left.id == 'solver'):
+                continue
+            for op, comparator in zip(node.ops, node.comparators):
+                if isinstance(op, ast.Eq) and isinstance(comparator, ast.Constant):
+                    names.append(comparator.value)
+                elif isinstance(op, ast.In):
+                    if isinstance(comparator, ast.Name):
+                        names.extend(string_lists.get(comparator.id, []))
+                    elif isinstance(comparator, (ast.List, ast.Tuple)):
+                        names.extend(e.value for e in comparator.elts
+                                     if isinstance(e, ast.Constant))
+        return names
+
+    def modules_returned_by(body):
+        """The helper modules a branch constructs and returns."""
+        modules = []
+        for stmt in body:
+            for node in ast.walk(stmt):
+                if isinstance(node, ast.Return) and isinstance(node.value, ast.Call) \
+                        and isinstance(node.value.func, ast.Name) \
+                        and node.value.func.id in aliases:
+                    modules.append(aliases[node.value.func.id])
+        return modules
+
+    consumers = {}
+
+    def walk_chain(statements):
+        for stmt in statements:
+            if isinstance(stmt, ast.If):
+                modules = modules_returned_by(stmt.body)
+                for solver in solvers_matched_by(stmt.test):
+                    for module in modules:
+                        consumers.setdefault(solver, [])
+                        if module not in consumers[solver]:
+                            consumers[solver].append(module)
+                walk_chain(stmt.orelse)  # the elif chain
+
+    walk_chain(func.body)
+    return consumers
+
+
+def _setting_names_read(source):
+    """String constants used as a *setting name* in `source`, via the AST rather than a substring
+    search.
+
+    A substring search over the file text counts a name that only appears in a docstring, a
+    comment or an error message -- myokit_helper's own docstring lists 'Key supported solver_info
+    keys', which would vouch for a key nothing reads. Only these positions count:
+
+      solver_info['x'] / opts['x'] = ...     subscript
+      solver_info.get('x') / .pop('x')       lookup
+      'x' in solver_info                     membership
+      key == 'x'                             the translating forwarders (rtol -> RelativeTolerance)
+      [... 'x' ...] / {'x': default}         key allow-lists and default blocks
+
+    Comments and docstrings are not any of these, so they stop counting as evidence.
+    """
+    names = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant) \
+                and isinstance(node.slice.value, str):
+            names.add(node.slice.value)
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) \
+                and node.func.attr in ('get', 'pop') and node.args \
+                and isinstance(node.args[0], ast.Constant) \
+                and isinstance(node.args[0].value, str):
+            names.add(node.args[0].value)
+        elif isinstance(node, ast.Compare):
+            for op, comparator in zip(node.ops, node.comparators):
+                if isinstance(op, (ast.In, ast.NotIn)) and isinstance(node.left, ast.Constant) \
+                        and isinstance(node.left.value, str):
+                    names.add(node.left.value)
+                elif isinstance(op, ast.Eq):
+                    for side in (node.left, comparator):
+                        if isinstance(side, ast.Constant) and isinstance(side.value, str):
+                            names.add(side.value)
+        elif isinstance(node, ast.Dict):
+            for key in node.keys:
+                if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                    names.add(key.value)
+        elif isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+            for element in node.elts:
+                if isinstance(element, ast.Constant) and isinstance(element.value, str):
+                    names.add(element.value)
+    return names
+
+
+def _consumers_by_solver():
+    """The full solver -> consumer-module map: derived, plus the two documented additions."""
+    consumers = {solver: list(modules)
+                 for solver, modules in _derive_solver_consumers().items()}
+    for solver, extra in _EXTRA_CONSUMERS.items():
+        consumers.setdefault(solver, []).extend(extra)
+    for solver, modules in _GENERATED_CODE_CONSUMERS.items():
+        consumers.setdefault(solver, []).extend(modules)
+    return consumers
+
+
+@pytest.mark.unit
+def test_solver_consumer_map_is_derived_from_the_factory_dispatch():
+    """Guard on the derivation itself.
+
+    If get_simulation_helper is restructured so the AST walk stops recognising its dispatch, the
+    map silently empties and every per-solver check below passes vacuously. Pin that the
+    derivation still finds each solver the factory really dispatches, and that it resolves to the
+    backend that solver actually uses.
+    """
+    derived = _derive_solver_consumers()
+    assert derived, ('the dispatch in get_simulation_helper could not be read; '
+                     'test_each_solver_setting_is_read_by_that_solvers_consumer would pass '
+                     'vacuously')
+    # Spot-check the two shapes the dispatch uses: `solver == 'x'` and `solver in some_list`.
+    assert derived['CVODE_myokit'] == ['solver_wrappers/myokit_helper.py']
+    assert derived['casadi_integrator'] == ['solver_wrappers/casadi_python_solver_helper.py']
+    # solve_ivp is dispatched via a list rather than an equality.
+    assert derived['solve_ivp'] == ['solver_wrappers/python_solver_helper.py']
+    for solver, modules in derived.items():
+        assert solver in SOLVER_INFO_FIELDS, (
+            'get_simulation_helper dispatches solver ' + solver + ' but SOLVER_INFO_FIELDS does '
+            'not declare its settings, so a front-end cannot build its form')
+        for module in modules:
+            assert (_SRC_DIR / module).exists(), module
+
+
+@pytest.mark.unit
+def test_every_advertised_solver_has_a_consumer_to_check_against():
+    """No solver may sit outside the check.
+
+    Before #330 the cpp solvers were exempt, which is how they came to advertise MaximumStep,
+    rtol and atol that the generated C++ never reads. An unmapped solver is not a small gap: it
+    is a solver whose entire settings form is unverified.
+    """
+    unmapped = sorted(set(SOLVER_INFO_FIELDS) - set(_consumers_by_solver()))
+    assert not unmapped, (
+        'solvers advertising settings with no consumer to check them against: ' + str(unmapped)
+        + '. Add the backend to get_simulation_helper (preferred, since the map is derived from '
+        'it), or record the consumer in _EXTRA_CONSUMERS / _GENERATED_CODE_CONSUMERS with a '
+        'comment saying why the derivation cannot see it.')
+
+
+@pytest.mark.unit
+def test_each_solver_setting_is_read_by_that_solvers_consumer():
+    """Per-solver, consumption-aware version of the repo-wide check above (issue #330).
+
+    A solver_info setting is CUFLynx's contract: it renders a control for it. If the backend that
+    owns the solver never reads the key, the user gets a control that silently does nothing --
+    and the repo-wide check cannot see that, because it only asks whether the *name* appears
+    anywhere in src/, and every key appears in the relay in protocol_runner.py. That is how
+    CVODE_myokit came to advertise MaximumNumberOfSteps (myokit.Simulation exposes only
+    set_max_step_size / set_min_step_size / set_tolerance) and how the cpp solvers came to
+    advertise MaximumStep/rtol/atol (the emitted C++ hardcodes its tolerances and steps at
+    dt_solver).
+
+    CVODE_opencor forwards solver_info wholesale into OpenCOR's odeSolverProperties() instead of
+    reading each key by name, so its evidence is the alias branches (rtol -> RelativeTolerance)
+    and its default block rather than four separate lookups. That is still a read of the name in
+    code, which is what _setting_names_read requires.
+    """
+    phantom = {}
+    for solver, consumers in _consumers_by_solver().items():
+        read = set()
+        for rel in consumers:
+            path = _SRC_DIR / rel
+            assert path.exists(), 'consumer file missing for ' + solver + ': ' + rel
+            read |= _setting_names_read(path.read_text(errors='ignore'))
+        missing = [f['name'] for f in SOLVER_INFO_FIELDS[solver] if f['name'] not in read]
+        if missing:
+            phantom[solver] = missing
+
+    assert not phantom, (
+        'solver_info settings advertised to CUFLynx that their own backend never reads: '
+        + str(phantom) + '. CUFLynx renders a control for each, so an unread one is a knob the '
+        'user can turn with no effect and no way to tell. Either wire it up in the consumer, or '
+        'drop it from SOLVER_INFO_FIELDS.')
+
+
+@pytest.mark.unit
+def test_the_relay_does_not_count_as_reading_a_setting():
+    """Guard on the guard: if a relay ever became a mapped consumer, the per-solver check above
+    would silently degrade back into the repo-wide one it replaced.
+
+    protocol_runner.py setdefault()s every key into the solver_info it forwards, so it mentions
+    all of them while consuming none.
+    """
+    for relay in _RELAY_FILES:
+        for solver, consumers in _consumers_by_solver().items():
+            assert relay not in consumers, (
+                relay + ' relays solver_info wholesale and must never be treated as a consumer '
+                '(mapped for ' + solver + ')')
+
+
+@pytest.mark.unit
+def test_a_setting_named_only_in_prose_does_not_count_as_read():
+    """The second gap #330 records: the old check was a substring search over the file text, so a
+    key mentioned in a docstring, a comment or an error message vouched for itself."""
+    prose_only = '''
+"""MaximumNumberOfSteps is supported by this backend."""
+# MaximumStep is also mentioned here
+def run(solver_info):
+    raise ValueError("set rtol to fix this")
+'''
+    assert _setting_names_read(prose_only) == set()
+
+    genuinely_read = '''
+def run(solver_info):
+    a = solver_info["MaximumStep"]
+    b = solver_info.get("rtol")
+    if "atol" in solver_info:
+        pass
+    return a, b
+'''
+    assert {'MaximumStep', 'rtol', 'atol'} <= _setting_names_read(genuinely_read)
+
+
 def test_analysis_options_schema_well_formed():
-    """The non-calibration analysis modes (sensitivity, MCMC, identifiability) expose their option
+    """The non-calibration analysis modes (sensitivity, UQ, identifiability) expose their option
     blocks the same way, so a tool can auto-populate their settings forms too."""
-    assert set(ANALYSIS_OPTIONS) == {'sensitivity_analysis', 'mcmc', 'identifiability_analysis'}
+    assert set(ANALYSIS_OPTIONS) == {'sensitivity_analysis', 'uq', 'identifiability_analysis',
+                                     'emulation'}
     for mode, meta in ANALYSIS_OPTIONS.items():
         assert meta.get('label') and meta.get('enable_flag') and meta.get('options_key')
         _assert_descriptors_well_formed(mode, meta.get('options'))
     # option names the analysis code actually reads (sensitivityAnalysis.py / paramID.py / IA)
     def names(mode):
         return {o['name'] for o in analysis_options(mode)}
-    assert names('sensitivity_analysis') == {'method', 'sample_type', 'num_samples'}
-    assert names('mcmc') == {'num_steps', 'num_walkers'}
+    # gradient_method and fd_rel_step are read by run_local_sensitivity for method
+    # 'local' (#338): which arm differentiates, and the finite-difference step.
+    assert names('sensitivity_analysis') == {
+        'method', 'sample_type', 'num_samples', 'gradient_method', 'fd_rel_step'}
+    # 'uq', not 'mcmc': MCMC is one UQ method, and 'method' is the seam the others are added at.
+    assert names('uq') == {'method', 'library', 'num_steps', 'num_walkers', 'burn_in',
+                           'num_tune', 'pymc_method', 'chain_save_every'}
+    assert ANALYSIS_OPTIONS['uq']['options_key'] == 'UQ_options'
     assert names('identifiability_analysis') == {'method', 'gradient_source', 'sub_method'}
+    assert names('emulation') == {
+        'emulator_dir', 'models', 'num_train_samples', 'reuse_samples', 'sample_type',
+        'log_scale_params', 'random_seed', 'test_fraction', 'n_splits', 'n_iter', 'min_r2',
+        'out_of_bounds', 'fd_rel_step'}
     assert analysis_options('not_a_mode') == []
     # the enabling flags match the documented user_inputs feature flags
     assert {m['enable_flag'] for m in ANALYSIS_OPTIONS.values()} == {
-        'do_sensitivity', 'do_mcmc', 'do_ia'}
+        'do_sensitivity', 'do_uq', 'do_ia', 'do_emulation'}
+    # Emulation alone carries a second flag, because it has a train step and a use step:
+    # do_emulation fits the surrogate, use_emulator makes the analyses evaluate it (#333).
+    assert ANALYSIS_OPTIONS['emulation']['use_flag'] == 'use_emulator'
+    assert {m.get('use_flag') for m in ANALYSIS_OPTIONS.values()} == {None, 'use_emulator'}
 
 
 def _option(mode, name):
     return next(o for o in analysis_options(mode) if o['name'] == name)
+
+
+def test_reuse_samples_is_a_tickbox_that_says_what_it_does_not_do():
+    """The setting that refits saved samples instead of re-running the simulations.
+
+    A bool descriptor is what makes CUFLynx render a tickbox, so the type is load-bearing
+    rather than cosmetic. The description has to carry the other half of the story too: it
+    reuses a *previous* design, so num_train_samples/sample_type/log_scale_params stop
+    applying, and there has to be a previous training run to reuse. A user who reads only the
+    label would otherwise expect a fresh design of num_train_samples points.
+    """
+    opt = _option('emulation', 'reuse_samples')
+    assert opt['type'] == 'bool', 'a bool is what a settings form renders as a tickbox'
+    assert opt['default'] is False, 'reuse must be opted into; a run defaults to simulating'
+    assert opt['required'] is False
+    description = opt['description']
+    assert 'num_train_samples' in description and 'sample_type' in description, \
+        'the description must say which design settings stop applying'
+    assert 'reuse_samples false' in description or 'reuse_samples: false' in description, \
+        'the description must name the way out: a first run without it'
+
+    # ... and the trainer actually reads it, so the tickbox is not decoration.
+    trainer_src = (pathlib.Path(__file__).resolve().parents[1] / 'src' / 'emulators'
+                   / 'emulator_trainer.py').read_text(encoding='utf-8')
+    assert "'reuse_samples'" in trainer_src
+
+
+def test_every_uq_option_the_code_reads_is_advertised():
+    """A UQ setting CA reads but does not declare cannot be reached from a front-end at all.
+
+    CUFLynx builds its UQ form from ANALYSIS_OPTIONS['uq'] and hardcodes nothing, so an option
+    missing here is an option nobody can set: it stays at whatever default the ``.get()`` call
+    carries, silently. That is how the pyMC backend shipped selectable but unconfigurable --
+    ``library: pymc`` was advertised while ``num_tune`` and ``pymc_method``, the only two
+    settings that backend adds, were not.
+
+    Scanning the source rather than restating a list is the point. The name set above is
+    hand-maintained, so it agrees with whatever it was last edited to say; this reads what the
+    code actually asks ``UQ_options`` for, and so fails when a read is added without a
+    descriptor, which is the direction the mistake goes in.
+    """
+    src_dir = pathlib.Path(__file__).resolve().parent.parent / 'src'
+    # UQ_options['x'], UQ_options.get('x'), self.UQ_options.get("x", default)
+    pattern = re.compile(r"""UQ_options(?:\.get\(|\[)\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]""")
+    read = set()
+    for path in src_dir.rglob('*.py'):
+        if 'obsolete' in path.parts:
+            continue
+        read.update(pattern.findall(path.read_text(encoding='utf-8')))
+
+    advertised = {o['name'] for o in analysis_options('uq')}
+    assert read, 'found no UQ_options reads at all -- the pattern has stopped matching'
+    assert read <= advertised, (
+        f'UQ_options read by the code but not declared in ANALYSIS_OPTIONS["uq"]: '
+        f'{sorted(read - advertised)}')
+
+
+def test_uq_options_are_filtered_by_sampler_library():
+    """A settings form should offer what the chosen sampler actually reads, and nothing else.
+
+    ``num_tune`` and ``pymc_method`` are pyMC's alone. Offering them under emcee is not a
+    cosmetic wart: the user sets a tuning count that nothing reads and an algorithm that will
+    not run, and has no way to tell those from the settings that do apply.
+    """
+    everything = {o['name'] for o in analysis_options('uq')}
+    pymc_only = {'num_tune', 'pymc_method'}
+
+    assert {o['name'] for o in uq_options('pymc')} == everything
+    assert {o['name'] for o in uq_options('emcee')} == everything - pymc_only
+    # No library named at all is "show me the schema", not "show me nothing".
+    assert {o['name'] for o in uq_options()} == everything
+
+
+def test_an_unknown_sampler_library_still_gets_the_shared_options():
+    """A front-end newer than the CA it is pointed at (or older) must degrade to the settings
+    that are certainly right, rather than to an empty form with no way to configure a run."""
+    assert {o['name'] for o in uq_options('zeus')} == \
+        {o['name'] for o in analysis_options('uq')} - {'num_tune', 'pymc_method'}
+
+
+def test_library_specific_uq_options_are_read_only_in_that_librarys_arm():
+    """The annotation has to match the dispatch, or the form hides a setting that matters.
+
+    Restating "num_tune and pymc_method are pyMC's" in the test would only agree with itself.
+    This reads ``_build_sampler``, which is where the choice is actually made, and requires that
+    an option marked for one library is read inside that library's branch and not before it --
+    so moving a read out of the pyMC arm without dropping the annotation fails here.
+    """
+    import inspect
+
+    from param_id.paramID import OpencorMCMC
+
+    source = inspect.getsource(OpencorMCMC._build_sampler)
+    before_pymc, marker, pymc_arm = source.partition("if library == 'pymc'")
+    assert marker, "_build_sampler no longer dispatches on library == 'pymc'"
+
+    annotated = [o for o in analysis_options('uq') if o.get('libraries')]
+    assert annotated, 'no UQ option is annotated with the libraries that read it'
+    for opt in annotated:
+        assert opt['libraries'] == ['pymc'], (
+            f"{opt['name']}: this test only knows how to check the pyMC arm; extend it "
+            'alongside a new library-specific option')
+        assert opt['name'] in pymc_arm, (
+            f"{opt['name']} is advertised as pyMC-only but _build_sampler's pyMC arm never "
+            'reads it')
+        assert opt['name'] not in before_pymc, (
+            f"{opt['name']} is advertised as pyMC-only but is read before the pyMC arm, so "
+            'another backend reads it too and the form must offer it there')
 
 
 def test_closed_set_analysis_options_are_enums_with_choices():
@@ -225,6 +706,21 @@ def test_closed_set_analysis_options_are_enums_with_choices():
         # deliberately absent from sub_method's choices -- AD is now reached via gradient_source
         # instead (the Fisher-information path), not the calculate_hessian sub_method.
         ('identifiability_analysis', 'sub_method'): ['parabola_fit', 'numdifftools_finite_diff'],
+        # Only what is implemented may be offered: a menu entry a front-end can select but CA
+        # cannot run is the same defect as a setting nothing reads. Extend these as the SMC /
+        # surrogate methods and the pyMC backend land.
+        ('uq', 'method'): ['mcmc'],
+        # 'zeus' is still accepted by _build_sampler for backwards compatibility but is
+        # deliberately not advertised: it is not a CA dependency and there is no extra that
+        # installs it, so offering it in a menu would be a control that fails for most users.
+        ('uq', 'library'): ['emcee', 'pymc'],
+        # -> PyMCSampler.__init__, which raises on anything else.
+        ('uq', 'pymc_method'): ['mcmc', 'smc'],
+        # -> EmulatorTrainer.design (raises ValueError otherwise)
+        ('emulation', 'sample_type'): ['sobol', 'latin_hypercube', 'random'],
+        # -> EmulatorBundle.check_bounds. 'error' is the default deliberately: outside its
+        # training box an emulator extrapolates with no error estimate at all.
+        ('emulation', 'out_of_bounds'): ['error', 'warn', 'clip'],
     }
     for (mode, name), choices in expected.items():
         opt = _option(mode, name)
@@ -408,12 +904,101 @@ def test_myokit_rejects_maximum_number_of_steps_after_migration():
 
 
 def test_cpp_rk4_accepts_maximum_number_of_steps():
+    """MaximumNumberOfSteps is the one integrator key the cpp path really forwards: the generate
+    script reads it and CVSCppGenerator emits it as CVODE's mxsteps."""
     validate_solver_info('RK4', {
         'solver': 'RK4',
         'method': 'RK4',
-        'MaximumStep': 0.001,
+        'dt_solver': 1e-4,
         'MaximumNumberOfSteps': 5000,
     })
+
+
+@pytest.mark.parametrize('solver', ['CVODE', 'RK4', 'PETSC'])
+def test_cpp_solvers_reject_the_setting_the_generated_code_never_reads(solver):
+    """The generated C++ integrates at the fixed dt_solver, so there is no maximum-step-size knob
+    for MaximumStep to control. Advertising it made CUFLynx draw a dead control (issue #330)."""
+    with pytest.raises(ValueError, match='MaximumStep'):
+        validate_solver_info(solver, {'solver': solver, 'MaximumStep': 0.001})
+
+
+@pytest.mark.parametrize('solver', ['CVODE', 'RK4', 'PETSC'])
+def test_cpp_solvers_accept_tolerances_now_that_the_generator_emits_them(solver):
+    """rtol/atol were removed in #330 because the emitted C++ hardcoded its tolerances; #398
+    wired them through, so they are a real setting again."""
+    validate_solver_info(solver, {
+        'solver': solver,
+        'dt_solver': 1e-4,
+        'MaximumNumberOfSteps': 5000,
+        'rtol': 1e-8,
+        'atol': 1e-10,
+    })
+
+
+@pytest.mark.parametrize('solver', ['CVODE', 'RK4', 'PETSC'])
+def test_cpp_maximum_step_is_migrated_with_a_warning_not_rejected(solver, capsys):
+    """A config written for a CVODE backend must keep running -- it just has to say which of its
+    settings stopped applying, rather than failing validation on the way in."""
+    migrated = migrate_legacy_solver_info_keys(solver, {
+        'solver': solver,
+        'dt_solver': 1e-4,
+        'MaximumStep': 0.001,
+        'MaximumNumberOfSteps': 5000,
+        'rtol': 1e-8,
+        'atol': 1e-10,
+    })
+    # MaximumStep goes; the tolerances stay, because the generator emits them (#398).
+    assert set(migrated) == {'solver', 'dt_solver', 'MaximumNumberOfSteps', 'rtol', 'atol'}
+    validate_solver_info(solver, migrated)  # the migrated config is accepted
+
+    warned = capsys.readouterr().out
+    assert 'MaximumStep' in warned, 'MaximumStep was dropped silently'
+    assert 'dt_solver' in warned, 'the MaximumStep warning should name the setting to use instead'
+    for kept in ('rtol', 'atol'):
+        assert kept not in warned, kept + ' is wired up and must not warn'
+
+
+@pytest.mark.parametrize('solver', ['CVODE', 'RK4', 'PETSC'])
+def test_cpp_maximum_step_alone_becomes_the_solver_step(solver, capsys):
+    """MaximumStep on its own is the only step the user gave, so it has to survive.
+
+    It used to be dropped here, and the parser's own MaximumStep -> dt_solver fallback runs
+    *after* this -- so nothing was left for it to find and generation died with
+    ``KeyError: 'dt_solver'`` on every cpp config that had not already been rewritten to the new
+    key, including the cpp autogeneration test.
+    """
+    migrated = migrate_legacy_solver_info_keys(solver, {
+        'solver': solver,
+        'MaximumStep': 0.001,
+    })
+    assert migrated == {'solver': solver, 'dt_solver': 0.001}
+    validate_solver_info(solver, migrated)
+
+    warned = capsys.readouterr().out
+    assert 'MaximumStep' in warned and 'dt_solver' in warned, (
+        'a renamed setting must name what it became'
+    )
+
+
+def test_a_cpp_config_with_only_maximum_step_still_generates():
+    """The end the bug was actually felt at: the value has to reach the generator.
+
+    ``script_generate_with_new_architecture`` reads ``solver_info['dt_solver']`` directly, so a
+    config that names the step the old way must arrive with that key present rather than raising
+    KeyError part-way through generation.
+    """
+    parsed = YamlFileParser().parse_user_inputs_file(
+        {
+            'file_prefix': '3compartment',
+            'input_param_file': '3compartment_parameters.csv',
+            'model_type': 'cpp',
+            'solver': 'RK4',
+            'solver_info': {'MaximumStep': 0.001},
+        },
+        obs_path_needed=False,
+        do_generation_with_fit_parameters=False,
+    )
+    assert parsed['solver_info']['dt_solver'] == 0.001
 
 
 def test_solve_ivp_rejects_maximum_step_keys():
@@ -528,17 +1113,17 @@ def test_dt_solver_alongside_the_new_key_is_not_a_duplicate(capsys):
 
 
 def test_myokit_default_solver_info_needs_no_migration():
-    """CA's own cellml_only default must validate for myokit, not just opencor --
+    """CA's own cellml default must validate for myokit, not just opencor --
     otherwise the default config would be rejected by its own validator."""
     from parsers.PrimitiveParsers import _solver_info_default_for
 
-    defaults = _solver_info_default_for('cellml_only', 'CVODE_myokit')
+    defaults = _solver_info_default_for('cellml', 'CVODE_myokit')
     assert 'MaximumNumberOfSteps' not in defaults
     assert defaults['MaximumStep'] == 0.001
     validate_solver_info('CVODE_myokit', defaults)
 
     # opencor keeps it: it is a real setting there.
-    opencor = _solver_info_default_for('cellml_only', 'CVODE_opencor')
+    opencor = _solver_info_default_for('cellml', 'CVODE_opencor')
     assert opencor['MaximumNumberOfSteps'] == 5000
     validate_solver_info('CVODE_opencor', opencor)
 
@@ -606,7 +1191,7 @@ def test_gradient_sources_well_formed_and_match_get_gradient_dispatch():
     """gradient_sources(model_type, solver) must advertise exactly the sources CA can actually
     produce, keyed to the top-level do_ad flag, so a front-end can build a gradient menu without
     hand-mirroring CA's rules. Pinned to OpencorParamID.get_gradient's dispatch: the AD-capable
-    model types are AD_GRADIENT_MODEL_TYPES, and cellml_only+CVODE_myokit gets FSA.
+    model types are AD_GRADIENT_MODEL_TYPES, and cellml+CVODE_myokit gets FSA.
     """
     from param_id.optimisers import AD_GRADIENT_MODEL_TYPES
 
@@ -635,14 +1220,14 @@ def test_gradient_sources_well_formed_and_match_get_gradient_dispatch():
         ad = [s for s in srcs if s['value'] == 'AD']
         assert len(ad) == 1 and ad[0]['do_ad'] is True, mt
 
-    # cellml_only gets the Myokit CVODES FSA source only with the Myokit solver.
-    myokit = gradient_sources('cellml_only', 'CVODE_myokit')
+    # cellml gets the Myokit CVODES FSA source only with the Myokit solver.
+    myokit = gradient_sources('cellml', 'CVODE_myokit')
     _check_shape(myokit)
     fsa = [s for s in myokit if s['value'] == 'FSA']
     assert len(fsa) == 1 and fsa[0]['do_ad'] is True
 
-    # No analytic source for cellml_only under a non-FSA solver, or for non-AD model types.
-    for mt, sv in [('cellml_only', 'CVODE_opencor'), ('python', 'solve_ivp'), ('cpp', 'RK4')]:
+    # No analytic source for cellml under a non-FSA solver, or for non-AD model types.
+    for mt, sv in [('cellml', 'CVODE_opencor'), ('python', 'solve_ivp'), ('cpp', 'RK4')]:
         srcs = gradient_sources(mt, sv)
         _check_shape(srcs)
         assert [s['value'] for s in srcs] == ['FD'], (mt, sv)
@@ -693,8 +1278,8 @@ def test_gradient_sources_gates_analytic_source_on_integrator_method():
 
     # Myokit FSA: offered for the CVODE method (the only, and FSA-suitable, method).
     assert 'FSA' in [s['value'] for s in
-                     gradient_sources('cellml_only', 'CVODE_myokit', method='CVODE')]
-    assert 'FSA' in [s['value'] for s in gradient_sources('cellml_only', 'CVODE_myokit')]
+                     gradient_sources('cellml', 'CVODE_myokit', method='CVODE')]
+    assert 'FSA' in [s['value'] for s in gradient_sources('cellml', 'CVODE_myokit')]
 
     # AADC AD has no per-integrator gate (its tape method is independent of this menu).
     assert 'AD' in [s['value'] for s in gradient_sources('aadc_python', method='semi_implicit')]
@@ -967,3 +1552,183 @@ def test_every_default_method_is_stiff_suitable_where_the_solver_has_a_stiff_set
         if solver in stiff:
             assert default in stiff[solver], (
                 f"default for {solver} is {default!r}, which is not stiff-suitable")
+
+
+# --------------------------------------------------------- Myokit CVODES tolerance mapping
+#
+# Myokit's signature is set_tolerance(abs_tol, rel_tol) -- absolute FIRST, the reverse of the
+# rtol-then-atol order CA's schema lists. The helper passed them positionally in schema order,
+# so each reached the other argument. A symmetric pair cannot catch that, so every test here
+# uses asymmetric values and asserts which value reached which keyword.
+
+
+class _RecordingSimulation:
+    """Stands in for myokit.Simulation; records what reached set_tolerance."""
+
+    def __init__(self):
+        self.tolerance_calls = []
+
+    def set_tolerance(self, abs_tol=1e-6, rel_tol=1e-4):
+        self.tolerance_calls.append({'abs_tol': abs_tol, 'rel_tol': rel_tol})
+
+
+def _apply(solver_info, fsa_enabled=False):
+    from solver_wrappers.myokit_helper import apply_cvodes_tolerances
+    sim = _RecordingSimulation()
+    effective = apply_cvodes_tolerances(sim, solver_info, fsa_enabled)
+    return sim.tolerance_calls, effective
+
+
+@pytest.mark.unit
+def test_asymmetric_tolerances_reach_the_right_myokit_arguments():
+    """rtol must arrive as rel_tol and atol as abs_tol. Swapped, this call would apply
+    abs 1e-4 / rel 1e-6 -- measured bit-identical to Myokit's own defaults on 3compartment,
+    which is how the swap stayed invisible."""
+    calls, effective = _apply({'rtol': 1e-4, 'atol': 1e-6})
+    assert calls == [{'abs_tol': 1e-6, 'rel_tol': 1e-4}]
+    assert effective == (1e-6, 1e-4)
+
+
+@pytest.mark.unit
+def test_no_tolerances_means_cas_own_defaults_are_applied():
+    """With neither set (and no FSA), CA's declared defaults are applied -- abs stays at the
+    1e-8 floor previous users ran at (so existing models do not start failing), rel relaxes
+    to 1e-6. Declared and effective are the same thing, whichever front door the run came
+    through."""
+    calls, effective = _apply({})
+    assert calls == [{'abs_tol': 1e-8, 'rel_tol': 1e-6}]
+    assert effective == (1e-8, 1e-6)
+
+
+@pytest.mark.unit
+def test_fsa_tightens_to_1e8_when_the_user_set_none():
+    """CVODES sensitivities are only as accurate as the state solve; the default tolerance's
+    noise floor swamps small sensitivities."""
+    calls, effective = _apply({}, fsa_enabled=True)
+    assert calls == [{'abs_tol': 1e-8, 'rel_tol': 1e-8}]
+    assert effective == (1e-8, 1e-8)
+
+
+@pytest.mark.unit
+def test_explicit_tolerances_win_over_the_fsa_tightening():
+    calls, _ = _apply({'rtol': 1e-5, 'atol': 1e-7}, fsa_enabled=True)
+    assert calls == [{'abs_tol': 1e-7, 'rel_tol': 1e-5}]
+
+
+@pytest.mark.unit
+def test_a_partial_setting_fills_the_partner_with_cas_default():
+    """set_tolerance takes both values, so setting only one needs a partner: CA's declared
+    default for the other, the same value the schema advertises."""
+    assert _apply({'rtol': 1e-5})[0] == [{'abs_tol': 1e-8, 'rel_tol': 1e-5}]
+    assert _apply({'atol': 1e-9})[0] == [{'abs_tol': 1e-9, 'rel_tol': 1e-6}]
+
+
+@pytest.mark.unit
+def test_a_failed_solve_names_the_stability_knobs_and_their_values():
+    """A failed solve must tell the user which numbers to turn: the effective MaximumStep,
+    atol and rtol, and that decreasing them may help stability."""
+    from solver_wrappers.myokit_helper import stability_hint
+    hint = stability_hint({'MaximumStep': 0.001}, (1e-8, 1e-6))
+    assert 'MaximumStep is 0.001' in hint
+    assert 'atol is 1e-08' in hint
+    assert 'rtol is 1e-06' in hint
+    assert 'decreasing these' in hint and 'stability' in hint
+
+
+@pytest.mark.unit
+def test_the_stability_hint_reports_an_unset_maximum_step_honestly():
+    """No MaximumStep in solver_info means the integrator step is unbounded -- say so, rather
+    than inventing a number the user never set."""
+    from solver_wrappers.myokit_helper import stability_hint
+    hint = stability_hint({}, (1e-8, 1e-6))
+    assert 'MaximumStep is unset (unbounded)' in hint
+
+
+@pytest.mark.unit
+def test_myokit_set_tolerance_still_takes_abs_and_rel_keywords():
+    """The keyword call is the whole fix; a Myokit rename must break loudly here, not revert
+    the helper to positional guessing."""
+    myokit = pytest.importorskip('myokit')
+    import inspect
+    params = inspect.signature(myokit.Simulation.set_tolerance).parameters
+    assert 'abs_tol' in params and 'rel_tol' in params
+
+
+@pytest.mark.unit
+def test_cvode_myokit_schema_declares_cas_defaults():
+    """Front-ends seed interactive solves from these declared defaults (they deliberately do
+    not restate them), so the declaration is the one place the default is decided -- and it
+    must equal what the helper applies when the user sets neither, or declared and effective
+    drift apart. abs keeps the 1e-8 floor previous users ran at; rel relaxes to 1e-6."""
+    from solver_wrappers.myokit_helper import CA_DEFAULT_ABS_TOL, CA_DEFAULT_REL_TOL
+    fields = {f['name']: f for f in solver_info_fields('CVODE_myokit')}
+    assert fields['rtol']['default'] == CA_DEFAULT_REL_TOL == 1e-6
+    assert fields['atol']['default'] == CA_DEFAULT_ABS_TOL == 1e-8
+
+
+# ---------------------------------------------------------------------------
+# Legacy mcmc_options / do_mcmc spelling (renamed to UQ_options / do_uq)
+# ---------------------------------------------------------------------------
+@pytest.mark.unit
+def test_legacy_mcmc_option_names_are_migrated_with_a_warning(capsys):
+    """MCMC became one method of UQ, so its settings moved to UQ_options/do_uq. A config written
+    for the old names must keep running and be told, once, what to rename -- the same
+    migrate-with-a-warning treatment solver_info keys get."""
+    from parsers.PrimitiveParsers import _normalise_uq_option_names
+
+    inp = {
+        'do_mcmc': True,
+        'mcmc_options': {'num_steps': 11},
+        'debug_mcmc_options': {'num_steps': 3},
+    }
+    _normalise_uq_option_names(inp)
+
+    assert inp == {
+        'do_uq': True,
+        'UQ_options': {'num_steps': 11},
+        'debug_UQ_options': {'num_steps': 3},
+    }, 'the values must survive the rename, and the old keys must not linger'
+
+    warned = capsys.readouterr().out
+    for old_key, new_key in [('mcmc_options', 'UQ_options'),
+                             ('debug_mcmc_options', 'debug_UQ_options'),
+                             ('do_mcmc', 'do_uq')]:
+        assert old_key in warned and new_key in warned, old_key + ' was renamed silently'
+
+
+@pytest.mark.unit
+def test_a_config_using_only_the_new_uq_names_is_silent():
+    """The migration must not nag a config that is already correct."""
+    from parsers.PrimitiveParsers import _normalise_uq_option_names
+
+    inp = {'do_uq': False, 'UQ_options': {'method': 'mcmc'}}
+    before = dict(inp)
+    _normalise_uq_option_names(inp)
+    assert inp == before
+
+
+@pytest.mark.unit
+def test_setting_both_uq_spellings_is_refused():
+    """Not a stale key to migrate but a contradiction: the two values can disagree, and
+    silently preferring either would hide one from a user who believes it is in effect."""
+    from parsers.PrimitiveParsers import _normalise_uq_option_names
+
+    with pytest.raises(ValueError, match='mcmc_options'):
+        _normalise_uq_option_names({'mcmc_options': {'num_steps': 1},
+                                    'UQ_options': {'num_steps': 2}})
+
+
+@pytest.mark.unit
+def test_deprecated_mcmc_options_kwarg_still_reaches_UQ_options(capsys):
+    """The public CVS0DParamID(mcmc_options=...) kwarg keeps working, and passing both spellings
+    is refused for the same reason as above."""
+    from param_id.paramID import _resolve_UQ_options
+
+    assert _resolve_UQ_options(None, {'num_steps': 5}) == {'num_steps': 5}
+    assert 'deprecated' in capsys.readouterr().out
+
+    assert _resolve_UQ_options({'num_steps': 9}, None) == {'num_steps': 9}
+    assert capsys.readouterr().out == '', 'the new spelling must be silent'
+
+    with pytest.raises(ValueError, match='not both'):
+        _resolve_UQ_options({'num_steps': 9}, {'num_steps': 5})

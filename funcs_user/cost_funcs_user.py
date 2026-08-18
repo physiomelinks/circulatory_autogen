@@ -99,6 +99,75 @@ def multimodal_gaussian(output, prob_dist_params, weight):
     return cost
 
 
+@is_MLE
+def kernel_density_estimation(output, prob_dist_params, weight, bandwidth="scott"):
+    """Negative log-likelihood under a kernel density estimate of the observed samples.
+
+    For a target that is known only as a set of measurements rather than as a named
+    distribution: the samples are turned into a smooth density with
+    ``scipy.stats.gaussian_kde`` and the model output is scored against it. Unlike
+    ``multimodal_gaussian`` this needs no assumption about how many modes there are, or
+    where they sit.
+
+    ``prob_dist_params`` is the data_item's ``{"data_points": [...]}`` -- the ground truth, the
+    distribution-shaped alternative to ``value``/``std``. ``bandwidth`` is a *knob*, so it comes
+    from the data_item's ``cost_kwargs`` (issue #84) and can be swept without touching the data;
+    it is passed straight to gaussian_kde's ``bw_method`` ('scott', 'silverman', a scalar or a
+    callable), defaulting to Scott's rule.
+    """
+    if hasattr(output, "__len__") and np.size(output) > 1:
+        raise ValueError(
+            "kernel_density_estimation cost function is not implemented for series data")
+
+    if not isinstance(prob_dist_params, dict) or "data_points" not in prob_dist_params:
+        raise ValueError(
+            "prob_dist_params for kernel_density_estimation in obs_data.json must be a dict "
+            "with a 'data_points' entry. Set the smoothing width in the data_item's "
+            '"cost_kwargs": {"bandwidth": ...} instead.')
+
+    data_points = np.asarray(prob_dist_params["data_points"], dtype=float)
+    if data_points.size == 0:
+        raise ValueError(
+            "data_points for kernel_density_estimation in obs_data.json cannot be empty")
+
+    from scipy.stats import gaussian_kde
+
+    kde = gaussian_kde(data_points, bw_method=bandwidth)
+    # logpdf returns an array even for one point; the cost must be a plain scalar so the
+    # weighted sum over observables stays 0-d.
+    return float(-np.ravel(kde.logpdf(np.ravel(output)))[0] * weight)
+
+
+@is_MLE
+def poisson_MLE(output, prob_dist_params, weight):
+    """Poisson negative log-likelihood contribution, for count data.
+
+    The model output is the rate (lambda); ``prob_dist_params['k']`` is the observed count.
+    The constant ``log(k!)`` is dropped -- it does not depend on the parameters, so it shifts
+    every cost by the same amount and changes no optimum.
+
+    NLL = lambda - k*log(lambda), so it is minimised at lambda == k. (#367 had the sign the
+    other way round, i.e. the log-likelihood, which an optimiser would have driven *away*
+    from the data.)
+    """
+    if not isinstance(prob_dist_params, dict) or "k" not in prob_dist_params:
+        raise ValueError(
+            "prob_dist_params for poisson_MLE in obs_data.json must be a dict with a 'k' "
+            "entry (the observed count)")
+
+    # A Poisson rate is positive; clip so a parameter set that drives it to zero costs a lot
+    # rather than producing -inf/nan and poisoning the whole cost.
+    lam = np.clip(output, 1e-12, None)
+    k = prob_dist_params["k"]
+
+    cost = (lam - k * np.log(lam)) * weight
+
+    if hasattr(cost, "__len__"):
+        cost = np.sum(cost) / np.size(cost)
+
+    return float(cost)
+
+
 @differentiable
 def AE(output, desired_mean, std, weight):
     cost = mb.abs((output - desired_mean) / std) * weight

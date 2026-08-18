@@ -40,9 +40,17 @@ from SALib.analyze import sobol
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+from parsers.PrimitiveParsers import expand_modifier_param_vals
 from parsers.PrimitiveParsers import scriptFunctionParser
 from param_id.operation_funcs import resolve_operation_kwargs, validate_operation_kwargs
-from mpi4py import MPI
+# Not `from mpi4py import MPI`: that import initialises MPI and registers an
+# atexit MPI_Finalize, and with no launcher present that finalise is what aborts
+# on macOS when a NIC goes away (#396). get_MPI hands back the real
+# mpi4py.MPI under mpiexec -- a multi-rank run is unchanged -- and a one-rank
+# stub otherwise, so a serial run never opens MPI at all.
+from utilities.mpi_utils import get_MPI as _get_MPI
+
+MPI = _get_MPI()
 from parsers.PrimitiveParsers import CSVFileParser, ObsAndParamDataParser
 import csv
 from tqdm import tqdm  # make sure tqdm is installed
@@ -71,7 +79,9 @@ class sobol_SA():
     def __init__(self, model_path, model_out_names, solver_info, SA_info, dt, sa_output_dir,
                  param_id_path = None, params_for_id_path=None, use_MPI = False, verbose=False,
                  sim_time=2.0, pre_time=20.0, model_type=None,
-                 operation_funcs_external_path=None, cost_funcs_external_path=None):
+                 operation_funcs_external_path=None, cost_funcs_external_path=None,
+                 modifier_funcs_external_path=None,
+                 use_emulator=False, emulator_dir=None, emulator_settings=None):
 
         """
         Initializes the Sensitivity_analysis class.
@@ -106,7 +116,14 @@ class sobol_SA():
         self.sfp = scriptFunctionParser(
             operation_funcs_external_path=operation_funcs_external_path,
             cost_funcs_external_path=cost_funcs_external_path)
+        self.modifier_funcs_external_path = modifier_funcs_external_path
         self.operation_funcs_dict = self.sfp.get_operation_funcs_dict(mode)
+
+        # Emulator mode (#333). `solver_info['solver']` still names the truth solver -- the one
+        # the emulator was trained against -- so this is its own flag rather than a solver name.
+        self.use_emulator = bool(use_emulator)
+        self.emulator_dir = emulator_dir
+        self.emulator_settings = dict(emulator_settings or {})
 
         self.obs_and_param_parser = None
         self.gt_df = None
@@ -114,7 +131,8 @@ class sobol_SA():
             
 
         if param_id_path is not None:
-            self.obs_and_param_parser = ObsAndParamDataParser()
+            self.obs_and_param_parser = ObsAndParamDataParser(
+                modifier_funcs_external_path=getattr(self, 'modifier_funcs_external_path', None))
             parsed_data = self.obs_and_param_parser.parse_obs_data_json(
                 param_id_obs_path=param_id_path,
                 pre_time=pre_time,
@@ -153,10 +171,15 @@ class sobol_SA():
             # set temporary pre time, just to initialise the sim_helper
             self.pre_time = 0.001
 
-        self.sim_helper = self.initialise_sim_helper()
-        self._protocol_executor = ProtocolExecutor(self.sim_helper)
+        # The simulation helper is built lazily (see the sim_helper property). Constructing it
+        # compiles the model, and SensitivityAnalysis builds a sobol_SA unconditionally --
+        # including for `method: local`, which runs through its own CVS0DParamID engine and
+        # never touches the Sobol machinery. That cost two model compiles for one local SA
+        # (CUFLynx #216). Nothing else in __init__ needs the helper, so deferring it makes the
+        # unused half free while leaving the Sobol path byte-identical.
+        self._sim_helper = None
+        self._protocol_executor_obj = None
         if self.sim_time is not None and self.pre_time is not None:
-            self.sim_helper.update_times(self.dt, 0.0, self.sim_time, self.pre_time)
             self.n_steps = int(self.sim_time/self.dt)
 
 
@@ -183,7 +206,8 @@ class sobol_SA():
         if self.rank == 0:
             print(f'Setting ground truth data: {obs_data_dict}')
         if self.obs_and_param_parser is None:
-            self.obs_and_param_parser = ObsAndParamDataParser()
+            self.obs_and_param_parser = ObsAndParamDataParser(
+                modifier_funcs_external_path=getattr(self, 'modifier_funcs_external_path', None))
         parsed_data = self.obs_and_param_parser.parse_obs_data_json(
             obs_data_dict=obs_data_dict,
             pre_time=self.pre_time,
@@ -207,7 +231,8 @@ class sobol_SA():
         if self.rank == 0:
             print(f'Setting params for id: {params_for_id_dict}')
         if self.obs_and_param_parser is None:
-            self.obs_and_param_parser = ObsAndParamDataParser()
+            self.obs_and_param_parser = ObsAndParamDataParser(
+                modifier_funcs_external_path=getattr(self, 'modifier_funcs_external_path', None))
         self.param_id_info = self.obs_and_param_parser.get_param_id_info_from_entries(params_for_id_dict)
         self.obs_and_param_parser.save_param_names(self.param_id_info, self.output_dir)
         self.create_SA_info(self.sample_type, self.SA_info["num_samples"])
@@ -224,9 +249,23 @@ class sobol_SA():
         if not hasattr(self, "param_id_info") or not self.param_id_info:
             raise ValueError("param_id_info is not set. Please run __set_and_save_param_names() first.")
 
+        # A params_for_id row naming several vessels means "one calibrated value drives all of
+        # these", so it is *one* variable to the sampler and must be set on *every* member.
+        # Those are two different things and need two different lists (issue #355):
+        #   param_names   -- kept grouped, handed to set_param_vals, which broadcasts the shared
+        #                    sampled value across the group
+        #   param_labels  -- flattened to one name per variable, for the SALib problem and plots
+        # Collapsing to the first name for both is what made a grouped SA vary one vessel while
+        # calibration varied all of them, silently answering a different question.
+        grouped_names = list(self.param_id_info["param_names"])
         SA_info = {
             "sample_type": sample_type,
-            "param_names": [name[0] if isinstance(name, list) else name for name in self.param_id_info["param_names"]],
+            "param_names": grouped_names,
+            # param_id_info already computes one label per variable, and knows that a modifier
+            # is labelled by its own name rather than a join of the parameters it modifies.
+            "param_labels": list(self.param_id_info.get("param_labels") or
+                                 ['+'.join(n) if isinstance(n, (list, tuple)) else n
+                                  for n in grouped_names]),
             "num_samples": num_samples,
             "param_mins": list(self.param_id_info["param_mins"]),
             "param_maxs": list(self.param_id_info["param_maxs"])
@@ -236,14 +275,89 @@ class sobol_SA():
         #     print("Sensitivity Analysis Configuration:")
         #     print(json.dumps(SA_info, indent=4))
 
-        self.num_params = len(SA_info["param_names"])
+        self.num_params = len(SA_info["param_labels"])
 
         return SA_info
+
+    def _param_labels(self):
+        """One display label per sampled variable.
+
+        Derived from param_names when 'param_labels' is absent, so an SA_info built by hand or
+        loaded from an older run still works -- the key was added with grouped-parameter support
+        (issue #355) and SA_info is a semi-public structure.
+        """
+        labels = self.SA_info.get("param_labels")
+        if labels is not None:
+            return labels
+        return ['+'.join(n) if isinstance(n, (list, tuple)) else n
+                for n in self.SA_info["param_names"]]
 
     def create_SA_info(self, sample_type, num_samples):
         # Backwards compatibility alias
         return self._create_SA_info(sample_type, num_samples)
 
+
+    @property
+    def sim_helper(self):
+        """The simulation helper, built on first use.
+
+        Building it compiles the model, so it is deferred until something actually simulates
+        -- see __init__. The first access applies the same `update_times` the eager
+        construction did, so a caller cannot tell the difference.
+        """
+        if self._sim_helper is None:
+            self._sim_helper = self.initialise_sim_helper()
+            if self.sim_time is not None and self.pre_time is not None:
+                self._sim_helper.update_times(self.dt, 0.0, self.sim_time, self.pre_time)
+            if getattr(self._sim_helper, 'emulates_features', False):
+                self._configure_emulator(self._sim_helper)
+        return self._sim_helper
+
+    def _configure_emulator(self, helper):
+        """Validate the emulator against this analysis, and map its outputs to the data_items.
+
+        Sobol reads a surrogate ``num_samples*(2M+2)`` times without ever touching the model,
+        so an emulator trained against different bounds, observables or protocol would produce
+        a complete, plausible set of indices for a different problem (#333).
+        """
+        from emulators.emulator_bundle import fingerprint
+        bad = {jj: dtype for jj, dtype in enumerate(self.obs_info['data_types'])
+               if dtype != 'constant'}
+        if bad:
+            raise ValueError(
+                f'use_emulator is set, but obs_data.json has data_type(s) '
+                f'{sorted(set(bad.values()))} at data_item index(es) {sorted(bad)}. The emulator '
+                f'predicts scalar data_item features only.')
+        helper.bundle.check_matches(
+            fingerprint(self.param_id_info, self.obs_info, self.protocol_info, self.model_path))
+        helper.bundle.check_quality(self.emulator_settings.get('min_r2', 0.9))
+        helper.set_obs_map(self.obs_info['const_idx_to_obs_idx'],
+                           num_obs=len(self.obs_info['operations']))
+
+    @sim_helper.setter
+    def sim_helper(self, value):
+        # Assignable so a caller can inject or replace the helper (and so any existing
+        # `self.sim_helper = ...` keeps working).
+        self._sim_helper = value
+
+    @property
+    def _protocol_executor(self):
+        """Bound to the helper, so it must not be built before it (it would pin a None)."""
+        if self._protocol_executor_obj is None:
+            self._protocol_executor_obj = ProtocolExecutor(self.sim_helper)
+        return self._protocol_executor_obj
+
+    @_protocol_executor.setter
+    def _protocol_executor(self, value):
+        self._protocol_executor_obj = value
+
+    def has_built_sim_helper(self):
+        """True once the model has actually been compiled for this object.
+
+        Exposed for tests (and for anyone counting compiles): the whole point of the laziness
+        is that a local sensitivity analysis leaves this False.
+        """
+        return self._sim_helper is not None
 
     def initialise_sim_helper(self):
         solver = None
@@ -253,7 +367,7 @@ class sobol_SA():
         # inferring it from the file extension when it wasn't supplied.
         model_type = self.model_type
         if model_type is None:
-            model_type = "python" if str(self.model_path).endswith(".py") else "cellml_only"
+            model_type = "python" if str(self.model_path).endswith(".py") else "cellml"
         return get_simulation_helper(
             model_path=self.model_path,
             solver=solver,
@@ -262,6 +376,9 @@ class sobol_SA():
             sim_time=self.sim_time,
             solver_info=self.solver_info,
             pre_time=self.pre_time,
+            use_emulator=self.use_emulator,
+            emulator_dir=self.emulator_dir,
+            out_of_bounds=self.emulator_settings.get('out_of_bounds', 'error'),
         )
 
     def set_output_dir(self, path):
@@ -274,7 +391,7 @@ class sobol_SA():
 
         problem = {
             'num_vars': self.num_params,
-            'names': self.SA_info["param_names"],
+            'names': self._param_labels(),
             'bounds': list(zip(self.SA_info["param_mins"], self.SA_info["param_maxs"]))
         }
         self.problem = problem
@@ -291,7 +408,9 @@ class sobol_SA():
         return samples
     
     def run_model_and_get_results(self, param_vals):
-        self.sim_helper.set_param_vals(self.SA_info["param_names"], param_vals)
+        self.sim_helper.set_param_vals(
+            self.SA_info["param_names"],
+            expand_modifier_param_vals(self.param_id_info, param_vals))
         self.sim_helper.reset_states()
         success = self.sim_helper.run()
         if not success:
@@ -328,8 +447,15 @@ class sobol_SA():
         local_outputs = []
 
         # Create a single progress bar for rank 0 only to avoid noisy output from all ranks
+        emulates_features = bool(getattr(self.sim_helper, 'emulates_features', False))
+
         with tqdm(total=len(local_samples), desc=f"Rank {self.rank}", position=self.rank, leave=True, disable=self.rank != 0) as pbar:
             for param_vals in local_samples:
+
+                if emulates_features:
+                    # The emulator's input is theta itself, before the expansion below turns a
+                    # modifier's single slot into one value per model parameter.
+                    self.sim_helper.set_theta(param_vals)
 
                 # Delegate the multi-experiment / multi-subexperiment loop to
                 # ProtocolExecutor.  continue_on_failure=True preserves existing
@@ -338,7 +464,7 @@ class sobol_SA():
                 _success, operands_outputs_dict, _, _ = self._protocol_executor.run_protocol(
                     self.protocol_info,
                     id_param_names=self.param_id_info["param_names"],
-                    id_param_vals=param_vals,
+                    id_param_vals=expand_modifier_param_vals(self.param_id_info, param_vals),
                     result_variables=self.obs_info["operands"],
                     continue_on_failure=True,
                 )
@@ -346,6 +472,14 @@ class sobol_SA():
                     self._rank0_print(
                         f"[MPI Rank {self.rank}] Simulation failed for params: {param_vals}"
                     )
+
+                if emulates_features:
+                    # The emulator predicts each data_item's feature directly, so the operation
+                    # must not run again: it would reduce an already-reduced scalar, and
+                    # max_minus_min of one value is zero.
+                    local_outputs.append(list(self.sim_helper.get_predicted_features()))
+                    pbar.update(1)
+                    continue
 
                 features = []
                 for j in range(len(self.obs_info["operations"])):
@@ -463,12 +597,12 @@ class sobol_SA():
             # output_name = self.obs_info["names_for_plotting"][i] if hasattr(self, "obs_info") else f"Output_{i}"
 
             # Set figure width adaptively based on number of parameters (xticks)
-            fig_width = max(12, 1.0 * len(self.SA_info["param_names"]))
+            fig_width = max(12, 1.0 * len(self._param_labels()))
             plt.figure(figsize=(fig_width, 5))
             plt.bar(x - 0.2, S1, width=0.4, label='First-order', color='blue', alpha=0.7)
             plt.bar(x + 0.2, ST, width=0.4, label='Total-order', color='red', alpha=0.7)
 
-            plt.xticks(x, self.SA_info["param_names"], rotation=45, fontsize=8)
+            plt.xticks(x, self._param_labels(), rotation=45, fontsize=8)
             plt.ylabel('Sensitivity Index')
             plt.title(rf'Sobol Sensitivity - {output_name}')
             plt.legend()
@@ -496,9 +630,9 @@ class sobol_SA():
             output_name = rf"{self.obs_info['names_for_plotting'][i]} - experiment{self.obs_info['experiment_idxs'][i]}, subexperiment{self.obs_info['subexperiment_idxs'][i]}"
 
             # plt.figure(figsize=(6, 5))
-            fig_width = max(6, 1.0 * len(self.SA_info["param_names"]))
+            fig_width = max(6, 1.0 * len(self._param_labels()))
             plt.figure(figsize=(fig_width, fig_width))
-            sns.heatmap(S2, annot=True, fmt=".2f", xticklabels=self.SA_info["param_names"], yticklabels=self.SA_info["param_names"], cmap="coolwarm")
+            sns.heatmap(S2, annot=True, fmt=".2f", xticklabels=self._param_labels(), yticklabels=self._param_labels(), cmap="coolwarm")
             plt.title(rf"2nd order Sobol Indices - {output_name}")
             plt.tight_layout()
 
@@ -557,7 +691,7 @@ class sobol_SA():
         Generates 2D heatmaps for first-order (S1) and total-order (ST) Sobol indices.
         
         The heatmaps show:
-        Y-axis: Input Parameters (self.SA_info["param_names"])
+        Y-axis: Input Parameters (self._param_labels())
         X-axis: Model Outputs (concatenated names from self.obs_info)
         Color: Sobol Index Value
         
@@ -655,7 +789,7 @@ class sobol_SA():
             S2_all (np.ndarray): Second-order Sobol indices, shape (n_outputs, n_params, n_params)
         """
         n_outputs = S1_all.shape[0]
-        param_names = self.SA_info["param_names"]
+        param_names = self._param_labels()
 
         # Prepare output/feature names. Two data_items that resolve to the same
         # (name_for_plotting, experiment, subexperiment) produce identical column

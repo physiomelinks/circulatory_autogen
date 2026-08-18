@@ -20,8 +20,12 @@ root_dir = os.path.join(os.path.dirname(__file__), '../..')
 # ---------------------------------------------------------------------------
 
 # Recognised data_item ``data_type`` values. ``timeseries`` is a deprecated
-# alias for ``series`` and is intentionally not advertised here.
-VALID_DATA_TYPES = ("constant", "series", "frequency", "prob_dist")
+# alias for ``series`` and is intentionally not advertised here. Nor is
+# ``prob_dist``, which was removed in issue #421: it described the shape of the
+# ground truth rather than of the data, and an observable compared against a
+# distribution is an ordinary ``constant`` whose cost_type takes
+# ``prob_dist_params``.
+VALID_DATA_TYPES = ("constant", "series", "frequency")
 
 # Recognised ``plot_type`` values. ``None`` / ``""`` means "draw no marker".
 VALID_PLOT_TYPES = (
@@ -31,6 +35,27 @@ VALID_PLOT_TYPES = (
     "series",
     "frequency",
 )
+
+
+# The cost function a data_item gets when it does not name one. Single source of truth:
+# PrimitiveParsers reads it rather than restating the literal, OMEXParsers.DEFAULT_COST_TYPE
+# aliases it, and a front-end introspects it via get_default_cost_type() to label an empty
+# cost-type picker honestly (CUFLynx #212) instead of hardcoding a fourth answer.
+#
+# gaussian_MLE, not MSE: CA used to give three different answers for the same question --
+# MSE for an ordinary data_item, gaussian_MLE on OMEX import, and gaussian_MLE forced for
+# Bayesian/MCMC (ensure_mle_cost_type_for_bayesian_inner). A default that changes depending
+# on which door you came in is not a default. gaussian_MLE is the one that is already right
+# for the probabilistic paths, and it uses the std a data_item is required to carry anyway.
+DEFAULT_COST_TYPE = "gaussian_MLE"
+
+# What the default used to be, so a run can tell the user what changed and how to pin it.
+PREVIOUS_DEFAULT_COST_TYPE = "MSE"
+
+
+def get_default_cost_type():
+    """The ``cost_type`` a data_item gets when it does not specify one."""
+    return DEFAULT_COST_TYPE
 
 
 def get_valid_data_types():
@@ -149,13 +174,18 @@ class ObsDataCreator:
         required_keys = ['variable', 'name_for_plotting', 'operands',
                          'unit', 'value', 'std']
         required_series_keys = ['obs_dt']
-        optional_keys = ['name_for_plotting', 'operation', 'operation_kwargs', 'weight', 'std',
-                         'experiment_idx', 'subexperiment_idx']
+        optional_keys = ['name_for_plotting', 'operation', 'operation_kwargs', 'cost_kwargs',
+                         'weight', 'std', 'experiment_idx', 'subexperiment_idx']
 
         if 'operation_kwargs' in entry and not isinstance(entry['operation_kwargs'], dict):
             raise ValueError(
                 f"'operation_kwargs' must be a dict of keyword arguments for the 'operation' "
                 f"func, got {type(entry['operation_kwargs']).__name__}.")
+
+        if 'cost_kwargs' in entry and not isinstance(entry['cost_kwargs'], dict):
+            raise ValueError(
+                f"'cost_kwargs' must be a dict of keyword arguments for the 'cost_type' "
+                f"func, got {type(entry['cost_kwargs']).__name__}.")
 
         if 'name_for_plotting' not in entry:
             entry['name_for_plotting'] = entry['variable']
