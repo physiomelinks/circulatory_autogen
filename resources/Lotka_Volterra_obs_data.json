@@ -15,7 +15,7 @@
   "data_items": [
     {
       "variable": "Lotka_Volterra/x",
-      "name_for_plotting": "x_{max}",
+      "name_for_plotting": "x",
       "data_type": "constant",
       "operation": "max",
       "operands": [
@@ -31,7 +31,7 @@
     },
     {
       "variable": "Lotka_Volterra/y",
-      "name_for_plotting": "y_{max}",
+      "name_for_plotting": "y",
       "data_type": "constant",
       "operation": "max",
       "operands": [

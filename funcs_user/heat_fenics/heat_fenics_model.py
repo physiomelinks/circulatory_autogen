@@ -418,6 +418,12 @@ class HeatFEniCSxModel:
         set_bc = fem_petsc.set_bc
 
         self.reset()
+        # Cleared here rather than in reset(), so they survive the reset_and_clear() the
+        # protocol executor performs after each experiment but never outlive the run that
+        # drew them: a solve that raises below leaves no snapshots rather than stale ones.
+        self._snapshot_mid = None
+        self._snapshot_final = None
+        self._snapshot_mid_time = None
 
         # k changes between runs, so the matrix is rebuilt here rather than in init_solver.
         # It is ~n_dofs entries at this size, so the cost is noise next to the form
@@ -504,13 +510,25 @@ class HeatFEniCSxModel:
     # --- optional ----------------------------------------------------------------------
 
     def reset(self):
-        """Back to the initial condition, with an empty set of recorded samples."""
+        """Put the solver back to the state a fresh run starts from.
+
+        Optional. Implement it when your solver carries anything between runs that a
+        new run must not inherit -- an evolved field, an accumulating buffer, a
+        parameter you mutated. libCUFLynx calls it through ``reset_and_clear()``
+        between experiments and whenever it returns a helper to its default state, so
+        a calibration reusing one instance for thousands of samples gets an identical
+        starting point every time. Here that means the initial temperature field and
+        empty sample buffers.
+
+        Restore what the *next* run needs; do not discard what the *last* run
+        produced. Results and anything ``extra_plots()`` draws are read after a run
+        finishes, often after this has been called -- which is why the field
+        snapshots survive it, and why ``_solve`` clears them at the start of a solve
+        instead.
+        """
         self._set_initial_condition()
         self._samples = {name: np.zeros(self.num_steps + 1, dtype=float)
                          for name in self.output_names}
-        self._snapshot_mid = None
-        self._snapshot_final = None
-        self._snapshot_mid_time = None
 
     def extra_plots(self):
         """Two figures: the field at mid-time and at the final time.
@@ -522,8 +540,11 @@ class HeatFEniCSxModel:
         from matplotlib.figure import Figure  # lazy: plotting is not needed to simulate
 
         if self._snapshot_final is None:
-            raise RuntimeError('extra_plots() was called before a successful run(); there '
-                               'are no fields to draw yet')
+            # No run, or a run that diverged: reset() clears the snapshots and run() returns
+            # False without setting them. Nothing to draw is not an error -- raising here
+            # once turned a diverged parameter set into "Simulation failed", with a message
+            # about solver tolerances that pointed nowhere near the cause.
+            return []
 
         figures = []
         panels = (

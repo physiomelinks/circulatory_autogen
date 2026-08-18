@@ -8,7 +8,7 @@
   "data_items": [
     {
       "variable": "near probe mean",
-      "name_for_plotting": "mean(T_{p1})",
+      "name_for_plotting": "T_{p1}",
       "data_type": "constant",
       "operation": "mean",
       "operands": [
@@ -23,7 +23,7 @@
     },
     {
       "variable": "near probe minimum",
-      "name_for_plotting": "min(T_{p1})",
+      "name_for_plotting": "T_{p1}",
       "data_type": "constant",
       "operation": "min",
       "operands": [
@@ -38,7 +38,7 @@
     },
     {
       "variable": "centre probe mean",
-      "name_for_plotting": "mean(T_{p2})",
+      "name_for_plotting": "T_{p2}",
       "data_type": "constant",
       "operation": "mean",
       "operands": [
@@ -53,7 +53,7 @@
     },
     {
       "variable": "centre probe minimum",
-      "name_for_plotting": "min(T_{p2})",
+      "name_for_plotting": "T_{p2}",
       "data_type": "constant",
       "operation": "min",
       "operands": [
@@ -68,7 +68,7 @@
     },
     {
       "variable": "far probe mean",
-      "name_for_plotting": "mean(T_{p3})",
+      "name_for_plotting": "T_{p3}",
       "data_type": "constant",
       "operation": "mean",
       "operands": [
@@ -83,7 +83,7 @@
     },
     {
       "variable": "far probe minimum",
-      "name_for_plotting": "min(T_{p3})",
+      "name_for_plotting": "T_{p3}",
       "data_type": "constant",
       "operation": "min",
       "operands": [

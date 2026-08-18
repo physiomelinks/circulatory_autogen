@@ -4,7 +4,7 @@
 `EmulatorBundle` is the saved artefact plus the checks that decide whether it may be
 used. See [Emulators](../emulators.md) for the workflow.
 
-::: emulators.emulator_trainer.EmulatorTrainer
+::: libcuflynx.emulators.emulator_trainer.EmulatorTrainer
     options:
       members:
         - init_from_dict
@@ -14,11 +14,11 @@ used. See [Emulators](../emulators.md) for the workflow.
         - train
         - feature_labels
 
-::: emulators.emulator_trainer.emulator_model_names
+::: libcuflynx.emulators.emulator_trainer.emulator_model_names
 
-::: emulators.emulator_trainer.resolve_emulator_dir
+::: libcuflynx.emulators.emulator_trainer.resolve_emulator_dir
 
-::: emulators.emulator_bundle.EmulatorBundle
+::: libcuflynx.emulators.emulator_bundle.EmulatorBundle
     options:
       members:
         - predict
@@ -29,12 +29,12 @@ used. See [Emulators](../emulators.md) for the workflow.
         - load
         - make_scale
 
-::: emulators.emulator_bundle.fingerprint
+::: libcuflynx.emulators.emulator_bundle.fingerprint
 
 The emulator is used through the ordinary simulation-helper interface, so every analysis
 reaches it the same way it reaches a solver.
 
-::: solver_wrappers.emulator_solver_helper.SimulationHelper
+::: libcuflynx.solver_wrappers.emulator_solver_helper.SimulationHelper
     options:
       members:
         - set_theta

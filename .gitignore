@@ -29,7 +29,10 @@ resources/simple_physiological_prediction_variables.csv
 resources/test_init_states_obs_data.json
 resources/test_init_states_params_for_id.csv
 resources/vessel_array_module_files.csv
-src/circulatory_autogen.egg-info/
+# setuptools build metadata. The rule was pinned to the old distribution name, so renaming the
+# project to libcuflynx made `pip install -e .` (a prerequisite for every user_run_files
+# launcher now) drop an untracked src/libcuflynx.egg-info/ into every checkout. Match any name.
+src/*.egg-info/
 src/nohup.out
 tests/TEST_REFACTORING_SUMMARY.md
 tests/test_outputs/
@@ -39,7 +42,6 @@ tmp/
 tutorial/interactive/.ipynb_checkpoints/
 tutorial/interactive/generation_and_calibration.py
 tutorial/site/
-user_run_files/plot_param_id_without_autogen.sh
 
 # Local benchmark runner outputs
 benchmarks/_results/

@@ -25,8 +25,8 @@ import textwrap
 import numpy as np
 import pytest
 
-from param_id.paramID import OpencorMCMC
-from utilities.mpi_utils import LAUNCHER_ENV_VARS
+from libcuflynx.param_id.paramID import OpencorMCMC
+from libcuflynx.utilities.mpi_utils import LAUNCHER_ENV_VARS
 
 pymc_installed = True
 try:
@@ -99,7 +99,7 @@ def test_each_rank_gets_its_own_walkers():
 def test_the_split_matches_the_number_of_chains_the_backend_will_run():
     """_walkers_for_rank and PyMCSampler.chains_for_rank decide from the same two numbers; if
     they disagree a rank starts chains from another rank's positions."""
-    from param_id.pymc_backend import PyMCSampler
+    from libcuflynx.param_id.pymc_backend import PyMCSampler
 
     positions = np.zeros((32, NUM_PARAMS))
     for num_procs in (1, 2, 4, 5, 64):
@@ -179,7 +179,7 @@ def _run_with(monkeypatch, engine, rank, size, broadcast=None, tmp_path=None):
     """
     import schwimmbad
 
-    import param_id.paramID as paramID
+    import libcuflynx.param_id.paramID as paramID
 
     pools = []
 
@@ -254,8 +254,8 @@ sys.path.insert(0, {src!r})
 LIBRARY, NUM_WALKERS, NUM_STEPS = {library!r}, {num_walkers}, 6
 
 import numpy as np
-import param_id.paramID as paramID
-from param_id.paramID import OpencorMCMC
+import libcuflynx.param_id.paramID as paramID
+from libcuflynx.param_id.paramID import OpencorMCMC
 
 
 class Norm:

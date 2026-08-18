@@ -13,8 +13,8 @@ The Circulatory_Autogen project (`[project_dir]`) contains five folders as prese
 - **resources**: Contains example config csv files that define models (`[file_prefix]_vessel_array.csv`), parameters (`[file_prefix]_parameters.csv`), parameters to calibrate (`[file_prefix]_params_for_id.csv`), and ground truth data to calibrate towards (`[file_prefix]_obs_data.json`) for generating and calibrating models.
 - **src**: Containts the source code for autogeneration, parameter id, and other utilities.
 - **user_run_files**: Includes bash run files for the user and the `user_inputs.yaml` file, which is the main config file for the run settings.
-- **funcs_user**: Contains user defined functions for calculating ouput features from model outputs, for fitting to ground truths. The corresponding src file, which contains other available functions to use in the parameter id is `[project_dir]/src/param_id/operation_funcs.py`. This directory also contains functions for user defined cost functions.
-- **module_config_user**: Contains user defined units, CellML modules, and configuration files for those modules. This allows the user to create their own modules and specify how they can be coupled with other modules. The corresponding source directory, which contains all built-in modules and configs, is `[project_dir]/src/generators/resources/`.  
+- **funcs_user**: Where *you* put your own functions for calculating output features from model outputs (operations), your own cost functions, and your own modifier functions. Name the file in `user_inputs.yaml` with `operation_funcs_external_path` / `cost_funcs_external_path` / `modifier_funcs_external_path`; copy one of the `*_funcs_example.py` templates to start, and see `funcs_user/README.md`. The built-in operations and costs ship inside the package, at `[project_dir]/src/libcuflynx/param_id/operation_funcs.py` and `[project_dir]/src/libcuflynx/funcs/`.
+- **module_config_user**: Contains user defined units, CellML modules, and configuration files for those modules. This allows the user to create their own modules and specify how they can be coupled with other modules. The corresponding source directory, which contains all built-in modules and configs, is `[project_dir]/src/libcuflynx/generators/resources/` in a checkout, and ships inside the installed package as `libcuflynx/generators/resources/`.  
 
 !!! Note 
     For recommended use, the user should create a separate `[CA_user_dir]` for the specific model they are creating. In this dir there should be the following:
@@ -64,7 +64,7 @@ The following are the steps for model autogeneration.
     As shown below, this will create CellML files for the generated model and test that the simulation runs. Consequently, If there are no errors, it shows the *"Model generation has been successful."* message at the end.
 
     !!! Note 
-    Alternatively, use an IDE, set the Python interpreter to `python_path` (see [Getting Started](getting-started.md)), and run `script_generate_with_new_architecture.py` from `[project_dir]/src/scripts`.
+    Alternatively, use an IDE, set the Python interpreter to `python_path` (see [Getting Started](getting-started.md)), and run `python -m libcuflynx.scripts.script_generate_with_new_architecture` (the module lives at `[project_dir]/src/libcuflynx/scripts/` in a checkout).
 
     ![Run autogeneration output](images/run-autogeneration.png)
 

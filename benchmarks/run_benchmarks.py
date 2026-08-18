@@ -45,7 +45,8 @@ import time
 import traceback
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(ROOT, "src"))
+# The repo root, not the package: `benchmarks` is a repo directory that is not part of
+# the libcuflynx distribution, and this script is run as a file from anywhere.
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 

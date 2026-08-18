@@ -17,10 +17,10 @@ import json
 import numpy as np
 import pytest
 
-from funcs_user import cost_funcs_user
-from param_id.cost_kwargs import call_cost_func, ground_truth_param_name
-from parsers.PrimitiveParsers import ObsAndParamDataParser
-from utilities.obs_data_helpers import VALID_DATA_TYPES
+from libcuflynx.funcs import cost_funcs_user
+from libcuflynx.param_id.cost_kwargs import call_cost_func, ground_truth_param_name
+from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser
+from libcuflynx.utilities.obs_data_helpers import VALID_DATA_TYPES
 
 
 DATA_POINTS = [1.05, 0.99, 1.10, 0.95, 1.02, 3.95, 4.10, 4.02, 3.90, 4.08]
@@ -238,8 +238,8 @@ def test_cost_calc_scores_a_distribution_item_in_the_constant_loop(tmp_path):
     """End to end through the cost, mixing both ground truth shapes in one obs_data: the KDE
     item must be scored, and scored against its samples rather than against the nan standing in
     for the value it does not have."""
-    from param_id.paramID import OpencorParamID
-    from parsers.PrimitiveParsers import ObsAndParamDataParser, scriptFunctionParser
+    from libcuflynx.param_id.paramID import OpencorParamID
+    from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser, scriptFunctionParser
 
     parser = ObsAndParamDataParser()
     parsed = parser.parse_obs_data_json(
@@ -271,8 +271,8 @@ def test_a_distribution_cost_cannot_be_differentiated_symbolically(tmp_path):
     """Its density is built from numbers -- scipy's gaussian_kde cannot take a symbol. Silently
     returning something would be worse than raising: the nan standing in for `value` would
     propagate into a gradient that looks like a failed solve."""
-    from param_id.paramID import OpencorParamID
-    from parsers.PrimitiveParsers import ObsAndParamDataParser, scriptFunctionParser
+    from libcuflynx.param_id.paramID import OpencorParamID
+    from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser, scriptFunctionParser
 
     ca = pytest.importorskip('casadi')
 
@@ -300,7 +300,7 @@ def test_a_distribution_cost_cannot_be_differentiated_symbolically(tmp_path):
 @pytest.mark.unit
 def test_an_unknown_cost_kwarg_is_rejected(tmp_path):
     obs_info = _parse([_kde_item(cost_kwargs={"bandwith": 0.1})], tmp_path)
-    from param_id.cost_kwargs import validate_cost_kwargs
+    from libcuflynx.param_id.cost_kwargs import validate_cost_kwargs
 
     funcs = cost_funcs_user.get_cost_funcs_dict_for_mode("numpy")
     with pytest.raises(ValueError, match="bandwith"):

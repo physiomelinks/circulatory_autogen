@@ -27,12 +27,8 @@ import numpy as np
 from pathlib import Path
 from mpi4py import MPI
 
-# Add src to path
-root_dir = Path(__file__).parent.parent
-sys.path.append(str(root_dir / 'src'))
-
-from scripts.param_id_run_script import run_param_id
-from parsers.PrimitiveParsers import YamlFileParser
+from libcuflynx.scripts.param_id_run_script import run_param_id
+from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
 
 
 class OptimiserComparison:

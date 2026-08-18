@@ -41,14 +41,9 @@ import time
 import numpy as np
 import pytest
 
-_TEST_ROOT = os.path.join(os.path.dirname(__file__), '..')
-_SRC_DIR = os.path.join(_TEST_ROOT, 'src')
-if _SRC_DIR not in sys.path:
-    sys.path.insert(0, _SRC_DIR)
-
-from solver_wrappers import get_simulation_helper
-from scripts.script_generate_with_new_architecture import generate_with_new_architecture
-from utilities.utility_funcs import get_default_inp_data_dict
+from libcuflynx.solver_wrappers import get_simulation_helper
+from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
+from libcuflynx.utilities.utility_funcs import get_default_inp_data_dict
 
 _DT = 0.001
 _SIM_TIME = 1.0

@@ -13,9 +13,9 @@ import os
 import numpy as np
 import pytest
 
-from emulators.emulator_bundle import EmulatorBundle, fingerprint
-from param_id.paramID import CVS0DParamID, emulated_feature_labels
-from parsers.PrimitiveParsers import (ObsAndParamDataParser, YamlFileParser,
+from libcuflynx.emulators.emulator_bundle import EmulatorBundle, fingerprint
+from libcuflynx.param_id.paramID import CVS0DParamID, emulated_feature_labels
+from libcuflynx.parsers.PrimitiveParsers import (ObsAndParamDataParser, YamlFileParser,
                                       param_entry_labels)
 
 pytestmark = pytest.mark.unit
@@ -113,7 +113,7 @@ def _write_bundle(config, weights=None, feature_r2=None, fingerprint_override=No
 
 def test_helper_returns_one_predicted_feature_per_data_item(base_user_inputs, resources_dir,
                                                             tmp_path):
-    from solver_wrappers import get_simulation_helper
+    from libcuflynx.solver_wrappers import get_simulation_helper
 
     config = _config(base_user_inputs, resources_dir, tmp_path)
     bundle, obs_info, param_id_info = _write_bundle(config)
@@ -144,7 +144,7 @@ def test_helper_keeps_the_time_axis_the_executor_relies_on(base_user_inputs, res
                                                            tmp_path):
     """Nothing is integrated, but the protocol executor still concatenates tSim per
     sub-experiment and drops the duplicated first sample. A single-point axis would break it."""
-    from solver_wrappers import get_simulation_helper
+    from libcuflynx.solver_wrappers import get_simulation_helper
 
     config = _config(base_user_inputs, resources_dir, tmp_path)
     _write_bundle(config)
@@ -163,7 +163,7 @@ def test_helper_keeps_the_time_axis_the_executor_relies_on(base_user_inputs, res
 
 
 def test_helper_refuses_to_invent_traces(base_user_inputs, resources_dir, tmp_path):
-    from solver_wrappers import get_simulation_helper
+    from libcuflynx.solver_wrappers import get_simulation_helper
 
     config = _config(base_user_inputs, resources_dir, tmp_path)
     _write_bundle(config)
@@ -181,7 +181,7 @@ def test_helper_refuses_to_invent_traces(base_user_inputs, resources_dir, tmp_pa
 def test_helper_refuses_a_parameter_it_cannot_see(base_user_inputs, resources_dir, tmp_path):
     """Silently ignoring a set_param_vals it cannot honour would be a wrong answer, not an
     approximation: the caller believes it changed something."""
-    from solver_wrappers import get_simulation_helper
+    from libcuflynx.solver_wrappers import get_simulation_helper
 
     config = _config(base_user_inputs, resources_dir, tmp_path)
     _write_bundle(config)
@@ -198,7 +198,7 @@ def test_helper_serves_defaults_recorded_at_training_time(base_user_inputs, reso
                                                           tmp_path):
     """x0 and modifier baselines are read before anything simulates, and the emulator has no
     model to read them from -- so training records them and the helper serves them."""
-    from solver_wrappers import get_simulation_helper
+    from libcuflynx.solver_wrappers import get_simulation_helper
 
     config = _config(base_user_inputs, resources_dir, tmp_path)
     _, _, param_id_info = _write_bundle(config)
@@ -296,7 +296,7 @@ def test_a_calibration_on_an_emulator_still_writes_its_observable_errors(
     engine = pid.param_id
     engine.best_param_vals = np.asarray(engine.param_id_info['param_mins'], dtype=float) * 1.2
 
-    from param_id.plot_outputs import ParamIDPlotOutputs
+    from libcuflynx.param_id.plot_outputs import ParamIDPlotOutputs
 
     plotter = ParamIDPlotOutputs(pid)
     percent, std = plotter.emulator_error_vectors()
@@ -360,7 +360,7 @@ def test_do_ad_is_turned_off_for_an_emulator(base_user_inputs, resources_dir, tm
 
 def test_a_stale_emulator_is_refused_at_setup(base_user_inputs, resources_dir, tmp_path):
     """Refused when the engine is built, not on the thousandth cost evaluation."""
-    from emulators.emulator_bundle import EmulatorQualityError
+    from libcuflynx.emulators.emulator_bundle import EmulatorQualityError
 
     config = _config(base_user_inputs, resources_dir, tmp_path)
     _write_bundle(config, fingerprint_override='not-this-model')
@@ -369,7 +369,7 @@ def test_a_stale_emulator_is_refused_at_setup(base_user_inputs, resources_dir, t
 
 
 def test_a_poor_emulator_is_refused_at_setup(base_user_inputs, resources_dir, tmp_path):
-    from emulators.emulator_bundle import EmulatorQualityError
+    from libcuflynx.emulators.emulator_bundle import EmulatorQualityError
 
     config = _config(base_user_inputs, resources_dir, tmp_path)
     config['emulator_settings']['min_r2'] = 0.95
@@ -400,7 +400,7 @@ def test_sobol_sensitivity_runs_on_the_emulator(base_user_inputs, resources_dir,
     path's, so it needs its own skip -- and this is what proves both were changed. With the stub
     emulator no model is compiled at all, which is also the point.
     """
-    from sensitivity_analysis.sensitivityAnalysis import SensitivityAnalysis
+    from libcuflynx.sensitivity_analysis.sensitivityAnalysis import SensitivityAnalysis
 
     config = _config(base_user_inputs, resources_dir, tmp_path)
     bundle, obs_info, param_id_info = _write_bundle(config)

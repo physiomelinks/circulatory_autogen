@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from parsers.PrimitiveParsers import ObsAndParamDataParser
+from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser
 
 
 # ---------------------------------------------------------------------------
@@ -77,7 +77,7 @@ def test_a_trailing_constant_is_actually_scored(tmp_path):
     a weighted MSE must be non-zero. Dropped, the cost is exactly zero while the
     denominator still counts it -- a fit that looks perfect because the term
     vanished."""
-    from param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import OpencorParamID
 
     items = [_series_item("s1", weight=0.0), _series_item("s2", weight=0.0),
              _const_item("c1", value=5.0, std=1.0, weight=1.0)]
@@ -88,7 +88,7 @@ def test_a_trailing_constant_is_actually_scored(tmp_path):
     pid.protocol_info = protocol_info
     pid.cost_type = obs_info["cost_type"]
     pid._num_weighted_obs_by_exp_sub = None
-    from parsers.PrimitiveParsers import scriptFunctionParser
+    from libcuflynx.parsers.PrimitiveParsers import scriptFunctionParser
     pid.cost_funcs_dict = scriptFunctionParser().get_cost_funcs_dict("numpy")
     pid.cost_funcs_dict_symbolic = pid.cost_funcs_dict
 
@@ -158,8 +158,8 @@ def test_a_series_is_scored_too(tmp_path):
     the const loop's stale obs_idx when a constant came first. CI's param_id job
     caught it; nothing here did.
     """
-    from param_id.paramID import OpencorParamID
-    from parsers.PrimitiveParsers import scriptFunctionParser
+    from libcuflynx.param_id.paramID import OpencorParamID
+    from libcuflynx.parsers.PrimitiveParsers import scriptFunctionParser
 
     # A constant first, so a stale obs_idx would be in scope and plausible.
     items = [_const_item("c1", value=5.0, weight=0.0),

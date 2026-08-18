@@ -24,8 +24,8 @@ import time
 import numpy as np
 import pytest
 
-from scripts.script_generate_with_new_architecture import generate_with_new_architecture
-from solver_wrappers import get_simulation_helper
+from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
+from libcuflynx.solver_wrappers import get_simulation_helper
 
 # The coupled pipeline. Kept as module constants so the AADC tape, the CasADi graph and the
 # numpy reference below all integrate exactly the same system.

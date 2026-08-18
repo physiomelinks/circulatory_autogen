@@ -2,11 +2,68 @@
 
 ## Prerequisites
 
-- **Python** 3.9 or newer recommended (the package requires Python ≥3.7 per `pyproject.toml`; use the same interpreter for the whole project).
+- **Python** 3.9 or newer — `pyproject.toml` declares `requires-python = ">=3.9"`, and the package really does need it (`importlib.resources.files`). Use the same interpreter for the whole project.
 - **Git**, to clone the repository.
 - **pip** (usually bundled with Python).
 - **MPI** (optional): needed only if you run parameter identification or sensitivity analysis with multiple processes. See [MPI and system libraries](#mpi-and-system-libraries) below.
 - **Compiler / SUNDIALS** (optional on Linux): Myokit’s CVODE backend may need `build-essential` and `libsundials-dev` (or your OS equivalent) so extensions can compile when first used.
+
+## Install the package
+
+The repository is called **`circulatory_autogen`**; the package it installs is called
+**`libcuflynx`**. Both names refer to the same project — papers and the repository use the
+first, PyPI and every `import` uses the second.
+
+```
+pip install libcuflynx
+```
+
+That is all that is needed to import the library, run the console commands
+(`cuflynx-generate`, `cuflynx-param-id`, …) and work from any directory — no checkout, and no
+import path to set up. Optional capabilities are extras, because they are large;
+see the size table in the [README](https://github.com/physiomelinks/circulatory_autogen#installing-and-what-each-extra-costs):
+
+```
+pip install "libcuflynx[mpi]"        # multi-rank runs under mpiexec (needs a system MPI)
+pip install "libcuflynx[casadi]"     # model_type: casadi_python, symbolic AD gradients
+pip install "libcuflynx[uq]"         # the pyMC sampler
+pip install "libcuflynx[emulation]"  # surrogate models (pulls in torch; big)
+```
+
+!!! note "The flat imports are deprecated"
+    `from param_id.paramID import CVS0DParamID` still works in 0.4.0 with a
+    `DeprecationWarning`, and is **removed in 0.5.0**. Use
+    `from libcuflynx.param_id.paramID import CVS0DParamID`.
+
+### Where an installed libcuflynx reads and writes: `CUFLYNX_USER_DIR`
+
+Every stage needs a **user directory** — the one holding `user_run_files/user_inputs.yaml`
+and, unless the config overrides them, `resources/`, `module_config_user/`, `funcs_user/`,
+`generated_models/` and `param_id_output/`. It is chosen in this order:
+
+1. **`$CUFLYNX_USER_DIR`**, if set — an absolute path (`~` is expanded).
+2. the **circulatory_autogen checkout** this `libcuflynx` is being run from, if it is one
+   (including `pip install -e .`), so the developer workflow needs no configuration;
+3. otherwise the **current working directory**.
+
+After a plain `pip install libcuflynx` there is no checkout, so rule 2 never fires: either
+run from your working directory, or point the variable at it, which is the only way to run
+from anywhere else without editing a config.
+
+```
+export CUFLYNX_USER_DIR=/path/to/my_study     # holds user_run_files/, resources/, …
+cuflynx-generate False
+```
+
+Nothing is ever written inside the installed package — that was issue #431. Individual
+directories can still be overridden per-run with `resources_dir`, `generated_models_dir`,
+`param_id_output_dir` and `external_modules_dir` in `user_inputs.yaml`; `CUFLYNX_USER_DIR`
+is what the defaults hang off when the config names none.
+
+The rest of this page sets up a **checkout**, which is what the tutorial's shell-script
+workflow (`user_run_files/*.sh`, `resources/`, `module_config_user/`) and any development work
+need. If you only want to drive the library from Python, the `pip install` above is enough —
+skip to [Model Generation and Simulation](model-generation-simulation.md).
 
 ## Clone the repository
 
@@ -95,7 +152,7 @@ The authoritative lists are `[project.dependencies]` and `[project.optional-depe
         (`Analyser.model()` became `Analyser.analyserModel()`, and `Generator.implementationCode()`
         now takes the model and profile as arguments) and also changed generated-Python output and
         unit flattening. The renames are handled by shims in
-        `src/utilities/libcellml_helper_funcs.py`, but the code-generation and unit changes are a
+        `src/libcuflynx/utilities/libcellml_helper_funcs.py`, but the code-generation and unit changes are a
         real migration that has not been done yet, so the pin stays until it is.
 
         **If you already have libCellML 0.7.0 installed**, `pip install -e ".[dev]"` will silently
@@ -126,15 +183,23 @@ The shell scripts under `user_run_files/` (`run_param_id.sh`, `run_autogeneratio
 
 **5. Run scripts**
 
-With the venv activated (if you use one), run Python from `[project_dir]` as usual, for example:
+With the project installed, the console commands are on your `PATH` and can be run from any
+directory: `cuflynx-generate`, `cuflynx-param-id`, `cuflynx-sensitivity`,
+`cuflynx-identifiability`, `cuflynx-train-emulator`, `cuflynx-plot` (and
+`cuflynx-sequential-param-id`, which is declared but not yet implemented). Every one of them
+reads `user_run_files/user_inputs.yaml` and takes `--help`.
+
+The other scripts that ship in the package are run as modules, for example:
 
 ```
-python src/scripts/<script_name>.py
+python -m libcuflynx.scripts.<script_name>
 ```
 
-or use the shell helper for the same stage, e.g. `cd user_run_files && ./run_autogeneration.sh`.
+or use the shell helper for the same stage, e.g. `cd user_run_files && ./run_autogeneration.sh`
+(each helper invokes the matching console command, so the editable install above is a
+prerequisite for them).
 
-For a notebook-oriented walkthrough, see `tutorial/interactive/generate_and_calibrate.ipynb`.
+For a notebook-oriented walkthrough, see `tutorial/interactive/generation_and_calibration.ipynb`.
 
 **6. Run the tests (optional, but do this after any change)**
 

@@ -9,14 +9,9 @@ import time
 import pytest
 import numpy as np
 
-_TEST_ROOT = os.path.join(os.path.dirname(__file__), '..')
-_SRC_DIR = os.path.join(_TEST_ROOT, 'src')
-if _SRC_DIR not in sys.path:
-    sys.path.insert(0, _SRC_DIR)
-
-from solver_wrappers import get_simulation_helper
-from generators.PythonGenerator import PythonGenerator
-from scripts.script_generate_with_new_architecture import generate_with_new_architecture
+from libcuflynx.solver_wrappers import get_simulation_helper
+from libcuflynx.generators.PythonGenerator import PythonGenerator
+from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
 
 
 def _generate_aadc_model(model_name, param_file, base_user_inputs, temp_dir):
@@ -396,7 +391,7 @@ def test_aadc_backend_warns_it_is_third_party_proprietary(base_user_inputs, reso
     only, so a user must not be able to end up on this backend without being told.
     """
     pytest.importorskip("aadc")
-    import solver_wrappers.aadc_python_solver_helper as aadc_helper
+    import libcuflynx.solver_wrappers.aadc_python_solver_helper as aadc_helper
 
     aadc_dir = os.path.join(temp_generated_models_dir, "aadc_notice")
     os.makedirs(aadc_dir, exist_ok=True)

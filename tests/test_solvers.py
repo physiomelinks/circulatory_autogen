@@ -12,15 +12,11 @@ import pytest
 import numpy as np
 import shutil
 
-# Ensure src is on sys.path
 _TEST_ROOT = os.path.join(os.path.dirname(__file__), '..')
-_SRC_DIR = os.path.join(_TEST_ROOT, 'src')
-if _SRC_DIR not in sys.path:
-    sys.path.insert(0, _SRC_DIR)
 
-from solver_wrappers import get_simulation_helper
-from generators.PythonGenerator import PythonGenerator
-from scripts.script_generate_with_new_architecture import generate_with_new_architecture
+from libcuflynx.solver_wrappers import get_simulation_helper
+from libcuflynx.generators.PythonGenerator import PythonGenerator
+from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
 import xml.etree.ElementTree as ET
 
 # _MODEL_INPUT_FILES and the generated_cellml_model_factory fixture now live in

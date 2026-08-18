@@ -25,10 +25,11 @@ the emulator instead of running the solver.
 ## Installation
 
 The emulator backend is [autoemulate](https://pypi.org/project/autoemulate/), an optional
-dependency (it pulls in torch, gpytorch and lightgbm, and needs Python ≥3.10, <3.13):
+dependency (it pulls in torch, gpytorch and lightgbm — about 750 MB — and needs Python ≥3.10,
+<3.13):
 
 ```bash
-pip install "circulatory_autogen[emulation]"
+pip install "libcuflynx[emulation]"
 ```
 
 Everything else in CA works without it; only `do_emulation` / `use_emulator` need it. CA never
@@ -82,7 +83,7 @@ emulator_settings:
 The available `models` names come from the installed autoemulate and are discoverable in code:
 
 ```python
-from emulators.emulator_trainer import emulator_model_names
+from libcuflynx.emulators.emulator_trainer import emulator_model_names
 print(emulator_model_names())   # GaussianProcessRBF, RadialBasisFunctions, LightGBM, ...
 ```
 
@@ -174,7 +175,7 @@ The statistics say how wrong the emulator is on average; the held-out points say
 ones. Both are read through the bundle:
 
 ```python
-from emulators.emulator_bundle import EmulatorBundle
+from libcuflynx.emulators.emulator_bundle import EmulatorBundle
 bundle = EmulatorBundle.load(emulator_dir)
 
 for row in bundle.error_stats():
@@ -245,8 +246,8 @@ message, when `use_emulator` is set.
 ## From Python
 
 ```python
-from emulators.emulator_trainer import EmulatorTrainer
-from param_id.paramID import CVS0DParamID
+from libcuflynx.emulators.emulator_trainer import EmulatorTrainer
+from libcuflynx.param_id.paramID import CVS0DParamID
 
 inp["do_emulation"] = True
 inp["emulator_settings"] = {"num_train_samples": 200, "models": "GaussianProcessRBF"}
@@ -263,7 +264,7 @@ training runs the real solver even when the config asks for an emulator elsewher
 ## Notes
 
 * The training targets are computed through the **same code path as the cost**
-  (`param_id.fd_backend.observable_features`), so the emulator approximates exactly what your
+  (`libcuflynx.param_id.fd_backend.observable_features`), so the emulator approximates exactly what your
   calibration is fitting rather than a second implementation of it.
 * Parameters are mapped to the unit box and features are standardised before fitting. CA
   parameters routinely span a compliance near `1e-9` and a resistance near `1e8`, and autoemulate

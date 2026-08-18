@@ -29,12 +29,7 @@ import sys
 import numpy as np
 import pytest
 
-_TEST_ROOT = os.path.join(os.path.dirname(__file__), '..')
-_SRC_DIR = os.path.join(_TEST_ROOT, 'src')
-if _SRC_DIR not in sys.path:
-    sys.path.insert(0, _SRC_DIR)
-
-from protocol_runners.protocol_runner import ProtocolRunner
+from libcuflynx.protocol_runners.protocol_runner import ProtocolRunner
 
 # Total horizon and the sub-experiment split used to expose the bug.
 _SIM_TIME = 10.0
@@ -67,7 +62,7 @@ def lotka_volterra_cellml(generated_cellml_model_factory):
 @pytest.fixture(scope="function")
 def lotka_volterra_python(lotka_volterra_cellml, temp_generated_models_dir):
     """Lotka-Volterra Python model (.py) generated from the CellML for the solve_ivp backend."""
-    from generators.PythonGenerator import PythonGenerator
+    from libcuflynx.generators.PythonGenerator import PythonGenerator
 
     generator = PythonGenerator(
         lotka_volterra_cellml,

@@ -163,7 +163,7 @@ def test_the_shipped_obs_data_carries_the_window_its_values_were_computed_on():
 
     # And it still parses -- with no pre_time/sim_time offered, so the file has to be
     # self-sufficient rather than falling back on a yaml's window.
-    from parsers.PrimitiveParsers import ObsAndParamDataParser
+    from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser
 
     parsed = ObsAndParamDataParser().parse_obs_data_json(param_id_obs_path=_OBS_DATA_PATH)
     assert parsed['protocol_info']['pre_times'] == [_SHIPPED_WINDOW['pre_time']]
@@ -376,9 +376,35 @@ def test_extra_plots_returns_two_figures(model):
 
 @pytest.mark.integration
 @pytest.mark.slow
-def test_extra_plots_before_a_run_says_so(model):
-    with pytest.raises(RuntimeError, match='run'):
-        model.extra_plots()
+def test_extra_plots_before_a_run_draws_nothing_rather_than_raising(model):
+    """Nothing to draw is not an error.
+
+    This used to raise, and the exception propagated out through CA's helper as
+    ``Simulation failed: RuntimeError: extra_plots() was called before a successful run()``
+    -- under a banner suggesting a smaller MaximumStep, which pointed nowhere near the
+    cause. A diverged solve is an ordinary event during a calibration (``run()`` reports it
+    by returning False), and decorative output must not decide whether a run succeeded.
+    """
+    assert model.extra_plots() == []
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_the_figures_outlive_the_reset_between_experiments(model):
+    """`reset()` restores what the next run starts from; it must not discard what the last
+    run drew.
+
+    CA's ``protocol_executor`` calls ``reset_and_clear()`` after the last sub-experiment of
+    every experiment, which forwards to this ``reset()``. Clearing the snapshots there meant
+    the figures were destroyed before any caller could collect them -- so the GUI showed no
+    solver plots at all, while every test that ran ``run()`` and ``extra_plots()`` back to
+    back still passed.
+    """
+    assert model.run() is True
+    assert len(model.extra_plots()) == 2
+
+    model.reset()
+    assert len(model.extra_plots()) == 2, "reset() threw away the last run's figures"
 
 
 # ---------------------------------------------------------------------------------------
@@ -444,7 +470,7 @@ def _emulator_config(base_user_inputs, temp_output_dir, temp_generated_models_di
     Nothing here is special-cased for an external model beyond the three keys that name it
     (``model_type``, ``solver``, ``external_model_path``) -- which is the point.
     """
-    from parsers.PrimitiveParsers import YamlFileParser
+    from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
 
     resources_dir = _copy_resources(temp_output_dir)
     config = base_user_inputs.copy()
@@ -539,7 +565,7 @@ def test_an_emulator_trained_on_the_fenics_model_agrees_with_it(
     _require_dolfinx()
     pytest.importorskip('autoemulate')
 
-    from emulators.emulator_trainer import EmulatorTrainer
+    from libcuflynx.emulators.emulator_trainer import EmulatorTrainer
 
     config = _emulator_config(base_user_inputs, temp_output_dir, temp_generated_models_dir)
     trainer = EmulatorTrainer.init_from_dict(config)
@@ -649,9 +675,9 @@ def test_a_calibration_through_the_emulator_completes_with_parameters_in_the_box
 
     from mpi4py import MPI
 
-    from emulators.emulator_bundle import EmulatorQualityError
-    from emulators.emulator_trainer import EmulatorTrainer, resolve_emulator_dir
-    from param_id.paramID import CVS0DParamID
+    from libcuflynx.emulators.emulator_bundle import EmulatorQualityError
+    from libcuflynx.emulators.emulator_trainer import EmulatorTrainer, resolve_emulator_dir
+    from libcuflynx.param_id.paramID import CVS0DParamID
 
     comm = MPI.COMM_WORLD
 

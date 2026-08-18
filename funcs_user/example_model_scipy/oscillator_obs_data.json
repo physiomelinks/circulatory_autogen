@@ -7,7 +7,7 @@
   },
   "data_items": [
     { "variable": "displacement mean",
-      "name_for_plotting": "mean(x)",
+      "name_for_plotting": "x",
       "data_type": "constant",
       "operation": "mean",
       "operands": ["oscillator/x"],
@@ -19,7 +19,7 @@
       "plot_type": "horizontal"
     },
     { "variable": "displacement min",
-      "name_for_plotting": "min(x)",
+      "name_for_plotting": "x",
       "data_type": "constant",
       "operation": "min",
       "operands": ["oscillator/x"],

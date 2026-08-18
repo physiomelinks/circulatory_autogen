@@ -9,7 +9,7 @@ The sampling itself needs pymc and is exercised by the slow posterior-recovery t
 import numpy as np
 import pytest
 
-from param_id.pymc_backend import PyMCSampler, _INSTALL_HINT, _import_pymc
+from libcuflynx.param_id.pymc_backend import PyMCSampler, _INSTALL_HINT, _import_pymc
 
 pymc_installed = True
 try:
@@ -147,7 +147,7 @@ def test_an_unknown_pymc_method_is_rejected_up_front():
 # dispatch from UQ_options
 # ---------------------------------------------------------------------------
 def _mcmc_engine(library):
-    from param_id.paramID import OpencorMCMC
+    from libcuflynx.param_id.paramID import OpencorMCMC
     obj = OpencorMCMC.__new__(OpencorMCMC)
     obj.UQ_options = {'library': library, 'num_walkers': 8, 'num_steps': 10}
     obj.num_params = 2

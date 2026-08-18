@@ -19,12 +19,12 @@ import numpy as np
 import pytest
 from mpi4py import MPI
 
-from parsers.PrimitiveParsers import ObsAndParamDataParser, YamlFileParser
-from solver_wrappers import get_simulation_helper, get_simulation_helper_from_inp_data_dict
-from solver_wrappers.external_simulation_helper import SimulationHelper as ExternalSimulationHelper
-from scripts.script_generate_with_new_architecture import generate_with_new_architecture
-from scripts.sensitivity_analysis_run_script import run_SA
-from scripts.param_id_run_script import run_param_id
+from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser, YamlFileParser
+from libcuflynx.solver_wrappers import get_simulation_helper, get_simulation_helper_from_inp_data_dict
+from libcuflynx.solver_wrappers.external_simulation_helper import SimulationHelper as ExternalSimulationHelper
+from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
+from libcuflynx.scripts.sensitivity_analysis_run_script import run_SA
+from libcuflynx.scripts.param_id_run_script import run_param_id
 
 
 _EXAMPLE_DIR = os.path.realpath(
@@ -630,7 +630,7 @@ def test_fd_observable_sensitivities_on_an_external_model(base_user_inputs, temp
     not own -- so FD is the whole story here, and it has to work through the ordinary param-id
     object rather than a special path.
     """
-    from param_id.paramID import CVS0DParamID
+    from libcuflynx.param_id.paramID import CVS0DParamID
 
     if MPI.COMM_WORLD.Get_rank() != 0:
         pytest.skip('single-rank check')
@@ -678,3 +678,83 @@ def _reference_derivatives():
     d_dk = (features(_TRUE_K + h_k, _TRUE_U_D) - features(_TRUE_K - h_k, _TRUE_U_D)) / (2 * h_k)
     d_du = (features(_TRUE_K, _TRUE_U_D + h_u) - features(_TRUE_K, _TRUE_U_D - h_u)) / (2 * h_u)
     return list(zip(d_dk, d_du))
+
+
+# A class whose extra_plots() refuses, the way a field solver's does when its last run
+# diverged or never happened: the snapshots it draws from are simply not there.
+_REFUSING_PLOTS_MODEL = _MINIMAL_MODEL.replace(
+    '    SIM_HELPER = Tiny',
+    '''        def extra_plots(self):
+            raise RuntimeError('extra_plots() was called before a successful run(); '
+                               'there are no fields to draw yet')
+
+    SIM_HELPER = Tiny''')
+
+
+@pytest.mark.unit
+def test_a_hook_that_declines_to_draw_does_not_fail_the_simulation(tmp_path, capsys):
+    """Decorative output must not decide whether the simulation succeeded.
+
+    ``get_extra_figures`` already tolerates a *missing* ``extra_plots``; it has to tolerate
+    one that raises for the same reason. A field solver draws from state its last run built,
+    so a diverged run -- an ordinary event during a calibration, reported by ``run()``
+    returning False -- leaves it with nothing to draw. Letting that propagate turned a
+    legitimate "no fit at these parameters" into ``Simulation failed:``, under a banner
+    blaming solver tolerances that pointed nowhere near the cause (the shipped
+    ``funcs_user/heat_fenics`` model did exactly this).
+
+    The reason is printed rather than swallowed, so a hook that is genuinely broken is still
+    discoverable.
+    """
+    path = _write_model(tmp_path, _REFUSING_PLOTS_MODEL)
+    sim = ExternalSimulationHelper(path, 0.1, 1.0, dict(_SOLVER_INFO))
+
+    assert sim.get_extra_figures() == []
+    assert 'extra_plots' in capsys.readouterr().out
+
+    # And the run itself is unaffected -- the point is that plotting cannot break it.
+    assert sim.run() is True
+
+
+# A class that draws from state its last run produced, the way a field solver does.
+_DRAWS_AFTER_RUN_MODEL = _MINIMAL_MODEL.replace(
+    '    SIM_HELPER = Tiny',
+    '''        def reset(self):
+            # Restores what the *next* run starts from. Deliberately leaves `drawn` alone:
+            # that is the record of the run that finished.
+            self.vals = dict(self.parameters)
+
+        def extra_plots(self):
+            if getattr(self, 'drawn', None) is None:
+                return []
+            from matplotlib.figure import Figure
+            return [Figure()]
+
+    SIM_HELPER = Tiny''').replace(
+    '            self.y = self.vals["tiny/a"] * self.t + self.vals["tiny/b"]',
+    '            self.y = self.vals["tiny/a"] * self.t + self.vals["tiny/b"]\n'
+    '            self.drawn = self.y.copy()')
+
+
+@pytest.mark.unit
+def test_figures_survive_the_reset_the_protocol_executor_does_after_each_experiment(tmp_path):
+    """Drawn output has to outlive `reset_and_clear`, or it is never collectable.
+
+    `protocol_executor` calls `sim_helper.reset_and_clear()` after the last sub-experiment of
+    every experiment, and that forwards to the user's `reset()`. A model that clears its
+    drawn state there loses the figures *before* any caller can ask for them -- so
+    `extra_plots()` always found nothing, and the shipped `funcs_user/heat_fenics` model
+    plotted nothing at all through the GUI while looking correct in isolation.
+
+    The distinction the contract draws: `reset()` restores the state the next run starts
+    from; what the last run drew is a record of that run, like the results dict this very
+    method stashes rather than discards.
+    """
+    path = _write_model(tmp_path, _DRAWS_AFTER_RUN_MODEL)
+    sim = ExternalSimulationHelper(path, 0.1, 1.0, dict(_SOLVER_INFO))
+
+    assert sim.run() is True
+    assert len(sim.get_extra_figures()) == 1
+
+    sim.reset_and_clear()
+    assert len(sim.get_extra_figures()) == 1, 'the reset destroyed the figures'

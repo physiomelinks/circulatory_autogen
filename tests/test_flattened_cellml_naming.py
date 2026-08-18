@@ -10,13 +10,7 @@ import sys
 
 import pytest
 
-# Add src to path
-_TEST_ROOT = os.path.join(os.path.dirname(__file__), '..')
-_SRC_DIR = os.path.join(_TEST_ROOT, 'src')
-if _SRC_DIR not in sys.path:
-    sys.path.insert(0, _SRC_DIR)
-
-from solver_wrappers.myokit_helper import (
+from libcuflynx.solver_wrappers.myokit_helper import (
     flattened_cellml_path,
     write_flattened_cellml,
 )

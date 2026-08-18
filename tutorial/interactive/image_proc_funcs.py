@@ -73,10 +73,6 @@ try:
     root_dir = os.path.dirname(root_dir) # Go up one level
     root_dir = os.path.dirname(root_dir) # Go up another level (to reach project root)
     
-    src_path = os.path.join(root_dir, 'src')
-    if src_path not in sys.path:
-        sys.path.append(src_path)
-
     # NOTE: If you have imports from other local files, add them here too
     # print("--- [DEBUG] Importing local modules...", file=sys.stderr)
     # from generate_param_array import VesselNetwork
@@ -759,18 +755,15 @@ class VesselNetwork():
         root_dir = os.path.dirname(root_dir)
         root_dir = os.path.dirname(root_dir)
 
-        # 2. Add to sys.path (Only if missing, prevents duplicates)
-        src_path = os.path.join(root_dir, 'src')
-        if src_path not in sys.path:
-            sys.path.append(src_path)
-
         # 3. Import Parsers
         try:
-            from parsers.PrimitiveParsers import YamlFileParser
-            from parsers.ModelParsers import CSV0DModelParser
+            from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
+            from libcuflynx.parsers.ModelParsers import CSV0DModelParser
         except ImportError as e:
-            # If this fails, it usually means the 'src' path calculation is wrong for your folder structure
-            print(f"CRITICAL ERROR: Could not import parsers. Checked path: {src_path}")
+            # libcuflynx has to be installed for this: pip install libcuflynx (or pip install -e .
+            # in a checkout). There is no path to fix up any more.
+            print(f"CRITICAL ERROR: Could not import libcuflynx.parsers ({e}). "
+                  f"Install the package with: pip install libcuflynx")
             raise e
         # -------------------------------
 
@@ -2870,14 +2863,20 @@ def run_image_to_model(target_image_path, resources_path, ilastik_path, model_pa
 
     if run_circ_autogen:
 
-        script_path = Path.cwd().parent.parent / "src/scripts/script_generate_with_new_architecture.py"
-        script_dir = os.path.dirname(script_path)
-
         print("Starting script...")
 
-        # No capture_output=True here. 
+        # `-m` on this kernel's own interpreter, not a path into the checkout: the generator
+        # moved to libcuflynx.scripts, and a notebook run against a pip-installed libcuflynx
+        # has no src/ tree to point at. (The old spelling was
+        # `Path.cwd().parent.parent / "src/scripts/..."`, which had already stopped existing
+        # -- python printed "can't open file", and without check=True this function went on
+        # to report success having generated nothing.)
+        #
+        # No capture_output=True here.
         # The output will stream directly to your console.
         subprocess.run(
-            [sys.executable, "-u", script_path, "False"],  # -u is important for real-time printing!
-            cwd=script_dir
+            # -u is important for real-time printing!
+            [sys.executable, "-u", "-m",
+             "libcuflynx.scripts.script_generate_with_new_architecture", "False"],
+            check=True,
         )

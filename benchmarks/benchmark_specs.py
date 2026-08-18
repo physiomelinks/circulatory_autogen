@@ -13,7 +13,7 @@ import os
 
 import numpy as np
 
-from scripts.script_generate_with_new_architecture import generate_with_new_architecture
+from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
 from benchmarks.compare_optimisers import OptimiserComparison
 from benchmarks.docs_results import BenchmarkResult, BenchmarkRow
 from benchmarks.registry import BENCHMARK_CI
@@ -256,7 +256,7 @@ def _write_three_compartment_synthetic_obs(config, model_path, template_path, ou
 
     Returns the ground-truth parameter vector actually used.
     """
-    from solver_wrappers import get_simulation_helper
+    from libcuflynx.solver_wrappers import get_simulation_helper
 
     with open(template_path) as f:
         items = json.load(f)
@@ -482,7 +482,7 @@ def _generate_casadi_from_external_cellml(resources_dir, generated_models_dir, f
     stricter than the non-strict parse the Myokit path uses. The vendored PMR files were sanitised
     for exactly that (see resources/modifications.txt).
     """
-    from generators.PythonGenerator import PythonGenerator
+    from libcuflynx.generators.PythonGenerator import PythonGenerator
     dest_dir = os.path.join(generated_models_dir, file_prefix)
     _place_external_cellml(resources_dir, generated_models_dir, file_prefix)
     PythonGenerator(os.path.join(dest_dir, f'{file_prefix}.cellml'), output_dir=dest_dir,

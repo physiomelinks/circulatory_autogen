@@ -10,7 +10,7 @@ coincidence.
 import pytest
 from bisect import bisect_right as _bisect
 
-from utilities.protocol_shapes import (
+from libcuflynx.utilities.protocol_shapes import (
     ProtocolShapeError,
     expand_shape,
     materialise_shapes,
@@ -331,7 +331,7 @@ def test_valid_references_pass():
 def test_the_parser_accepts_protocol_shapes_and_returns_traces(tmp_path):
     import json
 
-    import parsers.PrimitiveParsers as primitive_parsers
+    import libcuflynx.parsers.PrimitiveParsers as primitive_parsers
 
     obs = {
         "protocol_info": {
@@ -383,7 +383,7 @@ def paced_cellml(tmp_path):
 
 
 def _run(model_path, protocol_info):
-    from protocol_runners.protocol_runner import ProtocolRunner
+    from libcuflynx.protocol_runners.protocol_runner import ProtocolRunner
 
     inp = {"dt": 0.1, "solver_info": {"MaximumStep": 0.01}, "model_type": "cellml"}
     runner = ProtocolRunner(
@@ -548,9 +548,7 @@ def test_myokit_refuses_two_paced_variables_in_one_subexperiment(
     """Myokit binds a single 'pace' label per simulation segment, so two variables cannot be
     driven from time series at the same instant. Driving different variables in *different*
     sub-experiments is fine; this is only about one sub-experiment."""
-    import sys, os
-    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'src'))
-    from solver_wrappers import get_simulation_helper
+    from libcuflynx.solver_wrappers import get_simulation_helper
 
     model_path = generated_cellml_model_factory(
         "Lotka_Volterra", "Lotka_Volterra_parameters.csv", solver="CVODE_myokit")
@@ -571,9 +569,9 @@ def test_myokit_refuses_two_paced_variables_in_one_subexperiment(
 
 @pytest.mark.unit
 @pytest.mark.parametrize("module_name,backend_label", [
-    ("solver_wrappers.casadi_python_solver_helper", "CasADi"),
-    ("solver_wrappers.aadc_python_solver_helper", "AADC"),
-    ("solver_wrappers.python_solver_helper", "python"),
+    ("libcuflynx.solver_wrappers.casadi_python_solver_helper", "CasADi"),
+    ("libcuflynx.solver_wrappers.aadc_python_solver_helper", "AADC"),
+    ("libcuflynx.solver_wrappers.python_solver_helper", "python"),
 ])
 def test_non_myokit_backends_refuse_protocol_traces_explicitly(module_name, backend_label):
     """Only the Myokit backend implements protocol_traces.

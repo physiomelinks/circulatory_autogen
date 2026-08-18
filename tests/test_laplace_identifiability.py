@@ -6,9 +6,9 @@ import os
 import numpy as np
 import pytest
 
-from identifiabilty_analysis.identifiabilityAnalysis import IdentifiabilityAnalysis
-from parsers.PrimitiveParsers import scriptFunctionParser
-from utilities.utility_funcs import extract_hessian_from_samples, _param_fit_scale
+from libcuflynx.identifiabilty_analysis.identifiabilityAnalysis import IdentifiabilityAnalysis
+from libcuflynx.parsers.PrimitiveParsers import scriptFunctionParser
+from libcuflynx.utilities.utility_funcs import extract_hessian_from_samples, _param_fit_scale
 
 
 class _MockParamId:

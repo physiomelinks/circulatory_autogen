@@ -23,12 +23,12 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from emulators.emulator_bundle import (EmulatorBundle, EmulatorQualityError, EmulatorReuseError,
+from libcuflynx.emulators.emulator_bundle import (EmulatorBundle, EmulatorQualityError, EmulatorReuseError,
                                        fingerprint)
-from emulators.emulator_trainer import EmulatorTrainer, resolve_emulator_dir
-from param_id.paramID import CVS0DParamID, emulated_feature_labels
-from parsers.PrimitiveParsers import ObsAndParamDataParser, YamlFileParser, param_entry_labels
-from scripts.script_generate_with_new_architecture import generate_with_new_architecture
+from libcuflynx.emulators.emulator_trainer import EmulatorTrainer, resolve_emulator_dir
+from libcuflynx.param_id.paramID import CVS0DParamID, emulated_feature_labels
+from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser, YamlFileParser, param_entry_labels
+from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
 
 try:
     from mpi4py import MPI
@@ -161,7 +161,7 @@ def test_training_writes_a_checkable_artefact(base_user_inputs, resources_dir, t
         return _LinearFit(), validation, 'LinearStub', x_scale, y_scale
 
     monkeypatch.setattr(trainer, 'fit', fake_fit)
-    monkeypatch.setattr('emulators.emulator_trainer.require_autoemulate', lambda: None)
+    monkeypatch.setattr('libcuflynx.emulators.emulator_trainer.require_autoemulate', lambda: None)
 
     bundle = trainer.train()
     if mpi_comm.Get_rank() != 0:
@@ -170,7 +170,7 @@ def test_training_writes_a_checkable_artefact(base_user_inputs, resources_dir, t
 
     saved = EmulatorBundle.load(resolve_emulator_dir(config))
     assert saved.feature_labels == trainer.feature_labels
-    from parsers.PrimitiveParsers import param_entry_labels
+    from libcuflynx.parsers.PrimitiveParsers import param_entry_labels
     assert saved.param_entry_labels == param_entry_labels(trainer.pid.param_id_info)
     assert saved.meta['design']['num_train_samples'] == 24
     assert saved.meta['design']['sample_type'] == 'sobol'
@@ -181,7 +181,7 @@ def test_training_writes_a_checkable_artefact(base_user_inputs, resources_dir, t
     # The training design is kept, so the emulator can be extended without re-simulating.
     assert saved.x_train.shape[0] == saved.y_train.shape[0]
     # ... and the artefact refuses a different problem, which is what it exists for.
-    from emulators.emulator_bundle import EmulatorQualityError
+    from libcuflynx.emulators.emulator_bundle import EmulatorQualityError
     with pytest.raises(EmulatorQualityError):
         saved.check_matches({'inputs_sha256': 'a-different-model'})
 
@@ -194,7 +194,7 @@ def test_the_validation_report_measures_error_in_real_units():
     a bias and an RMSE that mean nothing next to the observation they approximate,
     and a parity plot whose axes are not the quantity being emulated.
     """
-    from emulators.emulator_trainer import _validation_report
+    from libcuflynx.emulators.emulator_trainer import _validation_report
 
     class DoublingStub:
         """Predicts exactly 0.1 (scaled) above the truth, for a known bias."""
@@ -226,7 +226,7 @@ def test_the_validation_report_measures_error_in_real_units():
 
 @pytest.mark.unit
 def test_a_degenerate_test_column_scores_nan_not_a_perfect_fit():
-    from emulators.emulator_trainer import _validation_report
+    from libcuflynx.emulators.emulator_trainer import _validation_report
 
     class ConstantStub:
         def predict(self, x):
@@ -544,7 +544,7 @@ def test_reuse_refits_the_saved_samples_without_running_the_model(
         return (_LinearFit(), validation, 'LinearStub',
                 EmulatorBundle.make_scale(x), EmulatorBundle.make_scale(y))
 
-    monkeypatch.setattr('emulators.emulator_trainer.require_autoemulate', lambda: None)
+    monkeypatch.setattr('libcuflynx.emulators.emulator_trainer.require_autoemulate', lambda: None)
     trainer = EmulatorTrainer.init_from_dict(config, comm=mpi_comm)
     monkeypatch.setattr(trainer, 'fit', fake_fit)
     first = trainer.train()
@@ -559,7 +559,7 @@ def test_reuse_refits_the_saved_samples_without_running_the_model(
     reuser = EmulatorTrainer.init_from_dict(reuse_config, comm=mpi_comm)
     assert resolve_emulator_dir(reuse_config) == resolve_emulator_dir(config)
 
-    import param_id.fd_backend as fd_backend
+    import libcuflynx.param_id.fd_backend as fd_backend
 
     def no_simulations(*args, **kwargs):
         raise AssertionError('reuse_samples must not evaluate the truth model')

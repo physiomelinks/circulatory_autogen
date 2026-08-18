@@ -16,8 +16,8 @@ sum, the weighted sum, and the first member alone are three numbers far apart.
 import numpy as np
 import pytest
 
-from param_id import fsa_backend
-from parsers.PrimitiveParsers import (
+from libcuflynx.param_id import fsa_backend
+from libcuflynx.parsers.PrimitiveParsers import (
     apply_modifier_identity_nominals, modifier_weights_by_index, param_entry_labels)
 
 
@@ -216,7 +216,7 @@ def test_the_casadi_arm_no_longer_refuses_modifiers(monkeypatch):
     jacobian with the same affine weights the FSA arm uses, so the dispatch must reach the
     backend rather than raise. The numbers are pinned end to end, against the Myokit arm and
     a closed form, in tests/test_modifier_backend_equivalence.py."""
-    from param_id import paramID
+    from libcuflynx.param_id import paramID
 
     class _Stub(paramID.OpencorParamID):
         def __init__(self):
@@ -234,7 +234,7 @@ def test_the_casadi_arm_no_longer_refuses_modifiers(monkeypatch):
 
 @pytest.mark.unit
 def test_the_fsa_arm_no_longer_refuses_modifiers(monkeypatch):
-    from param_id import paramID
+    from libcuflynx.param_id import paramID
 
     class _Stub(paramID.OpencorParamID):
         def __init__(self):

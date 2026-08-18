@@ -64,7 +64,9 @@ import contextlib
 import time
 from mpi4py import MPI
 
-# Ensure src is on sys.path before importing project modules
+# Put this worktree's src/ first on sys.path so the suite exercises the libcuflynx in
+# this tree rather than a copy pip happens to have installed elsewhere. This is the
+# only sys.path surgery the package itself needs.
 _TEST_ROOT = os.path.join(os.path.dirname(__file__), '..')
 _SRC_DIR = os.path.join(_TEST_ROOT, 'src')
 if _SRC_DIR not in sys.path:
@@ -77,7 +79,7 @@ _ROOT_DIR = os.path.abspath(_TEST_ROOT)
 if _ROOT_DIR not in sys.path:
     sys.path.insert(0, _ROOT_DIR)
 
-from scripts.script_generate_with_new_architecture import generate_with_new_architecture
+from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
 
 # Store pytest config for hooks that need plugin access (xdist reports lack config)
 _PYTEST_CONFIG = None
@@ -231,12 +233,6 @@ def pytest_configure(config):
             config.pluginmanager.unregister(tr)
         # Prevent later re-registration and suppress header/footer hooks
         config.pluginmanager.set_blocked("terminalreporter")
-
-    # Add src directory to path if not already there
-    root_dir = os.path.join(os.path.dirname(__file__), '..')
-    src_dir = os.path.join(root_dir, 'src')
-    if src_dir not in sys.path:
-        sys.path.insert(0, src_dir)
 
     # Keep runtime marker registration aligned with pyproject strict markers.
     config.addinivalue_line("markers", "need_opencor: tests requiring OpenCOR backend")

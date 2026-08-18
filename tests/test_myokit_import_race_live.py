@@ -64,7 +64,7 @@ _CHILD = textwrap.dedent(
         if sys.argv[1] == 'bare':
             import myokit  # what CA did before the fix
         else:
-            from solver_wrappers.myokit_helper import (
+            from libcuflynx.solver_wrappers.myokit_helper import (
                 _import_myokit_tolerating_first_run_race as imp)
             imp()
         print(json.dumps({{'ok': True, 'err': ''}}))

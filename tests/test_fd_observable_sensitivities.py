@@ -14,7 +14,7 @@ the dispatch, not the solver.
 import numpy as np
 import pytest
 
-from param_id import fd_backend
+from libcuflynx.param_id import fd_backend
 
 
 class _Pid:
@@ -127,7 +127,7 @@ def test_a_failed_nominal_run_raises():
 # Dispatch: opt-in, never silent
 # ---------------------------------------------------------------------------
 def test_fd_is_selected_by_name():
-    from param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import OpencorParamID
 
     pid = OpencorParamID.__new__(OpencorParamID)
     stub = _Pid(lambda p: 3.0 * p[0])
@@ -145,7 +145,7 @@ def test_fd_is_selected_by_name():
 def test_without_fd_an_analytic_less_backend_still_raises():
     """The default must not quietly become FD: a result computed a different way,
     at a different cost and accuracy, is not the same result."""
-    from param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import OpencorParamID
 
     pid = OpencorParamID.__new__(OpencorParamID)
     pid.model_type = "aadc_python"
@@ -154,7 +154,7 @@ def test_without_fd_an_analytic_less_backend_still_raises():
 
 
 def test_the_aadc_message_now_points_at_fd():
-    from param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import OpencorParamID
 
     pid = OpencorParamID.__new__(OpencorParamID)
     pid.model_type = "aadc_python"
@@ -163,7 +163,7 @@ def test_the_aadc_message_now_points_at_fd():
 
 
 def test_an_unknown_gradient_method_is_rejected():
-    from param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import OpencorParamID
 
     pid = OpencorParamID.__new__(OpencorParamID)
     pid.model_type = "casadi_python"
@@ -173,7 +173,7 @@ def test_an_unknown_gradient_method_is_rejected():
 
 @pytest.mark.parametrize("alias", [None, "", "analytic", "AUTO"])
 def test_the_analytic_aliases_do_not_divert_to_fd(alias):
-    from param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import OpencorParamID
 
     pid = OpencorParamID.__new__(OpencorParamID)
     pid.model_type = "aadc_python"
@@ -189,7 +189,7 @@ def test_gradient_method_is_in_the_analysis_schema():
     gradient_source -- because only an explicit name can be offered, disabled, or reported back
     by a UI. 'analytic' is still accepted in code as a legacy spelling of 'auto', but is no
     longer advertised."""
-    from parsers.PrimitiveParsers import ANALYSIS_OPTIONS
+    from libcuflynx.parsers.PrimitiveParsers import ANALYSIS_OPTIONS
 
     opts = {o["name"]: o for o in ANALYSIS_OPTIONS["sensitivity_analysis"]["options"]}
     assert "gradient_method" in opts
@@ -203,7 +203,7 @@ def test_gradient_method_is_in_the_analysis_schema():
 # silently got something else cannot check what ran).
 # ---------------------------------------------------------------------------
 def test_ad_reaches_the_casadi_arm(monkeypatch):
-    from param_id import paramID
+    from libcuflynx.param_id import paramID
 
     pid = paramID.OpencorParamID.__new__(paramID.OpencorParamID)
     pid.model_type = "casadi_python"
@@ -216,7 +216,7 @@ def test_ad_reaches_the_casadi_arm(monkeypatch):
 
 
 def test_fsa_reaches_the_myokit_arm(monkeypatch):
-    from param_id import paramID
+    from libcuflynx.param_id import paramID
 
     class _FsaHelper:
         def enable_fsa(self, deps, indeps):
@@ -234,7 +234,7 @@ def test_fsa_reaches_the_myokit_arm(monkeypatch):
 
 
 def test_ad_on_a_myokit_run_raises_naming_the_mismatch():
-    from param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import OpencorParamID
 
     pid = OpencorParamID.__new__(OpencorParamID)
     pid.model_type = "cellml"
@@ -244,7 +244,7 @@ def test_ad_on_a_myokit_run_raises_naming_the_mismatch():
 
 
 def test_fsa_on_a_casadi_run_raises_naming_whats_missing():
-    from param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import OpencorParamID
 
     pid = OpencorParamID.__new__(OpencorParamID)
     pid.model_type = "casadi_python"
@@ -259,7 +259,7 @@ def test_fsa_on_a_casadi_run_raises_naming_whats_missing():
 
 
 def test_fsa_without_do_ad_names_the_missing_flag():
-    from param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import OpencorParamID
 
     class _FsaHelper:
         def enable_fsa(self, deps, indeps):
@@ -300,7 +300,7 @@ def test_the_step_size_reaches_the_backend():
 
 
 def test_the_accessor_forwards_the_step():
-    from param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import OpencorParamID
 
     seen = []
 
@@ -323,7 +323,7 @@ def test_the_accessor_forwards_the_step():
 
 
 def test_omitting_the_step_keeps_the_backend_default():
-    from param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import OpencorParamID
 
     seen = []
 
@@ -346,7 +346,7 @@ def test_omitting_the_step_keeps_the_backend_default():
 
 
 def test_fd_rel_step_is_in_the_analysis_schema():
-    from parsers.PrimitiveParsers import ANALYSIS_OPTIONS
+    from libcuflynx.parsers.PrimitiveParsers import ANALYSIS_OPTIONS
 
     opts = {o["name"]: o for o in ANALYSIS_OPTIONS["sensitivity_analysis"]["options"]}
     assert opts["fd_rel_step"]["default"] == 1e-3
@@ -416,7 +416,7 @@ def test_all_experiments_are_run():
 # Labels identify one observable each
 # ---------------------------------------------------------------------------
 def _labeller(names, ops, operands, exps, subs):
-    from param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import OpencorParamID
 
     pid = OpencorParamID.__new__(OpencorParamID)
     pid.obs_info = {

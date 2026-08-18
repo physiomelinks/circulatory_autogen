@@ -8,22 +8,22 @@
 
 ## Parsers
 
-::: parsers.ModelParsers.CSV0DModelParser
+::: libcuflynx.parsers.ModelParsers.CSV0DModelParser
 
-::: parsers.PrimitiveParsers.YamlFileParser
+::: libcuflynx.parsers.PrimitiveParsers.YamlFileParser
 
 ## Generators
 
-::: generators.CVSCellMLGenerator.CVS0DCellMLGenerator
+::: libcuflynx.generators.CVSCellMLGenerator.CVS0DCellMLGenerator
 
-::: generators.PythonGenerator.PythonGenerator
+::: libcuflynx.generators.PythonGenerator.PythonGenerator
 
 ## Protocol execution
 
-::: protocol_runners.protocol_executor.ProtocolExecutor
+::: libcuflynx.protocol_runners.protocol_executor.ProtocolExecutor
 
 ## Inner param-id engine
 
-::: param_id.paramID.OpencorParamID
+::: libcuflynx.param_id.paramID.OpencorParamID
 
-::: param_id.paramID.OpencorMCMC
+::: libcuflynx.param_id.paramID.OpencorMCMC

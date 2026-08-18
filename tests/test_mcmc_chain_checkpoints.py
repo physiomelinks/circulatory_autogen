@@ -16,7 +16,7 @@ import threading
 import numpy as np
 import pytest
 
-from param_id.paramID import sample_with_checkpoints, save_chain_atomically
+from libcuflynx.param_id.paramID import sample_with_checkpoints, save_chain_atomically
 
 pytestmark = pytest.mark.unit
 

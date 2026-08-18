@@ -30,8 +30,7 @@ import pytest
 
 SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'src')
 
-sys.path.insert(0, SRC)
-from utilities import mpi_utils  # noqa: E402
+from libcuflynx.utilities import mpi_utils
 
 
 def _run(body, env=None):
@@ -68,7 +67,7 @@ def test_every_launcher_variable_is_recognised(var):
 def test_rank_and_size_answer_without_opening_mpi():
     out = _run("""
         import sys
-        from utilities import mpi_utils
+        from libcuflynx.utilities import mpi_utils
         r, s = mpi_utils.rank(), mpi_utils.size()
         print(r, s, 'mpi4py.MPI' in sys.modules)
         """)
@@ -79,7 +78,7 @@ def test_mpi_available_does_not_open_mpi():
     """It answers "is the library installed", which is what the callers mean."""
     out = _run("""
         import sys
-        from utilities import mpi_utils
+        from libcuflynx.utilities import mpi_utils
         print(mpi_utils.mpi_available(), 'mpi4py.MPI' in sys.modules)
         """)
     installed, imported = out.split()
@@ -95,7 +94,7 @@ def test_a_forward_solve_import_never_opens_mpi():
     live simulation, in the app's own process -- nothing there wants MPI."""
     out = _run("""
         import sys
-        from solver_wrappers import get_simulation_helper
+        from libcuflynx.solver_wrappers import get_simulation_helper
         print('mpi4py.MPI' in sys.modules)
         """)
     assert out.strip() == 'False'
@@ -104,7 +103,7 @@ def test_a_forward_solve_import_never_opens_mpi():
 def test_parsing_a_config_never_opens_mpi():
     out = _run("""
         import sys
-        from parsers.PrimitiveParsers import CSVFileParser
+        from libcuflynx.parsers.PrimitiveParsers import CSVFileParser
         print('mpi4py.MPI' in sys.modules)
         """)
     assert out.strip() == 'False'
@@ -120,8 +119,8 @@ def test_the_analysis_modules_never_open_mpi_serially():
     MPI_Finalize for the macOS abort to happen in."""
     out = _run("""
         import sys
-        import param_id.paramID  # noqa: F401
-        import param_id.optimisers as o
+        from libcuflynx.param_id import paramID  # noqa: F401
+        import libcuflynx.param_id.optimisers as o
         print('mpi4py.MPI' in sys.modules, o.MPI.COMM_WORLD.Get_size())
         """)
     assert out.split() == ['False', '1']
@@ -133,7 +132,7 @@ def test_a_launcher_started_run_gets_the_real_mpi():
     multi-rank run may change."""
     out = _run("""
         import sys
-        import param_id.optimisers as o
+        import libcuflynx.param_id.optimisers as o
         print('mpi4py.MPI' in sys.modules, type(o.MPI).__name__)
         """, env={'PMI_RANK': '0', 'PMI_SIZE': '2'})
     assert out.split() == ['True', 'module']
@@ -145,7 +144,7 @@ def test_the_real_mpi_wins_if_something_else_already_imported_it():
     make this module the odd one out."""
     out = _run("""
         from mpi4py import MPI  # noqa: F401
-        from utilities.mpi_utils import get_MPI
+        from libcuflynx.utilities.mpi_utils import get_MPI
         print(type(get_MPI()).__name__)
         """)
     assert out.strip() == 'module'
@@ -161,17 +160,18 @@ def test_no_module_imports_mpi4py_at_module_scope():
     behind in sensitivity_analysis_run_script.py. Nothing here is subtle enough
     to warrant catching by hand on review.
 
-    Two files are exempt. ``obsolete/`` is not on any run path, and
-    ``generate_omex_analysis_script.py`` matches inside the *text of a script it
-    generates* -- guarding generated scripts needs their own bootstrap order
-    verified and belongs in its own change.
+    Only ``obsolete/`` is exempt, because it is not on any run path.
+    ``generate_omex_analysis_script.py`` used to be too -- it matched inside the
+    *text of a script it generates* -- but #435 made that generated script take
+    its MPI from ``get_MPI()`` as well, after the sys.path bootstrap that makes
+    libcuflynx importable. So the scan now covers generated scripts, and the last
+    place mpi4py could be a hard requirement is gone.
     """
-    exempt = {'generate_omex_analysis_script.py'}
     offenders = []
     for dirpath, dirnames, filenames in os.walk(SRC):
         dirnames[:] = [d for d in dirnames if d not in ('obsolete', '__pycache__')]
         for name in filenames:
-            if not name.endswith('.py') or name in exempt:
+            if not name.endswith('.py'):
                 continue
             path = os.path.join(dirpath, name)
             with open(path, encoding='utf-8') as handle:
@@ -183,7 +183,7 @@ def test_no_module_imports_mpi4py_at_module_scope():
     assert offenders == [], (
         'these import mpi4py at module scope, which initialises MPI and registers '
         'the atexit MPI_Finalize that aborts on macOS; use '
-        'utilities.mpi_utils.get_MPI() instead: ' + ', '.join(offenders))
+        'libcuflynx.utilities.mpi_utils.get_MPI() instead: ' + ', '.join(offenders))
 
 
 # ---------------------------------------------------------------------------
@@ -266,3 +266,30 @@ def test_point_to_point_refuses_rather_than_deadlocking():
         comm.recv(source=0, tag=1)
     with pytest.raises(RuntimeError, match='no'):
         comm.isend(1, dest=1, tag=1)
+
+
+# ---------------------------------------------------------------------------
+# Ending the job
+#
+# The stage entry points (libcuflynx/scripts/_cli.py) end with `MPI.Finalize()`
+# and, on failure, `comm.Abort()`. Both used to be missing from the stub, so a
+# one-rank `cuflynx-param-id` raised AttributeError *after* finishing its work.
+# ---------------------------------------------------------------------------
+def test_finalizing_a_job_that_never_started_is_a_no_op():
+    assert mpi_utils._SerialMPI.Finalize() is None
+
+
+def test_abort_does_not_return_and_exits_non_zero():
+    """`comm.Abort()` is written at every call site as the last thing that happens.
+
+    Real MPI_Abort never returns, so the lines after it are unreachable; a stub that
+    returned would let them run and a failed serial run exit 0.
+    """
+    comm = mpi_utils._SerialMPI.COMM_WORLD
+    with pytest.raises(SystemExit) as excinfo:
+        comm.Abort()
+    assert excinfo.value.code == 1
+
+    with pytest.raises(SystemExit) as excinfo:
+        comm.Abort(3)
+    assert excinfo.value.code == 3

@@ -59,7 +59,7 @@
   ],
   "data_items": [
     { "variable": "soma_SN/V",
-      "name_for_plotting": "V_{max}",
+      "name_for_plotting": "V",
       "data_type": "constant",
       "operation": "max",
       "operands":["soma_SN/V"],
@@ -72,7 +72,7 @@
       "plot_type":"horizontal"
     },
     { "variable": "soma_SN/V",
-      "name_for_plotting": "V_{max}",
+      "name_for_plotting": "V",
       "data_type": "constant",
       "operation": "max",
       "operands":["soma_SN/V"],

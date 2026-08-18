@@ -5,7 +5,7 @@ import warnings
 
 import pytest
 
-from parsers.PrimitiveParsers import (
+from libcuflynx.parsers.PrimitiveParsers import (
     YamlFileParser,
     migrate_legacy_solver_info_keys,
     validate_solver_info,
@@ -13,6 +13,7 @@ from parsers.PrimitiveParsers import (
     PARAM_ID_METHODS,
     valid_param_id_methods,
     param_id_method_options,
+    get_solver_info_default,
     SOLVER_SCHEMA,
     SOLVER_INFO_FIELDS,
     solver_info_fields,
@@ -254,7 +255,8 @@ def test_schema_settings_are_actually_read_by_the_code():
 # file -- or, if its entry is simply missing, is not checked at all.
 
 _SRC_DIR = pathlib.Path(__file__).resolve().parent.parent / 'src'
-_RELAY_FILES = ('protocol_runners/protocol_runner.py', 'parsers/PrimitiveParsers.py')
+_RELAY_FILES = ('libcuflynx/protocol_runners/protocol_runner.py',
+                'libcuflynx/parsers/PrimitiveParsers.py')
 
 # Genuine cross-module consumers, listed explicitly because they are not reachable from the
 # factory's dispatch. Keep this list short and justified -- every entry is a hole in the
@@ -263,7 +265,7 @@ _EXTRA_CONSUMERS = {
     # AADC's settings are split: the integrator knobs are read by the helper the factory returns,
     # but the gradient knobs (jac_lag, gradient_strategy) are read by the tape/kernel gradient
     # paths, which the forward-solve helper never touches.
-    'aadc_semi_implicit': ['param_id/aadc_backend.py'],
+    'aadc_semi_implicit': ['libcuflynx/param_id/aadc_backend.py'],
 }
 
 # Solvers with no Python backend at all, so the factory has nothing to dispatch to. cpp models are
@@ -272,8 +274,8 @@ _EXTRA_CONSUMERS = {
 # files are therefore the real consumer, and the fields are checked against them exactly as a
 # helper module would be -- this is a different consumer, not an exemption.
 _GENERATED_CODE_CONSUMERS = {
-    solver: ['scripts/script_generate_with_new_architecture.py',
-             'generators/CVSCppGenerator.py']
+    solver: ['libcuflynx/scripts/script_generate_with_new_architecture.py',
+             'libcuflynx/generators/CVSCppGenerator.py']
     for solver in ('CVODE', 'RK4', 'PETSC')
 }
 
@@ -309,7 +311,7 @@ def _local_string_lists(func):
 
 def _derive_solver_consumers():
     """Read solver -> backend module out of `get_simulation_helper`'s if/elif dispatch."""
-    factory_path = _SRC_DIR / 'solver_wrappers' / '__init__.py'
+    factory_path = _SRC_DIR / 'libcuflynx' / 'solver_wrappers' / '__init__.py'
     tree = ast.parse(factory_path.read_text())
     aliases = _import_aliases(tree)
     func = next(n for n in ast.walk(tree)
@@ -434,10 +436,10 @@ def test_solver_consumer_map_is_derived_from_the_factory_dispatch():
                      'test_each_solver_setting_is_read_by_that_solvers_consumer would pass '
                      'vacuously')
     # Spot-check the two shapes the dispatch uses: `solver == 'x'` and `solver in some_list`.
-    assert derived['CVODE_myokit'] == ['solver_wrappers/myokit_helper.py']
-    assert derived['casadi_integrator'] == ['solver_wrappers/casadi_python_solver_helper.py']
+    assert derived['CVODE_myokit'] == ['libcuflynx/solver_wrappers/myokit_helper.py']
+    assert derived['casadi_integrator'] == ['libcuflynx/solver_wrappers/casadi_python_solver_helper.py']
     # solve_ivp is dispatched via a list rather than an equality.
-    assert derived['solve_ivp'] == ['solver_wrappers/python_solver_helper.py']
+    assert derived['solve_ivp'] == ['libcuflynx/solver_wrappers/python_solver_helper.py']
     for solver, modules in derived.items():
         assert solver in SOLVER_INFO_FIELDS, (
             'get_simulation_helper dispatches solver ' + solver + ' but SOLVER_INFO_FIELDS does '
@@ -594,7 +596,7 @@ def test_reuse_samples_is_a_tickbox_that_says_what_it_does_not_do():
         'the description must name the way out: a first run without it'
 
     # ... and the trainer actually reads it, so the tickbox is not decoration.
-    trainer_src = (pathlib.Path(__file__).resolve().parents[1] / 'src' / 'emulators'
+    trainer_src = (pathlib.Path(__file__).resolve().parents[1] / 'src' / 'libcuflynx' / 'emulators'
                    / 'emulator_trainer.py').read_text(encoding='utf-8')
     assert "'reuse_samples'" in trainer_src
 
@@ -662,7 +664,7 @@ def test_library_specific_uq_options_are_read_only_in_that_librarys_arm():
     """
     import inspect
 
-    from param_id.paramID import OpencorMCMC
+    from libcuflynx.param_id.paramID import OpencorMCMC
 
     source = inspect.getsource(OpencorMCMC._build_sampler)
     before_pymc, marker, pymc_arm = source.partition("if library == 'pymc'")
@@ -739,7 +741,8 @@ def test_sample_type_choices_match_sobolsa_dispatch():
     import re
     from pathlib import Path
 
-    src_file = Path(__file__).resolve().parents[1] / 'src' / 'sensitivity_analysis' / 'sobolSA.py'
+    src_file = (Path(__file__).resolve().parents[1] / 'src' / 'libcuflynx'
+                / 'sensitivity_analysis' / 'sobolSA.py')
     src = src_file.read_text()
     body = src[src.index('def generate_samples'):]
     body = body[:body.index('\n    def ', 1)]  # just this method
@@ -753,7 +756,7 @@ def test_sample_type_choices_match_sobolsa_dispatch():
 def test_cost_func_metadata_discovers_builtins():
     """The obs-data editor discovers valid cost_type values + flags at runtime (costs are a
     user-extensible registry, not a static schema)."""
-    from funcs_user.cost_funcs_user import cost_func_metadata
+    from libcuflynx.funcs.cost_funcs_user import cost_func_metadata
     meta = cost_func_metadata()
     # built-in costs are all present
     assert {'gaussian_MLE', 'MSE', 'AE', 'multimodal_gaussian', 'additive', 'norm_additive'} \
@@ -770,7 +773,7 @@ def test_cost_registry_excludes_organisational_accessors():
     """The organisational helpers in cost_funcs_user (register/build/get accessors and the
     cost_func_metadata accessor) must not be registered as selectable cost functions -- otherwise
     a bogus 'cost_func_metadata' cost shows up and even self-references in its own output (#259)."""
-    from funcs_user.cost_funcs_user import get_cost_funcs_dict_for_mode, cost_func_metadata
+    from libcuflynx.funcs.cost_funcs_user import get_cost_funcs_dict_for_mode, cost_func_metadata
     costs = get_cost_funcs_dict_for_mode("numpy")
     for accessor in ('cost_func_metadata', 'get_cost_funcs_dict_for_mode',
                      'build_cost_funcs_dict', 'register_cost_funcs'):
@@ -817,7 +820,7 @@ def test_ga_population_debug_defaults_advertised_and_match_the_optimiser():
     `debug_default` (#313) -- otherwise a tool can't show/pass the DEBUG values without hardcoding
     them. The advertised values must equal what GeneticAlgorithmOptimiser derives (and runs) under
     DEBUG, so schema and code cannot drift."""
-    from param_id.optimisers import GeneticAlgorithmOptimiser
+    from libcuflynx.param_id.optimisers import GeneticAlgorithmOptimiser
 
     def opt(options, name):
         return next(o for o in options if o['name'] == name)
@@ -1115,7 +1118,7 @@ def test_dt_solver_alongside_the_new_key_is_not_a_duplicate(capsys):
 def test_myokit_default_solver_info_needs_no_migration():
     """CA's own cellml default must validate for myokit, not just opencor --
     otherwise the default config would be rejected by its own validator."""
-    from parsers.PrimitiveParsers import _solver_info_default_for
+    from libcuflynx.parsers.PrimitiveParsers import _solver_info_default_for
 
     defaults = _solver_info_default_for('cellml', 'CVODE_myokit')
     assert 'MaximumNumberOfSteps' not in defaults
@@ -1175,7 +1178,7 @@ def test_sa_method_choices_each_have_a_dispatch_handler():
     its valid set from the schema (not a hardcoded list). This locks the schema <-> dispatch
     correspondence the run message now relies on, so adding a method to the schema without a
     handler (or vice versa) fails here."""
-    from sensitivity_analysis.sensitivityAnalysis import SensitivityAnalysis, sa_method_choices
+    from libcuflynx.sensitivity_analysis.sensitivityAnalysis import SensitivityAnalysis, sa_method_choices
 
     choices = sa_method_choices()
     assert choices, "no sensitivity_analysis method choices found in the schema"
@@ -1193,7 +1196,7 @@ def test_gradient_sources_well_formed_and_match_get_gradient_dispatch():
     hand-mirroring CA's rules. Pinned to OpencorParamID.get_gradient's dispatch: the AD-capable
     model types are AD_GRADIENT_MODEL_TYPES, and cellml+CVODE_myokit gets FSA.
     """
-    from param_id.optimisers import AD_GRADIENT_MODEL_TYPES
+    from libcuflynx.param_id.optimisers import AD_GRADIENT_MODEL_TYPES
 
     _REQUIRED_KEYS = {'value', 'label', 'do_ad', 'requires_all_differentiable', 'description'}
 
@@ -1294,7 +1297,7 @@ def test_aadc_ad_suitable_methods_match_what_the_tape_enforces():
     'adaptive_rk45' first, a front-end defaulting to "first offered" picked the one method AD can
     never use, failing only once a calibration had started.
     """
-    from parsers.PrimitiveParsers import AADC_TAPE_CONSISTENT_METHODS
+    from libcuflynx.parsers.PrimitiveParsers import AADC_TAPE_CONSISTENT_METHODS
 
     all_methods = SOLVER_SCHEMA['methods_by_solver']['aadc_semi_implicit']
     advertised = SOLVER_SCHEMA['ad_suitable_methods']['aadc_semi_implicit']
@@ -1303,7 +1306,7 @@ def test_aadc_ad_suitable_methods_match_what_the_tape_enforces():
     # which reach a gradient by their own dispatch rather than the standard tape. Asserting
     # against AADC_TAPE_CONSISTENT_METHODS alone would exclude the BDF methods, which is exactly
     # the gap this replaced.
-    from parsers.PrimitiveParsers import AADC_AD_METHODS
+    from libcuflynx.parsers.PrimitiveParsers import AADC_AD_METHODS
     assert advertised == [m for m in all_methods if m in AADC_AD_METHODS]
     assert set(AADC_TAPE_CONSISTENT_METHODS) <= set(advertised)
     assert set(advertised) <= set(all_methods), (advertised, all_methods)
@@ -1311,7 +1314,7 @@ def test_aadc_ad_suitable_methods_match_what_the_tape_enforces():
     assert 'adaptive_rk45' in all_methods and 'adaptive_rk45' not in advertised
 
     # and the runtime check enforces precisely this set
-    from param_id.aadc_backend import TAPE_CONSISTENT_METHODS
+    from libcuflynx.param_id.aadc_backend import TAPE_CONSISTENT_METHODS
     assert tuple(TAPE_CONSISTENT_METHODS) == tuple(AADC_TAPE_CONSISTENT_METHODS)
 
 
@@ -1326,7 +1329,7 @@ def test_aadc_default_method_is_ad_suitable():
 @pytest.mark.unit
 def test_gradient_sources_gates_aadc_ad_on_a_tape_consistent_method():
     """AD must not be offered for an AADC method the tape cannot record."""
-    from parsers.PrimitiveParsers import gradient_sources
+    from libcuflynx.parsers.PrimitiveParsers import gradient_sources
 
     def values(method):
         return [s['value'] for s in gradient_sources('aadc_python', 'aadc_semi_implicit',
@@ -1352,10 +1355,10 @@ def test_aadc_bdf_methods_are_advertised_as_ad_suitable():
     tuple alone left a tool refusing AD for exactly the stiff-model methods, which is the
     combination the BDF work exists to enable.
     """
-    from parsers.PrimitiveParsers import (
+    from libcuflynx.parsers.PrimitiveParsers import (
         AADC_AD_METHODS, AADC_BDF_AD_METHODS, AADC_TAPE_CONSISTENT_METHODS)
     import inspect
-    from param_id import aadc_backend
+    from libcuflynx.param_id import aadc_backend
 
     advertised = SOLVER_SCHEMA['ad_suitable_methods']['aadc_semi_implicit']
     all_methods = SOLVER_SCHEMA['methods_by_solver']['aadc_semi_implicit']
@@ -1388,8 +1391,8 @@ def test_forward_methods_are_exactly_what_the_aadc_dispatch_can_integrate():
     forward_methods_by_solver is the list to build that menu from.
     """
     import inspect
-    from parsers.PrimitiveParsers import AADC_FORWARD_METHODS
-    from solver_wrappers import aadc_python_solver_helper as helper
+    from libcuflynx.parsers.PrimitiveParsers import AADC_FORWARD_METHODS
+    from libcuflynx.solver_wrappers import aadc_python_solver_helper as helper
 
     advertised = SOLVER_SCHEMA['forward_methods_by_solver']['aadc_semi_implicit']
     assert advertised == list(AADC_FORWARD_METHODS)
@@ -1413,7 +1416,7 @@ def test_the_unknown_method_error_lists_what_the_dispatch_accepts():
     so a genuine finding looked like a local environment problem (issue #346).
     """
     import inspect
-    from solver_wrappers import aadc_python_solver_helper as helper
+    from libcuflynx.solver_wrappers import aadc_python_solver_helper as helper
 
     src = inspect.getsource(helper.SimulationHelper.run)
     assert "AADC_FORWARD_METHODS" in src, "error text should be derived, not hand-written"
@@ -1427,7 +1430,7 @@ def test_semi_implicit_signed_replaces_the_two_bdf_gradient_names():
     or a C++ kernel replay that falls back to the tape). Advertising them as separate integrators
     made a GUI offer two 'methods' that no forward solve accepts.
     """
-    from parsers.PrimitiveParsers import (
+    from libcuflynx.parsers.PrimitiveParsers import (
         AADC_BDF_AD_METHODS, AADC_LEGACY_METHOD_ALIASES)
 
     methods = SOLVER_SCHEMA['methods_by_solver']['aadc_semi_implicit']
@@ -1452,7 +1455,7 @@ def test_legacy_bdf_names_resolve_through_the_dispatch_not_just_the_alias_table(
     the table could stay correct while the dispatch that consumes it was rewritten to ignore a
     name, and the guarantee would break with every test still green. So drive the resolver.
     """
-    from param_id.aadc_backend import resolve_gradient_strategy
+    from libcuflynx.param_id.aadc_backend import resolve_gradient_strategy
 
     assert resolve_gradient_strategy('bdf_tape', {}) == ('semi_implicit_signed', 'tape')
     assert resolve_gradient_strategy('bdf_kernel', {}) == ('semi_implicit_signed', 'kernel')
@@ -1475,7 +1478,7 @@ def test_a_legacy_name_warns_rather_than_silently_dropping_a_conflicting_strateg
     """'bdf_kernel' fixes the strategy, so gradient_strategy='tape' alongside it cannot be
     honoured. The name wins (it is the more specific statement of intent), but silently
     discarding a setting the user wrote is the failure mode this whole change is fixing."""
-    from param_id.aadc_backend import resolve_gradient_strategy
+    from libcuflynx.param_id.aadc_backend import resolve_gradient_strategy
 
     with pytest.warns(UserWarning, match='ignored'):
         resolved = resolve_gradient_strategy('bdf_kernel', {'gradient_strategy': 'tape'})
@@ -1496,7 +1499,7 @@ def test_the_aadc_default_method_can_actually_integrate():
     3compartment it raises OverflowError at dt 1e-3, 1e-4 and 1e-5, while implicit_newton lands
     within 2% of CVODE_myokit (issue #346).
     """
-    from parsers.PrimitiveParsers import AADC_FORWARD_METHODS
+    from libcuflynx.parsers.PrimitiveParsers import AADC_FORWARD_METHODS
 
     default = SOLVER_SCHEMA['default_method_by_solver']['aadc_semi_implicit']
     assert default in AADC_FORWARD_METHODS, "the default must be forward-solvable"
@@ -1573,7 +1576,7 @@ class _RecordingSimulation:
 
 
 def _apply(solver_info, fsa_enabled=False):
-    from solver_wrappers.myokit_helper import apply_cvodes_tolerances
+    from libcuflynx.solver_wrappers.myokit_helper import apply_cvodes_tolerances
     sim = _RecordingSimulation()
     effective = apply_cvodes_tolerances(sim, solver_info, fsa_enabled)
     return sim.tolerance_calls, effective
@@ -1627,7 +1630,7 @@ def test_a_partial_setting_fills_the_partner_with_cas_default():
 def test_a_failed_solve_names_the_stability_knobs_and_their_values():
     """A failed solve must tell the user which numbers to turn: the effective MaximumStep,
     atol and rtol, and that decreasing them may help stability."""
-    from solver_wrappers.myokit_helper import stability_hint
+    from libcuflynx.solver_wrappers.myokit_helper import stability_hint
     hint = stability_hint({'MaximumStep': 0.001}, (1e-8, 1e-6))
     assert 'MaximumStep is 0.001' in hint
     assert 'atol is 1e-08' in hint
@@ -1639,7 +1642,7 @@ def test_a_failed_solve_names_the_stability_knobs_and_their_values():
 def test_the_stability_hint_reports_an_unset_maximum_step_honestly():
     """No MaximumStep in solver_info means the integrator step is unbounded -- say so, rather
     than inventing a number the user never set."""
-    from solver_wrappers.myokit_helper import stability_hint
+    from libcuflynx.solver_wrappers.myokit_helper import stability_hint
     hint = stability_hint({}, (1e-8, 1e-6))
     assert 'MaximumStep is unset (unbounded)' in hint
 
@@ -1660,7 +1663,7 @@ def test_cvode_myokit_schema_declares_cas_defaults():
     not restate them), so the declaration is the one place the default is decided -- and it
     must equal what the helper applies when the user sets neither, or declared and effective
     drift apart. abs keeps the 1e-8 floor previous users ran at; rel relaxes to 1e-6."""
-    from solver_wrappers.myokit_helper import CA_DEFAULT_ABS_TOL, CA_DEFAULT_REL_TOL
+    from libcuflynx.solver_wrappers.myokit_helper import CA_DEFAULT_ABS_TOL, CA_DEFAULT_REL_TOL
     fields = {f['name']: f for f in solver_info_fields('CVODE_myokit')}
     assert fields['rtol']['default'] == CA_DEFAULT_REL_TOL == 1e-6
     assert fields['atol']['default'] == CA_DEFAULT_ABS_TOL == 1e-8
@@ -1674,7 +1677,7 @@ def test_legacy_mcmc_option_names_are_migrated_with_a_warning(capsys):
     """MCMC became one method of UQ, so its settings moved to UQ_options/do_uq. A config written
     for the old names must keep running and be told, once, what to rename -- the same
     migrate-with-a-warning treatment solver_info keys get."""
-    from parsers.PrimitiveParsers import _normalise_uq_option_names
+    from libcuflynx.parsers.PrimitiveParsers import _normalise_uq_option_names
 
     inp = {
         'do_mcmc': True,
@@ -1699,7 +1702,7 @@ def test_legacy_mcmc_option_names_are_migrated_with_a_warning(capsys):
 @pytest.mark.unit
 def test_a_config_using_only_the_new_uq_names_is_silent():
     """The migration must not nag a config that is already correct."""
-    from parsers.PrimitiveParsers import _normalise_uq_option_names
+    from libcuflynx.parsers.PrimitiveParsers import _normalise_uq_option_names
 
     inp = {'do_uq': False, 'UQ_options': {'method': 'mcmc'}}
     before = dict(inp)
@@ -1711,7 +1714,7 @@ def test_a_config_using_only_the_new_uq_names_is_silent():
 def test_setting_both_uq_spellings_is_refused():
     """Not a stale key to migrate but a contradiction: the two values can disagree, and
     silently preferring either would hide one from a user who believes it is in effect."""
-    from parsers.PrimitiveParsers import _normalise_uq_option_names
+    from libcuflynx.parsers.PrimitiveParsers import _normalise_uq_option_names
 
     with pytest.raises(ValueError, match='mcmc_options'):
         _normalise_uq_option_names({'mcmc_options': {'num_steps': 1},
@@ -1722,7 +1725,7 @@ def test_setting_both_uq_spellings_is_refused():
 def test_deprecated_mcmc_options_kwarg_still_reaches_UQ_options(capsys):
     """The public CVS0DParamID(mcmc_options=...) kwarg keeps working, and passing both spellings
     is refused for the same reason as above."""
-    from param_id.paramID import _resolve_UQ_options
+    from libcuflynx.param_id.paramID import _resolve_UQ_options
 
     assert _resolve_UQ_options(None, {'num_steps': 5}) == {'num_steps': 5}
     assert 'deprecated' in capsys.readouterr().out
@@ -1732,3 +1735,61 @@ def test_deprecated_mcmc_options_kwarg_still_reaches_UQ_options(capsys):
 
     with pytest.raises(ValueError, match='not both'):
         _resolve_UQ_options({'num_steps': 9}, {'num_steps': 5})
+
+
+@pytest.mark.unit
+def test_a_config_that_names_no_solver_gets_one_a_pip_install_can_provide():
+    """`cellml` must default to CVODE_myokit, not CVODE_opencor.
+
+    OpenCOR's Python module is not on PyPI, so `CVODE_opencor` is the one backend a
+    `pip install libcuflynx` cannot supply. Defaulting to it meant a user who wrote a
+    minimal config and left `solver` out was routed straight at the unavailable one --
+    invisible in a checkout, because the shipped `user_inputs.yaml` sets it explicitly,
+    and invisible in CI for the same reason.
+
+    Pinned because nothing else pins it. The change that fixed this shipped no test, and
+    upstream then renamed the key this value hangs off (`cellml_only` -> `cellml`) in a
+    separate branch. Merging the two would have restored the old default silently, with
+    every suite still green -- three independent reads (the schema, the solver_info
+    default, and the implicit fallback in `parse_user_inputs_file`) all agreeing on the
+    wrong answer.
+    """
+    assert SOLVER_SCHEMA['default_solver_by_model_type']['cellml'] == 'CVODE_myokit'
+    assert get_solver_info_default('cellml')['solver'] == 'CVODE_myokit'
+    # Still *offered*, just not the default: it works fine inside OpenCOR, and removing it
+    # would make `solver: CVODE_opencor` fail validation instead of reaching the message
+    # that names CVODE_myokit as the replacement.
+    assert 'CVODE_opencor' in SOLVER_SCHEMA['solvers_by_model_type']['cellml']
+
+
+@pytest.mark.unit
+def test_the_defaulted_solver_comes_from_the_schema_for_every_model_type():
+    """One source for "which solver if you name none", not a ladder beside the schema.
+
+    SOLVER_SCHEMA is what CUFLynx and every other consumer reads, so a second copy in
+    parse_user_inputs_file is a second answer waiting to disagree -- and it had. The
+    ladder defaulted `casadi_python` to 'cvodes', which is a *method* of the
+    casadi_integrator solver rather than a solver; `get_simulation_helper` accepts only
+    'casadi_integrator' for that model type. Nothing caught it because a defaulted solver
+    skips the validation the explicit path goes through.
+    """
+    defaults = SOLVER_SCHEMA['default_solver_by_model_type']
+
+    # Every model type has one, and it is a solver that model type actually offers.
+    for model_type, solvers in SOLVER_SCHEMA['solvers_by_model_type'].items():
+        assert model_type in defaults, f'{model_type} has no default solver'
+        assert defaults[model_type] in solvers, (
+            f'{model_type} defaults to {defaults[model_type]!r}, which is not one of its '
+            f'solvers {solvers} -- a method name here is the mistake to look for')
+
+
+@pytest.mark.unit
+def test_the_legacy_cvode_alias_leaves_cpp_alone():
+    """'CVODE' is a legacy spelling for CellML *and* a current solver for cpp.
+
+    Before the split into CVODE_opencor / CVODE_myokit, 'CVODE' meant the CellML backend.
+    The compatibility rewrite applied to every model type, so a cpp study that named its
+    own valid solver had it silently replaced with a CellML one.
+    """
+    assert 'CVODE' in SOLVER_SCHEMA['solvers_by_model_type']['cpp']
+    assert 'CVODE' not in SOLVER_SCHEMA['solvers_by_model_type']['cellml']

@@ -33,7 +33,7 @@ import os
 import numpy as np
 import pytest
 
-from param_id.paramID import CVS0DParamID
+from libcuflynx.param_id.paramID import CVS0DParamID
 
 # The fixture pair lives in tests/test_inputs/ -- it is test scaffolding (an analytically
 # solvable toy), not a resource a user would run, which is what resources/ is for.
@@ -55,7 +55,7 @@ def _obs_doc():
         # cost_type pinned rather than defaulted: the chain-rule test below differentiates
         # the cost by hand, so it must know which cost it is differentiating. Leaving it to
         # CA's default made the test silently wrong when that default changed from MSE to
-        # gaussian_MLE (which is exactly 0.5x MSE -- see funcs_user/cost_funcs_user.py).
+        # gaussian_MLE (which is exactly 0.5x MSE -- see libcuflynx/funcs/cost_funcs_user.py).
         return {"variable": var, "name_for_plotting": var, "data_type": "constant",
                 "operation": "min", "operands": [operand], "unit": "dimensionless",
                 "weight": 1.0, "value": gt, "std": std, "cost_type": "gaussian_MLE",
@@ -284,7 +284,7 @@ def test_tightening_rtol_past_the_floor_degrades_the_gradient_and_warns(
     degradation it is warning about, so the day Myokit fixes its side, this test fails and
     the guard can be dropped.
     """
-    from solver_wrappers.myokit_helper import FSA_MIN_SAFE_REL_TOL
+    from libcuflynx.solver_wrappers.myokit_helper import FSA_MIN_SAFE_REL_TOL
 
     tight = {'solver': 'CVODE_myokit', 'rtol': 1e-12, 'atol': 1e-12}
     engine = _engine(tmp_path, 'native', _NATIVE_PARAMS, solver_info=tight)

@@ -12,7 +12,7 @@ that the *renames* are wrong when the pin comes off.
 """
 import pytest
 
-from utilities.libcellml_helper_funcs import (
+from libcuflynx.utilities.libcellml_helper_funcs import (
     _generator_is_pre_0_7, generate_implementation_code, generate_interface_code,
     get_analysed_model)
 

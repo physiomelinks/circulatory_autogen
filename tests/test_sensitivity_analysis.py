@@ -7,8 +7,8 @@ import os
 import pytest
 from mpi4py import MPI
 
-from scripts.script_generate_with_new_architecture import generate_with_new_architecture
-from scripts.sensitivity_analysis_run_script import run_SA
+from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
+from libcuflynx.scripts.sensitivity_analysis_run_script import run_SA
 
 
 @pytest.fixture(scope="function")
@@ -148,8 +148,8 @@ def _build_local_sa_engine(base_user_inputs, resources_dir, temp_output_dir,
     for the backend-agnostic local-sensitivity accessor (do_ad on, q_lv_init included so the
     initial-value chain rule is exercised on the Myokit path)."""
     import json
-    from parsers.PrimitiveParsers import YamlFileParser
-    from param_id.paramID import CVS0DParamID
+    from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
+    from libcuflynx.param_id.paramID import CVS0DParamID
 
     obs_file = '3compartment_obs_data.json'
     config = base_user_inputs.copy()
@@ -291,8 +291,8 @@ def test_sensitivity_analysis_local_method_end_to_end(
     (not sobol_SA), saves the CSV matrices, and exposes get_local_sensitivities()."""
     import json
     import numpy as np
-    from parsers.PrimitiveParsers import YamlFileParser
-    from sensitivity_analysis.sensitivityAnalysis import SensitivityAnalysis
+    from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
+    from libcuflynx.sensitivity_analysis.sensitivityAnalysis import SensitivityAnalysis
 
     rank = mpi_comm.Get_rank()
     obs_file = '3compartment_obs_data.json'
@@ -415,7 +415,7 @@ def test_sobolSA_generate_samples_supports_both_sample_types():
     exercises generate_samples directly (no model needed) for both types.
     """
     import numpy as np
-    from sensitivity_analysis.sobolSA import sobol_SA
+    from libcuflynx.sensitivity_analysis.sobolSA import sobol_SA
 
     # generate_samples only reads num_params + SA_info, so build a bare instance to avoid the
     # heavy __init__ (which loads a model). This keeps the check a fast unit test of the dispatch.
@@ -442,7 +442,7 @@ def test_init_from_all_dicts_is_a_classmethod(monkeypatch):
     and calling it on the class -- its only sensible use -- raised a TypeError before any of
     its body ran."""
     from types import SimpleNamespace
-    from sensitivity_analysis.sensitivityAnalysis import SensitivityAnalysis
+    from libcuflynx.sensitivity_analysis.sensitivityAnalysis import SensitivityAnalysis
 
     received = {}
     stub = SimpleNamespace(

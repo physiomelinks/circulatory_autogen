@@ -22,12 +22,12 @@ from collections import namedtuple
 import numpy as np
 import pytest
 
-from param_id.paramID import (
+from libcuflynx.param_id.paramID import (
     drop_unsampled_draws,
     sample_with_checkpoints,
     save_chain_atomically,
 )
-from param_id.pymc_backend import PyMCSampler, _LiveChainWriter, _progressbar_wanted
+from libcuflynx.param_id.pymc_backend import PyMCSampler, _LiveChainWriter, _progressbar_wanted
 
 pymc_installed = True
 try:

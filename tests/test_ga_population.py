@@ -2,7 +2,7 @@
 (num_elite / num_survivors / num_mutations_per_survivor / num_cross_breed)."""
 import pytest
 
-from param_id.optimisers import GeneticAlgorithmOptimiser
+from libcuflynx.param_id.optimisers import GeneticAlgorithmOptimiser
 
 
 def _make_ga(options, debug):
@@ -29,7 +29,7 @@ def test_ga_non_debug_defaults_come_from_the_schema():
     """The non-DEBUG defaults are not duplicated in the optimiser -- they are read from
     PARAM_ID_METHODS, so what a front-end pre-fills is exactly what CA uses and the two cannot
     drift."""
-    from parsers.PrimitiveParsers import param_id_method_options
+    from libcuflynx.parsers.PrimitiveParsers import param_id_method_options
     schema_defaults = {o['name']: o['default'] for o in
                        param_id_method_options('genetic_algorithm')}
     sizes = _make_ga({}, False)._population_sizes()
@@ -42,7 +42,7 @@ def test_ga_debug_population_comes_from_the_schema():
     """The DEBUG quick-run sizes are not duplicated in the optimiser either -- they are read from
     each option's `debug_default` in PARAM_ID_METHODS (#313), so a front-end can show/pass the
     exact values DEBUG runs and the schema and code cannot drift."""
-    from parsers.PrimitiveParsers import param_id_method_options
+    from libcuflynx.parsers.PrimitiveParsers import param_id_method_options
     schema_debug_defaults = {o['name']: o.get('debug_default') for o in
                              param_id_method_options('genetic_algorithm')}
     debug_sizes = _make_ga({}, True)._population_sizes()

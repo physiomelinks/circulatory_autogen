@@ -10,7 +10,7 @@ These tests pin the flattening at the seam both classes share, so they cannot dr
 import numpy as np
 import pytest
 
-from param_id.paramID import OpencorMCMC, OpencorParamID
+from libcuflynx.param_id.paramID import OpencorMCMC, OpencorParamID
 
 
 def _engine(cls, weights):

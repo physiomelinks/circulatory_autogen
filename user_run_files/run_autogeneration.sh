@@ -1,2 +1,10 @@
-source python_path.sh
-${python_path} ../src/scripts/script_generate_with_new_architecture.py False
+#!/bin/bash
+# Generate the model from the vessel/module and parameter CSV arrays named in user_inputs.yaml.
+# This script's own directory, using builtins only: dirname needs a working PATH, and a
+# broken PATH is precisely the situation the helper below exists to report on.
+_cuflynx_dir="${BASH_SOURCE[0]%/*}"
+[ "${_cuflynx_dir}" = "${BASH_SOURCE[0]}" ] && _cuflynx_dir="."
+source "${_cuflynx_dir}/cuflynx_entry_point.sh"
+require_cuflynx cuflynx-generate libcuflynx.scripts.script_generate_with_new_architecture || exit 1
+
+"${cuflynx_cmd[@]}" False

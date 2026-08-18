@@ -1,6 +1,6 @@
 [
   { "variable": "flow aortic root",
-    "name_for_plotting": "v_{ARmean}",
+    "name_for_plotting": "v_{AR}",
     "data_type": "constant",
     "operation": "mean",
     "operands":["aortic_root/v"],
@@ -12,7 +12,7 @@
     "plot_type":"horizontal"
   },
   { "variable": "flow aortic root",
-    "name_for_plotting": "v_{ARmax}",
+    "name_for_plotting": "v_{AR}",
     "data_type": "constant",
     "operation": "max",
     "operands":["aortic_root/v"],
@@ -29,8 +29,8 @@
     "operation": "calculate_two_observable_difference",
     "operands":[""],
     "operation_kwargs": {
-    	"pred1": "v_{ARmean}",
-    	"pred2": "v_{ARmax}"
+    	"pred1": "v_{AR}",
+    	"pred2": "v_{AR}"
     	},
     "unit": "m3_per_s",
     "weight": 1.0,

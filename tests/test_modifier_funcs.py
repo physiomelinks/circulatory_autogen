@@ -12,10 +12,10 @@ analytic gradients keep a constant chain-rule weight and theta's x0 is derivable
 import numpy as np
 import pytest
 
-from param_id import fsa_backend
-from param_id.modifier_funcs import (
+from libcuflynx.param_id import fsa_backend
+from libcuflynx.param_id.modifier_funcs import (
     BUILTIN_MODIFIER_FUNCS, get_modifier_funcs, modifier_func, probe_affine)
-from parsers.PrimitiveParsers import (
+from libcuflynx.parsers.PrimitiveParsers import (
     ObsAndParamDataParser, apply_modifier_identity_nominals, expand_modifier_param_vals,
     modifier_weights_by_index, param_modifiers, resolve_modifier_baselines)
 
@@ -33,7 +33,7 @@ def _doc(**overrides):
 
 def _info(doc, external_path=None):
     parser = _parser(external_path)
-    from param_id.modifier_funcs import get_modifier_funcs as gmf
+    from libcuflynx.param_id.modifier_funcs import get_modifier_funcs as gmf
     entries = parser.resolve_params_for_id_doc(doc, modifier_funcs=gmf(external_path))
     return parser._build_param_id_info_from_entries(entries)
 
@@ -88,7 +88,7 @@ def test_an_invalid_input_type_is_refused_at_declaration():
 def test_an_external_file_adds_functions(tmp_path):
     ext = tmp_path / 'my_modifiers.py'
     ext.write_text(
-        "from param_id.modifier_funcs import modifier_func\n"
+        "from libcuflynx.param_id.modifier_funcs import modifier_func\n"
         "@modifier_func(inputs={'ref': 'float'}, description='target = theta + ref')\n"
         "def offset_from(theta, baseline, ref):\n"
         "    return theta + ref\n"
@@ -124,7 +124,7 @@ def test_the_vocabulary_exposes_inputs_and_user_defined():
 def test_external_functions_are_marked_user_defined(tmp_path):
     ext = tmp_path / 'm.py'
     ext.write_text(
-        "from param_id.modifier_funcs import modifier_func\n"
+        "from libcuflynx.param_id.modifier_funcs import modifier_func\n"
         "@modifier_func(inputs={})\n"
         "def my_op(theta, baseline):\n"
         "    return theta\n")
@@ -160,7 +160,7 @@ def test_undeclared_inputs_are_refused():
 def test_a_float_input_takes_one_qname_not_a_list(tmp_path):
     ext = tmp_path / 'm.py'
     ext.write_text(
-        "from param_id.modifier_funcs import modifier_func\n"
+        "from libcuflynx.param_id.modifier_funcs import modifier_func\n"
         "@modifier_func(inputs={'ref': 'float'})\n"
         "def offset_from(theta, baseline, ref):\n"
         "    return theta + ref\n")
@@ -278,7 +278,7 @@ def test_the_probed_weights_reach_the_fsa_chain_rule():
 def test_a_non_affine_function_is_refused_at_resolve(tmp_path):
     ext = tmp_path / 'm.py'
     ext.write_text(
-        "from param_id.modifier_funcs import modifier_func\n"
+        "from libcuflynx.param_id.modifier_funcs import modifier_func\n"
         "@modifier_func(inputs={})\n"
         "def squared(theta, baseline):\n"
         "    return theta * theta * baseline\n")
