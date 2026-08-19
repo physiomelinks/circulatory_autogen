@@ -37,10 +37,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install system libraries (MPI, SUNDIALS)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libopenmpi-dev openmpi-bin libsundials-dev build-essential
+      - uses: ./.github/actions/install-system-deps
 
       - name: Install package and docs tooling
         run: |

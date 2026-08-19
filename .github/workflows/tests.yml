@@ -10,6 +10,10 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Runs 13-31 minutes depending on the apt weather. This is a backstop, not a budget:
+    # without one, `test (3.11)` sat in the apt step for 45 minutes and had to be cancelled
+    # by hand, because the job would otherwise have run to GitHub's 360-minute default.
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -28,10 +32,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install -e ".[dev]"
     
-    - name: Install MPI
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libopenmpi-dev openmpi-bin libsundials-dev build-essential
+    - uses: ./.github/actions/install-system-deps
     
     - name: Run tests (Myokit-first, skip OpenCOR-only)
       id: pytest
@@ -144,10 +145,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install -e ".[dev]"
 
-    - name: Install MPI and Myokit build dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libopenmpi-dev openmpi-bin libsundials-dev build-essential
+    - uses: ./.github/actions/install-system-deps
 
     - name: Run the full-scale model calibration with MPI
       run: |
@@ -170,10 +168,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install -e ".[dev]"
 
-    - name: Install MPI and Myokit build dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libopenmpi-dev openmpi-bin libsundials-dev build-essential
+    - uses: ./.github/actions/install-system-deps
 
     - name: Run param_id and sensitivity analysis tests with MPI
       run: |
@@ -198,10 +193,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install -e ".[dev]"
 
-    - name: Install MPI and Myokit build dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libopenmpi-dev openmpi-bin libsundials-dev build-essential
+    - uses: ./.github/actions/install-system-deps
 
     - name: Run the full-scale model calibration in serial mode
       run: |
@@ -224,10 +216,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install -e ".[dev]"
 
-    - name: Install MPI and Myokit build dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libopenmpi-dev openmpi-bin libsundials-dev build-essential
+    - uses: ./.github/actions/install-system-deps
 
     - name: Run param_id and sensitivity analysis tests in serial mode
       run: |
@@ -284,10 +273,7 @@ jobs:
         # the pyMC backend stayed unproven for as long as it did.
         pip install -e ".[dev,uq,emulation]"
 
-    - name: Install MPI and Myokit build dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libopenmpi-dev openmpi-bin libsundials-dev build-essential
+    - uses: ./.github/actions/install-system-deps
 
     # Seconds, and the only place the pyMC-sampling half of these runs: without [uq] they skip,
     # which is exactly how the backend's live-chain checkpointing could regress unnoticed.
@@ -367,10 +353,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install -e ".[dev,uq,emulation]"
 
-    - name: Install MPI and Myokit build dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libopenmpi-dev openmpi-bin libsundials-dev build-essential
+    - uses: ./.github/actions/install-system-deps
 
     - name: Run the emulator UQ tests on two ranks
       timeout-minutes: 30
@@ -458,6 +441,7 @@ jobs:
   # This can be enabled if OpenCOR is set up in CI environment
   test-with-opencor:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     if: false  # Disabled by default - enable if OpenCOR is available in CI
     steps:
     - uses: actions/checkout@v4
@@ -472,10 +456,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install -e ".[dev]"
     
-    - name: Install MPI
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libopenmpi-dev openmpi-bin libsundials-dev build-essential
+    - uses: ./.github/actions/install-system-deps
     
     - name: Download and setup OpenCOR
       run: |

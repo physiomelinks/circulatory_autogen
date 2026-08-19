@@ -1,0 +1,46 @@
+name: Install system libraries (MPI, SUNDIALS)
+description: >-
+  Install the OpenMPI/SUNDIALS/toolchain packages every Linux job here needs, going
+  straight to an Ubuntu mirror that answers.
+
+runs:
+  using: composite
+  steps:
+    - name: Drop the Azure apt mirror if it is not answering
+      shell: bash
+      run: |
+        # The runner image points apt at a mirrorlist (/etc/apt/apt-mirrors.txt) listing
+        # azure.archive.ubuntu.com first and archive.ubuntu.com as fallback. When the Azure
+        # mirror is down, apt does not fail over quickly: it spends its connect timeout plus
+        # retries on the dead host for *every* index and *every* package.
+        #
+        # That is not hypothetical. It hung CUFLynx's release build for 1h40m in a step whose
+        # healthy cost is 32 seconds, and it is the best explanation for the spread here --
+        # in one run of this workflow the identical step took 1m22s in `test (3.10)` and
+        # 22m35s in `test-param-id-serial`, which is what winning or losing the mirror
+        # lottery looks like.
+        #
+        # Probe rather than delete unconditionally: when Azure is healthy it is the faster
+        # mirror (it is in the same datacentre), so it is worth keeping on a good day.
+        #
+        # --max-time, not a connect check: the failure mode is a *stalled transfer*, not a
+        # refused connection. Probing it by hand while it was down returned 13287 of 270087
+        # bytes and then stopped -- the socket opens and data starts flowing, so anything that
+        # only tests reachability is fooled, which is precisely why apt sits there.
+        # Ask for this runner's own release: ubuntu-latest is noble now and was jammy not
+        # long ago, and a hardcoded codename would silently probe the wrong thing.
+        codename="$(lsb_release -cs)"
+        if ! curl -fsS --max-time 10 -o /dev/null \
+             "http://azure.archive.ubuntu.com/ubuntu/dists/${codename}/InRelease"; then
+          echo "azure.archive.ubuntu.com is not answering -- using archive.ubuntu.com"
+          sudo sed -i '/azure.archive.ubuntu.com/d' /etc/apt/apt-mirrors.txt || true
+        fi
+        # Backstop for whichever mirror goes down next: fail a fetch in seconds, not minutes.
+        echo 'Acquire::http::Timeout "15"; Acquire::https::Timeout "15"; Acquire::Retries "3";' \
+          | sudo tee /etc/apt/apt.conf.d/99-ca-timeouts > /dev/null
+
+    - name: Install the packages
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libopenmpi-dev openmpi-bin libsundials-dev build-essential
