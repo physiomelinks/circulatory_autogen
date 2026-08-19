@@ -5,6 +5,13 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+Nothing yet.
+
+## 0.4.1 — 2026-08-19
+
+Three bug fixes, all found by running 0.4.0. Nothing about the API or the packaging changed,
+so upgrading is a `pip install -U libcuflynx`.
+
 ### Fixed — an mpi4py that is imported but not initialised no longer kills the process
 
 `mpi_utils` treated "`mpi4py.MPI` is in `sys.modules`" as "MPI is open", and read the rank
@@ -27,6 +34,30 @@ and the child then died importing `libcuflynx.solver_wrappers`.
 one-rank answers, which are the right ones for a process whose MPI was never opened. Nothing
 changes when MPI is genuinely open, and a rank started by a launcher is left alone — N ranks
 each believing they are rank 0 would be worse than the abort.
+
+### Fixed — reading a constant back from a Myokit run raised KeyError
+
+`get_results('component/some_constant')` on the `CVODE_myokit` backend raised
+`KeyError: 'component.some_constant'` (issue #453). `_make_log` deliberately leaves constants
+out of the log — Myokit cannot log something that never varies — while `_resolve_name`
+classifies a constant as a `"var"`, like every other non-state. So the read indexed a log that
+was never going to contain it.
+
+The arm that answers correctly was already two lines below and simply unreachable while a log
+existed: for a `"var"`, evaluate the variable. It now falls through to it.
+
+### Fixed — an unsupported `model_type` says so, instead of failing several frames later
+
+Calibrating a `model_type` that parameter identification cannot run — `cpp` is the case that
+gets there by being *valid*, a real model type for generation that neither `param_id` nor
+`solver_wrappers` can simulate — surfaced as
+`AttributeError: 'CVS0DParamID' object has no attribute 'param_id'`, from inside
+`EmulatorTrainer.init_from_dict` (CUFLynx #270). `__init__` built `self.param_id` only for the
+supported types and `set_output_dir` then dereferenced it unconditionally, so the failure named
+an internal attribute rather than the setting the user chose.
+
+`CVS0DParamID` now checks `model_type` against `PARAM_ID_MODEL_TYPES` up front and says which
+part is missing, quoting the list it was checked against.
 
 ## 0.4.0 — 2026-08-18
 
