@@ -1,40 +1,35 @@
 name: Install system libraries (MPI, SUNDIALS)
 description: >-
-  Install the OpenMPI/SUNDIALS/toolchain packages every Linux job here needs, going
-  straight to an Ubuntu mirror that answers.
+  Install the OpenMPI/SUNDIALS/toolchain packages every Linux job here needs, from a
+  mirror that answers.
 
 runs:
   using: composite
   steps:
-    - name: Drop the Azure apt mirror if it is not answering
+    - name: Use the global Ubuntu archive, not the Azure mirror
       shell: bash
       run: |
         # The runner image points apt at a mirrorlist (/etc/apt/apt-mirrors.txt) listing
         # azure.archive.ubuntu.com first and archive.ubuntu.com as fallback. When the Azure
-        # mirror is down, apt does not fail over quickly: it spends its connect timeout plus
-        # retries on the dead host for *every* index and *every* package.
+        # mirror is unhealthy, apt does not fail over: it wears the cost on *every* index and
+        # *every* package. That is what produced the wild spread here -- in one run of this
+        # workflow the identical step took 1m22s in `test (3.10)` and 22m35s in
+        # `test-param-id-serial` -- and, at the extreme, a 32-second step in CUFLynx's release
+        # build hanging for 1h40m with no output at all.
         #
-        # That is not hypothetical. It hung CUFLynx's release build for 1h40m in a step whose
-        # healthy cost is 32 seconds, and it is the best explanation for the spread here --
-        # in one run of this workflow the identical step took 1m22s in `test (3.10)` and
-        # 22m35s in `test-param-id-serial`, which is what winning or losing the mirror
-        # lottery looks like.
+        # This drops the Azure mirror unconditionally, and the "unconditionally" is the part
+        # worth not undoing. The first version of this file probed first and kept Azure when
+        # it answered, on the theory that it is the faster mirror when healthy. That failed:
+        # the failure mode is not "down", it is *degraded* -- when measured it was serving
+        # 270 KB in ~9 seconds, roughly 30 kB/s, and stalling outright on about one request in
+        # three. Any probe with a time budget loose enough to tolerate a healthy mirror's
+        # jitter also passes one that is two orders of magnitude too slow, so the probe kept
+        # voting to keep it and four jobs still spent 14-31 minutes here.
         #
-        # Probe rather than delete unconditionally: when Azure is healthy it is the faster
-        # mirror (it is in the same datacentre), so it is worth keeping on a good day.
-        #
-        # --max-time, not a connect check: the failure mode is a *stalled transfer*, not a
-        # refused connection. Probing it by hand while it was down returned 13287 of 270087
-        # bytes and then stopped -- the socket opens and data starts flowing, so anything that
-        # only tests reachability is fooled, which is precisely why apt sits there.
-        # Ask for this runner's own release: ubuntu-latest is noble now and was jammy not
-        # long ago, and a hardcoded codename would silently probe the wrong thing.
-        codename="$(lsb_release -cs)"
-        if ! curl -fsS --max-time 10 -o /dev/null \
-             "http://azure.archive.ubuntu.com/ubuntu/dists/${codename}/InRelease"; then
-          echo "azure.archive.ubuntu.com is not answering -- using archive.ubuntu.com"
-          sudo sed -i '/azure.archive.ubuntu.com/d' /etc/apt/apt-mirrors.txt || true
-        fi
+        # If the optimisation is ever wanted back, it needs a *throughput* floor
+        # (curl --speed-limit/--speed-time), not a timeout. A timeout cannot tell "slow" from
+        # "working", and slow is the case that actually costs us.
+        sudo sed -i '/azure.archive.ubuntu.com/d' /etc/apt/apt-mirrors.txt || true
         # Backstop for whichever mirror goes down next: fail a fetch in seconds, not minutes.
         echo 'Acquire::http::Timeout "15"; Acquire::https::Timeout "15"; Acquire::Retries "3";' \
           | sudo tee /etc/apt/apt.conf.d/99-ca-timeouts > /dev/null
