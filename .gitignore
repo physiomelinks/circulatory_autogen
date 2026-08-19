@@ -33,6 +33,11 @@ resources/vessel_array_module_files.csv
 # project to libcuflynx made `pip install -e .` (a prerequisite for every user_run_files
 # launcher now) drop an untracked src/libcuflynx.egg-info/ into every checkout. Match any name.
 src/*.egg-info/
+# `python -m build` output. CONTRIBUTING's release checklist tells every releaser to run it
+# before tagging, so cutting a release leaves ~2 MB of untracked wheel and sdist in the
+# checkout -- exactly where a `git add -A` would sweep them into the release commit.
+build/
+dist/
 src/nohup.out
 tests/TEST_REFACTORING_SUMMARY.md
 tests/test_outputs/
