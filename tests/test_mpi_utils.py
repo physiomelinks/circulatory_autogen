@@ -193,23 +193,32 @@ def _mpi_stub(initialised):
         _INITIALISED = %r
 
 
+        # Plain functions, not staticmethod: these are assigned as *module*
+        # attributes below, where no descriptor protocol unwraps them, and a
+        # staticmethod object only became callable in its own right in Python
+        # 3.10. On 3.9 `MPI.Is_initialized()` therefore raised TypeError, which
+        # mpi_is_live's `except Exception` turned into "not live" -- so the stub
+        # said uninitialised however it was configured, and the test read as a
+        # bug in the code under test rather than in its own scaffolding.
         def _routine(name, answer):
             def call(*args, **kwargs):
                 if not _INITIALISED:
                     print('Attempting to use an MPI routine before initializing MPI')
                     os._exit(1)
                 return answer
-            return staticmethod(call)
+            return call
 
 
         class _Comm(object):
-            Get_rank = _routine('MPI_Comm_rank', 3)
-            Get_size = _routine('MPI_Comm_size', 8)
+            # staticmethod here is correct and 3.9-safe: a class attribute *is*
+            # unwrapped by the descriptor protocol when read off an instance.
+            Get_rank = staticmethod(_routine('MPI_Comm_rank', 3))
+            Get_size = staticmethod(_routine('MPI_Comm_size', 8))
 
 
         _MPI.COMM_WORLD = _Comm()
-        _MPI.Is_initialized = staticmethod(lambda: _INITIALISED)
-        _MPI.Is_finalized = staticmethod(lambda: False)
+        _MPI.Is_initialized = lambda: _INITIALISED
+        _MPI.Is_finalized = lambda: False
         _mpi4py.MPI = _MPI
         sys.modules['mpi4py'] = _mpi4py
         sys.modules['mpi4py.MPI'] = _MPI
