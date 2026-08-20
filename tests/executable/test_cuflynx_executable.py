@@ -35,7 +35,14 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
+# tests/executable/this_file.py -> parents[2] is the repo root. This test lives one level
+# deeper than the rest of the suite on purpose: `tests/conftest.py` imports yaml, numpy,
+# mpi4py and libcuflynx at module scope, and the CI job that runs this one deliberately
+# installs nothing but pytest -- the whole point being that the app carries its own
+# environment. Collected from `tests/`, that conftest is loaded first and the job dies
+# with ModuleNotFoundError before a single test runs. The job passes --confcutdir so
+# nothing above this directory is loaded.
+ROOT = Path(__file__).resolve().parents[2]
 INPUTS = ROOT / "tests" / "test_inputs"
 SRC = ROOT / "src"
 MODEL = INPUTS / "Lotka_Volterra_forced.cellml"

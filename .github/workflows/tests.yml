@@ -505,6 +505,13 @@ jobs:
         python -m pip install --upgrade pip
         pip install pytest
 
+    # --confcutdir is what makes the line above true, and the test lives in its own
+    # directory so that it can be passed. `tests/conftest.py` imports yaml, numpy, mpi4py
+    # and libcuflynx at module scope; pytest loads every conftest from the rootdir down to
+    # the test, so collecting from `tests/` killed this job with ModuleNotFoundError before
+    # a single test ran -- pytest exit code 4, no junit file, nothing driven at all.
+    # The fix has to keep that conftest out of reach rather than install its imports:
+    # installing them is exactly what this job exists not to do.
     - name: Run the executable end-to-end tests
       env:
         CUFLYNX_EXECUTABLE: /home/runner/.cache/cuflynx/CUFLynx-full
@@ -512,7 +519,8 @@ jobs:
         # its only end-to-end coverage is indistinguishable from one that passes it.
         CUFLYNX_EXECUTABLE_REQUIRED: "1"
       run: |
-        python -m pytest tests/test_cuflynx_executable.py -v --tb=short \
+        python -m pytest tests/executable/test_cuflynx_executable.py -v --tb=short \
+          --confcutdir=tests/executable \
           --junitxml=junit-cuflynx-executable.xml
 
     - name: Upload test results
