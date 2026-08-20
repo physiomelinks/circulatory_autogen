@@ -439,6 +439,89 @@ jobs:
 
   # Job to run full test suite if OpenCOR is available (optional)
   # This can be enabled if OpenCOR is set up in CI environment
+  # The released CUFLynx desktop app, driven against this checkout.
+  #
+  # CUFLynx ships a frozen binary with a libcuflynx bundled inside it, frozen at whatever
+  # was current when it was released. Neither repo's CI tests the pairing: CUFLynx tests
+  # its own bundle, CA tests its own source, and "the app people have downloaded can still
+  # run this engine" is asserted nowhere. This is that assertion, from CA's side.
+  test-cuflynx-executable:
+    runs-on: ubuntu-latest
+    # The five analyses take ~10 minutes on Lotka-Volterra; the rest is the one-off 645 MB
+    # download on a cache miss. Generous enough to survive a slow release download, tight
+    # enough that a hang is reported rather than run to GitHub's 360-minute default.
+    timeout-minutes: 45
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.10"
+
+    # The cache key, and the answer to "has a new one been released": the tag of the
+    # current release. A new release is a new key, hence a miss, hence a fresh download.
+    - name: Find the current CUFLynx release
+      id: release
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        tag="$(gh api repos/physiomelinks/CUFLynx/releases/latest --jq .tag_name)"
+        echo "tag=$tag" >> "$GITHUB_OUTPUT"
+        echo "current CUFLynx release: $tag"
+
+    # No `restore-keys`, deliberately. A prefix fallback would cheerfully restore last
+    # month's binary when the key misses, which is precisely the case this job exists to
+    # catch -- the test would then pass against an executable nobody can download any more.
+    - name: Cache the executable
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/cuflynx
+        key: cuflynx-linux-x86_64-full-${{ steps.release.outputs.tag }}
+
+    # The -full asset rather than the ordinary one: it is the only build carrying
+    # autoemulate and pymc, and without them the emulator and the UQ-on-the-emulator
+    # tests have nothing to run against.
+    - name: Download the executable
+      if: steps.cache.outputs.cache-hit != 'true'
+      run: |
+        set -euo pipefail
+        mkdir -p ~/.cache/cuflynx
+        curl -fL --retry 3 --retry-all-errors -o ~/.cache/cuflynx/CUFLynx-full \
+          "https://github.com/physiomelinks/CUFLynx/releases/download/${{ steps.release.outputs.tag }}/CUFLynx-linux-x86_64-full"
+
+    # Restored from a cache, the executable bit does not survive.
+    - name: Make it executable
+      run: chmod +x ~/.cache/cuflynx/CUFLynx-full
+
+    # Only pytest is needed here: the app runs the analyses in its own bundled interpreter,
+    # and reaches this checkout through CIRCULATORY_AUTOGEN_SRC rather than through an
+    # install. Installing CA's dependencies into the runner's python would prove nothing
+    # about the bundle and would hide a missing one.
+    - name: Install pytest
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest
+
+    - name: Run the executable end-to-end tests
+      env:
+        CUFLYNX_EXECUTABLE: /home/runner/.cache/cuflynx/CUFLynx-full
+        # Turns "no binary, skip everything" into a failure. A suite that silently skips
+        # its only end-to-end coverage is indistinguishable from one that passes it.
+        CUFLYNX_EXECUTABLE_REQUIRED: "1"
+      run: |
+        python -m pytest tests/test_cuflynx_executable.py -v --tb=short \
+          --junitxml=junit-cuflynx-executable.xml
+
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: cuflynx-executable-results
+        path: junit-cuflynx-executable.xml
+
   test-with-opencor:
     runs-on: ubuntu-latest
     timeout-minutes: 45
