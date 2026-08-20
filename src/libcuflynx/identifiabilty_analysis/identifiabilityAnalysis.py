@@ -7,10 +7,10 @@ import os
 import sys
 from sys import exit
 from matplotlib.ticker import FuncFormatter
-try:
-    import corner
-except ImportError:
-    corner = None
+# Deferred to its single call site in plot_laplace_results(); see
+# libcuflynx/utilities/lazy_imports.py for why this is not a module-level
+# `try: import corner / except ImportError`.
+from libcuflynx.utilities.lazy_imports import require_corner
 import math as math
 try:
     import opencor as oc
@@ -342,9 +342,17 @@ class IdentifiabilityAnalysis():
           parameter_names: List of parameter names corresponding to the best_param_vals.
           output_dir: Directory to save the plots.
         """
-        if corner is None:
-            raise ImportError("corner is required to plot Laplace results.")
-          
+        # Rank 0 only, like plot_mcmc(). Its caller -- scripts/plot_param_id_script.py --
+        # runs on every rank and had no guard of its own, so under `mpiexec -n 4
+        # cuflynx-plot` all four ranks drew this figure and wrote it to the same path.
+        # Concurrent writes to one PDF were the visible half of that; the invisible half
+        # was four ranks importing corner (and therefore arviz) in lockstep, which is the
+        # race described in utilities/lazy_imports.py.
+        if self.rank != 0:
+            return
+
+        corner = require_corner("plot Laplace results")
+
 
         if self.covariance_matrix_Laplace is None or self.mean_Laplace is None:
             try:

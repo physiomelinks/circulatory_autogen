@@ -55,10 +55,17 @@ try:
     import zeus
 except ImportError:
     zeus = None
-try:
-    import corner
-except ImportError:
-    corner = None
+# corner is NOT imported here, deliberately. It is a core dependency, so this was once a
+# plain module-level import -- but it is used at exactly four call sites, all of them inside
+# plot_mcmc(), and importing it drags in arviz and xarray on every rank of every calibration,
+# the vast majority of which never draw a corner plot.
+#
+# It also cannot be guarded with `except ImportError`. arviz 0.23.4 writes a once-a-day stamp
+# file at import time through a fixed temporary name, so concurrent MPI ranks race and the
+# losers get FileNotFoundError -- which sails straight through an ImportError guard and takes
+# the rank, and then via MPI_ABORT the whole job, down with it. See
+# utilities/lazy_imports.py, which carries the measurements and the reasoning.
+from libcuflynx.utilities.lazy_imports import require_corner
 import csv
 import shutil
 from datetime import date, datetime
@@ -880,6 +887,10 @@ class CVS0DParamID():
         flat_samples, samples, num_params = self.get_mcmc_samples()
         if self.rank != 0:
             return
+
+        # Imported here rather than at module scope: this is the only method in the file
+        # that needs it, and on rank 0 only. See the note beside the import at the top.
+        corner = require_corner("plot MCMC corner plots")
 
         means = np.zeros((num_params))
         conf_ivals = np.zeros((num_params, 3))
