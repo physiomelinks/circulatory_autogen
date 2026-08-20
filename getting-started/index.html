@@ -1,0 +1,1770 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://finbarargus.github.io/circulatory_autogen/getting-started/">
+      
+      
+        <link rel="prev" href="..">
+      
+      
+        <link rel="next" href="../model-generation-simulation/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Getting Started - Circulatory Autogen</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#getting-started" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Circulatory Autogen" class="md-header__button md-logo" aria-label="Circulatory Autogen" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Circulatory Autogen
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Getting Started
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Circulatory Autogen" class="md-nav__button md-logo" aria-label="Circulatory Autogen" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Circulatory Autogen
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Welcome to Circulatory Autogen
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#install-the-package" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Install the package
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Install the package">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#where-an-installed-libcuflynx-reads-and-writes-cuflynx_user_dir" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where an installed libcuflynx reads and writes: CUFLYNX_USER_DIR
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#clone-the-repository" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Clone the repository
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#directory-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Directory layout
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#install-python-libraries-from-pyprojecttoml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Install Python libraries from pyproject.toml
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#optional-third-party-backends-not-part-of-circulatory-autogen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Optional third-party backends (not part of Circulatory Autogen)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Optional third-party backends (not part of Circulatory Autogen)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#aadc-matlogica-proprietary-optional-not-included" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AADC (Matlogica) — proprietary, optional, not included
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mpi-and-system-libraries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MPI and system libraries
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#expected-outcome" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Expected outcome
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deprecated-opencor-based-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deprecated: OpenCOR-based setup
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Deprecated: OpenCOR-based setup">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#install-opencor-legacy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Install OpenCOR (legacy)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#legacy-directory-names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Legacy directory names
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#installing-packages-with-opencors-pip-legacy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Installing packages with OpenCOR’s pip (legacy)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#python_pathsh-pointed-at-a-pythonshell-legacy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        python_path.sh pointed at a pythonshell (legacy)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#opencor-versions-before-08-and-ssl-legacy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenCOR versions before 0.8 and SSL (legacy)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../model-generation-simulation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Generation and Simulation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../design-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Designing a model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../external-python-solvers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    External Python Solvers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../parameter-identification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parameter Identification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sensitivity-analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sensitivity Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../identifiability-analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Identifiability Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../emulators/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Emulators (Surrogate Models)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../example-3compartment-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Example: 3Compartment Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../running-on-hpc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Running on the HPC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../other-features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Other Useful Features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_13" >
+        
+          
+          <label class="md-nav__link" for="__nav_13" id="__nav_13_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_13_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_13">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/generation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model generation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/solver-wrappers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Simulation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/param-id/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parameter identification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sensitivity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sensitivity analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/identifiability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Identifiability analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/emulators/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Emulators
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/protocols/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protocols
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/utilities/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Observation data &amp; utilities
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/internals/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parsers &amp; generators (internal)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#install-the-package" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Install the package
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Install the package">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#where-an-installed-libcuflynx-reads-and-writes-cuflynx_user_dir" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where an installed libcuflynx reads and writes: CUFLYNX_USER_DIR
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#clone-the-repository" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Clone the repository
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#directory-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Directory layout
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#install-python-libraries-from-pyprojecttoml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Install Python libraries from pyproject.toml
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#optional-third-party-backends-not-part-of-circulatory-autogen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Optional third-party backends (not part of Circulatory Autogen)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Optional third-party backends (not part of Circulatory Autogen)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#aadc-matlogica-proprietary-optional-not-included" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AADC (Matlogica) — proprietary, optional, not included
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mpi-and-system-libraries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MPI and system libraries
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#expected-outcome" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Expected outcome
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deprecated-opencor-based-setup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deprecated: OpenCOR-based setup
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Deprecated: OpenCOR-based setup">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#install-opencor-legacy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Install OpenCOR (legacy)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#legacy-directory-names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Legacy directory names
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#installing-packages-with-opencors-pip-legacy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Installing packages with OpenCOR’s pip (legacy)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#python_pathsh-pointed-at-a-pythonshell-legacy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        python_path.sh pointed at a pythonshell (legacy)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#opencor-versions-before-08-and-ssl-legacy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenCOR versions before 0.8 and SSL (legacy)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="getting-started">Getting Started</h1>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li><strong>Python</strong> 3.9 or newer — <code>pyproject.toml</code> declares <code>requires-python = "&gt;=3.9"</code>, and the package really does need it (<code>importlib.resources.files</code>). Use the same interpreter for the whole project.</li>
+<li><strong>Git</strong>, to clone the repository.</li>
+<li><strong>pip</strong> (usually bundled with Python).</li>
+<li><strong>MPI</strong> (optional): needed only if you run parameter identification or sensitivity analysis with multiple processes. See <a href="#mpi-and-system-libraries">MPI and system libraries</a> below.</li>
+<li><strong>Compiler / SUNDIALS</strong> (optional on Linux): Myokit’s CVODE backend may need <code>build-essential</code> and <code>libsundials-dev</code> (or your OS equivalent) so extensions can compile when first used.</li>
+</ul>
+<h2 id="install-the-package">Install the package</h2>
+<p>The repository is called <strong><code>circulatory_autogen</code></strong>; the package it installs is called
+<strong><code>libcuflynx</code></strong>. Both names refer to the same project — papers and the repository use the
+first, PyPI and every <code>import</code> uses the second.</p>
+<div class="highlight"><pre><span></span><code>pip install libcuflynx
+</code></pre></div>
+<p>That is all that is needed to import the library, run the console commands
+(<code>cuflynx-generate</code>, <code>cuflynx-param-id</code>, …) and work from any directory — no checkout, and no
+import path to set up. Optional capabilities are extras, because they are large;
+see the size table in the <a href="https://github.com/physiomelinks/circulatory_autogen#installing-and-what-each-extra-costs">README</a>:</p>
+<div class="highlight"><pre><span></span><code>pip install "libcuflynx[mpi]"        # multi-rank runs under mpiexec (needs a system MPI)
+pip install "libcuflynx[casadi]"     # model_type: casadi_python, symbolic AD gradients
+pip install "libcuflynx[uq]"         # the pyMC sampler
+pip install "libcuflynx[emulation]"  # surrogate models (pulls in torch; big)
+</code></pre></div>
+<div class="admonition note">
+<p class="admonition-title">The flat imports are deprecated</p>
+<p><code>from param_id.paramID import CVS0DParamID</code> still works in 0.4.0 with a
+<code>DeprecationWarning</code>, and is <strong>removed in 0.5.0</strong>. Use
+<code>from libcuflynx.param_id.paramID import CVS0DParamID</code>.</p>
+</div>
+<h3 id="where-an-installed-libcuflynx-reads-and-writes-cuflynx_user_dir">Where an installed libcuflynx reads and writes: <code>CUFLYNX_USER_DIR</code></h3>
+<p>Every stage needs a <strong>user directory</strong> — the one holding <code>user_run_files/user_inputs.yaml</code>
+and, unless the config overrides them, <code>resources/</code>, <code>module_config_user/</code>, <code>funcs_user/</code>,
+<code>generated_models/</code> and <code>param_id_output/</code>. It is chosen in this order:</p>
+<ol>
+<li><strong><code>$CUFLYNX_USER_DIR</code></strong>, if set — an absolute path (<code>~</code> is expanded).</li>
+<li>the <strong>circulatory_autogen checkout</strong> this <code>libcuflynx</code> is being run from, if it is one
+   (including <code>pip install -e .</code>), so the developer workflow needs no configuration;</li>
+<li>otherwise the <strong>current working directory</strong>.</li>
+</ol>
+<p>After a plain <code>pip install libcuflynx</code> there is no checkout, so rule 2 never fires: either
+run from your working directory, or point the variable at it, which is the only way to run
+from anywhere else without editing a config.</p>
+<div class="highlight"><pre><span></span><code>export CUFLYNX_USER_DIR=/path/to/my_study     # holds user_run_files/, resources/, …
+cuflynx-generate False
+</code></pre></div>
+<p>Nothing is ever written inside the installed package — that was issue #431. Individual
+directories can still be overridden per-run with <code>resources_dir</code>, <code>generated_models_dir</code>,
+<code>param_id_output_dir</code> and <code>external_modules_dir</code> in <code>user_inputs.yaml</code>; <code>CUFLYNX_USER_DIR</code>
+is what the defaults hang off when the config names none.</p>
+<p>The rest of this page sets up a <strong>checkout</strong>, which is what the tutorial's shell-script
+workflow (<code>user_run_files/*.sh</code>, <code>resources/</code>, <code>module_config_user/</code>) and any development work
+need. If you only want to drive the library from Python, the <code>pip install</code> above is enough —
+skip to <a href="../model-generation-simulation/">Model Generation and Simulation</a>.</p>
+<h2 id="clone-the-repository">Clone the repository</h2>
+<p>Clone the Circulatory Autogen project from the <a href="https://github.com/FinbarArgus/circulatory_autogen">GitHub repository</a>.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>If you have not used Git before: install Git, open a terminal, go to the folder where you want the code, then run:</p>
+<ul>
+<li><code>git clone https://github.com/FinbarArgus/circulatory_autogen</code></li>
+</ul>
+<p>To contribute via a fork:</p>
+<ul>
+<li>
+<p><code>git clone https://github.com/&lt;YourUsername&gt;/circulatory_autogen</code></p>
+</li>
+<li>
+<p><code>git remote add upstream https://github.com/physiomelinks/circulatory_autogen</code></p>
+</li>
+</ul>
+</div>
+<h2 id="directory-layout">Directory layout</h2>
+<p><strong><code>[project_dir]</code></strong> is the folder where the repository was cloned, for example:</p>
+<p><code>[project_dir]: ~/Documents/git_projects/circulatory_autogen</code></p>
+<p>The rest of this page assumes commands are run from a terminal and that <code>[project_dir]</code> is your current directory when installing.</p>
+<h2 id="install-python-libraries-from-pyprojecttoml">Install Python libraries from <code>pyproject.toml</code></h2>
+<p>Use the <strong>same Python</strong> you will use to run scripts and tests (check with <code>python --version</code> or <code>python3 --version</code>).</p>
+<p><strong>1. Create a virtual environment (recommended)</strong></p>
+<div class="tabbed-set tabbed-alternate" data-tabs="1:3"><input checked="checked" id="__tabbed_1_1" name="__tabbed_1" type="radio" /><input id="__tabbed_1_2" name="__tabbed_1" type="radio" /><input id="__tabbed_1_3" name="__tabbed_1" type="radio" /><div class="tabbed-labels"><label for="__tabbed_1_1">Linux / macOS</label><label for="__tabbed_1_2">Windows (cmd)</label><label for="__tabbed_1_3">Windows (PowerShell)</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code>cd [project_dir]
+python3 -m venv .venv
+source .venv/bin/activate
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code>cd [project_dir]
+py -3 -m venv .venv
+.venv\Scripts\activate.bat
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code>cd [project_dir]
+py -3 -m venv .venv
+.venv\Scripts\Activate.ps1
+</code></pre></div>
+</div>
+</div>
+</div>
+<p>If you prefer not to use a venv, skip the steps above and use <code>python -m pip</code> / <code>python3 -m pip</code> for the installs below.</p>
+<p><strong>2. Upgrade pip (recommended)</strong></p>
+<div class="highlight"><pre><span></span><code>python -m pip install --upgrade pip
+</code></pre></div>
+<p><strong>3. Install the project and dependencies</strong></p>
+<p>Dependencies are listed in <code>pyproject.toml</code>. Installing the package in editable mode pulls them in automatically.</p>
+<ul>
+<li>
+<p><strong>Runtime only</strong> (autogeneration, parameter ID, solvers such as Myokit, etc.):</p>
+<div class="highlight"><pre><span></span><code>cd [project_dir]
+python -m pip install -e .
+</code></pre></div>
+<p>When you choose <code>solver: CVODE</code> for CellML models, the project defaults that to the <code>CVODE_myokit</code> backend. Use <code>CVODE_opencor</code> explicitly only when you want the OpenCOR backend.</p>
+</li>
+<li>
+<p><strong>With development tools</strong> (pytest, formatters, linters):</p>
+<div class="highlight"><pre><span></span><code>cd [project_dir]
+python -m pip install -e ".[dev]"
+</code></pre></div>
+</li>
+</ul>
+<p>The authoritative lists are <code>[project.dependencies]</code> and <code>[project.optional-dependencies]</code> in <code>pyproject.toml</code>. Highlights:</p>
+<ul>
+<li>
+<p>Autogeneration: <code>pandas</code>, <code>pyyaml</code>, <code>rdflib</code>, <code>libcellml</code>, <code>pint</code>, etc.</p>
+<div class="admonition warning">
+<p class="admonition-title">libCellML is pinned below 0.7.0</p>
+<p>The requirement is <code>libcellml&gt;=0.6.3,&lt;0.7.0</code>. libCellML 0.7.0 renamed part of the API
+(<code>Analyser.model()</code> became <code>Analyser.analyserModel()</code>, and <code>Generator.implementationCode()</code>
+now takes the model and profile as arguments) and also changed generated-Python output and
+unit flattening. The renames are handled by shims in
+<code>src/libcuflynx/utilities/libcellml_helper_funcs.py</code>, but the code-generation and unit changes are a
+real migration that has not been done yet, so the pin stays until it is.</p>
+<p><strong>If you already have libCellML 0.7.0 installed</strong>, <code>pip install -e ".[dev]"</code> will silently
+<em>downgrade</em> it to the newest 0.6.x. That is intended — but if libCellML came from conda or
+a system package rather than pip, the resolver may instead fail with a version conflict
+that does not obviously point here. Installing into a fresh virtual environment avoids
+both. Lifting the pin is tracked in issue #271.</p>
+</div>
+<ul>
+<li>Parameter identification: <code>mpi4py</code>, <code>nevergrad</code> (CMA-ES), <code>emcee</code>, <code>numdifftools</code>, and related scientific stack.</li>
+<li>Sensitivity analysis: <code>SALib</code>, <code>seaborn</code>.</li>
+<li><strong>Development</strong>: the <code>dev</code> extra (e.g. <code>pytest</code>, <code>pytest-mpi</code>).</li>
+</ul>
+</li>
+</ul>
+<p><strong>4. Point the shell helpers at your venv</strong></p>
+<p>The shell scripts under <code>user_run_files/</code> (<code>run_param_id.sh</code>, <code>run_autogeneration.sh</code>, <code>run_pytest.sh</code>, …) all invoke whatever interpreter <code>user_run_files/python_path.sh</code> names. Edit that file once so <code>python_path</code> is <strong>your venv’s Python</strong>, using an absolute path:</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="2:2"><input checked="checked" id="__tabbed_2_1" name="__tabbed_2" type="radio" /><input id="__tabbed_2_2" name="__tabbed_2" type="radio" /><div class="tabbed-labels"><label for="__tabbed_2_1">Linux / macOS</label><label for="__tabbed_2_2">Windows</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code>python_path=[project_dir]/.venv/bin/python
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code>python_path=C:\[project_dir]\.venv\Scripts\python.exe
+</code></pre></div>
+</div>
+</div>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Do not point <code>python_path</code> at OpenCOR’s <code>pythonshell</code></p>
+<p>That is the deprecated setup — see <a href="#deprecated-opencor-based-setup">Deprecated: OpenCOR-based setup</a>. The scripts contain nothing OpenCOR-specific; they only need an interpreter with the project installed. (<code>python_path.sh</code> does <strong>not</strong> read <code>opencor_pythonshell_path.sh</code> — that file is unused legacy and is scheduled for removal along with <code>python_path.sh</code> itself.)</p>
+</div>
+<p><strong>5. Run scripts</strong></p>
+<p>With the project installed, the console commands are on your <code>PATH</code> and can be run from any
+directory: <code>cuflynx-generate</code>, <code>cuflynx-param-id</code>, <code>cuflynx-sensitivity</code>,
+<code>cuflynx-identifiability</code>, <code>cuflynx-train-emulator</code>, <code>cuflynx-plot</code> (and
+<code>cuflynx-sequential-param-id</code>, which is declared but not yet implemented). Every one of them
+reads <code>user_run_files/user_inputs.yaml</code> and takes <code>--help</code>.</p>
+<p>The other scripts that ship in the package are run as modules, for example:</p>
+<div class="highlight"><pre><span></span><code>python -m libcuflynx.scripts.&lt;script_name&gt;
+</code></pre></div>
+<p>or use the shell helper for the same stage, e.g. <code>cd user_run_files &amp;&amp; ./run_autogeneration.sh</code>
+(each helper invokes the matching console command, so the editable install above is a
+prerequisite for them).</p>
+<p>For a notebook-oriented walkthrough, see <code>tutorial/interactive/generation_and_calibration.ipynb</code>.</p>
+<p><strong>6. Run the tests (optional, but do this after any change)</strong></p>
+<div class="highlight"><pre><span></span><code>cd [project_dir]
+./run_pytest.sh
+</code></pre></div>
+<p><code>run_pytest.sh</code> runs pytest under <code>mpiexec</code> using the <code>python_path</code> you set above — no OpenCOR involved.</p>
+<ul>
+<li><code>./run_pytest.sh -n 4</code> — <code>-n N</code> is the <strong>MPI rank count</strong>, <em>not</em> pytest-xdist (xdist is force-disabled, because its workers conflict with MPI ranks).</li>
+<li><code>./run_pytest.sh -m "not slow"</code> — skip the expensive tests. <code>-k &lt;expr&gt;</code> and any other arguments pass straight through to pytest.</li>
+<li><code>./run_pytest.sh -m "not need_opencor"</code> — <strong>use this if you have not installed OpenCOR.</strong> A handful of tests exercise the optional <code>CVODE_opencor</code> backend; they are marked <code>need_opencor</code> but are <em>not</em> skipped automatically, so they fail rather than skip when OpenCOR is absent. That is expected, not a broken install.</li>
+<li>
+<p>Equivalent without the script (handy if <code>python_path.sh</code> is set for someone else’s machine):</p>
+<div class="highlight"><pre><span></span><code>mpiexec -n 1 .venv/bin/python -m pytest -p no:xdist -m "not need_opencor"
+</code></pre></div>
+</li>
+</ul>
+<h2 id="optional-third-party-backends-not-part-of-circulatory-autogen">Optional third-party backends (not part of Circulatory Autogen)</h2>
+<p>Circulatory Autogen itself is <strong>fully open source</strong> (Apache License 2.0) and everything
+described in this documentation works without installing anything below.</p>
+<p>This section describes <strong>optional, third-party software that is <em>not</em> part of Circulatory
+Autogen</strong>. It is not bundled with it, not installed by <code>pip install -e .</code>, not required by
+any feature, and not distributed under Circulatory Autogen's license. It is developed and
+licensed by other parties, on their terms. Circulatory Autogen merely provides an optional
+adapter so that users who <em>already</em> have a licence for such a product can plug it in. If
+you install one, you are entering a licensing relationship with that third party, not with
+this project.</p>
+<h3 id="aadc-matlogica-proprietary-optional-not-included">AADC (Matlogica) — proprietary, optional, not included</h3>
+<div class="admonition danger">
+<p class="admonition-title">AADC is third-party proprietary software and is NOT part of Circulatory Autogen</p>
+<ul>
+<li><strong>Not included, not required.</strong> AADC is <strong>not</strong> shipped with Circulatory Autogen and
+  <strong>no</strong> feature of Circulatory Autogen depends on it. The project is fully functional,
+  and fully open source, without it. Nothing installs it for you.</li>
+<li><strong>Not open source.</strong> <a href="https://matlogica.com/">AADC</a> is a commercial product of
+  <strong>Matlogica</strong>, distributed under <strong>Matlogica's own proprietary licence</strong> — <em>not</em> under
+  Circulatory Autogen's Apache-2.0 licence, and not under any open-source licence. Its
+  terms restrict it to <strong>academic / non-commercial use</strong>.</li>
+<li><strong>You must obtain your own licence.</strong> The Circulatory Autogen maintainers do not
+  supply, sublicense, or broker AADC licences, and cannot support licensing issues.
+  <strong>Read and accept Matlogica's licence terms yourself, directly with Matlogica,</strong>
+  before installing or using it.</li>
+<li><strong>Its gradients are licence-gated at runtime.</strong> Forward simulation may run with a bare
+  <code>pip install aadc</code>, but anything that records a tape — the automatic-differentiation
+  gradients, and the on-tape damping in <code>semi_implicit</code> — raises
+  <code>RuntimeError: AADC License check failed</code> without a valid licence.</li>
+<li><strong>Use CasADi if you want a fully open-source pipeline.</strong> CasADi (LGPL) is the
+  <strong>default and supported</strong> AD backend and requires no proprietary licence — see
+  <code>model_type: casadi_python</code> in
+  <a href="../parameter-identification/">Parameter Identification</a>. AADC is <strong>only</strong> an optional
+  alternative for licensed academic users; you never need it.</li>
+</ul>
+</div>
+<p>If, and only if, you hold a Matlogica licence and accept their terms, the optional adapter
+is enabled by installing the package:</p>
+<div class="highlight"><pre><span></span><code>python -m pip install aadc
+</code></pre></div>
+<p>(Into the same venv you installed the project into — the one <code>python_path</code> points at.)</p>
+<p>and then selecting it in your <code>user_inputs.yaml</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">model_type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">aadc_python</span>
+<span class="nt">solver</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">aadc_semi_implicit</span>
+<span class="nt">solver_info</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">adaptive_rk45</span><span class="w">   </span><span class="c1"># non-stiff forward solve; see the gradient caveat below</span>
+</code></pre></div>
+<p>Available <code>solver_info.method</code> values for the AADC adapter are <code>adaptive_rk45</code> (<strong>adaptive</strong>,
+so accurate for a <em>forward</em> solve but <strong>untapeable</strong> — its step sequence depends on the
+parameters, so it cannot produce an AD gradient), and the <strong>fixed-step</strong> <code>implicit_euler_ift</code>,
+<code>semi_implicit</code>, and <code>rk4</code> (the only methods that can be recorded on a tape for an AD
+gradient).</p>
+<div class="admonition note">
+<p class="admonition-title"><code>method: bdf</code> was removed from the AADC adapter</p>
+<p>AADC previously offered a <code>bdf</code> method. It ran the solve inside <code>scipy.solve_ivp</code> with AADC
+supplying only the RHS and its Jacobian, so the trajectory never reached the tape — and the
+AD tape had no <code>bdf</code> branch, so <code>do_ad: true</code> silently recorded <code>rk4</code> instead, making the
+cost and the gradient different functions. Its RHS kernel was also taped once at <code>t=0</code> with
+the integrator discarding <code>t</code>, so a time-dependent model would have been integrated with
+its <code>t=0</code> right-hand side throughout. Setting <code>method: bdf</code> on an <code>aadc_python</code> model now
+raises. Use <code>semi_implicit</code> for stiff models — subject to the accuracy warning below — or
+<code>model_type: casadi_python</code> with <code>method: bdf</code> for a differentiable symbolic BDF.</p>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">AADC gradients do not work on stiff models</p>
+<p>Only the fixed-step methods can be taped, and fixed-step schemes are inaccurate or unstable
+on <strong>stiff</strong> models: on the 3compartment cardiovascular model <code>semi_implicit</code> deviates from
+the CVODE reference by ~35% and <code>implicit_euler_ift</code> by orders of magnitude. Reducing <code>dt</code>
+does not help — <code>semi_implicit</code> <em>diverges</em> under step refinement (~35% at <code>dt=1e-3</code> rising
+to ~280% at <code>dt=1e-4</code>), because its damping factor <code>1/(1+dt*lam)</code> tends to 1 as <code>dt</code> shrinks
+and the scheme degenerates into explicit forward Euler on a very stiff system. The AADC
+backend probes the first second of dynamics and warns loudly when it detects a stiff model.
+<strong>For gradient-based calibration of a stiff model, use CasADi <code>bdf</code> or Myokit CVODES forward
+sensitivity instead</strong> — see <a href="../parameter-identification/">Parameter Identification</a>. AADC's
+tape gradient is appropriate only for non-stiff, state-observable, single-experiment
+problems.</p>
+</div>
+<h2 id="mpi-and-system-libraries">MPI and system libraries</h2>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><strong>mpi4py</strong> needs an MPI implementation on the machine. On Linux you may need:</p>
+<div class="highlight"><pre><span></span><code>sudo apt install libopenmpi-dev openmpi-bin
+</code></pre></div>
+<p>On macOS, for example: <code>brew install openmpi</code>. On Windows, install <a href="https://www.microsoft.com/en-us/download/details.aspx?id=57467">MS MPI</a> and the SDK, and ensure the MPI <code>bin</code> paths are on your <code>PATH</code> (see Microsoft’s documentation).</p>
+<p><strong>Myokit (CVODE)</strong> on Linux often needs a compiler and SUNDIALS headers, for example:</p>
+<div class="highlight"><pre><span></span><code>sudo apt install build-essential libsundials-dev
+</code></pre></div>
+</div>
+<h2 id="expected-outcome">Expected outcome</h2>
+<p>You should now have:</p>
+<ul>
+<li>A clone of the repository at <code>[project_dir]</code>.</li>
+<li>A Python environment (venv or global) with dependencies installed from <code>pyproject.toml</code> via <code>pip install -e .</code> or <code>pip install -e ".[dev]"</code>.</li>
+<li>The ability to run <code>python</code> and import the project after <code>cd [project_dir]</code> with your chosen interpreter.</li>
+</ul>
+<hr />
+<h2 id="deprecated-opencor-based-setup">Deprecated: OpenCOR-based setup</h2>
+<p>This section documents the <strong>older workflow</strong> that used <strong>OpenCOR’s bundled Python</strong> and <code>python_path.sh</code>. It is <strong>not required</strong> for the default Myokit-based path described above. Keep it only if you maintain legacy scripts or environments that still call OpenCOR’s interpreter.</p>
+<div class="admonition warning">
+<p class="admonition-title">OpenCOR’s <code>pythonshell</code> is deprecated — it will be replaced by <code>pip install libopencor</code></p>
+<p>Do not build new workflows on OpenCOR’s bundled interpreter. Once
+<a href="https://opencor.ws/libopencor/">libOpenCOR</a> is available on PyPI, the OpenCOR
+functionality will be obtained with a plain <code>pip install libopencor</code> into a
+normal Python environment, and <code>pythonshell</code> / <code>python_path.sh</code> /
+<code>opencor_pythonshell_path.sh</code> will be removed.</p>
+<p>Prefer the standard <code>pip install -e .</code> setup above. Relying on the bundled
+interpreter pins you to whatever OpenCOR ships, which causes real problems —
+e.g. OpenCOR bundles a <strong>dual-ABI <code>mpi4py</code></strong> (both an <code>MPI.mpich.*.so</code> and an
+<code>MPI.openmpi.*.so</code>), and the variant chosen at import time may not match the
+system <code>mpiexec</code>, aborting MPI runs with
+<code>unsupported PMI version PMIx</code>. Pin it with <code>MPI4PY_MPIABI=openmpi</code> (or
+<code>mpich</code>) to match your installed launcher. A pip-installed <code>mpi4py</code> builds
+against the one system MPI and has no such ambiguity.</p>
+</div>
+<h3 id="install-opencor-legacy">Install OpenCOR (legacy)</h3>
+<p>Download OpenCOR (e.g. version 0.8.1) from the <a href="https://opencor.ws/downloads/index.html">OpenCOR downloads page</a>. A zip/tarball install in a directory you control (e.g. <code>~/Desktop</code>) is typical.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>New to OpenCOR? See the <a href="https://tutorial-on-cellml-opencor-and-pmr.readthedocs.io/en/latest/_downloads/d271cfcef7e288704c61320e64d77e2d/OpenCOR-Tutorial-v17.pdf">OpenCOR Tutorial (PDF)</a>.</p>
+</div>
+<h3 id="legacy-directory-names">Legacy directory names</h3>
+<ul>
+<li><strong><code>[OpenCOR_dir]</code></strong>: folder where OpenCOR is installed, e.g. <code>~/Desktop/OpenCOR-0-8-1-Linux/</code>.</li>
+</ul>
+<div class="admonition info">
+<p class="admonition-title">Info</p>
+<p>On some HPC systems an OpenCOR tree may already exist (example path used historically: <code>/hpc/farg967/OpenCOR-0-8-1-Linux/</code>). Use your site’s path if applicable. See also <a href="../running-on-hpc/">running on hpc</a>.</p>
+</div>
+<h3 id="installing-packages-with-opencors-pip-legacy">Installing packages with OpenCOR’s pip (legacy)</h3>
+<p>From <code>[OpenCOR_dir]</code>, use OpenCOR’s pip interface instead of system Python:</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="3:3"><input checked="checked" id="__tabbed_3_1" name="__tabbed_3" type="radio" /><input id="__tabbed_3_2" name="__tabbed_3" type="radio" /><input id="__tabbed_3_3" name="__tabbed_3" type="radio" /><div class="tabbed-labels"><label for="__tabbed_3_1">Linux</label><label for="__tabbed_3_2">Mac</label><label for="__tabbed_3_3">Windows</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code>./pip install &lt;packagename&gt;
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code>./pythonshell -m pip install &lt;packagename&gt;
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code>./pythonshell.bat -m pip install &lt;packagename&gt;
+</code></pre></div>
+</div>
+</div>
+</div>
+</div>
+<p>To install this project from <code>pyproject.toml</code> <strong>into OpenCOR’s Python</strong> (editable):</p>
+<div class="highlight"><pre><span></span><code>cd [project_dir]
+[OpenCOR_dir]/pip install -e .
+</code></pre></div>
+<p>(Use <code>./pythonshell -m pip</code> / <code>./pythonshell.bat -m pip</code> on Mac/Windows as above.) For development tools: <code>pip install -e ".[dev]"</code>.</p>
+<h3 id="python_pathsh-pointed-at-a-pythonshell-legacy"><code>python_path.sh</code> pointed at a pythonshell (legacy)</h3>
+<p>The shell scripts under <code>user_run_files/</code> read <code>python_path</code> from <code>[project_dir]/user_run_files/python_path.sh</code>. The <strong>legacy</strong> setup set it to an OpenCOR pythonshell:</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<div class="tabbed-set tabbed-alternate" data-tabs="4:2"><input checked="checked" id="__tabbed_4_1" name="__tabbed_4" type="radio" /><input id="__tabbed_4_2" name="__tabbed_4" type="radio" /><div class="tabbed-labels"><label for="__tabbed_4_1">Linux and Mac</label><label for="__tabbed_4_2">Windows</label></div>
+<div class="tabbed-content">
+<div class="tabbed-block">
+<div class="highlight"><pre><span></span><code>python_path=&lt;OpenCOR_dir&gt;/pythonshell
+</code></pre></div>
+</div>
+<div class="tabbed-block">
+<p><div class="highlight"><pre><span></span><code>python_path=C:\&lt;OpenCOR_dir&gt;\pythonshell.bat
+</code></pre></div>
+Use Windows path conventions (<code>C:\</code>, backslashes).</p>
+</div>
+</div>
+</div>
+</div>
+<p><strong>Do not do this for new setups</strong> — point <code>python_path</code> at your venv instead, as in <a href="#install-python-libraries-from-pyprojecttoml">step 4 above</a>. The scripts still read this file either way; only the interpreter it names has changed. <code>python_path.sh</code> itself will be removed once libOpenCOR is on PyPI.</p>
+<h3 id="opencor-versions-before-08-and-ssl-legacy">OpenCOR versions before 0.8 and SSL (legacy)</h3>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>In <strong>OpenCOR versions before 0.8</strong> you may need:</p>
+<div class="highlight"><pre><span></span><code>cd [OpenCOR_dir]/python/bin
+./python -m pip install &lt;packagename&gt;
+</code></pre></div>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>If you see <strong>SSL errors</strong> with OpenCOR before version 0.8 on Linux:</p>
+<div class="highlight"><pre><span></span><code>cd [OpenCOR_dir]/python/bin
+export LD_LIBRARY_PATH=[OpenCOR_dir]/lib
+</code></pre></div>
+<p>Then retry pip so <code>libcrypto</code> can be found.</p>
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["instant", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
