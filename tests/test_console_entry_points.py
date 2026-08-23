@@ -38,6 +38,7 @@ EXPECTED_ENTRY_POINTS = {
     "cuflynx-identifiability",
     "cuflynx-train-emulator",
     "cuflynx-plot",
+    "cuflynx-generate-pipeline",
 }
 
 

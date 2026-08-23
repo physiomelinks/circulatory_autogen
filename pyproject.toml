@@ -102,6 +102,10 @@ cuflynx-sensitivity = "libcuflynx.scripts.sensitivity_analysis_run_script:main"
 cuflynx-identifiability = "libcuflynx.scripts.identifiability_run_script:main"
 cuflynx-train-emulator = "libcuflynx.scripts.train_emulator_run_script:main"
 cuflynx-plot = "libcuflynx.scripts.plot_param_id_script:main"
+# Writes a folder that reproduces a configuration: the model, the observations, the
+# parameter bounds, the config, and a run_pipeline.py that drives every stage its do_*
+# flags enable. CUFLynx exports the same bundle from the GUI and calls this to write it.
+cuflynx-generate-pipeline = "libcuflynx.scripts.generate_pipeline_script:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
