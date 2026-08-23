@@ -19,6 +19,7 @@ simulations, and its accuracy depends on a step size the analytic arms do not
 have. The caller opts in by name (``method='FD'``), so what produced a number is
 always something they chose.
 """
+import contextlib
 import numpy as np
 
 from libcuflynx.parsers.PrimitiveParsers import param_entry_labels
@@ -37,6 +38,23 @@ def _step(pj, pmin, pmax, h):
         return abs(pj) * h
     rng = float(pmax) - float(pmin)
     return h * rng if rng > 0 else h
+
+
+@contextlib.contextmanager
+def _evaluating_segment(pid, exp, sub):
+    """Scope the segment when the object supports it, and do nothing when it does not.
+
+    Only a real ``OpencorParamID`` needs telling which segment its operands came from -- it is
+    what keeps a cross-segment ``operation_kwargs`` reference reading the right experiment
+    (#466). A minimal stand-in that just answers ``get_obs_output_dict`` has no segments to
+    confuse, and this module has never required anything more of what it is handed.
+    """
+    scope = getattr(pid, 'evaluating_segment', None)
+    if scope is None:
+        yield
+        return
+    with scope(exp, sub):
+        yield
 
 
 def observable_features(pid, param_vals):
@@ -82,12 +100,12 @@ def observable_features(pid, param_vals):
         wanted.append((flat, exp, sub))
 
     by_segment = {}
-    first = True
+    if hasattr(pid, 'temp_results'):
+        pid.temp_results = {}
     for flat, exp, sub in sorted(set(wanted)):
-        by_segment[flat] = np.asarray(
-            pid.get_obs_output_dict(operands_list[flat], exp_idx=exp, sub_idx=sub,
-                                    reset_temp_results=first)['const'], dtype=float)
-        first = False
+        with _evaluating_segment(pid, exp, sub):
+            by_segment[flat] = np.asarray(
+                pid.get_obs_output_dict(operands_list[flat])['const'], dtype=float)
 
     out = np.full(len(const_to_obs), np.nan)
     for k, (flat, _exp, _sub) in enumerate(wanted):

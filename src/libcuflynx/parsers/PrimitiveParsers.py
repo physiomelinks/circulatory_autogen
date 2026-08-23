@@ -650,6 +650,28 @@ PARAM_MODIFIER_OPERATIONS = PARAM_MODIFIERS
 DEFAULT_PARAM_MODIFIER_OPERATION = DEFAULT_PARAM_MODIFIER
 
 
+def migrate_legacy_obs_columns(gt_df):
+    """Rename an obs dataframe's superseded columns, warning once per column.
+
+    The dataframe twin of ``migrate_legacy_obs_item_keys``: that one runs on the entries parsed
+    out of a JSON file, this one on a frame a caller assembled itself. Both entry points then
+    see the same vocabulary. Returns the frame (renamed to a copy when anything changed).
+    """
+    if gt_df is None or not hasattr(gt_df, 'columns'):
+        return gt_df
+    for legacy, current in LEGACY_OBS_ITEM_KEYS.items():
+        if legacy not in gt_df.columns:
+            continue
+        if current in gt_df.columns:
+            raise ValueError(
+                f"data_items set both '{legacy}' and its replacement '{current}'. "
+                f"Remove '{legacy}'. {LEGACY_OBS_KEY_ADVICE[legacy]}")
+        warnings.warn(f"data_items: {LEGACY_OBS_KEY_ADVICE[legacy]}",
+                      DeprecationWarning, stacklevel=3)
+        gt_df = gt_df.rename(columns={legacy: current})
+    return gt_df
+
+
 def check_data_item_names_unique(gt_df, prediction_info=None):
     """Every item answers to one name, and no name answers to two items.
 
@@ -3554,6 +3576,10 @@ class ObsAndParamDataParser(object):
                 "value_path": {"types": (str,), "default": None},
             }
 
+            # A gt_df handed in directly has not been through migrate_legacy_obs_item_keys,
+            # and building one in python is a supported way to drive a run (#466).
+            gt_df = migrate_legacy_obs_columns(gt_df)
+
             unknown_cols = sorted(set(gt_df.columns) - set(schema.keys()))
             if len(unknown_cols) > 0:
                 raise ValueError(
@@ -3672,7 +3698,13 @@ class ObsAndParamDataParser(object):
         plotting defaults, operations, and kwargs from the ground truth dataframe.
         """
         obs_info = {}
-        
+
+        # `process_obs_info` is a public entry point -- a caller can hand it a gt_df it built
+        # itself, without going through parse_obs_data_json. Accept the superseded column names
+        # here as well, so the two ways in take the same vocabulary (#466). A no-op once the
+        # parse path has already renamed them.
+        gt_df = migrate_legacy_obs_columns(gt_df)
+
         # --- Simple Array Generation ---
         N = gt_df.shape[0]
         

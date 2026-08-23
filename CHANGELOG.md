@@ -46,16 +46,35 @@ of one trace, was computing `max - max`, a constant `0.0` against a ground truth
 test passed, because none asserted a value. A repeated `data_item_name` is now an error that
 names the offenders, and the example is fixed and pinned by a test.
 
-**Migrating.** The old keys still load, with a `DeprecationWarning` naming their replacements:
-`variable` is read as `data_item_name`, `name_for_plotting` as `trace_name_for_plotting`. Two
-things are *not* automatic:
+**Migrating.** Run:
+
+```
+cuflynx-migrate-obs-data path/to/resources        # or a single obs_data.json; --dry-run to look
+```
+
+It renames the keys, gives `prediction_items` the `operands` they never had, and — the part that
+is not mechanical — makes `data_item_name` unique, deriving a name from whatever actually
+distinguishes the colliding items (the operation first, then the experiment and sub-experiment).
+Edits are textual, so each file keeps its own formatting and the diff shows only what moved. An
+`operation_kwargs` value that referenced a renamed item is followed through; where one name split
+into several the command says so rather than guessing.
+
+Measured against the 27 obs_data files shipped before this change: 18 load as-is with a
+deprecation warning and 9 are refused; after running the command, 25 load with no warning at all.
+(The remaining 2 fail on an unrelated `state_or_alg` key that has never been in the schema.)
+
+Without the command, the old keys still load with a `DeprecationWarning` naming their
+replacements — `variable` is read as `data_item_name`, `name_for_plotting` as
+`trace_name_for_plotting`, in files, in a hand-built dataframe, and in `ObsDataCreator`. Two
+things are not automatic:
 
 - **`operands` is required.** An item that relied on `obs_type: min|max|mean` taking its operand
   from `variable` now raises; state the model variable in `operands`.
 - **Names must be made unique.** Where one variable carried several features (the mean and the
   max of a trace, or one variable measured across experiments), give each item its own
   `data_item_name` — `"mean flow aortic root"` / `"max flow aortic root"` — and let them keep a
-  shared `trace_name_for_plotting`.
+  shared `trace_name_for_plotting`. `ObsDataCreator` now rejects a repeat at the
+  `add_data_item` call rather than leaving it to surface at parse time.
 
 Also fixed: the mean of `heart/u_la` in `resources/3compartment_obs_data.json` was labelled
 `u_{AR}`, so it plotted as an aortic-root pressure. It is now `u_{LA}`.

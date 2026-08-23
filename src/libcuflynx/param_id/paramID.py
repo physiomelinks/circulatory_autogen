@@ -101,6 +101,7 @@ import math
 import scipy.linalg as la
 # from scipy.optimize import curve_fit
 import warnings
+from libcuflynx.utilities.obs_data_helpers import obs_item_names, obs_item_labels
 warnings.filterwarnings( "ignore", module = "matplotlib/..*" )
 # TODO maybe remove matplotlib warnings as above
 
@@ -1774,8 +1775,7 @@ def observable_base_label(obs_info, obs_idx):
     item that took the default. A module function rather than only a method because more than one
     subsystem has to spell an observable the same way.
     """
-    names = obs_info.get("item_names_for_plotting") or obs_info["names_for_plotting"]
-    return str(names[obs_idx])
+    return str(obs_item_labels(obs_info)[obs_idx])
 
 
 def observable_labels(obs_info):
@@ -1801,7 +1801,7 @@ def emulated_feature_labels(obs_info):
     reload, and a label may be reworded without changing which feature it names -- which would
     make every existing bundle look stale. The name is unique by construction (#466).
     """
-    names = obs_info.get("data_item_names") or obs_info["obs_names"]
+    names = obs_item_names(obs_info)
     return [str(names[obs_idx]) for obs_idx in obs_info["const_idx_to_obs_idx"]]
 
 
@@ -2499,7 +2499,6 @@ class OpencorParamID():
                 sub_cost = self.get_cost_from_operands(
                     operands_outputs_list[subexp_count],
                     exp_idx=exp_idx, sub_idx=this_sub_idx, do_ad=do_ad,
-                    reset_temp_results=False,
                 )
                 cost += sub_cost
                 if self._num_weighted_obs_by_exp_sub is not None:
@@ -2697,8 +2696,7 @@ class OpencorParamID():
         pred_outputs = np.concatenate(pred_output_list, axis=1)
         return pred_outputs
 
-    def get_cost_from_operands(self, operands_outputs, exp_idx = 0, sub_idx = 0, do_ad=False,
-                               reset_temp_results=True):
+    def get_cost_from_operands(self, operands_outputs, exp_idx = 0, sub_idx = 0, do_ad=False):
 
         # The operands are symbolic (casadi SX) only on the AD path of a casadi_python model; every
         # other evaluation -- including gradient-free calibration on casadi_python -- produces numpy
@@ -2706,9 +2704,8 @@ class OpencorParamID():
         # imply symbolic: casadi_python evaluated numerically is not.
         is_symbolic = do_ad and self.model_type == 'casadi_python'
 
-        obs_dict = self.get_obs_output_dict(operands_outputs, is_symbolic=is_symbolic,
-                                            exp_idx=exp_idx, sub_idx=sub_idx,
-                                            reset_temp_results=reset_temp_results)
+        with self.evaluating_segment(exp_idx, sub_idx):
+            obs_dict = self.get_obs_output_dict(operands_outputs, is_symbolic=is_symbolic)
         # calculate error between the observables of this set of parameters
         # and the ground truth
         
@@ -3068,10 +3065,10 @@ class OpencorParamID():
             self.obs_info["operation_kwargs"][JJ],
             operation_funcs_dict[operation_name],
             operation_name=operation_name,
-            data_item_name=self.obs_info["data_item_names"][JJ],
+            data_item_name=obs_item_names(self.obs_info)[JJ],
             temp_results=self.temp_results,
             num_operands=num_operands,
-            known_item_names=set(self.obs_info["data_item_names"]),
+            known_item_names=set(obs_item_names(self.obs_info)),
         )
 
     def cross_segment_reference_items(self):
@@ -3081,7 +3078,7 @@ class OpencorParamID():
         where every reference stays inside its own sub-experiment.
         """
         obs = self.obs_info
-        names = list(obs.get("data_item_names") or [])
+        names = list(obs_item_names(obs))
         segment = {name: (int(obs["experiment_idxs"][i]), int(obs["subexperiment_idxs"][i]))
                    for i, name in enumerate(names)}
         found = []
@@ -3115,6 +3112,27 @@ class OpencorParamID():
             f"differences (do_ad: False) or a gradient-free method, or keep the reference "
             f"inside one sub-experiment (#466).")
 
+    @contextlib.contextmanager
+    def evaluating_segment(self, exp_idx, sub_idx):
+        """Mark which (experiment, sub-experiment)'s operands the next evaluations receive.
+
+        Carried as state rather than passed to ``get_obs_output_dict``, so that method keeps the
+        signature every other caller already uses -- the gradient backends, plot_outputs,
+        CUFLynx, and any test double that stands in for it. Adding parameters to it broke all of
+        those for no gain.
+
+        Inside the block an item is only evaluated and recorded when the segment is its own, and
+        ``temp_results`` is left alone so the caller can accumulate one table across the whole
+        protocol. Outside it -- the default -- every item is evaluated against whatever operands
+        are handed over and the table is cleared per call, which is the pre-#466 behaviour.
+        """
+        previous = getattr(self, '_eval_segment', (None, None))
+        self._eval_segment = (exp_idx, sub_idx)
+        try:
+            yield
+        finally:
+            self._eval_segment = previous
+
     def _item_belongs_to_segment(self, JJ, exp_idx, sub_idx):
         """Whether data_item ``JJ`` was declared for the segment currently being evaluated.
 
@@ -3135,10 +3153,9 @@ class OpencorParamID():
         """
         if not self._item_belongs_to_segment(JJ, exp_idx, sub_idx):
             return
-        self.temp_results[self.obs_info["data_item_names"][JJ]] = obs
+        self.temp_results[obs_item_names(self.obs_info)[JJ]] = obs
 
-    def get_obs_output_dict(self, operands_outputs, get_all_series=False, is_symbolic=False,
-                            exp_idx=None, sub_idx=None, reset_temp_results=True):
+    def get_obs_output_dict(self, operands_outputs, get_all_series=False, is_symbolic=False):
         """Evaluate every data_item's operation against one sub-experiment's operands.
 
         ``temp_results`` is the table an ``operation_kwargs`` reference to another item resolves
@@ -3146,18 +3163,17 @@ class OpencorParamID():
         which is why a reference could only ever see the segment being evaluated (#466, #127).
         Two arguments change that:
 
-        ``reset_temp_results=False`` leaves the table alone, so a caller stepping through the
-        segments in order accumulates one table across all of them and a later item can reference
-        an earlier segment's.
+A caller that steps through the segments in order does so inside
+        ``evaluating_segment``, which says which segment these operands belong to and leaves the
+        table alone so it accumulates across all of them.
 
-        ``exp_idx``/``sub_idx`` say which segment these operands belong to. Every data_item is
-        evaluated against every segment -- which item *counts* is decided afterwards by the
-        zeroed weight vectors -- so without this an item would be recorded under its name using
-        some other experiment's trace, and a cross-segment reference would silently read that.
-        Left as None the old behaviour is kept: record everything, which is what the callers
-        that hand over a single segment's operands and want the whole const vector rely on.
+        Knowing the segment matters because every data_item is evaluated against every one of
+        them -- which item *counts* is decided afterwards by the zeroed weight vectors. Without
+        it an item would be recorded under its name from some other experiment's trace, and a
+        cross-segment reference would silently read that.
         """
-        if reset_temp_results:
+        exp_idx, sub_idx = getattr(self, '_eval_segment', (None, None))
+        if exp_idx is None:
             self.temp_results = {}
 
         # Symbolic (SX) operands go through the casadi-mode operation funcs; numeric operands go
@@ -3245,7 +3261,7 @@ class OpencorParamID():
                 obs = operands_outputs[JJ][0]
             else:
                 if self.obs_info["data_types"][JJ] != 'frequency':
-                    key_idxt = self.obs_info["data_item_names"][JJ]
+                    key_idxt = obs_item_names(self.obs_info)[JJ]
                     kwargs = self._resolve_operation_kwargs(JJ, operation_funcs_dict, operands_outputs)
                     obs = operation_funcs_dict[self.obs_info["operations"][JJ]](*operands_outputs[JJ], **kwargs)
                     #each predict result saved into tmp array

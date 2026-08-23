@@ -381,6 +381,13 @@ Three things to get right:
     reference inside one sub-experiment.
 - **`operands` is empty**, written `[""]`. The item takes its inputs from `operation_kwargs`
   rather than from a model variable, so there is no trace to reduce.
+!!! tip "Upgrading a study written before this change"
+    `cuflynx-migrate-obs-data path/to/your/resources` rewrites obs_data files into the current
+    vocabulary and makes `data_item_name` unique for you. `--dry-run` shows what it would do
+    first. The old keys still load with a deprecation warning, but a file where one variable
+    carried several features has colliding names and will be refused until they are made
+    distinct — which is what the command does.
+
 - **`data_item_name` is what the reference resolves against, and it must be unique.** This is now
   enforced: a repeated `data_item_name` is rejected when the obs_data is loaded, naming the
   offenders. Note the two source items above deliberately *share* a

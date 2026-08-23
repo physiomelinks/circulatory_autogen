@@ -77,6 +77,29 @@ LEGACY_OBS_KEY_ADVICE = {
 }
 
 
+def obs_item_names(obs_info):
+    """Each data_item's identity, i.e. what an operation_kwargs reference resolves against.
+
+    Falls back to the deprecated ``names_for_plotting`` for an ``obs_info`` assembled by hand
+    rather than by the parser. Plenty of code does assemble one -- CUFLynx builds partial ones,
+    and so does every test double -- and it should not have to learn a new key to keep working.
+    """
+    return (obs_info.get("data_item_names") or obs_info.get("obs_names")
+            or obs_info.get("names_for_plotting") or [])
+
+
+def obs_item_labels(obs_info):
+    """Each data_item's display label (the scalar feature). See ``obs_item_names``."""
+    return (obs_info.get("item_names_for_plotting")
+            or obs_info.get("names_for_plotting") or [])
+
+
+def obs_trace_labels(obs_info):
+    """Each data_item's trace label (the series it is drawn from). See ``obs_item_names``."""
+    return (obs_info.get("trace_names_for_plotting")
+            or obs_info.get("names_for_plotting") or [])
+
+
 def migrate_legacy_obs_item_keys(items, where='data_items', variable_was_the_operand=False):
     """Rewrite an obs_data entry's superseded key names, warning once per key per file.
 
@@ -266,6 +289,20 @@ class ObsDataCreator:
                         f"Remove '{legacy}'.")
                 warnings.warn(LEGACY_OBS_KEY_ADVICE[legacy], DeprecationWarning, stacklevel=2)
                 entry[current] = entry.pop(legacy)
+
+        # Caught here rather than at parse time, which is where the uniqueness rule is
+        # enforced: by then the offending call is long gone, and the message can only name the
+        # collision, not the line that made it (#466).
+        existing = {i.get('data_item_name') for i in self.obs_data_dict.get('data_items', [])}
+        existing |= {i.get('data_item_name')
+                     for i in self.obs_data_dict.get('prediction_items', [])}
+        if entry.get('data_item_name') in existing:
+            raise ValueError(
+                f"data_item_name {entry['data_item_name']!r} is already used by another item. "
+                f"Each data_item and prediction_item needs its own name -- it is the item's "
+                f"identity and the key an operation_kwargs reference resolves against. The "
+                f"plotting label may repeat: put the shared spelling in "
+                f"'trace_name_for_plotting' instead.")
 
         if 'trace_name_for_plotting' not in entry:
             operands = entry.get('operands') or []

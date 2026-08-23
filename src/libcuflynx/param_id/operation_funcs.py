@@ -14,6 +14,7 @@ import sys
 
 from libcuflynx.param_id.differentiable import differentiable
 from libcuflynx.param_id.math_backend import make_math_backend, bind_backend
+from libcuflynx.utilities.obs_data_helpers import obs_item_names
 
 
 def series_to_constant(func):
@@ -272,7 +273,7 @@ def validate_operation_kwargs(obs_info, operation_funcs_dict):
     all_kwargs = obs_info.get("operation_kwargs") or []
     operations = obs_info.get("operations") or []
     operands = obs_info.get("operands") or []
-    names = obs_info.get("data_item_names") or []
+    names = obs_item_names(obs_info)
     for idx, raw_kwargs in enumerate(all_kwargs):
         if not isinstance(raw_kwargs, dict) or not raw_kwargs:
             continue

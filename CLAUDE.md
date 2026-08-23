@@ -35,7 +35,9 @@ Runs are launched via shell scripts in `user_run_files/`. Each one invokes a **c
 | `run_emulator_training.sh` (arg: `num_processors`, uses `mpiexec`) | `cuflynx-train-emulator` → `train_emulator_run_script` | Train a surrogate of the obs features |
 | `plot_param_id.sh` | `cuflynx-plot` → `plot_param_id_script` | Plot calibration results |
 
-Every command takes `--help` and no options beyond the optional `True|False` the two generation launchers pass; the configuration is the yaml. Each is a `main()` in the named module — `tests/test_console_entry_points.py` is table-driven off `[project.scripts]`, so a new entry point cannot be added without being tested.
+One command has no launcher and is not a pipeline stage: **`cuflynx-migrate-obs-data`** (`libcuflynx.scripts.migrate_obs_data`) rewrites obs_data files into the #466 vocabulary (`variable` → `data_item_name` + `operands`, `name_for_plotting` → `trace_name_for_plotting` + `item_name_for_plotting`) and makes `data_item_name` unique. It takes paths, not the yaml, and is the documented upgrade path in `CHANGELOG.md`.
+
+Every other command takes `--help` and no options beyond the optional `True|False` the two generation launchers pass; the configuration is the yaml. Each is a `main()` in the named module — `tests/test_console_entry_points.py` is table-driven off `[project.scripts]`, so a new entry point cannot be added without being tested.
 
 Three utilities have no console command of their own — `read_and_insert_parameters.sh`, `run_multiple_param_id.sh` and `run_module_generator.sh`. They source the same helper and call `require_cuflynx_module libcuflynx.scripts.<module>`, which runs `python -m <module>` on whichever interpreter on `PATH` can import libcuflynx. They are one-off utilities rather than pipeline stages (and `run_multiple_param_id` still has one study's paths baked into it), so promoting them to `[project.scripts]` would advertise more than the code supports.
 
