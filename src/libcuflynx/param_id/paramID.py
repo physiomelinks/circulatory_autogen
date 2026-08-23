@@ -1908,6 +1908,12 @@ class OpencorParamID():
             else:
                 self.pre_time = None
 
+        #: Cost evaluations performed on this rank. The deterministic referee for "did these
+        #: two runs do the same work": wall-clock on this hardware varies 1.3-2.1x on identical
+        #: code (benchmarks/PROFILING.md), so a speedup only reads as throughput once the
+        #: evaluation counts are known to match (#344).
+        self.num_cost_evals = 0
+
         self.sim_helper = self.initialise_sim_helper()
         # Cached rather than probed per evaluation: this decides, on the hot path, whether the
         # obs `operation` still has to run. getattr keeps every real backend at False untouched.
@@ -2421,6 +2427,10 @@ class OpencorParamID():
     
     def get_cost_obs_and_pred_from_params(self, param_vals, reset=True, 
                                           only_one_exp=-1, pred_names=None, do_ad=False):
+        # Every cost evaluation funnels through here -- get_cost_from_params and
+        # get_cost_and_obs_from_params both delegate -- so this is the one place that can count
+        # them without each optimiser keeping its own tally (#344).
+        self.num_cost_evals = getattr(self, 'num_cost_evals', 0) + 1
 
         # loop through subexperiments
         if only_one_exp == -1:

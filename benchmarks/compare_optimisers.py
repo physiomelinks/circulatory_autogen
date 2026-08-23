@@ -187,6 +187,22 @@ class OptimiserComparison:
         cost = np.load(cost_file)
         params = np.load(params_file)
         return cost, params
+
+    @staticmethod
+    def load_eval_count(output_dir):
+        """Cost evaluations the run performed, or None if the optimiser did not record one.
+
+        The deterministic half of a scaling result: two core counts whose wall-clock differs by
+        more than the core ratio are not both doing the same work, and this is what says so
+        (#344).
+        """
+        path = os.path.join(output_dir, 'num_cost_evals.npy')
+        if not os.path.exists(path):
+            return None
+        try:
+            return int(np.load(path))
+        except Exception:
+            return None
     
     def run_method(self, method):
         """Run optimization for a specific method."""

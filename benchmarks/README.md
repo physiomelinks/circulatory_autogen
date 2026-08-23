@@ -88,9 +88,29 @@ Options: `--set {all,ci}`, `--benchmark NAME`, `--update-docs`, `--assert`, `--n
 
 `--scaling` runs each benchmark once at each of several core counts and builds a table with one
 **wall-clock column per core count** (default `1, 2, 4, 8`), so you can see how each optimiser
-speeds up with cores. Multi-start uses 16 starts and early-stopping is disabled, so every core
-count runs the *same* work — the best cost is therefore core-independent (reported once) and the
-per-core columns are pure wall-clock:
+speeds up with cores.
+
+For the ratio to mean throughput, every core count has to do the *same* work. Multi-start does by
+construction: 16 starts with `no_new_starts_on_convergence: False`, so all of them run whatever
+the rank count. The population methods (GA, CMA-ES) stop when they reach `cost_convergence`, so
+their work is whatever the search happened to need — and while the search was unseeded that was a
+fresh draw at every core count, which is how CMA-ES came to report a 22.8x speedup on 8 cores
+(issue #344).
+
+The benchmarks now pass a `seed`, which GA and CMA-ES honour. That makes a run repeatable at a
+given core count, but it does **not** make CMA-ES rank-independent: it asks for one candidate
+per rank, so the ask/tell interleaving still changes with the rank count. Measured: with a fixed
+batch, 1/2/4 ranks draw the same candidates and 8 does not, because nevergrad also derives
+internal settings from `num_workers`. Equal work across core counts needs the population
+decoupled from the rank count, which has not been done.
+
+So rather than assert equal work, each run records how many cost evaluations it actually
+performed; the sweep prints them per core count and the table's env note says whether they
+matched. **Read that note before reading a speedup** — if the counts differ, the ratio is not a
+throughput measurement.
+
+The best cost is core-independent when the work is equal (reported once) and the per-core columns
+are then pure wall-clock:
 
 ```bash
 ./benchmarks/run_benchmarks.sh --scaling                       # 1,2,4,8 cores, all benchmarks

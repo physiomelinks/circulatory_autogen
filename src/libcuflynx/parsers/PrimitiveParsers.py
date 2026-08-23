@@ -1358,6 +1358,14 @@ def _row_bounds(row):
 # settings form without hardcoding either. Each method's `options` lists the `optimiser_options`
 # keys it reads (see _OPT_* above). Keep in sync with OpencorParamID.run()'s param_id_method
 # dispatch (paramID.py) and the optimiser classes (optimisers.py).
+#: Reproducibility. Omitted, the run is as random as it was; set, the candidate sequence is
+#: fixed, which is what lets a scaling sweep be compared at equal work (#344).
+_OPT_SEED = {'name': 'seed', 'type': 'int', 'default': None, 'required': False,
+             'description': ('Random seed. Omitted, the search is unseeded and two runs of the '
+                             'same configuration differ; set, two runs at the same MPI rank '
+                             'count draw the same candidates. Note the search is still not '
+                             'rank-independent: the candidate batch is one per rank.')}
+
 PARAM_ID_METHODS = {
     'genetic_algorithm': {
         'label': 'Genetic algorithm',
@@ -1372,7 +1380,7 @@ PARAM_ID_METHODS = {
                     # and never moves by less than an absolute threshold.
                     _OPT_USE_RELATIVE_COST_TOLERANCE, _OPT_RELATIVE_COST_TOLERANCE,
                     _OPT_GA_NUM_ELITE, _OPT_GA_NUM_SURVIVORS,
-                    _OPT_GA_NUM_MUTATIONS_PER_SURVIVOR, _OPT_GA_NUM_CROSS_BREED,
+                    _OPT_GA_NUM_MUTATIONS_PER_SURVIVOR, _OPT_GA_NUM_CROSS_BREED, _OPT_SEED,
                     # Only the GA reads this: it is the one optimiser that can be driven by a
                     # log-posterior (it needs no gradient of it), and the one whose selection
                     # step had to change to cope with the negative costs that produces.
@@ -1389,7 +1397,7 @@ PARAM_ID_METHODS = {
             {'name': 'sigma0', 'type': 'float', 'default': None, 'required': False,
              'description': ('Initial CMA-ES step size (standard deviation) in normalised '
                              'parameter space; omitted lets CMA choose.')},
-            _OPT_COST_CONVERGENCE, _OPT_MAX_PATIENCE,
+            _OPT_COST_CONVERGENCE, _OPT_MAX_PATIENCE, _OPT_SEED,
         ],
     },
     'bayesian': {
@@ -1426,8 +1434,7 @@ PARAM_ID_METHODS = {
              'description': 'How the start points are sampled across the parameter box.'},
             {'name': 'include_init_point', 'type': 'bool', 'default': True, 'required': False,
              'description': 'Include the parameters-CSV x0 as one of the starts.'},
-            {'name': 'seed', 'type': 'int', 'default': 0, 'required': False,
-             'description': 'Seed for the deterministic start sampling.'},
+            {**_OPT_SEED, 'description': 'Seed for the deterministic start sampling.'},
             {'name': 'fd_step', 'type': 'float', 'default': 1e-4, 'required': False,
              'description': 'Finite-difference step used when no AD gradient is available.'},
             {'name': 'no_new_starts_on_convergence', 'type': 'bool', 'default': True,
