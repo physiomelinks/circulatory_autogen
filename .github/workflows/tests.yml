@@ -271,7 +271,10 @@ jobs:
         # [uq] brings pymc/pytensor and [emulation] brings autoemulate. Without them the
         # corresponding tests skip, and those code paths go unexercised in CI -- which is how
         # the pyMC backend stayed unproven for as long as it did.
-        pip install -e ".[dev,uq,emulation]"
+        # --build-constraint, not a runtime pin: [emulation] reaches harmonic, which has no
+        # cp310 wheel and so is built here. See build-constraints.txt for what it holds back.
+        pip install --build-constraint "${{ github.workspace }}/build-constraints.txt" \
+          -e ".[dev,uq,emulation]"
 
     - uses: ./.github/actions/install-system-deps
 
@@ -351,7 +354,9 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -e ".[dev,uq,emulation]"
+        # See build-constraints.txt: [emulation] reaches harmonic, built from sdist on 3.10.
+        pip install --build-constraint "${{ github.workspace }}/build-constraints.txt" \
+          -e ".[dev,uq,emulation]"
 
     - uses: ./.github/actions/install-system-deps
 
@@ -424,7 +429,9 @@ jobs:
         python -m pip install --upgrade pip
         # [emulation] brings autoemulate, which the emulator round-trip test needs; without
         # it that test skips and the external backend's integration with CA goes unchecked.
-        pip install -e ".[dev,emulation]"
+        # See build-constraints.txt: autoemulate reaches harmonic, built from sdist on 3.10.
+        pip install --build-constraint "${{ github.workspace }}/build-constraints.txt" \
+          -e ".[dev,emulation]"
 
     # A skipped test is a green step, and every test in this file sits behind an
     # importorskip. If the conda environment failed to activate, or the extra failed to
