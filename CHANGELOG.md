@@ -5,6 +5,25 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Added — an observable can be built from one in another experiment (#466, #127)
+
+An `operation_kwargs` value naming another `data_item_name` may now name an item in a different
+`experiment_idx` / `subexperiment_idx`. The table those names resolve against used to be cleared
+once per sub-experiment, so a reference could only ever see the segment being evaluated; it now
+spans a whole cost evaluation, with segments visited in order, so a reference reaches backwards
+across experiments. This makes the difference between a baseline run and a treated one — often
+the quantity actually measured — expressible as an observable.
+
+Two related fixes fall out of it. A reference to an item that has not been computed yet now
+raises, naming the item to move, instead of passing the name through as a plain string (which
+surfaced as `str - str`, or as a plausible wrong number). And on the sensitivity path the table
+is cleared per sample rather than once per run, so a forward reference can no longer read the
+previous sample's value.
+
+The Myokit CVODES FSA and CasADi AD gradients refuse a cross-segment reference: each builds its
+observables from one sub-experiment's operands, so it would differentiate a different feature
+than the cost is built from. Finite differences and the gradient-free methods are unaffected.
+
 ### Changed (breaking) — an obs_data item's name is now separate from its labels (#466)
 
 `variable` and `name_for_plotting` each named two different things, and one of the collisions

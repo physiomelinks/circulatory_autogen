@@ -424,7 +424,6 @@ class sobol_SA():
     
     def generate_outputs_mpi(self, samples):
         #need to added an array to save tmp data, each calibration need to updated/re-initial
-        self.temp_results = {}
         
         # Split samples across ranks
         n_samples = len(samples)
@@ -479,6 +478,10 @@ class sobol_SA():
                     pbar.update(1)
                     continue
 
+                # One table per sample. It is what an operation_kwargs reference to another
+                # data_item resolves against; carried across samples, a forward reference would
+                # read the previous sample's value instead of failing (#466).
+                self.temp_results = {}
                 features = []
                 for j in range(len(self.obs_info["operations"])):
                     func = self.operation_funcs_dict[self.obs_info["operations"][j]]
@@ -496,6 +499,7 @@ class sobol_SA():
                             data_item_name=key_idxt,
                             temp_results=self.temp_results,
                             num_operands=len(operands_outputs[j]),
+                            known_item_names=set(self.obs_info["data_item_names"]),
                         )
                         feature = func(*operands_outputs[j], **kwargs)
                         self.temp_results[key_idxt] = feature

@@ -50,7 +50,7 @@ class _Pid:
             return 0.0, [None], []
         return 0.0, [np.asarray(param_vals, dtype=float)], []
 
-    def get_obs_output_dict(self, operands):
+    def get_obs_output_dict(self, operands, **kwargs):
         return {"const": [self._feature_fn(operands)]}
 
 
@@ -383,7 +383,7 @@ class _MultiExpPid(_Pid):
             return 0.0, [("exp0", x), None], []
         return 0.0, [("exp0", x), ("exp1", x)], []
 
-    def get_obs_output_dict(self, operands):
+    def get_obs_output_dict(self, operands, **kwargs):
         tag, x = operands
         # Experiment 1 responds ten times as strongly as experiment 0.
         return {"const": [x, 10.0 * x] if tag == "exp1" else [x, x]}

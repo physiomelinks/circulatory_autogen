@@ -2487,6 +2487,10 @@ class OpencorParamID():
 
         cost = 0.0
         weighted_obs_denominator = 0
+        # One table for the whole evaluation, so an item may reference one from an earlier
+        # (experiment, sub-experiment) and not just its own (#466). Cleared here rather than
+        # per segment, and the segments are visited in order, so a reference is backward-only.
+        self.temp_results = {}
         for exp_idx in exp_idxs_to_run:
             for this_sub_idx in range(num_sub_per_exp[exp_idx]):
                 subexp_count = int(np.sum([num_sub for num_sub in
@@ -2495,6 +2499,7 @@ class OpencorParamID():
                 sub_cost = self.get_cost_from_operands(
                     operands_outputs_list[subexp_count],
                     exp_idx=exp_idx, sub_idx=this_sub_idx, do_ad=do_ad,
+                    reset_temp_results=False,
                 )
                 cost += sub_cost
                 if self._num_weighted_obs_by_exp_sub is not None:
@@ -2692,7 +2697,8 @@ class OpencorParamID():
         pred_outputs = np.concatenate(pred_output_list, axis=1)
         return pred_outputs
 
-    def get_cost_from_operands(self, operands_outputs, exp_idx = 0, sub_idx = 0, do_ad=False):
+    def get_cost_from_operands(self, operands_outputs, exp_idx = 0, sub_idx = 0, do_ad=False,
+                               reset_temp_results=True):
 
         # The operands are symbolic (casadi SX) only on the AD path of a casadi_python model; every
         # other evaluation -- including gradient-free calibration on casadi_python -- produces numpy
@@ -2700,7 +2706,9 @@ class OpencorParamID():
         # imply symbolic: casadi_python evaluated numerically is not.
         is_symbolic = do_ad and self.model_type == 'casadi_python'
 
-        obs_dict = self.get_obs_output_dict(operands_outputs, is_symbolic=is_symbolic)
+        obs_dict = self.get_obs_output_dict(operands_outputs, is_symbolic=is_symbolic,
+                                            exp_idx=exp_idx, sub_idx=sub_idx,
+                                            reset_temp_results=reset_temp_results)
         # calculate error between the observables of this set of parameters
         # and the ground truth
         
@@ -3063,11 +3071,94 @@ class OpencorParamID():
             data_item_name=self.obs_info["data_item_names"][JJ],
             temp_results=self.temp_results,
             num_operands=num_operands,
+            known_item_names=set(self.obs_info["data_item_names"]),
         )
 
-    def get_obs_output_dict(self, operands_outputs, get_all_series=False, is_symbolic=False):
-        #need to added an array to save tmp data, each calibration need to updated/re-initial
-        self.temp_results = {}
+    def cross_segment_reference_items(self):
+        """data_items whose ``operation_kwargs`` reference an item in another (exp, sub).
+
+        Returns a list of ``(referencing_name, referenced_name)``. Empty for the ordinary case
+        where every reference stays inside its own sub-experiment.
+        """
+        obs = self.obs_info
+        names = list(obs.get("data_item_names") or [])
+        segment = {name: (int(obs["experiment_idxs"][i]), int(obs["subexperiment_idxs"][i]))
+                   for i, name in enumerate(names)}
+        found = []
+        for i, raw in enumerate(obs.get("operation_kwargs") or []):
+            if not isinstance(raw, dict):
+                continue
+            here = segment.get(names[i])
+            for value in raw.values():
+                if isinstance(value, str) and value in segment and segment[value] != here:
+                    found.append((names[i], value))
+        return found
+
+    def _refuse_cross_segment_references(self, source):
+        """Cross-segment references are a cost-path feature; say so rather than mis-differentiate.
+
+        The Myokit-FSA and CasADi arms build each observable from one sub-experiment's operands,
+        so an item whose value comes from *another* segment is not a function of what they
+        differentiate -- they would return a gradient for a different feature than the cost was
+        built from, with nothing to show for it. Finite differences and the gradient-free
+        methods step the whole protocol, so they are unaffected.
+        """
+        crossing = self.cross_segment_reference_items()
+        if not crossing:
+            return
+        detail = "; ".join(f"{a!r} -> {b!r}" for a, b in crossing)
+        raise NotImplementedError(
+            f"{source} cannot differentiate a data_item that references another experiment or "
+            f"sub-experiment ({detail}). It builds each observable from one sub-experiment's "
+            f"operands, so a cross-segment reference is not part of what it differentiates and "
+            f"the gradient would be for a different feature than the cost. Use finite "
+            f"differences (do_ad: False) or a gradient-free method, or keep the reference "
+            f"inside one sub-experiment (#466).")
+
+    def _item_belongs_to_segment(self, JJ, exp_idx, sub_idx):
+        """Whether data_item ``JJ`` was declared for the segment currently being evaluated.
+
+        Always True when the caller did not say which segment it is handing over, which is the
+        old behaviour and what the callers that want the whole const vector from one segment's
+        operands rely on.
+        """
+        if exp_idx is None:
+            return True
+        return (int(self.obs_info["experiment_idxs"][JJ]) == int(exp_idx)
+                and int(self.obs_info["subexperiment_idxs"][JJ]) == int(sub_idx))
+
+    def _record_temp_result(self, JJ, obs, exp_idx, sub_idx):
+        """Record observable ``JJ``'s value under its name, for a later item to reference.
+
+        Skipped when this is not ``JJ``'s own segment: the value would be this item's operation
+        applied to a different experiment's trace, which is a number nothing should read.
+        """
+        if not self._item_belongs_to_segment(JJ, exp_idx, sub_idx):
+            return
+        self.temp_results[self.obs_info["data_item_names"][JJ]] = obs
+
+    def get_obs_output_dict(self, operands_outputs, get_all_series=False, is_symbolic=False,
+                            exp_idx=None, sub_idx=None, reset_temp_results=True):
+        """Evaluate every data_item's operation against one sub-experiment's operands.
+
+        ``temp_results`` is the table an ``operation_kwargs`` reference to another item resolves
+        against. It used to be cleared on every call, i.e. once per (experiment, sub-experiment),
+        which is why a reference could only ever see the segment being evaluated (#466, #127).
+        Two arguments change that:
+
+        ``reset_temp_results=False`` leaves the table alone, so a caller stepping through the
+        segments in order accumulates one table across all of them and a later item can reference
+        an earlier segment's.
+
+        ``exp_idx``/``sub_idx`` say which segment these operands belong to. Every data_item is
+        evaluated against every segment -- which item *counts* is decided afterwards by the
+        zeroed weight vectors -- so without this an item would be recorded under its name using
+        some other experiment's trace, and a cross-segment reference would silently read that.
+        Left as None the old behaviour is kept: record everything, which is what the callers
+        that hand over a single segment's operands and want the whole const vector rely on.
+        """
+        if reset_temp_results:
+            self.temp_results = {}
 
         # Symbolic (SX) operands go through the casadi-mode operation funcs; numeric operands go
         # through the numpy-mode ones (#315). For non-casadi models both are the same numpy dict.
@@ -3141,7 +3232,15 @@ class OpencorParamID():
                 # harmless for `mean`, but `max_minus_min` of a single value is zero, and the
                 # cost would then be fitting zeros without anything looking wrong.
                 obs = float(np.asarray(operands_outputs[JJ][0]).reshape(-1)[0])
-                self.temp_results[self.obs_info["data_item_names"][JJ]] = obs
+                self._record_temp_result(JJ, obs, exp_idx, sub_idx)
+            elif not self._item_belongs_to_segment(JJ, exp_idx, sub_idx):
+                # Every data_item is evaluated against every segment, and which one *counts* is
+                # decided afterwards by the zeroed weight vectors. For an item belonging to
+                # another (experiment, sub-experiment) the operation would run on the wrong
+                # trace, so the value is discarded either way -- and for an item built from
+                # other items it cannot run at all, because the items it names live in a
+                # segment this one is not (#466). A placeholder is all the weights need.
+                obs = 0.0
             elif self.obs_info["operations"][JJ] == None:
                 obs = operands_outputs[JJ][0]
             else:
@@ -3150,7 +3249,7 @@ class OpencorParamID():
                     kwargs = self._resolve_operation_kwargs(JJ, operation_funcs_dict, operands_outputs)
                     obs = operation_funcs_dict[self.obs_info["operations"][JJ]](*operands_outputs[JJ], **kwargs)
                     #each predict result saved into tmp array
-                    self.temp_results[key_idxt] = obs
+                    self._record_temp_result(JJ, obs, exp_idx, sub_idx)
                 else:
                     obs = None
             
@@ -3372,10 +3471,13 @@ class OpencorParamID():
             return fd_backend.cost_gradient(
                 self, param_vals, h=float(self._use_time_setting('fd_rel_step', 1e-3)))
         if self.model_type == 'casadi_python':
+            self._refuse_cross_segment_references('The CasADi AD gradient')
             return self.get_jac_cost_ca(param_vals)
         elif self.model_type == 'aadc_python':
+            self._refuse_cross_segment_references('The AADC AD gradient')
             return self.get_jac_cost_aadc(param_vals)
         elif self.fsa_gradient_available():
+            self._refuse_cross_segment_references('The Myokit CVODES FSA gradient')
             return self.get_jac_cost_fsa(param_vals)
         else:
             raise ValueError(f"Gradient not available for model_type={self.model_type}")

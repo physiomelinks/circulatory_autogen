@@ -340,7 +340,45 @@ Three things to get right:
 
 - **Order matters.** An observable can only reference items that appear *before* it in
   `data_items`, because the values are computed in file order and the reference is resolved
-  against the ones already computed.
+  against the ones already computed. A reference to an item that has not been computed yet is an
+  error naming the item to move, rather than the operation quietly receiving the name as a
+  string.
+- **A reference may cross experiments and sub-experiments.** The referenced item does not have to
+  be in the same `experiment_idx` / `subexperiment_idx` as the item referencing it, so the
+  quantity you actually know — how much a treatment moved a feature, the difference between a
+  baseline run and a forced one — can be written down directly:
+
+    ```json
+    {
+      "data_item_name": "peak prey, unforced",
+      "operation": "max", "operands": ["Lotka_Volterra_module/x"],
+      "experiment_idx": 0, "data_type": "constant", "unit": "dimensionless",
+      "value": 23.62, "std": 0.5
+    },
+    {
+      "data_item_name": "peak prey, forced",
+      "operation": "max", "operands": ["Lotka_Volterra_module/x"],
+      "experiment_idx": 1, "data_type": "constant", "unit": "dimensionless",
+      "value": 21.58, "std": 0.5
+    },
+    {
+      "data_item_name": "peak prey, forcing response",
+      "operation": "calculate_two_observable_difference", "operands": [""],
+      "operation_kwargs": { "pred1": "peak prey, unforced", "pred2": "peak prey, forced" },
+      "experiment_idx": 1, "data_type": "constant", "unit": "dimensionless",
+      "value": -2.04, "std": 0.5
+    }
+    ```
+
+    Ordering still applies, and now spans segments: experiments are evaluated in order, and the
+    sub-experiments within each, so an item may reference anything in an *earlier* segment.
+    `tests/test_inputs/Lotka_Volterra_forced_cross_exp_obs_data.json` is the worked example.
+
+    One limit: the **Myokit CVODES FSA and CasADi AD gradients cannot differentiate a
+    cross-segment reference**, because each builds its observables from one sub-experiment's
+    operands. They refuse with a message rather than return a gradient for a different feature
+    than the cost. Use finite differences (`do_ad: False`) or a gradient-free method, or keep the
+    reference inside one sub-experiment.
 - **`operands` is empty**, written `[""]`. The item takes its inputs from `operation_kwargs`
   rather than from a model variable, so there is no trace to reduce.
 - **`data_item_name` is what the reference resolves against, and it must be unique.** This is now

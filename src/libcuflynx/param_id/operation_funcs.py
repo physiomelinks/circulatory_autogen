@@ -204,7 +204,7 @@ def check_operation_kwargs(raw_kwargs, func, operation_name, data_item_name=None
 
 
 def resolve_operation_kwargs(raw_kwargs, func, operation_name=None, data_item_name=None,
-                             temp_results=None, num_operands=0):
+                             temp_results=None, num_operands=0, known_item_names=None):
     """Validate and resolve a data_item's ``operation_kwargs`` into call keyword arguments.
 
     Args:
@@ -220,6 +220,10 @@ def resolve_operation_kwargs(raw_kwargs, func, operation_name=None, data_item_na
             through unchanged, so plain string options still work.
         num_operands: number of operands passed positionally, used to detect a kwarg that
             duplicates a positional argument.
+        known_item_names: every ``data_item_name`` in the study. A string that matches one of
+            these but is not yet in ``temp_results`` is a *forward* reference -- the item it
+            names has not been evaluated yet -- and raises instead of being passed through as a
+            plain string, which used to surface as ``str - str`` or, worse, a plausible number.
 
     Returns:
         A new dict safe to splat into ``func(*operands, **kwargs)``.
@@ -237,6 +241,16 @@ def resolve_operation_kwargs(raw_kwargs, func, operation_name=None, data_item_na
         if isinstance(value, str) and temp_results is not None and value in temp_results:
             # Reference to an earlier observable; substitute its value, never coerce it.
             kwargs[key] = temp_results[value]
+        elif (isinstance(value, str) and known_item_names is not None
+                and value in known_item_names):
+            where = f"data_item {data_item_name!r}" if data_item_name else "a data_item"
+            raise ValueError(
+                f"{where}: 'operation_kwargs' key {key!r} references data_item {value!r}, "
+                f"which has not been computed yet. References are resolved in order, so the "
+                f"item referenced must come earlier in 'data_items' -- and, when it belongs to "
+                f"another experiment or sub-experiment, that segment must be earlier too "
+                f"(experiments in order, sub-experiments within each). Move {value!r} before "
+                f"{data_item_name!r}.")
         elif key in defaults:
             kwargs[key] = _coerce_operation_kwarg(value, defaults[key])
         else:

@@ -67,17 +67,30 @@ def observable_features(pid, param_vals):
     # One get_obs_output_dict call per distinct segment rather than per observable:
     # it evaluates every data item against whatever operands it is handed, so the
     # segment is what varies and the const index picks the observable out of it.
-    by_segment = {}
-    out = np.full(len(const_to_obs), np.nan)
-    for k, obs_idx in enumerate(const_to_obs):
+    #
+    # The segments are visited in ascending order sharing one temp_results table, exactly as
+    # the cost path does, so an item that references one in an earlier segment reads the same
+    # value here as it does there (#466). Evaluating them in const-index order with a table
+    # per segment would give the gradient a different feature than the cost was built from.
+    wanted = []
+    for obs_idx in const_to_obs:
         exp = int(obs["experiment_idxs"][obs_idx])
         sub = int(obs["subexperiment_idxs"][obs_idx])
         flat = sum(num_sub_per_exp[:exp]) + sub
         if flat >= len(operands_list) or operands_list[flat] is None:
             return None
-        if flat not in by_segment:
-            by_segment[flat] = np.asarray(
-                pid.get_obs_output_dict(operands_list[flat])['const'], dtype=float)
+        wanted.append((flat, exp, sub))
+
+    by_segment = {}
+    first = True
+    for flat, exp, sub in sorted(set(wanted)):
+        by_segment[flat] = np.asarray(
+            pid.get_obs_output_dict(operands_list[flat], exp_idx=exp, sub_idx=sub,
+                                    reset_temp_results=first)['const'], dtype=float)
+        first = False
+
+    out = np.full(len(const_to_obs), np.nan)
+    for k, (flat, _exp, _sub) in enumerate(wanted):
         consts = by_segment[flat]
         if k < len(consts):
             out[k] = consts[k]
