@@ -52,7 +52,7 @@ def test_module_compiles(path):
     ``feature_version`` is what makes this about the *oldest* supported Python rather than
     whichever one the suite happens to be running on. Plain ``compile()`` accepted the
     match statements, ``X | None`` annotations and PEP 701 f-strings of a 3.11 test runner
-    and said nothing about the 3.9 install that pyproject promises works.
+    and said nothing about the oldest install that pyproject promises works.
     """
     try:
         ast.parse(path.read_text(encoding="utf-8"), str(path),
@@ -75,7 +75,7 @@ def _wheel_modules():
 @pytest.mark.parametrize("path", _wheel_modules(), ids=lambda p: p.name)
 def test_no_shipped_module_imports_distutils(path):
     """distutils was removed from the standard library in Python 3.12, and pyproject
-    declares ``requires-python = ">=3.9"`` with no upper bound -- so a shipped module that
+    declares ``requires-python = ">=3.10"`` with no upper bound -- so a shipped module that
     imports it is guaranteed broken on a supported interpreter.
 
     The compile sweep above cannot catch this class of bug: ``from distutils import util``
@@ -130,7 +130,7 @@ def test_no_shipped_module_imports_an_undeclared_backport(path):
     ``from importlib_resources import as_file, files``. That import only ever ran on 3.7 and
     3.8 -- the two interpreters ``requires-python = ">=3.7"`` admitted and nothing declared
     ``importlib_resources`` for. So pip installed happily on exactly the versions the
-    fallback existed to serve, and the first generator import died. The floor is 3.9 now and
+    fallback existed to serve, and the first generator import died. The floor is 3.10 now and
     the fallback is gone; this stops the pattern coming back under a different name.
     """
     declared = _declared_distributions()
