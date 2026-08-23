@@ -164,7 +164,10 @@ def main(argv=None):
 
     # finalize=False: this stage never called MPI.Finalize(). It is single-rank by
     # construction -- plot_param_id() returns immediately on every rank but 0.
-    return _cli.run_stage(lambda: plot_param_id(generate=args.generate), MPI, finalize=False)
+    inp_data_dict = _cli.load_user_inputs(args)
+    return _cli.run_stage(
+        lambda: plot_param_id(inp_data_dict, generate=args.generate),
+        MPI, finalize=False)
 
 
 if __name__ == '__main__':

@@ -58,8 +58,9 @@ def main(argv=None):
     parser = _cli.build_parser(
         "Train a surrogate (emulator) of the model's scalar observable features, so that "
         'later calibration, sensitivity or UQ runs can be driven by it instead of the solver.')
-    parser.parse_args(argv)
-    return _cli.run_stage(train_emulator, MPI)
+    args = parser.parse_args(argv)
+    inp_data_dict = _cli.load_user_inputs(args)
+    return _cli.run_stage(lambda: train_emulator(inp_data_dict), MPI)
 
 
 if __name__ == '__main__':
