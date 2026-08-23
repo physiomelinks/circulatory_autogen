@@ -131,7 +131,7 @@ Nothing is ever written inside the installed package.
 
 **Imports without the `libcuflynx.` prefix are deprecated.** `from param_id.paramID import
 CVS0DParamID` still works in 0.4.0 and emits a `DeprecationWarning`; the shims are **removed in
-0.5.0**. See `CHANGELOG.md` for the migration, including the one for anyone who edited
+0.6.0**. See `CHANGELOG.md` for the migration, including the one for anyone who edited
 `funcs_user/*_funcs_user.py` in place.
 
 # Tutorial

@@ -101,7 +101,7 @@ The notes for a release must state:
 
 - [ ] **The deprecation shims and when they go.** The flat import names (`import parsers`,
       `from param_id.paramID import ...`) still work in 0.4.0 and emit a `DeprecationWarning`;
-      they are **removed in 0.5.0**. Migrate by prefixing the import with `libcuflynx.`.
+      they are **removed in 0.6.0**. Migrate by prefixing the import with `libcuflynx.`.
 - [ ] **The `funcs_user` migration** (issue #433). The built-in cost / operation / modifier
       functions now live in the package (`libcuflynx.funcs.*`). Anyone who added their own by
       editing `funcs_user/cost_funcs_user.py`, `operation_funcs_user.py` or

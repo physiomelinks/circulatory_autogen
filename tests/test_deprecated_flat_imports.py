@@ -71,7 +71,9 @@ def test_shim_warns_once_naming_the_new_path_and_the_removal_version(fresh_shim)
     assert REMOVAL_VERSION in messages[0]
     # 0.3.0 is already published, so it could never have been the removal version; the
     # rename ships in 0.4.0 and the shims go in the release after it.
-    assert REMOVAL_VERSION == "0.5.0"
+    # Deferred from 0.5.0, which carries the #466 obs_data break: stacking the namespace
+    # removal on top would make one release ask for two unrelated migrations.
+    assert REMOVAL_VERSION == "0.6.0"
 
 
 @pytest.mark.unit
@@ -259,7 +261,7 @@ def test_a_shim_import_does_not_hijack_someone_elses_top_level_module(tmp_path):
 def test_the_package_never_imports_its_own_deprecated_names():
     """A shim reached from inside libcuflynx would warn users about their own dependency.
 
-    It would also mean the package depends on the shims surviving past 0.5.0.
+    It would also mean the package depends on the shims surviving past their removal.
     """
     offenders = []
     for path in sorted((_SRC / PACKAGE).rglob("*.py")):

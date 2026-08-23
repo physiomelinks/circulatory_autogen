@@ -3768,7 +3768,7 @@ class ObsAndParamDataParser(object):
             for II in range(N)]
         # Deprecated alias. `name_for_plotting` named two things; the one nearly every reader
         # wanted was the item's label, so that is what the old key now resolves to. Removed in
-        # 0.5.0 -- read item_names_for_plotting or trace_names_for_plotting instead.
+        # 0.6.0 -- read item_names_for_plotting or trace_names_for_plotting instead.
         obs_info["names_for_plotting"] = obs_info["item_names_for_plotting"]
 
         for II in range(N):

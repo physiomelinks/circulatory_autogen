@@ -22,10 +22,10 @@ pip install libcuflynx
 from libcuflynx.utilities.utility_funcs import get_default_inp_data_dict
 ```
 
-!!! note "The old flat imports still work in 0.4.0, and are removed in 0.5.0"
+!!! note "The old flat imports still work in 0.4.0, and are removed in 0.6.0"
     `from param_id.paramID import CVS0DParamID` (no `libcuflynx.` prefix) still resolves
     in 0.4.0 but emits a `DeprecationWarning`. Prefix your imports now; the shims go away
-    in 0.5.0. See `CHANGELOG.md`.
+    in 0.6.0. See `CHANGELOG.md`.
 
 ## Public API at a glance
 
