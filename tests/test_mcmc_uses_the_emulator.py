@@ -1,14 +1,18 @@
-"""``use_emulator: true`` has to reach the MCMC stage, not just the calibration.
+"""``use_emulator: true`` has to reach both engines this stage builds.
 
-The calibration engine is built by ``CVS0DParamID.init_from_dict``, which reads
-``use_emulator`` / ``emulator_dir`` / ``emulator_settings`` out of the config. The
-MCMC engine in ``run_param_id`` is constructed by hand, and the emulator arguments
-were simply not in the call -- so a run with ``use_emulator: true`` accelerated the
-calibration and then sampled against the solver.
+``run_param_id`` constructs the calibration engine and the MCMC engine by hand,
+and neither call carried ``use_emulator`` / ``emulator_dir`` /
+``emulator_settings``. So the setting did nothing here at all: a run that had just
+spent hours training an emulator then calibrated against the solver and sampled
+against the solver.
 
-That is the one stage where the difference is unaffordable: a chain is tens of
-thousands of evaluations, and the symptom is not an error but a run that never
-finishes. Nothing failed, so nothing caught it.
+Nothing errors. The run is simply as slow as if no emulator existed, which is the
+whole reason to train one -- a chain is tens of thousands of evaluations, and at
+~10s each that is days. It presents as a slow run, not a failure, which is why it
+survived.
+
+(``init_from_dict`` does read those keys, which is why sensitivity analysis and
+the exported pipeline were unaffected. This stage does not use it.)
 
 The engines are stubbed here. The behaviour under test is entirely "what was this
 constructor called with", and building a real one compiles a model.
@@ -127,12 +131,36 @@ def test_no_emulator_means_no_emulator_dir(engines):
 
 
 @pytest.mark.unit
-def test_the_calibration_still_gets_it_too(engines):
-    """init_from_dict already handled the calibration engine; this must not have
-    changed that."""
+def test_the_calibration_engine_is_given_the_emulator_too(engines):
+    """Both engines here are constructed by hand, and neither had the arguments.
+
+    So `use_emulator: true` did nothing at all in this stage -- the calibration
+    ran against the solver and so did the chain.
+    """
     stage.run_param_id(_config())
 
-    # The calibration engine is built through init_from_dict, so it is not one of
-    # the recorded direct constructions -- only the MCMC one is.
+    calibration = engines[0]
+    assert calibration.args[3] is False, "the first engine should be the calibration one"
+    assert calibration.kwargs.get("use_emulator") is True
+    assert calibration.kwargs.get("emulator_dir") == EMULATOR_DIR
+    assert calibration.kwargs.get("emulator_settings") == {
+        "emulator_dir": EMULATOR_DIR, "min_r2": 0.9}
+
+
+@pytest.mark.unit
+def test_the_trainer_is_imported_only_when_needed(engines, monkeypatch):
+    """resolve_emulator_dir pulls in the emulators package, and [emulation] is an
+    optional extra -- a run without an emulator must not need it installed."""
+    import builtins
+
+    real_import = builtins.__import__
+
+    def refuse_emulators(name, *args, **kwargs):
+        if name.startswith("libcuflynx.emulators"):
+            raise ImportError("autoemulate is not installed")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", refuse_emulators)
+    stage.run_param_id(_config(use_emulator=False))
+
     assert len(engines) == 2
-    assert engines[0].args[3] is False
