@@ -367,7 +367,7 @@ def test_one_rank_simulates_every_draw(tmp_path):
     client = CountingClient(str(tmp_path))
     thetas = np.arange(6, dtype=float).reshape(6, 1)
 
-    predictions, failures = pp.simulate_samples(
+    predictions, failures, _ = pp.simulate_samples(
         client, thetas, comm=FakeComm(0, 1))
 
     assert failures == 0
@@ -394,10 +394,10 @@ def test_rank_zero_reassembles_the_blocks_in_order(tmp_path):
     client = CountingClient(str(tmp_path))
     thetas = np.arange(6, dtype=float).reshape(6, 1)
     # Rank 0 owns draws 0-1; the other two blocks arrive out of order.
-    others = [(4, np.array([[4.0, 4.0], [5.0, 5.0]]), 0),
-              (2, np.array([[2.0, 2.0], [3.0, 3.0]]), 1)]
+    others = [(4, np.array([[4.0, 4.0], [5.0, 5.0]]), 0, {}),
+              (2, np.array([[2.0, 2.0], [3.0, 3.0]]), 1, {})]
 
-    predictions, failures = pp.simulate_samples(
+    predictions, failures, _ = pp.simulate_samples(
         client, thetas, comm=FakeComm(0, 3, others))
 
     assert failures == 1
@@ -408,7 +408,7 @@ def test_rank_zero_reassembles_the_blocks_in_order(tmp_path):
 def test_a_non_root_rank_returns_no_predictions(tmp_path):
     """Only rank 0 has the assembled array, so only rank 0 can score it."""
     client = CountingClient(str(tmp_path))
-    predictions, _ = pp.simulate_samples(
+    predictions, _, _ = pp.simulate_samples(
         client, np.arange(4, dtype=float).reshape(4, 1), comm=FakeComm(2, 4))
 
     assert predictions is None
