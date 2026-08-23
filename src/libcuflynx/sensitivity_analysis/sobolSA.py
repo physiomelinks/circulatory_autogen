@@ -305,6 +305,15 @@ class sobol_SA():
         """
         if self._sim_helper is None:
             self._sim_helper = self.initialise_sim_helper()
+            # The helper needs the protocol to run one: a params_to_change entry may name a
+            # protocol trace by string, and resolving that name is the helper's job. Without
+            # this, an obs_data whose protocol drives a variable from a measured waveform --
+            # any AP-clamp or voltage-clamp study -- fails on the first sample with
+            # "params_to_change entry is a string trace key, but protocol_traces not found in
+            # protocol_info", after the whole design has been generated. param_id and
+            # ProtocolRunner have always set it; sensitivity analysis was the one path that
+            # did not.
+            self._sim_helper.set_protocol_info(self.protocol_info)
             if self.sim_time is not None and self.pre_time is not None:
                 self._sim_helper.update_times(self.dt, 0.0, self.sim_time, self.pre_time)
             if getattr(self._sim_helper, 'emulates_features', False):
