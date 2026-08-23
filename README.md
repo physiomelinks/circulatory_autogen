@@ -108,6 +108,7 @@ Each pipeline stage also has a console command, all configured from
 | `cuflynx-identifiability` | Laplace / profile-likelihood identifiability |
 | `cuflynx-train-emulator` | train a surrogate of the obs features |
 | `cuflynx-plot` | plot calibration results |
+| `cuflynx-generate-pipeline` | write a self-contained, movable bundle that reruns the study |
 
 ### `CUFLYNX_USER_DIR` — where an installed libcuflynx reads and writes
 

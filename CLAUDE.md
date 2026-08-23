@@ -34,6 +34,7 @@ Runs are launched via shell scripts in `user_run_files/`. Each one invokes a **c
 | `run_identifiability_analysis.sh` | `cuflynx-identifiability` → `identifiability_run_script` | Laplace / profile-likelihood |
 | `run_emulator_training.sh` (arg: `num_processors`, uses `mpiexec`) | `cuflynx-train-emulator` → `train_emulator_run_script` | Train a surrogate of the obs features |
 | `plot_param_id.sh` | `cuflynx-plot` → `plot_param_id_script` | Plot calibration results |
+| _(no run script)_ | `cuflynx-generate-pipeline` → `generate_pipeline_script` | Write a self-contained bundle — model, resources, a `user_inputs_*.yaml` with every path relative, and a `run_pipeline.py` — that reruns the study elsewhere. Not driven by a `user_run_files/*.sh`: it takes `--user-inputs` and `--output-dir` directly. |
 
 Every command takes `--help` and no options beyond the optional `True|False` the two generation launchers pass; the configuration is the yaml. Each is a `main()` in the named module — `tests/test_console_entry_points.py` is table-driven off `[project.scripts]`, so a new entry point cannot be added without being tested.
 
