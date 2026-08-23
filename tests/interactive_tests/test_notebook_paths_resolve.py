@@ -20,6 +20,11 @@ _NOTEBOOKS = [
     os.path.join(_ROOT, 'tutorial', 'interactive', 'generation_and_calibration.ipynb'),
 ]
 
+#: Directories the notebook *creates* rather than reads. They are build output -- absent from a
+#: clean checkout and from CI, present locally only because something has been run -- so requiring
+#: them to exist would pass on a developer's machine and fail everywhere else.
+_OUTPUT_DIRS = ('generated_models', 'param_id_output', 'simulation_outputs_cpp', 'files_1d')
+
 #: Spellings that moved in the libcuflynx namespace migration. A notebook naming one of these is
 #: pointing at a layout that has not existed since 0.4.0.
 _STALE_PREFIXES = ('src/coupler', 'src/solver1d', 'src/param_id', 'src/generators',
@@ -84,11 +89,13 @@ def test_every_repo_path_the_notebook_builds_exists(notebook):
         except SyntaxError:
             continue          # a cell that is not valid standalone python is not this test's job
         for rel in _joined_repo_paths(tree):
+            if rel.split(os.sep)[0] in _OUTPUT_DIRS:
+                continue          # created by the run, not read by it
             if not os.path.exists(os.path.join(_ROOT, rel)):
                 missing.append(f'cell {idx}: {rel!r}')
     assert not missing, (
         f'{os.path.relpath(notebook, _ROOT)} builds paths under the repo root that do not '
-        f'exist: {"; ".join(missing)}')
+        f'exist: {"; ".join(missing)}. (Output directories are exempt: {_OUTPUT_DIRS}.)')
 
 
 @pytest.mark.unit
