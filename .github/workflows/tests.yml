@@ -17,7 +17,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11"]
+        # 3.9 is gone: numpy, scipy, matplotlib, scikit-learn and numdifftools all declare
+        # requires-python >=3.10, so a 3.9 job either resolved older pins than any real user
+        # gets or failed to resolve at all -- testing a configuration the dependency tree no
+        # longer supports (#459).
+        #
+        # 3.12 is the top because that is where the wheels stop being universal, not because of
+        # requires-python: libcellml 0.6.3 (what `<0.7.0` resolves to) has wheels to cp313, but
+        # autoemulate declares `<3.13`, so the [emulation] extra cannot go past 3.12. If this
+        # ever reaches 3.13, the emulator jobs have to stay behind -- see the note on them below,
+        # and tests/test_python_matrix.py, which asserts it rather than leaving it to be
+        # rediscovered as a resolution failure.
+        python-version: ["3.10", "3.11", "3.12"]
     
     steps:
     - uses: actions/checkout@v4
@@ -263,6 +274,8 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
+        # Pinned, and cannot follow the matrix past 3.12: autoemulate declares
+        # requires-python <3.13, so [emulation] stops there (#459).
         python-version: "3.10"
 
     - name: Install dependencies
@@ -349,6 +362,8 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
+        # Pinned, and cannot follow the matrix past 3.12: autoemulate declares
+        # requires-python <3.13, so [emulation] stops there (#459).
         python-version: "3.10"
 
     - name: Install dependencies
