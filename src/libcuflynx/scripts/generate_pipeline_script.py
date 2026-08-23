@@ -1590,15 +1590,20 @@ def plot_coverage():
     ordered = sorted(levels.items(), key=lambda kv: float(kv[0]))
     nominal = [float(k) for k, _ in ordered]
     predictive = [v["predictive_coverage"] for _, v in ordered]
-    data_interval = [v["data_interval_coverage"] for _, v in ordered]
+    # Counted over draws, not over medians: a median can sit dead centre while
+    # most of the posterior is nowhere near the data.
+    sample_interval = [
+        v.get("sample_interval_coverage", v.get("data_interval_coverage", 0.0))
+        for _, v in ordered
+    ]
 
     fig, ax = plt.subplots(figsize=(6.4, 4.0))
     x = np.arange(len(ordered))
     bars = [
         ax.bar(x - 0.2, predictive, 0.38, color="#2a78d6",
                label="data inside model interval"),
-        ax.bar(x + 0.2, data_interval, 0.38, color="#eb6834",
-               label="model median inside data interval"),
+        ax.bar(x + 0.2, sample_interval, 0.38, color="#eb6834",
+               label="posterior draws inside data interval"),
     ]
     # Labelled directly: a coverage of 0 is a bar of no height, and an unlabelled
     # empty slot reads as "not measured" rather than "none of them".
