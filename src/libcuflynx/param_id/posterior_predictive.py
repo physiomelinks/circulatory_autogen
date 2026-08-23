@@ -15,11 +15,14 @@ confuse:
     observations. Well below means the posterior is too narrow or biased; well
     above means it is too wide to say much.
 
-``data_interval_coverage``
-    How often the model's median prediction falls inside the measurement's own
-    interval, ``value +/- z*std``. This is the "does the fit agree with the data,
-    given how well the data is known" question, and it ignores the width of the
-    posterior entirely.
+``sample_interval_coverage``
+    What fraction of the posterior draws land inside the measurement's own
+    interval, ``value +/- z*std``, averaged over observables. Each observable's
+    error bar is treated as a fixed window and the posterior mass inside it is
+    counted, so an observable whose draws straddle the window scores partly
+    rather than being called a hit or a miss on its median alone. A model
+    centred on the measurement with the measurement's own spread scores the
+    nominal level. ``per_observable`` carries the individual fractions.
 
 Run it against the **solver**, not an emulator, unless you only want a smoke test:
 an emulator scoring its own predictions against the data cannot tell you that the
@@ -209,15 +212,27 @@ def coverage(predictions, ground_truth, std, levels=DEFAULT_LEVELS):
         hi = np.nanpercentile(preds, hi_q, axis=0)
         inside_predictive = (truth >= lo) & (truth <= hi)
 
-        median = np.nanmedian(preds, axis=0)
+        # Every draw against its own observable's window, not the median against
+        # it: collapsing to a median throws away the shape of the posterior, and
+        # an observable whose draws straddle the error bar is neither a clean hit
+        # nor a clean miss.
         z = _z_for(level)
         with np.errstate(invalid='ignore'):
             half = z * np.abs(sigma)
-        inside_data = np.abs(median - truth) <= half
+            inside = np.abs(preds - truth[None, :]) <= half[None, :]
+        # A draw that did not simulate is not a miss; it is not a draw.
+        counted = np.isfinite(preds)
+        with np.errstate(invalid='ignore', divide='ignore'):
+            per_observable = np.where(
+                counted.sum(axis=0) > 0,
+                (inside & counted).sum(axis=0) / np.maximum(counted.sum(axis=0), 1),
+                np.nan)
 
         result['levels'][str(level)] = {
             'predictive_coverage': float(np.mean(inside_predictive)),
-            'data_interval_coverage': float(np.mean(inside_data)),
+            'sample_interval_coverage': float(np.nanmean(per_observable)),
+            'per_observable': [None if not np.isfinite(v) else float(v)
+                               for v in per_observable],
             'z': float(z),
         }
     return result
@@ -263,9 +278,9 @@ class PosteriorPredictiveResult:
         for level, row in sorted(self.coverage['levels'].items()):
             lines.append(
                 '  %s: %.0f%% of data inside the model interval (nominal %.0f%%); '
-                '%.0f%% of medians inside value +/- %.2f*std'
+                '%.0f%% of draws inside value +/- %.2f*std'
                 % (level, 100 * row['predictive_coverage'], 100 * float(level),
-                   100 * row['data_interval_coverage'], row['z']))
+                   100 * row['sample_interval_coverage'], row['z']))
         return '\n'.join(lines)
 
     def save(self, output_dir):

@@ -43,11 +43,69 @@ def calibrated_case(n_obs=4000, n_samples=4000, seed=0):
 @pytest.mark.unit
 @pytest.mark.parametrize("level", [0.8, 0.95])
 def test_a_calibrated_posterior_hits_the_nominal_level(level):
+    """The observation is a draw, so a calibrated model's interval contains it
+    at the nominal rate."""
     preds, truth, std = calibrated_case()
     row = pp.coverage(preds, truth, std, levels=(level,))['levels'][str(level)]
 
     assert row['predictive_coverage'] == pytest.approx(level, abs=0.03)
-    assert row['data_interval_coverage'] == pytest.approx(level, abs=0.03)
+
+
+def centred_on_the_measurement(n_obs=3000, n_samples=3000, seed=0, spread=1.0):
+    """Draws centred on each measurement, with the measurement's own spread.
+
+    The reference case for ``sample_interval_coverage``: the error bar is a
+    fixed window, and a model sitting in the middle of it with the same width
+    puts the nominal fraction of its draws inside.
+    """
+    rng = np.random.default_rng(seed)
+    truth = rng.normal(size=n_obs) * 10
+    std = np.abs(rng.normal(size=n_obs)) + 0.5
+    preds = truth[None, :] + rng.normal(size=(n_samples, n_obs)) * std[None, :] * spread
+    return preds, truth, std
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("level", [0.8, 0.95])
+def test_the_nominal_fraction_of_draws_lands_in_the_error_bar(level):
+    preds, truth, std = centred_on_the_measurement()
+    row = pp.coverage(preds, truth, std, levels=(level,))['levels'][str(level)]
+
+    assert row['sample_interval_coverage'] == pytest.approx(level, abs=0.02)
+
+
+@pytest.mark.unit
+def test_a_posterior_that_is_too_wide_puts_fewer_draws_in_the_window():
+    """The reason this is counted over draws rather than over medians: a median
+    can sit dead centre while most of the posterior is nowhere near the data."""
+    preds, truth, std = centred_on_the_measurement(spread=3.0)
+    result = pp.coverage(preds, truth, std)
+
+    for level, row in result['levels'].items():
+        assert row['sample_interval_coverage'] < float(level) - 0.2, (level, row)
+
+
+@pytest.mark.unit
+def test_every_observable_gets_its_own_fraction():
+    """Kept per observable so the weak ones can be named, not just counted."""
+    preds, truth, std = centred_on_the_measurement(n_obs=25, n_samples=400)
+    row = pp.coverage(preds, truth, std, levels=(0.8,))['levels']['0.8']
+
+    assert len(row['per_observable']) == 25
+    assert all(0.0 <= v <= 1.0 for v in row['per_observable'])
+    assert row['sample_interval_coverage'] == pytest.approx(
+        float(np.mean(row['per_observable'])), abs=1e-9)
+
+
+@pytest.mark.unit
+def test_a_draw_that_did_not_simulate_is_not_counted_as_a_miss():
+    preds, truth, std = centred_on_the_measurement(n_obs=10, n_samples=200)
+    preds[:100, 3] = np.nan  # half this observable's draws never ran
+
+    row = pp.coverage(preds, truth, std, levels=(0.8,))['levels']['0.8']
+    # Scored on the 100 that did run, so it still sits near nominal rather than
+    # being halved by the ones that are simply absent.
+    assert row['per_observable'][3] == pytest.approx(0.8, abs=0.12)
 
 
 @pytest.mark.unit
@@ -73,6 +131,7 @@ def test_observables_that_never_simulated_are_skipped_not_counted_as_misses():
     assert result['num_observables_skipped'] == 20
     for row in result['levels'].values():
         assert row['predictive_coverage'] == pytest.approx(0.8, abs=0.15)
+        assert len(row['per_observable']) == 80
 
 
 @pytest.mark.unit
