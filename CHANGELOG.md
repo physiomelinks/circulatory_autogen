@@ -5,6 +5,21 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+## 0.5.0 — 2026-08-24
+
+### Changed — the flat-import shims now go away in 0.6.0, not 0.5.0
+
+They were promised for removal in this release. They survive it instead. This release already
+asks users to migrate their obs_data files (below), and removing the `libcuflynx.` namespace
+shims at the same time would make one upgrade demand two unrelated migrations — one touching
+data, one touching imports. `REMOVAL_VERSION` now reads `0.6.0`, and every shim's warning, the
+README, CONTRIBUTING, CLAUDE.md and the tutorial say so.
+
+The tests that check those docs agree now read `REMOVAL_VERSION` rather than restating it: the
+literal `"0.5.0"` in three test files would have passed happily while every document said
+something else.
+
+
 ### Changed — the scaling benchmark now reports how much work it did (#344)
 
 The 3compartment core-scaling sweep reported CMA-ES speeding up **22.8x on 8 cores**, past the
@@ -109,7 +124,7 @@ Also fixed: the mean of `heart/u_la` in `resources/3compartment_obs_data.json` w
 `u_{AR}`, so it plotted as an aortic-root pressure. It is now `u_{LA}`.
 
 Reading `obs_info` from python: `names_for_plotting` remains as a deprecated alias of
-`item_names_for_plotting` and is removed in 0.5.0. Prefer `data_item_names`,
+`item_names_for_plotting` and is removed in 0.6.0. Prefer `data_item_names`,
 `trace_names_for_plotting` or `item_names_for_plotting`.
 
 ## 0.4.1 — 2026-08-19

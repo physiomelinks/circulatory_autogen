@@ -1,4 +1,4 @@
-"""Deprecated alias for :mod:`libcuflynx.parsers`, removed in 0.5.0.
+"""Deprecated alias for :mod:`libcuflynx.parsers`, removed in 0.6.0.
 
 Importing this name emits a single ``DeprecationWarning`` and then hands back the real
 ``libcuflynx.parsers`` package -- the same module object, not a copy -- so that
