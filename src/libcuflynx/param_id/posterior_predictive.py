@@ -422,15 +422,26 @@ def posterior_predictive(inp_data_dict=None, num_samples=100, burn_in=0.5,
         use_emulator = bool(
             getattr(getattr(client, 'param_id', None), 'emulates_features', False))
 
-    resolved_dir = output_dir or client.output_dir
-
-    chain = load_chain(resolved_dir)
-    thetas, chain_info = sample_parameters(
-        chain, num_samples=num_samples, burn_in=burn_in, random_seed=random_seed)
-
     from libcuflynx.utilities.mpi_utils import get_MPI
 
     comm = get_MPI().COMM_WORLD
+
+    # Rank 0 resolves the directory, reads the chain and draws. CVS0DParamID only
+    # sets output_dir on rank 0, so the other ranks have nothing to resolve; and
+    # every rank needs the *same* draws, which a broadcast guarantees outright
+    # rather than relying on each of them seeding identically.
+    payload = None
+    if comm.Get_rank() == 0:
+        resolved_dir = output_dir or client.output_dir
+        chain = load_chain(resolved_dir)
+        thetas, chain_info = sample_parameters(
+            chain, num_samples=num_samples, burn_in=burn_in,
+            random_seed=random_seed)
+        payload = (resolved_dir, thetas, chain_info)
+    if comm.Get_size() > 1:
+        payload = comm.bcast(payload, root=0)
+    resolved_dir, thetas, chain_info = payload
+
     if comm.Get_rank() == 0:
         print('Posterior predictive: simulating %d draws%s across %d rank(s)'
               % (len(thetas), ' on the emulator' if use_emulator else '',

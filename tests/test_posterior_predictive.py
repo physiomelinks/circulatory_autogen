@@ -412,3 +412,35 @@ def test_a_non_root_rank_returns_no_predictions(tmp_path):
         client, np.arange(4, dtype=float).reshape(4, 1), comm=FakeComm(2, 4))
 
     assert predictions is None
+
+
+@pytest.mark.unit
+def test_only_rank_zero_needs_the_output_directory(tmp_path, monkeypatch):
+    """CVS0DParamID sets output_dir on rank 0 alone, so the other ranks have
+    nothing to resolve. Reading the chain on every rank crashed them all with
+    ``expected str ... not NoneType`` before the first draw."""
+    write_chain(tmp_path, n_params=2)
+
+    class Broadcaster(FakeComm):
+        def __init__(self, rank, size, payload):
+            super().__init__(rank, size)
+            self._payload = payload
+
+        def bcast(self, obj, root=0):
+            return obj if self._rank == root else self._payload
+
+    client = FakeClient(str(tmp_path))
+    client.output_dir = None          # what a non-root rank actually has
+
+    rank0 = FakeClient(str(tmp_path))
+    chain = pp.load_chain(str(tmp_path))
+    thetas, info = pp.sample_parameters(chain, num_samples=4)
+    payload = (str(tmp_path), thetas, info)
+
+    monkeypatch.setattr(
+        "libcuflynx.utilities.mpi_utils.get_MPI",
+        lambda: type("M", (), {"COMM_WORLD": Broadcaster(1, 2, payload)})())
+
+    # Returns None off rank 0, and crucially gets that far without touching
+    # output_dir itself.
+    assert pp.posterior_predictive(client=client, num_samples=4, save=False) is None
