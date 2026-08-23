@@ -332,3 +332,74 @@ def test_launcher_reports_a_missing_install_before_launching_mpi():
     assert "pip install -e ." in result.stdout
     assert "Traceback" not in result.stdout
     assert "mpiexec" not in result.stdout, "the launcher got as far as MPI before complaining"
+
+
+# --- --user-inputs -------------------------------------------------------------------
+
+@pytest.mark.unit
+@pytest.mark.parametrize("name", sorted(PROJECT_SCRIPTS))
+def test_entry_point_offers_user_inputs(name):
+    """Every stage takes ``--user-inputs``, and says so.
+
+    Without it, choosing between configurations means editing user_inputs.yaml,
+    setting user_inputs_path_override inside it, or moving CUFLYNX_USER_DIR -- so a
+    checkout cannot hold a training config and a per-dataset config and pick one per
+    command.
+    """
+    module = PROJECT_SCRIPTS[name].split(":")[0]
+    result = _run(["-m", module, "--help"])
+    assert result.returncode == 0, result.stdout
+    assert "--user-inputs" in result.stdout, (
+        f"{name} --help does not offer --user-inputs:\n{result.stdout}"
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("name", sorted(PROJECT_SCRIPTS))
+def test_entry_point_reports_a_missing_user_inputs_file(name):
+    """A bad path fails immediately, by name -- not once a rank is deep in a run."""
+    module = PROJECT_SCRIPTS[name].split(":")[0]
+    missing = str(_REPO_ROOT / "no_such_user_inputs.yaml")
+    result = _run(["-m", module, "--user-inputs", missing])
+    assert result.returncode != 0, (
+        f"{name} accepted a missing --user-inputs file:\n{result.stdout}"
+    )
+    assert "no_such_user_inputs.yaml" in result.stdout, (
+        f"{name} did not name the missing file:\n{result.stdout}"
+    )
+
+
+@pytest.mark.unit
+def test_load_user_inputs_defaults_to_none():
+    """No option means None, which is what every stage already treats as "read the
+    configured file yourself" -- so behaviour is unchanged when it is absent."""
+    from libcuflynx.scripts import _cli
+
+    parser = _cli.build_parser("test")
+    assert _cli.load_user_inputs(parser.parse_args([])) is None
+
+
+@pytest.mark.unit
+def test_load_user_inputs_reads_the_named_file(tmp_path):
+    from libcuflynx.scripts import _cli
+
+    path = tmp_path / "elsewhere.yaml"
+    path.write_text("file_prefix: someprefix\nDEBUG: true\n")
+
+    parser = _cli.build_parser("test")
+    loaded = _cli.load_user_inputs(parser.parse_args(["--user-inputs", str(path)]))
+    assert loaded == {"file_prefix": "someprefix", "DEBUG": True}
+
+
+@pytest.mark.unit
+def test_load_user_inputs_rejects_a_non_mapping(tmp_path):
+    """A yaml that parses to a list or a bare scalar would otherwise fail much later,
+    on the first ``inp_data_dict['...']`` deep inside a stage."""
+    from libcuflynx.scripts import _cli
+
+    path = tmp_path / "not_a_mapping.yaml"
+    path.write_text("- one\n- two\n")
+
+    parser = _cli.build_parser("test")
+    with pytest.raises(SystemExit, match="mapping of settings"):
+        _cli.load_user_inputs(parser.parse_args(["--user-inputs", str(path)]))

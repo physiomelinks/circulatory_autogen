@@ -172,8 +172,9 @@ def main(argv=None):
     parser = _cli.build_parser(
         'Calibrate a generated model against the observables named in the configuration, '
         'then optionally run MCMC and identifiability analysis on the result.')
-    parser.parse_args(argv)
-    return _cli.run_stage(run_param_id, MPI)
+    args = parser.parse_args(argv)
+    inp_data_dict = _cli.load_user_inputs(args)
+    return _cli.run_stage(lambda: run_param_id(inp_data_dict), MPI)
 
 
 if __name__ == '__main__':
