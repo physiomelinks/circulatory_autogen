@@ -13,8 +13,8 @@
     "prediction_items": [],
     "data_items": [
         {
-            "variable": "Lotka_Volterra_module/x",
-            "name_for_plotting": "x",
+            "data_item_name": "Lotka_Volterra_module/x",
+            "trace_name_for_plotting": "x",
             "data_type": "constant",
             "operation": "max",
             "operands": [
@@ -29,8 +29,8 @@
             "plot_type": "horizontal"
         },
         {
-            "variable": "Lotka_Volterra_module/y",
-            "name_for_plotting": "y",
+            "data_item_name": "Lotka_Volterra_module/y",
+            "trace_name_for_plotting": "y",
             "data_type": "constant",
             "operation": "max",
             "operands": [

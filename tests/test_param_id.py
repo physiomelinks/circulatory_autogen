@@ -3218,7 +3218,7 @@ def test_parse_obs_data_json_rejects_value_and_npy_paths(tmp_path):
         "prediction_items": [],
         "data_items": [
             {
-                "variable": "test_var",
+                "data_item_name": "test_var",
                 "data_type": "series",
                 "operands": ["model/x"],
                 "unit": "1",
@@ -3255,7 +3255,7 @@ def test_parse_obs_data_json_series_std_scalar_from_npy_paths(tmp_path):
         "prediction_items": [],
         "data_items": [
             {
-                "variable": "test_var",
+                "data_item_name": "test_var",
                 "data_type": "series",
                 "operands": ["model/x"],
                 "unit": "1",
@@ -3293,7 +3293,7 @@ def test_parse_obs_data_json_series_std_required_for_npy_paths(tmp_path):
         "prediction_items": [],
         "data_items": [
             {
-                "variable": "soma_SN/V_sensed",
+                "data_item_name": "soma_SN/V_sensed",
                 "data_type": "series",
                 "operands": ["model/x"],
                 "unit": "1",

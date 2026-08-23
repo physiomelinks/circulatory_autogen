@@ -7,8 +7,8 @@
   "prediction_items": [],
   "data_items": [
     {
-      "variable": "x_end",
-      "name_for_plotting": "x_{end}",
+      "data_item_name": "x_end",
+      "trace_name_for_plotting": "x_{end}",
       "data_type": "constant",
       "operation": "min",
       "operands": ["affine/x"],
@@ -21,8 +21,8 @@
       "plot_type": "horizontal"
     },
     {
-      "variable": "y_end",
-      "name_for_plotting": "y_{end}",
+      "data_item_name": "y_end",
+      "trace_name_for_plotting": "y_{end}",
       "data_type": "constant",
       "operation": "min",
       "operands": ["affine/y"],

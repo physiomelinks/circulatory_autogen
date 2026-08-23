@@ -181,7 +181,7 @@ def validate_cost_kwargs(obs_info, cost_funcs_dict, cost_types):
     raw_list = obs_info.get("cost_kwargs") if obs_info else None
     if not raw_list:
         return
-    names = obs_info.get("names_for_plotting", []) or obs_info.get("names", [])
+    names = obs_info.get("data_item_names", []) or obs_info.get("names", [])
     for i, raw in enumerate(raw_list):
         if not raw:
             continue

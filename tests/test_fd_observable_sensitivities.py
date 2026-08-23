@@ -420,7 +420,8 @@ def _labeller(names, ops, operands, exps, subs):
 
     pid = OpencorParamID.__new__(OpencorParamID)
     pid.obs_info = {
-        "names_for_plotting": names, "operations": ops, "operands": operands,
+        # since #466 the item states its own label, and it already carries the operation
+        "item_names_for_plotting": names, "operations": ops, "operands": operands,
         "experiment_idxs": exps, "subexperiment_idxs": subs, "num_obs": len(names),
     }
     return pid
@@ -436,12 +437,18 @@ def test_two_experiments_measuring_the_same_feature_get_distinct_labels():
 
 
 def test_an_unambiguous_label_is_left_alone():
-    """A single-experiment study keeps the spelling it already had."""
+    """The item's own label is used as-is. Before #466 this composed `name (op operand)` out of
+    the parts, because `name_for_plotting` named the trace and could not tell two features of
+    one trace apart. `item_name_for_plotting` already does -- it defaults to
+    `<trace> (<operation>)` -- so composing again would spell the operation twice."""
     pid = _labeller(["V_max", "V_mean"], ["max", "mean"], [["a/V"], ["a/V"]], [0, 0], [0, 0])
-    assert pid._observable_label(0) == "V_max (max a/V)"
+    assert pid._observable_label(0) == "V_max"
+    assert pid._observable_label(1) == "V_mean"
 
 
-def test_the_operation_still_disambiguates_before_the_experiment():
+def test_a_repeated_item_label_is_disambiguated_by_experiment_and_subexperiment():
+    """Two items may still share a label across experiments -- one feature measured twice --
+    and these labels key the returned sensitivity dict, so they must stay distinct."""
     pid = _labeller(["V", "V"], ["max", "mean"], [["a/V"], ["a/V"]], [0, 1], [0, 0])
-    assert pid._observable_label(0) == "V (max a/V)"
-    assert pid._observable_label(1) == "V (mean a/V)"
+    assert pid._observable_label(0) == "V [exp 0, sub 0]"
+    assert pid._observable_label(1) == "V [exp 1, sub 0]"

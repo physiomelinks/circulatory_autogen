@@ -27,7 +27,9 @@ The entries in the file are detailed as follows:
 - **param_type**: **"state"** or **"const"**; whether the parameter is the initial value of a state or a const. 
 - **min**: The minimimum of the range of possible values (min of the uniform distribution).
 - **max**: The maximum of the range of possible values (max of the uniform distribution).
-- **name_for_plotting**: The name (latex format) that will be used when automatically potting comparisons with observables and predictions.
+- **data_item_name**: The unique name of this prediction, as for a `data_item`.
+- **trace_name_for_plotting**: The name (latex format) used when automatically plotting
+  comparisons with observables and predictions.
 
 !!! Note
     **param_type** will be deprecated. All should be **"const"**. Initial values that need to identified should be defined as constants within the cellml module.
@@ -125,10 +127,21 @@ Examples of `obs_data.json`, `data_item` entries are shown in below figures for 
 
 The entries in the data_item list in the `obs_data.json` file are:
 
-- **variable**: This is the user defined observable name, it does not need to link to the cellml variable name.
+- **data_item_name**: The user defined name of this observable. It does not need to link to a
+  cellml variable name, but it **must be unique** across every `data_item` and
+  `prediction_item` in the file: it is the item's identity, and the name an
+  [operation_kwargs](#operation_kwargs) reference to another item resolves against.
+  Replaces the old **variable** entry, which also stood in as the operand — the model
+  variable now always goes in **operands**.
 - **data_type**: The format of the data. This can be *"constant"*, *"series"*, or *"frequency"* as shown above.
 - **unit**: The unit of the observable.
-- **name_for_plotting**: The name that will be in the automated plots comparing observable data to model output. (latex format)
+- **trace_name_for_plotting**: The axis label for the *trace* this item is drawn from, in latex
+  format. May repeat: the mean and the max of one variable are two features of one series, so
+  they share it. Defaults to the first operand.
+- **item_name_for_plotting**: The label for the *item* — the scalar feature itself — used in
+  sensitivity tables and error reports. Defaults to `"<trace_name_for_plotting> (<operation>)"`.
+  Together these replace the old **name_for_plotting**, which named both and so could name
+  neither precisely.
 - **weight**: The weighting to put on this observables entry in the cost function. Default should be 1.0
 - **std**: The standard deviation which is used in the cost function. The cost function is the relative absolute error (AE) or mean squared error (MRE), each normalised by the std.
 - **value**: The value of the ground truth, either a scalar for constant data_type, or a list of values for series or frequency data_types.
@@ -149,7 +162,7 @@ The observable itself is still an ordinary **constant**: the model produces one 
 
 ```json
 {
-  "variable": "x_steady_state",
+  "data_item_name": "x_steady_state",
   "data_type": "constant",
   "operation": "steady_state_avg",
   "operands": ["benchmark/x"],
@@ -176,7 +189,7 @@ Example `data_item` entry:
 
 ```json
 {
-  "variable": "P aortic root",
+  "data_item_name": "P aortic root",
   "data_type": "series",
   "operands": ["aortic_root/u"],
   "operation": null,
@@ -197,7 +210,9 @@ If `obs_dt` is omitted, it is estimated from the mean step in `t_path`. For `std
 Not to be confused with the dt for the model simulation outputs.
 - **operation**: This defines the operation that will be done on the operands/variable. The possible operations to be done on model outputs are the built-ins in `libcuflynx.param_id.operation_funcs` and `libcuflynx.funcs.operation_funcs_user`, plus any user defined operations in the file named by `operation_funcs_external_path` in `user_inputs.yaml` (copy `funcs_user/operation_funcs_example.py` to start). Since the built-in funcs moved into the package, editing them in place is no longer supported — an upgrade replaces them.
 - **operation_kwargs**: An optional dictionary of keyword arguments (kwargs) and their values, passed to the chosen python operation function on top of the operands. Defaults to `{}`. See [operation_kwargs](#operation_kwargs) below for the full contract.
-- **operands**: The above defined "operation" can take in multiple variables. If operands is defined, then the "variable" entry will be a placeholder name for the calculated variable and the operands will define the model variables that are used to calculate the final feature that will be compared to the observable value entry/s.
+- **operands**: The model variables the "operation" is applied to — always required, and always
+  the place the model variable is named. ("operation" may take several.) An item built purely
+  from other items' values, rather than from a trace, states `[""]`.
 - **experiment_idx** and **subexperiment_idx**: Optional indices to link a data item to a specific experiment/subexperiment in `protocol_info`.
 
 !!! warning
@@ -229,8 +244,8 @@ a `data_item` can ask for the mean over the last 20% of the sub-experiment:
 
 ```json
 {
-  "variable": "P aortic root",
-  "name_for_plotting": "u_{ARlate}",
+  "data_item_name": "mean late P aortic root",
+  "trace_name_for_plotting": "u_{ARlate}",
   "data_type": "constant",
   "operation": "mean_in_range",
   "operands": ["aortic_root/u"],
@@ -257,7 +272,7 @@ The rules are:
 - **`series_output` is reserved.** Circulatory Autogen sets it itself when it needs the trace for
   plotting, so a `data_item` must not set it.
 - **String values can reference an earlier observable.** A string value that matches the
-  `name_for_plotting` of an earlier `data_item` is replaced, at run time, by that observable's
+  `data_item_name` of an earlier `data_item` is replaced, at run time, by that observable's
   computed value. This is how an observable is built from other observables -- see
   `calculate_two_observable_difference` in `libcuflynx/funcs/operation_funcs_user.py` and
   `resources/3compartment_extra_ops_obs_data.json`. A string that matches no earlier observable is
@@ -286,35 +301,35 @@ and that difference is what you want the cost to see.
 
 An observable can therefore be computed from observables defined earlier in `data_items`, using
 the string-reference rule described above: a string in `operation_kwargs` that matches an earlier
-item's `name_for_plotting` is replaced by that item's computed value.
+item's `data_item_name` is replaced by that item's computed value.
 
 libcuflynx ships `calculate_two_observable_difference` for the two-term
 case. It takes its inputs as `pred1` and `pred2` and returns `pred2 - pred1`:
 
 ```json
 {
-  "variable": "flow aortic root",
-  "name_for_plotting": "v_{ARmean}",
+  "data_item_name": "mean flow aortic root",
+  "trace_name_for_plotting": "v_{AR}",
   "data_type": "constant",
   "operation": "mean",
   "operands": ["aortic_root/v"],
   "unit": "m3_per_s", "weight": 1.0, "value": 0.0001, "std": 1e-05
 },
 {
-  "variable": "flow aortic root",
-  "name_for_plotting": "v_{ARmax}",
+  "data_item_name": "max flow aortic root",
+  "trace_name_for_plotting": "v_{AR}",
   "data_type": "constant",
   "operation": "max",
   "operands": ["aortic_root/v"],
   "unit": "m3_per_s", "weight": 1.0, "value": 0.0005, "std": 5e-05
 },
 {
-  "variable": "flow aortic root",
-  "name_for_plotting": "v_{ARdelta}",
+  "data_item_name": "aortic root flow, max minus mean",
+  "trace_name_for_plotting": "v_{ARdelta}",
   "data_type": "constant",
   "operation": "calculate_two_observable_difference",
   "operands": [""],
-  "operation_kwargs": { "pred1": "v_{ARmean}", "pred2": "v_{ARmax}" },
+  "operation_kwargs": { "pred1": "mean flow aortic root", "pred2": "max flow aortic root" },
   "unit": "m3_per_s", "weight": 1.0, "value": 0.0004, "std": 5e-05
 }
 ```
@@ -327,13 +342,15 @@ Three things to get right:
   `data_items`, because the values are computed in file order and the reference is resolved
   against the ones already computed.
 - **`operands` is empty**, written `[""]`. The item takes its inputs from `operation_kwargs`
-  rather than from a model variable, so there is no trace to reduce. `variable` is still filled in
-  for labelling.
-- **`name_for_plotting` must be unique.** It is the key the reference is resolved against, so two
-  items sharing a name means the later one silently replaces the earlier, and a reference gets a
-  value from the wrong item. Nothing errors -- the run simply fits the wrong feature. Likewise a
-  name that matches nothing is passed through to the operation func as a plain string rather than
-  raising, so a typo shows up as a strange result rather than a failure.
+  rather than from a model variable, so there is no trace to reduce.
+- **`data_item_name` is what the reference resolves against, and it must be unique.** This is now
+  enforced: a repeated `data_item_name` is rejected when the obs_data is loaded, naming the
+  offenders. Note the two source items above deliberately *share* a
+  `trace_name_for_plotting` (`v_{AR}`) — they are the mean and the max of one trace — and differ
+  only in `data_item_name`. Before this was split in two, both said `v_{AR}` for everything, the
+  reference resolved to whichever was computed last, and the example silently computed
+  `max - max = 0`. A name that matches nothing is still passed through to the operation func as a
+  plain string, so a typo shows up as a strange result rather than a failure.
 
 To combine more than two observables, or to combine them some other way, write your own operation
 func in a file named by `operation_funcs_external_path` (see

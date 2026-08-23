@@ -277,7 +277,7 @@ def test_bools_and_other_types_are_not_coerced():
 
 def _obs_info(operations, operands, operation_kwargs, names):
     return {'operations': operations, 'operands': operands,
-            'operation_kwargs': operation_kwargs, 'names_for_plotting': names}
+            'operation_kwargs': operation_kwargs, 'data_item_names': names}
 
 
 @pytest.mark.unit
@@ -351,10 +351,10 @@ def _obs_data_json(operation_kwargs_for_second_item):
     return {
         "protocol_info": {"pre_times": [0.0], "sim_times": [[1.0]], "params_to_change": {}},
         "data_items": [
-            {"variable": "x", "name_for_plotting": "x_{plain}", "data_type": "constant",
+            {"data_item_name": "x plain", "trace_name_for_plotting": "x_{plain}", "data_type": "constant",
              "operation": "scaled_mean", "operands": ["main/x"], "unit": "dimensionless",
              "weight": 1.0, "value": 1.0, "std": 0.1},
-            {"variable": "x", "name_for_plotting": "x_{scaled}", "data_type": "constant",
+            {"data_item_name": "x scaled", "trace_name_for_plotting": "x_{scaled}", "data_type": "constant",
              "operation": "scaled_mean", "operands": ["main/x"], "unit": "dimensionless",
              "operation_kwargs": operation_kwargs_for_second_item,
              "weight": 1.0, "value": 1.0, "std": 0.1},
@@ -411,7 +411,7 @@ def test_stale_operation_kwargs_in_obs_data_json_fails_with_a_clear_error(tmp_pa
     with pytest.raises(ValueError) as excinfo:
         validate_operation_kwargs(obs_info, ops)
     msg = str(excinfo.value)
-    assert 'scaling' in msg and 'scaled_mean' in msg and 'x_{scaled}' in msg
+    assert 'scaling' in msg and 'scaled_mean' in msg and 'x scaled' in msg
     assert 'scale' in msg
 
 

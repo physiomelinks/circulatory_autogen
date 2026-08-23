@@ -1,7 +1,7 @@
 {
   "data_items": [
     {
-      "variable": "LUL_A",
+      "data_item_name": "LUL_A",
       "data_type": "frequency",
       "operation": "division",
       "operands": [
@@ -90,7 +90,7 @@
       ]
     },
     {
-      "variable": "LLL_A",
+      "data_item_name": "LLL_A",
       "data_type": "frequency",
       "operation": "division",
       "operands": [
@@ -179,7 +179,7 @@
       ]
     },
     {
-      "variable": "RUL_A",
+      "data_item_name": "RUL_A",
       "data_type": "frequency",
       "operation": "division",
       "operands": [
@@ -268,7 +268,7 @@
       ]
     },
     {
-      "variable": "RLL_A",
+      "data_item_name": "RLL_A",
       "data_type": "frequency",
       "operation": "division",
       "operands": [
@@ -357,7 +357,7 @@
       ]
     },
     {
-      "variable": "RML_A",
+      "data_item_name": "RML_A",
       "data_type": "frequency",
       "operation": "division",
       "operands": [
@@ -446,7 +446,7 @@
       ]
     },
     {
-      "variable": "MPA_A",
+      "data_item_name": "MPA_A",
       "data_type": "frequency",
       "operation": "division",
       "operands": [
@@ -535,7 +535,7 @@
       ]
     },
     {
-      "variable": "LPA_A",
+      "data_item_name": "LPA_A",
       "data_type": "frequency",
       "operation": "division",
       "operands": [
@@ -624,7 +624,7 @@
       ]
     },
     {
-      "variable": "RPA_A",
+      "data_item_name": "RPA_A",
       "data_type": "frequency",
       "operation": "division",
       "operands": [
@@ -713,7 +713,7 @@
       ]
     },
     {
-      "variable": "RBS_A",
+      "data_item_name": "division RBS_A",
       "data_type": "frequency",
       "operation": "division",
       "operands": [
@@ -802,7 +802,7 @@
       ]
     },
     {
-      "variable": "RBS_A",
+      "data_item_name": "division RBS_A exp0",
       "data_type": "frequency",
       "operation": "division",
       "operands": [
@@ -891,7 +891,7 @@
       ]
     },
     {
-      "variable": "LBS_A",
+      "data_item_name": "LBS_A",
       "data_type": "frequency",
       "operation": "division",
       "operands": [
@@ -980,7 +980,7 @@
       ]
     },
     {
-      "variable": "stressed_volume_sum",
+      "data_item_name": "stressed_volume_sum",
       "data_type": "constant",
       "operation": "addition",
       "operands": [

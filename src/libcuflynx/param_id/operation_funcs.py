@@ -212,8 +212,8 @@ def resolve_operation_kwargs(raw_kwargs, func, operation_name=None, data_item_na
             but ``None``/``NaN``/any non-dict is tolerated and treated as "no kwargs".
         func: the operation func that will be called.
         operation_name: the data_item's ``operation`` (used in error messages).
-        data_item_name: the data_item's ``name_for_plotting`` (used in error messages).
-        temp_results: mapping of already-computed observable ``name_for_plotting`` -> value. Any
+        data_item_name: the data_item's ``data_item_name`` (used in error messages).
+        temp_results: mapping of already-computed observable ``data_item_name`` -> value. Any
             **string** kwarg value that matches a key here is replaced by that observable's value,
             which is how an observable is built from earlier observables (see
             ``calculate_two_observable_difference``). A string that matches nothing is passed
@@ -258,7 +258,7 @@ def validate_operation_kwargs(obs_info, operation_funcs_dict):
     all_kwargs = obs_info.get("operation_kwargs") or []
     operations = obs_info.get("operations") or []
     operands = obs_info.get("operands") or []
-    names = obs_info.get("names_for_plotting") or []
+    names = obs_info.get("data_item_names") or []
     for idx, raw_kwargs in enumerate(all_kwargs):
         if not isinstance(raw_kwargs, dict) or not raw_kwargs:
             continue

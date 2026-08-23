@@ -1,6 +1,6 @@
 {"data_items": 
   [
-    { "variable": "leg_L_T/v",
+    { "data_item_name": "leg_L_T/v", "operands": ["leg_L_T/v"],
       "data_type": "constant",
       "unit": "m3_per_s",
       "weight": 1.0,
@@ -9,7 +9,7 @@
       "std": 7.327e-7
     },
     {
-      "variable": "stressed_volume_sum",
+      "data_item_name": "stressed_volume_sum",
       "data_type": "constant",
       "operation": "addition",
       "operands": [

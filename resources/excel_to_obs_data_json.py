@@ -41,7 +41,7 @@ for file_idx, excel_path in enumerate(excel_paths):
 
             if 'mean' in obs_types:
                 mean_val = np.mean(series_resampled)
-                entry = {'variable': variable_name,
+                entry = {'data_item_name': variable_name,
                          'data_type': 'constant',
                          'state_or_alg': state_or_alg,
                          'unit': unit,
@@ -51,7 +51,7 @@ for file_idx, excel_path in enumerate(excel_paths):
                 entry_list.append(entry)
             if 'min' in obs_types:
                 min_val = np.min(series_resampled)
-                entry = {'variable': variable_name,
+                entry = {'data_item_name': variable_name,
                          'data_type': 'constant',
                          'state_or_alg': state_or_alg,
                          'unit': unit,
@@ -61,7 +61,7 @@ for file_idx, excel_path in enumerate(excel_paths):
                 entry_list.append(entry)
             if 'max' in obs_types:
                 max_val = np.max(series_resampled)
-                entry = {'variable': variable_name,
+                entry = {'data_item_name': variable_name,
                          'data_type': 'constant',
                          'state_or_alg': state_or_alg,
                          'unit': unit,
@@ -70,7 +70,7 @@ for file_idx, excel_path in enumerate(excel_paths):
                          'value': max_val*conversion}
                 entry_list.append(entry)
             if 'series' in obs_types:
-                entry = {'variable': variable_name,
+                entry = {'data_item_name': variable_name,
                          'data_type': 'series',
                          'state_or_alg': state_or_alg,
                          'unit': unit,

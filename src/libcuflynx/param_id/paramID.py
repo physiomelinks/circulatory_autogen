@@ -1767,17 +1767,15 @@ class CVS0DParamID():
         np.save(os.path.join(self.output_dir, 'params_std.npy'), param_std)
 
 def observable_base_label(obs_info, obs_idx):
-    """``name (operation operand)`` for one data_item -- the label before disambiguation.
+    """The display label for one data_item -- ``item_name_for_plotting``, before disambiguation.
 
-    A module function rather than only a method, because an emulator has to record the labels
-    of the features it was trained on and check them against the run using it (#333), and both
-    sides must spell an observable the same way or every reload would look stale.
+    Since #466 an item states this itself (defaulting to ``<trace name> (<operation>)``), so this
+    no longer composes one out of the parts: composing would spell the operation twice for every
+    item that took the default. A module function rather than only a method because more than one
+    subsystem has to spell an observable the same way.
     """
-    name = obs_info["names_for_plotting"][obs_idx]
-    op = obs_info["operations"][obs_idx]
-    operands = obs_info["operands"][obs_idx]
-    operand = operands[0] if operands else ''
-    return f"{name} ({op} {operand})" if op else f"{name} ({operand})"
+    names = obs_info.get("item_names_for_plotting") or obs_info["names_for_plotting"]
+    return str(names[obs_idx])
 
 
 def observable_labels(obs_info):
@@ -1797,9 +1795,14 @@ def observable_labels(obs_info):
 
 
 def emulated_feature_labels(obs_info):
-    """The labels of the scalar features an emulator is trained on, in emulator output order."""
-    labels = observable_labels(obs_info)
-    return [labels[obs_idx] for obs_idx in obs_info["const_idx_to_obs_idx"]]
+    """The names of the scalar features an emulator is trained on, in emulator output order.
+
+    ``data_item_name``, not a display label: this is what a stored bundle is checked against on
+    reload, and a label may be reworded without changing which feature it names -- which would
+    make every existing bundle look stale. The name is unique by construction (#466).
+    """
+    names = obs_info.get("data_item_names") or obs_info["obs_names"]
+    return [str(names[obs_idx]) for obs_idx in obs_info["const_idx_to_obs_idx"]]
 
 
 OFFLINE_PRE_TIME_INIT_STATE_ERROR = (
@@ -3057,7 +3060,7 @@ class OpencorParamID():
             self.obs_info["operation_kwargs"][JJ],
             operation_funcs_dict[operation_name],
             operation_name=operation_name,
-            data_item_name=self.obs_info["names_for_plotting"][JJ],
+            data_item_name=self.obs_info["data_item_names"][JJ],
             temp_results=self.temp_results,
             num_operands=num_operands,
         )
@@ -3138,12 +3141,12 @@ class OpencorParamID():
                 # harmless for `mean`, but `max_minus_min` of a single value is zero, and the
                 # cost would then be fitting zeros without anything looking wrong.
                 obs = float(np.asarray(operands_outputs[JJ][0]).reshape(-1)[0])
-                self.temp_results[self.obs_info["names_for_plotting"][JJ]] = obs
+                self.temp_results[self.obs_info["data_item_names"][JJ]] = obs
             elif self.obs_info["operations"][JJ] == None:
                 obs = operands_outputs[JJ][0]
             else:
                 if self.obs_info["data_types"][JJ] != 'frequency':
-                    key_idxt = self.obs_info["names_for_plotting"][JJ]
+                    key_idxt = self.obs_info["data_item_names"][JJ]
                     kwargs = self._resolve_operation_kwargs(JJ, operation_funcs_dict, operands_outputs)
                     obs = operation_funcs_dict[self.obs_info["operations"][JJ]](*operands_outputs[JJ], **kwargs)
                     #each predict result saved into tmp array

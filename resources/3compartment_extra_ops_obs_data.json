@@ -1,6 +1,6 @@
 [
-  { "variable": "flow aortic root",
-    "name_for_plotting": "v_{AR}",
+  { "data_item_name": "mean flow aortic root",
+    "trace_name_for_plotting": "v_{AR}",
     "data_type": "constant",
     "operation": "mean",
     "operands":["aortic_root/v"],
@@ -11,8 +11,8 @@
     "cost_type":"gaussian_MLE",
     "plot_type":"horizontal"
   },
-  { "variable": "flow aortic root",
-    "name_for_plotting": "v_{AR}",
+  { "data_item_name": "max flow aortic root",
+    "trace_name_for_plotting": "v_{AR}",
     "data_type": "constant",
     "operation": "max",
     "operands":["aortic_root/v"],
@@ -23,14 +23,15 @@
     "cost_type":"gaussian_MLE",
     "plot_type":"horizontal"
   },
-  { "variable": "flow aortic root",
-    "name_for_plotting": "v_{ARdelta}",
+  { "data_item_name": "aortic root flow, max minus mean",
+    "trace_name_for_plotting": "v_{ARdelta}",
     "data_type": "constant",
     "operation": "calculate_two_observable_difference",
     "operands":[""],
+    "comment": "pred2 - pred1. These name other data_items by their data_item_name; before #466 both said 'v_{AR}', which the mean and the max both answered to, so this silently computed max - max = 0.",
     "operation_kwargs": {
-    	"pred1": "v_{AR}",
-    	"pred2": "v_{AR}"
+    	"pred1": "mean flow aortic root",
+    	"pred2": "max flow aortic root"
     	},
     "unit": "m3_per_s",
     "weight": 1.0,
@@ -39,8 +40,8 @@
     "cost_type":"gaussian_MLE",
     "plot_type":"horizontal"
   },
-  { "variable": "stroke volume",
-    "name_for_plotting": "q_{lv}",
+  { "data_item_name": "stroke volume",
+    "trace_name_for_plotting": "q_{lv}",
     "data_type": "constant",
     "operation": "max_minus_min",
     "operands":["heart/q_lv"],
@@ -51,8 +52,8 @@
     "cost_type":"gaussian_MLE",
     "plot_type":"horizontal_from_min"
   },
-  { "variable": "pressure aortic root",
-    "name_for_plotting": "u_{AR}",
+  { "data_item_name": "mean pressure aortic root",
+    "trace_name_for_plotting": "u_{AR}",
     "data_type": "constant",
     "operation": "mean",
     "operands":["aortic_root/u"],
@@ -63,8 +64,8 @@
     "cost_type":"gaussian_MLE",
     "plot_type":"horizontal"
   },
-  { "variable": "pressure aortic root",
-    "name_for_plotting": "u_{AR}",
+  { "data_item_name": "max pressure aortic root",
+    "trace_name_for_plotting": "u_{AR}",
     "data_type": "constant",
     "operation": "max",
     "operands":["aortic_root/u"],
@@ -75,8 +76,8 @@
     "cost_type":"gaussian_MLE",
     "plot_type":"horizontal"
   },
-  { "variable": "pressure aortic root",
-    "name_for_plotting": "u_{AR}",
+  { "data_item_name": "min pressure aortic root",
+    "trace_name_for_plotting": "u_{AR}",
     "data_type": "constant",
     "operation": "min",
     "operands":["aortic_root/u"],

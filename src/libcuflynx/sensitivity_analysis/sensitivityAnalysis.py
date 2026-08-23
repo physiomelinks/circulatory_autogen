@@ -229,7 +229,7 @@ class SensitivityAnalysis():
         self.model_out_names = []
         for item in obs_data_dict["data_items"]:
             if len(item["operands"]) > 1:
-                print(f'{RED}ERROR: more than one operand for {item["name_for_plotting"]}, not supported{RESET}')
+                print(f'{RED}ERROR: more than one operand for {item["data_item_name"]}, not supported{RESET}')
                 exit()
             self.model_out_names.append(item["operands"][0])
 

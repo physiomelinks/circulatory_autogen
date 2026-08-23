@@ -293,7 +293,7 @@ class OMEXArchiveParser:
                 "param_type": "const",
                 "min": float(input_meta.get("minimumValue", input_meta.get("defaultValue", 0.0))),
                 "max": float(input_meta.get("maximumValue", input_meta.get("defaultValue", 1.0))),
-                "name_for_plotting": input_meta.get("name", variable_name),
+                "trace_name_for_plotting": input_meta.get("name", variable_name),
                 "default_value": float(input_meta.get("defaultValue", 0.0)),
             })
         return params_for_id
@@ -388,7 +388,7 @@ class OMEXArchiveParser:
             display_name = re.sub(r"<[^>]+>", "", spec.name).strip() or spec.external_expression
             data_items.append({
                 "variable": display_name,
-                "name_for_plotting": display_name,
+                "trace_name_for_plotting": display_name,
                 "data_type": "series",
                 "unit": spec.unit,
                 "weight": 1.0,
@@ -403,7 +403,7 @@ class OMEXArchiveParser:
             })
             prediction_items.append({
                 "variable": spec.model_operands[0],
-                "name_for_plotting": display_name,
+                "trace_name_for_plotting": display_name,
                 "unit": spec.unit,
                 "experiment_idx": 0,
             })

@@ -28,7 +28,7 @@ ml_to_m3 = 1e-6
 variable_list = ['v_ao', 'u_LV', 'u_LV']
 data_type = ['series', 'constant', 'constant']
 unit = ['m3_per_s', 'J_per_m3', 'J_per_m3']
-name_for_plotting = ['$v_{ao}$', '$u_{LV}$', '$u_{LV}$']
+trace_name_for_plotting = ['$v_{ao}$', '$u_{LV}$', '$u_{LV}$']
 weight = [1.0, 1.0, 1.0]
 obs_type = ['series', 'min', 'max']
 
@@ -55,10 +55,10 @@ sample_rate = [1/dt, 'null', 'null'] # sample rate in Hz, null if not a series
 num_entries = len(variable_list)
 list_of_dicts = []
 for II in range(num_entries):
-    entry = {'variable': variable_list[II],
+    entry = {'data_item_name': variable_list[II],
              'data_type': data_type[II],
              'unit': unit[II],
-             'name_for_plotting': name_for_plotting[II],
+             'trace_name_for_plotting': trace_name_for_plotting[II],
              'weight': weight[II],
              'obs_type': obs_type[II],
              'std': std[II],

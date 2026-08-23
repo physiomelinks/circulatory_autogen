@@ -1,14 +1,14 @@
 { "prediction_items": [
     {
-      "variable": "common_carotid_R6_A/u",
+      "data_item_name": "common_carotid_R6_A/u", "operands": ["common_carotid_R6_A/u"],
       "unit":     "J_per_m3",
-      "name_for_plotting": "p_{CC}",
+      "trace_name_for_plotting": "p_{CC}",
       "experiment_idx": 0
     }
   ],
   "data_items": [
-    { "variable": "leg_L_T/v",
-      "name_for_plotting": "v_{LTleg}",
+    { "data_item_name": "leg_L_T/v",
+      "trace_name_for_plotting": "v_{LTleg}",
       "data_type": "constant",
       "operands": ["leg_L_T/v"],
       "unit": "m3_per_s",
@@ -18,8 +18,8 @@
       "value": 7.327e-6,
       "std": 7.327e-7
     },
-    { "variable": "leg_R_T/v",
-      "name_for_plotting": "v_{RTleg}",
+    { "data_item_name": "leg_R_T/v",
+      "trace_name_for_plotting": "v_{RTleg}",
       "data_type": "constant",
       "operands": ["leg_R_T/v"],
       "unit": "m3_per_s",
@@ -29,8 +29,8 @@
       "value": 7.291e-6,
       "std": 7.291e-7
     },
-    { "variable": "arm_L_T/v",
-      "name_for_plotting": "v_{LTarm}",
+    { "data_item_name": "arm_L_T/v",
+      "trace_name_for_plotting": "v_{LTarm}",
       "data_type": "constant",
       "operands": ["arm_L_T/v"],
       "unit": "m3_per_s",
@@ -40,8 +40,8 @@
       "value": 1.565e-6,
       "std": 1.565e-7
     },
-    { "variable": "arm_R_T/v",
-      "name_for_plotting": "v_{RTarm}",
+    { "data_item_name": "arm_R_T/v",
+      "trace_name_for_plotting": "v_{RTarm}",
       "data_type": "constant",
       "operands": ["arm_R_T/v"],
       "unit": "m3_per_s",
@@ -51,8 +51,8 @@
       "value": 1.548e-6,
       "std": 1.548e-7
     },
-    { "variable": "head_L_T/v",
-      "name_for_plotting": "v_{LThead}",
+    { "data_item_name": "head_L_T/v",
+      "trace_name_for_plotting": "v_{LThead}",
       "data_type": "constant",
       "operands": ["head_L_T/v"],
       "unit": "m3_per_s",
@@ -62,8 +62,8 @@
       "value": 7.34e-6,
       "std": 7.34e-7
     },
-    { "variable": "head_R_T/v",
-      "name_for_plotting": "v_{RThead}",
+    { "data_item_name": "head_R_T/v",
+      "trace_name_for_plotting": "v_{RThead}",
       "data_type": "constant",
       "operands": ["head_R_T/v"],
       "unit": "m3_per_s",
@@ -73,8 +73,8 @@
       "value": 7.31e-6,
       "std": 7.31e-7
     },
-    { "variable": "trunk_C_T/v",
-      "name_for_plotting": "v_{Ttrunk}",
+    { "data_item_name": "trunk_C_T/v",
+      "trace_name_for_plotting": "v_{Ttrunk}",
       "unit": "m3_per_s",
       "data_type": "constant",
       "operands": ["trunk_C_T/v"],
@@ -84,8 +84,8 @@
       "value": 37.28e-6,
       "std": 37.28e-7
     },
-    { "variable": "aortic_arch_C46/u",
-      "name_for_plotting": "u_{aa}",
+    { "data_item_name": "aortic_arch_C46/u",
+      "trace_name_for_plotting": "u_{aa}",
       "data_type": "constant",
       "operands": ["aortic_arch_C46/u"],
       "unit": "J_per_m3",

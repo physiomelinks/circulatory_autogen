@@ -5,7 +5,45 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
-Nothing yet.
+### Changed (breaking) — an obs_data item's name is now separate from its labels (#466)
+
+`variable` and `name_for_plotting` each named two different things, and one of the collisions
+was silently producing wrong numbers. Four fields replace them:
+
+| was | now | what it is |
+|---|---|---|
+| `variable` | **`data_item_name`** | the item's identity; **must be unique** across `data_items` and `prediction_items` |
+| `variable` (as a fallback operand) | **`operands`** | the model variable(s) the item reduces — now always required |
+| `name_for_plotting` | **`trace_name_for_plotting`** | the axis label of the trace; may repeat |
+| `name_for_plotting` | **`item_name_for_plotting`** | the label of the scalar feature; defaults to `"<trace> (<operation>)"` |
+
+`prediction_items` take the same four.
+
+**Why uniqueness matters.** A string in `operation_kwargs` that names another item is how an
+observable is built from other observables, and `data_item_name` is what it resolves against.
+When two items answered to one name the reference took whichever was computed last — so the
+shipped `resources/3compartment_extra_ops_obs_data.json`, which asks for the max minus the mean
+of one trace, was computing `max - max`, a constant `0.0` against a ground truth of `4e-4`. Every
+test passed, because none asserted a value. A repeated `data_item_name` is now an error that
+names the offenders, and the example is fixed and pinned by a test.
+
+**Migrating.** The old keys still load, with a `DeprecationWarning` naming their replacements:
+`variable` is read as `data_item_name`, `name_for_plotting` as `trace_name_for_plotting`. Two
+things are *not* automatic:
+
+- **`operands` is required.** An item that relied on `obs_type: min|max|mean` taking its operand
+  from `variable` now raises; state the model variable in `operands`.
+- **Names must be made unique.** Where one variable carried several features (the mean and the
+  max of a trace, or one variable measured across experiments), give each item its own
+  `data_item_name` — `"mean flow aortic root"` / `"max flow aortic root"` — and let them keep a
+  shared `trace_name_for_plotting`.
+
+Also fixed: the mean of `heart/u_la` in `resources/3compartment_obs_data.json` was labelled
+`u_{AR}`, so it plotted as an aortic-root pressure. It is now `u_{LA}`.
+
+Reading `obs_info` from python: `names_for_plotting` remains as a deprecated alias of
+`item_names_for_plotting` and is removed in 0.5.0. Prefer `data_item_names`,
+`trace_names_for_plotting` or `item_names_for_plotting`.
 
 ## 0.4.1 — 2026-08-19
 

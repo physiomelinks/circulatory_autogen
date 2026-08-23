@@ -353,11 +353,11 @@ class ParamIDPlotOutputs:
                             len(best_fit_obs_series[0]),
                         )
 
-                obs_name_for_plot = obs_info["names_for_plotting"][II]
+                obs_name_for_plot = obs_info["trace_names_for_plotting"][II]
                 if obs_name_for_plot.count("_") > 1:
                     print(
                         f'obs_data variable "{obs_name_for_plot}" has too many underscores',
-                        'for plotting a label. Include a "name_for_plotting" key in the ',
+                        'for plotting a label. Include a "trace_name_for_plotting" key in ',
                         "obs_data json file entry",
                     )
                     exit()
@@ -785,7 +785,7 @@ class ParamIDPlotOutputs:
         """
         obs_info = self.client.obs_info
         return np.array(
-            [str(obs_info["names_for_plotting"][II]) for II in range(obs_info["num_obs"])]
+            [str(obs_info["item_names_for_plotting"][II]) for II in range(obs_info["num_obs"])]
         )
 
     def _observable_names_for_error_plots(self) -> np.ndarray:
@@ -1238,19 +1238,16 @@ class ParamIDPlotOutputs:
             dt_row = gt_df.iloc[obs_idx]["data_type"]
             if dt_row == "constant":
                 if obs_info["operations"][obs_idx] is not None:
-                    print(
-                        f'{obs_info["names_for_plotting"][obs_idx]} {obs_info["operations"][obs_idx]} error:'
-                    )
+                    print(f'{obs_info["item_names_for_plotting"][obs_idx]} error:')
                 else:
                     print(
-                        f'{obs_info["names_for_plotting"][obs_idx]} {obs_info["data_types"][obs_idx]} error:'
+                        f'{obs_info["item_names_for_plotting"][obs_idx]} '
+                        f'{obs_info["data_types"][obs_idx]} error:'
                     )
                 print(f"{percent_error_vec[obs_idx]:.2f} %")
             if dt_row == "series":
                 if obs_info["operations"][obs_idx] is not None:
-                    print(
-                        f'{obs_info["names_for_plotting"][obs_idx]} {obs_info["operations"][obs_idx]} series error:'
-                    )
+                    print(f'{obs_info["item_names_for_plotting"][obs_idx]} series error:')
                 else:
                     print(
                         f'{obs_info["obs_names"][obs_idx]} {obs_info["data_types"][obs_idx]} error:'
@@ -1258,11 +1255,13 @@ class ParamIDPlotOutputs:
                 print(f"{percent_error_vec[obs_idx]:.2f} %")
             if dt_row == "frequency":
                 print(
-                    f'{obs_info["names_for_plotting"][obs_idx]} {obs_info["data_types"][obs_idx]} error:'
+                    f'{obs_info["item_names_for_plotting"][obs_idx]} '
+                    f'{obs_info["data_types"][obs_idx]} error:'
                 )
                 print(f"{percent_error_vec[obs_idx]:.2f} %")
                 if phase:
                     print(
-                        f'{obs_info["names_for_plotting"][obs_idx]} {obs_info["data_types"][obs_idx]} phase error:'
+                        f'{obs_info["item_names_for_plotting"][obs_idx]} '
+                        f'{obs_info["data_types"][obs_idx]} phase error:'
                     )
                     print(f"{phase_error_vec[obs_idx]:.2f}")

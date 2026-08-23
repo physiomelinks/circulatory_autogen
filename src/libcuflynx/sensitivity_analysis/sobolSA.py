@@ -486,7 +486,7 @@ class sobol_SA():
                     subexp_idx = self.obs_info["subexperiment_idxs"][j]
                     operands_outputs = operands_outputs_dict.get((exp_idx, subexp_idx), None)
                     if operands_outputs is not None:
-                        key_idxt = self.obs_info["names_for_plotting"][j]
+                        key_idxt = self.obs_info["data_item_names"][j]
                         # Shared operation_kwargs contract (#304): same validation and
                         # earlier-observable substitution as the param-id path.
                         kwargs = resolve_operation_kwargs(
@@ -591,8 +591,8 @@ class sobol_SA():
         for i in range(n_outputs):
             S1 = S1_all[i]
             ST = ST_all[i]
-            output_name = rf"{self.obs_info['names_for_plotting'][i]} - experiment{self.obs_info['experiment_idxs'][i]}, subexperiment{self.obs_info['subexperiment_idxs'][i]}"
-            # output_name = self.obs_info["names_for_plotting"][i] if hasattr(self, "obs_info") else f"Output_{i}"
+            output_name = rf"{self.obs_info['item_names_for_plotting'][i]} - experiment{self.obs_info['experiment_idxs'][i]}, subexperiment{self.obs_info['subexperiment_idxs'][i]}"
+            # output_name = self.obs_info["item_names_for_plotting"][i] if hasattr(self, "obs_info") else f"Output_{i}"
 
             # Set figure width adaptively based on number of parameters (xticks)
             fig_width = max(12, 1.0 * len(self._param_labels()))
@@ -625,7 +625,7 @@ class sobol_SA():
         n_outputs = S2_all.shape[0]
         for i in range(n_outputs):
             S2 = S2_all[i]
-            output_name = rf"{self.obs_info['names_for_plotting'][i]} - experiment{self.obs_info['experiment_idxs'][i]}, subexperiment{self.obs_info['subexperiment_idxs'][i]}"
+            output_name = rf"{self.obs_info['item_names_for_plotting'][i]} - experiment{self.obs_info['experiment_idxs'][i]}, subexperiment{self.obs_info['subexperiment_idxs'][i]}"
 
             # plt.figure(figsize=(6, 5))
             fig_width = max(6, 1.0 * len(self._param_labels()))
@@ -659,13 +659,13 @@ class sobol_SA():
         has_plotting_info = (
             hasattr(self, "obs_info") and 
             self.obs_info and 
-            "names_for_plotting" in self.obs_info
+            "item_names_for_plotting" in self.obs_info
         )
         
         if has_plotting_info:
             # Use a rich label format with experimental details
             def generate_label(i):
-                name = self.obs_info['names_for_plotting'][i]
+                name = self.obs_info['item_names_for_plotting'][i]
                 # Use .get() with a default for slightly more robustness
                 exp_idx = self.obs_info.get('experiment_idxs', ['?'])[i]
                 sub_idx = self.obs_info.get('subexperiment_idxs', ['?'])[i]
@@ -790,12 +790,12 @@ class sobol_SA():
         param_names = self._param_labels()
 
         # Prepare output/feature names. Two data_items that resolve to the same
-        # (name_for_plotting, experiment, subexperiment) produce identical column
+        # (item_name_for_plotting, experiment, subexperiment) produce identical column
         # labels; since pandas assigns DataFrame columns by label, the later one
         # would silently overwrite the earlier and the Sobol output would collapse
         # to one-per-name (issue #240). Build the labels, then disambiguate any
         # collisions so every data_item keeps its own column.
-        names = self.obs_info['names_for_plotting']
+        names = self.obs_info['item_names_for_plotting']
         exps = self.obs_info['experiment_idxs']
         subs = self.obs_info['subexperiment_idxs']
         ops = self.obs_info.get('operations', [])
