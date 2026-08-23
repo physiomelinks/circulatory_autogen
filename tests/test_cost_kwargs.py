@@ -115,7 +115,7 @@ def test_spec_separates_positional_from_keyword():
 def test_validate_cost_kwargs_checks_every_data_item_up_front():
     """A bad key should fail at setup, not after the first expensive forward solve."""
     obs_info = {'cost_kwargs': [{}, {'expnent': 3}],
-                'names_for_plotting': ['ok_item', 'bad_item']}
+                'data_item_names': ['ok_item', 'bad_item']}
     with pytest.raises(ValueError, match='bad_item'):
         validate_cost_kwargs(obs_info, {'custom': _with_user_kwarg}, ['custom', 'custom'])
 

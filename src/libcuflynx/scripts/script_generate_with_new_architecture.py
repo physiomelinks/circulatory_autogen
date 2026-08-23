@@ -285,7 +285,8 @@ def main(argv=None):
     # or not it succeeded (one branch returns None outright), and run_param_id.sh tests that
     # status. Turning a False return into a non-zero exit here would silently change which
     # runs continue past generation, which belongs in its own change.
-    generate_with_new_architecture(args.with_fit_parameters)
+    generate_with_new_architecture(
+        args.with_fit_parameters, _cli.load_user_inputs(args))
     return 0
 
 

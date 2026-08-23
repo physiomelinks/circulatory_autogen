@@ -19,7 +19,7 @@ from libcuflynx.param_id.plot_outputs import ParamIDPlotOutputs
 class _Client:
     def __init__(self, out, names):
         self.output_dir = str(out)
-        self.obs_info = {"names_for_plotting": list(names), "num_obs": len(names)}
+        self.obs_info = {"item_names_for_plotting": list(names), "num_obs": len(names)}
 
 
 def _plotter(out, names):

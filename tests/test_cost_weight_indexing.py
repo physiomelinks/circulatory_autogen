@@ -34,15 +34,15 @@ def _obs_data(items):
 
 
 def _series_item(name, value=2.0, weight=1.0):
-    return {"variable": f"a/{name}", "data_type": "series", "unit": "mV",
+    return {"data_item_name": f"a/{name}", "data_type": "series", "unit": "mV",
             "operands": [f"a/{name}"], "value": [value, value], "std": 1.0,
-            "weight": weight, "obs_dt": 0.01, "name_for_plotting": name}
+            "weight": weight, "obs_dt": 0.01, "trace_name_for_plotting": name}
 
 
 def _const_item(name, value=5.0, weight=1.0, std=1.0):
-    return {"variable": f"a/{name}", "data_type": "constant", "unit": "mV",
+    return {"data_item_name": f"a/{name}", "data_type": "constant", "unit": "mV",
             "operands": [f"a/{name}"], "value": value, "std": std,
-            "weight": weight, "name_for_plotting": name}
+            "weight": weight, "trace_name_for_plotting": name}
 
 
 def _parsed(items, tmp_path):

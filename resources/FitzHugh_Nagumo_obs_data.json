@@ -16,8 +16,8 @@
   "prediction_items": [],
   "data_items": [
     {
-      "variable": "fhn/V",
-      "name_for_plotting": "V",
+      "data_item_name": "fhn/V",
+      "trace_name_for_plotting": "V",
       "data_type": "series",
       "operation": null,
       "operands": [
@@ -637,8 +637,8 @@
       "subexperiment_idx": 0
     },
     {
-      "variable": "fhn/R",
-      "name_for_plotting": "R",
+      "data_item_name": "fhn/R",
+      "trace_name_for_plotting": "R",
       "data_type": "series",
       "operation": null,
       "operands": [

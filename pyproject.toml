@@ -100,8 +100,17 @@ cuflynx-param-id = "libcuflynx.scripts.param_id_run_script:main"
 cuflynx-sequential-param-id = "libcuflynx.scripts.sequential_param_id_run_script:main"
 cuflynx-sensitivity = "libcuflynx.scripts.sensitivity_analysis_run_script:main"
 cuflynx-identifiability = "libcuflynx.scripts.identifiability_run_script:main"
+# Not a pipeline stage: a one-off that rewrites obs_data files into the #466 vocabulary.
+# A console command rather than a note in the changelog because the rename is not purely
+# mechanical: data_item_name has to be made unique, and the tool derives a name from
+# whatever actually distinguishes the colliding items.
+cuflynx-migrate-obs-data = "libcuflynx.scripts.migrate_obs_data:main"
 cuflynx-train-emulator = "libcuflynx.scripts.train_emulator_run_script:main"
 cuflynx-plot = "libcuflynx.scripts.plot_param_id_script:main"
+# Writes a folder that reproduces a configuration: the model, the observations, the
+# parameter bounds, the config, and a run_pipeline.py that drives every stage its do_*
+# flags enable. CUFLynx exports the same bundle from the GUI and calls this to write it.
+cuflynx-generate-pipeline = "libcuflynx.scripts.generate_pipeline_script:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

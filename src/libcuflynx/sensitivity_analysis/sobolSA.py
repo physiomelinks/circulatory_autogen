@@ -52,6 +52,7 @@ MPI = _get_MPI()
 from libcuflynx.parsers.PrimitiveParsers import CSVFileParser, ObsAndParamDataParser
 import csv
 from tqdm import tqdm  # make sure tqdm is installed
+from libcuflynx.utilities.obs_data_helpers import obs_item_names, obs_item_labels
 
 class sobol_SA():
 
@@ -305,6 +306,15 @@ class sobol_SA():
         """
         if self._sim_helper is None:
             self._sim_helper = self.initialise_sim_helper()
+            # The helper needs the protocol to run one: a params_to_change entry may name a
+            # protocol trace by string, and resolving that name is the helper's job. Without
+            # this, an obs_data whose protocol drives a variable from a measured waveform --
+            # any AP-clamp or voltage-clamp study -- fails on the first sample with
+            # "params_to_change entry is a string trace key, but protocol_traces not found in
+            # protocol_info", after the whole design has been generated. param_id and
+            # ProtocolRunner have always set it; sensitivity analysis was the one path that
+            # did not.
+            self._sim_helper.set_protocol_info(self.protocol_info)
             if self.sim_time is not None and self.pre_time is not None:
                 self._sim_helper.update_times(self.dt, 0.0, self.sim_time, self.pre_time)
             if getattr(self._sim_helper, 'emulates_features', False):
@@ -424,7 +434,6 @@ class sobol_SA():
     
     def generate_outputs_mpi(self, samples):
         #need to added an array to save tmp data, each calibration need to updated/re-initial
-        self.temp_results = {}
         
         # Split samples across ranks
         n_samples = len(samples)
@@ -479,6 +488,10 @@ class sobol_SA():
                     pbar.update(1)
                     continue
 
+                # One table per sample. It is what an operation_kwargs reference to another
+                # data_item resolves against; carried across samples, a forward reference would
+                # read the previous sample's value instead of failing (#466).
+                self.temp_results = {}
                 features = []
                 for j in range(len(self.obs_info["operations"])):
                     func = self.operation_funcs_dict[self.obs_info["operations"][j]]
@@ -486,7 +499,7 @@ class sobol_SA():
                     subexp_idx = self.obs_info["subexperiment_idxs"][j]
                     operands_outputs = operands_outputs_dict.get((exp_idx, subexp_idx), None)
                     if operands_outputs is not None:
-                        key_idxt = self.obs_info["names_for_plotting"][j]
+                        key_idxt = obs_item_names(self.obs_info)[j]
                         # Shared operation_kwargs contract (#304): same validation and
                         # earlier-observable substitution as the param-id path.
                         kwargs = resolve_operation_kwargs(
@@ -496,6 +509,7 @@ class sobol_SA():
                             data_item_name=key_idxt,
                             temp_results=self.temp_results,
                             num_operands=len(operands_outputs[j]),
+                            known_item_names=set(obs_item_names(self.obs_info)),
                         )
                         feature = func(*operands_outputs[j], **kwargs)
                         self.temp_results[key_idxt] = feature
@@ -591,8 +605,8 @@ class sobol_SA():
         for i in range(n_outputs):
             S1 = S1_all[i]
             ST = ST_all[i]
-            output_name = rf"{self.obs_info['names_for_plotting'][i]} - experiment{self.obs_info['experiment_idxs'][i]}, subexperiment{self.obs_info['subexperiment_idxs'][i]}"
-            # output_name = self.obs_info["names_for_plotting"][i] if hasattr(self, "obs_info") else f"Output_{i}"
+            output_name = rf"{obs_item_labels(self.obs_info)[i]} - experiment{self.obs_info['experiment_idxs'][i]}, subexperiment{self.obs_info['subexperiment_idxs'][i]}"
+            # output_name = self.obs_info["item_names_for_plotting"][i] if hasattr(self, "obs_info") else f"Output_{i}"
 
             # Set figure width adaptively based on number of parameters (xticks)
             fig_width = max(12, 1.0 * len(self._param_labels()))
@@ -625,7 +639,7 @@ class sobol_SA():
         n_outputs = S2_all.shape[0]
         for i in range(n_outputs):
             S2 = S2_all[i]
-            output_name = rf"{self.obs_info['names_for_plotting'][i]} - experiment{self.obs_info['experiment_idxs'][i]}, subexperiment{self.obs_info['subexperiment_idxs'][i]}"
+            output_name = rf"{obs_item_labels(self.obs_info)[i]} - experiment{self.obs_info['experiment_idxs'][i]}, subexperiment{self.obs_info['subexperiment_idxs'][i]}"
 
             # plt.figure(figsize=(6, 5))
             fig_width = max(6, 1.0 * len(self._param_labels()))
@@ -659,13 +673,13 @@ class sobol_SA():
         has_plotting_info = (
             hasattr(self, "obs_info") and 
             self.obs_info and 
-            "names_for_plotting" in self.obs_info
+            bool(obs_item_labels(self.obs_info))
         )
         
         if has_plotting_info:
             # Use a rich label format with experimental details
             def generate_label(i):
-                name = self.obs_info['names_for_plotting'][i]
+                name = obs_item_labels(self.obs_info)[i]
                 # Use .get() with a default for slightly more robustness
                 exp_idx = self.obs_info.get('experiment_idxs', ['?'])[i]
                 sub_idx = self.obs_info.get('subexperiment_idxs', ['?'])[i]
@@ -790,12 +804,12 @@ class sobol_SA():
         param_names = self._param_labels()
 
         # Prepare output/feature names. Two data_items that resolve to the same
-        # (name_for_plotting, experiment, subexperiment) produce identical column
+        # (item_name_for_plotting, experiment, subexperiment) produce identical column
         # labels; since pandas assigns DataFrame columns by label, the later one
         # would silently overwrite the earlier and the Sobol output would collapse
         # to one-per-name (issue #240). Build the labels, then disambiguate any
         # collisions so every data_item keeps its own column.
-        names = self.obs_info['names_for_plotting']
+        names = obs_item_labels(self.obs_info)
         exps = self.obs_info['experiment_idxs']
         subs = self.obs_info['subexperiment_idxs']
         ops = self.obs_info.get('operations', [])

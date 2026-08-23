@@ -1,7 +1,7 @@
 [
   {
-    "variable": "flow aortic root",
-    "name_for_plotting": "v_{AR}",
+    "data_item_name": "mean flow aortic root",
+    "trace_name_for_plotting": "v_{AR}",
     "data_type": "constant",
     "operation": "mean",
     "operands": [
@@ -15,8 +15,8 @@
     "plot_type": "horizontal"
   },
   {
-    "variable": "flow aortic root",
-    "name_for_plotting": "v_{AR}",
+    "data_item_name": "max flow aortic root",
+    "trace_name_for_plotting": "v_{AR}",
     "data_type": "constant",
     "operation": "max",
     "operands": [
@@ -30,8 +30,8 @@
     "plot_type": "horizontal"
   },
   {
-    "variable": "stroke volume",
-    "name_for_plotting": "q_{lv}",
+    "data_item_name": "stroke volume",
+    "trace_name_for_plotting": "q_{lv}",
     "data_type": "constant",
     "operation": "max_minus_min",
     "operands": [
@@ -45,8 +45,8 @@
     "plot_type": "horizontal_from_min"
   },
   {
-    "variable": "pressure aortic root",
-    "name_for_plotting": "u_{AR}",
+    "data_item_name": "mean pressure aortic root",
+    "trace_name_for_plotting": "u_{AR}",
     "data_type": "constant",
     "operation": "mean",
     "operands": [
@@ -60,8 +60,8 @@
     "plot_type": "horizontal"
   },
   {
-    "variable": "pressure aortic root",
-    "name_for_plotting": "u_{AR}",
+    "data_item_name": "max_minus_min pressure aortic root",
+    "trace_name_for_plotting": "u_{AR}",
     "data_type": "constant",
     "operation": "max_minus_min",
     "operands": [
@@ -75,8 +75,8 @@
     "plot_type": "horizontal_from_min"
   },
   {
-    "variable": "pressure left atrium",
-    "name_for_plotting": "u_{AR}",
+    "data_item_name": "pressure left atrium",
+    "trace_name_for_plotting": "u_{LA}",
     "data_type": "constant",
     "operation": "mean",
     "operands": [

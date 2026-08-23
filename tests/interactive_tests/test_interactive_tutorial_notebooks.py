@@ -189,8 +189,10 @@ def _sanitize_generation_and_calibration_test(source: str) -> str:
     )
     source = _force_num_samples(source, value=4)
     source = _replace_once(source, '"num_calls_to_function": 1000,\n', '"num_calls_to_function": 30,\n')
-    source = source.replace('"name_for_plotting": "$P_{aoMean}$"', '"name_for_plotting": "P_{aoMean}"')
-    source = source.replace('"name_for_plotting": "$P_{aoHalf}$"', '"name_for_plotting": "P_{aoHalf}"')
+    source = source.replace('"trace_name_for_plotting": "$P_{aoMean}$"',
+                            '"trace_name_for_plotting": "P_{aoMean}"')
+    source = source.replace('"trace_name_for_plotting": "$P_{aoHalf}$"',
+                            '"trace_name_for_plotting": "P_{aoHalf}"')
 
     source = _replace_once(
         source,

@@ -56,6 +56,20 @@ def run_param_id(inp_data_dict=None):
     cost_funcs_external_path = inp_data_dict.get('cost_funcs_external_path', None)
 
 
+    # Resolved once, for both engines below. Neither was given these, so
+    # `use_emulator: true` did nothing at all in this stage: the calibration ran
+    # against the solver and so did the chain. Nothing errors -- the run is simply
+    # as slow as if no emulator had been trained, which is the whole reason to
+    # train one.
+    use_emulator = inp_data_dict.get('use_emulator', False)
+    emulator_dir = None
+    if use_emulator:
+        # Imported here, not at module scope: resolve_emulator_dir pulls in the
+        # emulators package, and [emulation] is an optional extra.
+        from libcuflynx.emulators.emulator_trainer import resolve_emulator_dir
+        emulator_dir = resolve_emulator_dir(inp_data_dict)
+    emulator_settings = inp_data_dict.get('emulator_settings')
+
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
     num_procs = comm.Get_size()
@@ -73,7 +87,9 @@ def run_param_id(inp_data_dict=None):
                             do_ad=do_ad, DEBUG=DEBUG,
                             param_id_output_dir=param_id_output_dir, resources_dir=resources_dir,
                             operation_funcs_external_path=operation_funcs_external_path,
-                            cost_funcs_external_path=cost_funcs_external_path)
+                            cost_funcs_external_path=cost_funcs_external_path,
+                            use_emulator=use_emulator, emulator_dir=emulator_dir,
+                            emulator_settings=emulator_settings)
 
     if inp_data_dict.get('obs_data_dict') is not None:
         param_id.set_ground_truth_data(inp_data_dict['obs_data_dict'])
@@ -133,7 +149,9 @@ def run_param_id(inp_data_dict=None):
                                 solver_info=solver_info, dt=dt, UQ_options=UQ_options, DEBUG=DEBUG,
                                 param_id_output_dir=param_id_output_dir, resources_dir=resources_dir,
                                 operation_funcs_external_path=operation_funcs_external_path,
-                                cost_funcs_external_path=cost_funcs_external_path)
+                                cost_funcs_external_path=cost_funcs_external_path,
+                                use_emulator=use_emulator, emulator_dir=emulator_dir,
+                                emulator_settings=emulator_settings)
         mcmc.set_best_param_vals(best_param_vals)
         ensure_mle_cost_type_for_bayesian_inner(mcmc_object, inp_data_dict)
         # mcmc.set_mcmc_parameters() TODO
@@ -172,8 +190,9 @@ def main(argv=None):
     parser = _cli.build_parser(
         'Calibrate a generated model against the observables named in the configuration, '
         'then optionally run MCMC and identifiability analysis on the result.')
-    parser.parse_args(argv)
-    return _cli.run_stage(run_param_id, MPI)
+    args = parser.parse_args(argv)
+    inp_data_dict = _cli.load_user_inputs(args)
+    return _cli.run_stage(lambda: run_param_id(inp_data_dict), MPI)
 
 
 if __name__ == '__main__':

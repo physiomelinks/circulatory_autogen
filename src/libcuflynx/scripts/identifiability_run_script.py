@@ -88,8 +88,10 @@ def main(argv=None):
     parser = _cli.build_parser(
         'Run identifiability analysis (Laplace or profile likelihood) around the parameter '
         'values a previous calibration wrote to the param_id output directory.')
-    parser.parse_args(argv)
-    return _cli.run_stage(run_identifiability_analysis, MPI)
+    args = parser.parse_args(argv)
+    inp_data_dict = _cli.load_user_inputs(args)
+    return _cli.run_stage(
+        lambda: run_identifiability_analysis(inp_data_dict), MPI)
 
 
 if __name__ == '__main__':

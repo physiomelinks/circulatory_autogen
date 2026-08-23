@@ -89,6 +89,34 @@ class Optimiser(ABC):
             self.optimiser_options['cost_convergence'] = 0.0001
         if 'max_patience' not in self.optimiser_options:
             self.optimiser_options['max_patience'] = 10
+
+        #: Cost evaluations the run performed, across all ranks. Left None by an optimiser that
+        #: does not track one; see _save_best_params.
+        self.num_cost_evals = None
+
+    def _seed_rng(self):
+        """Seed numpy's global RNG when the run asked for a seed, and say so.
+
+        Opt-in: with no ``seed`` the draws stay exactly as random as they were, so no existing
+        run changes.
+
+        What this does and does not buy, measured rather than assumed (#344). It makes two runs
+        of the same configuration *at the same rank count* draw the same candidates, so a
+        comparison is repeatable at all. It does **not** make a run rank-independent: CMA-ES asks
+        for one candidate per MPI rank, so the ask/tell interleaving -- and with it the search
+        trajectory and the number of evaluations before the run stops -- still changes with the
+        rank count. Fixing the batch to a constant makes 1, 2 and 4 ranks agree; 8 still differs,
+        because nevergrad also derives internal settings from ``num_workers``. Making a scaling
+        sweep equal-work needs the population decoupled from the rank count as well, which is
+        why the run records what it actually did rather than claiming the counts must match.
+        """
+        seed = self.optimiser_options.get('seed')
+        if seed is None:
+            return None
+        np.random.seed(int(seed))
+        if self.rank == 0:
+            print(f'  Seeded with {int(seed)}: the candidate sequence is reproducible')
+        return int(seed)
     
     @abstractmethod
     def run(self):
@@ -108,6 +136,12 @@ class Optimiser(ABC):
         if self.rank == 0:
             np.save(os.path.join(self.output_dir, 'best_cost'), self.best_cost)
             np.save(os.path.join(self.output_dir, 'best_param_vals'), self.best_param_vals)
+            # How much work this run actually did, for a scaling sweep to be checked against
+            # (#344). Rank 0 only, and no collective: this is called from inside `if rank == 0`
+            # blocks, so an allreduce here would hang every other rank.
+            if self.num_cost_evals is not None:
+                np.save(os.path.join(self.output_dir, 'num_cost_evals'),
+                        np.array(int(self.num_cost_evals)))
 
 
 class GeneticAlgorithmOptimiser(Optimiser):
@@ -250,7 +284,9 @@ class GeneticAlgorithmOptimiser(Optimiser):
         comm = self.comm
         rank = self.rank
         num_procs = self.num_procs
-        
+
+        self._seed_rng()
+
         sizes = self._population_sizes()
         num_elite = sizes['num_elite']
         num_survivors = sizes['num_survivors']
@@ -486,7 +522,14 @@ class GeneticAlgorithmOptimiser(Optimiser):
         comm.Bcast(best_cost_in_array, root=0)
         self.best_cost = best_cost_in_array[0]
         comm.Bcast(self.best_param_vals, root=0)
-        
+
+        # One whole population is evaluated per generation regardless of how it was spread
+        # across ranks, so this is the total work the run did (#344).
+        self.num_cost_evals = int(gen_count) * int(num_pop)
+        if rank == 0:
+            print(f'Genetic algorithm ran {gen_count} generation(s) x {num_pop} '
+                  f'= {self.num_cost_evals} cost evaluations')
+
         self._save_best_params()
 
 
@@ -671,7 +714,9 @@ class CMAESOptimiser(Optimiser):
         comm = self.comm
         rank = self.rank
         num_procs = self.num_procs
-        
+
+        self._seed_rng()
+
         # Number of workers is determined at runtime from num_procs
         num_workers = num_procs
         
@@ -753,6 +798,11 @@ class CMAESOptimiser(Optimiser):
                 budget=self.budget,
                 num_workers=num_workers
             )
+            # nevergrad draws from the parametrization's own RandomState, not numpy's global
+            # one, so seeding numpy above is not enough to make the candidates reproducible.
+            seed = self.optimiser_options.get('seed')
+            if seed is not None:
+                optimizer.parametrization.random_state = np.random.RandomState(int(seed))
             # Set initial sigma if provided (some versions of nevergrad support this)
             # For now, we'll use the default sigma and let the optimizer adapt
         
@@ -885,9 +935,12 @@ class CMAESOptimiser(Optimiser):
                 self.best_param_vals = np.array(best_params)
                 self.best_cost = best_cost
                 
+                # `iteration` counts cost evaluations, not generations, and counts them
+                # across every rank -- it advances by the whole candidate batch (#344).
+                self.num_cost_evals = int(iteration)
                 print(f'CMA-ES optimization completed:')
                 print(f'  Final cost: {self.best_cost:.6e}')
-                print(f'  Total iterations: {iteration}')
+                print(f'  Cost evaluations: {iteration}')
                 
                 self._save_best_params()
             except Exception as e:

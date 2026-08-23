@@ -33,33 +33,33 @@
   },
   "prediction_items":[
     {
-      "variable": "var_SN/Cai",
+      "data_item_name": "var_SN/Cai prediction", "operands": ["var_SN/Cai"],
       "unit": "millimolar",
-      "name_for_plotting": "Ca_{ter}",
+      "trace_name_for_plotting": "Ca_{ter}",
       "experiment_idx": 0
     },
     {
-      "variable": "var_SN/Cai",
+      "data_item_name": "var_SN/Cai exp1 prediction", "operands": ["var_SN/Cai"],
       "unit": "millimolar",
-      "name_for_plotting": "Ca_{ter}",
+      "trace_name_for_plotting": "Ca_{ter}",
       "experiment_idx": 1
     },
     {
-      "variable": "soma_SN/V",
+      "data_item_name": "soma_SN/V prediction", "operands": ["soma_SN/V"],
       "unit": "milliV",
-      "name_for_plotting": "V",
+      "trace_name_for_plotting": "V",
       "experiment_idx": 0
     },
     {
-      "variable": "soma_SN/V",
+      "data_item_name": "soma_SN/V exp1 prediction", "operands": ["soma_SN/V"],
       "unit": "milliV",
-      "name_for_plotting": "V",
+      "trace_name_for_plotting": "V",
       "experiment_idx": 1
     }
   ],
   "data_items": [
-    { "variable": "soma_SN/V",
-      "name_for_plotting": "V",
+    { "data_item_name": "max soma_SN/V",
+      "trace_name_for_plotting": "V",
       "data_type": "constant",
       "operation": "max",
       "operands":["soma_SN/V"],
@@ -71,8 +71,8 @@
       "subexperiment_idx": 1,
       "plot_type":"horizontal"
     },
-    { "variable": "soma_SN/V",
-      "name_for_plotting": "V",
+    { "data_item_name": "max soma_SN/V exp0",
+      "trace_name_for_plotting": "V",
       "data_type": "constant",
       "operation": "max",
       "operands":["soma_SN/V"],
@@ -84,8 +84,8 @@
       "subexperiment_idx": 1,
       "plot_type":"horizontal"
     },
-    { "variable": "soma_SN/V",
-      "name_for_plotting": "f_{preSpreM}",
+    { "data_item_name": "calc_spike_frequency_windowed soma_SN/V",
+      "trace_name_for_plotting": "f_{preSpreM}",
       "data_type": "constant",
       "operation": "calc_spike_frequency_windowed",
       "operands":["time", "soma_SN/V"],
@@ -97,8 +97,8 @@
       "subexperiment_idx": 0,
       "plot_type":"None"
     },
-    { "variable": "soma_SN/V",
-      "name_for_plotting": "f_{preSpostM}",
+    { "data_item_name": "calc_spike_frequency_windowed soma_SN/V exp1",
+      "trace_name_for_plotting": "f_{preSpostM}",
       "data_type": "constant",
       "operation": "calc_spike_frequency_windowed",
       "operands":["time", "soma_SN/V"],
@@ -110,8 +110,8 @@
       "subexperiment_idx": 0,
       "plot_type":"None"
     },
-    { "variable": "soma_SN/V",
-      "name_for_plotting": "f_{postSpreM}",
+    { "data_item_name": "calc_spike_frequency_windowed soma_SN/V exp0",
+      "trace_name_for_plotting": "f_{postSpreM}",
       "data_type": "constant",
       "operation": "calc_spike_frequency_windowed",
       "operands":["time", "soma_SN/V"],
@@ -123,8 +123,8 @@
       "subexperiment_idx": 1,
       "plot_type":"None"
     },
-    { "variable": "soma_SN/V",
-      "name_for_plotting": "f_{postSpostM}",
+    { "data_item_name": "calc_spike_frequency_windowed soma_SN/V exp1 sub1",
+      "trace_name_for_plotting": "f_{postSpostM}",
       "data_type": "constant",
       "operation": "calc_spike_frequency_windowed",
       "operands":["time", "soma_SN/V"],
@@ -136,8 +136,8 @@
       "subexperiment_idx": 1,
       "plot_type":"None"
     },
-    { "variable": "soma_SN/V",
-      "name_for_plotting": "t_{peak}",
+    { "data_item_name": "first_peak_time soma_SN/V",
+      "trace_name_for_plotting": "t_{peak}",
       "data_type": "constant",
       "operation": "first_peak_time",
       "operands":["time", "soma_SN/V"],
@@ -149,8 +149,8 @@
       "subexperiment_idx": 1,
       "plot_type":"vertical"
     },
-    { "variable": "soma_SN/V",
-      "name_for_plotting": "t_{peak} exp2",
+    { "data_item_name": "first_peak_time soma_SN/V exp1",
+      "trace_name_for_plotting": "t_{peak} exp2",
       "data_type": "constant",
       "operation": "first_peak_time",
       "operands":["time", "soma_SN/V"],

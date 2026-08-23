@@ -17,13 +17,17 @@ Two things every one of them needs, defined once here:
   killed by hand.
 """
 import argparse
+import os
 import traceback
+
+import yaml
 
 #: Every stage takes its configuration from the same file, and none of them take
 #: options. Saying so in ``--help`` is the whole of the help text people need.
 CONFIG_EPILOG = (
-    "Configuration is read from user_run_files/user_inputs.yaml under the user directory,\n"
-    "or from the file named by user_inputs_path_override in it.\n"
+    "Configuration is read from the file named by --user-inputs; otherwise from\n"
+    "user_run_files/user_inputs.yaml under the user directory, or from the file named by\n"
+    "user_inputs_path_override in it.\n"
     "\n"
     "The user directory is $CUFLYNX_USER_DIR if set; otherwise the circulatory_autogen\n"
     "checkout this libcuflynx was run from, if it is one; otherwise the current directory.\n"
@@ -42,11 +46,43 @@ def build_parser(description, epilog=CONFIG_EPILOG):
     text names whichever way the user reached the script: the console command, or
     ``python -m libcuflynx.scripts...``.
     """
-    return argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(
         description=description,
         epilog=epilog,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
+    # The one option every stage shares. Without it a run is configured by editing
+    # user_inputs.yaml in place, setting user_inputs_path_override inside it, or moving
+    # CUFLYNX_USER_DIR -- none of which lets one checkout hold several configurations
+    # (a training run and a per-dataset run, say) and choose between them per command.
+    parser.add_argument(
+        '--user-inputs', dest='user_inputs', metavar='PATH', default=None,
+        help='read the configuration from PATH instead of the default '
+             'user_run_files/user_inputs.yaml')
+    return parser
+
+
+def load_user_inputs(args):
+    """The configuration named by ``--user-inputs``, or None for the default file.
+
+    None is what every stage's ``inp_data_dict`` parameter already means: "go and read
+    the configured file yourself". So a stage passes this straight through and behaves
+    exactly as before when the option is absent.
+
+    Every rank reads the file. That matches how the default file is already loaded, and
+    a broadcast would only move the same failure to a later collective.
+    """
+    path = getattr(args, 'user_inputs', None)
+    if not path:
+        return None
+    if not os.path.isfile(path):
+        raise SystemExit("user inputs file not found: %s" % path)
+    with open(path, 'r') as file:
+        inp_data_dict = yaml.load(file, Loader=yaml.FullLoader)
+    if not isinstance(inp_data_dict, dict):
+        raise SystemExit(
+            "user inputs file %s did not parse to a mapping of settings" % path)
+    return inp_data_dict
 
 
 _TRUE = frozenset(('true', 't', 'yes', 'y', '1'))

@@ -36,8 +36,8 @@ def _obs_data(items):
 
 def _kde_item(**overrides):
     item = {
-        "variable": "benchmark/x",
-        "name_for_plotting": "x_{SS}",
+        "data_item_name": "benchmark/x",
+        "trace_name_for_plotting": "x_{SS}",
         "data_type": "constant",
         "operation": "steady_state_avg",
         "operands": ["benchmark/x"],
@@ -52,8 +52,8 @@ def _kde_item(**overrides):
 
 def _gaussian_item(**overrides):
     item = {
-        "variable": "benchmark/y",
-        "name_for_plotting": "y_{SS}",
+        "data_item_name": "benchmark/y",
+        "trace_name_for_plotting": "y_{SS}",
         "data_type": "constant",
         "operation": "steady_state_avg",
         "operands": ["benchmark/y"],
@@ -141,7 +141,7 @@ def test_an_item_with_neither_a_value_nor_a_distribution_is_rejected(tmp_path):
     with pytest.raises(ValueError) as excinfo:
         _parse([_gaussian_item(value=None, std=None)], tmp_path)
     message = str(excinfo.value)
-    assert "y_{SS}" in message
+    assert "benchmark/y" in message
     assert "prob_dist_params" in message
 
 

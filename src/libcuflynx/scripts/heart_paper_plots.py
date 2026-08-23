@@ -91,11 +91,11 @@ if __name__ == '__main__':
         # get ground truth values
         for II in range(param_id.obs_info["num_obs"]):
             if param_id.gt_df.iloc[II]['data_type'] == 'series':
-                if param_id.gt_df.iloc[II]['variable'] == 'heart/q_lv':
+                if param_id.gt_df.iloc[II]['data_item_name'] == 'heart/q_lv':
                     gt_q_lv = np.array(param_id.gt_df.iloc[II]['series'])
-                if param_id.gt_df.iloc[II]['variable'] == 'aortic_root/v':
+                if param_id.gt_df.iloc[II]['data_item_name'] == 'aortic_root/v':
                     gt_v_ar = np.array(param_id.gt_df.iloc[II]['series'])
-                if param_id.gt_df.iloc[II]['variable'] == 'aortic_root/u':
+                if param_id.gt_df.iloc[II]['data_item_name'] == 'aortic_root/u':
                     gt_u_ar = np.array(param_id.gt_df.iloc[II]['series'])
 
         # _______  Now get results of unmodified simulation ______ #

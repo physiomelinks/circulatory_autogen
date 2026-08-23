@@ -56,7 +56,7 @@ def _obs_doc():
         # the cost by hand, so it must know which cost it is differentiating. Leaving it to
         # CA's default made the test silently wrong when that default changed from MSE to
         # gaussian_MLE (which is exactly 0.5x MSE -- see libcuflynx/funcs/cost_funcs_user.py).
-        return {"variable": var, "name_for_plotting": var, "data_type": "constant",
+        return {"data_item_name": var, "trace_name_for_plotting": var, "data_type": "constant",
                 "operation": "min", "operands": [operand], "unit": "dimensionless",
                 "weight": 1.0, "value": gt, "std": std, "cost_type": "gaussian_MLE",
                 "experiment_idx": 0, "subexperiment_idx": 0, "plot_type": "horizontal"}
