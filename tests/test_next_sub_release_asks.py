@@ -57,10 +57,10 @@ def test_a_data_item_without_a_cost_type_warns_that_the_default_changed(tmp_path
     import pandas as pd
     from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser
 
-    gt_df = pd.DataFrame([{'variable': 'x', 'data_type': 'constant', 'operation': 'mean',
+    gt_df = pd.DataFrame([{'data_item_name': 'x', 'data_type': 'constant', 'operation': 'mean',
                            'operands': ['a/x'], 'weight': 1.0, 'value': 1.0, 'std': 0.1,
                            'experiment_idx': 0, 'subexperiment_idx': 0, 'unit': 'dimensionless',
-                           'name_for_plotting': 'x', 'plot_type': 'horizontal'}])
+                           'trace_name_for_plotting': 'x', 'plot_type': 'horizontal'}])
     parser = ObsAndParamDataParser()
     with _warnings.catch_warnings(record=True) as caught:
         _warnings.simplefilter('always')

@@ -16,6 +16,10 @@ class BenchmarkRow:
     time_s: Optional[float] = None
     param_err: Optional[float] = None
     params: Optional[list] = None
+    #: Cost evaluations the run performed. Recorded because wall-clock alone cannot say whether
+    #: two runs did the same work, and a scaling ratio is only a throughput measurement if they
+    #: did (#344). None when the optimiser does not report one.
+    evals: Optional[int] = None
     skipped_reason: Optional[str] = None
 
 
@@ -45,6 +49,7 @@ class ScalingRow:
     cost: Optional[float] = None
     param_err: Optional[float] = None
     times_by_core: dict = field(default_factory=dict)   # {n_cores: seconds}
+    evals_by_core: dict = field(default_factory=dict)   # {n_cores: cost evaluations}
     skipped_reason: Optional[str] = None
 
 
@@ -71,7 +76,8 @@ def benchmark_result_to_dict(result):
         'true_params': result.true_params,
         'param_labels': result.param_labels,
         'rows': [{'method': r.method, 'cost': r.cost, 'time_s': r.time_s,
-                  'param_err': r.param_err, 'skipped_reason': r.skipped_reason}
+                  'param_err': r.param_err, 'evals': r.evals,
+                  'skipped_reason': r.skipped_reason}
                  for r in result.rows],
     }
 

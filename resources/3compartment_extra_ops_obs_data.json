@@ -1,90 +1,113 @@
 [
-  { "variable": "flow aortic root",
-    "name_for_plotting": "v_{AR}",
+  {
+    "data_item_name": "mean flow aortic root",
+    "trace_name_for_plotting": "v_{AR}",
     "data_type": "constant",
     "operation": "mean",
-    "operands":["aortic_root/v"],
+    "operands": [
+      "aortic_root/v"
+    ],
     "unit": "m3_per_s",
     "weight": 1.0,
-    "value": 1e-4,
-    "std": 1e-5,
-    "cost_type":"gaussian_MLE",
-    "plot_type":"horizontal"
+    "value": 0.0001,
+    "std": 1e-05,
+    "cost_type": "gaussian_MLE",
+    "plot_type": "horizontal"
   },
-  { "variable": "flow aortic root",
-    "name_for_plotting": "v_{AR}",
+  {
+    "data_item_name": "max flow aortic root",
+    "trace_name_for_plotting": "v_{AR}",
     "data_type": "constant",
     "operation": "max",
-    "operands":["aortic_root/v"],
+    "operands": [
+      "aortic_root/v"
+    ],
     "unit": "m3_per_s",
     "weight": 1.0,
-    "value": 5e-4,
-    "std": 5e-5,
-    "cost_type":"gaussian_MLE",
-    "plot_type":"horizontal"
+    "value": 0.0005,
+    "std": 5e-05,
+    "cost_type": "gaussian_MLE",
+    "plot_type": "horizontal"
   },
-  { "variable": "flow aortic root",
-    "name_for_plotting": "v_{ARdelta}",
+  {
+    "data_item_name": "aortic root flow, max minus mean",
+    "trace_name_for_plotting": "v_{ARdelta}",
     "data_type": "constant",
     "operation": "calculate_two_observable_difference",
-    "operands":[""],
+    "operands": [
+      ""
+    ],
+    "comment": "pred2 - pred1. These name other data_items by their data_item_name; before #466 both said 'v_{AR}', which the mean and the max both answered to, so this silently computed max - max = 0.",
     "operation_kwargs": {
-    	"pred1": "v_{AR}",
-    	"pred2": "v_{AR}"
-    	},
+      "pred1": "mean flow aortic root",
+      "pred2": "max flow aortic root"
+    },
     "unit": "m3_per_s",
     "weight": 1.0,
-    "value": 4e-4,
-    "std": 5e-5,
-    "cost_type":"gaussian_MLE",
-    "plot_type":"horizontal"
+    "value": 0.0004,
+    "std": 5e-05,
+    "cost_type": "gaussian_MLE",
+    "plot_type": "horizontal",
+    "item_name_for_plotting": "aortic root flow, max - mean"
   },
-  { "variable": "stroke volume",
-    "name_for_plotting": "q_{lv}",
+  {
+    "data_item_name": "stroke volume",
+    "trace_name_for_plotting": "q_{lv}",
     "data_type": "constant",
     "operation": "max_minus_min",
-    "operands":["heart/q_lv"],
+    "operands": [
+      "heart/q_lv"
+    ],
     "unit": "m3",
     "weight": 2.0,
-    "value": 1.04e-4,
-    "std": 5e-5,
-    "cost_type":"gaussian_MLE",
-    "plot_type":"horizontal_from_min"
+    "value": 0.000104,
+    "std": 5e-05,
+    "cost_type": "gaussian_MLE",
+    "plot_type": "horizontal_from_min"
   },
-  { "variable": "pressure aortic root",
-    "name_for_plotting": "u_{AR}",
+  {
+    "data_item_name": "mean pressure aortic root",
+    "trace_name_for_plotting": "u_{AR}",
     "data_type": "constant",
     "operation": "mean",
-    "operands":["aortic_root/u"],
+    "operands": [
+      "aortic_root/u"
+    ],
     "unit": "J_per_m3",
     "weight": 0.0,
     "value": 12000,
     "std": 1200,
-    "cost_type":"gaussian_MLE",
-    "plot_type":"horizontal"
+    "cost_type": "gaussian_MLE",
+    "plot_type": "horizontal"
   },
-  { "variable": "pressure aortic root",
-    "name_for_plotting": "u_{AR}",
+  {
+    "data_item_name": "max pressure aortic root",
+    "trace_name_for_plotting": "u_{AR}",
     "data_type": "constant",
     "operation": "max",
-    "operands":["aortic_root/u"],
+    "operands": [
+      "aortic_root/u"
+    ],
     "unit": "J_per_m3",
     "weight": 5.0,
     "value": 16000,
     "std": 1600,
-    "cost_type":"gaussian_MLE",
-    "plot_type":"horizontal"
+    "cost_type": "gaussian_MLE",
+    "plot_type": "horizontal"
   },
-  { "variable": "pressure aortic root",
-    "name_for_plotting": "u_{AR}",
+  {
+    "data_item_name": "min pressure aortic root",
+    "trace_name_for_plotting": "u_{AR}",
     "data_type": "constant",
     "operation": "min",
-    "operands":["aortic_root/u"],
+    "operands": [
+      "aortic_root/u"
+    ],
     "unit": "J_per_m3",
     "weight": 5.0,
     "value": 10500,
     "std": 1050,
-    "cost_type":"gaussian_MLE",
-    "plot_type":"horizontal"
+    "cost_type": "gaussian_MLE",
+    "plot_type": "horizontal"
   }
 ]

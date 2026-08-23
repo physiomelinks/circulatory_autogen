@@ -1,75 +1,100 @@
-{"data_items": [
-    { "variable": "leg_L_T/v",
+{
+  "data_items": [
+    {
+      "data_item_name": "leg_L_T/v",
+      "operands": [
+        "leg_L_T/v"
+      ],
       "data_type": "constant",
-      "state_or_alg": "state",
       "unit": "m3_per_s",
       "weight": 1.0,
-      "obs_type": "mean",
-      "value": 7.327e-6,
-      "std": 7.327e-7
+      "value": 7.327e-06,
+      "std": 7.327e-07,
+      "operation": "mean"
     },
-    { "variable": "leg_R_T/v",
+    {
+      "data_item_name": "leg_R_T/v",
+      "operands": [
+        "leg_R_T/v"
+      ],
       "data_type": "constant",
-      "state_or_alg": "state",
       "unit": "m3_per_s",
       "weight": 1.0,
-      "obs_type": "mean",
-      "value": 7.291e-6,
-      "std": 7.291e-7
+      "value": 7.291e-06,
+      "std": 7.291e-07,
+      "operation": "mean"
     },
-    { "variable": "arm_L_T/v",
+    {
+      "data_item_name": "arm_L_T/v",
+      "operands": [
+        "arm_L_T/v"
+      ],
       "data_type": "constant",
-      "state_or_alg": "state",
       "unit": "m3_per_s",
       "weight": 1.0,
-      "obs_type": "mean",
-      "value": 1.565e-6,
-      "std": 1.565e-7
+      "value": 1.565e-06,
+      "std": 1.565e-07,
+      "operation": "mean"
     },
-    { "variable": "arm_R_T/v",
+    {
+      "data_item_name": "arm_R_T/v",
+      "operands": [
+        "arm_R_T/v"
+      ],
       "data_type": "constant",
-      "state_or_alg": "state",
       "unit": "m3_per_s",
       "weight": 1.0,
-      "obs_type": "mean",
-      "value": 1.548e-6,
-      "std": 1.548e-7
+      "value": 1.548e-06,
+      "std": 1.548e-07,
+      "operation": "mean"
     },
-    { "variable": "head_L_T/v",
+    {
+      "data_item_name": "head_L_T/v",
+      "operands": [
+        "head_L_T/v"
+      ],
       "data_type": "constant",
-      "state_or_alg": "state",
       "unit": "m3_per_s",
       "weight": 1.0,
-      "obs_type": "mean",
-      "value": 7.34e-6,
-      "std": 7.34e-7
+      "value": 7.34e-06,
+      "std": 7.34e-07,
+      "operation": "mean"
     },
-    { "variable": "head_R_T/v",
+    {
+      "data_item_name": "head_R_T/v",
+      "operands": [
+        "head_R_T/v"
+      ],
       "data_type": "constant",
-      "state_or_alg": "state",
       "unit": "m3_per_s",
       "weight": 1.0,
-      "obs_type": "mean",
-      "value": 7.31e-6,
-      "std": 7.31e-7
+      "value": 7.31e-06,
+      "std": 7.31e-07,
+      "operation": "mean"
     },
-    { "variable": "trunk_C_T/v",
-      "state_or_alg": "state",
+    {
+      "data_item_name": "trunk_C_T/v",
+      "operands": [
+        "trunk_C_T/v"
+      ],
       "unit": "m3_per_s",
       "data_type": "constant",
       "weight": 1.0,
-      "obs_type": "mean",
-      "value": 37.28e-6,
-      "std": 37.28e-7
+      "value": 3.728e-05,
+      "std": 3.728e-06,
+      "operation": "mean"
     },
-    { "variable": "aortic_arch_C46/u",
+    {
+      "data_item_name": "aortic_arch_C46/u",
+      "operands": [
+        "aortic_arch_C46/u"
+      ],
       "data_type": "constant",
-      "state_or_alg": "alg",
       "unit": "J_per_m3",
       "weight": 5.0,
-      "obs_type": "mean",
       "value": 12000,
-      "std": 1200
+      "std": 1200,
+      "operation": "mean"
     }
   ]
 }

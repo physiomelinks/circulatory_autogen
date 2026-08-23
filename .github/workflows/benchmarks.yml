@@ -30,6 +30,9 @@ permissions:
 jobs:
   benchmarks:
     runs-on: ubuntu-latest
+    # Without this the job inherits GitHub's 6-hour default. A hung leg (the AADC path has gone
+    # silent for 87 minutes against an 8.6 s nominal) then burns the whole budget before failing.
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
 

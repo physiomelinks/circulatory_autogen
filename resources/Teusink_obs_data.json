@@ -16,8 +16,8 @@
  "prediction_items": [],
  "data_items": [
   {
-   "variable": "G6P/G6P",
-   "name_for_plotting": "G6P",
+   "data_item_name": "G6P/G6P",
+   "trace_name_for_plotting": "G6P",
    "data_type": "series",
    "operation": null,
    "operands": [
@@ -77,8 +77,8 @@
    "subexperiment_idx": 0
   },
   {
-   "variable": "F16P/F16P",
-   "name_for_plotting": "F16P",
+   "data_item_name": "F16P/F16P",
+   "trace_name_for_plotting": "F16P",
    "data_type": "series",
    "operation": null,
    "operands": [
@@ -138,8 +138,8 @@
    "subexperiment_idx": 0
   },
   {
-   "variable": "PYR/PYR",
-   "name_for_plotting": "PYR",
+   "data_item_name": "PYR/PYR",
+   "trace_name_for_plotting": "PYR",
    "data_type": "series",
    "operation": null,
    "operands": [
@@ -199,8 +199,8 @@
    "subexperiment_idx": 0
   },
   {
-   "variable": "NADH/NADH",
-   "name_for_plotting": "NADH",
+   "data_item_name": "NADH/NADH",
+   "trace_name_for_plotting": "NADH",
    "data_type": "series",
    "operation": null,
    "operands": [

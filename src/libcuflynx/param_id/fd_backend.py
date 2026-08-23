@@ -19,6 +19,7 @@ simulations, and its accuracy depends on a step size the analytic arms do not
 have. The caller opts in by name (``method='FD'``), so what produced a number is
 always something they chose.
 """
+import contextlib
 import numpy as np
 
 from libcuflynx.parsers.PrimitiveParsers import param_entry_labels
@@ -37,6 +38,23 @@ def _step(pj, pmin, pmax, h):
         return abs(pj) * h
     rng = float(pmax) - float(pmin)
     return h * rng if rng > 0 else h
+
+
+@contextlib.contextmanager
+def _evaluating_segment(pid, exp, sub):
+    """Scope the segment when the object supports it, and do nothing when it does not.
+
+    Only a real ``OpencorParamID`` needs telling which segment its operands came from -- it is
+    what keeps a cross-segment ``operation_kwargs`` reference reading the right experiment
+    (#466). A minimal stand-in that just answers ``get_obs_output_dict`` has no segments to
+    confuse, and this module has never required anything more of what it is handed.
+    """
+    scope = getattr(pid, 'evaluating_segment', None)
+    if scope is None:
+        yield
+        return
+    with scope(exp, sub):
+        yield
 
 
 def observable_features(pid, param_vals):
@@ -67,17 +85,30 @@ def observable_features(pid, param_vals):
     # One get_obs_output_dict call per distinct segment rather than per observable:
     # it evaluates every data item against whatever operands it is handed, so the
     # segment is what varies and the const index picks the observable out of it.
-    by_segment = {}
-    out = np.full(len(const_to_obs), np.nan)
-    for k, obs_idx in enumerate(const_to_obs):
+    #
+    # The segments are visited in ascending order sharing one temp_results table, exactly as
+    # the cost path does, so an item that references one in an earlier segment reads the same
+    # value here as it does there (#466). Evaluating them in const-index order with a table
+    # per segment would give the gradient a different feature than the cost was built from.
+    wanted = []
+    for obs_idx in const_to_obs:
         exp = int(obs["experiment_idxs"][obs_idx])
         sub = int(obs["subexperiment_idxs"][obs_idx])
         flat = sum(num_sub_per_exp[:exp]) + sub
         if flat >= len(operands_list) or operands_list[flat] is None:
             return None
-        if flat not in by_segment:
+        wanted.append((flat, exp, sub))
+
+    by_segment = {}
+    if hasattr(pid, 'temp_results'):
+        pid.temp_results = {}
+    for flat, exp, sub in sorted(set(wanted)):
+        with _evaluating_segment(pid, exp, sub):
             by_segment[flat] = np.asarray(
                 pid.get_obs_output_dict(operands_list[flat])['const'], dtype=float)
+
+    out = np.full(len(const_to_obs), np.nan)
+    for k, (flat, _exp, _sub) in enumerate(wanted):
         consts = by_segment[flat]
         if k < len(consts):
             out[k] = consts[k]

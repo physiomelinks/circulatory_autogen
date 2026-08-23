@@ -87,7 +87,7 @@ def test_the_canonical_example_still_shows_the_convention():
     labels_by_operand = {}
     for item in _data_items(path):
         operand = (item.get('operands') or [None])[0]
-        labels_by_operand.setdefault(operand, set()).add(item.get('name_for_plotting'))
+        labels_by_operand.setdefault(operand, set()).add(item.get('trace_name_for_plotting'))
 
     shared = {k: v for k, v in labels_by_operand.items() if len(v) == 1}
     assert shared, 'no operand keeps one label across its operations'

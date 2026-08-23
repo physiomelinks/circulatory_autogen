@@ -13,8 +13,8 @@
   "prediction_items": [],
   "data_items": [
     {
-      "variable": "x1_end",
-      "name_for_plotting": "x1_{end}",
+      "data_item_name": "x1_end",
+      "trace_name_for_plotting": "x1_{end}",
       "data_type": "constant",
       "operation": "min",
       "operands": [
@@ -29,8 +29,8 @@
       "plot_type": "horizontal"
     },
     {
-      "variable": "x2_end",
-      "name_for_plotting": "x2_{end}",
+      "data_item_name": "x2_end",
+      "trace_name_for_plotting": "x2_{end}",
       "data_type": "constant",
       "operation": "min",
       "operands": [
@@ -45,8 +45,8 @@
       "plot_type": "horizontal"
     },
     {
-      "variable": "x3_end",
-      "name_for_plotting": "x3_{end}",
+      "data_item_name": "x3_end",
+      "trace_name_for_plotting": "x3_{end}",
       "data_type": "constant",
       "operation": "min",
       "operands": [
@@ -61,8 +61,8 @@
       "plot_type": "horizontal"
     },
     {
-      "variable": "x4_end",
-      "name_for_plotting": "x4_{end}",
+      "data_item_name": "x4_end",
+      "trace_name_for_plotting": "x4_{end}",
       "data_type": "constant",
       "operation": "min",
       "operands": [
@@ -77,8 +77,8 @@
       "plot_type": "horizontal"
     },
     {
-      "variable": "x5_end",
-      "name_for_plotting": "x5_{end}",
+      "data_item_name": "x5_end",
+      "trace_name_for_plotting": "x5_{end}",
       "data_type": "constant",
       "operation": "min",
       "operands": [

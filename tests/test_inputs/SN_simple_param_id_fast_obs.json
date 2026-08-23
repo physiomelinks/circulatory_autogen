@@ -27,22 +27,24 @@
   },
   "prediction_items": [
     {
-      "variable": "soma_SN/V",
+      "data_item_name": "soma_SN/V prediction",
+      "operands": ["soma_SN/V"],
       "unit": "milliV",
-      "name_for_plotting": "V",
+      "trace_name_for_plotting": "V",
       "experiment_idx": 0
     },
     {
-      "variable": "var_SN/Cai",
+      "data_item_name": "var_SN/Cai",
+      "operands": ["var_SN/Cai"],
       "unit": "millimolar",
-      "name_for_plotting": "Ca_{ter}",
+      "trace_name_for_plotting": "Ca_{ter}",
       "experiment_idx": 0
     }
   ],
   "data_items": [
     {
-      "variable": "soma_SN/V",
-      "name_for_plotting": "V_{max}",
+      "data_item_name": "max soma_SN/V",
+      "trace_name_for_plotting": "V_{max}",
       "data_type": "constant",
       "operation": "max",
       "operands": [
@@ -58,8 +60,8 @@
       "cost_type": "gaussian_MLE"
     },
     {
-      "variable": "soma_SN/V",
-      "name_for_plotting": "f_{win,pre}",
+      "data_item_name": "calc_spike_frequency_windowed soma_SN/V",
+      "trace_name_for_plotting": "f_{win,pre}",
       "data_type": "constant",
       "operation": "calc_spike_frequency_windowed",
       "operands": [
@@ -76,8 +78,8 @@
       "cost_type": "gaussian_MLE"
     },
     {
-      "variable": "soma_SN/V",
-      "name_for_plotting": "f_{win,stim}",
+      "data_item_name": "calc_spike_frequency_windowed soma_SN/V exp0",
+      "trace_name_for_plotting": "f_{win,stim}",
       "data_type": "constant",
       "operation": "calc_spike_frequency_windowed",
       "operands": [
@@ -94,8 +96,8 @@
       "cost_type": "gaussian_MLE"
     },
     {
-      "variable": "soma_SN/V",
-      "name_for_plotting": "t_{peak}",
+      "data_item_name": "first_peak_time soma_SN/V",
+      "trace_name_for_plotting": "t_{peak}",
       "data_type": "constant",
       "operation": "first_peak_time",
       "operands": [
@@ -112,8 +114,8 @@
       "cost_type": "gaussian_MLE"
     },
     {
-      "variable": "soma_SN/V",
-      "name_for_plotting": "V_{SS,avg}",
+      "data_item_name": "steady_state_avg soma_SN/V",
+      "trace_name_for_plotting": "V_{SS,avg}",
       "data_type": "constant",
       "operation": "steady_state_avg",
       "operands": [
@@ -129,8 +131,8 @@
       "cost_type": "gaussian_MLE"
     },
     {
-      "variable": "soma_SN/V",
-      "name_for_plotting": "V_{SS,min}",
+      "data_item_name": "steady_state_min soma_SN/V",
+      "trace_name_for_plotting": "V_{SS,min}",
       "data_type": "constant",
       "operation": "steady_state_min",
       "operands": [
@@ -146,8 +148,8 @@
       "cost_type": "gaussian_MLE"
     },
     {
-      "variable": "soma_SN/V",
-      "name_for_plotting": "T_{spike}",
+      "data_item_name": "calc_spike_period soma_SN/V",
+      "trace_name_for_plotting": "T_{spike}",
       "data_type": "constant",
       "operation": "calc_spike_period",
       "operands": [
@@ -164,8 +166,8 @@
       "cost_type": "gaussian_MLE"
     },
     {
-      "variable": "soma_SN/V",
-      "name_for_plotting": "V_{min,peak}",
+      "data_item_name": "calc_min_peak soma_SN/V",
+      "trace_name_for_plotting": "V_{min,peak}",
       "data_type": "constant",
       "operation": "calc_min_peak",
       "operands": [
