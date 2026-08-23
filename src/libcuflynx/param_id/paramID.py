@@ -3255,8 +3255,19 @@ A caller that steps through the segments in order does so inside
                 # another (experiment, sub-experiment) the operation would run on the wrong
                 # trace, so the value is discarded either way -- and for an item built from
                 # other items it cannot run at all, because the items it names live in a
-                # segment this one is not (#466). A placeholder is all the weights need.
+                # segment this one is not (#466).
+                #
+                # The placeholder has to keep the *shape* the slot expects, not just be falsy: a
+                # series observable is interpolated onto its ground-truth times before the
+                # weights are applied, and a scalar there fails as "the simulation produced 1
+                # sample". So a series gets a zero trace of the operand's own length.
                 obs = 0.0
+                if self.obs_info["data_types"][JJ] == 'series':
+                    trace = operands_outputs[JJ][0] if operands_outputs[JJ] is not None \
+                        and len(operands_outputs[JJ]) else None
+                    if trace is not None:
+                        obs = ca.SX.zeros(trace.shape) if is_symbolic else np.zeros_like(
+                            np.asarray(trace, dtype=float))
             elif self.obs_info["operations"][JJ] == None:
                 obs = operands_outputs[JJ][0]
             else:

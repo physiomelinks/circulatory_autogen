@@ -582,7 +582,7 @@ def test_an_emulator_trained_on_the_fenics_model_agrees_with_it(
     expected_items = _shipped_obs_items()
     assert len(bundle.feature_labels) == len(expected_items), (
         f'expected one scalar feature per shipped data_item '
-        f'({len(expected_items)}: {[item["variable"] for item in expected_items]}), got '
+        f'({len(expected_items)}: {[item["data_item_name"] for item in expected_items]}), got '
         f'{bundle.feature_labels}')
     # ... and each one names the operation and the output it was reduced from, in that order.
     # This is what makes the comparison below a real test: a feature vector permuted against
@@ -590,7 +590,7 @@ def test_an_emulator_trained_on_the_fenics_model_agrees_with_it(
     for label, item in zip(bundle.feature_labels, expected_items):
         assert item['operation'] in label and item['operands'][0] in label, (
             f'emulator feature {label!r} does not correspond to data_item '
-            f'{item["variable"]!r} ({item["operation"]} of {item["operands"]}) -- the feature '
+            f'{item["data_item_name"]!r} ({item["operation"]} of {item["operands"]}) -- the feature '
             f'order has drifted from the obs_data order')
 
     mins = np.asarray(trainer.pid.param_id_info['param_mins'], dtype=float)

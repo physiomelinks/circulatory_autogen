@@ -384,7 +384,18 @@ class ParamIDPlotOutputs:
                 if obs_info["data_types"][II] == "series":
                     axs.set_ylabel(f"${obs_name_for_plot}$ ${unit_label}$", fontsize=18)
 
-                if not this_obs_waveform_plotted:
+                # An observable built from other observables has no trace of its own to draw:
+                # its operation takes its inputs from operation_kwargs, not from a model
+                # variable, so the "series" reconstruction is the scalar it returns. Before
+                # #466 such an item shared its `variable` with the items it was built from and
+                # so was grouped with them, and the group's waveform had already been drawn by
+                # the time it came round -- it never reached here. Names are unique now, so it
+                # gets its own group and does, with nothing to plot.
+                reconstruction = series_per_sub[II] if II < len(series_per_sub) else None
+                has_waveform = reconstruction is not None and np.ndim(reconstruction) > 0
+
+                if not this_obs_waveform_plotted and (
+                        has_waveform or obs_info["data_types"][II] == "frequency"):
                     axs.set_ylabel(f"${obs_name_for_plot}$ ${unit_label}$", fontsize=18)
                     if obs_info["data_types"][II] != "frequency":
                         # Only the subexperiment this observable belongs to. A
@@ -393,7 +404,7 @@ class ParamIDPlotOutputs:
                         # window the ground truth says nothing about.
                         axs.plot(
                             tSim_per_sub_count[subexp_count],
-                            conversion * series_per_sub[II][:],
+                            conversion * reconstruction[:],
                             color=protocol_info["experiment_colors"][exp_idx],
                             label="output",
                         )
