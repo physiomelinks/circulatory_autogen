@@ -30,6 +30,12 @@ from mpi4py import MPI
 from libcuflynx.scripts.param_id_run_script import run_param_id
 from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
 
+#: The repository root -- benchmarks/ lives directly under it. Two call sites referenced a
+#: `root_dir` that was never defined, and one of them is a `dict.get` *default*, which python
+#: evaluates whether or not the key is present: `_method_output_root` therefore raised
+#: NameError on every single call, so no benchmark could run at all.
+root_dir = Path(__file__).resolve().parent.parent
+
 
 class OptimiserComparison:
     """Class to handle comparison of different optimization methods."""
@@ -165,7 +171,9 @@ class OptimiserComparison:
         same multi-start driven by CasADi AD and by AADC AD) would therefore write to the same
         directory and the second would silently overwrite the first's results.
         """
-        base = self.base_config.get('param_id_output_dir', str(root_dir / 'param_id_output'))
+        # Not `.get(key, str(root_dir / ...))`: the default is built eagerly, so a fallback
+        # that touches the filesystem layout runs even when the key is there.
+        base = self.base_config.get('param_id_output_dir') or str(root_dir / 'param_id_output')
         return os.path.join(base, method)
 
     def get_output_dir(self, method):
