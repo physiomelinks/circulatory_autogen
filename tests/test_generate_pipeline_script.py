@@ -332,3 +332,42 @@ def test_the_utilities_read_what_the_posterior_check_wrote():
     # The filenames posterior_predictive.save() writes.
     assert "posterior_predictive.npz" in utils
     assert "posterior_predictive_coverage.json" in utils
+
+
+@pytest.mark.unit
+def test_the_trace_panel_is_drawn_and_guarded():
+    """What the model actually did, once per draw. The scalar panels cannot say
+    *why* an observable is off -- an amplitude right for the wrong reason and one
+    that is right look identical once reduced to a number."""
+    src = gps.render_plotting_script()
+
+    assert "def plot_sample_traces(" in src
+    assert "plot_sample_traces" in src.split("FIGURES = [")[1].split("]")[0]
+    body = src.split("def plot_sample_traces(")[1].split("\n# ---")[0]
+    assert "is None" in body and "\n        return\n" in body
+
+
+@pytest.mark.unit
+def test_the_trace_panel_draws_the_observables_across_the_traces():
+    """A trace on its own says nothing about whether it is right."""
+    body = gps.render_plotting_script().split(
+        "def plot_sample_traces(")[1].split("\n# ---")[0]
+
+    assert 'plot_type' in body, "the observables are not consulted"
+    assert "axhline" in body and "axhspan" in body, "no measured value or std band"
+
+
+@pytest.mark.unit
+def test_the_trace_panel_spaces_its_subplots():
+    """bbox_inches only crops the outside; without tight_layout the x-label of
+    one row lands on the title of the next."""
+    body = gps.render_plotting_script().split(
+        "def plot_sample_traces(")[1].split("\n# ---")[0]
+    assert "tight_layout()" in body
+
+
+@pytest.mark.unit
+def test_the_utilities_read_the_trace_file():
+    utils = gps.render_plot_utilities()
+    assert "def posterior_series(" in utils
+    assert "posterior_predictive_series.npz" in utils

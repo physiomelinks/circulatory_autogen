@@ -1173,6 +1173,37 @@ def posterior_predictive():
         return {key: data[key] for key in data.files}
 
 
+def posterior_series():
+    """The per-draw traces the posterior predictive check kept, or None.
+
+    ``{"blocks": {(segment, variable): (draws, points)}, "time": {segment: axis},
+    "observables": [...]}`` -- the traces plus what to draw across them.
+    """
+    import numpy as np
+
+    path = os.path.join(OUT, "posterior_predictive_series.npz")
+    if not os.path.isfile(path):
+        return None
+    try:
+        with np.load(path, allow_pickle=True) as data:
+            meta = json.loads(str(data["__meta__"]))
+            blocks, times = {}, {}
+            for name in data.files:
+                if name.startswith("y|"):
+                    _, segment, variable = name.split("|", 2)
+                    blocks[(int(segment), variable)] = data[name]
+                elif name.startswith("t|"):
+                    times[int(name.split("|", 1)[1])] = data[name]
+    except (OSError, ValueError, KeyError):
+        return None
+    if not blocks:
+        return None
+    return {"blocks": blocks, "time": times,
+            "observables": meta.get("observables") or [],
+            "experiment_labels": meta.get("experiment_labels") or [],
+            "segments": meta.get("segments") or {}}
+
+
 def posterior_predictive_coverage():
     """The coverage summary written beside the samples, or None."""
     path = os.path.join(OUT, "posterior_predictive_coverage.json")
@@ -1573,6 +1604,70 @@ def plot_posterior_predictive():
 
 
 # ---------------------------------------------------------------------------
+def plot_sample_traces():
+    """What the model actually did, once per posterior draw.
+
+    The scalar panels say how far each observable is from its measurement. They
+    cannot say *why*: an amplitude that is right for the wrong reason and one
+    that is right look identical once reduced to a number. Here every kept draw
+    is a thin line, and the observables measured from that trace are drawn
+    across it in the style their plot_type asks for -- so a fan that brackets
+    the line and a fan that misses it are told apart at a glance.
+    """
+    data = util.posterior_series()
+    if data is None:
+        return
+
+    blocks = data["blocks"]
+    times = data["time"]
+    labels = data["experiment_labels"]
+    segments = data["segments"]
+
+    # One observable list per (segment, variable), so each axis is annotated
+    # with the measurements actually taken from the trace it is showing.
+    marks = {}
+    for obs in data["observables"]:
+        marks.setdefault((obs["segment"], obs["variable"]), []).append(obs)
+
+    ordered = sorted(blocks, key=lambda k: (k[0], k[1]))
+    for page, chunk in enumerate(util.paginate(ordered, 6)):
+        fig, axes = util.grid(len(chunk), cols=2, fig_w=6.0, fig_h=3.2)
+        for ax, key in zip(axes, chunk):
+            segment, variable = key
+            traces = blocks[key]
+            t = times.get(segment)
+            if t is None or len(t) != traces.shape[1]:
+                t = np.arange(traces.shape[1])
+
+            for row in traces:
+                ax.plot(t, row, color="#2a78d6", linewidth=0.8, alpha=0.35)
+
+            for obs in marks.get(key, []):
+                if obs["plot_type"] != "horizontal":
+                    # Nothing sensible to draw for a frequency on a voltage
+                    # axis; those observables are reported by the scalar panels.
+                    continue
+                ax.axhline(obs["value"], color="#eb6834", linewidth=1.2, zorder=3)
+                if obs["std"]:
+                    ax.axhspan(obs["value"] - abs(obs["std"]),
+                               obs["value"] + abs(obs["std"]),
+                               color="#eb6834", alpha=0.15, zorder=0)
+
+            exp_sub = segments.get(str(segment))
+            where = ("exp %s sub %s" % tuple(exp_sub)) if exp_sub else "segment %d" % segment
+            name = labels[exp_sub[0]] if exp_sub and exp_sub[0] < len(labels) else where
+            ax.set_title("%s  ·  %s" % (util.plain(name), util.plain(variable)),
+                         fontsize=8, loc="left")
+            ax.set_xlabel("time (s)", fontsize=8)
+        for ax in axes[len(chunk):]:
+            ax.set_visible(False)
+        # Without this the x-label of one row lands on the title of the next:
+        # bbox_inches only crops the outside, it does not space the inside.
+        fig.tight_layout()
+        util.save(fig, "sample_traces_%d.png" % page)
+
+
+# ---------------------------------------------------------------------------
 def plot_coverage():
     """Coverage against its nominal level.
 
@@ -1650,6 +1745,7 @@ FIGURES = [
     # predictive check, so they are safe to leave on for a calibration-only run.
     plot_corner,
     plot_posterior_predictive,
+    plot_sample_traces,
     plot_coverage,
 ]
 
