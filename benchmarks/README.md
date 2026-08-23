@@ -109,6 +109,27 @@ performed; the sweep prints them per core count and the table's env note says wh
 matched. **Read that note before reading a speedup** — if the counts differ, the ratio is not a
 throughput measurement.
 
+### `max_patience` is not commensurate between the optimisers
+
+Worth knowing before you read any CMA-ES row. `max_patience` is a shared
+`optimiser_options` key, but the two population methods count it in different units:
+
+| optimiser | counts | `max_patience: 500` means |
+|---|---|---|
+| `genetic_algorithm` | generations | 500 × 744 = **372,000** evaluations |
+| `CMA-ES` | evaluations | **500** evaluations |
+
+A factor of 744 from one setting. On FitzHugh-Nagumo that stopped CMA-ES after 2,080 of
+30,000 evaluations at `cost = 1.4e+02` and `max param err = 4.0` — a failed search that then
+reads as a fast 24.5 s run in the table. The GA's limit, at 372,000, never binds at any
+budget used here.
+
+`compare_optimisers.py` compensates by giving CMA-ES a patience equal to the evaluation
+budget, so both run until they converge or spend it. **The library behaviour is unchanged** —
+a study that sets `max_patience` for CMA-ES is still setting it in evaluations. Making the
+units consistent, or renaming one of them, is a change to the optimisers rather than the
+benchmarks and has not been made.
+
 The best cost is core-independent when the work is equal (reported once) and the per-core columns
 are then pure wall-clock:
 
