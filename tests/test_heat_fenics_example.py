@@ -584,11 +584,16 @@ def test_an_emulator_trained_on_the_fenics_model_agrees_with_it(
         f'expected one scalar feature per shipped data_item '
         f'({len(expected_items)}: {[item["data_item_name"] for item in expected_items]}), got '
         f'{bundle.feature_labels}')
-    # ... and each one names the operation and the output it was reduced from, in that order.
-    # This is what makes the comparison below a real test: a feature vector permuted against
-    # the obs_data would otherwise still be the right length and still be finite.
+    # ... and each one *is* its data_item's name, in that order. This is what makes the
+    # comparison below a real test: a feature vector permuted against the obs_data would
+    # otherwise still be the right length and still be finite.
+    #
+    # An exact match, not a substring one. Since #466 a bundle records features by
+    # `data_item_name`, which is unique by construction, rather than by a composed
+    # `name (operation operand)` label -- so the correspondence can be checked outright instead
+    # of by looking for the operation and the operand somewhere inside a display string.
     for label, item in zip(bundle.feature_labels, expected_items):
-        assert item['operation'] in label and item['operands'][0] in label, (
+        assert label == item['data_item_name'], (
             f'emulator feature {label!r} does not correspond to data_item '
             f'{item["data_item_name"]!r} ({item["operation"]} of {item["operands"]}) -- the feature '
             f'order has drifted from the obs_data order')
