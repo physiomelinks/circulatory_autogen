@@ -199,3 +199,63 @@ def test_the_summary_reports_failed_samples():
 
     result.failures = 4
     assert '4 sample(s) did not simulate' in result.summary()
+
+
+# ── handing over an engine that already exists ─────────────────────────────
+class FakeEngine:
+    """The surface ``simulate_samples`` and the result need, and nothing else."""
+
+    emulates_features = False
+
+    def get_cost_and_obs_from_params(self, theta):
+        return 0.0, [object()]
+
+    def get_obs_output_dict(self, operands, get_all_series=False):
+        return {"const": [float(theta) for theta in (1.0, 2.0)]}
+
+
+class FakeClient:
+    def __init__(self, output_dir, emulates=False):
+        self.output_dir = output_dir
+        self.param_id = FakeEngine()
+        self.param_id.emulates_features = emulates
+        self.obs_info = {
+            "ground_truth_const": np.array([1.0, 2.0]),
+            "std_const_vec": np.array([0.1, 0.2]),
+            "const_idx_to_obs_idx": [0, 1],
+            "experiment_idxs": [0, 0],
+            "subexperiment_idxs": [0, 0],
+            "obs_names": ["a", "b"],
+        }
+        self.protocol_info = {"num_sub_per_exp": [1]}
+
+
+@pytest.mark.unit
+def test_an_existing_client_is_used_instead_of_building_one(tmp_path):
+    """A run that has just sampled already has an engine; building a second one
+    compiles the model again."""
+    write_chain(tmp_path, n_params=2)
+    result = pp.posterior_predictive(
+        client=FakeClient(str(tmp_path)), num_samples=5, save=False)
+
+    assert result.predictions.shape == (5, 2)
+    assert result.used_emulator is False
+
+
+@pytest.mark.unit
+def test_a_handed_over_emulator_client_is_labelled_as_one(tmp_path):
+    """The caller owns what the engine was built with, so use_emulator only
+    labels the summary -- but it must label it correctly."""
+    write_chain(tmp_path, n_params=2)
+    result = pp.posterior_predictive(
+        client=FakeClient(str(tmp_path), emulates=True), num_samples=5,
+        use_emulator=False, save=False)
+
+    assert result.used_emulator is True
+    assert "EMULATOR" in result.summary()
+
+
+@pytest.mark.unit
+def test_neither_a_config_nor_a_client_is_refused():
+    with pytest.raises(pp.PosteriorPredictiveError, match="configuration or an already-built"):
+        pp.posterior_predictive()

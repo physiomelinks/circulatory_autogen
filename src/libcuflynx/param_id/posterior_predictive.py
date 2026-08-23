@@ -337,26 +337,39 @@ def _resolve_model_path(config):
         'model first, or set model_path' % candidate)
 
 
-def posterior_predictive(inp_data_dict, num_samples=100, burn_in=0.5,
+def posterior_predictive(inp_data_dict=None, num_samples=100, burn_in=0.5,
                          random_seed=0, levels=DEFAULT_LEVELS,
-                         use_emulator=False, output_dir=None, save=True):
+                         use_emulator=False, output_dir=None, save=True,
+                         client=None):
     """Sample the posterior, run the model at each draw, and report coverage.
 
     ``use_emulator`` is False by default and that is the point: an emulator
     scoring its own predictions against the data cannot tell you the emulator is
     wrong, and its error is the thing this check most needs to catch. Set it True
     only for a fast smoke test, and the summary will say so.
+
+    Pass ``client`` when you already have a ``CVS0DParamID`` -- a run that has
+    just finished sampling has one, and building a second compiles the model
+    again. The caller owns what that engine was built with, so ``use_emulator``
+    then only labels the summary; it does not change what is evaluated.
     """
-    from libcuflynx.param_id.paramID import CVS0DParamID
+    if client is None:
+        from libcuflynx.param_id.paramID import CVS0DParamID
 
-    config = dict(inp_data_dict)
-    config['model_path'] = _resolve_model_path(config)
-    config['use_emulator'] = bool(use_emulator)
-    if not use_emulator:
-        # Otherwise init_from_dict resolves a bundle we are deliberately not using.
-        config.pop('emulator_dir', None)
+        if inp_data_dict is None:
+            raise PosteriorPredictiveError(
+                'pass either a configuration or an already-built client')
+        config = dict(inp_data_dict)
+        config['model_path'] = _resolve_model_path(config)
+        config['use_emulator'] = bool(use_emulator)
+        if not use_emulator:
+            # Otherwise init_from_dict resolves a bundle we are not using.
+            config.pop('emulator_dir', None)
+        client = CVS0DParamID.init_from_dict(config)
+    else:
+        use_emulator = bool(
+            getattr(getattr(client, 'param_id', None), 'emulates_features', False))
 
-    client = CVS0DParamID.init_from_dict(config)
     resolved_dir = output_dir or client.output_dir
 
     chain = load_chain(resolved_dir)
