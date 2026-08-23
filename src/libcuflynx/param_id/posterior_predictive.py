@@ -137,36 +137,70 @@ def predicted_constants(engine, obs_info, protocol_info, theta):
     return out
 
 
-def simulate_samples(client, thetas, progress_every=10):
-    """Run the forward model once per row of ``thetas``.
+def simulate_samples(client, thetas, progress_every=10, comm=None):
+    """Run the forward model once per row of ``thetas``, spread across ranks.
 
-    Returns ``(num_samples, num_const)``. A draw that fails to simulate becomes a
-    row of NaN rather than stopping the sweep -- posterior draws reach corners of
-    the parameter box the calibration never visited, and losing the whole check to
-    one of them helps nobody. The count is reported in the summary.
+    Each draw is one full evaluation of the protocol and the draws are entirely
+    independent, so this is the part worth parallelising: on a real study a draw
+    costs ~13s, which is an hour for a few hundred of them on one rank and a few
+    minutes on ten.
+
+    Under ``mpiexec`` each rank simulates a contiguous block and rank 0
+    reassembles them in order; with no launcher the one-rank stub makes that the
+    same serial loop it always was. Every rank must be handed the *same*
+    ``thetas`` -- they are drawn deterministically from the chain for exactly
+    that reason.
+
+    Returns ``(predictions, failures)`` on rank 0 and ``(None, failures)``
+    elsewhere. A draw that fails to simulate becomes a row of NaN rather than
+    stopping the sweep -- posterior draws reach corners of the parameter box the
+    calibration never visited, and losing the whole check to one of them helps
+    nobody. The count is summed across ranks and reported.
     """
+    from libcuflynx.emulators.emulator_trainer import _block_for_rank
+    from libcuflynx.utilities.mpi_utils import get_MPI
+
+    if comm is None:
+        comm = get_MPI().COMM_WORLD
+    rank, num_procs = comm.Get_rank(), comm.Get_size()
+
     engine = client.param_id
     obs_info = client.obs_info
     protocol_info = client.protocol_info
+    num_const = len(obs_info['ground_truth_const'])
 
     thetas = np.atleast_2d(np.asarray(thetas, dtype=float))
+    start, end = _block_for_rank(len(thetas), rank, num_procs)
+
     rows = []
     failures = 0
-    for i, theta in enumerate(thetas):
+    for offset, theta in enumerate(thetas[start:end]):
         try:
             rows.append(predicted_constants(engine, obs_info, protocol_info, theta))
         except Exception as exc:  # noqa: BLE001 - one bad draw must not end the sweep
             failures += 1
-            rows.append(np.full(len(obs_info['ground_truth_const']), np.nan))
+            rows.append(np.full(num_const, np.nan))
             if failures <= 3:
-                print('  [warn] sample %d did not simulate: %s' % (i, exc))
-        if progress_every and (i + 1) % progress_every == 0:
-            print('  simulated %d/%d posterior samples' % (i + 1, len(thetas)),
-                  flush=True)
-    if failures:
+                print('  [warn] rank %d: sample %d did not simulate: %s'
+                      % (rank, start + offset, exc), flush=True)
+        if progress_every and (offset + 1) % progress_every == 0:
+            print('  rank %d simulated %d/%d of its posterior samples'
+                  % (rank, offset + 1, end - start), flush=True)
+
+    block = np.vstack(rows) if rows else np.empty((0, num_const))
+    gathered = comm.gather((start, block, failures), root=0)
+    if rank != 0:
+        return None, failures
+
+    predictions = np.full((len(thetas), num_const), np.nan)
+    total_failures = 0
+    for block_start, block_rows, block_failures in gathered:
+        predictions[block_start:block_start + len(block_rows)] = block_rows
+        total_failures += block_failures
+    if total_failures:
         print('  [warn] %d of %d posterior samples did not simulate'
-              % (failures, len(thetas)))
-    return np.vstack(rows), failures
+              % (total_failures, len(thetas)), flush=True)
+    return predictions, total_failures
 
 
 # ── coverage ───────────────────────────────────────────────────────────────
@@ -367,6 +401,9 @@ def posterior_predictive(inp_data_dict=None, num_samples=100, burn_in=0.5,
     just finished sampling has one, and building a second compiles the model
     again. The caller owns what that engine was built with, so ``use_emulator``
     then only labels the summary; it does not change what is evaluated.
+
+    Under ``mpiexec`` the draws are shared out across ranks; the result comes
+    back on rank 0 and ``None`` elsewhere, as ``EmulatorTrainer.train()`` does.
     """
     if client is None:
         from libcuflynx.param_id.paramID import CVS0DParamID
@@ -391,9 +428,18 @@ def posterior_predictive(inp_data_dict=None, num_samples=100, burn_in=0.5,
     thetas, chain_info = sample_parameters(
         chain, num_samples=num_samples, burn_in=burn_in, random_seed=random_seed)
 
-    print('Posterior predictive: simulating %d draws%s'
-          % (len(thetas), ' on the emulator' if use_emulator else ''), flush=True)
-    predictions, failures = simulate_samples(client, thetas)
+    from libcuflynx.utilities.mpi_utils import get_MPI
+
+    comm = get_MPI().COMM_WORLD
+    if comm.Get_rank() == 0:
+        print('Posterior predictive: simulating %d draws%s across %d rank(s)'
+              % (len(thetas), ' on the emulator' if use_emulator else '',
+                 comm.Get_size()), flush=True)
+    predictions, failures = simulate_samples(client, thetas, comm=comm)
+    if comm.Get_rank() != 0:
+        # Only rank 0 has the assembled predictions, so only rank 0 can score or
+        # save them. Same contract as EmulatorTrainer.train().
+        return None
 
     obs_info = client.obs_info
     ground_truth = np.asarray(obs_info['ground_truth_const'], dtype=float)

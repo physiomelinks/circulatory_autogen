@@ -318,3 +318,97 @@ def test_a_handed_over_emulator_client_is_labelled_as_one(tmp_path):
 def test_neither_a_config_nor_a_client_is_refused():
     with pytest.raises(pp.PosteriorPredictiveError, match="configuration or an already-built"):
         pp.posterior_predictive()
+
+
+# ── spreading the sweep across ranks ───────────────────────────────────────
+class FakeComm:
+    """One rank's view of a communicator, with the others' blocks pre-supplied.
+
+    Enough to exercise the split and the reassembly without mpiexec: the thing
+    worth testing is that rank 0 puts the blocks back in the right order.
+    """
+
+    def __init__(self, rank, size, others=()):
+        self._rank, self._size, self._others = rank, size, list(others)
+
+    def Get_rank(self):
+        return self._rank
+
+    def Get_size(self):
+        return self._size
+
+    def gather(self, obj, root=0):
+        if self._rank != root:
+            return None
+        return [obj] + self._others
+
+
+class CountingClient(FakeClient):
+    """Records which draws it was asked to simulate, and echoes each one back."""
+
+    def __init__(self, output_dir):
+        super().__init__(output_dir)
+        self.seen = []
+        client = self
+
+        class Engine(FakeEngine):
+            def get_cost_and_obs_from_params(self, theta):
+                client.seen.append(float(theta[0]))
+                return 0.0, [float(theta[0])]
+
+            def get_obs_output_dict(self, operands, get_all_series=False):
+                return {"const": [operands, operands]}
+
+        self.param_id = Engine()
+
+
+@pytest.mark.unit
+def test_one_rank_simulates_every_draw(tmp_path):
+    client = CountingClient(str(tmp_path))
+    thetas = np.arange(6, dtype=float).reshape(6, 1)
+
+    predictions, failures = pp.simulate_samples(
+        client, thetas, comm=FakeComm(0, 1))
+
+    assert failures == 0
+    assert client.seen == [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
+    assert predictions.shape == (6, 2)
+
+
+@pytest.mark.unit
+def test_each_rank_takes_its_own_block(tmp_path):
+    """Six draws over three ranks: two each, and rank 1 must take the middle
+    pair rather than starting from the top again."""
+    client = CountingClient(str(tmp_path))
+    thetas = np.arange(6, dtype=float).reshape(6, 1)
+
+    pp.simulate_samples(client, thetas, comm=FakeComm(1, 3))
+
+    assert client.seen == [2.0, 3.0]
+
+
+@pytest.mark.unit
+def test_rank_zero_reassembles_the_blocks_in_order(tmp_path):
+    """The reason the blocks carry their start index: gather does not promise
+    the order they come back in, and a shuffled result would be silently wrong."""
+    client = CountingClient(str(tmp_path))
+    thetas = np.arange(6, dtype=float).reshape(6, 1)
+    # Rank 0 owns draws 0-1; the other two blocks arrive out of order.
+    others = [(4, np.array([[4.0, 4.0], [5.0, 5.0]]), 0),
+              (2, np.array([[2.0, 2.0], [3.0, 3.0]]), 1)]
+
+    predictions, failures = pp.simulate_samples(
+        client, thetas, comm=FakeComm(0, 3, others))
+
+    assert failures == 1
+    assert [row[0] for row in predictions] == [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
+
+
+@pytest.mark.unit
+def test_a_non_root_rank_returns_no_predictions(tmp_path):
+    """Only rank 0 has the assembled array, so only rank 0 can score it."""
+    client = CountingClient(str(tmp_path))
+    predictions, _ = pp.simulate_samples(
+        client, np.arange(4, dtype=float).reshape(4, 1), comm=FakeComm(2, 4))
+
+    assert predictions is None
