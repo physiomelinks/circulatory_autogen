@@ -126,6 +126,18 @@ def run_param_id(inp_data_dict=None):
         if rank == 0:
             print('running mcmc')
 
+        # The emulator has to be handed over explicitly. The calibration above is built
+        # by init_from_dict, which reads use_emulator/emulator_dir/emulator_settings out
+        # of the config; this constructor call is written by hand and dropped them, so
+        # `use_emulator: true` accelerated the calibration and then MCMC silently went
+        # back to the solver -- which is the one stage where that is unaffordable, and
+        # it looks only like a slow run.
+        use_emulator = inp_data_dict.get('use_emulator', False)
+        emulator_dir = None
+        if use_emulator:
+            from libcuflynx.emulators.emulator_trainer import resolve_emulator_dir
+            emulator_dir = resolve_emulator_dir(inp_data_dict)
+
         mcmc = CVS0DParamID(model_path, model_type, param_id_method, True, file_prefix,
                                 params_for_id_path=params_for_id_path,
                                 param_id_obs_path=param_id_obs_path,
@@ -133,7 +145,9 @@ def run_param_id(inp_data_dict=None):
                                 solver_info=solver_info, dt=dt, UQ_options=UQ_options, DEBUG=DEBUG,
                                 param_id_output_dir=param_id_output_dir, resources_dir=resources_dir,
                                 operation_funcs_external_path=operation_funcs_external_path,
-                                cost_funcs_external_path=cost_funcs_external_path)
+                                cost_funcs_external_path=cost_funcs_external_path,
+                                use_emulator=use_emulator, emulator_dir=emulator_dir,
+                                emulator_settings=inp_data_dict.get('emulator_settings'))
         mcmc.set_best_param_vals(best_param_vals)
         ensure_mle_cost_type_for_bayesian_inner(mcmc_object, inp_data_dict)
         # mcmc.set_mcmc_parameters() TODO
