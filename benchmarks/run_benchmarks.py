@@ -215,7 +215,7 @@ def _build_scaling_result(name, cores, per_core):
 
     rows = []
     for m in methods:
-        times = {}
+        times, evals = {}, {}
         cost = perr = skipped = None
         for c in cores:
             data = per_core.get(c)
@@ -228,16 +228,41 @@ def _build_scaling_result(name, cores, per_core):
                 skipped = row["skipped_reason"]
                 continue
             times[c] = row["time_s"]
+            if row.get("evals") is not None:
+                evals[c] = int(row["evals"])
             if cost is None:
                 cost, perr = row["cost"], row.get("param_err")
         if not times and skipped is not None:
             rows.append(ScalingRow(method=m, skipped_reason=skipped))
         else:
-            rows.append(ScalingRow(method=m, cost=cost, param_err=perr, times_by_core=times))
+            rows.append(ScalingRow(method=m, cost=cost, param_err=perr, times_by_core=times,
+                                   evals_by_core=evals))
+
+    # Say whether the runs actually did the same work, rather than asserting they did. Only
+    # multi-start was ever guaranteed to (`no_new_starts_on_convergence: False`); the population
+    # methods stop when they reach `cost_convergence`, so with an unseeded search the evaluation
+    # count -- and with it the wall-clock -- was a different draw at every core count. That is
+    # what produced a 22.8x speedup on 8 cores (#344). Seeded, the counts should match, and this
+    # is where you can see whether they did.
+    unequal = sorted(r.method for r in rows
+                     if len(set(r.evals_by_core.values())) > 1)
+    measured = [r for r in rows if r.evals_by_core]
+    if unequal:
+        work_note = (f"NOT equal work for {', '.join(unequal)} -- their speedups are not "
+                     f"throughput measurements")
+    elif measured:
+        work_note = "equal cost-evaluation counts at every core count"
+    else:
+        work_note = "cost-evaluation counts not recorded"
 
     core_list = ", ".join(str(c) for c in cores)
     env_note = (f"cores: {core_list}; wall-clock seconds per core count; best cost / max param "
-                f"err from the {ref_core}-core run (same work is run at every core count)")
+                f"err from the {ref_core}-core run; {work_note}")
+    if unequal:
+        print(f"[scaling] WARNING: {work_note}")
+    for r in measured:
+        counts = ", ".join(f"{c}core={r.evals_by_core[c]}" for c in sorted(r.evals_by_core))
+        print(f"[scaling] {r.method}: cost evaluations {counts}")
     return ScalingBenchmarkResult(
         name=ref["name"], title=ref["title"], description=ref["description"], cores=cores,
         env_note=env_note, rows=rows, true_params=ref.get("true_params"),
@@ -313,10 +338,18 @@ def orchestrate(args):
                 cmd += ["--num-calls", str(args.num_calls)]
             print(f"\n[scaling] === {name} @ {c} core(s) ===", flush=True)
             t0 = time.time()
-            proc = subprocess.run(cmd, env=env)
+            # A leg that hangs used to hang the sweep: the AADC path has gone silent for 87
+            # minutes against an 8.6 s nominal. Out-of-process, so the timeout is safe under
+            # MPI -- killing the child cannot leave a rank stuck in a collective here.
+            try:
+                proc = subprocess.run(cmd, env=env, timeout=args.leg_timeout)
+                returncode = proc.returncode
+            except subprocess.TimeoutExpired:
+                returncode = None
+                print(f"[scaling] {name} @ {c} core(s) TIMED OUT after {args.leg_timeout}s")
             wall = time.time() - t0
-            if proc.returncode != 0 or not os.path.exists(jpath):
-                print(f"[scaling] {name} @ {c} core(s) FAILED (exit {proc.returncode}) "
+            if returncode != 0 or not os.path.exists(jpath):
+                print(f"[scaling] {name} @ {c} core(s) FAILED (exit {returncode}) "
                       f"after {wall:.1f}s")
                 failures.append(f"{name}@{c}")
                 continue
@@ -378,6 +411,11 @@ def main(argv=None):
                         help="comma-separated core counts for a scaling study, e.g. 1,2,4,8 "
                              "(runs each benchmark once per count via mpiexec children); a count "
                              "above the machine's physical cores is skipped, not oversubscribed")
+    parser.add_argument("--leg-timeout", type=int, default=3600,
+                        help="seconds before a single core-count leg of a --scaling sweep is "
+                             "killed and reported as failed (default 3600). The AADC path has "
+                             "gone silent for 87 minutes against an 8.6 s nominal, and without "
+                             "this the whole sweep waits for it.")
     parser.add_argument("--emit-json", default=None,
                         help="internal: a scaling child dumps its results here as JSON")
     parser.add_argument("--from-cache", action="store_true",

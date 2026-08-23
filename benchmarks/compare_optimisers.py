@@ -30,6 +30,12 @@ from mpi4py import MPI
 from libcuflynx.scripts.param_id_run_script import run_param_id
 from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
 
+#: The repository root -- benchmarks/ lives directly under it. Two call sites referenced a
+#: `root_dir` that was never defined, and one of them is a `dict.get` *default*, which python
+#: evaluates whether or not the key is present: `_method_output_root` therefore raised
+#: NameError on every single call, so no benchmark could run at all.
+root_dir = Path(__file__).resolve().parent.parent
+
 
 class OptimiserComparison:
     """Class to handle comparison of different optimization methods."""
@@ -64,7 +70,21 @@ class OptimiserComparison:
             },
             'CMA-ES': {
                 'param_id_method': 'CMA-ES',
-                'optimiser_options': {'num_calls_to_function': num_calls},
+                # `max_patience` is shared across the optimisers but the two do not count it in
+                # the same units: the GA counts *generations*, CMA-ES counts *evaluations*. At
+                # the population these benchmarks use (744), one `max_patience: 500` gives the
+                # GA 372,000 evaluations of patience -- past every budget here, so it never
+                # binds -- and CMA-ES 500. On FitzHugh-Nagumo that stopped the search after
+                # 2,080 of 30,000 evaluations at a cost of 1.4e+02 and a parameter error of 4.0,
+                # which then appears in the table as a 24.5 s run: it looks like the second
+                # fastest method when it had simply given up.
+                #
+                # Giving CMA-ES a patience of the whole budget puts the two on the footing the
+                # comparison assumes -- each runs until it converges or spends its budget --
+                # without changing what `max_patience` means in the library (#344). A caller
+                # that wants CMA-ES to give up early can still say so per benchmark.
+                'optimiser_options': {'num_calls_to_function': num_calls,
+                                      'max_patience': num_calls},
             },
             'bayesian': {
                 'param_id_method': 'bayesian',
@@ -165,7 +185,9 @@ class OptimiserComparison:
         same multi-start driven by CasADi AD and by AADC AD) would therefore write to the same
         directory and the second would silently overwrite the first's results.
         """
-        base = self.base_config.get('param_id_output_dir', str(root_dir / 'param_id_output'))
+        # Not `.get(key, str(root_dir / ...))`: the default is built eagerly, so a fallback
+        # that touches the filesystem layout runs even when the key is there.
+        base = self.base_config.get('param_id_output_dir') or str(root_dir / 'param_id_output')
         return os.path.join(base, method)
 
     def get_output_dir(self, method):
@@ -187,6 +209,22 @@ class OptimiserComparison:
         cost = np.load(cost_file)
         params = np.load(params_file)
         return cost, params
+
+    @staticmethod
+    def load_eval_count(output_dir):
+        """Cost evaluations the run performed, or None if the optimiser did not record one.
+
+        The deterministic half of a scaling result: two core counts whose wall-clock differs by
+        more than the core ratio are not both doing the same work, and this is what says so
+        (#344).
+        """
+        path = os.path.join(output_dir, 'num_cost_evals.npy')
+        if not os.path.exists(path):
+            return None
+        try:
+            return int(np.load(path))
+        except Exception:
+            return None
     
     def run_method(self, method):
         """Run optimization for a specific method."""

@@ -5,6 +5,35 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Changed — the scaling benchmark now reports how much work it did (#344)
+
+The 3compartment core-scaling sweep reported CMA-ES speeding up **22.8x on 8 cores**, past the
+physical ceiling, in three independent sweeps. The cause is that the population methods stop when
+they reach `cost_convergence`, so the work they do is whatever the search happened to need — and
+unseeded, that is a fresh draw every run. The wall-clock ratio was measuring how soon each core
+count happened to converge, not throughput.
+
+Two things change, and it is worth being precise about which does what:
+
+- **Every run records the cost evaluations it performed** (`num_cost_evals.npy`, carried through
+  `BenchmarkRow.evals`). The scaling sweep prints them per core count and states in the table's
+  env note whether they matched. This is the load-bearing part: wall-clock on this hardware
+  varies 1.3–2.1x on identical code, so a ratio only reads as throughput once the counts are
+  known to agree.
+- **`seed` is honoured by `genetic_algorithm` and `CMA-ES`** (it already was by
+  `multi_start_sp_minimize`), and is published in `PARAM_ID_METHODS`. This makes a run repeatable
+  at a given rank count. Measured, it does **not** make CMA-ES rank-independent: it asks one
+  candidate per MPI rank, so the ask/tell interleaving still changes with the rank count. With a
+  fixed batch, 1/2/4 ranks agree and 8 does not, because nevergrad also derives internal settings
+  from `num_workers`. Equal work across core counts needs the population decoupled from the rank
+  count, which has **not** been done — so #344 stays open, with the numbers now visible rather
+  than implied.
+
+Also: `--leg-timeout` (default 1 hour) kills a hung core-count leg instead of stalling the sweep —
+the AADC path has gone silent for 87 minutes against an 8.6 s nominal — and the benchmarks CI job
+gets `timeout-minutes: 180` instead of inheriting GitHub's 6-hour default. The README's claim that
+"every core count runs the same work" was true only of multi-start and has been corrected.
+
 ### Added — an observable can be built from one in another experiment (#466, #127)
 
 An `operation_kwargs` value naming another `data_item_name` may now name an item in a different

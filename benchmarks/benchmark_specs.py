@@ -178,7 +178,11 @@ def run_fitzhugh_nagumo(base_config, resources_dir, output_dir, generated_models
                 cost=float(comparison.results[method]['cost']),
                 time_s=float(comparison.runtimes[method]),
                 param_err=max_relative_param_err(params, FHN_TRUE_PARAMS),
-                params=[float(p) for p in params]))
+                params=[float(p) for p in params],
+                # What the run actually did, so a reader can tell a genuine fast
+                # convergence from a search that gave up (#344). None when the optimiser
+                # does not track one -- the multi-start variants do not.
+                evals=comparison.load_eval_count(comparison.get_output_dir(method))))
         if not include_aadc:
             result.rows.append(BenchmarkRow(
                 method='multi_start (AADC AD)',
@@ -424,7 +428,11 @@ def run_three_compartment(base_config, resources_dir, output_dir, generated_mode
                 cost=float(comparison.results[method]['cost']),
                 time_s=float(comparison.runtimes[method]),
                 param_err=max_relative_param_err(params, THREE_COMPARTMENT_TRUE_PARAMS),
-                params=[float(p) for p in params]))
+                params=[float(p) for p in params],
+                # What the run actually did, so a reader can tell a genuine fast
+                # convergence from a search that gave up (#344). None when the optimiser
+                # does not track one -- the multi-start variants do not.
+                evals=comparison.load_eval_count(comparison.get_output_dir(method))))
         for method, reason in skipped.items():
             result.rows.append(BenchmarkRow(method=method, skipped_reason=reason))
     result._comparison = comparison
@@ -595,7 +603,11 @@ def run_goodwin(base_config, resources_dir, output_dir, generated_models_dir,
                 cost=float(comparison.results[method]['cost']),
                 time_s=float(comparison.runtimes[method]),
                 param_err=max_relative_param_err(params, GOODWIN_TRUE_PARAMS),
-                params=[float(p) for p in params]))
+                params=[float(p) for p in params],
+                # What the run actually did, so a reader can tell a genuine fast
+                # convergence from a search that gave up (#344). None when the optimiser
+                # does not track one -- the multi-start variants do not.
+                evals=comparison.load_eval_count(comparison.get_output_dir(method))))
     result._comparison = comparison
     return result
 
@@ -743,7 +755,11 @@ def run_teusink(base_config, resources_dir, output_dir, generated_models_dir,
                 cost=float(comparison.results[method]['cost']),
                 time_s=float(comparison.runtimes[method]),
                 param_err=max_relative_param_err(params, TEUSINK_TRUE_PARAMS),
-                params=[float(p) for p in params]))
+                params=[float(p) for p in params],
+                # What the run actually did, so a reader can tell a genuine fast
+                # convergence from a search that gave up (#344). None when the optimiser
+                # does not track one -- the multi-start variants do not.
+                evals=comparison.load_eval_count(comparison.get_output_dir(method))))
     result._comparison = comparison
     return result
 
