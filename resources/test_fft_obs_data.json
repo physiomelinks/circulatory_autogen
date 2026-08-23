@@ -1,6 +1,6 @@
 [
-  { "variable": "inlet/v",
-    "name_for_plotting": "v",
+  { "data_item_name": "inlet/v",
+    "trace_name_for_plotting": "v",
     "data_type": "frequency",
     "unit": "m3_per_s",
     "operation": "None",

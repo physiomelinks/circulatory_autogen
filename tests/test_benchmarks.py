@@ -34,13 +34,17 @@ def test_benchmark_result_to_dict_roundtrips_rows():
         name='b', title='B', description='d', env_note='e',
         true_params=[1.0, 2.0], param_labels=['a', 'b'])
     result.rows.append(BenchmarkRow(method='m1', cost=1.5e-3, time_s=12.0, param_err=0.01,
-                                    params=[1.0, 2.0]))
+                                    params=[1.0, 2.0], evals=20000))
     result.rows.append(BenchmarkRow(method='m2', skipped_reason='no licence'))
     d = benchmark_result_to_dict(result)
     assert d['name'] == 'b' and d['true_params'] == [1.0, 2.0]
+    # `evals` travels with the row: a scaling child hands its numbers back through this dict,
+    # and the orchestrator needs the evaluation count to say whether the core counts did equal
+    # work (#344). A row whose optimiser does not report one carries None.
     assert d['rows'][0] == {'method': 'm1', 'cost': 1.5e-3, 'time_s': 12.0,
-                            'param_err': 0.01, 'skipped_reason': None}
+                            'param_err': 0.01, 'evals': 20000, 'skipped_reason': None}
     assert d['rows'][1]['skipped_reason'] == 'no licence'
+    assert d['rows'][1]['evals'] is None
 
 
 @pytest.mark.unit

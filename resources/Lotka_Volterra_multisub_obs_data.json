@@ -13,8 +13,8 @@
  },
  "data_items": [
   {
-   "variable": "Lotka_Volterra_module/x_series_s0",
-   "name_for_plotting": "Lotka_Volterra_module/x",
+   "data_item_name": "Lotka_Volterra_module/x_series_s0",
+   "trace_name_for_plotting": "Lotka_Volterra_module/x",
    "data_type": "series",
    "operation": null,
    "operands": [
@@ -51,8 +51,8 @@
    "subexperiment_idx": 0
   },
   {
-   "variable": "Lotka_Volterra_module/y_series_s0",
-   "name_for_plotting": "Lotka_Volterra_module/y",
+   "data_item_name": "Lotka_Volterra_module/y_series_s0",
+   "trace_name_for_plotting": "Lotka_Volterra_module/y",
    "data_type": "series",
    "operation": null,
    "operands": [
@@ -89,8 +89,8 @@
    "subexperiment_idx": 0
   },
   {
-   "variable": "Lotka_Volterra_module/x_series_s1",
-   "name_for_plotting": "Lotka_Volterra_module/x",
+   "data_item_name": "Lotka_Volterra_module/x_series_s1",
+   "trace_name_for_plotting": "Lotka_Volterra_module/x",
    "data_type": "series",
    "operation": null,
    "operands": [
@@ -127,8 +127,8 @@
    "subexperiment_idx": 1
   },
   {
-   "variable": "Lotka_Volterra_module/y_series_s1",
-   "name_for_plotting": "Lotka_Volterra_module/y",
+   "data_item_name": "Lotka_Volterra_module/y_series_s1",
+   "trace_name_for_plotting": "Lotka_Volterra_module/y",
    "data_type": "series",
    "operation": null,
    "operands": [

@@ -16,8 +16,8 @@
  "prediction_items": [],
  "data_items": [
   {
-   "variable": "Xi/Xi",
-   "name_for_plotting": "Xi",
+   "data_item_name": "Xi/Xi",
+   "trace_name_for_plotting": "Xi",
    "data_type": "series",
    "operation": null,
    "operands": [
@@ -197,8 +197,8 @@
    "subexperiment_idx": 0
   },
   {
-   "variable": "Yi/Yi",
-   "name_for_plotting": "Yi",
+   "data_item_name": "Yi/Yi",
+   "trace_name_for_plotting": "Yi",
    "data_type": "series",
    "operation": null,
    "operands": [

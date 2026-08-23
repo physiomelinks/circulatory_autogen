@@ -101,6 +101,7 @@ import math
 import scipy.linalg as la
 # from scipy.optimize import curve_fit
 import warnings
+from libcuflynx.utilities.obs_data_helpers import obs_item_names, obs_item_labels
 warnings.filterwarnings( "ignore", module = "matplotlib/..*" )
 # TODO maybe remove matplotlib warnings as above
 
@@ -1767,17 +1768,14 @@ class CVS0DParamID():
         np.save(os.path.join(self.output_dir, 'params_std.npy'), param_std)
 
 def observable_base_label(obs_info, obs_idx):
-    """``name (operation operand)`` for one data_item -- the label before disambiguation.
+    """The display label for one data_item -- ``item_name_for_plotting``, before disambiguation.
 
-    A module function rather than only a method, because an emulator has to record the labels
-    of the features it was trained on and check them against the run using it (#333), and both
-    sides must spell an observable the same way or every reload would look stale.
+    Since #466 an item states this itself (defaulting to ``<trace name> (<operation>)``), so this
+    no longer composes one out of the parts: composing would spell the operation twice for every
+    item that took the default. A module function rather than only a method because more than one
+    subsystem has to spell an observable the same way.
     """
-    name = obs_info["names_for_plotting"][obs_idx]
-    op = obs_info["operations"][obs_idx]
-    operands = obs_info["operands"][obs_idx]
-    operand = operands[0] if operands else ''
-    return f"{name} ({op} {operand})" if op else f"{name} ({operand})"
+    return str(obs_item_labels(obs_info)[obs_idx])
 
 
 def observable_labels(obs_info):
@@ -1797,9 +1795,14 @@ def observable_labels(obs_info):
 
 
 def emulated_feature_labels(obs_info):
-    """The labels of the scalar features an emulator is trained on, in emulator output order."""
-    labels = observable_labels(obs_info)
-    return [labels[obs_idx] for obs_idx in obs_info["const_idx_to_obs_idx"]]
+    """The names of the scalar features an emulator is trained on, in emulator output order.
+
+    ``data_item_name``, not a display label: this is what a stored bundle is checked against on
+    reload, and a label may be reworded without changing which feature it names -- which would
+    make every existing bundle look stale. The name is unique by construction (#466).
+    """
+    names = obs_item_names(obs_info)
+    return [str(names[obs_idx]) for obs_idx in obs_info["const_idx_to_obs_idx"]]
 
 
 OFFLINE_PRE_TIME_INIT_STATE_ERROR = (
@@ -1904,6 +1907,12 @@ class OpencorParamID():
                 self.pre_time = self.solver_info['pre_time']
             else:
                 self.pre_time = None
+
+        #: Cost evaluations performed on this rank. The deterministic referee for "did these
+        #: two runs do the same work": wall-clock on this hardware varies 1.3-2.1x on identical
+        #: code (benchmarks/PROFILING.md), so a speedup only reads as throughput once the
+        #: evaluation counts are known to match (#344).
+        self.num_cost_evals = 0
 
         self.sim_helper = self.initialise_sim_helper()
         # Cached rather than probed per evaluation: this decides, on the hot path, whether the
@@ -2418,6 +2427,10 @@ class OpencorParamID():
     
     def get_cost_obs_and_pred_from_params(self, param_vals, reset=True, 
                                           only_one_exp=-1, pred_names=None, do_ad=False):
+        # Every cost evaluation funnels through here -- get_cost_from_params and
+        # get_cost_and_obs_from_params both delegate -- so this is the one place that can count
+        # them without each optimiser keeping its own tally (#344).
+        self.num_cost_evals = getattr(self, 'num_cost_evals', 0) + 1
 
         # loop through subexperiments
         if only_one_exp == -1:
@@ -2484,29 +2497,35 @@ class OpencorParamID():
 
         cost = 0.0
         weighted_obs_denominator = 0
-        for exp_idx in exp_idxs_to_run:
-            for this_sub_idx in range(num_sub_per_exp[exp_idx]):
-                subexp_count = int(np.sum([num_sub for num_sub in
-                                           num_sub_per_exp[:exp_idx]]) + this_sub_idx)
+        # One table for the whole evaluation, so an item may reference one from an earlier
+        # (experiment, sub-experiment) and not just its own (#466). The segments are visited in
+        # order, so a reference is backward-only. Declared as a block rather than by assigning
+        # the attribute here: `evaluating_segment` gives a *standalone* caller its own fresh
+        # table, and it can only tell the two apart if this walk says which it is.
+        with self.accumulating_temp_results():
+            for exp_idx in exp_idxs_to_run:
+                for this_sub_idx in range(num_sub_per_exp[exp_idx]):
+                    subexp_count = int(np.sum([num_sub for num_sub in
+                                               num_sub_per_exp[:exp_idx]]) + this_sub_idx)
 
-                sub_cost = self.get_cost_from_operands(
-                    operands_outputs_list[subexp_count],
-                    exp_idx=exp_idx, sub_idx=this_sub_idx, do_ad=do_ad,
-                )
-                cost += sub_cost
-                if self._num_weighted_obs_by_exp_sub is not None:
-                    weighted_obs_denominator += self._num_weighted_obs_by_exp_sub[exp_idx][this_sub_idx]
-                else:
-                    wc = self.protocol_info["scaled_weight_const_from_exp_sub"][exp_idx][this_sub_idx]
-                    ws = self.protocol_info["scaled_weight_series_from_exp_sub"][exp_idx][this_sub_idx]
-                    wa = self.protocol_info["scaled_weight_amp_from_exp_sub"][exp_idx][this_sub_idx]
-                    wp = self.protocol_info["scaled_weight_phase_from_exp_sub"][exp_idx][this_sub_idx]
-                    weighted_obs_denominator += int(
-                        np.sum(wc != 0)
-                        + np.sum(ws != 0)
-                        + np.sum(wa != 0)
-                        + np.sum(wp != 0)
+                    sub_cost = self.get_cost_from_operands(
+                        operands_outputs_list[subexp_count],
+                        exp_idx=exp_idx, sub_idx=this_sub_idx, do_ad=do_ad,
                     )
+                    cost += sub_cost
+                    if self._num_weighted_obs_by_exp_sub is not None:
+                        weighted_obs_denominator += self._num_weighted_obs_by_exp_sub[exp_idx][this_sub_idx]
+                    else:
+                        wc = self.protocol_info["scaled_weight_const_from_exp_sub"][exp_idx][this_sub_idx]
+                        ws = self.protocol_info["scaled_weight_series_from_exp_sub"][exp_idx][this_sub_idx]
+                        wa = self.protocol_info["scaled_weight_amp_from_exp_sub"][exp_idx][this_sub_idx]
+                        wp = self.protocol_info["scaled_weight_phase_from_exp_sub"][exp_idx][this_sub_idx]
+                        weighted_obs_denominator += int(
+                            np.sum(wc != 0)
+                            + np.sum(ws != 0)
+                            + np.sum(wa != 0)
+                            + np.sum(wp != 0)
+                        )
 
         # Mean NLL contribution per weighted observable slot (summed raw sub costs / global count).
         if weighted_obs_denominator <= 0:
@@ -2697,7 +2716,8 @@ class OpencorParamID():
         # imply symbolic: casadi_python evaluated numerically is not.
         is_symbolic = do_ad and self.model_type == 'casadi_python'
 
-        obs_dict = self.get_obs_output_dict(operands_outputs, is_symbolic=is_symbolic)
+        with self.evaluating_segment(exp_idx, sub_idx):
+            obs_dict = self.get_obs_output_dict(operands_outputs, is_symbolic=is_symbolic)
         # calculate error between the observables of this set of parameters
         # and the ground truth
         
@@ -3057,14 +3077,141 @@ class OpencorParamID():
             self.obs_info["operation_kwargs"][JJ],
             operation_funcs_dict[operation_name],
             operation_name=operation_name,
-            data_item_name=self.obs_info["names_for_plotting"][JJ],
+            data_item_name=obs_item_names(self.obs_info)[JJ],
             temp_results=self.temp_results,
             num_operands=num_operands,
+            known_item_names=set(obs_item_names(self.obs_info)),
         )
 
-    def get_obs_output_dict(self, operands_outputs, get_all_series=False, is_symbolic=False):
-        #need to added an array to save tmp data, each calibration need to updated/re-initial
+    def cross_segment_reference_items(self):
+        """data_items whose ``operation_kwargs`` reference an item in another (exp, sub).
+
+        Returns a list of ``(referencing_name, referenced_name)``. Empty for the ordinary case
+        where every reference stays inside its own sub-experiment.
+        """
+        obs = self.obs_info
+        names = list(obs_item_names(obs))
+        segment = {name: (int(obs["experiment_idxs"][i]), int(obs["subexperiment_idxs"][i]))
+                   for i, name in enumerate(names)}
+        found = []
+        for i, raw in enumerate(obs.get("operation_kwargs") or []):
+            if not isinstance(raw, dict):
+                continue
+            here = segment.get(names[i])
+            for value in raw.values():
+                if isinstance(value, str) and value in segment and segment[value] != here:
+                    found.append((names[i], value))
+        return found
+
+    def _refuse_cross_segment_references(self, source):
+        """Cross-segment references are a cost-path feature; say so rather than mis-differentiate.
+
+        The Myokit-FSA and CasADi arms build each observable from one sub-experiment's operands,
+        so an item whose value comes from *another* segment is not a function of what they
+        differentiate -- they would return a gradient for a different feature than the cost was
+        built from, with nothing to show for it. Finite differences and the gradient-free
+        methods step the whole protocol, so they are unaffected.
+        """
+        crossing = self.cross_segment_reference_items()
+        if not crossing:
+            return
+        detail = "; ".join(f"{a!r} -> {b!r}" for a, b in crossing)
+        raise NotImplementedError(
+            f"{source} cannot differentiate a data_item that references another experiment or "
+            f"sub-experiment ({detail}). It builds each observable from one sub-experiment's "
+            f"operands, so a cross-segment reference is not part of what it differentiates and "
+            f"the gradient would be for a different feature than the cost. Use finite "
+            f"differences (do_ad: False) or a gradient-free method, or keep the reference "
+            f"inside one sub-experiment (#466).")
+
+    @contextlib.contextmanager
+    def accumulating_temp_results(self):
+        """One ``temp_results`` table across every segment of a single cost evaluation (#466).
+
+        Only the cost loop wants that. Every other caller evaluates one segment on its own --
+        CUFLynx's ``obs_cost``, ``plot_outputs``, the gradient backends, a test double -- and
+        must not resolve a reference against values left behind by whatever ran before it.
+        ``evaluating_segment`` gives those callers a fresh table, and this is how it knows not
+        to.
+        """
+        previous = getattr(self, '_accumulating_temp_results', False)
+        self._accumulating_temp_results = True
         self.temp_results = {}
+        try:
+            yield
+        finally:
+            self._accumulating_temp_results = previous
+
+    @contextlib.contextmanager
+    def evaluating_segment(self, exp_idx, sub_idx):
+        """Mark which (experiment, sub-experiment)'s operands the next evaluations receive.
+
+        Carried as state rather than passed to ``get_obs_output_dict``, so that method keeps the
+        signature every other caller already uses -- the gradient backends, plot_outputs,
+        CUFLynx, and any test double that stands in for it. Adding parameters to it broke all of
+        those for no gain.
+
+        Inside the block an item is only evaluated and recorded when the segment is its own, and
+        ``temp_results`` is left alone so the caller can accumulate one table across the whole
+        protocol. Outside it -- the default -- every item is evaluated against whatever operands
+        are handed over and the table is cleared per call, which is the pre-#466 behaviour.
+        """
+        previous = getattr(self, '_eval_segment', (None, None))
+        # Outside an `accumulating_temp_results` block this is a caller evaluating one segment
+        # on its own, so it gets a fresh table -- the pre-#466 behaviour, where the table was
+        # cleared on every `get_obs_output_dict` call. Without this the attribute may not exist
+        # at all (it was only ever created by the cost loop), and `_record_temp_result` raised
+        # AttributeError for every caller entering at `get_cost_from_operands`.
+        if not getattr(self, '_accumulating_temp_results', False):
+            self.temp_results = {}
+        self._eval_segment = (exp_idx, sub_idx)
+        try:
+            yield
+        finally:
+            self._eval_segment = previous
+
+    def _item_belongs_to_segment(self, JJ, exp_idx, sub_idx):
+        """Whether data_item ``JJ`` was declared for the segment currently being evaluated.
+
+        Always True when the caller did not say which segment it is handing over, which is the
+        old behaviour and what the callers that want the whole const vector from one segment's
+        operands rely on.
+        """
+        if exp_idx is None:
+            return True
+        return (int(self.obs_info["experiment_idxs"][JJ]) == int(exp_idx)
+                and int(self.obs_info["subexperiment_idxs"][JJ]) == int(sub_idx))
+
+    def _record_temp_result(self, JJ, obs, exp_idx, sub_idx):
+        """Record observable ``JJ``'s value under its name, for a later item to reference.
+
+        Skipped when this is not ``JJ``'s own segment: the value would be this item's operation
+        applied to a different experiment's trace, which is a number nothing should read.
+        """
+        if not self._item_belongs_to_segment(JJ, exp_idx, sub_idx):
+            return
+        self.temp_results[obs_item_names(self.obs_info)[JJ]] = obs
+
+    def get_obs_output_dict(self, operands_outputs, get_all_series=False, is_symbolic=False):
+        """Evaluate every data_item's operation against one sub-experiment's operands.
+
+        ``temp_results`` is the table an ``operation_kwargs`` reference to another item resolves
+        against. It used to be cleared on every call, i.e. once per (experiment, sub-experiment),
+        which is why a reference could only ever see the segment being evaluated (#466, #127).
+        Two arguments change that:
+
+A caller that steps through the segments in order does so inside
+        ``evaluating_segment``, which says which segment these operands belong to and leaves the
+        table alone so it accumulates across all of them.
+
+        Knowing the segment matters because every data_item is evaluated against every one of
+        them -- which item *counts* is decided afterwards by the zeroed weight vectors. Without
+        it an item would be recorded under its name from some other experiment's trace, and a
+        cross-segment reference would silently read that.
+        """
+        exp_idx, sub_idx = getattr(self, '_eval_segment', (None, None))
+        if exp_idx is None:
+            self.temp_results = {}
 
         # Symbolic (SX) operands go through the casadi-mode operation funcs; numeric operands go
         # through the numpy-mode ones (#315). For non-casadi models both are the same numpy dict.
@@ -3138,16 +3285,35 @@ class OpencorParamID():
                 # harmless for `mean`, but `max_minus_min` of a single value is zero, and the
                 # cost would then be fitting zeros without anything looking wrong.
                 obs = float(np.asarray(operands_outputs[JJ][0]).reshape(-1)[0])
-                self.temp_results[self.obs_info["names_for_plotting"][JJ]] = obs
+                self._record_temp_result(JJ, obs, exp_idx, sub_idx)
+            elif not self._item_belongs_to_segment(JJ, exp_idx, sub_idx):
+                # Every data_item is evaluated against every segment, and which one *counts* is
+                # decided afterwards by the zeroed weight vectors. For an item belonging to
+                # another (experiment, sub-experiment) the operation would run on the wrong
+                # trace, so the value is discarded either way -- and for an item built from
+                # other items it cannot run at all, because the items it names live in a
+                # segment this one is not (#466).
+                #
+                # The placeholder has to keep the *shape* the slot expects, not just be falsy: a
+                # series observable is interpolated onto its ground-truth times before the
+                # weights are applied, and a scalar there fails as "the simulation produced 1
+                # sample". So a series gets a zero trace of the operand's own length.
+                obs = 0.0
+                if self.obs_info["data_types"][JJ] == 'series':
+                    trace = operands_outputs[JJ][0] if operands_outputs[JJ] is not None \
+                        and len(operands_outputs[JJ]) else None
+                    if trace is not None:
+                        obs = ca.SX.zeros(trace.shape) if is_symbolic else np.zeros_like(
+                            np.asarray(trace, dtype=float))
             elif self.obs_info["operations"][JJ] == None:
                 obs = operands_outputs[JJ][0]
             else:
                 if self.obs_info["data_types"][JJ] != 'frequency':
-                    key_idxt = self.obs_info["names_for_plotting"][JJ]
+                    key_idxt = obs_item_names(self.obs_info)[JJ]
                     kwargs = self._resolve_operation_kwargs(JJ, operation_funcs_dict, operands_outputs)
                     obs = operation_funcs_dict[self.obs_info["operations"][JJ]](*operands_outputs[JJ], **kwargs)
                     #each predict result saved into tmp array
-                    self.temp_results[key_idxt] = obs
+                    self._record_temp_result(JJ, obs, exp_idx, sub_idx)
                 else:
                     obs = None
             
@@ -3369,10 +3535,13 @@ class OpencorParamID():
             return fd_backend.cost_gradient(
                 self, param_vals, h=float(self._use_time_setting('fd_rel_step', 1e-3)))
         if self.model_type == 'casadi_python':
+            self._refuse_cross_segment_references('The CasADi AD gradient')
             return self.get_jac_cost_ca(param_vals)
         elif self.model_type == 'aadc_python':
+            self._refuse_cross_segment_references('The AADC AD gradient')
             return self.get_jac_cost_aadc(param_vals)
         elif self.fsa_gradient_available():
+            self._refuse_cross_segment_references('The Myokit CVODES FSA gradient')
             return self.get_jac_cost_fsa(param_vals)
         else:
             raise ValueError(f"Gradient not available for model_type={self.model_type}")

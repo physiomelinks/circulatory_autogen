@@ -81,13 +81,16 @@ def test_param_id_method_options_match_optimiser_reads():
         return {opt['name'] for opt in param_id_method_options(method)}
 
     # Keys each optimiser reads from optimiser_options (see param_id/optimisers.py).
+    # `seed` joined the two population methods with #344: unseeded, the number of evaluations a
+    # search needs is a fresh draw per run, so even two runs of the same configuration at the
+    # same rank count are not comparable. Both read it through Optimiser._seed_rng.
     assert names('genetic_algorithm') == {'num_calls_to_function', 'cost_convergence',
                                           'max_patience', 'num_elite', 'num_survivors',
                                           'num_mutations_per_survivor', 'num_cross_breed',
                                           'objective_function', 'use_relative_cost_tolerance',
-                                          'relative_cost_tolerance'}
+                                          'relative_cost_tolerance', 'seed'}
     assert names('CMA-ES') == {'num_calls_to_function', 'sigma0', 'cost_convergence',
-                               'max_patience'}
+                               'max_patience', 'seed'}
     assert names('bayesian') == {'num_calls_to_function'}
     assert names('sp_minimize') == {'cost_convergence'}
     assert names('multi_start_sp_minimize') == {

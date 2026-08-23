@@ -39,8 +39,9 @@ def main(argv=None):
     parser = _cli.build_parser(
         'Run a Sobol sensitivity analysis of the configured observables with respect to the '
         'parameters listed for identification.')
-    parser.parse_args(argv)
-    return _cli.run_stage(run_SA, MPI)
+    args = parser.parse_args(argv)
+    inp_data_dict = _cli.load_user_inputs(args)
+    return _cli.run_stage(lambda: run_SA(inp_data_dict), MPI)
 
 
 if __name__ == '__main__':

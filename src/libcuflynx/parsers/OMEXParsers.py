@@ -293,7 +293,7 @@ class OMEXArchiveParser:
                 "param_type": "const",
                 "min": float(input_meta.get("minimumValue", input_meta.get("defaultValue", 0.0))),
                 "max": float(input_meta.get("maximumValue", input_meta.get("defaultValue", 1.0))),
-                "name_for_plotting": input_meta.get("name", variable_name),
+                "trace_name_for_plotting": input_meta.get("name", variable_name),
                 "default_value": float(input_meta.get("defaultValue", 0.0)),
             })
         return params_for_id
@@ -387,8 +387,8 @@ class OMEXArchiveParser:
         for spec in observable_specs:
             display_name = re.sub(r"<[^>]+>", "", spec.name).strip() or spec.external_expression
             data_items.append({
-                "variable": display_name,
-                "name_for_plotting": display_name,
+                "data_item_name": display_name,
+                "trace_name_for_plotting": display_name,
                 "data_type": "series",
                 "unit": spec.unit,
                 "weight": 1.0,
@@ -402,8 +402,10 @@ class OMEXArchiveParser:
                 "subexperiment_idx": 0,
             })
             prediction_items.append({
-                "variable": spec.model_operands[0],
-                "name_for_plotting": display_name,
+                # distinct from the data_item above: names are unique across both lists (#466)
+                "data_item_name": f"{display_name} prediction",
+                "operands": [spec.model_operands[0]],
+                "trace_name_for_plotting": display_name,
                 "unit": spec.unit,
                 "experiment_idx": 0,
             })

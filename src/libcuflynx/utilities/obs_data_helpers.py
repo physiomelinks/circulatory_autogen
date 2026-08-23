@@ -7,6 +7,7 @@ except ImportError:  # optional dependency
 import json
 import os, sys
 import re
+import warnings
 
 # ---------------------------------------------------------------------------
 # obs_data.json schema vocabularies
@@ -51,6 +52,97 @@ DEFAULT_COST_TYPE = "gaussian_MLE"
 # What the default used to be, so a run can tell the user what changed and how to pin it.
 PREVIOUS_DEFAULT_COST_TYPE = "MSE"
 
+
+
+#: obs_data entry keys superseded by the #466 vocabulary split, mapped to the key that now
+#: carries the value. ``variable`` had two jobs -- it named the item *and* stood in as the operand
+#: when ``operation`` was null -- so only its naming job moves here; the operand job moves to
+#: ``operands``, which is why its advice names both.
+LEGACY_OBS_ITEM_KEYS = {
+    'variable': 'data_item_name',
+    'name_for_plotting': 'trace_name_for_plotting',
+}
+
+LEGACY_OBS_KEY_ADVICE = {
+    'variable': ("'variable' is deprecated: use 'data_item_name' for the item's identity -- it "
+                 "must be unique, and it is what an operation_kwargs reference to another item "
+                 "resolves against -- and 'operands' for the model variable the item reduces. "
+                 "The old fallback, where a null 'operation' took its operand from 'variable', "
+                 "has been removed."),
+    'name_for_plotting': ("'name_for_plotting' is deprecated: it named two different things. Use "
+                          "'trace_name_for_plotting' for the axis label of the trace, and "
+                          "'item_name_for_plotting' for the item's own label (in sensitivity "
+                          "tables and the like), which defaults to "
+                          "'<trace_name_for_plotting> (<operation>)'."),
+}
+
+
+def obs_item_names(obs_info):
+    """Each data_item's identity, i.e. what an operation_kwargs reference resolves against.
+
+    Falls back to the deprecated ``names_for_plotting`` for an ``obs_info`` assembled by hand
+    rather than by the parser. Plenty of code does assemble one -- CUFLynx builds partial ones,
+    and so does every test double -- and it should not have to learn a new key to keep working.
+    """
+    return (obs_info.get("data_item_names") or obs_info.get("obs_names")
+            or obs_info.get("names_for_plotting") or [])
+
+
+def obs_item_labels(obs_info):
+    """Each data_item's display label (the scalar feature). See ``obs_item_names``."""
+    return (obs_info.get("item_names_for_plotting")
+            or obs_info.get("names_for_plotting") or [])
+
+
+def obs_trace_labels(obs_info):
+    """Each data_item's trace label (the series it is drawn from). See ``obs_item_names``."""
+    return (obs_info.get("trace_names_for_plotting")
+            or obs_info.get("names_for_plotting") or [])
+
+
+def migrate_legacy_obs_item_keys(items, where='data_items', variable_was_the_operand=False):
+    """Rewrite an obs_data entry's superseded key names, warning once per key per file.
+
+    Runs before schema validation, so everything downstream -- the series hydration helpers, the
+    schema, ``process_obs_info`` -- sees only the current vocabulary. Returns a new list; the
+    caller's dicts are not mutated, because an obs_data dict passed in by a user (or by
+    ``ObsDataCreator``) is theirs, not ours.
+
+    An entry that sets both a legacy key and its replacement is an error rather than a
+    precedence rule: there is no reading of that which is not a mistake, and silently picking
+    one would fit whichever the author did not mean.
+
+    ``variable_was_the_operand`` is for ``prediction_items``, where the legacy ``variable`` held
+    the model qname and there was no ``operands`` key at all -- so it seeds ``operands`` too.
+    A data_item already states ``operands``, so there it only supplies the name.
+    """
+    if not isinstance(items, (list, tuple)):
+        return items
+
+    migrated = []
+    seen_legacy = set()
+    for idx, item in enumerate(items):
+        if not isinstance(item, dict):
+            migrated.append(item)
+            continue
+        item = dict(item)
+        for old, new in LEGACY_OBS_ITEM_KEYS.items():
+            if old not in item:
+                continue
+            if new in item:
+                raise ValueError(
+                    f"{where}[{idx}] sets both '{old}' and its replacement '{new}'. "
+                    f"Remove '{old}'. {LEGACY_OBS_KEY_ADVICE[old]}")
+            item[new] = item.pop(old)
+            seen_legacy.add(old)
+        if (variable_was_the_operand and 'data_item_name' in item
+                and not item.get('operands')):
+            item['operands'] = [item['data_item_name']]
+        migrated.append(item)
+
+    for old in sorted(seen_legacy):
+        warnings.warn(f"{where}: {LEGACY_OBS_KEY_ADVICE[old]}", DeprecationWarning, stacklevel=3)
+    return migrated
 
 def get_default_cost_type():
     """The ``cost_type`` a data_item gets when it does not specify one."""
@@ -166,15 +258,15 @@ class ObsDataCreator:
         the ``operation`` func, on top of the ``operands`` it receives positionally, i.e.
         ``operation(*operands, **operation_kwargs)``. Keys must be keyword arguments of that func
         (an unknown key raises), and ``series_output`` is reserved for circulatory_autogen. A
-        string value that matches the ``name_for_plotting`` of an earlier data item is replaced at
-        run time by that observable's computed value. See issue #304 and the
+        string value that matches the ``data_item_name`` of an earlier data item is replaced at
+        run time by that observable's computed value. See issues #304 and #466 and the
         parameter-identification tutorial page.
         """
-        required_keys = ['variable', 'name_for_plotting', 'operands',
-                         'unit', 'value', 'std']
+        required_keys = ['data_item_name', 'operands', 'unit', 'value', 'std']
         required_series_keys = ['obs_dt']
-        optional_keys = ['name_for_plotting', 'operation', 'operation_kwargs', 'cost_kwargs',
-                         'weight', 'std', 'experiment_idx', 'subexperiment_idx']
+        optional_keys = ['trace_name_for_plotting', 'item_name_for_plotting', 'operation',
+                         'operation_kwargs', 'cost_kwargs', 'weight', 'std',
+                         'experiment_idx', 'subexperiment_idx']
 
         if 'operation_kwargs' in entry and not isinstance(entry['operation_kwargs'], dict):
             raise ValueError(
@@ -186,12 +278,40 @@ class ObsDataCreator:
                 f"'cost_kwargs' must be a dict of keyword arguments for the 'cost_type' "
                 f"func, got {type(entry['cost_kwargs']).__name__}.")
 
-        if 'name_for_plotting' not in entry:
-            entry['name_for_plotting'] = entry['variable']
-        # check that name_for_plotting only has one _ in it and remove if not
-        if entry['name_for_plotting'].count('_') > 1:
-            print('Warning: name_for_plotting contains multiple underscores, replacing with \_')
-            entry['name_for_plotting'] = re.sub('_', r'\_', entry['name_for_plotting'])
+        # `variable` did two jobs and is gone (#466); accept it for now so an existing script
+        # keeps working, and say which key each of its jobs moved to.
+        for legacy, current in (('variable', 'data_item_name'),
+                                ('name_for_plotting', 'trace_name_for_plotting')):
+            if legacy in entry:
+                if current in entry:
+                    raise ValueError(
+                        f"data item sets both '{legacy}' and its replacement '{current}'. "
+                        f"Remove '{legacy}'.")
+                warnings.warn(LEGACY_OBS_KEY_ADVICE[legacy], DeprecationWarning, stacklevel=2)
+                entry[current] = entry.pop(legacy)
+
+        # Caught here rather than at parse time, which is where the uniqueness rule is
+        # enforced: by then the offending call is long gone, and the message can only name the
+        # collision, not the line that made it (#466).
+        existing = {i.get('data_item_name') for i in self.obs_data_dict.get('data_items', [])}
+        existing |= {i.get('data_item_name')
+                     for i in self.obs_data_dict.get('prediction_items', [])}
+        if entry.get('data_item_name') in existing:
+            raise ValueError(
+                f"data_item_name {entry['data_item_name']!r} is already used by another item. "
+                f"Each data_item and prediction_item needs its own name -- it is the item's "
+                f"identity and the key an operation_kwargs reference resolves against. The "
+                f"plotting label may repeat: put the shared spelling in "
+                f"'trace_name_for_plotting' instead.")
+
+        if 'trace_name_for_plotting' not in entry:
+            operands = entry.get('operands') or []
+            entry['trace_name_for_plotting'] = str(operands[0]) if operands \
+                else entry['data_item_name']
+        # check that trace_name_for_plotting only has one _ in it and remove if not
+        if entry['trace_name_for_plotting'].count('_') > 1:
+            print('Warning: trace_name_for_plotting contains multiple underscores, replacing with \_')
+            entry['trace_name_for_plotting'] = re.sub('_', r'\_', entry['trace_name_for_plotting'])
         if 'operation' not in entry:
             entry['operation'] = None # default to None if not provided
         if 'weight' not in entry:

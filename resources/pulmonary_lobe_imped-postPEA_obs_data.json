@@ -1,7 +1,7 @@
 {
   "data_items": [
     {
-      "variable": "LUL_A",
+      "data_item_name": "LUL_A",
       "data_type": "frequency",
       "operation": "division",
       "operands": [
@@ -9,7 +9,6 @@
         "LUL_A/v"
       ],
       "unit": "Js/m^6",
-      "obs_type": "frequency",
       "value": [
         316037706.32093406,
         110982102.18934214,
@@ -90,7 +89,7 @@
       ]
     },
     {
-      "variable": "LLL_A",
+      "data_item_name": "LLL_A",
       "data_type": "frequency",
       "operation": "division",
       "operands": [
@@ -98,7 +97,6 @@
         "LLL_A/v"
       ],
       "unit": "Js/m^6",
-      "obs_type": "frequency",
       "value": [
         141395333.88436136,
         141969294.95986336,
@@ -179,7 +177,7 @@
       ]
     },
     {
-      "variable": "RUL_A",
+      "data_item_name": "RUL_A",
       "data_type": "frequency",
       "operation": "division",
       "operands": [
@@ -187,7 +185,6 @@
         "RUL_A/v"
       ],
       "unit": "Js/m^6",
-      "obs_type": "frequency",
       "value": [
         251607071.9938823,
         146749989.54849076,
@@ -268,7 +265,7 @@
       ]
     },
     {
-      "variable": "RLL_A",
+      "data_item_name": "RLL_A",
       "data_type": "frequency",
       "operation": "division",
       "operands": [
@@ -276,7 +273,6 @@
         "RLL_A/v"
       ],
       "unit": "Js/m^6",
-      "obs_type": "frequency",
       "value": [
         159467579.8533869,
         119010637.87152216,
@@ -357,7 +353,7 @@
       ]
     },
     {
-      "variable": "RML_A",
+      "data_item_name": "RML_A",
       "data_type": "frequency",
       "operation": "division",
       "operands": [
@@ -365,7 +361,6 @@
         "RML_A/v"
       ],
       "unit": "Js/m^6",
-      "obs_type": "frequency",
       "value": [
         487490806.9170347,
         234376476.13755962,
@@ -446,7 +441,7 @@
       ]
     },
     {
-      "variable": "MPA_A",
+      "data_item_name": "MPA_A",
       "data_type": "frequency",
       "operation": "division",
       "operands": [
@@ -454,7 +449,6 @@
         "MPA_A/v"
       ],
       "unit": "Js/m^6",
-      "obs_type": "frequency",
       "value": [
         42465441.913323596,
         15594900.573929086,
@@ -535,7 +529,7 @@
       ]
     },
     {
-      "variable": "LPA_A",
+      "data_item_name": "LPA_A",
       "data_type": "frequency",
       "operation": "division",
       "operands": [
@@ -543,7 +537,6 @@
         "LPA_A/v"
       ],
       "unit": "Js/m^6",
-      "obs_type": "frequency",
       "value": [
         88715004.17678219,
         46798730.155258656,
@@ -624,7 +617,7 @@
       ]
     },
     {
-      "variable": "RPA_A",
+      "data_item_name": "RPA_A",
       "data_type": "frequency",
       "operation": "division",
       "operands": [
@@ -632,7 +625,6 @@
         "RPA_A/v"
       ],
       "unit": "Js/m^6",
-      "obs_type": "frequency",
       "value": [
         81411145.83976172,
         35928008.405382305,
@@ -713,7 +705,7 @@
       ]
     },
     {
-      "variable": "RBS_A",
+      "data_item_name": "division RBS_A",
       "data_type": "frequency",
       "operation": "division",
       "operands": [
@@ -721,7 +713,6 @@
         "RBS_A/v"
       ],
       "unit": "Js/m^6",
-      "obs_type": "frequency",
       "value": [
         120181315.78799023,
         70977393.13347721,
@@ -802,7 +793,7 @@
       ]
     },
     {
-      "variable": "RBS_A",
+      "data_item_name": "division RBS_A exp0",
       "data_type": "frequency",
       "operation": "division",
       "operands": [
@@ -810,7 +801,6 @@
         "RBS_A/v"
       ],
       "unit": "Js/m^6",
-      "obs_type": "frequency",
       "value": [
         120181315.78799023,
         70977393.13347721,
@@ -891,7 +881,7 @@
       ]
     },
     {
-      "variable": "LBS_A",
+      "data_item_name": "LBS_A",
       "data_type": "frequency",
       "operation": "division",
       "operands": [
@@ -899,7 +889,6 @@
         "LBS_A/v"
       ],
       "unit": "Js/m^6",
-      "obs_type": "frequency",
       "value": [
         123275288.18994457,
         100060765.99697301,
@@ -980,7 +969,7 @@
       ]
     },
     {
-      "variable": "stressed_volume_sum",
+      "data_item_name": "stressed_volume_sum",
       "data_type": "constant",
       "operation": "addition",
       "operands": [
@@ -991,7 +980,6 @@
         "RML/q_T"
       ],
       "unit": "Js/m^6",
-      "obs_type": "mean",
       "value": 0.0001,
       "std": 1e-05,
       "weight": 2

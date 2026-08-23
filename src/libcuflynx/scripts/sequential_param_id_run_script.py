@@ -119,7 +119,8 @@ def main(argv=None):
     parser = _cli.build_parser(
         'Staged parameter identification: fit, drop the parameters that prove unidentifiable, '
         'refit. NOT CURRENTLY IMPLEMENTED -- ' + _MISSING_MESSAGE)
-    parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    inp_data_dict = _cli.load_user_inputs(args)
 
     # Checked here, before any rank starts work, so that the missing implementation is one
     # line on stderr and a non-zero status -- not a traceback and an MPI_Abort from whichever
@@ -131,7 +132,8 @@ def main(argv=None):
             print('ERROR: %s' % exc, file=sys.stderr)
         return 2
 
-    return _cli.run_stage(run_sequential_param_id, MPI, finalize=False)
+    return _cli.run_stage(
+        lambda: run_sequential_param_id(inp_data_dict), MPI, finalize=False)
 
 
 if __name__ == '__main__':
