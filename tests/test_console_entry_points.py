@@ -336,8 +336,25 @@ def test_launcher_reports_a_missing_install_before_launching_mpi():
 
 # --- --user-inputs -------------------------------------------------------------------
 
+#: Console commands that are **not** pipeline stages, and so have no user_inputs.yaml to be
+#: pointed at. The two tests below are table-driven off ``[project.scripts]`` so that a new
+#: stage cannot be added without being covered -- which is right, but it also means a one-off
+#: utility declared there is asserted to take an option that would mean nothing to it.
+#:
+#: Named rather than inferred: "does this command have a configuration file" is a fact about
+#: what the command is for, and guessing it from the module path or from the parser would let
+#: the test pass for a stage that simply forgot the option.
+#:
+#: ``cuflynx-migrate-obs-data`` (arriving with #466) rewrites obs_data files given a path. A
+#: name here that is not in [project.scripts] is never reached, so this may name a command
+#: before the PR adding it lands.
+NON_STAGE_COMMANDS = {
+    "cuflynx-migrate-obs-data",
+}
+
+
 @pytest.mark.unit
-@pytest.mark.parametrize("name", sorted(PROJECT_SCRIPTS))
+@pytest.mark.parametrize("name", sorted(set(PROJECT_SCRIPTS) - NON_STAGE_COMMANDS))
 def test_entry_point_offers_user_inputs(name):
     """Every stage takes ``--user-inputs``, and says so.
 
@@ -355,7 +372,7 @@ def test_entry_point_offers_user_inputs(name):
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("name", sorted(PROJECT_SCRIPTS))
+@pytest.mark.parametrize("name", sorted(set(PROJECT_SCRIPTS) - NON_STAGE_COMMANDS))
 def test_entry_point_reports_a_missing_user_inputs_file(name):
     """A bad path fails immediately, by name -- not once a rank is deep in a run."""
     module = PROJECT_SCRIPTS[name].split(":")[0]
