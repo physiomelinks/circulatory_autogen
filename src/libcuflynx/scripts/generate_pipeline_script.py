@@ -483,22 +483,21 @@ def main():
 
         trainer = EmulatorTrainer.init_from_dict(inp)
         bundle = trainer.train()
-        # autoemulate can fail every candidate model -- too few training samples,
-        # most often -- and still return, so an unchecked run reports success
-        # having trained nothing, and the next stage loads a bundle that is not
-        # there.
-        if bundle is None:
-            sys.exit(
-                "emulator training produced no model. Raise "
-                "emulator_settings.num_train_samples: autoemulate needs enough "
-                "points to fit and cross-validate (n_splits and test_fraction "
-                "both eat into them)."
-            )
-        rows = sorted(bundle.error_stats(),
-                      key=lambda r: (r.get("r2") is None, r.get("r2", 0.0)))
-        print("  worst held-out R2 per feature:", flush=True)
-        for row in rows[:10]:
-            print("    %-44s %s" % (str(row.get("label"))[:44], row.get("r2")),
+
+        # train() returns the bundle on rank 0 and None everywhere else -- only
+        # rank 0 fits. So only rank 0 can report on it: checking the return on
+        # every rank would have each non-root rank decide nothing was trained.
+        # A failure to fit raises rather than returning None, so there is nothing
+        # to test for here beyond that.
+        if getattr(trainer, "rank", 0) == 0 and bundle is not None:
+            rows = sorted(bundle.error_stats(),
+                          key=lambda r: (r.get("r2") is None, r.get("r2", 0.0)))
+            print("  worst held-out R2 per feature:", flush=True)
+            for row in rows[:10]:
+                print("    %-44s %s" % (str(row.get("label"))[:44], row.get("r2")),
+                      flush=True)
+            print("  min_r2 refuses an emulator below it at use time; raise "
+                  "emulator_settings.num_train_samples if these are weak.",
                   flush=True)
 
     # ---- 3) Sensitivity analysis ------------------------------------------

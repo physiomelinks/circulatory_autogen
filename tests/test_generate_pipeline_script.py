@@ -191,7 +191,25 @@ def test_generated_script_trains_an_emulator():
     src = gps.render_pipeline_script()
     assert "EmulatorTrainer" in src
     assert "num_train_samples" in src, (
-        "a training run that fits nothing should say which setting to raise")
+        "weak features should say which setting to raise")
+
+
+@pytest.mark.unit
+def test_only_rank_zero_reports_on_the_emulator():
+    """train() returns the bundle on rank 0 and None everywhere else, by design.
+
+    Reading the return on every rank would have each non-root rank conclude that
+    nothing was trained -- under mpiexec that is N-1 ranks tearing the job down
+    while rank 0 is still fitting.
+    """
+    src = gps.render_pipeline_script()
+    stage = src.split("2) Emulator training")[1].split("3) Sensitivity")[0]
+
+    assert 'getattr(trainer, "rank", 0) == 0' in stage, (
+        "the emulator stage must gate its reporting on rank 0")
+    assert "sys.exit(" not in stage, (
+        "a non-root rank must not exit on a None bundle -- that is the expected "
+        "return there")
 
 
 @pytest.mark.unit
