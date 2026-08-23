@@ -16,8 +16,8 @@
   "prediction_items": [],
   "data_items": [
     {
-      "variable": "benchmark/x",
-      "name_for_plotting": "x_{SS}",
+      "data_item_name": "benchmark/x",
+      "trace_name_for_plotting": "x_{SS}",
       "data_type": "constant",
       "operation": "steady_state_avg",
       "operands": [
@@ -45,8 +45,8 @@
       }
     },
     {
-      "variable": "benchmark/y",
-      "name_for_plotting": "y_{SS}",
+      "data_item_name": "benchmark/y",
+      "trace_name_for_plotting": "y_{SS}",
       "data_type": "constant",
       "operation": "steady_state_avg",
       "operands": [

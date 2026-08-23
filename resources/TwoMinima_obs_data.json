@@ -16,8 +16,8 @@
   "prediction_items": [],
   "data_items": [
     {
-      "variable": "twomin/x",
-      "name_for_plotting": "x_{SS}",
+      "data_item_name": "twomin/x",
+      "trace_name_for_plotting": "x_{SS}",
       "data_type": "constant",
       "operation": "steady_state_avg",
       "operands": [

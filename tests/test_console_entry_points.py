@@ -39,6 +39,7 @@ EXPECTED_ENTRY_POINTS = {
     "cuflynx-train-emulator",
     "cuflynx-plot",
     "cuflynx-generate-pipeline",
+    "cuflynx-migrate-obs-data",
 }
 
 

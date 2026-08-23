@@ -1,0 +1,61 @@
+{
+  "protocol_info": {
+    "pre_times": [0.0, 0.0],
+    "sim_times": [[5.0], [5.0]],
+    "params_to_change": {
+      "Lotka_Volterra_module/u_alpha": [[0.0], [2.0]]
+    },
+    "experiment_colors": ["r", "b"],
+    "experiment_labels": ["u_alpha = 0", "u_alpha = 2.0"]
+  },
+  "prediction_items": [],
+  "data_items": [
+    {
+      "data_item_name": "peak prey, unforced",
+      "trace_name_for_plotting": "x",
+      "data_type": "constant",
+      "operation": "max",
+      "operands": ["Lotka_Volterra_module/x"],
+      "unit": "dimensionless",
+      "weight": 1.0,
+      "value": 23.6222919906,
+      "std": 0.5,
+      "experiment_idx": 0,
+      "subexperiment_idx": 0,
+      "plot_type": "horizontal"
+    },
+    {
+      "data_item_name": "peak prey, forced",
+      "trace_name_for_plotting": "x",
+      "data_type": "constant",
+      "operation": "max",
+      "operands": ["Lotka_Volterra_module/x"],
+      "unit": "dimensionless",
+      "weight": 1.0,
+      "value": 21.579257613,
+      "std": 0.5,
+      "experiment_idx": 1,
+      "subexperiment_idx": 0,
+      "plot_type": "horizontal"
+    },
+    {
+      "comment": "The quantity actually known: how much forcing lifts the peak. pred2 - pred1, and pred1 names an item in experiment 0 while this item lives in experiment 1 (#466).",
+      "data_item_name": "peak prey, forcing response",
+      "trace_name_for_plotting": "\\Delta x",
+      "data_type": "constant",
+      "operation": "calculate_two_observable_difference",
+      "operands": [""],
+      "operation_kwargs": {
+        "pred1": "peak prey, unforced",
+        "pred2": "peak prey, forced"
+      },
+      "unit": "dimensionless",
+      "weight": 1.0,
+      "value": -2.0430343776,
+      "std": 0.5,
+      "experiment_idx": 1,
+      "subexperiment_idx": 0,
+      "plot_type": "horizontal"
+    }
+  ]
+}

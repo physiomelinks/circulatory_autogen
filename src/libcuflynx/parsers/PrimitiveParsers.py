@@ -24,7 +24,9 @@ import re
 from datetime import date
 
 from libcuflynx.utilities.protocol_shapes import materialise_shapes, validate_trace_references
-from libcuflynx.utilities.obs_data_helpers import (DEFAULT_COST_TYPE, PREVIOUS_DEFAULT_COST_TYPE,
+from libcuflynx.utilities.obs_data_helpers import (LEGACY_OBS_ITEM_KEYS, LEGACY_OBS_KEY_ADVICE,
+                                        migrate_legacy_obs_item_keys,
+                                        DEFAULT_COST_TYPE, PREVIOUS_DEFAULT_COST_TYPE,
                                         VALID_DATA_TYPES)
 from libcuflynx.param_id.modifier_funcs import (BUILTIN_MODIFIER_FUNCS, get_modifier_funcs,
                                      probe_affine)
@@ -646,6 +648,96 @@ DEFAULT_PARAM_MODIFIER = 'scale'
 # *parameters* is a modifier. Kept as aliases so #378-era importers keep working.
 PARAM_MODIFIER_OPERATIONS = PARAM_MODIFIERS
 DEFAULT_PARAM_MODIFIER_OPERATION = DEFAULT_PARAM_MODIFIER
+
+
+def migrate_legacy_obs_columns(gt_df):
+    """Rename an obs dataframe's superseded columns, warning once per column.
+
+    The dataframe twin of ``migrate_legacy_obs_item_keys``: that one runs on the entries parsed
+    out of a JSON file, this one on a frame a caller assembled itself. Both entry points then
+    see the same vocabulary. Returns the frame (renamed to a copy when anything changed).
+    """
+    if gt_df is None or not hasattr(gt_df, 'columns'):
+        return gt_df
+    for legacy, current in LEGACY_OBS_ITEM_KEYS.items():
+        if legacy not in gt_df.columns:
+            continue
+        if current in gt_df.columns:
+            raise ValueError(
+                f"data_items set both '{legacy}' and its replacement '{current}'. "
+                f"Remove '{legacy}'. {LEGACY_OBS_KEY_ADVICE[legacy]}")
+        warnings.warn(f"data_items: {LEGACY_OBS_KEY_ADVICE[legacy]}",
+                      DeprecationWarning, stacklevel=3)
+        gt_df = gt_df.rename(columns={legacy: current})
+    return gt_df
+
+
+def check_data_item_names_unique(gt_df, prediction_info=None):
+    """Every item answers to one name, and no name answers to two items.
+
+    ``data_item_name`` is what an ``operation_kwargs`` value naming another item resolves
+    against (#466), so a repeat is not a cosmetic clash: the reference silently takes whichever
+    item was evaluated last. That is exactly how the shipped 3compartment extra-ops example came
+    to compute ``max - max`` (a constant 0.0) where it meant ``max - mean``, with every test
+    still passing. Checked across data_items *and* prediction_items, since a reference does not
+    care which list an item came from.
+    """
+    counts = {}
+    if gt_df is not None and len(gt_df) and "data_item_name" in gt_df.columns:
+        for name in gt_df["data_item_name"].tolist():
+            counts.setdefault(str(name), []).append("data_items")
+    for name in ((prediction_info or {}).get("data_item_names") or []):
+        counts.setdefault(str(name), []).append("prediction_items")
+
+    duplicated = {name: where for name, where in counts.items() if len(where) > 1}
+    if duplicated:
+        detail = "; ".join(
+            f"{name!r} x{len(where)} (in {', '.join(sorted(set(where)))})"
+            for name, where in sorted(duplicated.items()))
+        raise ValueError(
+            f"Duplicate 'data_item_name' in obs_data: {detail}. Each data_item and "
+            f"prediction_item needs its own name -- it is the item's identity and the key an "
+            f"operation_kwargs reference resolves against, so a repeat makes a reference "
+            f"ambiguous and silently picks whichever was evaluated last. Note this is not the "
+            f"plotting label: 'trace_name_for_plotting' may repeat freely (the mean and the max "
+            f"of one trace share it).")
+
+
+def default_trace_names_for_plotting(gt_df):
+    """Column of ``trace_name_for_plotting`` defaults: the first operand, i.e. the model variable
+    whose trace would be drawn. Falls back to the item's name for an item with no operand (one
+    built purely from other items' values, such as a difference of two observables)."""
+    # Tolerates either column being absent: both are REQUIRED, and the schema loop reports
+    # that with a message naming the rename -- but only if this default does not KeyError first.
+    if "data_item_name" not in gt_df.columns:
+        return ['' for _ in range(len(gt_df))]
+    operand_col = gt_df["operands"] if "operands" in gt_df.columns else [None] * len(gt_df)
+    names = []
+    for operands, item_name in zip(operand_col, gt_df["data_item_name"]):
+        first = ''
+        if isinstance(operands, (list, tuple, np.ndarray)) and len(operands):
+            first = str(operands[0])
+        names.append(first or str(item_name))
+    return names
+
+
+def default_item_names_for_plotting(gt_df):
+    """Column of ``item_name_for_plotting`` defaults. See ``default_item_name_for_plotting``."""
+    return [default_item_name_for_plotting(trace, operation)
+            for trace, operation in zip(gt_df["trace_name_for_plotting"], gt_df["operation"])]
+
+
+def default_item_name_for_plotting(trace_name, operation):
+    """The label an obs_data item carries when it does not state ``item_name_for_plotting``.
+
+    ``trace_name`` names the *series*; the operation is what turns that series into the scalar
+    feature the item actually is, so the item's label is the pair. An item with no operation is
+    the series itself, and gets the trace's name unchanged rather than a dangling ``(None)``.
+    """
+    trace_name = '' if trace_name is None else str(trace_name)
+    if operation is None or str(operation).strip() in ('', 'None', 'none', 'Null', 'null', 'nan'):
+        return trace_name
+    return f'{trace_name} ({operation})'
 
 
 def _modifier_name(mod):
@@ -3102,7 +3194,7 @@ class ObsAndParamDataParser(object):
                 return 0
 
             def _normalize_series_std(item, y_arr=None):
-                var = item.get("variable", "<unknown>")
+                var = item.get("data_item_name", "<unknown>")
                 if "std" not in item or _is_missing_scalar(item.get("std")):
                     raise ValueError(
                         f"Series data item {var!r} requires 'std' in the JSON "
@@ -3187,7 +3279,7 @@ class ObsAndParamDataParser(object):
                     vm_path = item.pop("vm_path", None)
                     im_path = item.pop("im_path", None)
                     if vm_path or im_path:
-                        var = str(item.get("variable", ""))
+                        var = str(item.get("data_item_name", ""))
                         if "I_tot" in var or var.endswith("/I_tot_pA"):
                             value_path = im_path or vm_path
                         else:
@@ -3207,7 +3299,7 @@ class ObsAndParamDataParser(object):
                         if vp is None:
                             vm_p = src.pop("vm_path", None)
                             im_p = src.pop("im_path", None)
-                            var = str(item.get("variable", ""))
+                            var = str(item.get("data_item_name", ""))
                             if "I_tot" in var or var.endswith("/I_tot_pA"):
                                 vp = im_p or vm_p
                             else:
@@ -3223,7 +3315,7 @@ class ObsAndParamDataParser(object):
                         item.pop("source", None)
 
                 if _has_embedded_series_value(item) and (t_path or value_path):
-                    var = item.get("variable", "<unknown>")
+                    var = item.get("data_item_name", "<unknown>")
                     raise ValueError(
                         f"Series data item {var!r} specifies both embedded 'value' "
                         f"and 't_path'/'value_path' (.npy files). Use one source only: "
@@ -3254,11 +3346,13 @@ class ObsAndParamDataParser(object):
 
         # --- Case 1: Simple list of data items ---
         if type(json_obj) == list:
-            gt_df = pd.DataFrame(json_obj)
+            gt_df = pd.DataFrame(migrate_legacy_obs_item_keys(json_obj, 'data_items'))
             protocol_info = {"pre_times": [pre_time], 
                              "sim_times": [[sim_time]],
                              "params_to_change": {}}
-            prediction_info = {'names': [], 'units': [], 'names_for_plotting': [], 'experiment_idxs': []}
+            prediction_info = {'names': [], 'units': [], 'data_item_names': [],
+                               'names_for_plotting': [], 'item_names_for_plotting': [],
+                               'experiment_idxs': []}
             
 
         # --- Case 2: Dictionary structure ---
@@ -3266,6 +3360,7 @@ class ObsAndParamDataParser(object):
             # Load Data Items (gt_df)
             if 'data_items' in json_obj.keys() or 'data_item' in json_obj.keys():
                 data_items = json_obj.get('data_items', json_obj.get('data_item', []))
+                data_items = migrate_legacy_obs_item_keys(data_items, 'data_items')
                 data_items = _hydrate_series_data_items(data_items)
                 gt_df = pd.DataFrame(data_items)
             else:
@@ -3346,14 +3441,29 @@ class ObsAndParamDataParser(object):
                         f"prediction_items must be a list of dict entries, got {type(prediction_items)}"
                     )
 
+                prediction_items = migrate_legacy_obs_item_keys(
+                    prediction_items, 'prediction_items', variable_was_the_operand=True)
+
+                # A prediction_item is a data_item without a ground truth, so it carries the
+                # same names. Its `operands` is the single model variable to record; the
+                # legacy spelling was `variable`, which also named the item (#466).
                 prediction_entry_schema = {
-                    "variable": {"types": (str,), "default": REQUIRED},
+                    "data_item_name": {"types": (str,), "default": REQUIRED},
+                    "operands": {"types": (list, tuple, np.ndarray), "default": REQUIRED},
                     "unit": {"types": (str,), "default": REQUIRED},
-                    "name_for_plotting": {"types": (str,), "default": lambda entry: entry["variable"]},
+                    "trace_name_for_plotting": {
+                        "types": (str,),
+                        "default": lambda entry: str((entry.get("operands") or [''])[0])
+                        or str(entry.get("data_item_name", ''))},
+                    "item_name_for_plotting": {
+                        "types": (str,),
+                        "default": lambda entry: str(entry.get("trace_name_for_plotting", ''))},
                     "experiment_idx": {"types": (int, np.integer), "default": 0},
                 }
 
-                prediction_info = {'names': [], 'units': [], 'names_for_plotting': [], 'experiment_idxs': []}
+                prediction_info = {'names': [], 'units': [], 'data_item_names': [],
+                               'names_for_plotting': [], 'item_names_for_plotting': [],
+                               'experiment_idxs': []}
                 for entry_idx, raw_entry in enumerate(prediction_items):
                     if not isinstance(raw_entry, dict):
                         raise ValueError(
@@ -3393,12 +3503,18 @@ class ObsAndParamDataParser(object):
                             "Invalid prediction_items value types:\n" + "\n".join(pred_type_errors)
                         )
 
-                    prediction_info['names'].append(entry['variable'])
+                    prediction_info['names'].append(str(entry['operands'][0]))
                     prediction_info['units'].append(entry['unit'])
-                    prediction_info['names_for_plotting'].append(entry['name_for_plotting'])
+                    prediction_info['data_item_names'].append(entry['data_item_name'])
+                    prediction_info['names_for_plotting'].append(
+                        entry['trace_name_for_plotting'])
+                    prediction_info['item_names_for_plotting'].append(
+                        entry['item_name_for_plotting'])
                     prediction_info['experiment_idxs'].append(entry['experiment_idx'])
             else:
-                prediction_info = {'names': [], 'units': [], 'names_for_plotting': [], 'experiment_idxs': []}
+                prediction_info = {'names': [], 'units': [], 'data_item_names': [],
+                               'names_for_plotting': [], 'item_names_for_plotting': [],
+                               'experiment_idxs': []}
             
         else:
             print(f"Error: unknown data type for imported json object of {type(json_obj)}")
@@ -3407,13 +3523,25 @@ class ObsAndParamDataParser(object):
         # Fill common optional fields so downstream processing can rely on defaults.
         if gt_df is not None:
             schema = {
-                "variable": {"types": (str,), "default": REQUIRED},
-                "name_for_plotting": {"types": (str,), "default": lambda df: df["variable"]},
+                # The item's identity. Unique across data_items and prediction_items, because
+                # it is what an operation_kwargs value naming another item resolves against
+                # (#466) -- two items answering to one name means a reference silently picks
+                # whichever was computed last. Spelled `variable` before #466, which also stood
+                # in as the operand; that fallback is gone and `operands` is required.
+                "data_item_name": {"types": (str,), "default": REQUIRED},
                 "data_type": {"types": (str,), "default": REQUIRED},
                 "unit": {"types": (str,), "default": REQUIRED},
                 "weight": {"types": (int, float, np.integer, np.floating, list, np.ndarray), "default": 1.0},
                 "operands": {"types": (list, tuple, np.ndarray), "default": REQUIRED},
                 "operation": {"types": (str,), "default": None},
+                # Two labels, because the old `name_for_plotting` named two things. The trace name
+                # is the axis label of the series; the item name is the label of the scalar the
+                # operation reduces it to, and is what a sensitivity table lists. Deliberately
+                # allowed to repeat -- the mean and the max of one trace share a trace name.
+                "trace_name_for_plotting": {"types": (str,),
+                                            "default": default_trace_names_for_plotting},
+                "item_name_for_plotting": {"types": (str,),
+                                           "default": default_item_names_for_plotting},
                 "operation_kwargs": {"types": (dict,), "default": lambda df: [{} for _ in range(len(df))]},
                 # Extra keyword arguments for the data_item's cost_type func (issue #84), the
                 # cost-side counterpart of operation_kwargs. std and weight are supplied by CA
@@ -3448,6 +3576,10 @@ class ObsAndParamDataParser(object):
                 "value_path": {"types": (str,), "default": None},
             }
 
+            # A gt_df handed in directly has not been through migrate_legacy_obs_item_keys,
+            # and building one in python is a supported way to drive a run (#466).
+            gt_df = migrate_legacy_obs_columns(gt_df)
+
             unknown_cols = sorted(set(gt_df.columns) - set(schema.keys()))
             if len(unknown_cols) > 0:
                 raise ValueError(
@@ -3461,7 +3593,7 @@ class ObsAndParamDataParser(object):
             # what an obs_data generated from a model's own protocol looks like
             # before its targets are added. There is nothing to validate, and the
             # column defaults below are derived from other columns -- so on an
-            # empty frame they raised KeyError: 'variable' instead.
+            # empty frame they raised KeyError: 'data_item_name' instead.
             for col, rules in ({} if len(gt_df) == 0 else schema).items():
                 allowed = rules["types"]
                 default = rules["default"]
@@ -3493,8 +3625,14 @@ class ObsAndParamDataParser(object):
                         )
 
             if len(missing_required_cols) > 0:
+                hint = ""
+                if "data_item_name" in missing_required_cols:
+                    hint += " " + LEGACY_OBS_KEY_ADVICE["variable"]
+                if "operands" in missing_required_cols:
+                    hint += (" Every data_item states the model variable(s) it reduces in "
+                             "'operands', as a list.")
                 raise ValueError(
-                    f"Missing required data_item keys: {sorted(missing_required_cols)}"
+                    f"Missing required data_item keys: {sorted(missing_required_cols)}.{hint}"
                 )
 
             # An obs_data with no data_items is valid -- a protocol-only file says how to drive
@@ -3524,7 +3662,7 @@ class ObsAndParamDataParser(object):
                 absent = [key for key in ("value", "std") if _is_missing_scalar(row[key])]
                 if absent:
                     missing_ground_truth.append(
-                        f"'{row['name_for_plotting']}' (cost_type '{row['cost_type']}') is "
+                        f"'{row['data_item_name']}' (cost_type '{row['cost_type']}') is "
                         f"missing {' and '.join(absent)}")
             if missing_ground_truth:
                 raise ValueError(
@@ -3546,6 +3684,8 @@ class ObsAndParamDataParser(object):
             method=method,
         )
 
+        check_data_item_names_unique(gt_df, prediction_info)
+
         return {
             "gt_df": gt_df, 
             "protocol_info": protocol_info, 
@@ -3558,11 +3698,20 @@ class ObsAndParamDataParser(object):
         plotting defaults, operations, and kwargs from the ground truth dataframe.
         """
         obs_info = {}
-        
+
+        # `process_obs_info` is a public entry point -- a caller can hand it a gt_df it built
+        # itself, without going through parse_obs_data_json. Accept the superseded column names
+        # here as well, so the two ways in take the same vocabulary (#466). A no-op once the
+        # parse path has already renamed them.
+        gt_df = migrate_legacy_obs_columns(gt_df)
+
         # --- Simple Array Generation ---
         N = gt_df.shape[0]
         
-        obs_info["obs_names"] = gt_df["variable"].tolist()
+        # obs_names is the item identity, and doubles as the key an operation_kwargs
+        # reference to another item resolves against (#466).
+        obs_info["obs_names"] = gt_df["data_item_name"].tolist()
+        obs_info["data_item_names"] = obs_info["obs_names"]
         obs_info["data_types"] = gt_df["data_type"].tolist()
         obs_info["units"] = gt_df["unit"].tolist()
         obs_info["experiment_idxs"] = [gt_df.iloc[II].get("experiment_idx", 0) for II in range(N)]
@@ -3603,7 +3752,17 @@ class ObsAndParamDataParser(object):
         obs_info["operation_kwargs"] = [gt_df.iloc[II].get("operation_kwargs", {}) for II in range(N)]
         obs_info["cost_kwargs"] = [gt_df.iloc[II].get("cost_kwargs", {}) for II in range(N)]
         obs_info["freqs"] = [gt_df.iloc[II].get("frequencies") for II in range(N)]
-        obs_info["names_for_plotting"] = [gt_df.iloc[II].get("name_for_plotting", obs_info["obs_names"][II]) for II in range(N)]
+        obs_info["trace_names_for_plotting"] = [
+            gt_df.iloc[II].get("trace_name_for_plotting", obs_info["obs_names"][II])
+            for II in range(N)]
+        obs_info["item_names_for_plotting"] = [
+            gt_df.iloc[II].get("item_name_for_plotting",
+                               obs_info["trace_names_for_plotting"][II])
+            for II in range(N)]
+        # Deprecated alias. `name_for_plotting` named two things; the one nearly every reader
+        # wanted was the item's label, so that is what the old key now resolves to. Removed in
+        # 0.5.0 -- read item_names_for_plotting or trace_names_for_plotting instead.
+        obs_info["names_for_plotting"] = obs_info["item_names_for_plotting"]
 
         for II in range(N):
             op = gt_df.iloc[II].get("operation")
@@ -3617,9 +3776,17 @@ class ObsAndParamDataParser(object):
                 if obs_type in ["series", "frequency"]:
                     obs_info["operations"].append(None)
                     obs_info["operands"].append(operands)
-                elif obs_type in ["min", "max", "mean"]: 
+                elif obs_type in ["min", "max", "mean"]:
+                    # `obs_type` used to imply the operation *and* take its operand from
+                    # `variable`. The operation half still works; the operand half does not,
+                    # because `variable` no longer names a model variable (#466).
+                    if not operands:
+                        raise ValueError(
+                            f"data_item {gt_df.iloc[II]['data_item_name']!r} sets "
+                            f"obs_type {obs_type!r} with no 'operands'. "
+                            + LEGACY_OBS_KEY_ADVICE["variable"])
                     obs_info["operations"].append(obs_type)
-                    obs_info["operands"].append([gt_df.iloc[II]["variable"]])
+                    obs_info["operands"].append(operands)
                 else:
                     obs_info["operations"].append(None)
                     obs_info["operands"].append(operands)
@@ -3648,7 +3815,7 @@ class ObsAndParamDataParser(object):
         # obs_data omits cost_type is now scored differently than it was. Say so once, naming
         # the items and how to keep the old behaviour -- a silent re-scoring is exactly the
         # kind of change that makes an old result irreproducible with no sign anything moved.
-        defaulted = [str(gt_df.iloc[II].get("variable", II)) for II in range(N)
+        defaulted = [str(gt_df.iloc[II].get("data_item_name", II)) for II in range(N)
                      if not gt_df.iloc[II].get("cost_type")]
         if defaulted and DEFAULT_COST_TYPE != PREVIOUS_DEFAULT_COST_TYPE:
             warnings.warn(

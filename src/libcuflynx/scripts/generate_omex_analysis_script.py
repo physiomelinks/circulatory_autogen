@@ -168,8 +168,8 @@ def build_sensitivity_obs_data_dict(series_obs_data_dict):
         for op_name, reducer in (("mean", np.mean), ("max", np.max)):
             feature_value = float(reducer(values))
             sa_data_items.append({
-                "variable": item["variable"] + "_" + op_name,
-                "name_for_plotting": item["name_for_plotting"] + "_" + op_name,
+                "data_item_name": item["data_item_name"] + "_" + op_name,
+                "trace_name_for_plotting": item["trace_name_for_plotting"],
                 "data_type": "constant",
                 "unit": item["unit"],
                 "weight": item.get("weight", 1.0),

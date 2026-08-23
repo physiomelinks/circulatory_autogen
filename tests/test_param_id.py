@@ -1602,9 +1602,9 @@ def test_param_id_lotka_volterra_sp_minimize_gt_vs_calculated_params(base_user_i
             obs_data = json.load(f)
 
         for item in obs_data["data_items"]:
-            if item["variable"] == "Lotka_Volterra/x":
+            if item["data_item_name"] == "Lotka_Volterra/x":
                 item["value"] = round(float(noisy_x.max()), 2) 
-            elif item["variable"] == "Lotka_Volterra/y":
+            elif item["data_item_name"] == "Lotka_Volterra/y":
                 item["value"] = round(float(noisy_y.max()), 2)
 
         obs_data_path = os.path.join(temp_output_dir, 'Lotka_Volterra_obs_data.json')
@@ -2736,7 +2736,7 @@ def test_param_id_lotka_volterra_sp_minimize_numpy_only_operation(base_user_inpu
             obs_data = json.load(f)
 
         for item in obs_data["data_items"]:
-            if item["variable"] == "Lotka_Volterra/x":
+            if item["data_item_name"] == "Lotka_Volterra/x":
                 item["operation"] = undefined_operation
 
         obs_data_path = os.path.join(temp_output_dir, 'Lotka_Volterra_synthetic_obs_data.json')
@@ -3218,7 +3218,7 @@ def test_parse_obs_data_json_rejects_value_and_npy_paths(tmp_path):
         "prediction_items": [],
         "data_items": [
             {
-                "variable": "test_var",
+                "data_item_name": "test_var",
                 "data_type": "series",
                 "operands": ["model/x"],
                 "unit": "1",
@@ -3255,7 +3255,7 @@ def test_parse_obs_data_json_series_std_scalar_from_npy_paths(tmp_path):
         "prediction_items": [],
         "data_items": [
             {
-                "variable": "test_var",
+                "data_item_name": "test_var",
                 "data_type": "series",
                 "operands": ["model/x"],
                 "unit": "1",
@@ -3293,7 +3293,7 @@ def test_parse_obs_data_json_series_std_required_for_npy_paths(tmp_path):
         "prediction_items": [],
         "data_items": [
             {
-                "variable": "soma_SN/V_sensed",
+                "data_item_name": "soma_SN/V_sensed",
                 "data_type": "series",
                 "operands": ["model/x"],
                 "unit": "1",

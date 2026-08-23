@@ -19,6 +19,7 @@ somewhere to put them. User arguments come from a data_item's ``cost_kwargs`` ma
 """
 import inspect
 import math
+from libcuflynx.utilities.obs_data_helpers import obs_item_names
 
 
 # Supplied by circulatory_autogen itself from the obs data. A data_item's `cost_kwargs` must not
@@ -181,7 +182,7 @@ def validate_cost_kwargs(obs_info, cost_funcs_dict, cost_types):
     raw_list = obs_info.get("cost_kwargs") if obs_info else None
     if not raw_list:
         return
-    names = obs_info.get("names_for_plotting", []) or obs_info.get("names", [])
+    names = obs_item_names(obs_info) or obs_info.get("names", [])
     for i, raw in enumerate(raw_list):
         if not raw:
             continue

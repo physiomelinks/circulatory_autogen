@@ -73,8 +73,8 @@ def example_format_obs_data_json_file(output_path=None):
 
     # and make an entry
     entry = {}
-    entry['variable'] = 'NKE_pump/v_1'
-    entry['name_for_plotting'] = 'v1_{01}'
+    entry['data_item_name'] = 'NKE_pump/v_1 sub1'
+    entry['trace_name_for_plotting'] = 'v1_{01}'
     entry['data_type'] = 'series'
     entry['operation'] = None
     entry['operands'] = ['NKE_pump/v_1']
@@ -91,8 +91,8 @@ def example_format_obs_data_json_file(output_path=None):
     dt = 0.5
 
     entry = {}
-    entry['variable'] = 'NKE_pump/v_1'
-    entry['name_for_plotting'] = 'v1_{00}'
+    entry['data_item_name'] = 'NKE_pump/v_1 sub0'
+    entry['trace_name_for_plotting'] = 'v1_{00}'
     entry['data_type'] = 'series'
     entry['operation'] = None
     entry['operands'] = ['NKE_pump/v_1']
