@@ -1,12 +1,16 @@
-{"data_items": 
-  [
-    { "data_item_name": "leg_L_T/v", "operands": ["leg_L_T/v"],
+{
+  "data_items": [
+    {
+      "data_item_name": "leg_L_T/v",
+      "operands": [
+        "leg_L_T/v"
+      ],
       "data_type": "constant",
       "unit": "m3_per_s",
       "weight": 1.0,
-      "obs_type": "mean",
-      "value": 7.327e-6,
-      "std": 7.327e-7
+      "value": 7.327e-06,
+      "std": 7.327e-07,
+      "operation": "mean"
     },
     {
       "data_item_name": "stressed_volume_sum",
@@ -19,7 +23,6 @@
         "heart/q_RA"
       ],
       "unit": "Js/m^6",
-      "obs_type": "mean",
       "value": 0.0001,
       "std": 1e-05,
       "weight": 2

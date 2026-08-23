@@ -1,75 +1,108 @@
-{"data_items": [
-    { "data_item_name": "max aortic_root/u", "operands": ["aortic_root/u"],
+{
+  "data_items": [
+    {
+      "data_item_name": "max aortic_root/u",
+      "operands": [
+        "aortic_root/u"
+      ],
       "data_type": "constant",
       "unit": "J_per_m3",
       "trace_name_for_plotting": "p_{AoRt}",
       "weight": 2.0,
-      "obs_type": "max",
       "value": 9593,
-      "std": 959.3
+      "std": 959.3,
+      "operation": "max"
     },
-    { "data_item_name": "min aortic_root/u", "operands": ["aortic_root/u"],
+    {
+      "data_item_name": "min aortic_root/u",
+      "operands": [
+        "aortic_root/u"
+      ],
       "data_type": "constant",
       "unit": "J_per_m3",
       "trace_name_for_plotting": "p_{AoRt}",
       "weight": 2.0,
-      "obs_type": "min",
       "value": 5996,
-      "std": 599.6
+      "std": 599.6,
+      "operation": "min"
     },
-    { "data_item_name": "mean aortic_root/u", "operands": ["aortic_root/u"],
+    {
+      "data_item_name": "mean aortic_root/u",
+      "operands": [
+        "aortic_root/u"
+      ],
       "data_type": "constant",
       "unit": "J_per_m3",
       "trace_name_for_plotting": "p_{AoRt}",
       "weight": 1.0,
-      "obs_type": "mean",
       "value": 7595,
-      "std": 759.5
+      "std": 759.5,
+      "operation": "mean"
     },
-    { "data_item_name": "aortic_root/v", "operands": ["aortic_root/v"],
+    {
+      "data_item_name": "aortic_root/v",
+      "operands": [
+        "aortic_root/v"
+      ],
       "data_type": "constant",
       "unit": "m3_per_s",
       "trace_name_for_plotting": "v_{AoRt}",
       "weight": 1.0,
-      "obs_type": "max",
-      "value": 7.276e-5,
-      "std": 7.276e-6
+      "value": 7.276e-05,
+      "std": 7.276e-06,
+      "operation": "max"
     },
-    { "data_item_name": "min heart/u_lv", "operands": ["heart/u_lv"],
+    {
+      "data_item_name": "min heart/u_lv",
+      "operands": [
+        "heart/u_lv"
+      ],
       "data_type": "constant",
       "unit": "J_per_m3",
       "trace_name_for_plotting": "p_{lv}",
       "weight": 1.0,
-      "obs_type": "min",
       "value": 799.44,
-      "std": 79.944
+      "std": 79.944,
+      "operation": "min"
     },
-    { "data_item_name": "max heart/u_lv", "operands": ["heart/u_lv"],
+    {
+      "data_item_name": "max heart/u_lv",
+      "operands": [
+        "heart/u_lv"
+      ],
       "data_type": "constant",
       "unit": "J_per_m3",
       "trace_name_for_plotting": "p_{lv}",
       "weight": 1.0,
-      "obs_type": "max",
       "value": 10392.72,
-      "std": 1039.272
+      "std": 1039.272,
+      "operation": "max"
     },
-    { "data_item_name": "max heart/q_lv", "operands": ["heart/q_lv"],
+    {
+      "data_item_name": "max heart/q_lv",
+      "operands": [
+        "heart/q_lv"
+      ],
       "data_type": "constant",
       "unit": "m3",
       "trace_name_for_plotting": "q_{lv}",
       "weight": 1.0,
-      "obs_type": "max",
-      "value": 17e-6,
-      "std": 17e-7
+      "value": 1.7e-05,
+      "std": 1.7e-06,
+      "operation": "max"
     },
-    { "data_item_name": "min heart/q_lv", "operands": ["heart/q_lv"],
+    {
+      "data_item_name": "min heart/q_lv",
+      "operands": [
+        "heart/q_lv"
+      ],
       "data_type": "constant",
       "unit": "m3",
       "trace_name_for_plotting": "q_{lv}",
       "weight": 1.0,
-      "obs_type": "min",
-      "value": 8e-6,
-      "std": 8e-7
+      "value": 8e-06,
+      "std": 8e-07,
+      "operation": "min"
     }
   ]
 }

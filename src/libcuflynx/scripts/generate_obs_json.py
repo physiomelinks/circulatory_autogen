@@ -25,12 +25,20 @@ ml_per_s_to_m3_per_s = 1e-6
 ml_to_m3 = 1e-6
 
 # list of dictionaries to save as json file
-variable_list = ['v_ao', 'u_LV', 'u_LV']
+# The model variable each item reduces. `operands` is required, and is a list because an
+# operation may take more than one.
+operands = [['v_ao'], ['u_LV'], ['u_LV']]
+# The item's identity, and what an operation_kwargs reference resolves against (#466). It must
+# be **unique** -- note the last two items are both built from u_LV, so they cannot both be
+# called 'u_LV'. The plotting label may repeat; that is trace_name_for_plotting's job.
+data_item_name = ['v_ao', 'min u_LV', 'max u_LV']
 data_type = ['series', 'constant', 'constant']
 unit = ['m3_per_s', 'J_per_m3', 'J_per_m3']
 trace_name_for_plotting = ['$v_{ao}$', '$u_{LV}$', '$u_{LV}$']
 weight = [1.0, 1.0, 1.0]
-obs_type = ['series', 'min', 'max']
+# What reduces the trace to the item's value. None for a series, which is compared whole.
+# (The deprecated spelling of this was `obs_type`, which also implied the operand.)
+operation = [None, 'min', 'max']
 
 value_pre_conv = [[1.0 for II in range(nSteps)], 8000.0, 12000.0] # these values are just examples
                                                                   # actual values can be accessed from csv or other
@@ -52,15 +60,16 @@ for val, conv in zip(value_pre_conv, conversions):
 
 sample_rate = [1/dt, 'null', 'null'] # sample rate in Hz, null if not a series
 
-num_entries = len(variable_list)
+num_entries = len(data_item_name)
 list_of_dicts = []
 for II in range(num_entries):
-    entry = {'data_item_name': variable_list[II],
+    entry = {'data_item_name': data_item_name[II],
+             'operands': operands[II],
              'data_type': data_type[II],
              'unit': unit[II],
              'trace_name_for_plotting': trace_name_for_plotting[II],
              'weight': weight[II],
-             'obs_type': obs_type[II],
+             'operation': operation[II],
              'std': std[II],
              'value': value[II],
              'sample_rate': sample_rate[II]}

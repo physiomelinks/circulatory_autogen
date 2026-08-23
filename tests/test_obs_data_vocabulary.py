@@ -260,3 +260,58 @@ def test_the_shipped_extra_ops_example_differences_two_distinct_items():
     assert by_name[pred1]['operation'] != by_name[pred2]['operation']
     # the function returns pred2 - pred1, so the stated ground truth has to match
     assert diff['value'] == pytest.approx(by_name[pred2]['value'] - by_name[pred1]['value'])
+
+
+# --- the shipped examples ------------------------------------------------------------------
+
+_RESOURCES = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'resources')
+
+
+def _shipped_obs_data_files():
+    return sorted(f for f in os.listdir(_RESOURCES)
+                  if 'obs_data' in f and f.endswith('.json'))
+
+
+@pytest.mark.unit
+def test_no_shipped_obs_data_uses_the_deprecated_obs_type():
+    """The files people copy must be written the way people should write them.
+
+    `obs_type` is read only when `operation` is null, and then only `min`/`max`/`mean` name an
+    operation at all -- `series`/`frequency` were saying what `data_type` already says. Five
+    shipped files still spelled it the old way after the #466 migration, so someone starting
+    from `simple_physiological_obs_data.json` would learn the deprecated key and get the
+    deprecation path.
+
+    A file is checked as *text*: the parser accepts `obs_type` on purpose (that is what makes
+    an existing study keep working), so parsing one proves nothing about how it is spelled.
+    """
+    offenders = []
+    for name in _shipped_obs_data_files():
+        with open(os.path.join(_RESOURCES, name), encoding='utf-8') as f:
+            if '"obs_type"' in f.read():
+                offenders.append(name)
+    assert not offenders, (
+        "these shipped obs_data files still use the deprecated 'obs_type': %s. Use 'operation' "
+        "for min/max/mean; 'series'/'frequency' belong in 'data_type'." % offenders)
+
+
+@pytest.mark.unit
+def test_every_shipped_obs_data_item_has_a_unique_name():
+    """`data_item_name` is the item's identity and what an operation_kwargs reference resolves
+    against (#466), so a repeat makes one of them unreachable -- and silently resolves a
+    reference to whichever was recorded last. That is the bug #466 was opened for: two items
+    labelled `v_{AR}` made `max - mean` compute `max - max` and score a constant 0.0.
+    """
+    bad = {}
+    for name in _shipped_obs_data_files():
+        with open(os.path.join(_RESOURCES, name), encoding='utf-8') as f:
+            doc = json.load(f)
+        items = doc if isinstance(doc, list) else [
+            i for key in ('data_items', 'data_item', 'prediction_items')
+            for i in (doc.get(key) or [])]
+        names = [i['data_item_name'] for i in items
+                 if isinstance(i, dict) and 'data_item_name' in i]
+        dupes = sorted({n for n in names if names.count(n) > 1})
+        if dupes:
+            bad[name] = dupes
+    assert not bad, "shipped obs_data files with repeated data_item_name: %s" % bad
