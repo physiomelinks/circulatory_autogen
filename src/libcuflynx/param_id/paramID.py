@@ -2488,32 +2488,34 @@ class OpencorParamID():
         cost = 0.0
         weighted_obs_denominator = 0
         # One table for the whole evaluation, so an item may reference one from an earlier
-        # (experiment, sub-experiment) and not just its own (#466). Cleared here rather than
-        # per segment, and the segments are visited in order, so a reference is backward-only.
-        self.temp_results = {}
-        for exp_idx in exp_idxs_to_run:
-            for this_sub_idx in range(num_sub_per_exp[exp_idx]):
-                subexp_count = int(np.sum([num_sub for num_sub in
-                                           num_sub_per_exp[:exp_idx]]) + this_sub_idx)
+        # (experiment, sub-experiment) and not just its own (#466). The segments are visited in
+        # order, so a reference is backward-only. Declared as a block rather than by assigning
+        # the attribute here: `evaluating_segment` gives a *standalone* caller its own fresh
+        # table, and it can only tell the two apart if this walk says which it is.
+        with self.accumulating_temp_results():
+            for exp_idx in exp_idxs_to_run:
+                for this_sub_idx in range(num_sub_per_exp[exp_idx]):
+                    subexp_count = int(np.sum([num_sub for num_sub in
+                                               num_sub_per_exp[:exp_idx]]) + this_sub_idx)
 
-                sub_cost = self.get_cost_from_operands(
-                    operands_outputs_list[subexp_count],
-                    exp_idx=exp_idx, sub_idx=this_sub_idx, do_ad=do_ad,
-                )
-                cost += sub_cost
-                if self._num_weighted_obs_by_exp_sub is not None:
-                    weighted_obs_denominator += self._num_weighted_obs_by_exp_sub[exp_idx][this_sub_idx]
-                else:
-                    wc = self.protocol_info["scaled_weight_const_from_exp_sub"][exp_idx][this_sub_idx]
-                    ws = self.protocol_info["scaled_weight_series_from_exp_sub"][exp_idx][this_sub_idx]
-                    wa = self.protocol_info["scaled_weight_amp_from_exp_sub"][exp_idx][this_sub_idx]
-                    wp = self.protocol_info["scaled_weight_phase_from_exp_sub"][exp_idx][this_sub_idx]
-                    weighted_obs_denominator += int(
-                        np.sum(wc != 0)
-                        + np.sum(ws != 0)
-                        + np.sum(wa != 0)
-                        + np.sum(wp != 0)
+                    sub_cost = self.get_cost_from_operands(
+                        operands_outputs_list[subexp_count],
+                        exp_idx=exp_idx, sub_idx=this_sub_idx, do_ad=do_ad,
                     )
+                    cost += sub_cost
+                    if self._num_weighted_obs_by_exp_sub is not None:
+                        weighted_obs_denominator += self._num_weighted_obs_by_exp_sub[exp_idx][this_sub_idx]
+                    else:
+                        wc = self.protocol_info["scaled_weight_const_from_exp_sub"][exp_idx][this_sub_idx]
+                        ws = self.protocol_info["scaled_weight_series_from_exp_sub"][exp_idx][this_sub_idx]
+                        wa = self.protocol_info["scaled_weight_amp_from_exp_sub"][exp_idx][this_sub_idx]
+                        wp = self.protocol_info["scaled_weight_phase_from_exp_sub"][exp_idx][this_sub_idx]
+                        weighted_obs_denominator += int(
+                            np.sum(wc != 0)
+                            + np.sum(ws != 0)
+                            + np.sum(wa != 0)
+                            + np.sum(wp != 0)
+                        )
 
         # Mean NLL contribution per weighted observable slot (summed raw sub costs / global count).
         if weighted_obs_denominator <= 0:
@@ -3113,6 +3115,24 @@ class OpencorParamID():
             f"inside one sub-experiment (#466).")
 
     @contextlib.contextmanager
+    def accumulating_temp_results(self):
+        """One ``temp_results`` table across every segment of a single cost evaluation (#466).
+
+        Only the cost loop wants that. Every other caller evaluates one segment on its own --
+        CUFLynx's ``obs_cost``, ``plot_outputs``, the gradient backends, a test double -- and
+        must not resolve a reference against values left behind by whatever ran before it.
+        ``evaluating_segment`` gives those callers a fresh table, and this is how it knows not
+        to.
+        """
+        previous = getattr(self, '_accumulating_temp_results', False)
+        self._accumulating_temp_results = True
+        self.temp_results = {}
+        try:
+            yield
+        finally:
+            self._accumulating_temp_results = previous
+
+    @contextlib.contextmanager
     def evaluating_segment(self, exp_idx, sub_idx):
         """Mark which (experiment, sub-experiment)'s operands the next evaluations receive.
 
@@ -3127,6 +3147,13 @@ class OpencorParamID():
         are handed over and the table is cleared per call, which is the pre-#466 behaviour.
         """
         previous = getattr(self, '_eval_segment', (None, None))
+        # Outside an `accumulating_temp_results` block this is a caller evaluating one segment
+        # on its own, so it gets a fresh table -- the pre-#466 behaviour, where the table was
+        # cleared on every `get_obs_output_dict` call. Without this the attribute may not exist
+        # at all (it was only ever created by the cost loop), and `_record_temp_result` raised
+        # AttributeError for every caller entering at `get_cost_from_operands`.
+        if not getattr(self, '_accumulating_temp_results', False):
+            self.temp_results = {}
         self._eval_segment = (exp_idx, sub_idx)
         try:
             yield

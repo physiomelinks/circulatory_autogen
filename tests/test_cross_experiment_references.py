@@ -144,3 +144,53 @@ def test_the_cross_segment_items_are_reported_for_refusal():
     pid.obs_info['experiment_idxs'] = [1, 1, 1]
     assert pid.cross_segment_reference_items() == []
     pid._refuse_cross_segment_references('anything')
+
+
+@pytest.mark.integration
+@pytest.mark.solver
+def test_a_standalone_segment_evaluation_gets_its_own_table(temp_output_dir):
+    """``get_cost_from_operands`` works for a caller that did not come through ``get_cost``.
+
+    ``temp_results`` used to be created *only* by the loop in
+    ``get_cost_obs_and_pred_from_params``, while ``get_cost_from_operands`` unconditionally
+    enters ``evaluating_segment`` -- which tells ``get_obs_output_dict`` not to reset the table.
+    So every caller evaluating one segment at a time raised ``AttributeError:
+    'OpencorParamID' object has no attribute 'temp_results'`` on the first item it recorded.
+
+    Not a hypothetical entry point: CUFLynx's ``obs_cost`` scores an emulator's predictions
+    through exactly this call, and ``evaluating_segment``'s own docstring lists the gradient
+    backends, ``plot_outputs`` and CUFLynx as callers it must not break. It surfaced as a
+    silently missing emulator cost rather than an error, because that caller reads a failure
+    here as "no cost available".
+    """
+    engine = _param_id(temp_output_dir).param_id
+    _cost, operands, _pred = engine.get_cost_obs_and_pred_from_params(_midpoint(engine))
+
+    # A fresh engine, so nothing has set the table up -- the state a standalone caller is in.
+    fresh = _param_id(temp_output_dir).param_id
+    assert not hasattr(fresh, 'temp_results') or fresh.temp_results == {}
+
+    cost = fresh.get_cost_from_operands(operands[0], exp_idx=0, sub_idx=0)
+    assert np.isfinite(cost)
+    # And it recorded into a table of its own rather than raising.
+    assert UNFORCED in fresh.temp_results
+
+
+@pytest.mark.integration
+@pytest.mark.solver
+def test_a_standalone_call_does_not_read_the_previous_call_s_values(temp_output_dir):
+    """Each standalone segment evaluation starts from an empty table.
+
+    Accumulating across segments belongs to one cost evaluation (#466). A caller evaluating
+    single segments in a loop of its own must not have a reference resolve against whatever the
+    *previous* call left behind -- that is a stale number presented as this segment's.
+    """
+    engine = _param_id(temp_output_dir).param_id
+    _cost, operands, _pred = engine.get_cost_obs_and_pred_from_params(_midpoint(engine))
+
+    fresh = _param_id(temp_output_dir).param_id
+    fresh.get_cost_from_operands(operands[0], exp_idx=0, sub_idx=0)
+    fresh.temp_results['a name no data_item has'] = 123.0
+
+    fresh.get_cost_from_operands(operands[0], exp_idx=0, sub_idx=0)
+    assert 'a name no data_item has' not in fresh.temp_results
