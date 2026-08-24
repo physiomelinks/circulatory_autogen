@@ -6,7 +6,7 @@ process and farm the likelihood out to a ``schwimmbad.MPIPool``, where every oth
 each rank chains of its own and gathers them at the end, so every rank has to reach
 ``run_mcmc`` and its ``comm.Barrier()``/``comm.gather`` are collectives over COMM_WORLD.
 
-``OpencorMCMC.run`` opened the pool for both. So under ``mpiexec -n >1`` with pymc, the workers
+``MCMC.run`` opened the pool for both. So under ``mpiexec -n >1`` with pymc, the workers
 were parked in a receive that only the master's ``pool.close()`` ends, and the master waited on
 a barrier they could never reach: the run hung after sampling, with no error and no chain. It
 went unnoticed because nothing exercised it -- the pyMC tests all run on one rank, where the
@@ -25,7 +25,7 @@ import textwrap
 import numpy as np
 import pytest
 
-from libcuflynx.param_id.paramID import OpencorMCMC
+from libcuflynx.param_id.paramID import MCMC
 from libcuflynx.utilities.mpi_utils import LAUNCHER_ENV_VARS
 
 pymc_installed = True
@@ -52,7 +52,7 @@ class _StubNorm:
 
 
 def _engine(library='emcee', num_walkers=8, best_param_vals=None):
-    engine = OpencorMCMC.__new__(OpencorMCMC)
+    engine = MCMC.__new__(MCMC)
     engine.UQ_options = {'library': library, 'num_walkers': num_walkers, 'num_steps': 10}
     engine.num_params = NUM_PARAMS
     engine.param_norm_obj = _StubNorm()
@@ -89,7 +89,7 @@ def test_each_rank_gets_its_own_walkers():
     report them as an ensemble of independent chains."""
     positions = np.arange(8 * NUM_PARAMS, dtype=float).reshape(8, NUM_PARAMS)
 
-    slices = [OpencorMCMC._walkers_for_rank(positions, rank, 4) for rank in range(4)]
+    slices = [MCMC._walkers_for_rank(positions, rank, 4) for rank in range(4)]
 
     assert [s.shape for s in slices] == [(2, NUM_PARAMS)] * 4
     np.testing.assert_allclose(np.concatenate(slices), positions, err_msg='the ensemble should '
@@ -104,7 +104,7 @@ def test_the_split_matches_the_number_of_chains_the_backend_will_run():
     positions = np.zeros((32, NUM_PARAMS))
     for num_procs in (1, 2, 4, 5, 64):
         for rank in range(num_procs):
-            assert len(OpencorMCMC._walkers_for_rank(positions, rank, num_procs)) == \
+            assert len(MCMC._walkers_for_rank(positions, rank, num_procs)) == \
                 PyMCSampler.chains_for_rank(32, num_procs), (num_procs, rank)
 
 
@@ -112,7 +112,7 @@ def test_more_ranks_than_walkers_wraps_rather_than_starving_a_rank():
     """chains_for_rank never returns zero, so every rank runs a chain and needs a start."""
     positions = np.arange(3 * NUM_PARAMS, dtype=float).reshape(3, NUM_PARAMS)
 
-    slices = [OpencorMCMC._walkers_for_rank(positions, rank, 6) for rank in range(6)]
+    slices = [MCMC._walkers_for_rank(positions, rank, 6) for rank in range(6)]
 
     assert all(s.shape == (1, NUM_PARAMS) for s in slices)
     np.testing.assert_allclose(slices[3][0], positions[0], err_msg='rank 3 should wrap to the '
@@ -171,7 +171,7 @@ class _StubSampler:
 
 
 def _run_with(monkeypatch, engine, rank, size, broadcast=None, tmp_path=None):
-    """Drive OpencorMCMC.run with a fake COMM_WORLD, recording what it chose to do.
+    """Drive MCMC.run with a fake COMM_WORLD, recording what it chose to do.
 
     The pool is faked rather than forbidden outright: ``run`` wraps ``MPIPool()`` in a bare
     ``except: return``, so a fake that raised would be swallowed and read as "no pool opened" --
@@ -245,7 +245,7 @@ def test_a_single_rank_run_opens_no_pool_whichever_backend(monkeypatch, tmp_path
 # ---------------------------------------------------------------------------
 # the real thing: two ranks, no model, and a clock on it
 # ---------------------------------------------------------------------------
-#: Runs OpencorMCMC.run on an analytic posterior, so the MPI arrangement is exercised without a
+#: Runs MCMC.run on an analytic posterior, so the MPI arrangement is exercised without a
 #: CellML model. Before the fix this hangs at the barrier inside PyMCSampler.run_mcmc; the test
 #: gives it a deadline so a hang is reported as a failure rather than by never finishing.
 _TWO_RANK_RUN = '''
@@ -255,7 +255,7 @@ LIBRARY, NUM_WALKERS, NUM_STEPS = {library!r}, {num_walkers}, 6
 
 import numpy as np
 import libcuflynx.param_id.paramID as paramID
-from libcuflynx.param_id.paramID import OpencorMCMC
+from libcuflynx.param_id.paramID import MCMC
 
 
 class Norm:
@@ -266,7 +266,7 @@ class Norm:
         return np.asarray(vals, dtype=float)
 
 
-class Engine(OpencorMCMC):
+class Engine(MCMC):
     def __init__(self):
         self.UQ_options = {{'library': LIBRARY, 'num_walkers': NUM_WALKERS,
                            'num_steps': NUM_STEPS,

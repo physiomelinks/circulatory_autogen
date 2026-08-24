@@ -4,7 +4,7 @@ emcee's affine-invariant ensemble sampler is a good default, but it is one algor
 Metropolis, NUTS and sequential Monte Carlo, and SMC in particular can cross the low-probability
 regions between separated modes that an ensemble sampler gets stuck on.
 
-``PyMCSampler`` exposes exactly the surface ``OpencorMCMC.run`` already uses -- ``run_mcmc`` and
+``PyMCSampler`` exposes exactly the surface ``MCMC.run`` already uses -- ``run_mcmc`` and
 ``get_chain``, with a ``(steps, walkers, params)`` chain -- so selecting a library changes one
 line of construction and nothing in the sampling loop or in anything downstream (the diagnostics,
 the corner plots and the saved ``mcmc_chain.npy`` all keep working unchanged).

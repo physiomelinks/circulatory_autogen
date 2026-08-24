@@ -13,7 +13,7 @@ from libcuflynx.param_id.paramID import CVS0DParamID, integrate_trapezoid
 
 
 class _StubEngine:
-    """An OpencorParamID stand-in: returns canned observables and records resets."""
+    """An ParamID stand-in: returns canned observables and records resets."""
 
     def __init__(self, values_by_call, param_id_info=None, best_param_vals=None):
         self._values = values_by_call

@@ -195,7 +195,7 @@ def _build_local_sa_engine(base_user_inputs, resources_dir, temp_output_dir,
 @pytest.mark.mpi
 def test_local_observable_sensitivities_match_fd(
         base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
-    """The backend-agnostic OpencorParamID.get_observable_sensitivities returns d(feature)/d(param)
+    """The backend-agnostic ParamID.get_observable_sensitivities returns d(feature)/d(param)
     that matches central finite differences, for the Myokit CVODES backend. (CasADi's arm is the
     exact symbolic jacobian, cross-checked against this one in
     test_local_observable_sensitivities_casadi_agrees_with_myokit.)

@@ -218,7 +218,7 @@ def test_the_casadi_arm_no_longer_refuses_modifiers(monkeypatch):
     a closed form, in tests/test_modifier_backend_equivalence.py."""
     from libcuflynx.param_id import paramID
 
-    class _Stub(paramID.OpencorParamID):
+    class _Stub(paramID.ParamID):
         def __init__(self):
             pass
 
@@ -236,7 +236,7 @@ def test_the_casadi_arm_no_longer_refuses_modifiers(monkeypatch):
 def test_the_fsa_arm_no_longer_refuses_modifiers(monkeypatch):
     from libcuflynx.param_id import paramID
 
-    class _Stub(paramID.OpencorParamID):
+    class _Stub(paramID.ParamID):
         def __init__(self):
             pass
 

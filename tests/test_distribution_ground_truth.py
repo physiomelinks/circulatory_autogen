@@ -238,7 +238,7 @@ def test_cost_calc_scores_a_distribution_item_in_the_constant_loop(tmp_path):
     """End to end through the cost, mixing both ground truth shapes in one obs_data: the KDE
     item must be scored, and scored against its samples rather than against the nan standing in
     for the value it does not have."""
-    from libcuflynx.param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import ParamID
     from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser, scriptFunctionParser
 
     parser = ObsAndParamDataParser()
@@ -249,7 +249,7 @@ def test_cost_calc_scores_a_distribution_item_in_the_constant_loop(tmp_path):
     protocol_info = parser.process_protocol_and_weights(
         gt_df=parsed["gt_df"], protocol_info=parsed["protocol_info"], dt=0.01)
 
-    pid = OpencorParamID.__new__(OpencorParamID)
+    pid = ParamID.__new__(ParamID)
     pid.obs_info = obs_info
     pid.protocol_info = protocol_info
     pid.cost_type = obs_info["cost_type"]
@@ -271,7 +271,7 @@ def test_a_distribution_cost_cannot_be_differentiated_symbolically(tmp_path):
     """Its density is built from numbers -- scipy's gaussian_kde cannot take a symbol. Silently
     returning something would be worse than raising: the nan standing in for `value` would
     propagate into a gradient that looks like a failed solve."""
-    from libcuflynx.param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import ParamID
     from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser, scriptFunctionParser
 
     ca = pytest.importorskip('casadi')
@@ -283,7 +283,7 @@ def test_a_distribution_cost_cannot_be_differentiated_symbolically(tmp_path):
     protocol_info = parser.process_protocol_and_weights(
         gt_df=parsed["gt_df"], protocol_info=parsed["protocol_info"], dt=0.01)
 
-    pid = OpencorParamID.__new__(OpencorParamID)
+    pid = ParamID.__new__(ParamID)
     pid.obs_info = obs_info
     pid.protocol_info = protocol_info
     pid.cost_type = obs_info["cost_type"]

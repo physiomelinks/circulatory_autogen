@@ -14,7 +14,7 @@ import pytest
 
 from libcuflynx.emulators.emulator_bundle import (EmulatorBoundsError, EmulatorBundle,
                                        EmulatorQualityError, fingerprint)
-from libcuflynx.param_id.paramID import OpencorParamID
+from libcuflynx.param_id.paramID import ParamID
 from libcuflynx.parsers.PrimitiveParsers import ANALYSIS_OPTIONS, YamlFileParser, gradient_sources
 
 pytestmark = pytest.mark.unit
@@ -315,7 +315,7 @@ class _UseTimeStub:
         self.emulator_settings = dict(run_settings)
         self.sim_helper = type('H', (), {'bundle': bundle})()
 
-    _use_time_setting = OpencorParamID._use_time_setting
+    _use_time_setting = ParamID._use_time_setting
 
 
 def _bundle_trained_with(**settings):

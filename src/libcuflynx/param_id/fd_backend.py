@@ -1,5 +1,5 @@
 """Finite-difference observable sensitivities -- the backend-agnostic arm of
-``OpencorParamID.get_observable_sensitivities`` (issue #338).
+``ParamID.get_observable_sensitivities`` (issue #338).
 
 The analytic arms are better and stay the default: CasADi differentiates the
 observable vector, and Myokit CVODES gives the exact operand sensitivity. But
@@ -44,7 +44,7 @@ def _step(pj, pmin, pmax, h):
 def _evaluating_segment(pid, exp, sub):
     """Scope the segment when the object supports it, and do nothing when it does not.
 
-    Only a real ``OpencorParamID`` needs telling which segment its operands came from -- it is
+    Only a real ``ParamID`` needs telling which segment its operands came from -- it is
     what keeps a cross-segment ``operation_kwargs`` reference reading the right experiment
     (#466). A minimal stand-in that just answers ``get_obs_output_dict`` has no segments to
     confuse, and this module has never required anything more of what it is handed.

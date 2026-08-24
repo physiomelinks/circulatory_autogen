@@ -3505,11 +3505,11 @@ def _two_well_grad(p):
 
 
 class _TwoWellParamId:
-    """Stand-in for OpencorParamID exposing just what the optimisers call.
+    """Stand-in for ParamID exposing just what the optimisers call.
 
     Mirrors the backend-agnostic interface: get_cost() always works, get_gradient() only has an
     AD backend for casadi_python / aadc_python models and raises otherwise, exactly as
-    OpencorParamID.get_gradient does.
+    ParamID.get_gradient does.
     """
 
     def __init__(self, param_init=(1.2, 1.2), model_type='casadi_python'):
@@ -4496,7 +4496,7 @@ def test_series_interpolation_uses_the_correct_sample_times():
     different factors, so they drift apart over a long simulation — about a full observation
     sample over the 60 s below — and the residuals are taken at the wrong times.
     """
-    from libcuflynx.param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import ParamID
 
     dt = 0.1
     obs_dt = 0.25
@@ -4517,7 +4517,7 @@ def test_series_interpolation_uses_the_correct_sample_times():
     # A simulated series whose value *is* the time. Interpolating it onto the observation
     # times must therefore reproduce those times exactly.
     t_sim = np.arange(num_sim) * dt
-    series_entry, obs_entry, std_entry = OpencorParamID._align_series_to_ground_truth(
+    series_entry, obs_entry, std_entry = ParamID._align_series_to_ground_truth(
         fake, t_sim.copy(), 0)
 
     expected_t_obs = np.arange(ground_truth.shape[0]) * obs_dt
@@ -4530,7 +4530,7 @@ def test_series_interpolation_matches_between_numpy_and_casadi_paths():
     """The numeric and symbolic costs must resample a series identically, otherwise the same
     model calibrated as cellml and as casadi_python would have different cost surfaces."""
     import casadi as ca
-    from libcuflynx.param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import ParamID
 
     dt = 0.1
     obs_dt = 0.25
@@ -4551,8 +4551,8 @@ def test_series_interpolation_matches_between_numpy_and_casadi_paths():
     rng = np.random.default_rng(0)
     sim = rng.normal(size=num_sim)
 
-    from_numpy, _, _ = OpencorParamID._align_series_to_ground_truth(fake, sim.copy(), 0)
-    from_casadi, _, _ = OpencorParamID._align_series_to_ground_truth(
+    from_numpy, _, _ = ParamID._align_series_to_ground_truth(fake, sim.copy(), 0)
+    from_casadi, _, _ = ParamID._align_series_to_ground_truth(
         fake, ca.DM(sim.reshape(-1, 1)), 0)
 
     np.testing.assert_allclose(
@@ -4565,7 +4565,7 @@ def test_series_interpolation_matches_between_numpy_and_casadi_paths():
 def test_series_interpolation_does_not_invent_data_past_the_end_of_the_simulation():
     """np.interp clamps to the last value, which would compare a flat fabricated tail against
     real observations. Observation times past the end of the simulation are dropped instead."""
-    from libcuflynx.param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import ParamID
 
     dt = 0.1
     obs_dt = 0.25
@@ -4584,7 +4584,7 @@ def test_series_interpolation_does_not_invent_data_past_the_end_of_the_simulatio
     }
 
     t_sim = np.arange(num_sim) * dt
-    series_entry, obs_entry, std_entry = OpencorParamID._align_series_to_ground_truth(
+    series_entry, obs_entry, std_entry = ParamID._align_series_to_ground_truth(
         fake, t_sim.copy(), 0)
 
     # only the observation times up to 2.0 s (0, 0.25, ..., 2.0 => 9 of them) are compared
@@ -4918,7 +4918,7 @@ def test_offline_pre_time_rejects_initial_state_parameters():
     to a +25% perturbation drops from 8.49% to 0.0000% once an offline warm-up is used, so this
     must fail loudly rather than quietly produce an unidentifiable parameter.
     """
-    from libcuflynx.param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import ParamID
 
     class _Stub:
         """Minimal stand-in exposing only what the detection reads."""
@@ -4930,7 +4930,7 @@ def test_offline_pre_time_rejects_initial_state_parameters():
         def _resolve_name(self, name):
             return ('state', name) if name in self._states else ('var', name)
 
-    detect = OpencorParamID._params_that_set_initial_states
+    detect = ParamID._params_that_set_initial_states
 
     # the <state>_init convention
     stub = _Stub([['global/q_lv_init'], ['aortic_root/C'], ['global/E_lv_A']])

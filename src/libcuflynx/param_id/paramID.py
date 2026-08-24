@@ -42,7 +42,7 @@ import re
 from numpy import genfromtxt
 from importlib import import_module
 # import tqdm # TODO this needs to be installed for corner plot but doesnt need an import here
-# Which sampler a UQ run uses is UQ_options['library'], read in OpencorMCMC._build_sampler -- not
+# Which sampler a UQ run uses is UQ_options['library'], read in MCMC._build_sampler -- not
 # the module-level constant this used to be, which meant editing the source to change sampler.
 # Both are imported optionally: emcee is a CA dependency but zeus is not, and pymc is imported
 # only inside its own backend module (it is an optional [uq] extra, and this module is imported
@@ -110,7 +110,7 @@ warnings.filterwarnings( "ignore", module = "matplotlib/..*" )
 # curlimit = resource.getrlimit(resource.RLIMIT_STACK)
 # resource.setrlimit(resource.RLIMIT_STACK, (resource.RLIM_INFINITY,resource.RLIM_INFINITY))
 
-# This mcmc_object will be an instance of the OpencorParamID class
+# This mcmc_object will be an instance of the ParamID class
 # it needs to be global so that it can be used in calculate_lnlikelihood()
 # without having its attributes pickled. opencor simulation objects
 # can't be pickled because they are pyqt.
@@ -118,7 +118,7 @@ mcmc_object = None
 
 #: The UQ backends that parallelise across MPI ranks by farming likelihood evaluations out to a
 #: worker pool, rather than by giving each rank chains of its own. See
-#: ``OpencorMCMC.sampler_needs_a_worker_pool`` for why the two arrangements cannot be mixed.
+#: ``MCMC.sampler_needs_a_worker_pool`` for why the two arrangements cannot be mixed.
 _POOL_BACKED_UQ_LIBRARIES = ('emcee', 'zeus')
 
 
@@ -153,7 +153,7 @@ def _resolve_UQ_options(UQ_options, mcmc_options):
 
 def ensure_mle_cost_type_for_bayesian_inner(inner, inp_data_dict):
     """
-    Set ``obs_info['cost_type']`` on an OpencorParamID / OpencorMCMC instance so every
+    Set ``obs_info['cost_type']`` on an ParamID / MCMC instance so every
     observable uses an ``@is_MLE`` cost (required for ``ln L = -cost`` in MCMC / Laplace).
 
     Chooses the first ``cost_type`` string found in optimiser / mcmc option dicts in
@@ -211,8 +211,8 @@ class CVS0DParamID():
     """Parameter identification (calibration) for a 0D CVS model.
 
     This is the main user-facing entry point for calibration. It wraps an inner
-    optimisation engine ([`OpencorParamID`][param_id.paramID.OpencorParamID], or
-    [`OpencorMCMC`][param_id.paramID.OpencorMCMC] when ``mcmc_instead=True``) and
+    optimisation engine ([`ParamID`][param_id.paramID.ParamID], or
+    [`MCMC`][param_id.paramID.MCMC] when ``mcmc_instead=True``) and
     coordinates loading observation data, selecting parameters, running the
     optimiser, and writing/plotting results. It is MPI-aware: rank 0 handles all
     file I/O and output directory creation.
@@ -389,12 +389,12 @@ class CVS0DParamID():
             print(f'Default optimiser options: {self.optimiser_options}')
 
         if self.mcmc_instead:
-            # This mcmc_object will be an instance of the OpencorParamID class
+            # This mcmc_object will be an instance of the ParamID class
             # it needs to be global so that it can be used in calculate_lnlikelihood()
             # without having its attributes pickled. opencor simulation objects
             # can't be pickled because they are pyqt.
             global mcmc_object 
-            mcmc_object = OpencorMCMC(self.model_path,
+            mcmc_object = MCMC(self.model_path,
                                            self.obs_info, self.param_id_info,
                                            self.protocol_info, self.prediction_info, self.solver_info, dt=self.dt,
                                            UQ_options=self.UQ_options,
@@ -405,7 +405,7 @@ class CVS0DParamID():
             self.n_steps = mcmc_object.n_steps
         else:
             if model_type in PARAM_ID_MODEL_TYPES:
-                self.param_id = OpencorParamID(self.model_path, self.param_id_method,
+                self.param_id = ParamID(self.model_path, self.param_id_method,
                                                self.obs_info, self.param_id_info, self.protocol_info,
                                                self.prediction_info, self.solver_info, dt=self.dt,
                                                optimiser_options=self.optimiser_options,
@@ -576,7 +576,7 @@ class CVS0DParamID():
 
         * built with it -- runs the UQ engine constructed up front (unchanged behaviour);
         * built without it -- promotes the calibration engine via
-          ``OpencorMCMC.from_param_id``, so UQ after a calibration reuses the model already
+          ``MCMC.from_param_id``, so UQ after a calibration reuses the model already
           compiled instead of building a second CVS0DParamID for it (CUFLynx #217).
 
         ``UQ_options`` overrides the options the object was built with; omit it to keep them.
@@ -589,7 +589,7 @@ class CVS0DParamID():
                 raise RuntimeError(
                     "run_UQ needs either mcmc_instead=True or a built param-id engine; this "
                     "object has neither.")
-            mcmc_object = OpencorMCMC.from_param_id(
+            mcmc_object = MCMC.from_param_id(
                 self.param_id,
                 UQ_options if UQ_options is not None else getattr(self, 'UQ_options', None))
         elif UQ_options is not None:
@@ -1813,7 +1813,7 @@ OFFLINE_PRE_TIME_INIT_STATE_ERROR = (
 )
 
 
-class OpencorParamID():
+class ParamID():
     """
     Class for doing parameter identification on opencor models
     """
@@ -2846,7 +2846,7 @@ class OpencorParamID():
         """The four per-data_item weight vectors this sub-experiment's cost is built from.
 
         A single seam so a subclass can change what weighting the cost uses without
-        reimplementing cost_calc -- OpencorMCMC flattens them, because a weighted likelihood is
+        reimplementing cost_calc -- MCMC flattens them, because a weighted likelihood is
         not a posterior (issue #193).
 
         Returns them in the order (const, series, amp, phase).
@@ -4017,7 +4017,7 @@ def sample_with_checkpoints(sampler, initial_state, num_steps, save_chain, save_
     return checkpoints
 
 
-class OpencorMCMC(OpencorParamID):
+class MCMC(ParamID):
     """
     Class for doing mcmc on opencor models
     
@@ -4037,14 +4037,14 @@ class OpencorMCMC(OpencorParamID):
 
     @classmethod
     def from_param_id(cls, engine, UQ_options=None, mcmc_options=None):
-        """Adopt an already-built ``OpencorParamID`` instead of constructing a second one.
+        """Adopt an already-built ``ParamID`` instead of constructing a second one.
 
         Building an engine compiles the model. Because ``mcmc_instead`` selects the inner
         class at *construction* time, a UQ run following a calibration had to build a second
         CVS0DParamID and pay that compile again (CUFLynx #217) -- for the same model, the same
         obs_info and the same parameters.
 
-        ``OpencorMCMC`` only *adds* to ``OpencorParamID``, so the built engine's state is
+        ``MCMC`` only *adds* to ``ParamID``, so the built engine's state is
         exactly what it needs: adopt its ``__dict__`` (simulation helper, parsed infos,
         output_dir, and the best_param_vals of the calibration that just ran, which is what
         seeds the walkers) and then run only the MCMC-specific tail.
@@ -4572,6 +4572,19 @@ class OpencorMCMC(OpencorParamID):
         
         # idxs of output are [exp_idx][sim_idx, pred_idx, time_idx]
         return pred_arrays_per_exp_list
+
+#: The names these two classes had until they were renamed. Neither ever had anything to
+#: do with OpenCOR: they are the parameter-identification and MCMC engines, and they run
+#: against myokit/CVODE, casadi and trained emulators as readily as against OpenCOR. The
+#: name came from the one backend that existed when they were written.
+#:
+#: Kept because they are imported by name from outside this repository -- CUFLynx reaches
+#: for ``OpencorParamID`` through its ca_import shim -- and a rename that breaks a
+#: downstream import on upgrade is a rename that gets reverted. They are aliases, not
+#: subclasses, so isinstance and pickling behave identically.
+OpencorParamID = ParamID
+OpencorMCMC = MCMC
+
 
 class MCMC_plotter:
     """

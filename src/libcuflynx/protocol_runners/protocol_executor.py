@@ -2,7 +2,7 @@
 protocol_executor.py — shared core protocol simulation loop.
 
 ProtocolExecutor owns the multi-experiment / multi-subexperiment loop that is
-common to ProtocolRunner, OpencorParamID, and sobol_SA.  It accepts any
+common to ProtocolRunner, ParamID, and sobol_SA.  It accepts any
 SimulationHelper (myokit, opencor, python) that has already been constructed by
 the caller.
 

@@ -1,6 +1,6 @@
 """A UQ run summarises the posterior; it does not replace the calibration's best fit.
 
-``OpencorMCMC.run`` used to overwrite ``best_param_vals.npy`` / ``best_cost.npy`` with the
+``MCMC.run`` used to overwrite ``best_param_vals.npy`` / ``best_cost.npy`` with the
 posterior median whenever that median happened to score a lower cost. Two different estimators
 were being conflated -- a median summarises a distribution, a calibration best is an argmin --
 so a UQ run silently mutated the calibration's answer, and the file gave no clue which estimator
@@ -12,19 +12,19 @@ import os
 import numpy as np
 import pytest
 
-from libcuflynx.param_id.paramID import OpencorMCMC
+from libcuflynx.param_id.paramID import MCMC
 
 
 class _StubMCMC:
-    """An OpencorMCMC with only what the statistics path touches."""
+    """An MCMC with only what the statistics path touches."""
 
     def __new__(cls, *args, **kwargs):
-        return OpencorMCMC.__new__(OpencorMCMC)
+        return MCMC.__new__(MCMC)
 
 
 def _engine(tmp_path, num_params=2, best_param_vals=None, best_cost=None,
             costs=(0.5, 0.7), UQ_options=None, names=None):
-    obj = OpencorMCMC.__new__(OpencorMCMC)
+    obj = MCMC.__new__(MCMC)
     obj.output_dir = str(tmp_path)
     obj.num_params = num_params
     obj.best_param_vals = best_param_vals

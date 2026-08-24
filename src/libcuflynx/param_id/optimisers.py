@@ -38,9 +38,9 @@ try:
 except ImportError:
     NEVERGRAD_AVAILABLE = False
 
-# Model types for which OpencorParamID.get_gradient() has an AD backend: a symbolic jacobian
+# Model types for which ParamID.get_gradient() has an AD backend: a symbolic jacobian
 # for casadi models, a tape reverse pass for aadc ones. Everything else falls back to finite
-# differences. Keep in sync with OpencorParamID.get_gradient.
+# differences. Keep in sync with ParamID.get_gradient.
 AD_GRADIENT_MODEL_TYPES = ('casadi_python', 'aadc_python')
 
 
@@ -58,7 +58,7 @@ class Optimiser(ABC):
         Initialize the optimiser.
         
         Args:
-            param_id_obj: The OpencorParamID object that provides get_cost_from_params
+            param_id_obj: The ParamID object that provides get_cost_from_params
             param_id_info: Dictionary with param_names, param_mins, param_maxs
             param_norm_obj: Normalise_class object for parameter normalization
             num_params: Number of parameters to optimize
@@ -149,7 +149,7 @@ class GeneticAlgorithmOptimiser(Optimiser):
     Genetic algorithm optimiser for parameter identification.
     
     This is a refactored version of the original genetic algorithm implementation
-    in OpencorParamID, maintaining the same functionality.
+    in ParamID, maintaining the same functionality.
     """
 
     #: The population settings. Neither the *normal* defaults nor the DEBUG quick-run sizes are
@@ -538,7 +538,7 @@ class BayesianOptimiser(Optimiser):
     Bayesian optimisation using scikit-optimize.
     
     This is a refactored version of the original bayesian implementation
-    in OpencorParamID, maintaining the same functionality.
+    in ParamID, maintaining the same functionality.
     """
     
     def __init__(self, param_id_obj, param_id_info, param_norm_obj, 

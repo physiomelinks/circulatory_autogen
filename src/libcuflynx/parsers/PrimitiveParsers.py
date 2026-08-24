@@ -465,7 +465,7 @@ SOLVER_INFO_FIELDS = {
         # No 'gradient_method' here: nothing reads it. AD vs FD is chosen by the `do_ad` flag
         # (see SciPyMinimizeOptimiser.run, which falls back to approx_fprime when it is off),
         # and which AD backend runs follows from model_type/solver in
-        # OpencorParamID.get_gradient. Advertising a setting the code never reads makes CUFLynx
+        # ParamID.get_gradient. Advertising a setting the code never reads makes CUFLynx
         # render a control that silently does nothing.
     ],
 }
@@ -548,7 +548,7 @@ _OPT_RELATIVE_COST_TOLERANCE = {
 # Single source of truth for the prior distributions a params_for_id `prior` column may name,
 # i.e. the valid values of that column. Surfaced to downstream tools (e.g. the CUFLynx
 # params_for_id editor) the same way PARAM_ID_METHODS is, so they can populate a prior picker
-# without hardcoding the list. Keep in sync with OpencorParamID.get_lnprior_from_params().
+# without hardcoding the list. Keep in sync with ParamID.get_lnprior_from_params().
 #
 # Declared rather than left implicit because an unrecognised value used to be *accepted*: the
 # column was read straight to a numpy array, and get_lnprior_from_params matched it against
@@ -1353,7 +1353,7 @@ def _row_bounds(row):
 # values of `param_id_method`. Surfaced to downstream tools (e.g. the CUFLynx settings UI) the
 # same way SOLVER_SCHEMA is, so they can populate a calibration-method menu AND the per-method
 # settings form without hardcoding either. Each method's `options` lists the `optimiser_options`
-# keys it reads (see _OPT_* above). Keep in sync with OpencorParamID.run()'s param_id_method
+# keys it reads (see _OPT_* above). Keep in sync with ParamID.run()'s param_id_method
 # dispatch (paramID.py) and the optimiser classes (optimisers.py).
 #: Reproducibility. Omitted, the run is as random as it was; set, the candidate sequence is
 #: fixed, which is what lets a scaling sweep be compared at equal work (#344).
@@ -1517,7 +1517,7 @@ def gradient_sources(model_type, solver=None, method=None, use_emulator=False):
                       over the cost/operation funcs. All other sources are False.
       * ``description``
 
-    The analytic source, if any, follows exactly ``OpencorParamID.get_gradient`` dispatch (and
+    The analytic source, if any, follows exactly ``ParamID.get_gradient`` dispatch (and
     ``AD_GRADIENT_MODEL_TYPES`` / ``fsa_gradient_available`` in the optimisers):
       * ``casadi_python``               -> symbolic CasADi AD
       * ``aadc_python``                 -> AADC tape AD (needs a Matlogica licence at runtime)
@@ -1667,7 +1667,7 @@ ANALYSIS_OPTIONS = {
             {'name': 'burn_in', 'type': 'float', 'default': 0.5, 'required': False,
              'description': 'Samples discarded before the chain is used. A value below 1 is a '
                             'fraction of num_steps; 1 or above is a number of steps.'},
-            # Read by OpencorMCMC._build_sampler for the pymc backend. It was read but not
+            # Read by MCMC._build_sampler for the pymc backend. It was read but not
             # advertised, which is the same defect as advertising a setting nothing reads, only
             # inverted: the knob exists and matters (it triples the iteration count at its
             # default) but no front-end could discover or change it.

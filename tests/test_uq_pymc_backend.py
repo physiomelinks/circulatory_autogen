@@ -147,8 +147,8 @@ def test_an_unknown_pymc_method_is_rejected_up_front():
 # dispatch from UQ_options
 # ---------------------------------------------------------------------------
 def _mcmc_engine(library):
-    from libcuflynx.param_id.paramID import OpencorMCMC
-    obj = OpencorMCMC.__new__(OpencorMCMC)
+    from libcuflynx.param_id.paramID import MCMC
+    obj = MCMC.__new__(MCMC)
     obj.UQ_options = {'library': library, 'num_walkers': 8, 'num_steps': 10}
     obj.num_params = 2
     obj.param_id_info = {'param_names_for_plotting': ['a', 'b']}

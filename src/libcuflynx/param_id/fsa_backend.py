@@ -75,7 +75,7 @@ def observable_feature_sensitivities(pid, param_vals):
     operation/observable code with no re-simulation, exactly as get_jac_cost does for the cost.
     Single sub-experiment only (the SA local path); the multi-sub carry stays in get_jac_cost.
 
-    This is the Myokit arm of ``OpencorParamID.get_observable_sensitivities``. Sensitivities
+    This is the Myokit arm of ``ParamID.get_observable_sensitivities``. Sensitivities
     are per calibrated variable, keyed by ``param_entry_labels``: a grouped or modifier entry
     reports d(feature)/d(theta) = sum_i w_i * d(feature)/d(p_i) over its members (see
     ``combined_entry_sensitivities``). Only entries whose members all carry a CVODES

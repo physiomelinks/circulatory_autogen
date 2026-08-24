@@ -52,7 +52,7 @@ def _assert_descriptors_well_formed(context, options, valid_types=_DESCRIPTOR_TY
 def test_param_id_methods_schema_matches_dispatch():
     """PARAM_ID_METHODS is the discoverable list of calibration methods surfaced to downstream
     tools (e.g. the CUFLynx settings UI), so it must stay in sync with the param_id_method
-    dispatch in OpencorParamID.run(). If a method is added/removed there, update this set."""
+    dispatch in ParamID.run(). If a method is added/removed there, update this set."""
     assert set(PARAM_ID_METHODS.keys()) == {
         'genetic_algorithm', 'CMA-ES', 'bayesian', 'sp_minimize', 'multi_start_sp_minimize'
     }
@@ -672,9 +672,9 @@ def test_library_specific_uq_options_are_read_only_in_that_librarys_arm():
     """
     import inspect
 
-    from libcuflynx.param_id.paramID import OpencorMCMC
+    from libcuflynx.param_id.paramID import MCMC
 
-    source = inspect.getsource(OpencorMCMC._build_sampler)
+    source = inspect.getsource(MCMC._build_sampler)
     before_pymc, marker, pymc_arm = source.partition("if library == 'pymc'")
     assert marker, "_build_sampler no longer dispatches on library == 'pymc'"
 
@@ -1201,7 +1201,7 @@ def test_sa_method_choices_each_have_a_dispatch_handler():
 def test_gradient_sources_well_formed_and_match_get_gradient_dispatch():
     """gradient_sources(model_type, solver) must advertise exactly the sources CA can actually
     produce, keyed to the top-level do_ad flag, so a front-end can build a gradient menu without
-    hand-mirroring CA's rules. Pinned to OpencorParamID.get_gradient's dispatch: the AD-capable
+    hand-mirroring CA's rules. Pinned to ParamID.get_gradient's dispatch: the AD-capable
     model types are AD_GRADIENT_MODEL_TYPES, and cellml+CVODE_myokit gets FSA.
     """
     from libcuflynx.param_id.optimisers import AD_GRADIENT_MODEL_TYPES

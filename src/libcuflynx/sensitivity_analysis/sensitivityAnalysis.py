@@ -320,7 +320,7 @@ class SensitivityAnalysis():
 
         Computes d(observable feature)/d(param) at the nominal parameter values -- the analytic,
         single-solve counterpart to the sampling-based Sobol SA -- via the backend-agnostic
-        ``OpencorParamID.get_observable_sensitivities`` (CasADi jacobian for casadi_python;
+        ``ParamID.get_observable_sensitivities`` (CasADi jacobian for casadi_python;
         Myokit CVODES sensitivities for cellml + CVODE_myokit). On rank 0 it saves the
         absolute and relative sensitivity matrices to CSV. The result is also available via
         ``get_local_sensitivities()``.

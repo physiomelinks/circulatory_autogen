@@ -5,7 +5,7 @@ These tests verify that the centralised protocol-running code in
 src/libcuflynx/protocol_runners/ works correctly in the same ways it is used by:
 
   - ProcessData (standalone ProtocolRunner)
-  - OpencorParamID / sobol_SA (ProtocolExecutor with pre-built sim_helper)
+  - ParamID / sobol_SA (ProtocolExecutor with pre-built sim_helper)
 
 All tests use the SN_simple CellML model
 (generated_models/SN_simple/SN_simple.cellml) and the protocol_info from

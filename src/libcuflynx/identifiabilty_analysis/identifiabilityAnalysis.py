@@ -156,7 +156,7 @@ class IdentifiabilityAnalysis():
         """Fisher information matrix ``J^T diag(1/std^2) J`` from analytic observable sensitivities.
 
         ``J[k, j] = d(observable feature k)/d(param j)`` at the best fit, from
-        ``OpencorParamID.get_observable_sensitivities`` -- the CasADi jacobian for
+        ``ParamID.get_observable_sensitivities`` -- the CasADi jacobian for
         ``casadi_python`` ('AD') or the Myokit CVODES sensitivities for ``cellml`` +
         ``CVODE_myokit`` ('FSA'), i.e. the sources ``gradient_sources(model_type, solver)``
         advertises. At the MLE this Gauss-Newton matrix is the positive-definite negative Hessian
