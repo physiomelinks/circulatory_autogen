@@ -427,3 +427,159 @@ def test_sobol_sensitivity_runs_on_the_emulator(base_user_inputs, resources_dir,
     # ... and the indices come out of it, which is the analysis the user actually asked for.
     S1, ST, S2 = manager.sobol_index(outputs)
     assert len(S1) == obs_info['num_obs']
+
+
+# ---------------------------------------------------------------------------------
+# Evaluating the whole walker ensemble in one surrogate call.
+#
+# The claim is arithmetic: a fitted regressor costs almost the same at N points as at
+# one, because per-call overhead dominates. So an ensemble sampler, which asks for its
+# whole population every step, should pay that overhead once instead of N times.
+#
+# Measured on the study this came from -- a two-phase RBF emulator, 84 outputs -- one
+# parameter vector took 84.8 ms and sixty-four took 355 ms: 15x less per vector. The
+# MCMC it was competing with farmed those same sixty-four out over seven MPI ranks and
+# got 1.4x, because an MPI round trip costs about as much as the evaluation it carries.
+# ---------------------------------------------------------------------------------
+
+class CountingStub(LinearStub):
+    """A LinearStub that records how it was called, and charges a fixed cost per call.
+
+    The fixed cost is the whole point: it stands for everything a real emulator pays once
+    per invocation regardless of batch size -- argument marshalling, backend dispatch,
+    per-call setup in the fitted models. Making it explicit is what lets the speedup be
+    asserted without depending on the machine the test runs on.
+    """
+
+    def __init__(self, weights, per_call_seconds=0.0):
+        super().__init__(weights)
+        self.per_call_seconds = per_call_seconds
+        self.calls = 0
+        self.rows = 0
+
+    def predict(self, x):
+        import time as _time
+
+        x = np.atleast_2d(np.asarray(x, dtype=float))
+        self.calls += 1
+        self.rows += len(x)
+        if self.per_call_seconds:
+            _time.sleep(self.per_call_seconds)
+        return super().predict(x)
+
+
+def _ensemble_paramid(base_user_inputs, resources_dir, tmp_path, per_call_seconds=0.0):
+    """A CVS0DParamID on a counting stub, plus the stub and an ensemble to evaluate."""
+    config = _config(base_user_inputs, resources_dir, tmp_path)
+    _, obs_info, param_id_info = _write_bundle(config)
+
+    num_params = len(param_id_info['param_names'])
+    labels = emulated_feature_labels(obs_info)
+    weights = np.arange(1, num_params * len(labels) + 1, dtype=float).reshape(
+        num_params, len(labels))
+    stub = CountingStub(weights, per_call_seconds)
+
+    pid = CVS0DParamID(
+        config['model_path'], config['model_type'], config['param_id_method'], False,
+        config['file_prefix'], param_id_obs_path=config['param_id_obs_path'],
+        params_for_id_path=config['params_for_id_path'],
+        sim_time=config['sim_time'], pre_time=config['pre_time'], dt=config['dt'],
+        solver_info=config['solver_info'], DEBUG=True,
+        param_id_output_dir=config['param_id_output_dir'],
+        resources_dir=config['resources_dir'], use_emulator=True,
+        emulator_dir=config['emulator_settings']['emulator_dir'],
+        emulator_settings=config['emulator_settings'])
+    inner = pid.param_id
+    inner.sim_helper.bundle.model = stub
+
+    mins = np.asarray(param_id_info['param_mins'], dtype=float)
+    maxs = np.asarray(param_id_info['param_maxs'], dtype=float)
+    rng = np.random.default_rng(0)
+    ensemble = mins + rng.random((32, num_params)) * (maxs - mins)
+    return inner, stub, ensemble
+
+
+def test_the_whole_ensemble_costs_one_surrogate_call(base_user_inputs, resources_dir,
+                                                     tmp_path):
+    """The mechanism, asserted exactly rather than timed.
+
+    Thirty-two walkers, one call. This is the thing that produces the speedup, and unlike
+    a duration it does not depend on the machine -- if this number ever goes back up to
+    thirty-two, the optimisation has been silently lost however fast the test still runs.
+    """
+    inner, stub, ensemble = _ensemble_paramid(base_user_inputs, resources_dir, tmp_path)
+
+    stub.calls = stub.rows = 0
+    inner.get_lnlikelihood_lnprior_from_ensemble(ensemble)
+
+    assert stub.calls == 1, (
+        f'{len(ensemble)} walkers took {stub.calls} surrogate calls; the ensemble is not '
+        f'being predicted in one batch')
+    assert stub.rows == len(ensemble), 'the batch did not carry every walker'
+
+
+def test_one_at_a_time_costs_a_call_each(base_user_inputs, resources_dir, tmp_path):
+    """The baseline the speedup is measured against, so the comparison is not assumed."""
+    inner, stub, ensemble = _ensemble_paramid(base_user_inputs, resources_dir, tmp_path)
+
+    stub.calls = stub.rows = 0
+    for theta in ensemble:
+        inner.get_lnlikelihood_lnprior_from_params(theta)
+
+    assert stub.calls == len(ensemble)
+
+
+def test_batching_does_not_move_the_posterior(base_user_inputs, resources_dir, tmp_path):
+    """Speed is worthless if the inference changes.
+
+    Not bit-identical, and it cannot be: predicting thirty-two vectors at once is a
+    matrix-matrix product where predicting one is matrix-vector, and BLAS accumulates
+    them in different orders. Measured here that is a single walker differing by one ULP
+    -- 1.1e-16 relative -- which is thirteen orders of magnitude below the Monte Carlo
+    noise of the chain it feeds.
+
+    So the assertion is in two parts, and the exact one is the part that carries meaning:
+    which walkers are rejected outright is a decision, and a decision must not depend on
+    how the batch was shaped. The magnitudes only have to agree to floating point.
+    """
+    inner, _, ensemble = _ensemble_paramid(base_user_inputs, resources_dir, tmp_path)
+
+    batched = inner.get_lnlikelihood_lnprior_from_ensemble(ensemble)
+    one_by_one = np.array([inner.get_lnlikelihood_lnprior_from_params(theta)
+                           for theta in ensemble])
+
+    assert np.array_equal(np.isfinite(batched), np.isfinite(one_by_one)), (
+        'batching changed which walkers were rejected, which is a change of decision, '
+        'not of rounding')
+    assert np.allclose(batched, one_by_one, rtol=1e-12, atol=0), (
+        'batching moved the log-posterior further than floating point can account for')
+
+
+def test_the_speedup_is_close_to_the_ensemble_size(base_user_inputs, resources_dir,
+                                                   tmp_path):
+    """The claim itself: N walkers for the price of about one evaluation.
+
+    The stub charges a fixed 5 ms per call and nothing per row, which is the regime a real
+    surrogate is in -- 84.8 ms for one vector against 355 ms for sixty-four is almost all
+    per-call cost. Under that model the ideal speedup is the ensemble size, and the
+    threshold here is deliberately a third of it: enough to fail if batching regresses to
+    per-walker calls (which would score 1x), loose enough not to fail on a loaded CI box.
+    """
+    import time
+
+    inner, stub, ensemble = _ensemble_paramid(
+        base_user_inputs, resources_dir, tmp_path, per_call_seconds=0.005)
+
+    start = time.perf_counter()
+    for theta in ensemble:
+        inner.get_lnlikelihood_lnprior_from_params(theta)
+    serial = time.perf_counter() - start
+
+    start = time.perf_counter()
+    inner.get_lnlikelihood_lnprior_from_ensemble(ensemble)
+    batched = time.perf_counter() - start
+
+    speedup = serial / batched
+    assert speedup > len(ensemble) / 3, (
+        f'batching {len(ensemble)} walkers was only {speedup:.1f}x faster than evaluating '
+        f'them one at a time; the surrogate is evidently still being called per walker')
