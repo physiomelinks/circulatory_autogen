@@ -5,6 +5,37 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+## 0.5.0 — 2026-08-24
+
+### Changed — the flat-import shims now go away in 0.6.0, not 0.5.0
+
+They were promised for removal in this release. They survive it instead. This release already
+asks users to migrate their obs_data files (below), and removing the `libcuflynx.` namespace
+shims at the same time would make one upgrade demand two unrelated migrations — one touching
+data, one touching imports. `REMOVAL_VERSION` now reads `0.6.0`, and every shim's warning, the
+README, CONTRIBUTING, CLAUDE.md and the tutorial say so.
+
+The tests that check those docs agree now read `REMOVAL_VERSION` rather than restating it: the
+literal `"0.5.0"` in three test files would have passed happily while every document said
+something else.
+
+
+### Added — a whole study in one call, shipped for readers outside this repo (#478)
+
+`libcuflynx.external_testing.full_pipeline_run.build_full_pipeline_run()` runs sensitivity, an
+emulator, a calibration, a chain and a posterior predictive check into one directory, small
+enough for a test. Every stage already had its own test; nothing tested the combination, which
+is what the readers downstream depend on — the generated `plot_outputs.py` and CUFLynx's
+outputs-directory loader both find files by CA's naming rule. Those readers were checked against
+fixtures written by hand, which agree with the reader by construction and cannot notice CA
+renaming a file.
+
+It ships in the package rather than living in `tests/` because the wheel carries no `tests/`:
+CUFLynx resolves CA through whatever `libcuflynx` is installed, so a builder it cannot import is
+a builder it cannot use. It sits in `external_testing` — shipped code whose only callers are
+tests outside this repository — and deliberately not in `checks`, which validates a *user's*
+model during generation. Nothing an ordinary run reaches imports it.
+
 ### Changed — the scaling benchmark now reports how much work it did (#344)
 
 The 3compartment core-scaling sweep reported CMA-ES speeding up **22.8x on 8 cores**, past the
@@ -109,7 +140,7 @@ Also fixed: the mean of `heart/u_la` in `resources/3compartment_obs_data.json` w
 `u_{AR}`, so it plotted as an aortic-root pressure. It is now `u_{LA}`.
 
 Reading `obs_info` from python: `names_for_plotting` remains as a deprecated alias of
-`item_names_for_plotting` and is removed in 0.5.0. Prefer `data_item_names`,
+`item_names_for_plotting` and is removed in 0.6.0. Prefer `data_item_names`,
 `trace_names_for_plotting` or `item_names_for_plotting`.
 
 ## 0.4.1 — 2026-08-19

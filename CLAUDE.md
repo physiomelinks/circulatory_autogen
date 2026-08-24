@@ -48,7 +48,7 @@ Other useful scripts in `src/libcuflynx/scripts/`: `generate_obs_json.py`, `exam
 
 ## Calling from Python (programmatic API)
 
-The whole pipeline can be driven directly from Python instead of the shell scripts — this is how the interactive tutorials work (`tutorial/interactive/generation_and_calibration.ipynb`). **Import from the `libcuflynx` namespace and put nothing on `sys.path`**: an installed package (`pip install libcuflynx`, or `pip install -e .` on a checkout) is importable from any directory. The flat names (`import solver_wrappers`, `from param_id.paramID import ...`) still resolve in 0.4.0 as deprecation shims that warn, and are **removed in 0.5.0** — don't write new code or docs against them. Nothing here needs OpenCOR: the default solver is `CVODE_myokit`.
+The whole pipeline can be driven directly from Python instead of the shell scripts — this is how the interactive tutorials work (`tutorial/interactive/generation_and_calibration.ipynb`). **Import from the `libcuflynx` namespace and put nothing on `sys.path`**: an installed package (`pip install libcuflynx`, or `pip install -e .` on a checkout) is importable from any directory. The flat names (`import solver_wrappers`, `from param_id.paramID import ...`) still resolve in 0.4.0 as deprecation shims that warn, and are **removed in 0.6.0** — don't write new code or docs against them. Nothing here needs OpenCOR: the default solver is `CVODE_myokit`.
 
 Instead of editing `user_inputs.yaml`, build the config dict in code and mutate it:
 ```python

@@ -5,7 +5,8 @@ Two things in the docs rot silently, because nothing imports them and nothing ru
 1. **Import instructions.** Before the package existed, every documented snippet appended
    ``src/`` to the interpreter's import path and imported flat module names (``import
    parsers``). Both stopped being true when the code moved under ``libcuflynx/``: the flat
-   names survive only as deprecation shims that warn now and are gone in 0.5.0, and there is
+   names survive only as deprecation shims that warn now and are gone in a later release,
+   and there is
    nothing to add to the import path at all. A doc that still teaches the old way sends every
    new reader down it.
 
@@ -98,7 +99,7 @@ def test_no_import_path_manipulation_in_tutorial_or_readme():
 
 @pytest.mark.unit
 def test_documented_imports_use_the_libcuflynx_namespace():
-    """No documented snippet may import a flat name (they warn now, and vanish in 0.5.0)."""
+    """No documented snippet may import a flat name (they warn now, and vanish later)."""
     offenders = []
     for path in _doc_files():
         text = path.read_text(encoding="utf-8", errors="replace")
@@ -108,7 +109,7 @@ def test_documented_imports_use_the_libcuflynx_namespace():
             offenders.append("%s:%d: %s" % (_rel(path), lineno, line))
     assert not offenders, (
         "documented imports must be prefixed with `libcuflynx.` -- the flat names are "
-        "deprecation shims removed in 0.5.0:\n" + "\n".join(offenders)
+        "deprecation shims scheduled for removal:\n" + "\n".join(offenders)
     )
 
 
@@ -174,8 +175,15 @@ def test_readme_names_both_the_repository_and_the_package():
 
 @pytest.mark.unit
 def test_deprecation_removal_version_is_stated_consistently():
-    """0.5.0 is the removal version; the docs a migrator reads must all say so."""
-    removal = "0.5.0"
+    """The docs a migrator reads must all name the release that removes the shims.
+
+    Read from ``REMOVAL_VERSION`` rather than restated: the version was deferred once
+    (0.5.0 -> 0.6.0) and a literal here would have passed while every doc said the
+    other thing.
+    """
+    from libcuflynx._deprecated_aliases import REMOVAL_VERSION
+
+    removal = REMOVAL_VERSION
     for path in (README, CLAUDE_MD, REPO_ROOT / "CHANGELOG.md",
                  TUTORIAL / "docs" / "api" / "index.md"):
         text = path.read_text(encoding="utf-8")

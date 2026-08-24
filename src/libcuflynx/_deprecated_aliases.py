@@ -4,7 +4,9 @@ Before the rename every module in this project sat at the top level of ``src/`` 
 reached with a ``sys.path.insert(0, 'src')`` followed by ``from param_id.paramID import
 CVS0DParamID``. 0.4.0 moved all of it under :mod:`libcuflynx`. The shim packages in
 ``src/<name>/`` keep the old spellings working for exactly one release; they are removed
-in 0.5.0 (see :data:`REMOVAL_VERSION`).
+in 0.6.0 (see :data:`REMOVAL_VERSION`). Deferred from 0.5.0: that release carries the
+#466 obs_data break, and stacking the namespace removal on top would have made one
+release ask users for two unrelated migrations.
 
 Object identity is the whole difficulty
 ---------------------------------------
@@ -64,7 +66,7 @@ from importlib.machinery import ModuleSpec
 #: Release that deletes these shims. 0.3.0 is already published, the rename ships in
 #: 0.4.0, so users get the whole of 0.4.x to migrate. Stated in the warning text; keep the
 #: release notes saying the same number.
-REMOVAL_VERSION = "0.5.0"
+REMOVAL_VERSION = "0.6.0"
 
 #: The package the flat names now live in.
 PACKAGE = "libcuflynx"
