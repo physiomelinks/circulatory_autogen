@@ -2976,16 +2976,23 @@ class OpencorParamID():
             #                                 self.obs_info["std_series_vec"].reshape(-1, 1))) / min_len_series
 
             for series_idx in range(len(series)):
+                obs_idx = self.obs_info['series_idx_to_obs_idx'][series_idx]
+                weight_entry = updated_weight_series_vec[obs_idx]
+                if weight_entry == 0:
+                    # Nothing to add, and nothing to align either. The alignment was
+                    # happening first and raising on items whose cost was then thrown
+                    # away -- which made a recorded trace carried at weight 0 purely for
+                    # plotting break every run that used an emulator, since the emulator
+                    # returns scalars and there is no trace to interpolate.
+                    continue
+
                 # interpolates the simulated series onto the observation times when
                 # dt != obs_dt; shared with the symbolic cost so both agree exactly
                 series_entry, obs_entry, std_entry = self._align_series_to_ground_truth(
                     np.asarray(series[series_idx], dtype=float).flatten(), series_idx)
 
-                obs_idx = self.obs_info['series_idx_to_obs_idx'][series_idx]
-                weight_entry = updated_weight_series_vec[obs_idx]
-                if weight_entry != 0:
-                    series_cost += call_cost_func(cost_funcs_dict[self.cost_type[obs_idx]], series_entry, obs_entry,
-                                                  std=std_entry, weight=weight_entry, cost_kwargs=self._cost_kwargs_for(obs_idx))
+                series_cost += call_cost_func(cost_funcs_dict[self.cost_type[obs_idx]], series_entry, obs_entry,
+                                              std=std_entry, weight=weight_entry, cost_kwargs=self._cost_kwargs_for(obs_idx))
 
 
         amp_cost = 0
