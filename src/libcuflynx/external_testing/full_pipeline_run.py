@@ -10,12 +10,14 @@ catch CA renaming a file.
 
 So this builds the real thing, small enough to run in a test:
 
-    from libcuflynx.checks.full_pipeline_run import build_full_pipeline_run
+    from libcuflynx.external_testing.full_pipeline_run import build_full_pipeline_run
     result = build_full_pipeline_run(output_dir, resources_dir, generated_models_dir)
 
-It lives in the package rather than in ``tests/`` so that CUFLynx can import it
-and check its own loader against a directory CA actually produced, instead of
-against a fixture that encodes what CUFLynx believes CA writes.
+It lives in the package rather than in ``tests/`` because the wheel ships no
+``tests/``: CUFLynx resolves CA through whatever ``libcuflynx`` is installed, so a
+builder it cannot import is a builder it cannot use. Shipping it lets CUFLynx check
+its own loader against a directory CA actually produced, instead of against a
+fixture that encodes what CUFLynx believes CA writes.
 
 Deliberately tiny: sixteen Sobol samples, thirty-two emulator training points, a
 sixty-evaluation calibration and a five-step chain. Enough that every stage runs

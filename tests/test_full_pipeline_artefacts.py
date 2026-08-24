@@ -12,7 +12,8 @@ predictive check on a small model, and then asserts the artefacts are there and
 readable. If a stage stops writing something, or writes it somewhere else, this
 fails here rather than in the app that could not open the folder.
 
-CUFLynx imports the same builder (``libcuflynx.checks.full_pipeline_run``) and
+CUFLynx imports the same builder (``libcuflynx.external_testing.full_pipeline_run``)
+and
 points its own loader at the directory, so both sides of the contract are checked
 against one real run rather than against each other's assumptions.
 """
@@ -22,7 +23,7 @@ import os
 import numpy as np
 import pytest
 
-from libcuflynx.checks import full_pipeline_run as pipeline
+from libcuflynx.external_testing import full_pipeline_run as pipeline
 
 pytest.importorskip("autoemulate", reason="the emulator stage needs [emulation]")
 pytest.importorskip("emcee", reason="the chain needs [uq]")
