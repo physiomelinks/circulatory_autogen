@@ -7,6 +7,59 @@ next release; add to that section as you land a change.
 
 ## 0.5.0 — 2026-08-24
 
+### Added — check a posterior against the data it was fitted to (#478, #473)
+
+A chain says what the parameters could be. It does not say whether the model, at those
+parameters, reproduces what was measured — a calibration that fits badly can still produce a
+tidy posterior. `libcuflynx.param_id.posterior_predictive` draws from the chain, simulates each
+draw and scores the result: predictions in units of each measurement's own std, so observables on
+different scales share one axis, plus coverage against its nominal level. The draws are spread
+across MPI ranks, and both engines honour `use_emulator`, without which a check against the
+solver is only affordable on a chain that was.
+
+### Added — the plotting scripts ship with the engine (#479)
+
+`plot_utilities.py` and `plot_outputs.py` are written into every generated bundle, so a folder
+that reproduces a study can also draw it. Three panels nothing drew before: the pairwise
+posterior (`plot_corner`), the posterior predictive against the measurements, and coverage
+against its nominal level. All three read what `posterior_predictive` writes and return quietly
+when it is absent, so they are safe on a calibration-only run.
+
+### Added — emulator designs can be drawn in stages (#488)
+
+A Sobol design spreads points evenly over the parameter box, which is right when nothing is known
+about the response and wasteful once something is. `emulator_settings` now accepts staged
+designs: a first stage explores, and a later one aims at where the model is hard — by output
+gradient (`gradient_weighted`) or by the emulator's own held-out error (`error_weighted`), with a
+weight dial between "follow the signal" and "keep exploring". Validation stays on a Sobol-only
+subset, so the score is not measured on the points the design deliberately clustered.
+
+### Added — two-phase emulators for observables that sit on a floor (#486)
+
+autoemulate's emulators are regressors, and a regressor is the wrong shape for an observable
+pinned at one value over most of its range: a smooth fit splits the difference across the flat
+region and undershoots beyond it. A two-phase emulator classifies which side of the cliff a point
+is on, then regresses only on the side that varies. One rule now decides which non-scalar
+observables an emulator must refuse, rather than several places each deciding differently.
+
+### Added — draw the recorded trace behind the posterior draws (#485)
+
+A recorded trace carried in an obs_data purely to be plotted is now drawn behind the model's own
+draws, the trace panels say which line is which (simulation, data trace, data max, sim max), and
+the model's own value of each statistic travels in the plot metadata rather than only the
+scalars.
+
+### Fixed — sensitivity analysis on an obs_data holding a recorded trace (#487)
+
+`generate_outputs_mpi` looked up an operation func for every data_item, and a trace carried for
+plotting has none, so a Sobol run died on `KeyError: None` before the first sample finished. A
+series observable's weight is now checked before it is interpolated, not after, so a
+zero-weighted trace costs nothing and asks the model for nothing.
+
+### Changed — tested on 3.12, and 3.9 is dropped (#459, #480)
+
+The declared dependencies have required >= 3.10 since 0.4.0; the test matrix now says so.
+
 ### Changed — the flat-import shims now go away in 0.6.0, not 0.5.0
 
 They were promised for removal in this release. They survive it instead. This release already
