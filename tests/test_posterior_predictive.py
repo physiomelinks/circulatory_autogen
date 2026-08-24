@@ -526,3 +526,38 @@ def test_no_recordings_leaves_the_metadata_as_it_was():
     meta = _series_meta(client)
 
     assert all(o.get("kind") == "constant" for o in meta["observables"])
+
+
+@pytest.mark.unit
+def test_the_model_s_own_value_of_each_statistic_is_carried():
+    """A measured max drawn across a trace says the amplitude is wrong; it cannot
+    say by how much the number the cost is built from disagrees. Carrying the
+    model's value of the same statistic is what lets a plot draw both."""
+    client = SeriesClient()
+    predictions = np.array([[3.0], [5.0], [4.0]])   # three draws, one observable
+    meta = pp.series_metadata(client, {(0, "x/v"): np.zeros((3, 12))},
+                              client.obs_info["ground_truth_const"],
+                              client.obs_info["std_const_vec"],
+                              predictions=predictions)
+
+    constant = next(o for o in meta["observables"] if o.get("kind") == "constant")
+    # the median over draws, not the mean: one diverged draw should not move the
+    # line the reader compares against
+    assert constant["model_value"] == 4.0
+
+
+@pytest.mark.unit
+def test_without_predictions_the_field_is_absent_rather_than_wrong():
+    meta = _series_meta(SeriesClient())
+    constant = next(o for o in meta["observables"] if o.get("kind") == "constant")
+    assert constant["model_value"] is None
+
+
+@pytest.mark.unit
+def test_the_operation_name_travels_with_it():
+    """So a plot can label the pair "data max" and "sim max" rather than guessing."""
+    client = SeriesClient()
+    client.obs_info["operations"] = ["max_in_range"]
+    meta = _series_meta(client)
+    constant = next(o for o in meta["observables"] if o.get("kind") == "constant")
+    assert constant["operation"] == "max_in_range"
