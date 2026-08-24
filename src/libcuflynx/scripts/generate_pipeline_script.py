@@ -1642,7 +1642,17 @@ def plot_sample_traces():
             for row in traces:
                 ax.plot(t, row, color="#2a78d6", linewidth=0.8, alpha=0.35)
 
+            drew_recording = False
             for obs in marks.get(key, []):
+                if obs.get("kind") == "series":
+                    # The recorded trace itself. This is the comparison that
+                    # matters: a horizontal line says an amplitude is right or
+                    # wrong, and only this says whether the shape is.
+                    ax.plot(obs["time"], obs["values"], color="#111417",
+                            linewidth=1.1, zorder=4,
+                            label="recorded" if not drew_recording else None)
+                    drew_recording = True
+                    continue
                 if obs["plot_type"] != "horizontal":
                     # Nothing sensible to draw for a frequency on a voltage
                     # axis; those observables are reported by the scalar panels.
@@ -1652,6 +1662,8 @@ def plot_sample_traces():
                     ax.axhspan(obs["value"] - abs(obs["std"]),
                                obs["value"] + abs(obs["std"]),
                                color="#eb6834", alpha=0.15, zorder=0)
+            if drew_recording:
+                ax.legend(fontsize=6, loc="best", frameon=False)
 
             exp_sub = segments.get(str(segment))
             where = ("exp %s sub %s" % tuple(exp_sub)) if exp_sub else "segment %d" % segment
