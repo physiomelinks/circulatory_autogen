@@ -299,9 +299,7 @@ class ObsDataCreator:
         if entry.get('data_item_name') in existing:
             raise ValueError(
                 f"data_item_name {entry['data_item_name']!r} is already used by another item. "
-                f"Each data_item and prediction_item needs its own name -- it is the item's "
-                f"identity and the key an operation_kwargs reference resolves against. The "
-                f"plotting label may repeat: put the shared spelling in "
+                f"Each item needs its own name; a shared spelling goes in "
                 f"'trace_name_for_plotting' instead.")
 
         if 'trace_name_for_plotting' not in entry:
