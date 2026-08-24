@@ -30,6 +30,13 @@ AUTOEMULATE_MISSING_MESSAGE = (
 
 SAMPLE_TYPES = ('sobol', 'latin_hypercube', 'random')
 
+#: A stage that places its points using what the earlier stages simulated,
+#: rather than over the box in ignorance of the response. Never the first stage.
+GRADIENT_WEIGHTED = 'gradient_weighted'
+
+#: What method_per_stage accepts: any space-filling design, or the adaptive one.
+STAGE_METHODS = SAMPLE_TYPES + (GRADIENT_WEIGHTED,)
+
 
 def autoemulate_available():
     """Whether the optional backend is installed, without importing it.
@@ -169,18 +176,79 @@ class EmulatorTrainer:
 
     # ------------------------------------------------------------------ stages
 
-    def design(self):
+    @property
+    def sampling_stages(self):
+        """The design as a list of ``{method, num_samples}``, in the order they run.
+
+        One stage is the default and is exactly the single-stage design CA has always
+        built. More than one splits ``num_train_samples`` by ``frac_per_stage`` and draws
+        each share with its own method, which is what lets a later stage place its points
+        using what the earlier ones actually returned.
+        """
+        total = self.num_train_samples
+        num_stages = int(self._setting('num_stages', 1))
+        if num_stages < 1:
+            raise ValueError(f'emulator_settings.num_stages is {num_stages}; a design needs '
+                             f'at least one stage.')
+
+        default_methods = ([self._setting('sample_type', 'sobol')]
+                           + [GRADIENT_WEIGHTED] * (num_stages - 1))
+        fractions = _as_list(self._setting('frac_per_stage', None), float)
+        methods = _as_list(self._setting('method_per_stage', None), str)
+        if fractions is None:
+            fractions = [1.0 / num_stages] * num_stages
+        if methods is None:
+            methods = default_methods
+
+        for name, values in (('frac_per_stage', fractions), ('method_per_stage', methods)):
+            if len(values) != num_stages:
+                raise ValueError(
+                    f'emulator_settings.{name} has {len(values)} entries but num_stages is '
+                    f'{num_stages}; give one entry per stage.')
+        if any(fraction <= 0 for fraction in fractions):
+            raise ValueError(f'emulator_settings.frac_per_stage is {fractions}; every stage '
+                             f'must get a positive share of num_train_samples. Drop the stage '
+                             f'instead of giving it zero.')
+        if abs(sum(fractions) - 1.0) > 1e-6:
+            raise ValueError(f'emulator_settings.frac_per_stage sums to {sum(fractions)}, not 1. '
+                             f'The entries are shares of num_train_samples ({total}), so they '
+                             f'have to add up to the whole budget.')
+        for method in methods:
+            if method not in STAGE_METHODS:
+                raise ValueError(f'unknown method_per_stage entry "{method}", expected one of '
+                                 f'{", ".join(STAGE_METHODS)}')
+        if methods[0] == GRADIENT_WEIGHTED:
+            raise ValueError(
+                f'method_per_stage starts with "{GRADIENT_WEIGHTED}", which places points '
+                f'using the features an earlier stage simulated -- at the first stage there '
+                f'are none. Start with one of '
+                f'{", ".join(m for m in STAGE_METHODS if m != GRADIENT_WEIGHTED)}.')
+
+        # The last stage takes the remainder so the stages sum to num_train_samples
+        # exactly, however the fractions round.
+        counts = [int(round(total * fraction)) for fraction in fractions[:-1]]
+        counts.append(total - sum(counts))
+        if counts[-1] < 0:
+            raise ValueError(f'frac_per_stage {fractions} leaves the last stage {counts[-1]} '
+                             f'samples of {total}; the earlier stages have taken more than the '
+                             f'whole budget.')
+        return [{'method': method, 'num_samples': count}
+                for method, count in zip(methods, counts)]
+
+    def design(self, n_samples=None, sample_type=None, seed_offset=0):
         """Training points over the ``params_for_id`` box, shape ``(n_samples, num_params)``.
 
         Deterministic given the seed, so every rank builds the identical design and no
-        broadcast is needed to agree on who evaluates which sample.
+        broadcast is needed to agree on who evaluates which sample. ``seed_offset``
+        separates one stage from the next: two stages of the same method on the same seed
+        would otherwise draw the same points twice.
         """
         mins = np.asarray(self.pid.param_id_info['param_mins'], dtype=float)
         maxs = np.asarray(self.pid.param_id_info['param_maxs'], dtype=float)
         num_params = mins.size
-        n_samples = self.num_train_samples
-        sample_type = self._setting('sample_type', 'sobol')
-        seed = int(self._setting('random_seed', 0))
+        n_samples = self.num_train_samples if n_samples is None else int(n_samples)
+        sample_type = sample_type or self._setting('sample_type', 'sobol')
+        seed = int(self._setting('random_seed', 0)) + int(seed_offset)
 
         if sample_type == 'sobol':
             with warnings.catch_warnings():
@@ -239,10 +307,64 @@ class EmulatorTrainer:
         n_failed = n_samples - len(rows)
         if n_failed:
             print(f'[emulator] {n_failed}/{n_samples} training simulations failed and were dropped')
-        self._n_failed = n_failed
+        self._n_failed = getattr(self, '_n_failed', 0) + n_failed
         x = np.asarray([design[idx] for idx, _ in rows], dtype=float)
         y = np.asarray([features for _, features in rows], dtype=float)
         return x, y
+
+    def _run_stage(self, x, y, stage, index, num_stages):
+        """Run one stage of the design and return everything simulated so far.
+
+        Only rank 0 holds the results, so only rank 0 can place an adaptive stage; those
+        points are broadcast and then evaluated by every rank exactly like a space-filling
+        stage. A space-filling stage needs no broadcast because every rank derives the
+        same design from the seed.
+        """
+        method, n_samples = stage['method'], int(stage['num_samples'])
+        if n_samples <= 0:
+            return x, y
+
+        if method == GRADIENT_WEIGHTED:
+            points = None
+            if self.rank == 0:
+                from libcuflynx.emulators.adaptive_design import gradient_weighted_design
+                points = gradient_weighted_design(
+                    x, y, n_samples,
+                    self.pid.param_id_info['param_mins'],
+                    self.pid.param_id_info['param_maxs'],
+                    seed=int(self._setting('random_seed', 0)) + index,
+                    log_scale=bool(self._setting('log_scale_params', False)))
+                print(f'[emulator] stage {index + 1}/{num_stages}: {len(points)} points drawn '
+                      f'towards the steepest gradients among the {len(x)} simulated so far')
+            if self.comm is not None:
+                points = self.comm.bcast(points, root=0)
+        else:
+            points = self.design(n_samples, sample_type=method, seed_offset=index)
+            if self.rank == 0 and num_stages > 1:
+                print(f'[emulator] stage {index + 1}/{num_stages}: {n_samples} {method} points')
+
+        try:
+            new_x, new_y = self.evaluate(points)
+        except RuntimeError:
+            # evaluate refuses a stage in which every simulation failed. For the first
+            # stage that is fatal and stays fatal; for a later one it is not -- the
+            # design so far still stands, and losing a top-up is a smaller emulator
+            # rather than no emulator. The raise happens on rank 0 after the gather, so
+            # catching it leaves no other rank waiting in a collective.
+            if x is None and self.rank == 0:
+                raise
+            if self.rank == 0:
+                print(f'[emulator] stage {index + 1}/{num_stages} produced nothing usable; '
+                      f'continuing with the {len(x)} samples already simulated')
+            return x, y
+
+        if self.rank != 0:
+            return None, None
+        if x is None:
+            return new_x, new_y
+        if new_x is None or len(new_x) == 0:
+            return x, y
+        return np.vstack([x, new_x]), np.vstack([y, new_y])
 
     def fit(self, x, y):
         """Fit and compare emulators; returns ``(model, r2, rmse, name, x_scale, y_scale)``.
@@ -439,15 +561,23 @@ class EmulatorTrainer:
             if self.rank != 0:
                 return None
         else:
-            design = self.design()
+            stages = self.sampling_stages
             if self.rank == 0:
-                print(f'[emulator] training on {len(design)} samples across '
-                      f'{self.num_procs} rank(s)')
-            x, y = self.evaluate(design)
+                plan = ', '.join(f'{stage["num_samples"]} {stage["method"]}'
+                                 for stage in stages)
+                print(f'[emulator] training on {self.num_train_samples} samples across '
+                      f'{self.num_procs} rank(s)'
+                      + (f'; {len(stages)} stages: {plan}' if len(stages) > 1 else ''))
+
+            x = y = None
+            for index, stage in enumerate(stages):
+                x, y = self._run_stage(x, y, stage, index, len(stages))
             if self.rank != 0:
                 return None
             design_meta = {'sample_type': self._setting('sample_type', 'sobol'),
-                           'num_train_samples': int(len(design)),
+                           'stages': stages,
+                           'num_stages': len(stages),
+                           'num_train_samples': int(self.num_train_samples),
                            'num_used': int(len(x)),
                            'num_failed': int(getattr(self, '_n_failed', 0)),
                            'random_seed': int(self._setting('random_seed', 0)),
@@ -546,6 +676,29 @@ def resolve_emulator_dir(inp_data_dict):
     obs_path = inp_data_dict.get('param_id_obs_path') or ''
     obs_prefix = os.path.splitext(os.path.basename(obs_path))[0] if obs_path else 'obs'
     return os.path.join(root, 'emulators', f'{prefix}_{obs_prefix}')
+
+
+def _as_list(value, cast):
+    """A per-stage setting as a list, from either a YAML list or a comma-separated string.
+
+    Both spellings appear in practice: a hand-written user_inputs.yaml naturally says
+    ``[0.6, 0.4]``, while the settings descriptors are scalar-typed, so a tool that
+    builds one from a form has only a string to offer -- the same reason ``models`` is a
+    comma-separated string.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        parts = [part.strip() for part in value.split(',') if part.strip()]
+    elif isinstance(value, (list, tuple)):
+        parts = list(value)
+    else:
+        parts = [value]
+    try:
+        return [cast(part) for part in parts]
+    except (TypeError, ValueError) as error:
+        raise ValueError(f'cannot read {value!r} as a list of '
+                         f'{cast.__name__}: {error}') from error
 
 
 def _block_for_rank(n_samples, rank, num_procs):
