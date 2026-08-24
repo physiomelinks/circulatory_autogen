@@ -5,6 +5,24 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+## 0.5.1 — 2026-08-25
+
+### Changed — the MCMC ensemble is evaluated in one emulator call (#490)
+
+An ensemble sampler asks for its whole walker population at every step, and a fitted surrogate
+costs almost the same at sixty-four points as at one: per-call overhead dominates. Measured on a
+two-phase RBF emulator with 84 outputs, one parameter vector took 84.8 ms and sixty-four took
+355 ms — 5.6 ms each. The emulator-backed sampler now asks once per step instead of once per
+walker.
+
+### Changed — `OpencorParamID` is now `ParamID`, and `OpencorMCMC` is `MCMC` (#491)
+
+They are the parameter-identification and MCMC engines, and they run against myokit/CVODE,
+casadi and trained emulators as readily as against OpenCOR — the name came from the only backend
+that existed when they were written. **The old names still work**: `OpencorParamID` and
+`OpencorMCMC` remain as aliases, so nothing importing them has to change.
+
+
 ## 0.5.0 — 2026-08-24
 
 ### Added — check a posterior against the data it was fitted to (#478, #473)
