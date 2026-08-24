@@ -265,13 +265,13 @@ def test_clear_run_history_removes_the_transient_files_and_keeps_the_results(tmp
 
 @pytest.mark.unit
 def test_run_UQ_exists_and_run_mcmc_is_kept_as_an_alias():
-    from libcuflynx.param_id.paramID import CVS0DParamID, OpencorMCMC
+    from libcuflynx.param_id.paramID import CVS0DParamID, MCMC
 
     assert callable(CVS0DParamID.run_UQ)
     assert callable(CVS0DParamID.run_mcmc)
     # the behavioural half of the ask: UQ can adopt an already-built engine
-    assert callable(OpencorMCMC.from_param_id)
-    assert callable(OpencorMCMC._init_mcmc)
+    assert callable(MCMC.from_param_id)
+    assert callable(MCMC._init_mcmc)
 
 
 @pytest.mark.unit
@@ -279,7 +279,7 @@ def test_from_param_id_adopts_the_engine_instead_of_building_a_second_one():
     """The ask is behavioural, not a rename: mcmc_instead selects the inner class at
     construction, so UQ after a calibration used to build a second CVS0DParamID and recompile
     the model. Adopting the engine must reuse its simulation helper, not make another."""
-    from libcuflynx.param_id.paramID import OpencorMCMC
+    from libcuflynx.param_id.paramID import MCMC
 
     sentinel_helper = object()
 
@@ -298,7 +298,7 @@ def test_from_param_id_adopts_the_engine_instead_of_building_a_second_one():
     original = paramID.assert_mle_cost_for_bayesian
     paramID.assert_mle_cost_for_bayesian = lambda *a, **k: calls.append(a)
     try:
-        uq = OpencorMCMC.from_param_id(engine, {'num_steps': 7, 'num_walkers': 4})
+        uq = MCMC.from_param_id(engine, {'num_steps': 7, 'num_walkers': 4})
     finally:
         paramID.assert_mle_cost_for_bayesian = original
 

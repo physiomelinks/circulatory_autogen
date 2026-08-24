@@ -10,7 +10,7 @@ These tests pin the flattening at the seam both classes share, so they cannot dr
 import numpy as np
 import pytest
 
-from libcuflynx.param_id.paramID import OpencorMCMC, OpencorParamID
+from libcuflynx.param_id.paramID import MCMC, ParamID
 
 
 def _engine(cls, weights):
@@ -36,7 +36,7 @@ _MIXED = {
 @pytest.mark.unit
 def test_calibration_keeps_the_weights_the_user_set():
     """The base engine must be untouched -- weighting is exactly what a calibration is for."""
-    engine = _engine(OpencorParamID, _MIXED)
+    engine = _engine(ParamID, _MIXED)
     const, series, amp, phase = engine._cost_weight_vectors(0, 0)
 
     assert list(const) == [1.0, 10.0, 0.0, 0.5]
@@ -47,7 +47,7 @@ def test_calibration_keeps_the_weights_the_user_set():
 
 @pytest.mark.unit
 def test_uq_flattens_every_non_zero_weight_to_one():
-    engine = _engine(OpencorMCMC, _MIXED)
+    engine = _engine(MCMC, _MIXED)
     for vec in engine._cost_weight_vectors(0, 0):
         assert set(np.unique(vec)) <= {0.0, 1.0}, 'a UQ weight may only be 0 or 1'
 
@@ -57,7 +57,7 @@ def test_uq_preserves_zero_weights_because_they_exclude_an_observable():
     """A zero does not mean 'unimportant', it means the observable is not part of this
     sub-experiment. Reinstating it would add a feature the user excluded -- and would also
     desynchronise the cached _num_weighted_obs_by_exp_sub denominator, which counts non-zeros."""
-    engine = _engine(OpencorMCMC, _MIXED)
+    engine = _engine(MCMC, _MIXED)
     const, series, amp, phase = engine._cost_weight_vectors(0, 0)
 
     assert list(const) == [1.0, 1.0, 0.0, 1.0]
@@ -65,7 +65,7 @@ def test_uq_preserves_zero_weights_because_they_exclude_an_observable():
     assert list(phase) == [0.0]
 
     # the non-zero count is what the cost denominator is built from, so it must not move
-    base = _engine(OpencorParamID, _MIXED)._cost_weight_vectors(0, 0)
+    base = _engine(ParamID, _MIXED)._cost_weight_vectors(0, 0)
     flat = engine._cost_weight_vectors(0, 0)
     for original, flattened in zip(base, flat):
         assert np.count_nonzero(original) == np.count_nonzero(flattened)
@@ -75,7 +75,7 @@ def test_uq_preserves_zero_weights_because_they_exclude_an_observable():
 def test_uq_warns_once_when_the_weights_actually_changed(capsys):
     """A user who tuned weights for a calibration and then ran UQ on the same obs_data has to
     find out that they no longer apply -- but not once per cost evaluation."""
-    engine = _engine(OpencorMCMC, _MIXED)
+    engine = _engine(MCMC, _MIXED)
 
     engine._cost_weight_vectors(0, 0)
     first = capsys.readouterr().out
@@ -89,7 +89,7 @@ def test_uq_warns_once_when_the_weights_actually_changed(capsys):
 @pytest.mark.unit
 def test_uq_is_silent_when_the_weights_were_already_uniform(capsys):
     """The common case -- nothing changed, so there is nothing to say."""
-    engine = _engine(OpencorMCMC, {
+    engine = _engine(MCMC, {
         'const': [1.0, 1.0, 0.0], 'series': [1.0], 'amp': [0.0], 'phase': [0.0],
     })
     engine._cost_weight_vectors(0, 0)
@@ -98,12 +98,12 @@ def test_uq_is_silent_when_the_weights_were_already_uniform(capsys):
 
 @pytest.mark.unit
 def test_the_flattening_is_the_only_difference_from_the_calibration_path():
-    """OpencorMCMC must not reimplement cost_calc: it inherits it and overrides only the weight
+    """MCMC must not reimplement cost_calc: it inherits it and overrides only the weight
     lookup, so a change to the cost machinery cannot apply to calibration and miss UQ."""
-    assert 'cost_calc' not in vars(OpencorMCMC), \
-        'OpencorMCMC should inherit cost_calc, not override it'
-    assert '_cost_weight_vectors' in vars(OpencorMCMC)
-    assert OpencorMCMC.cost_calc is OpencorParamID.cost_calc
+    assert 'cost_calc' not in vars(MCMC), \
+        'MCMC should inherit cost_calc, not override it'
+    assert '_cost_weight_vectors' in vars(MCMC)
+    assert MCMC.cost_calc is ParamID.cost_calc
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +116,7 @@ def test_calibration_weighting_restores_the_users_weights():
     it on the flat scale makes it a different quantity under the same name -- measured on
     3compartment, 0.0377 saved against 0.1058 recomputed, which tripped simulate_once's
     consistency check and failed CI."""
-    engine = _engine(OpencorMCMC, _MIXED)
+    engine = _engine(MCMC, _MIXED)
     engine._flatten_weights = True
 
     with engine.calibration_weighting():
@@ -130,7 +130,7 @@ def test_calibration_weighting_restores_the_users_weights():
 
 @pytest.mark.unit
 def test_calibration_weighting_restores_the_flag_even_on_an_error():
-    engine = _engine(OpencorMCMC, _MIXED)
+    engine = _engine(MCMC, _MIXED)
     engine._flatten_weights = True
 
     with pytest.raises(RuntimeError):
@@ -148,7 +148,7 @@ def test_the_costs_reported_by_a_uq_run_use_calibration_weighting():
     the same quantity."""
     import inspect
 
-    source = inspect.getsource(OpencorMCMC.save_mcmc_statistics)
+    source = inspect.getsource(MCMC.save_mcmc_statistics)
     assert 'with self.calibration_weighting():' in source, (
         'the costs reported alongside calibration_best_cost must be the same quantity as it, '
         'not the flat likelihood weighting')
@@ -157,7 +157,7 @@ def test_the_costs_reported_by_a_uq_run_use_calibration_weighting():
 @pytest.mark.unit
 def test_sampling_still_uses_flat_weights_by_default():
     """The default has to stay flattened -- that is #193."""
-    engine = _engine(OpencorMCMC, _MIXED)
+    engine = _engine(MCMC, _MIXED)
     engine._flatten_weights = True
     for vec in engine._cost_weight_vectors(0, 0):
         assert set(np.unique(vec)) <= {0.0, 1.0}

@@ -126,9 +126,9 @@ def test_the_cross_segment_items_are_reported_for_refusal():
     """The FSA and CasADi arms build each observable from one sub-experiment's operands, so they
     cannot differentiate a cross-segment reference. They refuse rather than return a gradient
     for a different feature than the cost -- which needs this to spot one."""
-    from libcuflynx.param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import ParamID
 
-    pid = OpencorParamID.__new__(OpencorParamID)
+    pid = ParamID.__new__(ParamID)
     pid.obs_info = {
         'data_item_names': ['a', 'b', 'diff'],
         'experiment_idxs': [0, 1, 1],
@@ -155,7 +155,7 @@ def test_a_standalone_segment_evaluation_gets_its_own_table(temp_output_dir):
     ``get_cost_obs_and_pred_from_params``, while ``get_cost_from_operands`` unconditionally
     enters ``evaluating_segment`` -- which tells ``get_obs_output_dict`` not to reset the table.
     So every caller evaluating one segment at a time raised ``AttributeError:
-    'OpencorParamID' object has no attribute 'temp_results'`` on the first item it recorded.
+    'ParamID' object has no attribute 'temp_results'`` on the first item it recorded.
 
     Not a hypothetical entry point: CUFLynx's ``obs_cost`` scores an emulator's predictions
     through exactly this call, and ``evaluating_segment``'s own docstring lists the gradient

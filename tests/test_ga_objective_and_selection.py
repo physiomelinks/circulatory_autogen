@@ -11,7 +11,7 @@ from libcuflynx.param_id.optimisers import GeneticAlgorithmOptimiser
 
 
 class _StubEngine:
-    """Stands in for OpencorParamID: records which objective the GA asked for."""
+    """Stands in for ParamID: records which objective the GA asked for."""
 
     def __init__(self, cost=3.0, log_posterior=-2.0):
         self.cost = cost

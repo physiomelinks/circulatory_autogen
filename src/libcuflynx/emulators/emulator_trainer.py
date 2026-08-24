@@ -101,7 +101,7 @@ class EmulatorTrainer:
     """Design -> simulate -> fit -> validate -> persist, for one param-id engine.
 
     Args:
-        param_id: an ``OpencorParamID`` built against the **truth** solver. Passing one whose
+        param_id: an ``ParamID`` built against the **truth** solver. Passing one whose
             sim helper is itself an emulator is rejected: it would fit a surrogate of a
             surrogate.
         emulator_settings: the ``emulator_settings`` block (see ``ANALYSIS_OPTIONS``).

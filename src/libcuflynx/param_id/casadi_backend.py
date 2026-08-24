@@ -7,7 +7,7 @@ here imports ``param_id.paramID``: the dependency runs one way only, and the mod
 importable on its own. This mirrors ``param_id.plot_outputs``, which is likewise called
 with a param-id handle rather than importing the class.
 
-``OpencorParamID`` keeps thin delegating methods (``get_cost_ca``, ``get_jac_cost_ca``,
+``ParamID`` keeps thin delegating methods (``get_cost_ca``, ``get_jac_cost_ca``,
 ``get_obs_ca``, ``build_casadi_functions``) so external callers -- ``plot_outputs.py``, the
 test-suite stubs that implement the same duck-typed contract -- are unaffected.
 
@@ -259,8 +259,8 @@ def get_observable_sensitivities(pid, param_vals):
     jacobian of the symbolic observable vector w.r.t. the parameters.
 
     Returns ``{observable_label: {param_name: d(feature)/d(param)}}`` (see
-    ``OpencorParamID._observable_label``). This is the CasADi arm of
-    ``OpencorParamID.get_observable_sensitivities`` -- the backend-agnostic local-sensitivity
+    ``ParamID._observable_label``). This is the CasADi arm of
+    ``ParamID.get_observable_sensitivities`` -- the backend-agnostic local-sensitivity
     accessor -- and mirrors how get_jac_cost differentiates the cost, but for each observable
     output instead of the aggregated cost.
     """

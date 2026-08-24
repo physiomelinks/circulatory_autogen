@@ -27,9 +27,9 @@ def _info(csv):
 def test_every_declared_prior_is_handled_by_the_likelihood():
     """PARAM_PRIOR_TYPES and get_lnprior_from_params must not drift apart: a prior
     the schema advertises but the likelihood cannot evaluate would raise mid-run."""
-    from libcuflynx.param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import ParamID
 
-    pid = OpencorParamID.__new__(OpencorParamID)
+    pid = ParamID.__new__(ParamID)
     for prior in PARAM_PRIOR_TYPES:
         pid.param_id_info = {
             "param_prior_types": np.array([prior]),
@@ -96,10 +96,10 @@ def test_a_mis_spelled_prior_no_longer_unbounds_the_parameter():
     """The regression this all exists for. 'Normal' used to survive the parser
     verbatim, match no branch, and leave the parameter unbounded: lnprior was 0
     at a value far outside [min, max] where it must be -inf."""
-    from libcuflynx.param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import ParamID
 
     info = _info("vessel_name,param_name,min,max,prior\na,k,1,2,Normal\n")
-    pid = OpencorParamID.__new__(OpencorParamID)
+    pid = ParamID.__new__(ParamID)
     pid.param_id_info = info
 
     assert pid.get_lnprior_from_params([999.0]) == -np.inf
@@ -107,9 +107,9 @@ def test_a_mis_spelled_prior_no_longer_unbounds_the_parameter():
 
 def test_a_prior_the_parser_never_saw_raises_rather_than_falling_through():
     """Defence in depth for param_id_info built by hand rather than parsed."""
-    from libcuflynx.param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import ParamID
 
-    pid = OpencorParamID.__new__(OpencorParamID)
+    pid = ParamID.__new__(ParamID)
     pid.param_id_info = {
         "param_prior_types": np.array(["gaussian"]),
         "param_mins": np.array([1.0]),
@@ -132,9 +132,9 @@ from libcuflynx.parsers.PrimitiveParsers import PARAM_PRIOR_PARAM_NAMES, normali
 
 
 def _lnprior(csv, vals):
-    from libcuflynx.param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import ParamID
 
-    pid = OpencorParamID.__new__(OpencorParamID)
+    pid = ParamID.__new__(ParamID)
     pid.param_id_info = _info(csv)
     return pid.get_lnprior_from_params(vals)
 
@@ -232,9 +232,9 @@ def test_bounds_still_win_over_the_stated_values():
 
 def test_a_config_without_the_new_key_keeps_its_behaviour():
     """param_id_info assembled by hand, or from before these columns existed."""
-    from libcuflynx.param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import ParamID
 
-    pid = OpencorParamID.__new__(OpencorParamID)
+    pid = ParamID.__new__(ParamID)
     pid.param_id_info = {
         "param_prior_types": np.array(["normal"]),
         "param_mins": np.array([0.0]),
@@ -343,23 +343,23 @@ def test_the_derived_range_is_finite():
 def test_an_unbounded_prior_is_not_truncated():
     """The derived range exists for the optimiser, not as a bound the user asked
     for, so the prior must not cut off at it."""
-    from libcuflynx.param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import ParamID
 
     info = _info(
         "vessel_name,param_name,min,max,prior,prior_mean,prior_std,unbounded\n"
         "a,k,,,normal,0.0,1.0,true\n"
     )
-    pid = OpencorParamID.__new__(OpencorParamID)
+    pid = ParamID.__new__(ParamID)
     pid.param_id_info = info
     # Far outside the derived [-5, 5]: finite, and exactly the Gaussian's value.
     assert pid.get_lnprior_from_params([20.0]) == pytest.approx(-200.0)
 
 
 def test_a_bounded_parameter_is_still_truncated():
-    from libcuflynx.param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import ParamID
 
     info = _info("vessel_name,param_name,min,max,prior\na,k,0,10,normal\n")
-    pid = OpencorParamID.__new__(OpencorParamID)
+    pid = ParamID.__new__(ParamID)
     pid.param_id_info = info
     assert pid.get_lnprior_from_params([999.0]) == -np.inf
 
@@ -457,31 +457,31 @@ def test_a_division_by_zero_yields_no_default():
 # ---------------------------------------------------------------------------
 def test_the_exponential_is_unchanged_when_nothing_is_stated():
     """origin 0 and scale max/lambda reproduce the original -lambda*x/max exactly."""
-    from libcuflynx.param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import ParamID
 
     info = _info("vessel_name,param_name,min,max,prior\na,k,0,10,exponential\n")
-    pid = OpencorParamID.__new__(OpencorParamID)
+    pid = ParamID.__new__(ParamID)
     pid.param_id_info = info
     # -1.0 * 5 / 10
     assert pid.get_lnprior_from_params([5.0]) == pytest.approx(-0.5)
 
 
 def test_a_stated_rate_still_steepens_it():
-    from libcuflynx.param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import ParamID
 
     info = _info(
         "vessel_name,param_name,min,max,prior,prior_lambda\na,k,0,10,exponential,4.0\n")
-    pid = OpencorParamID.__new__(OpencorParamID)
+    pid = ParamID.__new__(ParamID)
     pid.param_id_info = info
     assert pid.get_lnprior_from_params([5.0]) == pytest.approx(-2.0)
 
 
 def test_a_stated_scale_is_in_the_parameters_own_units():
-    from libcuflynx.param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import ParamID
 
     info = _info(
         "vessel_name,param_name,min,max,prior,prior_scale\na,k,0,10,exponential,2.0\n")
-    pid = OpencorParamID.__new__(OpencorParamID)
+    pid = ParamID.__new__(ParamID)
     pid.param_id_info = info
     assert pid.get_lnprior_from_params([4.0]) == pytest.approx(-2.0)
 
@@ -508,13 +508,13 @@ def test_an_unbounded_exponential_needs_a_scale():
 
 
 def test_an_unbounded_exponential_is_not_truncated():
-    from libcuflynx.param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import ParamID
 
     info = _info(
         "vessel_name,param_name,min,max,prior,prior_origin,prior_scale,unbounded\n"
         "a,k,,,exponential,0.0,1.0,true\n"
     )
-    pid = OpencorParamID.__new__(OpencorParamID)
+    pid = ParamID.__new__(ParamID)
     pid.param_id_info = info
     # Far past the derived [0, 5]: finite, and the exponential's own value.
     assert pid.get_lnprior_from_params([40.0]) == pytest.approx(-40.0)

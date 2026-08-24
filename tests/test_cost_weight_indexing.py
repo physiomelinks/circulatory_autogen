@@ -77,13 +77,13 @@ def test_a_trailing_constant_is_actually_scored(tmp_path):
     a weighted MSE must be non-zero. Dropped, the cost is exactly zero while the
     denominator still counts it -- a fit that looks perfect because the term
     vanished."""
-    from libcuflynx.param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import ParamID
 
     items = [_series_item("s1", weight=0.0), _series_item("s2", weight=0.0),
              _const_item("c1", value=5.0, std=1.0, weight=1.0)]
     obs_info, protocol_info = _parsed(items, tmp_path)
 
-    pid = OpencorParamID.__new__(OpencorParamID)
+    pid = ParamID.__new__(ParamID)
     pid.obs_info = obs_info
     pid.protocol_info = protocol_info
     pid.cost_type = obs_info["cost_type"]
@@ -158,7 +158,7 @@ def test_a_series_is_scored_too(tmp_path):
     the const loop's stale obs_idx when a constant came first. CI's param_id job
     caught it; nothing here did.
     """
-    from libcuflynx.param_id.paramID import OpencorParamID
+    from libcuflynx.param_id.paramID import ParamID
     from libcuflynx.parsers.PrimitiveParsers import scriptFunctionParser
 
     # A constant first, so a stale obs_idx would be in scope and plausible.
@@ -166,7 +166,7 @@ def test_a_series_is_scored_too(tmp_path):
              _series_item("s1", value=2.0, weight=1.0)]
     obs_info, protocol_info = _parsed(items, tmp_path)
 
-    pid = OpencorParamID.__new__(OpencorParamID)
+    pid = ParamID.__new__(ParamID)
     pid.obs_info = obs_info
     pid.protocol_info = protocol_info
     pid.cost_type = obs_info["cost_type"]
