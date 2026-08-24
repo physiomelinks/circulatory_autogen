@@ -149,7 +149,7 @@ def test_training_writes_a_checkable_artefact(base_user_inputs, resources_dir, t
 
     trainer = EmulatorTrainer.init_from_dict(config, comm=mpi_comm)
 
-    def fake_fit(x, y):
+    def fake_fit(x, y, space_filling=None):
         x_scale = EmulatorBundle.make_scale(x)
         y_scale = EmulatorBundle.make_scale(y)
         validation = {
@@ -537,7 +537,7 @@ def test_reuse_refits_the_saved_samples_without_running_the_model(
                      temp_generated_models_dir)
     _generate_model(config, mpi_comm)
 
-    def fake_fit(x, y):
+    def fake_fit(x, y, space_filling=None):
         validation = {'r2': [0.97, 0.96], 'rmse': [0.01, 0.02], 'mae': [0.01, 0.02],
                       'bias': [0.0, 0.0], 'max_abs_error': [0.02, 0.04], 'nrmse': [0.01, 0.02],
                       'theta': x[:2], 'y_true': y[:2], 'y_pred': y[:2]}
@@ -661,51 +661,98 @@ def test_a_reused_fit_emulates_the_same_function_as_the_original(
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.mpi
-def test_a_multi_stage_design_runs_and_records_both_stages(
+def test_a_three_stage_design_runs_and_records_every_stage(
         base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
-    """A two-stage run end to end: the plan, the broadcast, and what it saves.
+    """sobol, then gradient_weighted, then error_weighted, end to end.
 
-    The adaptive stage is the one part of the design that cannot be derived from the seed
-    -- it is placed from features only rank 0 holds -- so it is the one part that can be
-    wrong in a way the unit tests cannot see: a design that never reaches the other ranks,
-    or a second block of samples that never joins the first. Both show up here as a
-    training set of the wrong size.
+    Three stages rather than two on purpose: the third is the first to be handed a
+    design that is *not* space-filling, since half of what it reads was placed by the
+    stage before it and is clustered on the hard part. It has to cope with that and
+    still return points in the box.
+
+    The adaptive stages are also the only part of the design that cannot be derived from
+    the seed -- they are placed from features only rank 0 holds -- so they are the part
+    that can be wrong in a way the unit tests cannot see: a design that never reaches the
+    other ranks, or a block of samples that never joins the earlier ones. Both show up
+    here as a training set of the wrong size.
 
     The saved plan matters as much as the samples. An emulator is reused and argued with
-    long after the run, and "2048 sobol points" and "1024 sobol points plus 1024 drawn at
-    the cliffs" are different provenance for the same count.
+    long after the run, and "2048 sobol points" and "1024 sobol plus 1024 drawn at the
+    cliffs" are different provenance for the same count.
     """
     config = _config(base_user_inputs, resources_dir, temp_output_dir,
                      temp_generated_models_dir,
-                     emulator_settings={'num_train_samples': 24, 'sample_type': 'sobol',
-                                        'num_stages': 2, 'frac_per_stage': [0.5, 0.5],
+                     emulator_settings={'num_train_samples': 30, 'sample_type': 'sobol',
+                                        'num_stages': 3,
+                                        'frac_per_stage': [0.6, 0.2, 0.2],
+                                        'method_per_stage': ['sobol', 'gradient_weighted',
+                                                             'error_weighted'],
+                                        'weight_per_stage': 1.0,
+                                        'random_seed': 0, 'min_r2': -1e9,
+                                        'n_iter': 2, 'n_splits': 2})
+    _generate_model(config, mpi_comm)
+
+    trainer = EmulatorTrainer.init_from_dict(config, comm=mpi_comm)
+    assert trainer.sampling_stages == [
+        {'method': 'sobol', 'num_samples': 18, 'weight': 1.0},
+        {'method': 'gradient_weighted', 'num_samples': 6, 'weight': 1.0},
+        {'method': 'error_weighted', 'num_samples': 6, 'weight': 1.0}]
+
+    bundle = trainer.train()
+    if mpi_comm.Get_rank() != 0:
+        return
+
+    assert bundle is not None, 'a three-stage design trained no emulator'
+    design_meta = bundle.meta['design']
+    assert design_meta['num_stages'] == 3
+    assert [stage['method'] for stage in design_meta['stages']] == [
+        'sobol', 'gradient_weighted', 'error_weighted']
+    assert design_meta['num_train_samples'] == 30
+    # Every block made it back: a stage that did not would leave its samples behind and
+    # the fit would still succeed on what remained.
+    assert len(bundle.x_train) == 30 - design_meta['num_failed']
+
+    mins = np.asarray(trainer.pid.param_id_info['param_mins'], dtype=float)
+    maxs = np.asarray(trainer.pid.param_id_info['param_maxs'], dtype=float)
+    assert np.all(bundle.x_train >= mins) and np.all(bundle.x_train <= maxs), (
+        'an adaptive stage placed points outside the training box')
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.mpi
+def test_the_reported_accuracy_is_measured_on_space_filling_samples_only(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm):
+    """The held-out points all come from the sobol stage, in a real run.
+
+    Checked here and not only in the unit test because it is the reported R2 that a
+    study trusts, and the mask that produces it is assembled in ``train`` from which
+    stage each surviving sample came from -- after failures have been dropped, which is
+    exactly where an off-by-one would hide.
+    """
+    n_sobol = 18
+    config = _config(base_user_inputs, resources_dir, temp_output_dir,
+                     temp_generated_models_dir,
+                     emulator_settings={'num_train_samples': 30, 'sample_type': 'sobol',
+                                        'num_stages': 2, 'frac_per_stage': [0.6, 0.4],
                                         'method_per_stage': ['sobol', 'gradient_weighted'],
                                         'random_seed': 0, 'min_r2': -1e9,
                                         'n_iter': 2, 'n_splits': 2})
     _generate_model(config, mpi_comm)
 
     trainer = EmulatorTrainer.init_from_dict(config, comm=mpi_comm)
-    assert trainer.sampling_stages == [{'method': 'sobol', 'num_samples': 12},
-                                       {'method': 'gradient_weighted', 'num_samples': 12}]
-
+    sobol_points = trainer.design(n_sobol, sample_type='sobol', seed_offset=0)
     bundle = trainer.train()
     if mpi_comm.Get_rank() != 0:
         return
 
-    assert bundle is not None, 'a two-stage design trained no emulator'
-    design_meta = bundle.meta['design']
-    assert design_meta['num_stages'] == 2
-    assert [stage['method'] for stage in design_meta['stages']] == ['sobol',
-                                                                    'gradient_weighted']
-    assert design_meta['num_train_samples'] == 24
-    # Both blocks are in the training set: a stage that never made it back would leave
-    # half of these behind, and the fit would still succeed on what remained.
-    assert len(bundle.x_train) == 24 - design_meta['num_failed']
-
-    mins = np.asarray(trainer.pid.param_id_info['param_mins'], dtype=float)
-    maxs = np.asarray(trainer.pid.param_id_info['param_maxs'], dtype=float)
-    assert np.all(bundle.x_train >= mins) and np.all(bundle.x_train <= maxs), (
-        'the adaptive stage placed points outside the training box')
+    held_out = np.asarray(bundle.validation['theta'], dtype=float)
+    assert len(held_out) > 0, 'nothing was held out, so the R2 is measured on nothing'
+    for point in held_out:
+        assert np.isclose(sobol_points, point, rtol=1e-6, atol=1e-9).all(axis=1).any(), (
+            f'a held-out point {point} is not one of the {n_sobol} sobol samples, so the '
+            f'reported accuracy is partly measured on points the adaptive stage chose '
+            f'for being hard')
 
 
 @pytest.mark.integration
@@ -716,6 +763,8 @@ def test_the_single_stage_default_is_unchanged(
     """Every existing study depends on this: no settings, one stage, same design as before."""
     config = _config(base_user_inputs, resources_dir, temp_output_dir,
                      temp_generated_models_dir)
+    _generate_model(config, mpi_comm)
     trainer = EmulatorTrainer.init_from_dict(config, comm=mpi_comm)
-    assert trainer.sampling_stages == [{'method': 'sobol', 'num_samples': 24}]
+    assert trainer.sampling_stages == [
+        {'method': 'sobol', 'num_samples': 24, 'weight': 1.0}]
     assert trainer.design().shape[0] == 24
