@@ -20,6 +20,22 @@ literal `"0.5.0"` in three test files would have passed happily while every docu
 something else.
 
 
+### Added — a whole study in one call, shipped for readers outside this repo (#478)
+
+`libcuflynx.external_testing.full_pipeline_run.build_full_pipeline_run()` runs sensitivity, an
+emulator, a calibration, a chain and a posterior predictive check into one directory, small
+enough for a test. Every stage already had its own test; nothing tested the combination, which
+is what the readers downstream depend on — the generated `plot_outputs.py` and CUFLynx's
+outputs-directory loader both find files by CA's naming rule. Those readers were checked against
+fixtures written by hand, which agree with the reader by construction and cannot notice CA
+renaming a file.
+
+It ships in the package rather than living in `tests/` because the wheel carries no `tests/`:
+CUFLynx resolves CA through whatever `libcuflynx` is installed, so a builder it cannot import is
+a builder it cannot use. It sits in `external_testing` — shipped code whose only callers are
+tests outside this repository — and deliberately not in `checks`, which validates a *user's*
+model during generation. Nothing an ordinary run reaches imports it.
+
 ### Changed — the scaling benchmark now reports how much work it did (#344)
 
 The 3compartment core-scaling sweep reported CMA-ES speeding up **22.8x on 8 cores**, past the
