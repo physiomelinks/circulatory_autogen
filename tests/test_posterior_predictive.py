@@ -444,3 +444,85 @@ def test_only_rank_zero_needs_the_output_directory(tmp_path, monkeypatch):
     # Returns None off rank 0, and crucially gets that far without touching
     # output_dir itself.
     assert pp.posterior_predictive(client=client, num_samples=4, save=False) is None
+
+
+# ── the recorded traces carried alongside the draws ────────────────────────
+class SeriesClient:
+    """A client whose obs_data carries recorded traces as well as scalars."""
+
+    def __init__(self, series_weights=(0.0,)):
+        n = len(series_weights)
+        self.obs_info = {
+            "ground_truth_const": np.array([1.0]),
+            "std_const_vec": np.array([0.1]),
+            "const_idx_to_obs_idx": [0],
+            # one scalar, then one obs index per recorded trace
+            "experiment_idxs": [0] + [0] * n,
+            "subexperiment_idxs": [0] + [0] * n,
+            "obs_names": ["a"] + ["gt%d" % i for i in range(n)],
+            "data_item_names": ["a"] + ["Vgt_{%d}" % i for i in range(n)],
+            "operands": [["x/v"]] + [["time", "x/v"]] * n,
+            "ground_truth_series": [np.linspace(-70.0, -50.0, 40) for _ in range(n)],
+            "series_idx_to_obs_idx": list(range(1, n + 1)),
+            "weight_series_vec": np.array(series_weights, dtype=float),
+            "plot_type": ["horizontal"] + ["series"] * n,
+        }
+        self.protocol_info = {"num_sub_per_exp": [1], "pre_times": [0.0],
+                              "sim_times": [[1.0]], "experiment_labels": ["exp0"]}
+
+
+def _series_meta(client, n_points=12):
+    series = {(0, "x/v"): np.zeros((3, n_points))}
+    return pp.series_metadata(client, series,
+                              client.obs_info["ground_truth_const"],
+                              client.obs_info["std_const_vec"])
+
+
+@pytest.mark.unit
+def test_a_recorded_trace_reaches_the_plot_metadata():
+    """A simulated trace with nothing drawn behind it cannot be judged; the
+    scalar observables reduce to a horizontal line, which says nothing about
+    whether the shape is right."""
+    meta = _series_meta(SeriesClient())
+
+    recorded = [o for o in meta["observables"] if o.get("kind") == "series"]
+    assert len(recorded) == 1
+    assert recorded[0]["label"] == "Vgt_{0}"
+    assert recorded[0]["plot_type"] == "series"
+
+
+@pytest.mark.unit
+def test_the_recorded_trace_carries_its_own_time_axis():
+    """A recording is sampled at obs_dt and the kept draws are decimated, so the
+    two rarely share a length -- plotting one against the other's axis would
+    stretch it."""
+    meta = _series_meta(SeriesClient(), n_points=12)
+
+    recorded = next(o for o in meta["observables"] if o.get("kind") == "series")
+    assert len(recorded["time"]) == len(recorded["values"]) == 40
+
+
+@pytest.mark.unit
+def test_the_scalars_are_still_there_and_marked():
+    meta = _series_meta(SeriesClient())
+
+    constants = [o for o in meta["observables"] if o.get("kind") == "constant"]
+    assert len(constants) == 1
+    assert constants[0]["plot_type"] == "horizontal"
+
+
+@pytest.mark.unit
+def test_a_weighted_recording_is_carried_too():
+    """Weight decides whether it is fitted, not whether it is drawn."""
+    meta = _series_meta(SeriesClient(series_weights=(1.0,)))
+
+    recorded = next(o for o in meta["observables"] if o.get("kind") == "series")
+    assert recorded["weight"] == 1.0
+
+
+@pytest.mark.unit
+def test_no_recordings_leaves_the_metadata_as_it_was():
+    client = SeriesClient(series_weights=())
+    meta = _series_meta(client)
+
+    assert all(o.get("kind") == "constant" for o in meta["observables"])
