@@ -1776,6 +1776,62 @@ ANALYSIS_OPTIONS = {
              'choices': ['sobol', 'latin_hypercube', 'random'],
              'description': ('Design of experiments over the params_for_id box. Same vocabulary '
                              'as optimiser_options.start_sampling.')},
+            {'name': 'num_stages', 'type': 'int', 'default': 1, 'required': False,
+             'description': ('How many sampling stages the design is drawn in. 1 (the '
+                             'default) is the single-stage design described by sample_type, '
+                             'and nothing changes. Above 1, num_train_samples is split by '
+                             'frac_per_stage and each share is drawn with its own '
+                             'method_per_stage entry -- which is what lets a later stage '
+                             'place its points using the features the earlier stages '
+                             'actually returned, instead of over the box in ignorance of '
+                             'the response.')},
+            # Comma-separated strings for the same reason `models` is one: descriptor types
+            # are scalar, so a form-driven tool has only a string to offer. A hand-written
+            # yaml can give a real list and both are accepted.
+            {'name': 'frac_per_stage', 'type': 'str', 'default': None, 'required': False,
+             'per_stage': True,
+             'description': ('Share of num_train_samples for each stage, as a list or a '
+                             'comma-separated string with one entry per stage, adding up to '
+                             '1 (e.g. "0.6,0.4"). Defaults to an even split.')},
+            # item_choices, not choices: the value is a list, so a tool renders one
+            # menu per stage from this rather than a single menu for the whole setting.
+            # Listed here so a method added to CA appears in those menus without a
+            # change on the tool's side.
+            {'name': 'method_per_stage', 'type': 'str', 'default': None, 'required': False,
+             'item_choices': ['sobol', 'latin_hypercube', 'random', 'gradient_weighted',
+                              'error_weighted'],
+             'per_stage': True,
+             'description': ('How each stage draws its points, one entry per stage (e.g. '
+                             '"sobol,gradient_weighted"). sobol, latin_hypercube and '
+                             'random spread points over the box; gradient_weighted and '
+                             'error_weighted place them using what the earlier stages '
+                             'simulated, and so cannot come first. Defaults to sample_type '
+                             'for the first stage and gradient_weighted for the rest. '
+                             'gradient_weighted draws between the pairs of neighbouring '
+                             'samples whose features differ most, which resolves a '
+                             'threshold an even design straddles -- a neuron that only '
+                             'fires above a rheobase, say. error_weighted cross-validates '
+                             'a cheap radial-basis surrogate over the samples so far, '
+                             'interpolates its error across the whole box, and draws '
+                             'against that, so it can propose points nowhere near an '
+                             'existing sample and does not need the response to be steep '
+                             'to find it hard. Both can only sharpen structure an earlier '
+                             'stage already found, so leave the first stage big enough to '
+                             'find it. Note that clustering points across a discontinuity '
+                             'helps a model that can represent one (a forest, or the '
+                             'classifier half of a two_phase emulator) and HURTS a smooth '
+                             'global fit, which rings around the jump -- so match the '
+                             'stage to the emulator in models.')},
+            {'name': 'weight_per_stage', 'type': 'str', 'default': None, 'required': False,
+             'per_stage': True,
+             'description': ('How strongly each stage follows its own scores, as a list, a '
+                             'comma-separated string, or one value for every stage. 0 '
+                             'ignores them and makes the stage a plain random top-up; 0.5 '
+                             'spreads half the probability uniformly and distributes half '
+                             'by score; 1 (the default) draws in proportion to the scores; '
+                             'above 1 raises them to that power, concentrating harder on '
+                             'the worst regions and covering fewer of them. Ignored by the '
+                             'space-filling methods, which have no scores.')},
             {'name': 'log_scale_params', 'type': 'bool', 'default': False, 'required': False,
              'description': ('Space the design logarithmically in each parameter. Worth setting '
                              'when a bound spans decades; requires every min to be positive.')},
@@ -2496,6 +2552,10 @@ class YamlFileParser(object):
         emulator_settings.setdefault('num_train_samples', 128)
         emulator_settings.setdefault('reuse_samples', False)
         emulator_settings.setdefault('sample_type', 'sobol')
+        emulator_settings.setdefault('num_stages', 1)
+        emulator_settings.setdefault('frac_per_stage', None)
+        emulator_settings.setdefault('method_per_stage', None)
+        emulator_settings.setdefault('weight_per_stage', None)
         emulator_settings.setdefault('log_scale_params', False)
         emulator_settings.setdefault('random_seed', 0)
         emulator_settings.setdefault('test_fraction', 0.2)
