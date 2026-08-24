@@ -85,3 +85,55 @@ def test_a_vector_weight_of_all_zeros_still_counts_as_off():
     }
     pid = type('FakePID', (), {'obs_info': obs_info})()
     _check(type('FakeTrainer', (), {'pid': pid})())
+
+
+# ── the same rule, at both places that enforce it ──────────────────────────
+"""There are two checks, not one: the trainer refuses before simulating, and
+paramID refuses at use time when ``use_emulator`` is set. They had the rule
+written out separately and drifted -- the trainer learned about zero weights and
+the use-time check did not, so a recorded trace carried for plotting trained an
+emulator successfully and then failed every run that tried to use it.
+"""
+
+from libcuflynx.emulators.emulator_bundle import weighted_non_scalar_obs
+
+
+def _obs_info(data_types, series_weights=(), series_idx=()):
+    return {
+        'data_types': list(data_types),
+        'weight_series_vec': np.array(series_weights, dtype=float),
+        'series_idx_to_obs_idx': list(series_idx),
+    }
+
+
+def test_the_shared_rule_exempts_a_zero_weighted_series():
+    assert weighted_non_scalar_obs(
+        _obs_info(['constant', 'series'], [0.0], [1])) == {}
+
+
+def test_the_shared_rule_still_names_a_weighted_series():
+    assert weighted_non_scalar_obs(
+        _obs_info(['constant', 'series'], [1.0], [1])) == {1: 'series'}
+
+
+def test_the_use_time_check_agrees_with_the_trainer():
+    """The property that matters: whatever one refuses, so does the other."""
+    from libcuflynx.emulators.emulator_trainer import EmulatorTrainer
+
+    for weights, idx, types in (
+            ([0.0], [1], ['constant', 'series']),
+            ([1.0], [1], ['constant', 'series']),
+            ([0.0, 1.0], [1, 2], ['constant', 'series', 'series']),
+            ([], [], ['constant', 'constant']),
+    ):
+        info = _obs_info(types, weights, idx)
+        shared = weighted_non_scalar_obs(info)
+
+        trainer = type('T', (), {'pid': type('P', (), {'obs_info': info})()})()
+        try:
+            EmulatorTrainer._check_observables_are_scalar(trainer)
+            trainer_refused = False
+        except ValueError:
+            trainer_refused = True
+
+        assert trainer_refused == bool(shared), (types, weights)

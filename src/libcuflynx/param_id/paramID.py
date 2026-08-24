@@ -2100,15 +2100,21 @@ class OpencorParamID():
         from libcuflynx.emulators.emulator_bundle import fingerprint
         bundle = self.sim_helper.bundle
 
-        bad = {jj: dtype for jj, dtype in enumerate(self.obs_info['data_types'])
-               if dtype != 'constant'}
+        # Zero-weighted non-scalars are exempt: they are not in the cost, so the emulator is
+        # never asked for them. The rule lives in emulator_bundle so this and the trainer's
+        # copy cannot drift -- they already had, and a recorded trace carried at weight 0 for
+        # plotting was refused here after the trainer had accepted it.
+        from libcuflynx.emulators.emulator_bundle import weighted_non_scalar_obs
+
+        bad = weighted_non_scalar_obs(self.obs_info)
         if bad:
             raise ValueError(
                 f'use_emulator is set, but obs_data.json has data_type(s) '
                 f'{sorted(set(bad.values()))} at data_item index(es) {sorted(bad)}. The emulator '
                 f'predicts scalar data_item features only; those need the full simulated trace '
                 f'("series") or its FFT ("frequency"). Emulating series outputs is not supported '
-                f'yet -- run with use_emulator: false, or drop those items.')
+                f'yet -- give them weight 0 if they are only there to be plotted, run with '
+                f'use_emulator: false, or drop those items.')
 
         bundle.check_matches(
             fingerprint(self.param_id_info, self.obs_info, self.protocol_info, self.model_path),
