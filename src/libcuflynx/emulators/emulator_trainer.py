@@ -59,6 +59,18 @@ def emulator_model_names():
     """
     if not autoemulate_available():
         return []
+    base = sorted(_load_autoemulate().list_emulators(default_only=False)['Emulator'].tolist())
+    # The two-phase variants are offered here so a settings form can list them, but
+    # they are not part of `all` -- see _parse_models. Two stages cost more to fit
+    # than one and only pay off when the features really do have a floor.
+    from libcuflynx.emulators.internal_emulators import two_phase_model_names
+    return base + two_phase_model_names(base)
+
+
+def base_emulator_model_names():
+    """Only autoemulate's own names -- what ``models: all`` resolves to."""
+    if not autoemulate_available():
+        return []
     return sorted(_load_autoemulate().list_emulators(default_only=False)['Emulator'].tolist())
 
 
@@ -274,6 +286,28 @@ class EmulatorTrainer:
         models = _parse_models(self._setting('models', 'default'))
         if models is not None:
             kwargs['models'] = models
+
+        # Imported here, not at module scope: internal_emulators asks this module
+        # for the emulator list when it builds its two_phase_<name> helpers, so a
+        # top-level import either way closes the cycle.
+        from libcuflynx.emulators.internal_emulators import (  # noqa: PLC0415
+            base_emulator_name, fit_two_phase, is_two_phase, two_phase_name)
+
+        two_phase = [name for name in (models or []) if is_two_phase(name)]
+        if two_phase:
+            if len(models) > 1:
+                raise ValueError(
+                    f'a two-phase emulator is fitted on its own, but models is {models!r}. '
+                    f'Ask for exactly one, e.g. models: {two_phase[0]}.')
+            # The classifier and the second regressor are fitted here; autoemulate
+            # still does both regressions, so every other setting applies unchanged.
+            base_name = base_emulator_name(two_phase[0])
+            kwargs.pop('models', None)
+            model, result = fit_two_phase(
+                x_train, y_train, x_test, y_test, base_name,
+                _load_autoemulate(), kwargs)
+            validation = _validation_report(model, x_test, y_test, x_scale, y_scale)
+            return (model, validation, two_phase_name(base_name), x_scale, y_scale)
 
         emulation = _load_autoemulate()(x_train, y_train, test_data=(x_test, y_test), **kwargs)
         result = emulation.best_result()
@@ -559,7 +593,9 @@ def _parse_models(models):
     if models in (None, '', 'default'):
         return None
     if models == 'all':
-        return emulator_model_names()
+        # Base emulators only: a two-phase variant is opt-in by name, never swept up
+        # by 'all', because it fits a classifier and a second regressor on top.
+        return base_emulator_model_names()
     if isinstance(models, str):
         return [name.strip() for name in models.split(',') if name.strip()]
     return list(models)
