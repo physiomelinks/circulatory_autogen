@@ -493,7 +493,7 @@ class sobol_SA():
                 # read the previous sample's value instead of failing (#466).
                 self.temp_results = {}
                 features = []
-                for j in range(len(self.obs_info["operations"])):
+                for j in self._observable_indices():
                     func = self.operation_funcs_dict[self.obs_info["operations"][j]]
                     exp_idx = self.obs_info["experiment_idxs"][j]
                     subexp_idx = self.obs_info["subexperiment_idxs"][j]
@@ -764,6 +764,28 @@ class sobol_SA():
         create_heatmap(S1_heatmap_data, 'First-Order ($S_1$)')
         create_heatmap(ST_heatmap_data, 'Total-Order ($S_T$)')
 
+    def _observable_indices(self):
+        """The data_items this analysis reports on, by index into ``obs_info``.
+
+        An item with no operation, or with zero weight, is not an observable here.
+        A recorded trace carried for plotting is both: there is no scalar to reduce
+        it to, and nothing is fitted to it, so its "sensitivity" would not be a
+        number anyone should read. Skipped before the model is asked for it rather
+        than computed and dropped afterwards -- reducing a trace costs the same as
+        reducing a real observable, and every sample pays it.
+        """
+        operations = self.obs_info.get('operations') or []
+        weights = self.obs_info.get('weight_const_vec')
+        keep = []
+        for index, operation in enumerate(operations):
+            if operation is None:
+                continue
+            if weights is not None and index < len(weights):
+                if not np.any(np.asarray(weights[index], dtype=float)):
+                    continue
+            keep.append(index)
+        return keep
+
     @staticmethod
     def _uniquify_output_names(labels, ops):
         """Return labels guaranteed unique so each Sobol output keeps its own
@@ -814,12 +836,15 @@ class sobol_SA():
         subs = self.obs_info['subexperiment_idxs']
         ops = self.obs_info.get('operations', [])
 
-        n_named = n_outputs if n_outputs <= len(names) else n_outputs - 1
+        # The same indices the feature loop used, so a label always names the output
+        # beside it. Building these from range(len(names)) instead would shift every
+        # column by one for each item the loop skipped.
+        reported = self._observable_indices()
         base_labels, base_ops = [], []
-        for i in range(n_named):
+        for i in reported[:n_outputs]:
             base_labels.append(f"{names[i]} (Exp{exps[i]}, Sub{subs[i]})")
             base_ops.append(ops[i] if i < len(ops) else None)
-        if n_outputs > len(names):
+        if n_outputs > len(base_labels):
             base_labels.append("Cost")
             base_ops.append(None)
 
