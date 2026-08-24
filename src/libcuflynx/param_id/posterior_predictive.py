@@ -565,6 +565,46 @@ def series_metadata(client, series, ground_truth, std):
             'value': float(ground_truth[const_idx]),
             'std': float(std[const_idx]),
             'plot_type': str(plot_types[obs_idx]) if obs_idx < len(plot_types) else 'None',
+            'kind': 'constant',
+        })
+
+    # Recorded traces, which are what a simulated trace can actually be compared
+    # against -- the scalar observables above reduce to a horizontal line, and a
+    # line says nothing about whether the shape is right. Usually carried at
+    # weight 0 (drawn, not fitted), and included whatever the weight: this is a
+    # plotting payload, and a fitted series is if anything more worth seeing.
+    recorded = obs_info.get('ground_truth_series') or []
+    series_map = obs_info.get('series_idx_to_obs_idx') or []
+    series_weights = obs_info.get('weight_series_vec')
+    series_names = obs_info.get('data_item_names') or obs_info.get('trace_names_for_plotting') or []
+    for series_idx, obs_idx in enumerate(series_map):
+        if series_idx >= len(recorded):
+            break
+        values = np.asarray(recorded[series_idx], dtype=float).ravel()
+        if values.size < 2:
+            continue
+        exp_idx = int(obs_info['experiment_idxs'][obs_idx])
+        sub_idx = int(obs_info['subexperiment_idxs'][obs_idx])
+        segment = sum(num_sub_per_exp[:exp_idx]) + sub_idx
+        _, variable = trace_operand(obs_info, obs_idx)
+        weight = 0.0
+        if series_weights is not None and series_idx < len(series_weights):
+            weight = float(np.max(np.abs(np.asarray(series_weights[series_idx], dtype=float))))
+        observables.append({
+            'segment': int(segment),
+            'experiment': exp_idx,
+            'subexperiment': sub_idx,
+            'variable': variable,
+            'label': (str(series_names[obs_idx]) if obs_idx < len(series_names)
+                      else 'series %d' % series_idx),
+            # Its own axis, not the block's: a recording is sampled at obs_dt and
+            # the kept draws are decimated, so the two rarely share a length.
+            'time': segment_time_axis(
+                protocol_info, exp_idx, sub_idx, values.size).tolist(),
+            'values': values.tolist(),
+            'weight': weight,
+            'plot_type': 'series',
+            'kind': 'series',
         })
 
     return {
