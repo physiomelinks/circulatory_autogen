@@ -1639,19 +1639,51 @@ def plot_sample_traces():
             if t is None or len(t) != traces.shape[1]:
                 t = np.arange(traces.shape[1])
 
-            for row in traces:
-                ax.plot(t, row, color="#2a78d6", linewidth=0.8, alpha=0.35)
+            for index, row in enumerate(traces):
+                ax.plot(t, row, color="#2a78d6", linewidth=0.8, alpha=0.35,
+                        label=("simulation (%d draws)" % len(traces)) if index == 0 else None)
 
+            # Named after what the statistic is, so "data max" and "sim max" read
+            # as the same quantity measured two ways rather than two mystery lines.
+            def _named(obs, who):
+                op = (obs.get("operation") or "").replace("_in_range", "").replace("_", " ")
+                return "%s %s" % (who, op) if op else who
+
+            drew_recording = drew_data = drew_model = False
             for obs in marks.get(key, []):
+                if obs.get("kind") == "series":
+                    # The recorded trace itself. This is the comparison that
+                    # matters: a horizontal line says an amplitude is right or
+                    # wrong, and only this says whether the shape is.
+                    ax.plot(obs["time"], obs["values"], color="#111417",
+                            linewidth=1.1, zorder=4,
+                            label=None if drew_recording else "data (recorded trace)")
+                    drew_recording = True
+                    continue
                 if obs["plot_type"] != "horizontal":
                     # Nothing sensible to draw for a frequency on a voltage
                     # axis; those observables are reported by the scalar panels.
                     continue
-                ax.axhline(obs["value"], color="#eb6834", linewidth=1.2, zorder=3)
+                ax.axhline(obs["value"], color="#eb6834", linewidth=1.2, zorder=3,
+                           label=None if drew_data else _named(obs, "data"))
+                drew_data = True
                 if obs["std"]:
                     ax.axhspan(obs["value"] - abs(obs["std"]),
                                obs["value"] + abs(obs["std"]),
                                color="#eb6834", alpha=0.15, zorder=0)
+                # The model's value of that same statistic. Dashed and in the
+                # simulation colour: the gap between this and the solid orange
+                # line is what the cost is built from, and on a badly fitting
+                # observable it is the whole story.
+                if obs.get("model_value") is not None:
+                    ax.axhline(obs["model_value"], color="#2a78d6", linewidth=1.2,
+                               linestyle="--", zorder=3,
+                               label=None if drew_model else _named(obs, "sim"))
+                    drew_model = True
+
+            if drew_recording or drew_data or drew_model:
+                ax.legend(fontsize=5.5, loc="best", frameon=True, framealpha=.75,
+                          borderpad=.3, handlelength=1.4)
 
             exp_sub = segments.get(str(segment))
             where = ("exp %s sub %s" % tuple(exp_sub)) if exp_sub else "segment %d" % segment

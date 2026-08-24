@@ -518,12 +518,17 @@ def _resolve_model_path(config):
         'model first, or set model_path' % candidate)
 
 
-def series_metadata(client, series, ground_truth, std):
+def series_metadata(client, series, ground_truth, std, predictions=None):
     """Everything a plot needs to place the traces: axes, and what to draw on them.
 
     The observables are carried alongside because a trace on its own says
     nothing about whether it is right -- what makes the figure readable is the
     measured value drawn across it in the style its ``plot_type`` asks for.
+
+    ``predictions`` (draws x observables) adds the *model's* value of the same
+    statistic beside the measured one. Without it a reader can see that the
+    traces sit above the measured max but not by how much the reduced number
+    disagrees, which is the quantity the cost is actually built from.
     """
     if not series:
         return {}
@@ -566,6 +571,14 @@ def series_metadata(client, series, ground_truth, std):
             'std': float(std[const_idx]),
             'plot_type': str(plot_types[obs_idx]) if obs_idx < len(plot_types) else 'None',
             'kind': 'constant',
+            # What the model made of the same statistic. The median over draws
+            # rather than the mean: one diverged draw should not move the line
+            # the reader compares against.
+            'operation': str((obs_info.get('operations') or [None] * (obs_idx + 1))[obs_idx]
+                             or ''),
+            'model_value': (float(np.median(predictions[:, const_idx]))
+                            if predictions is not None and const_idx < predictions.shape[1]
+                            else None),
         })
 
     # Recorded traces, which are what a simulated trace can actually be compared
@@ -694,7 +707,8 @@ def posterior_predictive(inp_data_dict=None, num_samples=100, burn_in=0.5,
         coverage_summary=coverage(predictions, ground_truth, std, levels),
         chain_info=chain_info, failures=failures, used_emulator=bool(use_emulator),
         series=series,
-        series_meta=series_metadata(client, series, ground_truth, std))
+        series_meta=series_metadata(client, series, ground_truth, std,
+                                    predictions=predictions))
 
     if save:
         result.save(resolved_dir)

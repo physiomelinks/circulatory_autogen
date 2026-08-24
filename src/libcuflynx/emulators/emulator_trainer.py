@@ -119,27 +119,13 @@ class EmulatorTrainer:
         """Refuse non-scalar data_items up front, where it is a config error rather than a
         confusing shape mismatch a hundred simulations later.
 
-        Zero-weighted ones are exempt. A weight of 0 drops an item from the cost entirely,
-        so the emulator is never asked for it -- ``emulated_feature_labels`` is built from
-        ``const_idx_to_obs_idx`` and excludes non-constants already. Carrying a recorded
-        trace at weight 0 purely so it can be drawn behind the model is a real use (it is
-        the only way to have anything to compare a simulated trace against on an
-        output-vs-time plot), and refusing it forced a second obs_data file that existed
-        only to keep the emulator happy.
+        Zero-weighted ones are exempt -- see
+        :func:`libcuflynx.emulators.emulator_bundle.weighted_non_scalar_obs`, which owns the
+        rule so that this and the use-time check in ``paramID`` cannot drift apart.
         """
-        obs_info = self.pid.obs_info
-        unweighted = set()
-        for kind in ('series', 'amp', 'phase'):
-            weights = obs_info.get('weight_%s_vec' % kind)
-            idx_map = obs_info.get('%s_idx_to_obs_idx' % kind)
-            if weights is None or idx_map is None:
-                continue
-            for weight, obs_idx in zip(weights, idx_map):
-                if not np.any(np.asarray(weight, dtype=float)):
-                    unweighted.add(int(obs_idx))
+        from libcuflynx.emulators.emulator_bundle import weighted_non_scalar_obs
 
-        bad = {jj: dtype for jj, dtype in enumerate(obs_info['data_types'])
-               if dtype != 'constant' and jj not in unweighted}
+        bad = weighted_non_scalar_obs(self.pid.obs_info)
         if bad:
             raise ValueError(
                 f'the emulator predicts scalar data_item features only, but obs_data.json has '

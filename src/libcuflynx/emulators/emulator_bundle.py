@@ -33,6 +33,33 @@ REQUIRED_META_KEYS = ('param_entry_labels', 'param_mins', 'param_maxs', 'feature
                       'feature_r2', 'x_scale', 'y_scale', 'fingerprint')
 
 
+def weighted_non_scalar_obs(obs_info):
+    """Data_items an emulator would have to predict but cannot: non-scalar *and* weighted.
+
+    The emulator predicts scalar features, so a ``series`` or ``frequency`` item in the
+    cost is a shape mismatch waiting to happen. A **zero-weighted** one is not in the cost
+    at all -- ``emulated_feature_labels`` is built from ``const_idx_to_obs_idx`` and
+    excludes non-constants already -- so refusing it stops a legitimate and useful thing:
+    carrying a recorded trace purely so it can be drawn behind the model.
+
+    Returns ``{obs index: data_type}`` for the ones that really do have to be refused.
+    Shared by the trainer and by the use-time check in ``paramID``, which had this rule
+    written out twice and drifted: the trainer learned about weights and the other did not.
+    """
+    unweighted = set()
+    for kind in ('series', 'amp', 'phase'):
+        weights = obs_info.get('weight_%s_vec' % kind)
+        idx_map = obs_info.get('%s_idx_to_obs_idx' % kind)
+        if weights is None or idx_map is None:
+            continue
+        for weight, obs_idx in zip(weights, idx_map):
+            if not np.any(np.asarray(weight, dtype=float)):
+                unweighted.add(int(obs_idx))
+
+    return {jj: dtype for jj, dtype in enumerate(obs_info['data_types'])
+            if dtype != 'constant' and jj not in unweighted}
+
+
 def fingerprint(param_id_info, obs_info, protocol_info, model_path=None):
     """A stable digest of everything an emulator was trained against.
 
