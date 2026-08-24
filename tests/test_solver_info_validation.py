@@ -561,8 +561,13 @@ def test_analysis_options_schema_well_formed():
                            'num_tune', 'pymc_method', 'chain_save_every'}
     assert ANALYSIS_OPTIONS['uq']['options_key'] == 'UQ_options'
     assert names('identifiability_analysis') == {'method', 'gradient_source', 'sub_method'}
+    # num_stages and the three per-stage lists describe a design drawn in several
+    # stages, so that a later one can place its points using the features the earlier
+    # ones returned. num_stages 1 is the single-stage design and the other three are
+    # then unused.
     assert names('emulation') == {
         'emulator_dir', 'models', 'num_train_samples', 'reuse_samples', 'sample_type',
+        'num_stages', 'frac_per_stage', 'method_per_stage', 'weight_per_stage',
         'log_scale_params', 'random_seed', 'test_fraction', 'n_splits', 'n_iter', 'min_r2',
         'out_of_bounds', 'fd_rel_step'}
     assert analysis_options('not_a_mode') == []
