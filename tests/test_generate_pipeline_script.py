@@ -251,3 +251,123 @@ def test_bundle_is_runnable_end_to_end_with_every_stage_off(study, tmp_path):
     )
     assert result.returncode == 0, result.stdout
     assert "Done." in result.stdout, result.stdout
+
+
+# --- the plotting scripts -----------------------------------------------------------
+
+@pytest.mark.unit
+def test_the_plotting_scripts_are_valid_python():
+    ast.parse(gps.render_plot_utilities())
+    ast.parse(gps.render_plotting_script())
+
+
+@pytest.mark.unit
+def test_the_plotting_scripts_travel_with_the_bundle(study, tmp_path):
+    """A folder that reproduces a study but cannot draw it is half a bundle."""
+    out = tmp_path / "bundle"
+    written = gps.write_pipeline_bundle(study, str(out))
+
+    for name in (gps.PLOTTING_SCRIPT_NAME, gps.PLOT_UTILITIES_NAME):
+        assert (out / name).is_file()
+        assert name in written
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("panel", [
+    "plot_corner", "plot_posterior_predictive", "plot_coverage",
+])
+def test_the_posterior_panels_exist_and_are_drawn(panel):
+    src = gps.render_plotting_script()
+    assert "def %s(" % panel in src
+    assert panel in src.split("FIGURES = [")[1].split("]")[0], (
+        "%s is defined but never drawn" % panel)
+
+
+@pytest.mark.unit
+def test_the_posterior_panels_return_quietly_without_a_run():
+    """They are left on for every bundle, so a calibration-only run must simply
+    draw fewer figures rather than fail."""
+    src = gps.render_plotting_script()
+    for panel in ("plot_corner", "plot_posterior_predictive", "plot_coverage"):
+        body = src.split("def %s(" % panel)[1].split("\n# ---")[0]
+        # A bare `return` reached before anything is drawn -- the docstring sits
+        # between the def and the guard, so look at the whole body.
+        assert "\n        return\n" in body or "\n        return\n" in body + "\n", (
+            "%s does not return early when its input is missing" % panel)
+        assert ("is None" in body) or ("if not " in body), (
+            "%s does not test for a missing input" % panel)
+
+
+@pytest.mark.unit
+def test_labels_are_not_pushed_through_mathtext():
+    """A parameter called V_mid_m_Kv4_2 is not maths.
+
+    Wrapped in ``$``, mathtext reads the second underscore as a second subscript
+    and raises "Double subscript", losing the whole figure over one axis label.
+    """
+    utils = gps.render_plot_utilities()
+    plots = gps.render_plotting_script()
+
+    assert "def plain(" in utils
+    for panel in ("plot_corner", "plot_posterior_predictive"):
+        body = plots.split("def %s(" % panel)[1].split("\n# ---")[0]
+        assert "util.tex(" not in body, (
+            "%s labels arbitrary identifiers with tex()" % panel)
+
+
+@pytest.mark.unit
+def test_figures_are_cropped_to_their_contents():
+    """A legend below the axes or a long observable name is otherwise cropped at
+    the figure edge -- silently, since the file is still written."""
+    assert 'bbox_inches="tight"' in gps.render_plot_utilities()
+
+
+@pytest.mark.unit
+def test_the_utilities_read_what_the_posterior_check_wrote():
+    utils = gps.render_plot_utilities()
+    for reader in ("posterior_samples", "posterior_predictive",
+                   "posterior_predictive_coverage", "parameter_names",
+                   "mcmc_chain"):
+        assert "def %s(" % reader in utils
+    # The filenames posterior_predictive.save() writes.
+    assert "posterior_predictive.npz" in utils
+    assert "posterior_predictive_coverage.json" in utils
+
+
+@pytest.mark.unit
+def test_the_trace_panel_is_drawn_and_guarded():
+    """What the model actually did, once per draw. The scalar panels cannot say
+    *why* an observable is off -- an amplitude right for the wrong reason and one
+    that is right look identical once reduced to a number."""
+    src = gps.render_plotting_script()
+
+    assert "def plot_sample_traces(" in src
+    assert "plot_sample_traces" in src.split("FIGURES = [")[1].split("]")[0]
+    body = src.split("def plot_sample_traces(")[1].split("\n# ---")[0]
+    assert "is None" in body and "\n        return\n" in body
+
+
+@pytest.mark.unit
+def test_the_trace_panel_draws_the_observables_across_the_traces():
+    """A trace on its own says nothing about whether it is right."""
+    body = gps.render_plotting_script().split(
+        "def plot_sample_traces(")[1].split("\n# ---")[0]
+
+    assert 'plot_type' in body, "the observables are not consulted"
+    assert "axhline" in body and "axhspan" in body, "no measured value or std band"
+
+
+@pytest.mark.unit
+def test_the_trace_panel_spaces_its_subplots():
+    """bbox_inches only crops the outside; without tight_layout the x-label of
+    one row lands on the title of the next."""
+    body = gps.render_plotting_script().split(
+        "def plot_sample_traces(")[1].split("\n# ---")[0]
+    assert "tight_layout()" in body
+
+
+@pytest.mark.unit
+def test_the_utilities_read_the_trace_file():
+    utils = gps.render_plot_utilities()
+    assert "def posterior_series(" in utils
+    assert "posterior_predictive_series.npz" in utils

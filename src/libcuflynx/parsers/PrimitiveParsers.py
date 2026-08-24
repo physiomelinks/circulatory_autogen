@@ -695,12 +695,9 @@ def check_data_item_names_unique(gt_df, prediction_info=None):
             f"{name!r} x{len(where)} (in {', '.join(sorted(set(where)))})"
             for name, where in sorted(duplicated.items()))
         raise ValueError(
-            f"Duplicate 'data_item_name' in obs_data: {detail}. Each data_item and "
-            f"prediction_item needs its own name -- it is the item's identity and the key an "
-            f"operation_kwargs reference resolves against, so a repeat makes a reference "
-            f"ambiguous and silently picks whichever was evaluated last. Note this is not the "
-            f"plotting label: 'trace_name_for_plotting' may repeat freely (the mean and the max "
-            f"of one trace share it).")
+            f"Duplicate 'data_item_name' in obs_data: {detail}. Each item needs its own name: "
+            f"an operation_kwargs reference to a repeated one silently resolves to whichever "
+            f"item was evaluated last. The plotting label 'trace_name_for_plotting' may repeat.")
 
 
 def default_trace_names_for_plotting(gt_df):

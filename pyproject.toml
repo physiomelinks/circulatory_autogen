@@ -18,7 +18,10 @@ readme = "README.md"
 # importlib.resources.files/as_file, which arrived in 3.9. Claiming >=3.7 let pip install
 # happily on 3.7/3.8 and then die on the first generator import, because the
 # `importlib_resources` backport that would have covered it was declared nowhere.
-requires-python = ">=3.9"
+# Raised from >=3.9 deliberately rather than left to drift (#459): the code has no 3.9-specific
+# syntax, but numpy, scipy, matplotlib, scikit-learn and numdifftools all require >=3.10, so a 3.9
+# install cannot resolve the dependencies this project actually declares.
+requires-python = ">=3.10"
 license = {text = "Apache-2.0"}
 authors = [
     {name = "Finbar J. Argus"}
@@ -53,6 +56,9 @@ dependencies = [
     # The first two are handled by the shims in utilities/libcellml_helper_funcs.py; the last
     # two are a real migration. Pin below 0.7 until that is done -- without an upper bound CI
     # silently picks up 0.7.0 and every model-generating test fails.
+    # The upper bound also holds the *Python* ceiling, which is easy to miss: 0.6.3 ships wheels
+    # up to cp313, while 0.7.0's coverage regressed to cp311. Relaxing this pin would therefore
+    # narrow the supported interpreters as well as changing the generated-code API (#459).
     "libcellml>=0.6.3,<0.7.0",
     "myokit>=1.39.1",
     "matplotlib>=3.3.0",
