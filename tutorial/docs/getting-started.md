@@ -32,7 +32,7 @@ pip install "libcuflynx[emulation]"  # surrogate models (pulls in torch; big)
 
 !!! note "The flat imports are deprecated"
     `from param_id.paramID import CVS0DParamID` still works in 0.4.0 with a
-    `DeprecationWarning`, and is **removed in 0.5.0**. Use
+    `DeprecationWarning`, and is **removed in 0.6.0**. Use
     `from libcuflynx.param_id.paramID import CVS0DParamID`.
 
 ### Where an installed libcuflynx reads and writes: `CUFLYNX_USER_DIR`

@@ -5,6 +5,90 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+## 0.5.0 — 2026-08-24
+
+### Added — check a posterior against the data it was fitted to (#478, #473)
+
+A chain says what the parameters could be. It does not say whether the model, at those
+parameters, reproduces what was measured — a calibration that fits badly can still produce a
+tidy posterior. `libcuflynx.param_id.posterior_predictive` draws from the chain, simulates each
+draw and scores the result: predictions in units of each measurement's own std, so observables on
+different scales share one axis, plus coverage against its nominal level. The draws are spread
+across MPI ranks, and both engines honour `use_emulator`, without which a check against the
+solver is only affordable on a chain that was.
+
+### Added — the plotting scripts ship with the engine (#479)
+
+`plot_utilities.py` and `plot_outputs.py` are written into every generated bundle, so a folder
+that reproduces a study can also draw it. Three panels nothing drew before: the pairwise
+posterior (`plot_corner`), the posterior predictive against the measurements, and coverage
+against its nominal level. All three read what `posterior_predictive` writes and return quietly
+when it is absent, so they are safe on a calibration-only run.
+
+### Added — emulator designs can be drawn in stages (#488)
+
+A Sobol design spreads points evenly over the parameter box, which is right when nothing is known
+about the response and wasteful once something is. `emulator_settings` now accepts staged
+designs: a first stage explores, and a later one aims at where the model is hard — by output
+gradient (`gradient_weighted`) or by the emulator's own held-out error (`error_weighted`), with a
+weight dial between "follow the signal" and "keep exploring". Validation stays on a Sobol-only
+subset, so the score is not measured on the points the design deliberately clustered.
+
+### Added — two-phase emulators for observables that sit on a floor (#486)
+
+autoemulate's emulators are regressors, and a regressor is the wrong shape for an observable
+pinned at one value over most of its range: a smooth fit splits the difference across the flat
+region and undershoots beyond it. A two-phase emulator classifies which side of the cliff a point
+is on, then regresses only on the side that varies. One rule now decides which non-scalar
+observables an emulator must refuse, rather than several places each deciding differently.
+
+### Added — draw the recorded trace behind the posterior draws (#485)
+
+A recorded trace carried in an obs_data purely to be plotted is now drawn behind the model's own
+draws, the trace panels say which line is which (simulation, data trace, data max, sim max), and
+the model's own value of each statistic travels in the plot metadata rather than only the
+scalars.
+
+### Fixed — sensitivity analysis on an obs_data holding a recorded trace (#487)
+
+`generate_outputs_mpi` looked up an operation func for every data_item, and a trace carried for
+plotting has none, so a Sobol run died on `KeyError: None` before the first sample finished. A
+series observable's weight is now checked before it is interpolated, not after, so a
+zero-weighted trace costs nothing and asks the model for nothing.
+
+### Changed — tested on 3.12, and 3.9 is dropped (#459, #480)
+
+The declared dependencies have required >= 3.10 since 0.4.0; the test matrix now says so.
+
+### Changed — the flat-import shims now go away in 0.6.0, not 0.5.0
+
+They were promised for removal in this release. They survive it instead. This release already
+asks users to migrate their obs_data files (below), and removing the `libcuflynx.` namespace
+shims at the same time would make one upgrade demand two unrelated migrations — one touching
+data, one touching imports. `REMOVAL_VERSION` now reads `0.6.0`, and every shim's warning, the
+README, CONTRIBUTING, CLAUDE.md and the tutorial say so.
+
+The tests that check those docs agree now read `REMOVAL_VERSION` rather than restating it: the
+literal `"0.5.0"` in three test files would have passed happily while every document said
+something else.
+
+
+### Added — a whole study in one call, shipped for readers outside this repo (#478)
+
+`libcuflynx.external_testing.full_pipeline_run.build_full_pipeline_run()` runs sensitivity, an
+emulator, a calibration, a chain and a posterior predictive check into one directory, small
+enough for a test. Every stage already had its own test; nothing tested the combination, which
+is what the readers downstream depend on — the generated `plot_outputs.py` and CUFLynx's
+outputs-directory loader both find files by CA's naming rule. Those readers were checked against
+fixtures written by hand, which agree with the reader by construction and cannot notice CA
+renaming a file.
+
+It ships in the package rather than living in `tests/` because the wheel carries no `tests/`:
+CUFLynx resolves CA through whatever `libcuflynx` is installed, so a builder it cannot import is
+a builder it cannot use. It sits in `external_testing` — shipped code whose only callers are
+tests outside this repository — and deliberately not in `checks`, which validates a *user's*
+model during generation. Nothing an ordinary run reaches imports it.
+
 ### Changed — the scaling benchmark now reports how much work it did (#344)
 
 The 3compartment core-scaling sweep reported CMA-ES speeding up **22.8x on 8 cores**, past the
@@ -109,7 +193,7 @@ Also fixed: the mean of `heart/u_la` in `resources/3compartment_obs_data.json` w
 `u_{AR}`, so it plotted as an aortic-root pressure. It is now `u_{LA}`.
 
 Reading `obs_info` from python: `names_for_plotting` remains as a deprecated alias of
-`item_names_for_plotting` and is removed in 0.5.0. Prefer `data_item_names`,
+`item_names_for_plotting` and is removed in 0.6.0. Prefer `data_item_names`,
 `trace_names_for_plotting` or `item_names_for_plotting`.
 
 ## 0.4.1 — 2026-08-19
