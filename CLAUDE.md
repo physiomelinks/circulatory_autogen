@@ -109,7 +109,7 @@ Each setting is a descriptor `{name, type, default, required, description, choic
 | `sensitivity_analysis/` | `sensitivityAnalysis.py`, `sobolSA.py`. |
 | `emulators/` | `emulator_trainer.py` (design -> simulate -> fit -> validate -> persist; `emulator_settings.reuse_samples` skips the first two and refits the samples a previous run saved, refusing when their fingerprint no longer matches the run at hand), `emulator_bundle.py` (the artefact + every refusal rule, plus `error_stats()` / `error_points()` -- the per-feature held-out statistics and the held-out points themselves, which is what an error analysis is drawn from). Backend: optional `autoemulate`. |
 | `identifiabilty_analysis/` | `identifiabilityAnalysis.py` (note the dir is spelled `identifiabilty`). |
-| `parsers/` | `ModelParsers.py`, `PrimitiveParsers.py`, `OMEXParsers.py` — CSV/YAML/JSON/OMEX loading. |
+| `parsers/` | `ModelParsers.py`, `PrimitiveParsers.py`, `OMEXParsers.py` — CSV/YAML/JSON/OMEX loading. `MyokitParsers.py` (`.mmt`) and `EasyMLParsers.py` (openCARP `.model`) read other model formats into CellML at the door, so nothing downstream learns a second format — see `tutorial/docs/model-formats.md`. |
 | `models/` | `LumpedModels.py` (`CVS0DModel`). `checks/LumpedModelChecks.py` validates structure/connectivity. |
 | `funcs/` | The built-in cost / operation / modifier funcs the library ships (`cost_funcs_user.py`, `operation_funcs_user.py`, `modifier_funcs_user.py`). Library files — users add their own via the `*_funcs_external_path` config keys, never by editing these (#433). |
 | `utilities/` | `utility_funcs.py`, `protocol_funcs.py`, `libcellml_utilities.py`, `obs_data_helpers.py`, `diagnostics.py`, plotting helpers. |
