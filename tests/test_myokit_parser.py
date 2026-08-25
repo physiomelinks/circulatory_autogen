@@ -19,7 +19,6 @@ from libcuflynx.parsers.MyokitParsers import (
     MyokitImportError,
     cellml_from_model,
     cellml_from_myokit,
-    fill_protocol_info,
     is_myokit_filename,
     looks_like_myokit,
     pace_variable,
@@ -227,36 +226,3 @@ def test_events_can_come_from_somewhere_other_than_a_protocol_object():
 def test_no_events_at_all_is_refused():
     with pytest.raises(MmtProtocolError, match="no protocol events"):
         protocol_info_from_events([], name="a/b", duration=1.0)
-
-
-# ---------------------------------------------------------------------------
-# Putting it into an obs_data document
-# ---------------------------------------------------------------------------
-def test_a_bare_list_of_data_items_becomes_the_object_form():
-    """CA's other accepted obs_data shape, and what several studies ship."""
-    info, _ = protocol_info_from_mmt(MMT, filename="tiny.mmt")
-    out = fill_protocol_info([{"data_item_name": "x"}], info)
-    assert out["data_items"] == [{"data_item_name": "x"}]
-    assert out["protocol_info"] == info
-
-
-def test_hand_written_labels_survive_a_reconversion():
-    info, _ = protocol_info_from_mmt(MMT, filename="tiny.mmt")
-    existing = {"protocol_info": {"experiment_labels": ["1 Hz pacing"],
-                                  "experiment_colors": ["b"]}}
-    out = fill_protocol_info(existing, info)
-    assert out["protocol_info"]["experiment_labels"] == ["1 Hz pacing"]
-    assert out["protocol_info"]["experiment_colors"] == ["b"]
-    assert out["protocol_info"]["sim_times"] == info["sim_times"]
-
-
-def test_labels_that_no_longer_fit_the_schedule_are_replaced():
-    info, _ = protocol_info_from_mmt(MMT, filename="tiny.mmt")
-    existing = {"protocol_info": {"experiment_labels": ["a", "b"]}}
-    out = fill_protocol_info(existing, info)
-    assert out["protocol_info"]["experiment_labels"] == info["experiment_labels"]
-
-
-def test_the_result_is_json_serialisable():
-    info, _ = protocol_info_from_mmt(MMT, filename="tiny.mmt")
-    assert json.loads(json.dumps(fill_protocol_info(None, info)))

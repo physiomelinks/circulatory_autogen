@@ -8,6 +8,7 @@ import json
 import os, sys
 import re
 import warnings
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # obs_data.json schema vocabularies
@@ -381,3 +382,42 @@ class ObsDataCreator:
         self.obs_data_dict = data
         print(f"Observation data loaded from {input_path}")
         return data
+
+
+def fill_protocol_info(
+    obs_data: dict[str, Any] | list | None, protocol_info: dict[str, Any]
+) -> dict[str, Any]:
+    """Put ``protocol_info`` into an obs_data document, returning a new dict.
+
+    An existing document's labels and colours are kept when they still fit the
+    new schedule: those are the parts a user writes for themselves ("1 Hz
+    pacing" reads better than "pacing, period 1000"), and re-deriving the timings
+    is no reason to throw them away.
+
+    A bare array of data_items -- the other accepted shape, and what the
+    3compartment / heat_fenics studies ship -- becomes the object form carrying
+    those same items, which is the only shape that can hold a protocol_info at
+    all. ``dict(obs_data or {})`` used to raise on one, so a data-only file died
+    rather than being updated.
+
+    Here rather than beside the ``.mmt`` reader that first needed it: every key
+    it writes -- ``protocol_info``, ``data_items``, ``experiment_labels``,
+    ``experiment_colors`` -- is this module's vocabulary, and this is the module
+    that migrates those names when they change (see
+    :func:`migrate_legacy_obs_item_keys`). A copy of this living beside one
+    *producer* of a protocol_info would be a second place to update and a
+    second thing to forget; the EasyML reader produces one too, and so could
+    anything else.
+    """
+    if isinstance(obs_data, list):
+        obs_data = {"data_items": obs_data}
+    out = dict(obs_data or {})
+    existing = out.get("protocol_info") or {}
+    merged = dict(protocol_info)
+    n = len(protocol_info.get("sim_times", []))
+    for key in ("experiment_labels", "experiment_colors"):
+        kept = existing.get(key)
+        if isinstance(kept, list) and len(kept) == n:
+            merged[key] = kept
+    out["protocol_info"] = merged
+    return out

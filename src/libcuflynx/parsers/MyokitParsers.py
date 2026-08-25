@@ -28,6 +28,10 @@ The two formats say the same thing in different shapes:
              fields under those same names, which CA expands into the point
              table its solvers want.
 
+Putting the result *into* an obs_data document is
+:func:`libcuflynx.utilities.obs_data_helpers.fill_protocol_info`, which is
+where obs_data's own vocabulary lives.
+
 So the events copy across unchanged -- see
 :mod:`libcuflynx.utilities.protocol_shapes`, whose field vocabulary is Myokit's
 on purpose and which this module validates against rather than restating. The
@@ -378,33 +382,3 @@ def protocol_info_from_events(
         },
         notes,
     )
-
-
-def fill_protocol_info(
-    obs_data: dict[str, Any] | list | None, protocol_info: dict[str, Any]
-) -> dict[str, Any]:
-    """Put ``protocol_info`` into an obs_data document, returning a new dict.
-
-    An existing document's labels and colours are kept when they still fit the
-    new schedule: those are the parts a user writes for themselves ("1 Hz
-    pacing" reads better than "pacing, period 1000"), and re-deriving the timings
-    is no reason to throw them away.
-
-    A bare array of data_items -- CA's other accepted shape, and what the
-    3compartment / heat_fenics studies ship -- becomes the object form carrying
-    those same items, which is the only shape that can hold a protocol_info at
-    all. ``dict(obs_data or {})`` used to raise on one, so a data-only file died
-    rather than being updated.
-    """
-    if isinstance(obs_data, list):
-        obs_data = {"data_items": obs_data}
-    out = dict(obs_data or {})
-    existing = out.get("protocol_info") or {}
-    merged = dict(protocol_info)
-    n = len(protocol_info.get("sim_times", []))
-    for key in ("experiment_labels", "experiment_colors"):
-        kept = existing.get(key)
-        if isinstance(kept, list) and len(kept) == n:
-            merged[key] = kept
-    out["protocol_info"] = merged
-    return out
