@@ -35,6 +35,7 @@ nav:
   - Model Generation and Simulation: model-generation-simulation.md
   - Designing a model: design-model.md
   - External Python Solvers: external-python-solvers.md
+  - Importing other model formats: model-formats.md
   - Parameter Identification: parameter-identification.md
   - Sensitivity Analysis: sensitivity-analysis.md
   - Identifiability Analysis: identifiability-analysis.md
