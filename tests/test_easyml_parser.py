@@ -471,3 +471,21 @@ def test_an_imported_model_produces_an_action_potential():
     assert np.max(np.diff(v) / np.diff(t)) > 50, "upstroke too slow to be an AP"
     # And it repolarises rather than sitting depolarised.
     assert v[-1] < v[0] + 15
+
+
+def test_without_myokit_the_reason_is_a_sentence(monkeypatch):
+    """The light tiers install neither Myokit nor libCellML. "No module named
+    'myokit'" from three frames inside an expression walker is a worse way to
+    learn that than being told."""
+    import builtins
+
+    real_import = builtins.__import__
+
+    def no_myokit(name, *args, **kwargs):
+        if name == "myokit" or name.startswith("myokit."):
+            raise ImportError("no myokit here")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", no_myokit)
+    with pytest.raises(EasyMLImportError, match="Myokit is not installed"):
+        parse_easyml(TINY, filename="tiny.model")

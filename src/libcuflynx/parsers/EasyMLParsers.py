@@ -87,6 +87,25 @@ class EasyMLImportError(ValueError):
     """An EasyML file that could not be read (surface as HTTP 422)."""
 
 
+def _myokit():
+    """Myokit, or an :class:`EasyMLImportError` saying it is not installed.
+
+    Myokit is a required dependency of this package, so this is not an ordinary
+    optional-import dance -- but the light tiers that only parse (CUFLynx's unit
+    tests, a config-only run) install neither it nor libCellML. Reading an EasyML
+    file needs it, and "No module named 'myokit'" from three frames inside an
+    expression walker is a worse way to learn that than a sentence.
+    """
+    try:
+        import myokit  # noqa: PLC0415
+    except ImportError as exc:
+        raise EasyMLImportError(
+            "Myokit is not installed, so an EasyML .model file cannot be read. "
+            "Install myokit, or convert the model to CellML yourself and use that."
+        ) from exc
+    return myokit
+
+
 def is_easyml_filename(name: str) -> bool:
     return Path(str(name or "")).suffix.lower() in EASYML_SUFFIXES
 
@@ -684,7 +703,7 @@ _FUNCS = {}
 
 
 def _init_expression_tables():
-    import myokit  # noqa: PLC0415
+    myokit = _myokit()
 
     if _BINARY:
         return
@@ -713,7 +732,7 @@ def _to_myokit(node, resolve):
     and ``expm1(x)`` for ``exp(x) - 1``. Reading ``expm1`` back as
     ``exp(x) - 1`` is what makes the export/import round trip exact.
     """
-    import myokit  # noqa: PLC0415
+    myokit = _myokit()
 
     _init_expression_tables()
     kind = node[0]
@@ -781,7 +800,7 @@ def parse_easyml(data: bytes | str, *, filename: str = "model.model") -> EasyMLR
     current depolarises -- so a depolarising stimulus is a **negative**
     ``i_stim``.
     """
-    import myokit  # noqa: PLC0415
+    myokit = _myokit()
 
     text = data.decode("utf-8", errors="replace") if isinstance(data, bytes) else data
     parsed = _StatementParser(text).parse()
@@ -964,7 +983,7 @@ def _set_gate_steady_states(gates, inits, variables, warnings) -> None:
     written with, evaluated at the initial state of everything else -- which is
     exactly what the file already fixed with the other ``_init`` values.
     """
-    import myokit  # noqa: PLC0415
+    myokit = _myokit()
 
     for state, gate in gates.items():
         if state in inits:
