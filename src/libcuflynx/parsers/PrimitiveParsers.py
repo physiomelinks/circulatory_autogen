@@ -1741,6 +1741,22 @@ ANALYSIS_OPTIONS = {
             {'name': 'emulator_dir', 'type': 'str', 'default': None, 'required': False,
              'description': ('Directory holding the trained emulator. Defaults to '
                              '<param_id_output_dir>/emulators/<file_prefix>_<obs_prefix>.')},
+            # Not a preference so much as an escape hatch. joblib is what autoemulate
+            # itself writes and reads, but some fitted emulators hold an uninitialised
+            # C-extension descriptor (`_abc._abc_data`) that pickle cannot take apart,
+            # and `joblib.dump` then kills the training run *after* every simulation has
+            # been paid for (issue #468). 'auto' tries joblib, then cloudpickle, then
+            # dill, and records which one wrote the bundle -- that library is then needed
+            # wherever it is read. None of the three is a superset: measured on
+            # autoemulate 2.1.2, dill FAILS on torch-backed emulators that joblib saves
+            # fine (a PyCapsule it recurses on), so switching to it outright -- the fix
+            # #468 proposes -- would break the common case to fix the rare one.
+            {'name': 'model_serialiser', 'type': 'enum', 'default': 'auto', 'required': False,
+             'choices': ['auto', 'joblib', 'cloudpickle', 'dill'],
+             'description': ('How the fitted emulator is pickled: auto (joblib, then '
+                             'cloudpickle, then dill, until one works), or one of those '
+                             'named outright. Change it if training fails with "cannot '
+                             'pickle" while saving.')},
             # A str rather than a list: descriptor types are scalar, and the accepted names are
             # a runtime property of the installed autoemulate, discoverable through
             # emulators.emulator_trainer.emulator_model_names() -- so a tool offers that list
@@ -2548,6 +2564,7 @@ class YamlFileParser(object):
             inp_data_dict['emulator_settings'] = {}
         emulator_settings = inp_data_dict['emulator_settings']
         emulator_settings.setdefault('emulator_dir', None)
+        emulator_settings.setdefault('model_serialiser', 'auto')
         emulator_settings.setdefault('models', 'default')
         emulator_settings.setdefault('num_train_samples', 128)
         emulator_settings.setdefault('reuse_samples', False)

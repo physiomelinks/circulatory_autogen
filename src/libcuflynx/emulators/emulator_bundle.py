@@ -16,11 +16,35 @@ metadata -- an emulator reloaded without them would predict in the wrong units.
 import hashlib
 import json
 import os
+import pickle
 
 import numpy as np
 
 METADATA_FILE = 'emulator_metadata.json'
 MODEL_FILE = 'emulator'          # autoemulate's saver appends .joblib
+#: How the fitted model is pickled. The file is called ``emulator.joblib``
+#: whichever is used -- that is the artefact's name, not a claim about the
+#: container -- and the bundle records which one wrote it so it can be read back.
+SERIALISERS = ('auto', 'joblib', 'cloudpickle', 'dill')
+DEFAULT_SERIALISER = 'auto'
+#: What ``auto`` tries, in order. joblib first because it is what autoemulate
+#: itself writes and reads. cloudpickle before dill on measurement, not
+#: reputation: on autoemulate 2.1.2 dill *fails* where joblib succeeds --
+#: torch-backed emulators hold a ``PyCapsule`` it recurses on -- so the fix
+#: proposed in #468 would have traded one broken case for a commoner one.
+#: cloudpickle handled every emulator tried, and the unnameable objects joblib
+#: refuses. dill stays last because it is what the issue reports working.
+_AUTO_ORDER = ('joblib', 'cloudpickle', 'dill')
+#: What a serialiser raises when it meets an object it cannot take apart, as
+#: opposed to a disk that is full or a path that does not exist. Only these are
+#: worth retrying with a different serialiser.
+#:
+#: Both families are needed and neither implies the other: #468 reports a
+#: ``TypeError`` ("cannot pickle '_abc._abc_data' object"), raised from the C
+#: pickler, while a plain unnameable object -- a closure, a class defined in a
+#: function -- raises ``PicklingError`` from the Python one.
+_PICKLING_FAILURES = (TypeError, AttributeError, NotImplementedError, ValueError,
+                      pickle.PickleError)
 TRAINING_DATA_FILE = 'training_data.npz'
 #: The held-out points, the simulator's answer at each and the emulator's. The
 #: per-feature statistics in the metadata say how wrong the emulator is on
@@ -324,7 +348,15 @@ class EmulatorBundle:
     def save(self, directory):
         """Write model, metadata and training data to ``directory``. Returns the directory."""
         os.makedirs(directory, exist_ok=True)
-        _save_model(self.model, os.path.join(directory, MODEL_FILE))
+        # Recorded in the metadata rather than inferred on the way back in: the
+        # two containers are not distinguishable from the bytes, and guessing
+        # wrong produces an unpickling error about the *model* rather than about
+        # the file. Same reason min_r2 and fd_rel_step travel with the bundle --
+        # by load time the caller may be a calibration run that never saw the
+        # emulator settings.
+        self.meta['model_serialiser'] = _save_model(
+            self.model, os.path.join(directory, MODEL_FILE),
+            serialiser=(self.meta.get('settings') or {}).get('model_serialiser'))
         with open(os.path.join(directory, METADATA_FILE), 'w') as file:
             json.dump(self.meta, file, indent=2, default=str)
         if self.x_train is not None and self.y_train is not None:
@@ -358,7 +390,8 @@ class EmulatorBundle:
                 f'first with do_emulation: true (./run_emulator_training.sh N).')
         with open(meta_path) as file:
             meta = json.load(file)
-        model = _load_model(os.path.join(directory, MODEL_FILE))
+        model = _load_model(os.path.join(directory, MODEL_FILE),
+                            serialiser=meta.get('model_serialiser'))
         x_train = y_train = None
         data_path = os.path.join(directory, TRAINING_DATA_FILE)
         if os.path.isfile(data_path):
@@ -407,26 +440,136 @@ def _load_validation(directory):
         return {}
 
 
-def _save_model(model, path_without_suffix):
-    """joblib, the same container autoemulate's own serialiser uses."""
-    import joblib
-    joblib.dump(model, f'{path_without_suffix}.joblib')
+def _serialiser(name):
+    """The named module, or a refusal that says how to get it."""
+    import importlib
+
+    try:
+        return importlib.import_module(name)
+    except ImportError as error:
+        raise RuntimeError(
+            f'the emulator is set to be saved with {name}, which is not installed. '
+            f'Install it with `pip install {name}` (it comes with '
+            f'`pip install "libcuflynx[emulation]"`), or set '
+            f'emulator_settings.model_serialiser to one of '
+            f'{", ".join(SERIALISERS)}.') from error
 
 
-def _load_model(path_without_suffix):
-    import joblib
+def _dump(module, model, path):
+    """joblib takes a path; the pickle-alikes take a file object."""
+    if module.__name__ == 'joblib':
+        module.dump(model, path)
+    else:
+        with open(path, 'wb') as file:
+            module.dump(model, file)
+
+
+def _undump(module, path):
+    if module.__name__ == 'joblib':
+        return module.load(path)
+    with open(path, 'rb') as file:
+        return module.load(file)
+
+
+def _save_model(model, path_without_suffix, serialiser=None):
+    """Pickle the fitted model. Returns the serialiser that actually wrote it.
+
+    joblib is the default because it is the container autoemulate's own saver
+    uses. Some fitted emulators cannot go through it: an object holding an
+    uninitialised C-extension descriptor -- ``_abc._abc_data`` is the one seen in
+    the wild -- makes ``joblib.dump`` raise ``cannot pickle '_abc._abc_data'
+    object``, and the training run dies after paying for every simulation
+    (issue #468).
+
+    ``auto`` therefore works down :data:`_AUTO_ORDER` until one succeeds, so that
+    failure costs a warning rather than the run. Falling *back* rather than
+    switching outright matters: on autoemulate 2.1.2 a torch-backed emulator
+    pickles with joblib and fails under dill, so a blanket switch would break the
+    common case to fix the rare one.
+    """
+    name = serialiser or DEFAULT_SERIALISER
+    if name not in SERIALISERS:
+        raise ValueError(
+            f'emulator_settings.model_serialiser is {name!r}; '
+            f'expected one of {", ".join(SERIALISERS)}.')
+    path = f'{path_without_suffix}.joblib'
+
+    if name != 'auto':
+        _dump(_serialiser(name), model, path)
+        return name
+
+    first_error = None
+    for candidate in _AUTO_ORDER:
+        try:
+            module = _serialiser(candidate)
+        except RuntimeError as error:      # not installed; try the next one
+            first_error = first_error or error
+            continue
+        try:
+            _dump(module, model, path)
+        except _PICKLING_FAILURES as error:
+            first_error = first_error or error
+            # A half-written file would be loaded in preference to nothing at all.
+            if os.path.isfile(path):
+                os.remove(path)
+            continue
+        if candidate != _AUTO_ORDER[0]:
+            # Silently changing container would be worse than failing: the file
+            # now needs that library wherever it is read.
+            print(f'[emulator] {_AUTO_ORDER[0]} could not pickle this model '
+                  f'({first_error}); saved with {candidate} instead. Set '
+                  f'emulator_settings.model_serialiser to choose explicitly.')
+        return candidate
+
+    raise RuntimeError(
+        f'could not save the emulator: none of {", ".join(_AUTO_ORDER)} could '
+        f'pickle it. The first failure was: {first_error}. Every training '
+        f'simulation has already run -- if any of those libraries is missing, '
+        f'install it and set emulator_settings.model_serialiser to it, and the '
+        f'design can be reused with reuse_samples: true.')
+
+
+def _load_model(path_without_suffix, serialiser=None):
+    """Read the model back, preferring the serialiser that wrote it.
+
+    The others are still tried, because a bundle written before the choice
+    existed records nothing, and because the containers cannot be told apart
+    from their bytes.
+    """
     path = f'{path_without_suffix}.joblib'
     if not os.path.isfile(path):
         raise FileNotFoundError(f'emulator model file {path} is missing')
-    try:
-        return joblib.load(path)
-    except ModuleNotFoundError as error:
-        # The common case is a bundle fitted with autoemulate being loaded in an environment
-        # that does not have it -- say so, rather than reporting a bare missing module.
-        raise RuntimeError(
-            f'could not load the emulator at {path}: {error}. If it was fitted with '
-            f'autoemulate, install it with `pip install "libcuflynx[emulation]"` '
-            f'(needs Python >=3.10,<3.13).') from error
+
+    order = list(_AUTO_ORDER)
+    if serialiser in order:
+        order.remove(serialiser)
+        order.insert(0, serialiser)
+
+    first_error = None
+    for name in order:
+        try:
+            module = _serialiser(name)
+        except RuntimeError as error:
+            first_error = first_error or error
+            continue
+        try:
+            return _undump(module, path)
+        except ModuleNotFoundError as error:
+            # The common case is a bundle fitted with autoemulate being loaded in an
+            # environment that does not have it -- say so, rather than reporting a bare
+            # missing module. Not worth trying another container: the module the pickle
+            # names is absent whichever reads it.
+            raise RuntimeError(
+                f'could not load the emulator at {path}: {error}. If it was fitted with '
+                f'autoemulate, install it with `pip install "libcuflynx[emulation]"` '
+                f'(needs Python >=3.10,<3.13).') from error
+        except Exception as error:  # noqa: BLE001 - try the other containers first
+            first_error = first_error or error
+
+    raise RuntimeError(
+        f'could not load the emulator at {path}: {first_error}. It was saved with '
+        f'{serialiser or "an unrecorded serialiser"}, and none of '
+        f'{", ".join(_AUTO_ORDER)} could read it back.')
 
 
 def _as_backend_input(model, x_scaled):
