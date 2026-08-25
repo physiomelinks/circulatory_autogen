@@ -15,9 +15,11 @@ these formats exist.
 
 ```python
 from libcuflynx.parsers.MyokitParsers import cellml_from_myokit, protocol_info_from_mmt
+from libcuflynx.utilities.obs_data_helpers import fill_protocol_info
 
 cellml, saved = cellml_from_myokit(data, filename="lr-1991.mmt", out_dir=outputs)
 info, notes = protocol_info_from_mmt(data, filename="lr-1991.mmt")
+obs_data = fill_protocol_info(obs_data, info)   # obs_data's own vocabulary
 ```
 
 The two halves of a `.mmt` are read separately and deliberately. The `[[model]]`
