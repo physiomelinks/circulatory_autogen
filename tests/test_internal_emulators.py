@@ -399,3 +399,42 @@ def test_a_multi_phase_name_is_refused_alongside_another_model():
     assert base_emulator_name("MLP") == "MLP"
     assert multi_phase_name("MLP") == "multi_phase_MLP"
     assert multi_phase_name("multi_phase_MLP") == "multi_phase_MLP"
+
+
+def test_a_jump_side_too_thin_to_fold_falls_back_rather_than_raising():
+    """A side needs enough rows to *fold*, not merely to fit.
+
+    autoemulate cross-validates with n_splits folds and, when every candidate errors,
+    keeps no results at all -- so ``best_result()`` raises and one branch of one
+    observable would take the whole training run with it.
+    """
+    import numpy as np
+
+    from libcuflynx.emulators.internal_emulators import _fit_side
+
+    sentinel = object()
+
+    def explode(*_args, **_kwargs):  # pragma: no cover - must never be reached
+        raise AssertionError("a side this thin should not have been fitted")
+
+    rows = np.zeros(200, dtype=bool)
+    rows[:9] = True  # over MIN_SIDE_ROWS, under 2 * n_splits
+    got = _fit_side(np.zeros((200, 2)), np.zeros((200, 1)), None, None, rows,
+                    "RadialBasisFunctions", explode, {"n_splits": 5}, sentinel)
+    assert got is sentinel
+
+
+def test_a_jump_side_that_fails_to_fit_falls_back_rather_than_raising():
+    import numpy as np
+
+    from libcuflynx.emulators.internal_emulators import _fit_side
+
+    sentinel = object()
+
+    def fails(*_args, **_kwargs):
+        raise ValueError("No results available. Please run AutoEmulate.compare() first.")
+
+    rows = np.ones(200, dtype=bool)
+    got = _fit_side(np.zeros((200, 2)), np.zeros((200, 1)), None, None, rows,
+                    "RadialBasisFunctions", fails, {"n_splits": 5}, sentinel)
+    assert got is sentinel

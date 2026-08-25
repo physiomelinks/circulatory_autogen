@@ -512,8 +512,13 @@ def _fit_expected_count(x, column):
         return _ExpectedCount(None, values if values.size else np.array([0.0]))
     # Fitted on indices into `values`, not on the values themselves -- see _ExpectedCount.
     labels = np.searchsorted(values, column)
-    model = GradientBoostingClassifier(random_state=0)
-    model.fit(x, labels)
+    try:
+        model = GradientBoostingClassifier(random_state=0)
+        model.fit(x, labels)
+    except Exception as error:  # noqa: BLE001 - one column must not end the run
+        print(f'[emulator] a count classifier could not be fitted '
+              f'({type(error).__name__}: {error}); predicting its mean instead')
+        return _ExpectedCount(None, np.array([float(np.mean(column))]))
     return _ExpectedCount(model, values)
 
 
@@ -556,17 +561,34 @@ def _fit_side(x_train, y_train, x_test, y_test, rows, base_name, autoemulate_cls
               fit_kwargs, fallback_model):
     """A regressor of the base family fitted on one side of a jump.
 
-    Falls back to the model fitted on everything when a side is too thin to fit on --
-    a worse answer for those rows than a dedicated regressor, and a much better one
-    than a constant.
+    Falls back to the model fitted on everything when a side cannot be fitted -- a
+    worse answer for those rows than a dedicated regressor, and a much better one than
+    the constant ``two_phase_`` would put there.
+
+    Two ways a side fails. It can be too thin: autoemulate cross-validates with
+    ``n_splits`` folds, so a side needs enough rows to *fold*, not merely enough to
+    fit, and eight rows across five folds leaves one point per fold. And it can fail
+    anyway -- every candidate erroring leaves autoemulate with no results at all and
+    ``best_result()`` raising, which would take a whole training run down over one
+    branch of one observable.
     """
-    if int(np.sum(rows)) < MIN_SIDE_ROWS:
+    n_splits = int(fit_kwargs.get('n_splits', 5) or 5)
+    needed = max(MIN_SIDE_ROWS, 2 * n_splits)
+    available = int(np.sum(rows))
+    if available < needed:
+        print(f'[emulator] a jump side has {available} row(s), fewer than the {needed} '
+              f'a {n_splits}-fold fit needs; using the all-rows regressor there')
         return fallback_model
     kwargs = dict(fit_kwargs)
     kwargs['models'] = [base_name]
-    side = autoemulate_cls(x_train[rows], y_train[rows], test_data=(x_test, y_test),
-                           **kwargs)
-    return side.best_result().model
+    try:
+        side = autoemulate_cls(x_train[rows], y_train[rows], test_data=(x_test, y_test),
+                               **kwargs)
+        return side.best_result().model
+    except Exception as error:  # noqa: BLE001 - any fit failure degrades, never fatal
+        print(f'[emulator] a jump side ({available} rows) could not be fitted '
+              f'({type(error).__name__}: {error}); using the all-rows regressor there')
+        return fallback_model
 
 
 class _SingleOutputBinary:
