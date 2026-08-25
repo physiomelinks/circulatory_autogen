@@ -32,6 +32,10 @@ import numpy as np
 #: Prefix that marks a two-phase variant of an autoemulate emulator.
 TWO_PHASE_PREFIX = 'two_phase_'
 
+#: Prefix that marks a multi-phase variant: one emulator that treats counts, jumps
+#: and smooth observables each in the way their own shape asks for.
+MULTI_PHASE_PREFIX = 'multi_phase_'
+
 #: A feature is treated as having a floor when at least this share of the design
 #: returns one single value. Well below the 82% seen on real spike-frequency
 #: features, and well above the repetition a genuinely continuous feature shows.
@@ -48,8 +52,11 @@ def is_two_phase(name):
 
 
 def base_emulator_name(name):
-    """``two_phase_MLP`` -> ``MLP``. Returns ``name`` unchanged if not two-phase."""
-    return name[len(TWO_PHASE_PREFIX):] if is_two_phase(name) else name
+    """``two_phase_MLP`` / ``multi_phase_MLP`` -> ``MLP``; anything else unchanged."""
+    for prefix in (TWO_PHASE_PREFIX, MULTI_PHASE_PREFIX):
+        if isinstance(name, str) and name.startswith(prefix):
+            return name[len(prefix):]
+    return name
 
 
 def two_phase_name(name):
@@ -253,6 +260,323 @@ def _as_array(raw, n_rows):
     except Exception:  # noqa: BLE001
         values = np.asarray(raw, dtype=float)
     return np.asarray(values, dtype=float).reshape(n_rows, -1)
+
+
+
+# ================================================================================
+# multi-phase: one emulator, three kinds of observable
+#
+# A study's observables are not all the same shape, and fitting them as though they
+# were is what the two-phase emulator was a first answer to. This is the second.
+# Three kinds are recognised, each from the training data rather than from a name:
+#
+#   count   an integer-valued observable -- a spike count in a window. The forward
+#           model is deterministic and returns one integer, so what is learned is a
+#           *classifier* over the integers it returns, and what is predicted is the
+#           expected count under that classifier. Never negative (so a Poisson cost
+#           never meets its clip), and smooth in theta because the class
+#           probabilities are, so an optimiser still has a gradient to follow.
+#
+#   jump    a continuous observable that lives on two separated branches -- the peak
+#           voltage of a trace that either spikes or does not. A classifier picks the
+#           branch and **a regressor of the base family is fitted on each side**, so
+#           the quiet branch is predicted rather than pinned to a constant. That is
+#           the difference from ``two_phase_``, which substitutes the floor value on
+#           the inactive side and so cannot follow it at all.
+#
+#   smooth  everything else, straight from the base regressor.
+#
+# One base family per emulator: ``multi_phase_MLP`` uses an MLP for every regressor
+# it fits, ``multi_phase_RadialBasisFunctions`` an RBF. Mixing families inside one
+# emulator would make the comparison between them meaningless.
+# ================================================================================
+
+#: A column is a count when every finite value is a non-negative integer and it takes
+#: at least this many distinct values -- one value is a constant, not a count.
+COUNT_MIN_CLASSES = 2
+
+#: ...and at most this many. A count with hundreds of levels is a continuous quantity
+#: for every practical purpose, and a classifier over it would be all variance.
+COUNT_MAX_CLASSES = 24
+
+#: A column is a jump when the largest gap between consecutive sorted values is at
+#: least this share of its full range. Chosen well above the gap a smooth sample
+#: produces and well below a true branch separation.
+JUMP_GAP_FRAC = 0.20
+
+#: Both sides of a jump need at least this many rows to fit a regressor on.
+MIN_SIDE_ROWS = 8
+
+
+def is_multi_phase(name):
+    """Whether ``name`` asks for a multi-phase variant."""
+    return isinstance(name, str) and name.startswith(MULTI_PHASE_PREFIX)
+
+
+def multi_phase_name(name):
+    """``MLP`` -> ``multi_phase_MLP``."""
+    return name if is_multi_phase(name) else MULTI_PHASE_PREFIX + name
+
+
+def multi_phase_model_names(base_names):
+    """A ``multi_phase_`` variant for each name in ``base_names``."""
+    return [multi_phase_name(name) for name in base_names]
+
+
+def is_count_column(column):
+    """Whether a column is an integer count.
+
+    Tested on the **unscaled** values: the trainer maps y onto a well-conditioned
+    range before fitting, and an affine map turns integers into a grid that no
+    integer test recognises. So the caller has to classify before scaling.
+    """
+    finite = np.asarray(column, dtype=float)
+    finite = finite[np.isfinite(finite)]
+    if finite.size == 0:
+        return False
+    if np.any(finite < 0):
+        return False
+    if not np.allclose(finite, np.round(finite), atol=1e-9, rtol=0):
+        return False
+    return COUNT_MIN_CLASSES <= len(np.unique(np.round(finite))) <= COUNT_MAX_CLASSES
+
+
+def jump_threshold(column, gap_frac=JUMP_GAP_FRAC, min_side=MIN_SIDE_ROWS):
+    """Where a column separates into two branches, or ``None`` if it does not.
+
+    The split is the midpoint of the widest gap between consecutive observed values,
+    accepted only when that gap is a large share of the column's range and both sides
+    carry enough rows to fit on. Deliberately not "the value repeated most often"
+    (:func:`floor_mask`): a peak voltage that either spikes or does not has two
+    *populations*, not a repeated constant, and the floor test does not see it.
+    """
+    finite = np.asarray(column, dtype=float)
+    finite = finite[np.isfinite(finite)]
+    if finite.size < 2 * min_side:
+        return None
+    values = np.unique(finite)
+    if values.size < 2:
+        return None
+    spread = values[-1] - values[0]
+    if spread <= 0:
+        return None
+    gaps = np.diff(values)
+    widest = int(np.argmax(gaps))
+    if gaps[widest] / spread < gap_frac:
+        return None
+    threshold = 0.5 * (values[widest] + values[widest + 1])
+    low = int(np.sum(finite <= threshold))
+    if low < min_side or (finite.size - low) < min_side:
+        return None
+    return float(threshold)
+
+
+def classify_features(y):
+    """Label every column ``'count'``, ``'jump'`` or ``'smooth'``.
+
+    Call this on the **unscaled** training targets; see :func:`is_count_column`.
+    """
+    y = np.asarray(y, dtype=float)
+    kinds = []
+    for index in range(y.shape[1]):
+        column = y[:, index]
+        if is_count_column(column):
+            kinds.append('count')
+        elif jump_threshold(column) is not None:
+            kinds.append('jump')
+        else:
+            kinds.append('smooth')
+    return np.asarray(kinds, dtype=object)
+
+
+class _ExpectedCount:
+    """A classifier over the values a count observable takes, read as its mean.
+
+    The forward model is deterministic -- one theta gives one integer -- so the
+    distribution here is the emulator's uncertainty about which integer, not
+    variability in the model. Reading it as an expectation is a plug-in estimate of
+    that integer, and it is the useful one: non-negative by construction, and
+    continuous in theta where an argmax would be a staircase with no gradient.
+
+    Where the emulator is unsure the expectation sits between classes, which costs
+    slightly *more* than the true integer would under a Poisson likelihood. That bias
+    is the safe direction: the alternative failure -- scoring zero cost for a
+    confidently wrong silence -- is the one that pulls a chain somewhere the model
+    never goes.
+    """
+
+    def __init__(self, model, classes):
+        self.model = model
+        #: The values the observable actually takes, in ascending order. The classifier
+        #: is fitted on their *indices*: sklearn refuses float labels as "continuous",
+        #: and after the trainer's affine scaling the counts are floats.
+        self.classes = np.asarray(classes, dtype=float)
+
+    def predict(self, x):
+        if self.model is None:
+            return np.full(len(x), float(self.classes[0]))
+        probabilities = np.asarray(self.model.predict_proba(x), dtype=float)
+        indices = np.asarray(getattr(self.model, 'classes_', range(probabilities.shape[1])),
+                             dtype=int)
+        return probabilities @ self.classes[indices]
+
+
+class MultiPhaseEmulator:
+    """Counts, jumps and smooth observables, each predicted the way its shape asks.
+
+    Presents ``predict`` and nothing else, which is all ``EmulatorBundle`` asks of a
+    model, and pickles through joblib like autoemulate's own.
+    """
+
+    def __init__(self, base_model, kinds, count_models, jump_groups, base_name):
+        self.base_model = base_model
+        self.kinds = np.asarray(kinds, dtype=object)
+        #: column index -> _ExpectedCount
+        self.count_models = dict(count_models)
+        #: list of {'columns', 'classifier', 'low', 'high'}
+        self.jump_groups = list(jump_groups)
+        self.base_name = base_name
+
+    @property
+    def model_name(self):
+        return multi_phase_name(self.base_name)
+
+    def predict(self, x):
+        x = np.asarray(x, dtype=float)
+        if x.ndim == 1:
+            x = x.reshape(1, -1)
+        out = _as_array(self.base_model.predict(_backend_input(self.base_model, x)), len(x))
+
+        for column, model in self.count_models.items():
+            if column < out.shape[1]:
+                out[:, column] = model.predict(x)
+
+        for group in self.jump_groups:
+            side = np.asarray(group['classifier'].predict(x)).astype(bool).reshape(len(x))
+            for which, model in (('low', group['low']), ('high', group['high'])):
+                if model is None:
+                    continue
+                rows = ~side if which == 'low' else side
+                if not rows.any():
+                    continue
+                values = _as_array(model.predict(_backend_input(model, x[rows])),
+                                   int(rows.sum()))
+                for column in group['columns']:
+                    if column < out.shape[1] and column < values.shape[1]:
+                        out[rows, column] = values[:, column]
+        return out
+
+
+def fit_multi_phase(x_train, y_train, x_test, y_test, base_name, autoemulate_cls,
+                    fit_kwargs, kinds):
+    """Fit the base regressor, the count classifiers and the per-branch regressors.
+
+    ``kinds`` comes from :func:`classify_features` on the *unscaled* targets; ``y_train``
+    here is scaled, as everything the trainer fits is. That is fine for both extra
+    stages: a classifier only needs the classes to be distinct, and an expectation
+    commutes with the affine scaling, so the mean of the scaled classes is the scaled
+    mean of the counts.
+
+    Jump columns are grouped by the rows they put on each side, and one pair of
+    regressors is fitted per group. Columns that jump together -- which is what
+    observables of one trace do -- then cost one pair between them rather than one
+    pair each.
+    """
+    y_train = np.asarray(y_train, dtype=float)
+    kinds = np.asarray(kinds, dtype=object)
+
+    kwargs = dict(fit_kwargs)
+    kwargs['models'] = [base_name]
+    base = autoemulate_cls(x_train, y_train, test_data=(x_test, y_test), **kwargs)
+    base_result = base.best_result()
+
+    count_models = {}
+    for column in np.flatnonzero(kinds == 'count'):
+        count_models[int(column)] = _fit_expected_count(x_train, y_train[:, column])
+
+    jump_groups = _fit_jump_groups(x_train, y_train, y_test, x_test, kinds,
+                                   base_name, autoemulate_cls, fit_kwargs,
+                                   base_result.model)
+
+    return (MultiPhaseEmulator(base_result.model, kinds, count_models, jump_groups,
+                               base_name),
+            base_result)
+
+
+def _fit_expected_count(x, column):
+    """One multiclass classifier over the values this count takes."""
+    from sklearn.ensemble import GradientBoostingClassifier
+
+    values = np.unique(column[np.isfinite(column)])
+    if values.size < 2:
+        return _ExpectedCount(None, values if values.size else np.array([0.0]))
+    # Fitted on indices into `values`, not on the values themselves -- see _ExpectedCount.
+    labels = np.searchsorted(values, column)
+    model = GradientBoostingClassifier(random_state=0)
+    model.fit(x, labels)
+    return _ExpectedCount(model, values)
+
+
+def _fit_jump_groups(x_train, y_train, y_test, x_test, kinds, base_name,
+                     autoemulate_cls, fit_kwargs, fallback_model):
+    """A classifier and a regressor per side, for each set of columns that jump together."""
+    columns = [int(c) for c in np.flatnonzero(kinds == 'jump')]
+    if not columns:
+        return []
+
+    # Split each jump column on the *scaled* values: the threshold is recomputed here
+    # rather than carried from the unscaled pass, because an affine map moves it.
+    sides = {}
+    for column in columns:
+        threshold = jump_threshold(y_train[:, column])
+        if threshold is None:
+            continue
+        sides[column] = y_train[:, column] > threshold
+
+    groups = {}
+    for column, mask in sides.items():
+        groups.setdefault(mask.tobytes(), []).append(column)
+
+    from sklearn.ensemble import GradientBoostingClassifier
+
+    fitted = []
+    for members in groups.values():
+        mask = sides[members[0]]
+        classifier = _fit_column(GradientBoostingClassifier, x_train, mask)
+        low = _fit_side(x_train, y_train, x_test, y_test, ~mask, base_name,
+                        autoemulate_cls, fit_kwargs, fallback_model)
+        high = _fit_side(x_train, y_train, x_test, y_test, mask, base_name,
+                         autoemulate_cls, fit_kwargs, fallback_model)
+        fitted.append({'columns': members, 'classifier': _SingleOutputBinary(classifier),
+                       'low': low, 'high': high})
+    return fitted
+
+
+def _fit_side(x_train, y_train, x_test, y_test, rows, base_name, autoemulate_cls,
+              fit_kwargs, fallback_model):
+    """A regressor of the base family fitted on one side of a jump.
+
+    Falls back to the model fitted on everything when a side is too thin to fit on --
+    a worse answer for those rows than a dedicated regressor, and a much better one
+    than a constant.
+    """
+    if int(np.sum(rows)) < MIN_SIDE_ROWS:
+        return fallback_model
+    kwargs = dict(fit_kwargs)
+    kwargs['models'] = [base_name]
+    side = autoemulate_cls(x_train[rows], y_train[rows], test_data=(x_test, y_test),
+                           **kwargs)
+    return side.best_result().model
+
+
+class _SingleOutputBinary:
+    """One binary classifier, answered as a flat boolean vector."""
+
+    def __init__(self, model):
+        self.model = model
+
+    def predict(self, x):
+        return np.asarray(self.model.predict(x)).astype(bool).reshape(len(x))
 
 
 # --------------------------------------------------------------------------------

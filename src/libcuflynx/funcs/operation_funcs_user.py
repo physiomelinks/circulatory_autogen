@@ -147,6 +147,31 @@ def calc_spike_frequency_windowed(t, V, series_output=False, spike_min_thresh=-1
     return spikes_per_s
 
 @series_to_constant
+def calc_spike_count_windowed(t, V, series_output=False, spike_min_thresh=-10,
+                              start_frac=0.0, end_frac=1.0):
+    """The number of spikes in the window -- the count itself, not a rate.
+
+    Same peak detection as :func:`calc_spike_frequency_windowed`; that one divides by
+    the window length and this one does not. The distinction matters to the cost: a
+    count is what a Poisson likelihood scores (``poisson_MLE`` takes the observed count
+    as ``prob_dist_params['k']`` and the model's count as lambda), and dividing by the
+    window turns an integer into a rate whose Poisson variance is wrong by the window
+    length squared.
+
+    It also matters to an emulator. An integer-valued observable can be learned as a
+    classifier over the values it takes rather than regressed as a continuous quantity
+    -- see ``multi_phase_<name>`` -- and that is only visible if the observable is
+    still an integer by the time the emulator sees it.
+    """
+    if series_output:
+        return V
+    start_idx = int(start_frac*(len(t)-1))
+    end_idx = int(end_frac*(len(t)-1))
+    peak_idxs, peak_properties = find_peaks(V[start_idx:end_idx], height=spike_min_thresh)
+    return float(len(peak_idxs))
+
+
+@series_to_constant
 def first_peak_time(t, V, series_output=False, spike_min_thresh=None):
     """ 
     returns the time value (time from start of pre_time, NOT the start of 
