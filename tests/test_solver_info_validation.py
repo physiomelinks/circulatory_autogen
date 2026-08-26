@@ -565,9 +565,12 @@ def test_analysis_options_schema_well_formed():
     # stages, so that a later one can place its points using the features the earlier
     # ones returned. num_stages 1 is the single-stage design and the other three are
     # then unused.
+    # model_serialiser is an escape hatch rather than a knob: joblib cannot pickle
+    # every fitted emulator, and the failure lands after the training simulations
+    # have been paid for (#468).
     assert names('emulation') == {
-        'emulator_dir', 'models', 'num_train_samples', 'reuse_samples', 'sample_type',
-        'num_stages', 'frac_per_stage', 'method_per_stage', 'weight_per_stage',
+        'emulator_dir', 'model_serialiser', 'models', 'num_train_samples', 'reuse_samples',
+        'sample_type', 'num_stages', 'frac_per_stage', 'method_per_stage', 'weight_per_stage',
         'log_scale_params', 'random_seed', 'test_fraction', 'n_splits', 'n_iter', 'min_r2',
         'out_of_bounds', 'fd_rel_step'}
     assert analysis_options('not_a_mode') == []

@@ -231,6 +231,66 @@ refuses rather than proceeding quietly:
 An emulator is an interpolant. Outside the box it was trained in it is an extrapolation with no
 error estimate at all, which is why `out_of_bounds: error` is the default.
 
+## If saving fails: `model_serialiser`
+
+Training pays for every simulation *before* it writes anything, so a model that cannot be
+pickled costs the whole run rather than just the save. Some fitted emulators hold an
+uninitialised C-extension descriptor that `pickle` cannot take apart, and the run ends with:
+
+```
+TypeError: cannot pickle '_abc._abc_data' object
+```
+
+`emulator_settings.model_serialiser` decides which container is used:
+
+| Value | Behaviour |
+|---|---|
+| `auto` (default) | joblib, then cloudpickle, then dill, until one works — with a warning saying which |
+| `joblib` | joblib only — fail rather than switch container |
+| `cloudpickle` | cloudpickle only |
+| `dill` | dill only |
+
+**None of the three is a superset of the others**, which is why `auto` falls back in order
+rather than simply preferring the most capable one. Measured against autoemulate 2.1.2:
+
+| | an object pickle cannot name | a torch-backed emulator |
+|---|---|---|
+| joblib | fails | works |
+| cloudpickle | works | works |
+| dill | works | **fails** (a `PyCapsule` it recurses on) |
+
+So joblib stays first — it is what `autoemulate` itself writes and reads — and switching to
+dill outright would break the common case to fix the rare one.
+
+Which container wrote a bundle is recorded in `emulator_metadata.json` as `model_serialiser`,
+so it reads back without the setting having to be repeated; a bundle written before the
+setting existed still loads, because all three are tried. Note that a bundle saved with a
+fallback needs that library present wherever it is loaded.
+
+If a training run dies while saving, leave this at `auto` and make sure the fallbacks are
+installed (`pip install "libcuflynx[emulation]"` brings them), or name one outright.
+
+### One failure no container can fix
+
+```
+PicklingError: Can't pickle sentinel: it's not the same object as typing_extensions.sentinel
+```
+
+This one is not about the container, and changing `model_serialiser` will not help — joblib,
+cloudpickle and dill all fail identically. A [PEP 661](https://peps.python.org/pep-0661/)
+sentinel pickles by *name*: its `__reduce__` returns a string, and pickle stores it as a global,
+checking on the way back in that the name still refers to the same object.
+`typing_extensions` 4.16.0 ships one where that check cannot pass:
+
+```python
+_marker = sentinel("sentinel")     # named "sentinel", bound to _marker
+```
+
+`typing_extensions.sentinel` is the *class*, so the identity check fails for any object holding
+`_marker`. CA handles it by reducing sentinels to where they actually live rather than to what
+they call themselves, so nothing needs configuring — but if you meet this outside CA, the
+workaround is `pip install "typing_extensions!=4.16.0"` (4.15.0 is unaffected).
+
 ## Gradients
 
 Over an emulator the only gradient source is **finite differences on the emulator itself**. The

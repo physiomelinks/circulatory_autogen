@@ -185,6 +185,16 @@ uq = [
 # only when do_emulation/use_emulator is set, and says so by name when it is missing.
 emulation = [
     "autoemulate>=2.1,<3",
+    # Fallback containers for saving a fitted emulator. Some models hold an
+    # uninitialised C-extension descriptor that pickle cannot take apart, and
+    # joblib.dump then fails after every training simulation has been paid for
+    # (issue #468). Neither is a superset of joblib -- dill fails on torch-backed
+    # emulators joblib saves fine -- which is why they are fallbacks in order
+    # rather than a replacement. Declared rather than relied on: both arrive
+    # transitively today and that is not a promise.
+    # See emulator_settings.model_serialiser.
+    "cloudpickle>=2.0",
+    "dill>=0.3.6",
 ]
 # `model_type: cpp` (and the 0D-1D coupling built on it) generates C++ source for the user to
 # compile. What it needs is a toolchain -- a C++ compiler, CMake, and for the 1D arm PETSc --
