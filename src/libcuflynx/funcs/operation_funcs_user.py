@@ -266,6 +266,68 @@ def calc_min_peak(t, V, series_output=False, spike_min_thresh=None):
     return min_peak
 
 @series_to_constant
+def min_between_first_two_spikes(t, V, series_output=False, spike_min_thresh=None):
+    """The afterhyperpolarisation trough: the minimum between a trace's first two spikes.
+
+    Locates the spikes in *this* trace rather than taking a fixed window, so the recording
+    and the model are each measured over their own first interspike interval. A window fixed
+    from the recording would make the feature partly a spike-timing measurement: on one
+    SN_full experiment the model had a spike inside the recording's window in only 10 of 40
+    posterior draws, because it fires more slowly than the cell, and the "trough" was then a
+    rising subthreshold ramp. Timing belongs in ``first_peak_time``; this is depth alone.
+
+    With fewer than two spikes there is no interspike interval, and the maximum of the trace
+    is returned -- the same sentinel :func:`calc_min_peak` uses. It is deliberately far from
+    any real trough: paired with ``gaussian_MLE_robust`` the cost is then capped, rather than
+    the subthreshold minimum being compared against a real AHP, which would duplicate what a
+    steady-state minimum already measures.
+    """
+    if series_output:
+        return V
+    peak_idxs, _ = find_peaks(V, height=spike_min_thresh)
+    if len(peak_idxs) < 2:
+        return mb.max(V)
+    return mb.min(V[peak_idxs[0]:peak_idxs[1] + 1])
+
+
+@series_to_constant
+def AHP_minus_steady_state_min(t, V, series_output=False, spike_min_thresh=None):
+    """How much deeper the *first* afterhyperpolarisation is than the steady-state minimum.
+
+    ``min_between_first_two_spikes(V) - steady_state_min(V)``, i.e. the trough after the first
+    spike measured against the trough the trace settles to. Two reasons to score the
+    difference rather than the trough itself:
+
+    * **It is not redundant.** ``steady_state_min`` is the minimum of the second half, which
+      during repetitive firing *is* a later AHP trough. On the SN_full recordings the first
+      trough and the steady-state minimum sit 0.5-2.8 mV apart, well inside a 4 mV sigma, so
+      an absolute AHP observable mostly repeats what ``steady_state_min`` already says.
+      The difference is what is left over: spike-frequency accommodation of the trough.
+    * **It barely charges the firing decision again.** A trace that never fires has its
+      firing already scored by the spike counts and by any jump observable; a difference that
+      is near zero whenever the model is silent does not charge it a third time. See #498's
+      sibling discussion -- the same binary is otherwise asserted by ~22 observables that are
+      all deterministic functions of it.
+
+    A trace with fewer than two spikes has no first interspike interval and so no measurable
+    accommodation: **zero** is returned, not the trace maximum that
+    :func:`min_between_first_two_spikes` uses. That difference is deliberate. An absolute
+    trough needs a sentinel far from any real value so a silent model is obviously wrong; a
+    *difference* wants the opposite, because "the model did not fire" is already asserted by
+    the spike counts and by every jump observable. Measured on ox1: with a far sentinel this
+    observable would add ~24 raw nats to the silence penalty, against ~0.6 with zero -- and
+    the counts alone already contribute 219.
+    """
+    if series_output:
+        return V
+    peak_idxs, _ = find_peaks(V, height=spike_min_thresh)
+    if len(peak_idxs) < 2:
+        return 0.0 * mb.max(V)          # zero, keeping the backend's type
+    return (min_between_first_two_spikes(t, V, spike_min_thresh=spike_min_thresh)
+            - steady_state_min(V))
+
+
+@series_to_constant
 def min_period(t, V, series_output=False, spike_min_thresh=None, distance=None):
     if series_output:
         return V
@@ -417,6 +479,86 @@ def max_first_half(x, series_output=False, start_frac=0.0, end_frac=0.5):
         return mb.min(range_values)
 
 @series_to_constant
+def V_plateau(t, V, series_output=False, spike_min_thresh=None, distance=None,
+              dV_dt_thresh=10e3):
+    """Mean voltage of the interspike plateau, after the AHP has recovered.
+
+    For each action potential, take its peak and the trough that follows it. The plateau is
+    taken to begin one peak-to-trough duration *after* the trough -- ``t_trough +
+    (t_trough - t_peak)`` -- which skips the AHP and its recovery, and to end at the firing
+    threshold of the next action potential, or at the end of the trace when there is none.
+    The value is the mean over that window for the **last** action potential whose plateau
+    start still falls inside it.
+
+    This replaces a "steady state minimum". ``steady_state_min`` takes the minimum of the
+    second half of the window, which on a repetitively firing trace is not a steady state at
+    all -- it is simply a later AHP trough. Averaging between the AHP and the next threshold
+    measures the interspike membrane potential the cell actually sits at, which is what a
+    plateau is meant to be, and it is no longer a trough measurement in disguise.
+
+    Thresholds come from :func:`_ap_thresholds`, the same walk :func:`mean_AP_threshold`
+    reports, so the two observables are consistent by construction.
+
+    With no action potentials there is no interspike interval; the mean of the second half of
+    the trace is returned, which is the plateau of a silent trace.
+    """
+    if series_output:
+        return V
+    peak_idxs, _ = find_peaks(V, height=spike_min_thresh, distance=distance)
+    fallback = mb.mean(V[len(V) // 2:])
+    if len(peak_idxs) < 1:
+        return fallback
+
+    thresholds = _ap_thresholds(t, V, peak_idxs, dV_dt_thresh)
+    window = None
+    for i, peak_idx in enumerate(peak_idxs):
+        next_peak = peak_idxs[i + 1] if i + 1 < len(peak_idxs) else len(V)
+        trough_idx = peak_idx + int(np.argmin(V[peak_idx:next_peak]))
+        start = t[trough_idx] + (t[trough_idx] - t[peak_idx])
+        if i + 1 < len(peak_idxs) and thresholds[i + 1][0] is not None:
+            end = t[thresholds[i + 1][0]]
+        else:
+            end = t[-1]
+        if start < end:
+            window = (start, end)          # keep the last AP that still has room
+    if window is None:
+        return fallback
+    selected = (t >= window[0]) & (t <= window[1])
+    if not np.any(selected):
+        return fallback
+    return mb.mean(V[selected])
+
+
+def _ap_thresholds(t, V, peak_idxs, dV_dt_thresh):
+    """``(index, voltage)`` where dV/dt first exceeds ``dV_dt_thresh`` ahead of each peak.
+
+    The walk is the one :func:`mean_AP_threshold` has always used -- start three quarters of
+    the way from the previous peak to this one, step forward until dV/dt crosses, then
+    interpolate the voltage -- factored out so the plateau window can start and end at the
+    same thresholds the threshold observable reports. ``(None, None)`` for a peak whose
+    threshold runs off the end of the trace.
+    """
+    out = []
+    prev_idx = 0
+    for peak_idx in peak_idxs:
+        current_idx = int((peak_idx + prev_idx) * 3 / 4)
+        dV_dt = 0
+        dV_dt_prev = 0
+        while dV_dt < dV_dt_thresh and current_idx < len(t) - 1:
+            dV_dt_prev = dV_dt
+            dV_dt = (V[current_idx + 1] - V[current_idx]) / (t[current_idx + 1] - t[current_idx])
+            current_idx += 1
+        if current_idx < len(t) - 1:
+            out.append((current_idx,
+                        np.interp(dV_dt_thresh, [dV_dt_prev, dV_dt],
+                                  [V[current_idx - 1], V[current_idx]])))
+            prev_idx = peak_idx
+        else:
+            out.append((None, None))
+    return out
+
+
+@series_to_constant
 def mean_AP_threshold(t, V, series_output=False, spike_min_thresh=None, distance=None, dV_dt_thresh=10e3):
     """
     This function calculates the mean action potential threshold
@@ -437,25 +579,9 @@ def mean_AP_threshold(t, V, series_output=False, spike_min_thresh=None, distance
         # there are no peaks, so set value to mean of the voltage
         threshold = mb.mean(V)
     else:
-        prev_idx = 0
-        thresholds = []
-        for peak_idx in peak_idxs:
-            t_peak = t[peak_idx]
-            current_idx = int((peak_idx + prev_idx) *3/ 4)
-            dV_dt = 0
-            dV_dt_prev = 0
-            while dV_dt < dV_dt_thresh and current_idx < len(t) - 1:
-                dV_dt_prev = dV_dt
-                dV_dt = (V[current_idx + 1] - V[current_idx]) / (t[current_idx + 1] - t[current_idx])
-                current_idx += 1
-            if current_idx < len(t) - 1:
-                interp_thresh = np.interp(dV_dt_thresh, [dV_dt_prev, dV_dt], [V[current_idx-1], V[current_idx]])
-                thresholds.append(interp_thresh) 
-                prev_idx = peak_idx
-            else:
-                # threshold not found for this peak, ignore it.
-                pass
-            
+        thresholds = [v for _, v in _ap_thresholds(t, V, peak_idxs, dV_dt_thresh)
+                      if v is not None]
+
         if len(thresholds) == 0:
             # no thresholds found, exit
             print("no thresholds found, setting cost to large")
