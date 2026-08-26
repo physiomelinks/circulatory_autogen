@@ -13,10 +13,14 @@ where that spread destroys a kernel fit. Parameters are mapped to the unit box a
 standardised here, before anything reaches the emulator, and the transforms are stored in the
 metadata -- an emulator reloaded without them would predict in the wrong units.
 """
+import contextlib
+import copyreg
 import hashlib
+import importlib
 import json
 import os
 import pickle
+import sys
 
 import numpy as np
 
@@ -440,6 +444,108 @@ def _load_validation(directory):
         return {}
 
 
+def _sentinel_by_name(module_name, attribute):
+    """Re-find a sentinel at load time by the name it is *actually* stored under.
+
+    Named at module scope because it has to be picklable itself -- it is what
+    :func:`_reduce_sentinel` puts in the stream in place of the sentinel.
+    """
+    return getattr(importlib.import_module(module_name), attribute)
+
+
+def _sentinel_home(obj):
+    """``(module, attribute)`` the sentinel really lives at, or None."""
+    module = sys.modules.get(getattr(obj, '__module__', None) or '')
+    if module is None:
+        return None
+    for name, value in vars(module).items():
+        if value is obj:
+            return module.__name__, name
+    return None
+
+
+def _reduce_sentinel(obj):
+    """Pickle a PEP 661 sentinel by where it is, not by what it calls itself.
+
+    A sentinel's ``__reduce__`` returns its *name*, so pickle stores it as a
+    global and, on the way in, checks that the name still refers to the same
+    object. ``typing_extensions`` 4.16.0 has one where that check cannot pass::
+
+        _marker = sentinel("sentinel")
+
+    The instance is named ``"sentinel"`` but bound to ``_marker``, and
+    ``typing_extensions.sentinel`` is the *class*, so pickling anything holding
+    it fails with::
+
+        PicklingError: Can't pickle sentinel: it's not the same object as
+        typing_extensions.sentinel
+
+    No container avoids this -- joblib, cloudpickle and dill all honour the
+    object's own ``__reduce__`` -- so the fallback chain cannot help; there is
+    nothing to fall back to. Looking the object up by identity in its own module
+    finds the name that does resolve, and a sentinel is a singleton whose whole
+    purpose is identity, so it has to come back as the same object rather than
+    an equal one.
+    """
+    home = _sentinel_home(obj)
+    if home is None:
+        raise pickle.PicklingError(
+            f'cannot pickle the sentinel {obj!r}: its __reduce__ names '
+            f'{getattr(obj, "__name__", "?")!r}, which is not what holds it, and '
+            f'no attribute of {getattr(obj, "__module__", "?")} does either.')
+    return _sentinel_by_name, home
+
+
+def _sentinel_classes():
+    """Sentinel classes present in this interpreter, however they are spelled.
+
+    Spelling has changed between releases -- typing_extensions 4.15 has a private
+    ``_Sentinel`` and 4.16 a public ``sentinel`` aliased as ``Sentinel`` -- and
+    the type that matters is whatever ``_marker`` actually is, which in 4.15 is
+    *not* the public name. So the private instance's own type is taken when it
+    is there, rather than inferred from the public API.
+    """
+    classes = []
+
+    def add(candidate):
+        if isinstance(candidate, type) and candidate not in classes:
+            classes.append(candidate)
+
+    for module_name in ('typing_extensions', 'typing', 'builtins'):
+        module = sys.modules.get(module_name)
+        if module is None:
+            continue
+        for attribute in ('sentinel', 'Sentinel', '_Sentinel'):
+            add(getattr(module, attribute, None))
+        marker = getattr(module, '_marker', None)
+        if marker is not None:
+            add(type(marker))
+    return classes
+
+
+@contextlib.contextmanager
+def _sentinels_picklable():
+    """Make sentinels reducible for the duration of one dump.
+
+    Through ``copyreg.dispatch_table``, which every pickler built on
+    ``pickle.Pickler`` consults *before* an object's own ``__reduce_ex__`` --
+    joblib, cloudpickle and dill included, which is what makes one registration
+    enough. Scoped to the dump and removed afterwards: this is a process-wide
+    table, and a library that quietly changed how someone else's objects pickle
+    would be a poor neighbour.
+    """
+    added = []
+    for cls in _sentinel_classes():
+        if cls not in copyreg.dispatch_table:
+            copyreg.dispatch_table[cls] = _reduce_sentinel
+            added.append(cls)
+    try:
+        yield
+    finally:
+        for cls in added:
+            copyreg.dispatch_table.pop(cls, None)
+
+
 def _serialiser(name):
     """The named module, or a refusal that says how to get it."""
     import importlib
@@ -456,12 +562,18 @@ def _serialiser(name):
 
 
 def _dump(module, model, path):
-    """joblib takes a path; the pickle-alikes take a file object."""
-    if module.__name__ == 'joblib':
-        module.dump(model, path)
-    else:
-        with open(path, 'wb') as file:
-            module.dump(model, file)
+    """joblib takes a path; the pickle-alikes take a file object.
+
+    Wrapped in :func:`_sentinels_picklable` because a sentinel defeats every
+    container equally, so it has to be handled here rather than by choosing a
+    different one.
+    """
+    with _sentinels_picklable():
+        if module.__name__ == 'joblib':
+            module.dump(model, path)
+        else:
+            with open(path, 'wb') as file:
+                module.dump(model, file)
 
 
 def _undump(module, path):

@@ -208,3 +208,159 @@ def test_a_fallback_file_loads_even_if_the_metadata_claims_joblib(tmp_path):
 def test_a_missing_model_file_is_reported_as_such(tmp_path):
     with pytest.raises(FileNotFoundError, match='is missing'):
         _load_model(_model_path(tmp_path))
+
+
+# ---------------------------------------------------------------------------
+# Sentinels, which defeat every container equally
+#
+# A PEP 661 sentinel pickles by *name*: its __reduce__ returns a string, and
+# pickle stores it as a global, checking on the way in that the name still
+# refers to the same object. typing_extensions 4.16.0 ships one where that check
+# cannot pass -- `_marker = sentinel("sentinel")` binds an instance named
+# "sentinel" to `_marker`, while `typing_extensions.sentinel` is the class -- so
+# anything holding it fails to pickle with
+#
+#     PicklingError: Can't pickle sentinel: it's not the same object as
+#     typing_extensions.sentinel
+#
+# joblib, cloudpickle and dill all honour the object's own __reduce__, so the
+# fallback chain has nothing to fall back to. It is fixed here instead, through
+# copyreg, which every pickler built on pickle.Pickler consults first.
+# ---------------------------------------------------------------------------
+import copyreg  # noqa: E402
+import pickle as _pickle  # noqa: E402
+
+from libcuflynx.emulators.emulator_bundle import (  # noqa: E402
+    _reduce_sentinel,
+    _sentinel_classes,
+    _sentinel_home,
+    _sentinels_picklable,
+)
+
+typing_extensions = pytest.importorskip('typing_extensions')
+MARKER = getattr(typing_extensions, '_marker', None)
+
+
+def _marker_is_the_broken_kind():
+    """Whether the installed typing_extensions has the unpicklable sentinel.
+
+    Version-sniffing would be the wrong test: what matters is the behaviour, and
+    it is one line to ask for directly.
+    """
+    if MARKER is None:
+        return False
+    try:
+        _pickle.dumps(MARKER)
+    except _pickle.PicklingError:
+        return True
+    return False
+
+
+needs_broken_marker = pytest.mark.skipif(
+    not _marker_is_the_broken_kind(),
+    reason='this typing_extensions pickles its sentinel fine (the bug is 4.16.0)',
+)
+
+
+class SentinelStub(LinearStub):
+    """An emulator holding the sentinel, the way a fitted one holds it as a default."""
+
+    def __init__(self, weights):
+        super().__init__(weights)
+        self.default = MARKER
+
+
+@needs_broken_marker
+def test_the_sentinel_really_is_unpicklable_without_help():
+    """The premise. If typing_extensions fixes this, the tests below stop
+    proving anything and should start skipping rather than passing."""
+    with pytest.raises(_pickle.PicklingError, match='not the same object'):
+        _pickle.dumps(MARKER)
+
+
+@needs_broken_marker
+@pytest.mark.parametrize('name', ['joblib', 'cloudpickle', 'dill'])
+def test_no_container_can_save_a_sentinel_unaided(name, tmp_path):
+    """Why this is not fixed by choosing a different serialiser: they all defer
+    to the object's own __reduce__, so they all fail in the same place."""
+    module = pytest.importorskip(name)
+    path = tmp_path / 'raw'
+    with pytest.raises(_pickle.PicklingError, match='not the same object'):
+        if name == 'joblib':
+            module.dump(SentinelStub([[2.0]]), str(path))
+        else:
+            with open(path, 'wb') as file:
+                module.dump(SentinelStub([[2.0]]), file)
+
+
+@needs_broken_marker
+@pytest.mark.parametrize('name', ['joblib', 'cloudpickle', 'dill', 'auto'])
+def test_a_model_holding_a_sentinel_saves_and_reloads(name, tmp_path):
+    used = _save_model(SentinelStub([[2.0]]), _model_path(tmp_path), serialiser=name)
+    back = _load_model(_model_path(tmp_path), serialiser=used)
+    assert back.predict([[1.0]])[0] == pytest.approx(2.0)
+
+
+@needs_broken_marker
+def test_the_sentinel_comes_back_as_the_same_object(tmp_path):
+    """A sentinel is a singleton whose entire purpose is identity, so an equal
+    copy would be a silent behaviour change rather than a fix."""
+    used = _save_model(SentinelStub([[2.0]]), _model_path(tmp_path), serialiser='auto')
+    assert _load_model(_model_path(tmp_path), serialiser=used).default is MARKER
+
+
+@needs_broken_marker
+def test_a_whole_bundle_round_trips(tmp_path):
+    EmulatorBundle(SentinelStub([[2.0]]), _meta()).save(str(tmp_path))
+    assert EmulatorBundle.load(str(tmp_path)).predict([0.5])[0] == pytest.approx(1.0)
+
+
+# --- the mechanism, which holds whatever version is installed ----------------
+def test_the_reduction_is_removed_again():
+    """copyreg.dispatch_table is process-wide. A library that quietly changed how
+    someone else's objects pickle -- for the rest of the session -- would be a
+    poor neighbour."""
+    before = dict(copyreg.dispatch_table)
+    with _sentinels_picklable():
+        assert any(cls in copyreg.dispatch_table for cls in _sentinel_classes())
+    assert dict(copyreg.dispatch_table) == before
+
+
+def test_the_reduction_does_not_displace_an_existing_one():
+    """Someone else may have registered for the same class first, and theirs
+    wins -- we are the guest here."""
+    classes = _sentinel_classes()
+    if not classes:
+        pytest.skip('no sentinel classes in this interpreter')
+    mine = classes[0]
+    sentinel_reducer = copyreg.dispatch_table.get(mine)
+    copyreg.dispatch_table[mine] = 'theirs'
+    try:
+        with _sentinels_picklable():
+            assert copyreg.dispatch_table[mine] == 'theirs'
+        assert copyreg.dispatch_table[mine] == 'theirs'
+    finally:
+        if sentinel_reducer is None:
+            copyreg.dispatch_table.pop(mine, None)
+        else:
+            copyreg.dispatch_table[mine] = sentinel_reducer
+
+
+@needs_broken_marker
+def test_the_reduction_names_where_the_sentinel_actually_lives():
+    """`_marker`, not the `sentinel` its __reduce__ claims."""
+    assert _sentinel_home(MARKER) == ('typing_extensions', '_marker')
+    function, args = _reduce_sentinel(MARKER)
+    assert function(*args) is MARKER
+
+
+def test_a_sentinel_nothing_holds_is_refused_with_the_reason():
+    """Looking it up by identity is the whole method, so an object its own
+    module does not hold cannot be helped -- and should say so rather than
+    producing something that unpickles to the wrong thing."""
+    class Homeless:
+        __module__ = 'libcuflynx.emulators.emulator_bundle'
+        __name__ = 'nothing_holds_this'
+
+    with pytest.raises(_pickle.PicklingError, match='nothing_holds_this'):
+        _reduce_sentinel(Homeless())

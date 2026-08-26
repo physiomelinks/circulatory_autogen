@@ -270,6 +270,27 @@ fallback needs that library present wherever it is loaded.
 If a training run dies while saving, leave this at `auto` and make sure the fallbacks are
 installed (`pip install "libcuflynx[emulation]"` brings them), or name one outright.
 
+### One failure no container can fix
+
+```
+PicklingError: Can't pickle sentinel: it's not the same object as typing_extensions.sentinel
+```
+
+This one is not about the container, and changing `model_serialiser` will not help — joblib,
+cloudpickle and dill all fail identically. A [PEP 661](https://peps.python.org/pep-0661/)
+sentinel pickles by *name*: its `__reduce__` returns a string, and pickle stores it as a global,
+checking on the way back in that the name still refers to the same object.
+`typing_extensions` 4.16.0 ships one where that check cannot pass:
+
+```python
+_marker = sentinel("sentinel")     # named "sentinel", bound to _marker
+```
+
+`typing_extensions.sentinel` is the *class*, so the identity check fails for any object holding
+`_marker`. CA handles it by reducing sentinels to where they actually live rather than to what
+they call themselves, so nothing needs configuring — but if you meet this outside CA, the
+workaround is `pip install "typing_extensions!=4.16.0"` (4.15.0 is unaffected).
+
 ## Gradients
 
 Over an emulator the only gradient source is **finite differences on the emulator itself**. The
