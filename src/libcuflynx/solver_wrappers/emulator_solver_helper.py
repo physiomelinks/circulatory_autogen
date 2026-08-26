@@ -313,7 +313,23 @@ class SimulationHelper:
         return None
 
     def reset_and_clear(self, only_one_exp=-1):
-        self._features = None
+        """No solver state to reset, and the prediction has to survive this.
+
+        The protocol executor calls this after the last sub-experiment of *every* experiment,
+        because a real solver must not carry integrator state across them. An emulator has no
+        such state, and ``_features`` is a pure function of theta -- the same full feature
+        vector serves every segment, which is why :meth:`run` predicts once and indexes it.
+
+        Clearing it here made an eight-experiment study predict **eight times per cost
+        evaluation** instead of once, and worse, it discarded the batched prediction that
+        :meth:`predict_ensemble` had just computed for the whole walker population -- so the
+        vectorised MCMC path paid the batching cost and then re-predicted per walker anyway.
+        Measured on the SN_full ox1 study: 205 ms per cost evaluation against 26 ms, and an
+        MCMC step of 64 walkers 5.6 s against 0.4 s.
+
+        ``set_theta`` already drops the cache when theta actually changes, which is the only
+        thing that can invalidate it.
+        """
         return None
 
     def close_simulation(self):

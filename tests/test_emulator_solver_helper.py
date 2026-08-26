@@ -605,3 +605,72 @@ def test_the_old_class_names_still_import():
 
     assert paramID.OpencorParamID is paramID.ParamID
     assert paramID.OpencorMCMC is paramID.MCMC
+
+# ------------------------------------------------- the prediction survives a protocol reset
+
+class PredictCounter(LinearStub):
+    """A LinearStub that records how many times the bundle was asked to predict."""
+
+    def __init__(self, weights):
+        super().__init__(weights)
+        self.calls = 0
+
+    def predict(self, x):
+        self.calls += 1
+        return super().predict(x)
+
+
+def _helper_over(bundle):
+    from libcuflynx.solver_wrappers.emulator_solver_helper import SimulationHelper
+    return SimulationHelper('unused/dir', bundle=bundle, out_of_bounds='clip')
+
+
+def test_reset_and_clear_keeps_the_prediction(base_user_inputs, resources_dir, tmp_path):
+    """``reset_and_clear`` must not throw away features an emulator already predicted.
+
+    The protocol executor calls it after the last sub-experiment of *every* experiment,
+    because a solver must not carry integrator state between them. An emulator has none, and
+    its features are a pure function of theta -- so clearing here made an N-experiment study
+    predict N times per cost evaluation instead of once. Measured at 205 ms against 21 ms on
+    an eight-experiment study, and it also discarded the batched ``predict_ensemble`` result
+    that the vectorised MCMC path had just computed for the whole walker population.
+    """
+    config = _config(base_user_inputs, resources_dir, tmp_path)
+    bundle, _, _ = _write_bundle(config)
+    counting = PredictCounter(bundle.model.weights)
+    bundle.model = counting
+    helper = _helper_over(bundle)
+
+    theta = np.full(len(bundle.param_entry_labels), 0.5)
+    helper.set_theta(theta)
+    helper.run()
+    assert counting.calls == 1
+
+    # eight experiments' worth of resets, with theta unchanged throughout
+    for _ in range(8):
+        helper.reset_and_clear()
+        helper.run()
+    assert counting.calls == 1, ('reset_and_clear re-predicted; the features are a pure '
+                                 'function of theta and nothing about theta changed')
+
+
+def test_a_changed_theta_still_invalidates_the_prediction(base_user_inputs, resources_dir,
+                                                          tmp_path):
+    """The one thing that *must* still drop the cache is theta actually moving."""
+    config = _config(base_user_inputs, resources_dir, tmp_path)
+    bundle, _, _ = _write_bundle(config)
+    counting = PredictCounter(bundle.model.weights)
+    bundle.model = counting
+    helper = _helper_over(bundle)
+
+    n = len(bundle.param_entry_labels)
+    helper.set_theta(np.full(n, 0.5)); helper.run()
+    first = np.array(helper._features, dtype=float)
+    helper.reset_and_clear()
+    helper.set_theta(np.full(n, 0.25)); helper.run()
+    assert counting.calls == 2
+    assert not np.allclose(first, np.array(helper._features, dtype=float))
+
+    # and setting the same theta again does not re-predict
+    helper.set_theta(np.full(n, 0.25)); helper.run()
+    assert counting.calls == 2
