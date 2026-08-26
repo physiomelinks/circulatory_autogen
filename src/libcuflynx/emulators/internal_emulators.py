@@ -295,8 +295,16 @@ def _as_array(raw, n_rows):
 #: at least this many distinct values -- one value is a constant, not a count.
 COUNT_MIN_CLASSES = 2
 
-#: ...and at most this many. A count with hundreds of levels is a continuous quantity
-#: for every practical purpose, and a classifier over it would be all variance.
+#: ...and at most this many. A count with hundreds of levels is a continuous quantity for
+#: every practical purpose, and a classifier over it would be all variance.
+#:
+#: Left at 24 deliberately. Raising it to 64 (so that counts with 26-53 levels became
+#: _ExpectedCount models rather than falling through to the regressor) does remove the
+#: negative predictions of #498 -- but it roughly doubles the error on exactly those
+#: features (RMSE +107% on ox1, +81% on cpvt, measured on 12000-sample bundles) and makes
+#: the whole emulator worse: std(dcost) 2.675 -> 3.097 on ox1 and 3.385 -> 4.343 on cpvt.
+#: The warning above is correct; a 42-class classifier really is all variance. The negatives
+#: are handled by clamping in MultiPhaseEmulator.predict instead, which costs nothing.
 COUNT_MAX_CLASSES = 24
 
 #: A column is a jump when the largest gap between consecutive sorted values is at
@@ -341,6 +349,22 @@ def is_count_column(column):
     return COUNT_MIN_CLASSES <= len(np.unique(np.round(finite))) <= COUNT_MAX_CLASSES
 
 
+def is_count_like(column):
+    """A non-negative integer quantity, however many levels it happens to show.
+
+    :func:`is_count_column` additionally caps the number of levels, because that is what
+    decides whether a *classifier* over them is sensible. This one asks only what the
+    quantity is, which is what decides whether a negative prediction is meaningful (#498).
+    """
+    finite = np.asarray(column, dtype=float)
+    finite = finite[np.isfinite(finite)]
+    if finite.size == 0 or np.any(finite < 0):
+        return False
+    if not np.allclose(finite, np.round(finite), atol=1e-9, rtol=0):
+        return False
+    return len(np.unique(np.round(finite))) >= COUNT_MIN_CLASSES
+
+
 def jump_threshold(column, gap_frac=JUMP_GAP_FRAC, min_side=MIN_SIDE_ROWS):
     """Where a column separates into two branches, or ``None`` if it does not.
 
@@ -372,16 +396,28 @@ def jump_threshold(column, gap_frac=JUMP_GAP_FRAC, min_side=MIN_SIDE_ROWS):
 
 
 def classify_features(y):
-    """Label every column ``'count'``, ``'jump'`` or ``'smooth'``.
+    """Label every column ``'count'``, ``'floored_count'``, ``'jump'`` or ``'smooth'``.
 
     Call this on the **unscaled** training targets; see :func:`is_count_column`.
+
+    ``floored_count`` is a count with more levels than a classifier should be asked to
+    separate, but which still spends much of the design sitting on one value -- a spike
+    count that is zero until the cell starts firing. Before #498 those fell through to the
+    plain regressor, which rippled below the floor and returned negative counts: on the
+    12000-sample SN_full bundles, 46-49% of predictions for such a column were negative and
+    ~100% of those sat where the true count was exactly zero. They get the floor treatment
+    instead -- a *binary* classifier, which is cheap and low-variance, plus a regressor for
+    the magnitude above it.
     """
     y = np.asarray(y, dtype=float)
+    has_floor, _ = floor_mask(y)
     kinds = []
     for index in range(y.shape[1]):
         column = y[:, index]
         if is_count_column(column):
             kinds.append('count')
+        elif is_count_like(column) and has_floor[index]:
+            kinds.append('floored_count')
         elif jump_threshold(column) is not None:
             kinds.append('jump')
         else:
@@ -428,18 +464,41 @@ class MultiPhaseEmulator:
     model, and pickles through joblib like autoemulate's own.
     """
 
-    def __init__(self, base_model, kinds, count_models, jump_groups, base_name):
+    def __init__(self, base_model, kinds, count_models, jump_groups, base_name,
+                 count_columns=None, floor_groups=None):
         self.base_model = base_model
         self.kinds = np.asarray(kinds, dtype=object)
+        #: Every column that is a count, including any the classifier declined to model.
+        self._count_columns = list(count_columns) if count_columns is not None \
+            else list(count_models)
         #: column index -> _ExpectedCount
         self.count_models = dict(count_models)
         #: list of {'columns', 'classifier', 'low', 'high'}
         self.jump_groups = list(jump_groups)
+        #: list of {'columns', 'classifier', 'floor_value', 'magnitude'} -- counts whose
+        #: level count is past what a classifier should separate, but which still have a
+        #: floor to put exactly where it belongs rather than smoothing through it (#498).
+        self._floor_groups = list(floor_groups) if floor_groups is not None else []
         self.base_name = base_name
 
     @property
     def model_name(self):
         return multi_phase_name(self.base_name)
+
+    @property
+    def floor_groups(self):
+        """Floor groups, empty for a bundle pickled before #498."""
+        return getattr(self, '_floor_groups', []) or []
+
+    @property
+    def count_columns(self):
+        """Count columns, falling back to the modelled ones.
+
+        A property rather than a plain attribute because joblib restores ``__dict__``
+        directly and never calls ``__init__``: a bundle pickled before #498 has no such
+        attribute at all, and unpickling one must not raise.
+        """
+        return getattr(self, '_count_columns', None) or list(self.count_models)
 
     def predict(self, x):
         x = np.asarray(x, dtype=float)
@@ -450,6 +509,29 @@ class MultiPhaseEmulator:
         for column, model in self.count_models.items():
             if column < out.shape[1]:
                 out[:, column] = model.predict(x)
+
+        # A count is non-negative whatever produced it. _ExpectedCount is non-negative by
+        # construction, but a column that failed is_count_column -- too many levels, or an
+        # integrality test the design broke -- is left on the plain regressor, which is not.
+        # Clamping here covers every path rather than only the classified one (#498).
+        if self.count_columns:
+            idx = [c for c in self.count_columns if c < out.shape[1]]
+            if idx:
+                out[:, idx] = np.clip(out[:, idx], 0.0, None)
+
+        for group in self.floor_groups:
+            active = np.asarray(group['classifier'].predict(x)).astype(bool).reshape(len(x))
+            values = None
+            if group['magnitude'] is not None and active.any():
+                values = _as_array(
+                    group['magnitude'].predict(_backend_input(group['magnitude'], x[active])),
+                    int(active.sum()))
+            for column in group['columns']:
+                if column >= out.shape[1]:
+                    continue
+                out[~active, column] = group['floor_value'][column]
+                if values is not None and column < values.shape[1]:
+                    out[active, column] = values[:, column]
 
         for group in self.jump_groups:
             side = np.asarray(group['classifier'].predict(x)).astype(bool).reshape(len(x))
@@ -490,16 +572,23 @@ def fit_multi_phase(x_train, y_train, x_test, y_test, base_name, autoemulate_cls
     base = autoemulate_cls(x_train, y_train, test_data=(x_test, y_test), **kwargs)
     base_result = base.best_result()
 
+    count_columns = [int(c) for c in np.flatnonzero(kinds == 'count')]
     count_models = {}
-    for column in np.flatnonzero(kinds == 'count'):
-        count_models[int(column)] = _fit_expected_count(x_train, y_train[:, column])
+    for column in count_columns:
+        count_models[column] = _fit_expected_count(x_train, y_train[:, column])
 
     jump_groups = _fit_jump_groups(x_train, y_train, y_test, x_test, kinds,
                                    base_name, autoemulate_cls, fit_kwargs,
                                    base_result.model)
 
+    floor_groups = _fit_floor_groups(x_train, y_train, y_test, x_test, kinds,
+                                     base_name, autoemulate_cls, fit_kwargs,
+                                     base_result.model)
+    count_columns += [int(c) for c in np.flatnonzero(kinds == 'floored_count')]
+
     return (MultiPhaseEmulator(base_result.model, kinds, count_models, jump_groups,
-                               base_name),
+                               base_name, count_columns=count_columns,
+                               floor_groups=floor_groups),
             base_result)
 
 
@@ -520,6 +609,47 @@ def _fit_expected_count(x, column):
               f'({type(error).__name__}: {error}); predicting its mean instead')
         return _ExpectedCount(None, np.array([float(np.mean(column))]))
     return _ExpectedCount(model, values)
+
+
+def _fit_floor_groups(x_train, y_train, y_test, x_test, kinds, base_name,
+                      autoemulate_cls, fit_kwargs, fallback_model):
+    """On-floor/active classifier plus a magnitude regressor, for each floored count.
+
+    The same two-stage shape :class:`TwoPhaseEmulator` uses, applied inside multi_phase to
+    the counts that have too many levels for :class:`_ExpectedCount`. The classifier is
+    binary -- which is the whole point, since a classifier over their 26-53 levels is all
+    variance and measurably worse than a regressor (#498).
+
+    The floor is recomputed on the *scaled* targets, as the jump split is: an affine map
+    moves the value but not which rows sit on it.
+    """
+    columns = [int(c) for c in np.flatnonzero(kinds == 'floored_count')]
+    if not columns:
+        return []
+
+    has_floor, floor_value = floor_mask(y_train)
+    from sklearn.ensemble import GradientBoostingClassifier
+
+    groups = {}
+    for column in columns:
+        if not has_floor[column]:
+            continue
+        active = y_train[:, column] != floor_value[column]
+        groups.setdefault(active.tobytes(), []).append(column)
+
+    fitted = []
+    for members in groups.values():
+        active = y_train[:, members[0]] != floor_value[members[0]]
+        if int(active.sum()) < MIN_ACTIVE_ROWS:
+            continue
+        classifier = _fit_column(GradientBoostingClassifier, x_train, active)
+        magnitude = _fit_side(x_train, y_train, x_test, y_test, active, base_name,
+                              autoemulate_cls, fit_kwargs, fallback_model)
+        fitted.append({'columns': members,
+                       'classifier': _SingleOutputBinary(classifier),
+                       'floor_value': {c: float(floor_value[c]) for c in members},
+                       'magnitude': magnitude})
+    return fitted
 
 
 def _fit_jump_groups(x_train, y_train, y_test, x_test, kinds, base_name,

@@ -438,3 +438,136 @@ def test_a_jump_side_that_fails_to_fit_falls_back_rather_than_raising():
     got = _fit_side(np.zeros((200, 2)), np.zeros((200, 1)), None, None, rows,
                     "RadialBasisFunctions", fails, {"n_splits": 5}, sentinel)
     assert got is sentinel
+
+
+# ----------------------------------------------------- counts never come back negative (#498)
+
+def test_the_class_cap_is_left_where_it_performs_best():
+    """The cap stays at 24, and that is a measured choice rather than an oversight.
+
+    Raising it so that counts with 26-53 levels became classifiers removed the negative
+    predictions of #498, but roughly doubled the error on those very features (RMSE +107%
+    on ox1, +81% on cpvt) and made the emulator worse overall -- std(dcost) 2.675 -> 3.097
+    and 3.385 -> 4.343 on the two 12000-sample studies. Negatives are clamped in predict
+    instead, which costs nothing. If this number is ever raised, re-measure both.
+    """
+    from libcuflynx.emulators.internal_emulators import is_count_column, COUNT_MAX_CLASSES
+    import numpy as np
+    rng = np.random.default_rng(0)
+    assert COUNT_MAX_CLASSES == 24
+    assert is_count_column(rng.integers(0, 20, size=4000).astype(float))
+    # beyond the cap a count is handled by the regressor, and the clamp below keeps it sane
+    assert not is_count_column(rng.integers(0, 40, size=4000).astype(float))
+    assert not is_count_column(rng.normal(size=500))
+    assert not is_count_column(rng.integers(0, 5, size=500).astype(float) - 3.0)
+
+
+def test_multi_phase_never_predicts_a_negative_count():
+    """Whatever produced the value, a count column is clamped at zero on the way out."""
+    from libcuflynx.emulators.internal_emulators import MultiPhaseEmulator
+
+    class Negative:
+        """Stands in for the plain regressor a demoted count would fall through to."""
+        def predict(self, x):
+            return np.full((len(x), 3), -2.5)
+
+    kinds = np.array(['count', 'smooth', 'count'], dtype=object)
+    # count_models deliberately empty: this is the fall-through path that produced the bug
+    model = MultiPhaseEmulator(Negative(), kinds, {}, [], 'RadialBasisFunctions',
+                               count_columns=[0, 2])
+    out = model.predict(np.zeros((7, 4)))
+    assert (out[:, [0, 2]] >= 0).all(), 'a count came back negative'
+    assert (out[:, 1] == -2.5).all(), 'a smooth column must not be clamped'
+
+
+def test_an_older_pickle_without_count_columns_still_loads():
+    """count_columns defaults to the modelled counts, so an existing bundle keeps working."""
+    from libcuflynx.emulators.internal_emulators import MultiPhaseEmulator
+
+    class Zero:
+        def predict(self, x):
+            return np.zeros((len(x), 2))
+
+    model = MultiPhaseEmulator(Zero(), np.array(['count', 'smooth'], dtype=object),
+                               {0: None}, [], 'MLP')
+    assert model.count_columns == [0]
+
+
+# ------------------------------------ floored counts get the floor treatment (#498)
+
+def test_a_count_past_the_class_cap_is_a_floored_count_not_smooth():
+    """The demoted counts of #498 are recognised rather than dropped to the regressor.
+
+    They are integer, non-negative, and spend most of the design on zero -- 31-92% on the
+    SN_full bundles -- so they have a floor to put exactly where it belongs.
+    """
+    from libcuflynx.emulators.internal_emulators import classify_features
+    rng = np.random.default_rng(0)
+    n = 600
+    few = rng.integers(0, 10, size=n).astype(float)             # under the cap
+    many = np.where(rng.random(n) < 0.7, 0.0,
+                    rng.integers(1, 45, size=n).astype(float))  # over the cap, floored at 0
+    smooth = rng.normal(size=n)
+    kinds = list(classify_features(np.column_stack([few, many, smooth])))
+    assert kinds[0] == 'count'
+    assert kinds[1] == 'floored_count'
+    assert kinds[2] == 'smooth'
+
+
+def test_a_floored_count_never_predicts_below_its_floor():
+    """The floor is assigned, not smoothed through -- so no clamping is needed for it."""
+    from libcuflynx.emulators.internal_emulators import MultiPhaseEmulator
+
+    class Rippling:
+        """A regressor that dips below zero the way a smooth fit does at a floor."""
+        def predict(self, x):
+            return np.full((len(x), 2), -0.4)
+
+    class SaysFloor:
+        def predict(self, x):
+            return np.zeros(len(x), dtype=bool)      # every row is on the floor
+
+    model = MultiPhaseEmulator(
+        Rippling(), np.array(['floored_count', 'smooth'], dtype=object), {}, [],
+        'RadialBasisFunctions', count_columns=[0],
+        floor_groups=[{'columns': [0], 'classifier': SaysFloor(),
+                       'floor_value': {0: 0.0}, 'magnitude': None}])
+    out = model.predict(np.zeros((5, 3)))
+    assert (out[:, 0] == 0.0).all(), 'the floor should be assigned exactly'
+    assert (out[:, 1] == -0.4).all(), 'a smooth column must be left alone'
+
+
+def test_the_magnitude_regressor_is_used_off_the_floor():
+    from libcuflynx.emulators.internal_emulators import MultiPhaseEmulator
+
+    class Base:
+        def predict(self, x):
+            return np.full((len(x), 1), -99.0)
+
+    class Magnitude:
+        def predict(self, x):
+            return np.full((len(x), 1), 7.0)
+
+    class Alternating:
+        def predict(self, x):
+            return np.arange(len(x)) % 2 == 1
+
+    model = MultiPhaseEmulator(
+        Base(), np.array(['floored_count'], dtype=object), {}, [], 'MLP',
+        count_columns=[0],
+        floor_groups=[{'columns': [0], 'classifier': Alternating(),
+                       'floor_value': {0: 0.0}, 'magnitude': Magnitude()}])
+    out = model.predict(np.zeros((4, 2)))[:, 0]
+    assert list(out) == [0.0, 7.0, 0.0, 7.0]
+
+
+def test_an_older_bundle_without_floor_groups_still_predicts():
+    from libcuflynx.emulators.internal_emulators import MultiPhaseEmulator
+
+    class Zero:
+        def predict(self, x):
+            return np.zeros((len(x), 1))
+
+    model = MultiPhaseEmulator(Zero(), np.array(['smooth'], dtype=object), {}, [], 'MLP')
+    assert model.floor_groups == []
+    assert model.predict(np.zeros((3, 2))).shape == (3, 1)
