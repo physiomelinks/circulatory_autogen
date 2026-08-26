@@ -296,6 +296,11 @@ def test_no_container_can_save_a_sentinel_unaided(name, tmp_path):
 @needs_broken_marker
 @pytest.mark.parametrize('name', ['joblib', 'cloudpickle', 'dill', 'auto'])
 def test_a_model_holding_a_sentinel_saves_and_reloads(name, tmp_path):
+    # Naming a container requires it to be installed; CI runs this tier without
+    # the emulation extra, so only joblib is certain to be there. 'auto' needs
+    # nothing, which is the point of it.
+    if name != 'auto':
+        pytest.importorskip(name)
     used = _save_model(SentinelStub([[2.0]]), _model_path(tmp_path), serialiser=name)
     back = _load_model(_model_path(tmp_path), serialiser=used)
     assert back.predict([[1.0]])[0] == pytest.approx(2.0)
