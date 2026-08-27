@@ -22,7 +22,18 @@ Canonical alias patterns tried (in order):
   'parameters/Var_bare'   same, _module stripped
   'parameters_Comp/Var'   global-prefix convention     (global/x → parameters_global/x)
   'Comp_module/Var'       add _module to component
+  'parameters/Comp_Var'   hoisted parameter, component first (soma_SN/c_ER → parameters/soma_SN_c_ER)
+  'parameters/Var'        hoisted parameter, name kept as-is (soma_SN/g_Na → parameters/g_Na)
+  'parameters_global/Var' hoisted global constant       (soma_SN/R → parameters_global/R)
   'Var'                   bare variable name (unambiguous only in index mode)
+
+The last three exist because a CellML model does not have to name its hoisted
+parameters the way circulatory_autogen names them. PhLynx writes 'soma_SN_c_ER'
+where CA writes 'c_ER_soma_SN', and drops the prefix entirely for a name that is
+already unique in the model -- and Myokit's importer *merges* connected variables,
+so after import only the defining copy in 'parameters' survives and 'soma_SN.c_ER'
+is not a qname any more. Without these aliases a study built in PhLynx resolves
+none of its own parameters (CUFLynx #300).
 
 For key mode with separator='.', every '/'-candidate is also tried with '/' → '.'
 (so Myokit qnames like 'Lotka_Volterra_module.x' are matched automatically).
@@ -180,5 +191,13 @@ class VariableNameResolver:
             f"parameters_{comp}{sep}{var}", # global-prefix convention
             f"parameters_{comp_bare}{sep}{var}",
             f"{comp_mod}{sep}{var}",        # add _module
+            # Hoisted-parameter conventions other generators use. Tried after the
+            # CA-shaped ones above so a model that follows both is read the CA way,
+            # and before the bare name so 'soma_SN/g_Na' cannot be answered by an
+            # unrelated 'g_Na' in some other component.
+            f"parameters{sep}{comp}_{var}", # component first (PhLynx)
+            f"parameters{sep}{comp_bare}_{var}",
+            f"parameters{sep}{var}",        # hoisted without a prefix
+            f"parameters_global{sep}{var}", # hoisted global constant
             var,                            # bare variable name
         ]
