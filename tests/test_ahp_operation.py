@@ -113,7 +113,11 @@ def test_a_silent_trace_returns_zero_not_a_far_sentinel():
 
 
 def test_the_silent_sentinel_costs_far_less_than_a_far_one():
-    from libcuflynx.funcs.cost_funcs_user import gaussian_MLE_robust
+    # Through the registry, not the bare module function: the funcs dispatch on a module-level
+    # ``mb`` that each register_* hook rebinds, so a bare call inherits whichever backend the
+    # last-built registry left behind (casadi's ``numel`` needs a casadi type, #315).
+    from libcuflynx.funcs.cost_funcs_user import get_cost_funcs_dict_for_mode
+    gaussian_MLE_robust = get_cost_funcs_dict_for_mode("numpy")["gaussian_MLE_robust"]
     kw = dict(p_outlier=0.04, outlier_width=60.0)
     observed, sigma = -1.6, 1.5
     best = gaussian_MLE_robust(observed, observed, sigma, 1.0, **kw)

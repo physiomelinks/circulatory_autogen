@@ -612,6 +612,34 @@ def test_reuse_samples_is_a_tickbox_that_says_what_it_does_not_do():
     assert "'reuse_samples'" in trainer_src
 
 
+def _without_docstrings(source):
+    """``source`` with every docstring blanked, so a scan reads code and not prose about it.
+
+    Documentation naturally quotes the very expression it is documenting -- writing out
+    ``UQ_options['cost_type']`` to explain how that key is treated does not make the module
+    read it. Left in, such a sentence is indistinguishable from a real access and reports a
+    setting as read that nothing reads.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return source
+    lines = source.splitlines(keepends=True)
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        body = getattr(node, 'body', None)
+        if not body:
+            continue
+        doc = body[0]
+        if not (isinstance(doc, ast.Expr) and isinstance(doc.value, ast.Constant)
+                and isinstance(doc.value.value, str)):
+            continue
+        for i in range(doc.lineno - 1, doc.end_lineno):
+            lines[i] = '\n'
+    return ''.join(lines)
+
+
 def test_every_uq_option_the_code_reads_is_advertised():
     """A UQ setting CA reads but does not declare cannot be reached from a front-end at all.
 
@@ -633,7 +661,7 @@ def test_every_uq_option_the_code_reads_is_advertised():
     for path in src_dir.rglob('*.py'):
         if 'obsolete' in path.parts:
             continue
-        read.update(pattern.findall(path.read_text(encoding='utf-8')))
+        read.update(pattern.findall(_without_docstrings(path.read_text(encoding='utf-8'))))
 
     advertised = {o['name'] for o in analysis_options('uq')}
     assert read, 'found no UQ_options reads at all -- the pattern has stopped matching'

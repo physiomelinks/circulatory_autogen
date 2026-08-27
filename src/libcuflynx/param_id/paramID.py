@@ -168,9 +168,10 @@ def ensure_mle_cost_type_for_bayesian_inner(inner, inp_data_dict):
     outlier component and went back to paying hundreds of nats for a wrong branch. Both are
     MLE costs; neither needed replacing.
 
-    The consequence for the legacy spelling: ``UQ_options['cost_type']`` no longer forces a
-    cost onto observables that already name a valid one. It is the fallback for those that do
-    not, which is what the key is for now that ``cost_type`` lives per data_item.
+    The consequence for the legacy spelling: a ``cost_type`` named in ``UQ_options`` no
+    longer forces a cost onto observables that already name a valid one. It is the fallback
+    for those that do not, which is what the key is for now that ``cost_type`` lives per
+    data_item.
     """
     if inner is None or getattr(inner, "obs_info", None) is None:
         return
