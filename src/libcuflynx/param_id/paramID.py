@@ -153,12 +153,25 @@ def _resolve_UQ_options(UQ_options, mcmc_options):
 
 def ensure_mle_cost_type_for_bayesian_inner(inner, inp_data_dict):
     """
-    Set ``obs_info['cost_type']`` on an ParamID / MCMC instance so every
-    observable uses an ``@is_MLE`` cost (required for ``ln L = -cost`` in MCMC / Laplace).
+    Make sure every observable uses an ``@is_MLE`` cost (required for ``ln L = -cost`` in
+    MCMC / Laplace), **without discarding the ones that already do**.
 
-    Chooses the first ``cost_type`` string found in optimiser / mcmc option dicts in
-    ``inp_data_dict`` that names an ``@is_MLE`` cost in ``inner.cost_funcs_dict``;
-    otherwise ``gaussian_MLE``.
+    An observable whose own ``cost_type`` is already an MLE cost keeps it. Only the rest are
+    replaced, with the first ``cost_type`` found in the optimiser / UQ option dicts of
+    ``inp_data_dict`` that names an ``@is_MLE`` cost, or ``gaussian_MLE``.
+
+    It used to overwrite the whole vector with that one name, which quietly undid every
+    per-data_item choice the obs_data made -- and worse than quietly. A ``poisson_MLE`` count
+    is scored against ``prob_dist_params`` and deliberately carries no ``value``, so rewriting
+    it to ``gaussian_MLE`` compared the model against a ground truth of ``nan`` and every
+    sample in the chain came back ``nan``. A ``gaussian_MLE_robust`` item simply lost its
+    outlier component and went back to paying hundreds of nats for a wrong branch. Both are
+    MLE costs; neither needed replacing.
+
+    The consequence for the legacy spelling: a ``cost_type`` named in ``UQ_options`` no
+    longer forces a cost onto observables that already name a valid one. It is the fallback
+    for those that do not, which is what the key is for now that ``cost_type`` lives per
+    data_item.
     """
     if inner is None or getattr(inner, "obs_info", None) is None:
         return
@@ -185,8 +198,15 @@ def ensure_mle_cost_type_for_bayesian_inner(inner, inp_data_dict):
     if chosen is None:
         chosen = "gaussian_MLE"
     n = inner.obs_info["num_obs"]
-    inner.obs_info["cost_type"] = [chosen] * n
-    inner.cost_type = inner.obs_info["cost_type"]
+    existing = list(inner.obs_info.get("cost_type") or [])
+    resolved = []
+    for idx in range(n):
+        current = existing[idx] if idx < len(existing) else None
+        func = costs.get(current) if current else None
+        keep = func is not None and getattr(func, "is_MLE", False)
+        resolved.append(current if keep else chosen)
+    inner.obs_info["cost_type"] = resolved
+    inner.cost_type = resolved
 
 
 # Re-exported for backwards compatibility; the canonical definition is in param_id.aadc_backend.

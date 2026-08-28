@@ -81,8 +81,9 @@ def emulator_model_names():
     # The two-phase variants are offered here so a settings form can list them, but
     # they are not part of `all` -- see _parse_models. Two stages cost more to fit
     # than one and only pay off when the features really do have a floor.
-    from libcuflynx.emulators.internal_emulators import two_phase_model_names
-    return base + two_phase_model_names(base)
+    from libcuflynx.emulators.internal_emulators import (
+        multi_phase_model_names, two_phase_model_names)
+    return base + two_phase_model_names(base) + multi_phase_model_names(base)
 
 
 def base_emulator_model_names():
@@ -429,7 +430,31 @@ class EmulatorTrainer:
         # for the emulator list when it builds its two_phase_<name> helpers, so a
         # top-level import either way closes the cycle.
         from libcuflynx.emulators.internal_emulators import (  # noqa: PLC0415
-            base_emulator_name, fit_two_phase, is_two_phase, two_phase_name)
+            base_emulator_name, classify_features, fit_multi_phase, fit_two_phase,
+            is_multi_phase, is_two_phase, multi_phase_name, two_phase_name)
+
+        multi_phase = [name for name in (models or []) if is_multi_phase(name)]
+        if multi_phase:
+            if len(models) > 1:
+                raise ValueError(
+                    f'a multi-phase emulator is fitted on its own, but models is {models!r}. '
+                    f'Ask for exactly one, e.g. models: {multi_phase[0]}.')
+            base_name = base_emulator_name(multi_phase[0])
+            kwargs.pop('models', None)
+            # Classified from the *unscaled* targets: y_scaled is affine-mapped, and an
+            # integer count is not an integer any more once it has been.
+            kinds = classify_features(y)
+            if self.rank == 0:
+                counts = {kind: int(np.sum(kinds == kind))
+                          for kind in ('count', 'jump', 'smooth')}
+                print(f'[emulator] multi-phase over {len(kinds)} features: '
+                      f'{counts["count"]} count, {counts["jump"]} jump, '
+                      f'{counts["smooth"]} smooth')
+            model, result = fit_multi_phase(
+                x_train, y_train, x_test, y_test, base_name,
+                _load_autoemulate(), kwargs, kinds)
+            validation = _validation_report(model, x_test, y_test, x_scale, y_scale)
+            return (model, validation, multi_phase_name(base_name), x_scale, y_scale)
 
         two_phase = [name for name in (models or []) if is_two_phase(name)]
         if two_phase:
