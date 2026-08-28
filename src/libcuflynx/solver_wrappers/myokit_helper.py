@@ -366,6 +366,9 @@ class SimulationHelper:
         # Map Myokit state qnames to their variables for fast lookup
         # Myokit states are named like "<component>_module.<var>" after CellML import.
         states = list(model.states())
+        # Built once: the qnames Myokit ended up with, which is not the same set
+        # the CellML declared (connected variables are merged into one).
+        qname_to_var = {v.qname(): v for v in model.variables(deep=True)}
         for s in states:
             qn = s.qname()
             # Translate Myokit component name back to CellML component name used in init_map
@@ -387,14 +390,39 @@ class SimulationHelper:
             except Exception:
                 pass
 
-            # If init_val is an unqualified identifier, qualify it within the same component
-            # so Myokit parsing works (requires fully qualified names).
+            # If init_val is an unqualified identifier, qualify it so Myokit can
+            # parse it (fully qualified names are required). Its own component is
+            # only the first guess: Myokit's importer *merges* connected
+            # variables, so a constant the CellML declared in this component but
+            # defined in `parameters` no longer has a qname here -- it survives
+            # only as `parameters.<whatever that model calls it>`. Fall back to
+            # the resolver, which knows the naming conventions (CUFLynx #300);
+            # an unresolvable name is left alone so the numeric initial value
+            # stands rather than the whole step being abandoned for this model.
             expr = init_val
             if re.fullmatch(r"[A-Za-z_]\w*", init_val):
-                expr = f"{comp_mod}.{init_val}"
+                expr = self._qualify_initial_reference(qname_to_var, comp, comp_mod, init_val)
+                if expr is None:
+                    continue
 
             # Set initial value as expression string (Myokit will parse it)
             s.set_initial_value(expr)
+
+    @staticmethod
+    def _qualify_initial_reference(qname_to_var, comp, comp_mod, name):
+        """The qname of *name* as seen from CellML component *comp*, or None.
+
+        Its own component wins when the variable is still there. Otherwise the
+        shared resolver is asked, which covers both the CA parameter convention
+        and the hoisted forms other generators write.
+        """
+        for own in (f"{comp_mod}.{name}", f"{comp}.{name}"):
+            if own in qname_to_var:
+                return own
+        _, qname = VariableNameResolver.resolve_key(
+            f"{comp}/{name}", [("var", qname_to_var)], separator="."
+        )
+        return qname
 
     def _prepare_cellml_for_myokit_libcellml(self, path):
         """
