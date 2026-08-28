@@ -4548,7 +4548,65 @@ class MCMC(ParamID):
         with open(path, 'w') as write_file:
             json.dump(document, write_file, indent=2)
         print(f'mcmc statistics saved in {path}')
+
+        self.save_posterior_point_estimates(medians, means)
         return document
+
+    def save_posterior_point_estimates(self, medians, means):
+        """Write the posterior median and mean as *loadable parameter sets*.
+
+        ``mcmc_statistics.json`` already records both, but keyed by display name
+        (``g_{Na}``) and buried in a per-parameter summary alongside quartiles. That is a
+        report, not a parameter set: nothing can feed it back into a model, because the
+        display names are not the model's and the file's shape is not one any parameter
+        loader reads.
+
+        The consequence is that ``save_mcmc_statistics`` promises "both are now on disk to
+        choose from" while only one of the two -- ``best_param_vals.npy`` -- is actually in
+        a form anything can load. Choosing the median meant reading the JSON and retyping
+        fourteen numbers, and that matters, because a calibration best is an argmin found by
+        whatever surrogate drove it and can sit somewhere the model behaves quite
+        differently. One SN_full cpvt run put its "best fit" at a resting potential of
+        -19 mV against data at -75; the posterior median from the same chain sat at -80.
+
+        So, beside the JSON:
+
+        * ``posterior_median_params.csv`` -- ``vessel_name,param_name,value``, the format
+          CUFLynx's parameter loader reads. Self-describing, so it does not depend on
+          column order matching the model that loads it.
+        * ``posterior_median_param_vals.npy`` -- the bare array in optimiser order, the
+          same shape as ``best_param_vals.npy``, for anything that reads that.
+
+        And the same pair for the mean, because the two costs are reported side by side and
+        a reader invited to compare them should be able to load either.
+
+        A modifier slot names several model parameters and holds one value, so every member
+        is written with that value -- matching how ``best_param_vals.npy`` is read back.
+        """
+        if getattr(self, "rank", 0) != 0:
+            return
+        members_per_slot = self.param_id_info["param_names"]
+        for label, values in (("median", medians), ("mean", means)):
+            values = np.asarray(values, dtype=float).ravel()
+
+            npy_path = os.path.join(self.output_dir, f"posterior_{label}_param_vals")
+            np.save(npy_path, values)
+
+            csv_path = os.path.join(self.output_dir, f"posterior_{label}_params.csv")
+            with open(csv_path, "w", newline="") as handle:
+                writer = csv.writer(handle)
+                writer.writerow(["vessel_name", "param_name", "value"])
+                for slot, members in enumerate(members_per_slot):
+                    if slot >= len(values):
+                        break
+                    for qname in members:
+                        vessel, _, param = str(qname).partition("/")
+                        if not param:
+                            # Not a vessel/param name. Write it whole rather than dropping
+                            # it, so the file still accounts for every slot.
+                            vessel, param = "", str(qname)
+                        writer.writerow([vessel, param, repr(float(values[slot]))])
+            print(f"posterior {label} saved as a loadable parameter set in {csv_path}")
 
     def calculate_pred_from_posterior_samples(self, flat_samples, n_sims=100):
         # idxs of output are [exp_idx][sim_idx, pred_idx, time_idx]
