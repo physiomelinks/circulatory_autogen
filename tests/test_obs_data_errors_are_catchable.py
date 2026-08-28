@@ -22,7 +22,7 @@ import pandas as pd
 import pytest
 
 from libcuflynx.parsers.PrimitiveParsers import (ObsAndParamDataParser, ObsDataError,
-                                                 _obs_item_label)
+                                                 _obs_item_label, _series_is_scored)
 
 #: The columns ``get_ground_truth_values`` reads before it reaches the obs_dt guard. Kept
 #: minimal on purpose: a full study would need a model, a protocol and a params file to
@@ -109,3 +109,52 @@ def test_the_label_falls_back_when_an_item_has_no_name():
     bare = pd.DataFrame([{'data_type': 'series'}])
     assert _obs_item_label(bare, 0) == 'item 0'
     assert _obs_item_label(bare, 7) == 'item 7', 'an out-of-range row must not raise'
+
+
+# --------------------------------------------------- only a scored series constrains dt
+
+def test_an_empty_zero_weighted_series_does_not_block_the_study(tmp_path):
+    """The SN_full case exactly: eight placeholder series at obs_dt 1e-4, weight 0 and no
+    samples, in a study whose scored observables are all constants. They cannot be compared
+    against anything, so they must not stop the evaluation."""
+    rows = [series_row(f'Vgt_{{s{i}}}', 1e-4, weight=0.0, value=[]) for i in range(8)]
+    rows.append({'data_type': 'constant', 'data_item_name': 'V_{max}', 'operands': ['soma/V'],
+                 'operation': 'max', 'value': 1.0, 'std': 1.0, 'weight': 1.0,
+                 'prob_dist_params': None})
+    out = run(rows, dt=0.01, output_dir=str(tmp_path))
+    assert len(out['obs_dt']) == 8, 'obs_dt stays parallel to the series for plot_outputs'
+
+
+def test_a_scored_series_still_constrains_dt():
+    """The guard must not have been softened into uselessness."""
+    with pytest.raises(ObsDataError, match=r"Vgt_\{real\}"):
+        run([series_row('Vgt_{real}', 1e-4, weight=1.0, value=[0.0, 1.0])], dt=0.01)
+
+
+def test_a_weighted_but_empty_series_does_not_constrain_dt(tmp_path):
+    run([series_row('Vgt_{empty}', 1e-4, weight=1.0, value=[])], dt=0.01,
+        output_dir=str(tmp_path))
+
+
+def test_a_zero_weighted_series_with_samples_does_not_constrain_dt(tmp_path):
+    run([series_row('Vgt_{off}', 1e-4, weight=0.0, value=[0.0, 1.0])], dt=0.01,
+        output_dir=str(tmp_path))
+
+
+def test_only_the_scored_offender_is_named():
+    with pytest.raises(ObsDataError) as excinfo:
+        run([series_row('Vgt_{placeholder}', 1e-4, weight=0.0, value=[]),
+             series_row('Vgt_{real}', 1e-4, weight=1.0, value=[0.0, 1.0])], dt=0.01)
+    message = str(excinfo.value)
+    assert 'Vgt_{real}' in message
+    assert 'Vgt_{placeholder}' not in message
+
+
+def test_series_is_scored_reads_weight_and_samples():
+    df = pd.DataFrame([
+        series_row('a', weight=1.0, value=[0.0]),
+        series_row('b', weight=0.0, value=[0.0]),
+        series_row('c', weight=1.0, value=[]),
+        series_row('d', weight=None, value=[0.0]),
+    ])
+    assert [_series_is_scored(df, i) for i in range(4)] == [True, False, False, True]

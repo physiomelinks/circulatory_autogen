@@ -687,6 +687,35 @@ def migrate_legacy_obs_columns(gt_df):
     return gt_df
 
 
+def _series_is_scored(gt_df, II):
+    """Whether series row ``II`` can contribute to the cost at all.
+
+    Two ways it cannot. A zero weight drops an item from the cost outright -- that is what
+    ``weight`` means everywhere else in the parser, and how a study switches an observable
+    off without deleting it. And an item carrying no samples has nothing to be compared
+    against whatever the solver produces.
+
+    Used only to decide whether an item's ``obs_dt`` may constrain the solver timestep. A
+    series nobody scores cannot require anything of dt, and a placeholder that does is a
+    study-stopping bug: SN_full ships eight empty, zero-weighted series at 1e-4 whose only
+    effect was to block every evaluation.
+    """
+    row = gt_df.iloc[II]
+    weight = row.get("weight", 1.0)
+    try:
+        if weight is not None and float(weight) == 0.0:
+            return False
+    except (TypeError, ValueError):
+        pass                                    # an unreadable weight is not a reason to skip
+    value = row.get("value")
+    if value is None:
+        return False
+    try:
+        return len(value) > 0
+    except TypeError:
+        return True                             # a scalar in a series row: let it speak
+
+
 def _obs_item_label(gt_df, II):
     """How to refer to row ``II`` of ``gt_df`` in an error message.
 
@@ -3998,22 +4027,33 @@ class ObsAndParamDataParser(object):
                         f"seconds, so the solver output can be compared with it.")
                 dt_list.append(gt_df.iloc[II]["obs_dt"])
 
+        # One entry per series, in order: plot_outputs indexes this by series_idx, so it
+        # stays parallel to the series even where an entry belongs to one that is never
+        # scored. The *guard* below is what skips those.
         obs_info["obs_dt"] = np.array(dt_list)
 
-        if len(obs_info["obs_dt"]) > 0:
-            smallest = float(min(obs_info["obs_dt"]))
-            if smallest < dt:
-                culprits = [_obs_item_label(gt_df, II) for II in range(gt_df.shape[0])
-                            if gt_df.iloc[II]["data_type"] == "series"
-                            and float(gt_df.iloc[II].get("obs_dt", np.inf)) < dt]
-                raise ObsDataError(
-                    f"the solver timestep dt = {dt:g} s is coarser than the sample spacing "
-                    f"of the series data it has to be compared against: the smallest "
-                    f"'obs_dt' in obs_data.json is {smallest:g} s"
-                    + (f", on {', '.join(culprits[:4])}" if culprits else "")
-                    + (f" and {len(culprits) - 4} more" if len(culprits) > 4 else "")
-                    + f". Set dt to {smallest:g} or less in user_inputs.yaml, or resample "
-                      f"the series data to {dt:g} s or coarser.")
+        # Only a series that will actually be compared constrains the solver's timestep. A
+        # zero-weighted item is dropped from the cost, and one carrying no samples has
+        # nothing to compare against, so neither can require anything of dt. SN_full's
+        # obs_data ships eight such placeholders at obs_dt = 1e-4, and they were enough to
+        # stop every evaluation of a study whose scored observables are all constants.
+        culprits = [_obs_item_label(gt_df, II) for II in range(gt_df.shape[0])
+                    if gt_df.iloc[II]["data_type"] == "series"
+                    and float(gt_df.iloc[II].get("obs_dt", np.inf)) < dt
+                    and _series_is_scored(gt_df, II)]
+        if culprits:
+            smallest = float(min(float(gt_df.iloc[II]["obs_dt"])
+                                 for II in range(gt_df.shape[0])
+                                 if gt_df.iloc[II]["data_type"] == "series"
+                                 and _series_is_scored(gt_df, II)))
+            raise ObsDataError(
+                f"the solver timestep dt = {dt:g} s is coarser than the sample spacing "
+                f"of the series data it has to be compared against: the smallest "
+                f"'obs_dt' in obs_data.json is {smallest:g} s"
+                + f", on {', '.join(culprits[:4])}"
+                + (f" and {len(culprits) - 4} more" if len(culprits) > 4 else "")
+                + f". Set dt to {smallest:g} or less in user_inputs.yaml, or resample "
+                  f"the series data to {dt:g} s or coarser.")
 
         # The std for the different observables
         obs_info["std_const_vec"] = np.array([gt_df.iloc[II]["std"] for II in range(gt_df.shape[0])
