@@ -45,6 +45,21 @@ mpi_available = _mpi_utils.mpi_available()
 rank = _mpi_utils.rank()
 
 
+class ObsDataError(ValueError):
+    """An ``obs_data.json`` the parser cannot use, described well enough to fix it.
+
+    These checks used to ``print()`` and ``exit()``. That is survivable in a script, where
+    the message lands on the terminal the user is already reading, and unrecoverable
+    anywhere else: ``exit()`` raises ``SystemExit``, which inherits from ``BaseException``
+    and so passes straight through the ``except Exception`` an embedding application wraps
+    the parser in. CUFLynx turned one of these into a bare "Internal Server Error", with
+    the explanation visible only in the server's own stdout.
+
+    So they raise, and the message carries the offending numbers rather than naming the
+    keys and leaving the reader to go and look them up.
+    """
+
+
 def resolve_user_path(path, user_files_dir):
     """Resolve a user-supplied relative path from ``user_inputs.yaml``.
 
@@ -670,6 +685,26 @@ def migrate_legacy_obs_columns(gt_df):
                       DeprecationWarning, stacklevel=3)
         gt_df = gt_df.rename(columns={legacy: current})
     return gt_df
+
+
+def _obs_item_label(gt_df, II):
+    """How to refer to row ``II`` of ``gt_df`` in an error message.
+
+    Its ``data_item_name`` when it has one, because that is what the obs_data file calls it
+    and so what the reader will search for; otherwise the operands, which at least say which
+    variable it came from; and failing both, the row index.
+    """
+    try:
+        row = gt_df.iloc[II]
+    except (IndexError, KeyError):
+        return f"item {II}"
+    name = row.get("data_item_name") if hasattr(row, "get") else None
+    if isinstance(name, str) and name:
+        return name
+    operands = row.get("operands") if hasattr(row, "get") else None
+    if isinstance(operands, (list, tuple)) and operands:
+        return "/".join(str(o) for o in operands)
+    return f"item {II}"
 
 
 def check_data_item_names_unique(gt_df, prediction_info=None):
@@ -3957,17 +3992,28 @@ class ObsAndParamDataParser(object):
         for II in range(gt_df.shape[0]):
             if gt_df.iloc[II]["data_type"] == "series":
                 if "obs_dt" not in gt_df.iloc[II].keys():
-                    print("dt not found in obs_data.json for series data, exiting")
-                    exit()
+                    raise ObsDataError(
+                        f"series data item '{_obs_item_label(gt_df, II)}' has no 'obs_dt'. "
+                        f"Every series item needs the sample spacing of its own data, in "
+                        f"seconds, so the solver output can be compared with it.")
                 dt_list.append(gt_df.iloc[II]["obs_dt"])
-        
+
         obs_info["obs_dt"] = np.array(dt_list)
-        
+
         if len(obs_info["obs_dt"]) > 0:
-            if min(obs_info["obs_dt"]) < dt:
-                print("one of the dt in obs_data.json is less than the dt in user_inputs.yaml, the output timestep"
-                    "defined in user_inputs.yaml must be less than the smallest dt for your data. Exiting")
-                exit()
+            smallest = float(min(obs_info["obs_dt"]))
+            if smallest < dt:
+                culprits = [_obs_item_label(gt_df, II) for II in range(gt_df.shape[0])
+                            if gt_df.iloc[II]["data_type"] == "series"
+                            and float(gt_df.iloc[II].get("obs_dt", np.inf)) < dt]
+                raise ObsDataError(
+                    f"the solver timestep dt = {dt:g} s is coarser than the sample spacing "
+                    f"of the series data it has to be compared against: the smallest "
+                    f"'obs_dt' in obs_data.json is {smallest:g} s"
+                    + (f", on {', '.join(culprits[:4])}" if culprits else "")
+                    + (f" and {len(culprits) - 4} more" if len(culprits) > 4 else "")
+                    + f". Set dt to {smallest:g} or less in user_inputs.yaml, or resample "
+                      f"the series data to {dt:g} s or coarser.")
 
         # The std for the different observables
         obs_info["std_const_vec"] = np.array([gt_df.iloc[II]["std"] for II in range(gt_df.shape[0])
