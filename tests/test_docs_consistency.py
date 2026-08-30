@@ -181,14 +181,21 @@ def test_docs_do_not_promise_the_flat_imports_still_work():
     removal has happened; what matters now is that nothing tells a reader the old
     spelling resolves, because it raises ``ModuleNotFoundError``.
     """
-    for path in (README, CLAUDE_MD, REPO_ROOT / "CHANGELOG.md",
-                 TUTORIAL / "docs" / "api" / "index.md"):
+    guidance = (README, CLAUDE_MD, TUTORIAL / "docs" / "api" / "index.md")
+    for path in guidance + (REPO_ROOT / "CHANGELOG.md",):
         text = path.read_text(encoding="utf-8")
         assert "0.6.0" in text, (
             "%s should name 0.6.0 as the release that removed the flat-import shims"
             % _rel(path)
         )
-        for claim in ("still work", "still resolve", "still works", "still resolves"):
-            assert claim not in text.lower().replace("0.4.0 and 0.5.x", ""), (
-                "%s still tells a reader the flat imports %s" % (_rel(path), claim)
+
+    # Only the docs that tell a reader what to do *now*. The changelog is a record of
+    # what each release did, so it says "still works in 0.4.0" about 0.4.0 and should
+    # keep saying it -- reading that as current advice is what makes this check blunt
+    # enough to be useless if it covers everything.
+    for path in guidance:
+        text = path.read_text(encoding="utf-8").lower()
+        for claim in ("still work", "still resolve"):
+            assert claim not in text, (
+                "%s still offers the flat imports as something that %ss" % (_rel(path), claim)
             )
