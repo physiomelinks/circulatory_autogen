@@ -198,10 +198,10 @@ def test_release_procedure_is_documented():
     """Somewhere findable, and naming the parts that cannot be undone."""
     text = (REPO_ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
     assert "Making a release" in text
-    from libcuflynx._deprecated_aliases import REMOVAL_VERSION
-
+    # "0.6.0" as a literal now: it is the release the shims were removed in, which is
+    # history rather than a value the code still carries.
     for needle in ("release.yml", PYPI_ENVIRONMENT, "trusted publishing", "pyproject.toml",
-                   REMOVAL_VERSION, "funcs_user"):
+                   "0.6.0", "funcs_user"):
         assert needle in text, "CONTRIBUTING.md should mention %r in the release section" % needle
     assert re.search(r"never be (replaced|re-uploaded)", text), (
         "the docs must say a published PyPI version cannot be re-uploaded"
