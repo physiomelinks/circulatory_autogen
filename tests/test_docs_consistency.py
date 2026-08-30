@@ -174,20 +174,21 @@ def test_readme_names_both_the_repository_and_the_package():
 
 
 @pytest.mark.unit
-def test_deprecation_removal_version_is_stated_consistently():
-    """The docs a migrator reads must all name the release that removes the shims.
+def test_docs_do_not_promise_the_flat_imports_still_work():
+    """0.6.0 removed the shims, so no doc may still offer them as a working option.
 
-    Read from ``REMOVAL_VERSION`` rather than restated: the version was deferred once
-    (0.5.0 -> 0.6.0) and a literal here would have passed while every doc said the
-    other thing.
+    This replaces the check that every doc named the *upcoming* removal version. The
+    removal has happened; what matters now is that nothing tells a reader the old
+    spelling resolves, because it raises ``ModuleNotFoundError``.
     """
-    from libcuflynx._deprecated_aliases import REMOVAL_VERSION
-
-    removal = REMOVAL_VERSION
     for path in (README, CLAUDE_MD, REPO_ROOT / "CHANGELOG.md",
                  TUTORIAL / "docs" / "api" / "index.md"):
         text = path.read_text(encoding="utf-8")
-        assert removal in text, (
-            "%s should name %s as the release that removes the flat-import shims"
-            % (_rel(path), removal)
+        assert "0.6.0" in text, (
+            "%s should name 0.6.0 as the release that removed the flat-import shims"
+            % _rel(path)
         )
+        for claim in ("still work", "still resolve", "still works", "still resolves"):
+            assert claim not in text.lower().replace("0.4.0 and 0.5.x", ""), (
+                "%s still tells a reader the flat imports %s" % (_rel(path), claim)
+            )

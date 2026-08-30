@@ -5,6 +5,33 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+## 0.6.0 — 2026-08-31
+
+### Removed — the flat-import shims (#428)
+
+`import parsers`, `from param_id.paramID import CVS0DParamID` and the other nine top-level
+names were moved under `libcuflynx` in 0.4.0 and kept working since as deprecation shims that
+warned once. They are gone: the eleven `src/<name>/` packages, the `_AliasFinder` meta-path
+hook and `libcuflynx._deprecated_aliases` are all deleted, and the old spellings now raise
+`ModuleNotFoundError`.
+
+**Migrate by prefixing the import with `libcuflynx.`** — `from libcuflynx.param_id.paramID
+import CVS0DParamID`. Nothing else changed: the modules, classes and functions are the same
+objects at the same paths they have had since 0.4.0, so this is a rename of the import line
+and nothing more. An installed package is importable from any directory, so a
+`sys.path.insert(0, 'src')` that preceded the old spelling can go too.
+
+This was announced for 0.5.0 and deferred once, so that one release did not ask for two
+unrelated migrations alongside the #466 obs_data break.
+
+### Note — `names_for_plotting` is still here
+
+0.4.1 said this `obs_info` alias would go in 0.6.0. It has not: the engine still reads it
+internally (`paramID.py`), so removing it is a change to the parser and its call sites rather
+than a deletion, and it does not belong in the same release as the namespace removal for the
+same reason that removal was deferred out of 0.5.0. Prefer `data_item_names`,
+`trace_names_for_plotting` or `item_names_for_plotting`; the alias will go in a later release.
+
 ## 0.5.1 — 2026-08-25
 
 ### Changed — the MCMC ensemble is evaluated in one emulator call (#490)
@@ -211,7 +238,7 @@ Also fixed: the mean of `heart/u_la` in `resources/3compartment_obs_data.json` w
 `u_{AR}`, so it plotted as an aortic-root pressure. It is now `u_{LA}`.
 
 Reading `obs_info` from python: `names_for_plotting` remains as a deprecated alias of
-`item_names_for_plotting` and is removed in 0.6.0. Prefer `data_item_names`,
+`item_names_for_plotting` and was to be removed in 0.6.0 (deferred -- see 0.6.0's note). Prefer `data_item_names`,
 `trace_names_for_plotting` or `item_names_for_plotting`.
 
 ## 0.4.1 — 2026-08-19
