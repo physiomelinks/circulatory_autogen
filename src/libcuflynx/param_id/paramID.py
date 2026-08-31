@@ -1302,7 +1302,7 @@ class CVS0DParamID():
         to.
         """
         sim_obj = mcmc_object if self.mcmc_instead else self.param_id
-        names = self.obs_info['names_for_plotting']
+        names = obs_item_labels(self.obs_info)
         values = {name: {} for name in names}
 
         flat_samples = np.asarray(flat_samples, dtype=float)
@@ -1353,7 +1353,7 @@ class CVS0DParamID():
 
     def _add_measured_values(self, values):
         """Add the measured data each feature is answerable to, under 'exp_data'."""
-        for obs_idx, name in enumerate(self.obs_info['names_for_plotting']):
+        for obs_idx, name in enumerate(obs_item_labels(self.obs_info)):
             data_type = self.obs_info['data_types'][obs_idx]
             measured = values[name].setdefault('exp_data', [])
             if data_type == 'constant':
@@ -1437,7 +1437,7 @@ class CVS0DParamID():
                     ax.scatter(np.random.normal(idx, 0.04, size=len(vals)), vals,
                                color='black', s=5, alpha=0.2, zorder=2)
 
-            obs_idx = self.obs_info['names_for_plotting'].index(feature)
+            obs_idx = obs_item_labels(self.obs_info).index(feature)
             ax.set_xticks(range(len(labels)))
             ax.set_xticklabels(labels, rotation=15)
             ax.set_ylabel(f"{feature} ({self.obs_info['units'][obs_idx]})")
@@ -1466,7 +1466,7 @@ class CVS0DParamID():
             return None
         import seaborn as sns
 
-        features = list(self.obs_info['names_for_plotting'])
+        features = list(obs_item_labels(self.obs_info))
         if not features:
             return None
         cols = min(3, len(features))

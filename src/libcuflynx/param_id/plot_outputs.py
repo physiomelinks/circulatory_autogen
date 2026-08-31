@@ -295,7 +295,8 @@ class ParamIDPlotOutputs:
         obs_stub = self.client.param_id_obs_file_prefix
 
         obs_tuples_unique = []
-        for idx, obs_name in enumerate(obs_info["obs_names"]):
+        item_names = obs_item_names(obs_info)
+        for idx, obs_name in enumerate(item_names):
             tup = (obs_name, obs_info["experiment_idxs"][idx])
             if tup not in obs_tuples_unique:
                 obs_tuples_unique.append(tup)
@@ -330,7 +331,7 @@ class ParamIDPlotOutputs:
                     freq_idx += 1
 
                 if (
-                    obs_info["obs_names"][II],
+                    item_names[II],
                     obs_info["experiment_idxs"][II],
                 ) != obs_tuples_unique[unique_obs_count]:
                     continue
@@ -540,7 +541,7 @@ class ParamIDPlotOutputs:
                         pass
                     else:
                         print(
-                            f'plot_type for {obs_info["obs_names"][II]} '
+                            f'plot_type for {obs_item_names(obs_info)[II]} '
                             f"of {obs_info['plot_type'][II]} is not recognised",
                             "for constants it must be in [None, horizontal, veritical, horizontal_from_min], exiting",
                         )
@@ -1263,7 +1264,8 @@ class ParamIDPlotOutputs:
                     print(f'{obs_item_labels(obs_info)[obs_idx]} series error:')
                 else:
                     print(
-                        f'{obs_info["obs_names"][obs_idx]} {obs_info["data_types"][obs_idx]} error:'
+                        f'{obs_item_labels(obs_info)[obs_idx]} '
+                        f'{obs_info["data_types"][obs_idx]} error:'
                     )
                 print(f"{percent_error_vec[obs_idx]:.2f} %")
             if dt_row == "frequency":
