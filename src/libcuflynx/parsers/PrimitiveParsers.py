@@ -665,6 +665,17 @@ PARAM_MODIFIER_OPERATIONS = PARAM_MODIFIERS
 DEFAULT_PARAM_MODIFIER_OPERATION = DEFAULT_PARAM_MODIFIER
 
 
+def _empty_prediction_info():
+    """The shape ``process_obs_info`` fills for prediction_items.
+
+    One definition rather than three literals: the keys are the same as obs_info's, and three
+    copies is how a fourth comes to differ from the other three.
+    """
+    return {'operands': [], 'units': [], 'data_item_names': [],
+            'trace_names_for_plotting': [], 'item_names_for_plotting': [],
+            'experiment_idxs': []}
+
+
 def migrate_legacy_obs_columns(gt_df):
     """Rename an obs dataframe's superseded columns, warning once per column.
 
@@ -3495,9 +3506,7 @@ class ObsAndParamDataParser(object):
             protocol_info = {"pre_times": [pre_time], 
                              "sim_times": [[sim_time]],
                              "params_to_change": {}}
-            prediction_info = {'names': [], 'units': [], 'data_item_names': [],
-                               'names_for_plotting': [], 'item_names_for_plotting': [],
-                               'experiment_idxs': []}
+            prediction_info = _empty_prediction_info()
             
 
         # --- Case 2: Dictionary structure ---
@@ -3606,9 +3615,7 @@ class ObsAndParamDataParser(object):
                     "experiment_idx": {"types": (int, np.integer), "default": 0},
                 }
 
-                prediction_info = {'names': [], 'units': [], 'data_item_names': [],
-                               'names_for_plotting': [], 'item_names_for_plotting': [],
-                               'experiment_idxs': []}
+                prediction_info = _empty_prediction_info()
                 for entry_idx, raw_entry in enumerate(prediction_items):
                     if not isinstance(raw_entry, dict):
                         raise ValueError(
@@ -3648,18 +3655,16 @@ class ObsAndParamDataParser(object):
                             "Invalid prediction_items value types:\n" + "\n".join(pred_type_errors)
                         )
 
-                    prediction_info['names'].append(str(entry['operands'][0]))
+                    prediction_info['operands'].append(list(entry['operands']))
                     prediction_info['units'].append(entry['unit'])
                     prediction_info['data_item_names'].append(entry['data_item_name'])
-                    prediction_info['names_for_plotting'].append(
+                    prediction_info['trace_names_for_plotting'].append(
                         entry['trace_name_for_plotting'])
                     prediction_info['item_names_for_plotting'].append(
                         entry['item_name_for_plotting'])
                     prediction_info['experiment_idxs'].append(entry['experiment_idx'])
             else:
-                prediction_info = {'names': [], 'units': [], 'data_item_names': [],
-                               'names_for_plotting': [], 'item_names_for_plotting': [],
-                               'experiment_idxs': []}
+                prediction_info = _empty_prediction_info()
             
         else:
             print(f"Error: unknown data type for imported json object of {type(json_obj)}")
@@ -3853,10 +3858,9 @@ class ObsAndParamDataParser(object):
         # --- Simple Array Generation ---
         N = gt_df.shape[0]
         
-        # obs_names is the item identity, and doubles as the key an operation_kwargs
-        # reference to another item resolves against (#466).
-        obs_info["obs_names"] = gt_df["data_item_name"].tolist()
-        obs_info["data_item_names"] = obs_info["obs_names"]
+        # The item identity, which doubles as the key an operation_kwargs reference to
+        # another item resolves against (#466). Spelled as the entry key it comes from.
+        obs_info["data_item_names"] = gt_df["data_item_name"].tolist()
         obs_info["data_types"] = gt_df["data_type"].tolist()
         obs_info["units"] = gt_df["unit"].tolist()
         obs_info["experiment_idxs"] = [gt_df.iloc[II].get("experiment_idx", 0) for II in range(N)]
@@ -3898,16 +3902,12 @@ class ObsAndParamDataParser(object):
         obs_info["cost_kwargs"] = [gt_df.iloc[II].get("cost_kwargs", {}) for II in range(N)]
         obs_info["freqs"] = [gt_df.iloc[II].get("frequencies") for II in range(N)]
         obs_info["trace_names_for_plotting"] = [
-            gt_df.iloc[II].get("trace_name_for_plotting", obs_info["obs_names"][II])
+            gt_df.iloc[II].get("trace_name_for_plotting", obs_info["data_item_names"][II])
             for II in range(N)]
         obs_info["item_names_for_plotting"] = [
             gt_df.iloc[II].get("item_name_for_plotting",
                                obs_info["trace_names_for_plotting"][II])
             for II in range(N)]
-        # Deprecated alias. `name_for_plotting` named two things; the one nearly every reader
-        # wanted was the item's label, so that is what the old key now resolves to. Removed in
-        # 0.6.0 -- read item_names_for_plotting or trace_names_for_plotting instead.
-        obs_info["names_for_plotting"] = obs_info["item_names_for_plotting"]
 
         for II in range(N):
             op = gt_df.iloc[II].get("operation")

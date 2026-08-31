@@ -428,12 +428,21 @@ and the `data_item` names it in `operation` with one `operation_kwargs` entry pe
 
 ### prediction items (optional)
 
-You can include a `prediction_items` list in `obs_data.json` to request additional model outputs to plot (not used in the cost function). Each entry includes:
+You can include a `prediction_items` list in `obs_data.json` to request additional model outputs to plot (not used in the cost function). They take the same vocabulary as a `data_item`:
 
-- **variable**
-- **unit**
+- **data_item_name**: This item's identity, unique across every `data_item` and
+  `prediction_item` in the file.
+- **operands**: The model variable to record, as a list — e.g. `["heart/u_lv"]`. This is what
+  the old **variable** entry named; it no longer doubles as the item's name.
+- **unit**: The unit of the recorded variable.
 - **experiment_idx** (optional; defaults to 0)
-- **name_for_plotting** (optional)
+- **trace_name_for_plotting** (optional): The axis label, in latex format. Defaults to the
+  first operand.
+- **item_name_for_plotting** (optional): The item's own label. Defaults to
+  `"<trace_name_for_plotting> (<operation>)"`.
+
+Together the last two replace the old **name_for_plotting**. A file still using `variable` or
+`name_for_plotting` loads with a deprecation warning; `cuflynx-migrate-obs-data` rewrites it.
 
 ## Running external cellml models
 

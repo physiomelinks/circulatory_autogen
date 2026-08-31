@@ -38,6 +38,8 @@ Usage::
     result.save(output_dir)
     print(result.summary())
 """
+from libcuflynx.utilities.obs_data_helpers import (obs_item_names,
+                                                   obs_trace_labels)
 import json
 import os
 
@@ -473,10 +475,15 @@ class PosteriorPredictiveResult:
         return samples_path, coverage_path
 
 
-def observable_labels(obs_info):
-    """A readable name per constant observable, in ``ground_truth_const`` order."""
-    names = (obs_info.get('data_item_names') or obs_info.get('names_for_plotting')
-             or obs_info.get('obs_names'))
+def observable_item_names(obs_info):
+    """A data_item's identity per constant observable, in ``ground_truth_const`` order.
+
+    Named for what it returns. It was ``observable_labels``, which is also the name of a
+    function in ``paramID`` that returns display *labels* -- two names for one thing and one
+    name for two things. Identity is the right answer here: it goes into the persisted
+    ``labels=`` array that a reload is checked against, and a label may be reworded.
+    """
+    names = obs_item_names(obs_info)
     return [str(names[obs_idx]) for obs_idx in obs_info['const_idx_to_obs_idx']]
 
 
@@ -553,7 +560,7 @@ def series_metadata(client, series, ground_truth, std, predictions=None):
         time_axes[key] = segment_time_axis(
             protocol_info, exp_idx, sub_idx, block.shape[1]).tolist()
 
-    labels = observable_labels(obs_info)
+    labels = observable_item_names(obs_info)
     plot_types = obs_info.get('plot_type') or []
     observables = []
     for const_idx, obs_idx in enumerate(obs_info['const_idx_to_obs_idx']):
@@ -589,7 +596,9 @@ def series_metadata(client, series, ground_truth, std, predictions=None):
     recorded = obs_info.get('ground_truth_series') or []
     series_map = obs_info.get('series_idx_to_obs_idx') or []
     series_weights = obs_info.get('weight_series_vec')
-    series_names = obs_info.get('data_item_names') or obs_info.get('trace_names_for_plotting') or []
+    # The trace's label: this feeds a display field on a series panel, and the chain it
+    # replaces tried the *identity* first, so a panel was captioned with a data_item_name.
+    series_names = obs_trace_labels(obs_info)
     for series_idx, obs_idx in enumerate(series_map):
         if series_idx >= len(recorded):
             break
@@ -703,7 +712,7 @@ def posterior_predictive(inp_data_dict=None, num_samples=100, burn_in=0.5,
 
     result = PosteriorPredictiveResult(
         thetas=thetas, predictions=predictions, ground_truth=ground_truth,
-        std=std, labels=observable_labels(obs_info),
+        std=std, labels=observable_item_names(obs_info),
         coverage_summary=coverage(predictions, ground_truth, std, levels),
         chain_info=chain_info, failures=failures, used_emulator=bool(use_emulator),
         series=series,

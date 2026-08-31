@@ -98,15 +98,44 @@ def test_the_canonical_example_still_shows_the_convention():
 @pytest.mark.parametrize('path', _authored_obs_data_files(),
                          ids=lambda p: os.path.basename(p))
 def test_no_label_restates_its_own_operation(path):
+    # `item_name_for_plotting`, not the retired `name_for_plotting`. The shipped files were
+    # migrated to the #466 vocabulary, so the old key was always absent and this assertion
+    # could never fire whatever the files said. The *item* label is the one that would restate
+    # an operation, since it defaults to "<trace> (<operation>)".
+    #
+    # No shipped file trips this today -- the derived default cannot, so only a hand-written
+    # label could. It is a guard on what someone adds next, which is why
+    # `test_the_operation_check_catches_a_label_that_restates_itself` exists: without it a
+    # clean corpus and a broken check look identical, which is exactly how this rotted.
     offenders = [
-        (item.get('name_for_plotting'), item.get('operation'), (item.get('operands') or [''])[0])
+        (item.get('item_name_for_plotting'), item.get('operation'),
+         (item.get('operands') or [''])[0])
         for item in _data_items(path)
         if item.get('operation') in _REDUCERS
-        and _spells_its_own_operation(item.get('name_for_plotting'), item.get('operation'))
+        and _spells_its_own_operation(item.get('item_name_for_plotting'), item.get('operation'))
     ]
     assert not offenders, (
-        f'{os.path.relpath(path, _ROOT)}: name_for_plotting names the output *before* the '
+        f'{os.path.relpath(path, _ROOT)}: item_name_for_plotting names the output *before* the '
         f'operation (see resources/3compartment_obs_data.json, where mean and max of '
         f'aortic_root/v are both "v_{{AR}}"). These restate their own operation: '
         + '; '.join(f'{label!r} (operation {op!r} on {operand})'
                     for label, op, operand in offenders))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('label,operation,caught', [
+    ('mean(T_p1)', 'mean', True),        # functional application
+    ('v_{max}', 'max', True),            # latex subscript
+    ('v_max', 'max', True),              # plain subscript
+    ('v_{AR}', 'mean', False),           # names the trace, not the operation
+    ('mean_flow', 'mean', False),        # a quantity that merely contains the word
+    (None, 'mean', False),               # absent label -- the state that made this vacuous
+])
+def test_the_operation_check_catches_a_label_that_restates_itself(label, operation, caught):
+    """The sweep above scans a corpus that currently has nothing to find.
+
+    A check with no violations to catch and a check that cannot catch anything look the same
+    from the outside, and this one spent a release in the second state while reading as the
+    first. This asserts the predicate itself still works.
+    """
+    assert _spells_its_own_operation(label, operation) is caught

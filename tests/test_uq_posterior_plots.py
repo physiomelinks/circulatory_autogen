@@ -58,7 +58,7 @@ def _plotter(tmp_path, engine, names=('x',), data_types=('constant',), units=('d
     obj.plot_dir = str(tmp_path)
     obj.output_dir = str(tmp_path)
     obj.obs_info = {
-        'names_for_plotting': list(names),
+        'item_names_for_plotting': list(names),
         'data_types': list(data_types),
         'units': list(units),
         'experiment_idxs': [0] * len(names),

@@ -5,6 +5,29 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Changed — one spelling per concept in `obs_info` and `prediction_info`
+
+The obs_data *file* vocabulary was split by #466; the parsed dicts were not, and kept the old
+spellings as live aliases. `obs_info` held `obs_names` with `data_item_names` aliased to the
+same list, and `names_for_plotting` aliased to `item_names_for_plotting`. `prediction_info`
+was worse: its `names_for_plotting` meant the **trace** label where obs_info's meant the
+**item** label, so one key named two different things depending on which dict you held.
+
+Now: `obs_info` has `data_item_names`, `trace_names_for_plotting` and
+`item_names_for_plotting` and nothing else; `prediction_info` mirrors it exactly, with its
+`names` becoming `operands` (a list per item, as on obs_info) and its `names_for_plotting`
+becoming `trace_names_for_plotting`. `obs_item_names` / `obs_item_labels` /
+`obs_trace_labels` / `obs_operand_lists` now work on either dict.
+
+**If you build one of these dicts by hand**, `ParamID` normalises what it is handed and warns
+once per superseded key; a dict setting both an old key and its replacement is an error.
+Reading the old keys off a parsed dict no longer works, because they are no longer written.
+
+Two bugs fell out. `posterior_predictive` captioned a series panel with the item's *identity*
+where it meant the trace label, and `print_observable_errors` named one of its six branches by
+identity where the other five used the label.
+
+
 ## 0.6.0 — 2026-08-31
 
 ### Removed — the flat-import shims (#428)
@@ -31,6 +54,7 @@ internally (`paramID.py`), so removing it is a change to the parser and its call
 than a deletion, and it does not belong in the same release as the namespace removal for the
 same reason that removal was deferred out of 0.5.0. Prefer `data_item_names`,
 `trace_names_for_plotting` or `item_names_for_plotting`; the alias will go in a later release.
+*(Done in Unreleased — see "one spelling per concept" above.)*
 
 ## 0.5.1 — 2026-08-25
 

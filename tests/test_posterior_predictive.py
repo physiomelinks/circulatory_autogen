@@ -284,7 +284,7 @@ class FakeClient:
             "const_idx_to_obs_idx": [0, 1],
             "experiment_idxs": [0, 0],
             "subexperiment_idxs": [0, 0],
-            "obs_names": ["a", "b"],
+            "data_item_names": ["a", "b"],
         }
         self.protocol_info = {"num_sub_per_exp": [1]}
 
@@ -459,8 +459,11 @@ class SeriesClient:
             # one scalar, then one obs index per recorded trace
             "experiment_idxs": [0] + [0] * n,
             "subexperiment_idxs": [0] + [0] * n,
-            "obs_names": ["a"] + ["gt%d" % i for i in range(n)],
             "data_item_names": ["a"] + ["Vgt_{%d}" % i for i in range(n)],
+            # The parser always populates this, defaulting it to the identity when the
+            # entry names no trace (PrimitiveParsers.process_obs_info). A double that
+            # omits it is not an obs_info the engine could ever be handed.
+            "trace_names_for_plotting": ["a"] + ["Vgt_{%d}" % i for i in range(n)],
             "operands": [["x/v"]] + [["time", "x/v"]] * n,
             "ground_truth_series": [np.linspace(-70.0, -50.0, 40) for _ in range(n)],
             "series_idx_to_obs_idx": list(range(1, n + 1)),
