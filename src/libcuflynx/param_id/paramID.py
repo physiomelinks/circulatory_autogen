@@ -101,7 +101,9 @@ import math
 import scipy.linalg as la
 # from scipy.optimize import curve_fit
 import warnings
-from libcuflynx.utilities.obs_data_helpers import (obs_item_names, obs_item_labels,
+from libcuflynx.utilities.obs_data_helpers import (normalise_obs_info,
+                                                   normalise_prediction_info,
+                                                   obs_item_names, obs_item_labels,
                                                    obs_operand_lists, obs_trace_labels)
 warnings.filterwarnings( "ignore", module = "matplotlib/..*" )
 # TODO maybe remove matplotlib warnings as above
@@ -1870,9 +1872,11 @@ class ParamID():
         self.emulates_features = False
 
         self.solver_info = solver_info
-        self.obs_info = obs_info
+        # The boundary: everything below reads the current vocabulary only, so a dict
+        # assembled by hand elsewhere is brought into it here, once, with a warning.
+        self.obs_info = normalise_obs_info(obs_info)
         self.param_id_info = param_id_info
-        self.prediction_info = prediction_info # currently not used
+        self.prediction_info = normalise_prediction_info(prediction_info)  # currently not used
         self.optimiser_options = optimiser_options
         if self.param_id_info is not None:
             self.num_params = len(self.param_id_info["param_names"])
@@ -2222,10 +2226,12 @@ class ParamID():
         self._refresh_num_weighted_obs_tables()
 
     def set_prediction_info(self, prediction_info):
-        self.prediction_info = prediction_info
+        self.prediction_info = normalise_prediction_info(prediction_info)
     
     def set_obs_info(self, obs_info):
-        self.obs_info = obs_info
+        # Before cost_type is read and before the kwargs validators run, so all three
+        # see one vocabulary.
+        self.obs_info = normalise_obs_info(obs_info)
         self.cost_type = self.obs_info["cost_type"]
         validate_operation_kwargs(self.obs_info, self.operation_funcs_dict)
         validate_cost_kwargs(self.obs_info, self.cost_funcs_dict, self.cost_type)
