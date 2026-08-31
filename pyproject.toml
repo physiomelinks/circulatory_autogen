@@ -11,7 +11,7 @@ name = "libcuflynx"
 # the `libcuflynx` namespace. The flat import names (`parsers`, `param_id`, ...) keep working
 # through this release as deprecation shims and are removed in 0.6.0 -- see
 # libcuflynx/_deprecated_aliases.py::REMOVAL_VERSION, which the shims' warning text quotes.
-version = "0.6.0"
+version = "0.7.0"
 description = "Generation and calibration of CellML circulatory system models from module/vessel arrays"
 readme = "README.md"
 # 3.9 is the real floor, not a conservative label: utilities/package_resources.py needs
