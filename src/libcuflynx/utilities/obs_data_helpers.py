@@ -145,6 +145,95 @@ def migrate_legacy_obs_item_keys(items, where='data_items', variable_was_the_ope
         warnings.warn(f"{where}: {LEGACY_OBS_KEY_ADVICE[old]}", DeprecationWarning, stacklevel=3)
     return migrated
 
+#: Superseded keys of the parsed ``obs_info`` dict. This is a DIFFERENT layer from
+#: :data:`LEGACY_OBS_ITEM_KEYS`, which renames keys of an obs_data *entry* -- the file a user
+#: writes. These rename keys of the dict the parser hands the engine.
+LEGACY_OBS_INFO_KEYS = {
+    'obs_names': 'data_item_names',
+    'names_for_plotting': 'item_names_for_plotting',
+}
+
+#: The same for ``prediction_info`` -- and the targets are deliberately NOT the same.
+#:
+#: ``names_for_plotting`` appears in both tables and means something different in each: the
+#: *item* label in an obs_info, the *trace* label in a prediction_info. Merging the two tables
+#: would silently move a trace label into the item-label slot, which is the kind of mistake that
+#: shows up as a mislabelled axis months later rather than as a failure. ``names`` is worse: it
+#: holds a model qname, so mapping it to ``data_item_names`` by analogy with obs_info's
+#: ``obs_names`` would feed qnames to the uniqueness check while the solver was handed
+#: identities. ``test_the_two_info_tables_disagree_on_purpose`` pins this apart.
+LEGACY_PREDICTION_INFO_KEYS = {
+    'names': 'operands',
+    'names_for_plotting': 'trace_names_for_plotting',
+}
+
+LEGACY_INFO_KEY_ADVICE = {
+    'obs_names': ("obs_info['obs_names'] is deprecated: use 'data_item_names', which is the "
+                  "same list under the name the obs_data entry uses ('data_item_name')."),
+    'names': ("prediction_info['names'] is deprecated: use 'operands', which holds the same "
+              "model qnames as a list per item, matching obs_info['operands']."),
+    'obs_info.names_for_plotting': (
+        "obs_info['names_for_plotting'] is deprecated: it was the *item* label, so use "
+        "'item_names_for_plotting'. The trace's axis label is 'trace_names_for_plotting'."),
+    'prediction_info.names_for_plotting': (
+        "prediction_info['names_for_plotting'] is deprecated: it was the *trace* label, so use "
+        "'trace_names_for_plotting'. The item's own label is 'item_names_for_plotting'."),
+}
+
+
+def _advice(where, old):
+    """The advice for *old*, disambiguated by dict when the key means two things."""
+    return LEGACY_INFO_KEY_ADVICE.get(f'{where}.{old}') or LEGACY_INFO_KEY_ADVICE[old]
+
+
+def _normalise_info(info, table, where):
+    """Rewrite a parsed info dict's superseded keys, warning once per key.
+
+    The obs_info twin of :func:`migrate_legacy_obs_item_keys`, and deliberately the same
+    bargain: a copy rather than a mutation, because a dict handed in by a caller is theirs;
+    an error rather than a precedence rule when both spellings are set, because no reading of
+    that is not a mistake; and one warning per key, not per element.
+
+    ``None`` passes through -- ``prediction_info`` is genuinely optional, and a caller that
+    has none should not have to say so twice.
+    """
+    if info is None or not isinstance(info, dict):
+        return info
+
+    out = dict(info)
+    seen_legacy = []
+    for old, new in table.items():
+        if old not in out:
+            continue
+        if new in out:
+            raise ValueError(
+                f"{where} sets both '{old}' and its replacement '{new}'. "
+                f"Remove '{old}'. {_advice(where, old)}")
+        out[new] = out.pop(old)
+        seen_legacy.append(old)
+
+    # `names` held a flat list of qnames; `operands` is a list *per item*, as it already is on
+    # obs_info. Renaming the key without reshaping would leave one name covering two shapes,
+    # which is the confusion this whole change exists to remove.
+    if 'names' in table and 'names' in seen_legacy:
+        out['operands'] = [list(n) if isinstance(n, (list, tuple)) else [n]
+                           for n in out['operands']]
+
+    for old in seen_legacy:
+        warnings.warn(_advice(where, old), DeprecationWarning, stacklevel=3)
+    return out
+
+
+def normalise_obs_info(obs_info):
+    """An ``obs_info`` in the current vocabulary. See :func:`_normalise_info`."""
+    return _normalise_info(obs_info, LEGACY_OBS_INFO_KEYS, 'obs_info')
+
+
+def normalise_prediction_info(prediction_info):
+    """A ``prediction_info`` in the current vocabulary. See :func:`_normalise_info`."""
+    return _normalise_info(prediction_info, LEGACY_PREDICTION_INFO_KEYS, 'prediction_info')
+
+
 def get_default_cost_type():
     """The ``cost_type`` a data_item gets when it does not specify one."""
     return DEFAULT_COST_TYPE

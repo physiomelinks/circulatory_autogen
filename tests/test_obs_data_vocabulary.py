@@ -21,8 +21,14 @@ import pytest
 from libcuflynx.parsers.PrimitiveParsers import (ObsAndParamDataParser,
                                                  check_data_item_names_unique,
                                                  default_item_name_for_plotting)
-from libcuflynx.utilities.obs_data_helpers import (LEGACY_OBS_ITEM_KEYS,
-                                                   migrate_legacy_obs_item_keys)
+from libcuflynx.utilities.obs_data_helpers import (LEGACY_OBS_INFO_KEYS,
+                                                   LEGACY_OBS_ITEM_KEYS,
+                                                   LEGACY_PREDICTION_INFO_KEYS,
+                                                   migrate_legacy_obs_item_keys,
+                                                   normalise_obs_info,
+                                                   normalise_prediction_info,
+                                                   obs_item_labels, obs_item_names,
+                                                   obs_trace_labels)
 
 _ROOT = os.path.join(os.path.dirname(__file__), '..')
 
@@ -315,3 +321,84 @@ def test_every_shipped_obs_data_item_has_a_unique_name():
         if dupes:
             bad[name] = dupes
     assert not bad, "shipped obs_data files with repeated data_item_name: %s" % bad
+
+
+# ---------------------------------------------------------------------------
+# The parsed obs_info / prediction_info vocabulary -- a different layer from the
+# entry keys above, with its own tables.
+# ---------------------------------------------------------------------------
+@pytest.mark.unit
+def test_the_two_info_tables_disagree_on_purpose():
+    """``names_for_plotting`` means the ITEM label in one dict and the TRACE label in the other.
+
+    This is the test to read before merging the two tables into one, which is the tidy-up
+    somebody will eventually attempt. A shared mapping cannot be right for both: whichever
+    target it picked, the other dict's labels would move into the wrong slot, and nothing
+    would fail -- an axis would just be captioned with the wrong text.
+    """
+    assert LEGACY_OBS_INFO_KEYS['names_for_plotting'] == 'item_names_for_plotting'
+    assert LEGACY_PREDICTION_INFO_KEYS['names_for_plotting'] == 'trace_names_for_plotting'
+    assert LEGACY_OBS_INFO_KEYS != LEGACY_PREDICTION_INFO_KEYS
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('legacy,current', sorted(LEGACY_OBS_INFO_KEYS.items()))
+def test_an_obs_info_setting_both_spellings_is_an_error(legacy, current):
+    with pytest.raises(ValueError) as excinfo:
+        normalise_obs_info({legacy: ['a'], current: ['b']})
+    assert legacy in str(excinfo.value) and current in str(excinfo.value)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('legacy,current', sorted(LEGACY_PREDICTION_INFO_KEYS.items()))
+def test_a_prediction_info_setting_both_spellings_is_an_error(legacy, current):
+    with pytest.raises(ValueError) as excinfo:
+        normalise_prediction_info({legacy: ['a'], current: ['b']})
+    assert legacy in str(excinfo.value) and current in str(excinfo.value)
+
+
+@pytest.mark.unit
+def test_normalising_does_not_mutate_the_caller_s_dict():
+    original = {'obs_names': ['a'], 'names_for_plotting': ['A']}
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore', DeprecationWarning)
+        normalise_obs_info(original)
+    assert original == {'obs_names': ['a'], 'names_for_plotting': ['A']}
+
+
+@pytest.mark.unit
+def test_one_warning_per_legacy_key_not_per_item():
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        normalise_obs_info({'obs_names': ['a', 'b', 'c'], 'names_for_plotting': ['A', 'B', 'C']})
+    messages = [str(w.message) for w in caught if issubclass(w.category, DeprecationWarning)]
+    assert len(messages) == 2, messages
+
+
+@pytest.mark.unit
+def test_a_prediction_infos_flat_names_become_operand_lists():
+    """The rename carries a shape change no table can express.
+
+    ``operands`` is a list *per item* on obs_info, so a prediction_info that spelled it
+    ``names`` -- flat -- has to be reshaped, or one key would name two shapes.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore', DeprecationWarning)
+        out = normalise_prediction_info({'names': ['main/y', 'main/z']})
+    assert out['operands'] == [['main/y'], ['main/z']]
+
+
+@pytest.mark.unit
+def test_none_prediction_info_passes_through():
+    """It is genuinely optional -- CUFLynx hands ParamID `prediction_info=None`."""
+    assert normalise_prediction_info(None) is None
+
+
+@pytest.mark.unit
+def test_the_accessors_read_a_canonical_prediction_info():
+    """One set of accessors for both dicts is the point of mirroring their key names."""
+    pred = {'data_item_names': ['y'], 'item_names_for_plotting': ['Y (max)'],
+            'trace_names_for_plotting': ['Y']}
+    assert obs_item_names(pred) == ['y']
+    assert obs_item_labels(pred) == ['Y (max)']
+    assert obs_trace_labels(pred) == ['Y']
