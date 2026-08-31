@@ -90,3 +90,58 @@ jobs:
 
     - name: Publish
       uses: pypa/gh-action-pypi-publish@release/v1
+
+  # A tag publishes to PyPI, and used to stop there -- so v0.4.1, v0.5.0 and v0.5.1 are on
+  # PyPI with nothing on the releases page, and v0.4.0's entry was written by hand. The
+  # releases page is where someone looks to find out what changed between two versions they
+  # have installed, so leaving it to memory means it is right only when someone remembers.
+  #
+  # Gated on `publish`, not on `build`: a release that announces a version PyPI rejected
+  # points at something nobody can install. Notes only, no attached files -- PyPI is the
+  # distribution channel, and a wheel on the releases page is a second copy that can drift
+  # from it.
+  github-release:
+    name: Create the GitHub release
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      # To create the release. Deliberately narrower than the workflow default, and not
+      # `id-token`, which only the PyPI upload needs.
+      contents: write
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Take the notes from CHANGELOG.md
+      id: notes
+      run: |
+        version="${GITHUB_REF_NAME#v}"
+        # The section for this version, from its heading to the next `## ` heading. Written
+        # to a file rather than an output: release notes are long and contain everything
+        # awkward for a shell variable.
+        awk -v v="$version" '
+          $0 ~ "^## "v"( |$|—)" {found=1; next}
+          found && /^## / {exit}
+          found {print}
+        ' CHANGELOG.md > notes.md
+        if [ ! -s notes.md ]; then
+          echo "::warning::no CHANGELOG.md section for $version; publishing a stub"
+          printf 'See CHANGELOG.md.\n' > notes.md
+        fi
+        printf '\n---\n\nInstall: `pip install libcuflynx==%s`\nPyPI: https://pypi.org/project/libcuflynx/%s/\n' \
+          "$version" "$version" >> notes.md
+
+    - name: Create it
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        # `--verify-tag` so a typo'd ref cannot invent a release against a tag that is not
+        # there. Idempotent on re-run: editing beats failing when the publish is fine and
+        # only this step was retried.
+        if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+          gh release edit "$GITHUB_REF_NAME" --notes-file notes.md
+        else
+          gh release create "$GITHUB_REF_NAME" --verify-tag \
+            --title "libcuflynx ${GITHUB_REF_NAME#v}" --notes-file notes.md
+        fi
