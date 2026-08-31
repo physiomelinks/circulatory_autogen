@@ -27,11 +27,14 @@ import os
 import re
 import sys
 
+from libcuflynx.utilities.obs_data_helpers import LEGACY_OBS_ITEM_KEYS
+
 #: ``"data_item_name": "..."`` wherever it sits on the line, so a file that puts the key inline
 #: after an opening brace is treated the same as one that gives it a line of its own.
 _NAME = re.compile(r'"data_item_name"(\s*):(\s*)"((?:[^"\\]|\\.)*)"')
-_LEGACY_KEYS = (('variable', 'data_item_name'),
-                ('name_for_plotting', 'trace_name_for_plotting'))
+#: Derived, not restated: a third copy of this mapping is how the rewriter comes to skip a
+#: key the loader migrates. Order matters -- the regex rewrite applies these in sequence.
+_LEGACY_KEYS = tuple(LEGACY_OBS_ITEM_KEYS.items())
 
 
 def _operation_of(item):
