@@ -101,6 +101,15 @@ def obs_trace_labels(obs_info):
             or obs_info.get("names_for_plotting") or [])
 
 
+def obs_operand_lists(info):
+    """Each item's operands -- the model variables it reduces -- as a list per item.
+
+    Works on an ``obs_info`` and on a ``prediction_info`` alike, which is why
+    ``prediction_info`` stores a list per item rather than the bare qname it used to.
+    """
+    return (info or {}).get("operands") or []
+
+
 def migrate_legacy_obs_item_keys(items, where='data_items', variable_was_the_operand=False):
     """Rewrite an obs_data entry's superseded key names, warning once per key per file.
 

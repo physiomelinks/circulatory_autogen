@@ -19,6 +19,7 @@ from libcuflynx.param_id.operation_funcs import (
     resolve_operation_kwargs,
     validate_operation_kwargs,
 )
+from libcuflynx.utilities.obs_data_helpers import obs_item_names
 from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser, scriptFunctionParser
 
 
@@ -393,7 +394,7 @@ def test_external_user_op_receives_operation_kwargs_from_obs_data_json(tmp_path)
         kwargs = resolve_operation_kwargs(
             obs_info["operation_kwargs"][idx], func,
             operation_name=obs_info["operations"][idx],
-            data_item_name=obs_info["names_for_plotting"][idx],
+            data_item_name=obs_item_names(obs_info)[idx],
             temp_results={}, num_operands=1)
         results.append(func(x, **kwargs))
     assert results[0] == pytest.approx(2.0)

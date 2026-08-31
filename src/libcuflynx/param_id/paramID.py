@@ -101,7 +101,8 @@ import math
 import scipy.linalg as la
 # from scipy.optimize import curve_fit
 import warnings
-from libcuflynx.utilities.obs_data_helpers import obs_item_names, obs_item_labels
+from libcuflynx.utilities.obs_data_helpers import (obs_item_names, obs_item_labels,
+                                                   obs_operand_lists, obs_trace_labels)
 warnings.filterwarnings( "ignore", module = "matplotlib/..*" )
 # TODO maybe remove matplotlib warnings as above
 
@@ -1551,7 +1552,8 @@ class CVS0DParamID():
         for exp_idx in self.prediction_info['experiment_idxs']:
             self.param_id.simulate_once(reset=False, only_one_exp=exp_idx)
             tSim = self.param_id.sim_helper.tSim - self.param_id.pre_time
-            pred_names = [name for II, name in enumerate(self.prediction_info['names']) if 
+            pred_qnames = [str(ops[0]) for ops in obs_operand_lists(self.prediction_info)]
+            pred_names = [name for II, name in enumerate(pred_qnames) if
                                   self.prediction_info['experiment_idxs'][II] == exp_idx]
             pred_output = np.array(self.param_id.sim_helper.get_results(pred_names))
                     
@@ -1566,7 +1568,7 @@ class CVS0DParamID():
             print('Prediction variables are not saved when use_emulator is set: they are '
                   'traces, and the emulator predicts the scalar observable features only.')
             return
-        if self.prediction_info['names'] is not None:
+        if obs_operand_lists(self.prediction_info):
             print('Saving prediction data')
             time_and_pred_per_exp_list = self.__get_prediction_data()
 
@@ -1578,8 +1580,10 @@ class CVS0DParamID():
                 
             # also save the prediction variable names to csv
             with open(os.path.join(self.output_dir, 'prediction_variable_names.csv'), 'w') as wf:
-                for name in self.prediction_info['names']:
-                    wf.write(name + '\n')
+                # One qname per line -- the operand list holds one entry per prediction
+                # item, so this writes exactly what it always did.
+                for ops in obs_operand_lists(self.prediction_info):
+                    wf.write(str(ops[0]) + '\n')
             
             print('prediction data saved')
 
@@ -1670,7 +1674,7 @@ class CVS0DParamID():
     def postprocess_predictions(self):
         # TODO redo this for new prediction_info in obs_data.json 
         # TODO This should be straight forward
-        if self.prediction_info['names'] == None:
+        if not obs_operand_lists(self.prediction_info):
             print('no prediction variables, not plotting predictions')
             return 0
         m3_to_cm3 = 1e6
@@ -1689,7 +1693,7 @@ class CVS0DParamID():
         best_param_vals = self.get_best_param_vals()
 
         save_list = []
-        for pred_idx in range(len(self.prediction_info['names'])):
+        for pred_idx in range(len(obs_operand_lists(self.prediction_info))):
             exp_idx = self.prediction_info['experiment_idxs'][pred_idx]
             pred_array = pred_list_of_arrays[pred_idx]
             tSim = self.protocol_info['tSims_per_exp'][exp_idx].flatten()
@@ -1721,7 +1725,7 @@ class CVS0DParamID():
             for sample_idx in range(pred_array.shape[0]):
                 axs.plot(tSim, conversion*pred_array[sample_idx, pred_idx, :], alpha=0.5)
             axs.set_xlabel('Time [$s$]', fontsize=14)
-            axs.set_ylabel(f'${self.prediction_info["names_for_plotting"][pred_idx]}$ [{unit_for_plot}]', fontsize=14)
+            axs.set_ylabel(f'${obs_trace_labels(self.prediction_info)[pred_idx]}$ [{unit_for_plot}]', fontsize=14)
             axs.set_xlim(min(tSim), max(tSim))
             plt.savefig(os.path.join(self.plot_dir,
                                     f'prediction_{self.file_name_prefix}_'
@@ -1743,7 +1747,7 @@ class CVS0DParamID():
                                 np.argmin(np.abs(pred_mean - np.mean(pred_mean)))]
             # TODO put units in prediction file and use it here
             axs.set_xlabel('Time [$s$]', fontsize=14)
-            axs.set_ylabel(f'${self.prediction_info["names_for_plotting"][pred_idx]}$ [{unit_for_plot}]', fontsize=14)
+            axs.set_ylabel(f'${obs_trace_labels(self.prediction_info)[pred_idx]}$ [{unit_for_plot}]', fontsize=14)
             # for sample_idx in range(pred_array.shape[1]):
 
             # axs.plot(tSim, conversion*pred_mean, 'b', label='mean', linewidth=1.5)
@@ -2750,7 +2754,8 @@ class ParamID():
                                           
         pred_operand_outputs = self.get_pred_from_params(param_vals=param_vals, reset=False, 
                                                 only_one_exp=exp_idx, 
-                                                pred_names=self.prediction_info['names'])
+                                                pred_names=[str(ops[0]) for ops in
+                                                            obs_operand_lists(self.prediction_info)])
     
         # The second index of pred_output is the operand idx
         # TODO currently we don't allow operands for prediction outputs.
@@ -3631,7 +3636,7 @@ A caller that steps through the segments in order does so inside
 
     def _observable_label(self, obs_idx):
         """Human-readable, disambiguating label for observable ``obs_idx`` (used as the row key
-        of the local-sensitivity matrices). names_for_plotting can repeat across observables that
+        of the local-sensitivity matrices). item_names_for_plotting can repeat across observables that
         share a variable but differ by operation (e.g. mean vs max of the same trace), so the
         operation and operand are folded in.
 

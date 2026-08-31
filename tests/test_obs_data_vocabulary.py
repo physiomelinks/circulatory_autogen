@@ -201,7 +201,7 @@ def test_a_legacy_prediction_item_gets_its_operand_from_the_variable_it_named():
     out = _parse(_doc([_item()],
                       [{'variable': 'main/y', 'unit': 'dimensionless'}]))
     pred = out['prediction_info']
-    assert pred['names'] == ['main/y']
+    assert pred['operands'] == [['main/y']]
     assert pred['data_item_names'] == ['main/y']
 
 
