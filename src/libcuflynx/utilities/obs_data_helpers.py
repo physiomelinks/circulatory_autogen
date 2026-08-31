@@ -81,24 +81,24 @@ LEGACY_OBS_KEY_ADVICE = {
 def obs_item_names(obs_info):
     """Each data_item's identity, i.e. what an operation_kwargs reference resolves against.
 
-    Falls back to the deprecated ``names_for_plotting`` for an ``obs_info`` assembled by hand
-    rather than by the parser. Plenty of code does assemble one -- CUFLynx builds partial ones,
-    and so does every test double -- and it should not have to learn a new key to keep working.
+    One key, not a fallback chain. A dict assembled by hand elsewhere is brought into the
+    current vocabulary by :func:`normalise_obs_info` at the boundary it arrives on, which is
+    also where its author is told to move -- a silent fallback here told nobody anything, and
+    kept the old spelling working indefinitely.
+
+    Works on a ``prediction_info`` too, which is why that dict now spells its keys this way.
     """
-    return (obs_info.get("data_item_names") or obs_info.get("obs_names")
-            or obs_info.get("names_for_plotting") or [])
+    return (obs_info or {}).get("data_item_names") or []
 
 
 def obs_item_labels(obs_info):
     """Each data_item's display label (the scalar feature). See ``obs_item_names``."""
-    return (obs_info.get("item_names_for_plotting")
-            or obs_info.get("names_for_plotting") or [])
+    return (obs_info or {}).get("item_names_for_plotting") or []
 
 
 def obs_trace_labels(obs_info):
     """Each data_item's trace label (the series it is drawn from). See ``obs_item_names``."""
-    return (obs_info.get("trace_names_for_plotting")
-            or obs_info.get("names_for_plotting") or [])
+    return (obs_info or {}).get("trace_names_for_plotting") or []
 
 
 def obs_operand_lists(info):
