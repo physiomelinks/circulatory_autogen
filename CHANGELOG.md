@@ -5,6 +5,8 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+## 0.7.0 — 2026-09-01
+
 ### Changed — one spelling per concept in `obs_info` and `prediction_info`
 
 The obs_data *file* vocabulary was split by #466; the parsed dicts were not, and kept the old
