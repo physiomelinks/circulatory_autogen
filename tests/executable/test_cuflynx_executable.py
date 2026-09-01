@@ -275,32 +275,42 @@ def test_the_bundle_carries_a_working_engine(bundled_app):
         "nothing configured and no engine found: the bundle is missing libcuflynx")
 
 
-def test_the_bundled_engine_is_at_least_the_declared_floor(bundled_app):
-    """Which libcuflynx is frozen in, read from the running process rather than inferred.
+def test_the_bundled_engine_reports_its_version(tmp_path_factory):
+    """Which libcuflynx is frozen in, asked of the bundle itself.
 
-    The floor is checked in CUFLynx's own CI, but against the version pip *resolved* into a
-    venv -- not against what PyInstaller actually collected. Those can differ, and until now
-    the only thing that ever checked the bundle was somebody reading the dist-info by hand.
+    CUFLynx's own CI checks the declared floor against the version pip *resolved* into a
+    venv -- not against what PyInstaller actually collected, which is a different question
+    and the one a user's download depends on. Until now the only thing that ever checked the
+    bundle was somebody reading the dist-info by hand.
+
+    Asked through the app's runner mode rather than over HTTP: ``/api/config`` reports
+    ``ca_src`` as empty when no CA directory is configured, which is exactly the arrangement
+    that puts the bundled engine in charge -- so the endpoint cannot answer this. Running a
+    probe inside the bundle can, and it is the same mechanism the checkout test above uses.
     """
-    body = json.loads(
-        urllib.request.urlopen(bundled_app + "/api/config", timeout=60).read().decode())
-    if body.get("packaged") is not True:
-        pytest.skip("not a packaged build")
+    work = tmp_path_factory.mktemp("bundled_version")
+    probe = work / "probe.py"
+    probe.write_text(
+        "import importlib.metadata as md\n"
+        "try:\n"
+        "    print('BUNDLED:', md.version('libcuflynx'))\n"
+        "except Exception as exc:\n"
+        # A bundle whose engine has no metadata is itself the finding: nothing downstream
+        # can then tell which version shipped.
+        "    print('NOMETA:', exc)\n",
+        encoding="utf-8",
+    )
+    cfg = work / "cfg.json"
+    cfg.write_text("{}", encoding="utf-8")
+    out = subprocess.run(
+        [BINARY, "--_cuflynx-run-analysis", str(probe), str(cfg)],
+        capture_output=True, text=True, timeout=300,
+    )
+    combined = out.stdout + out.stderr
+    assert "BUNDLED:" in combined, (
+        f"the bundle could not report a libcuflynx version:\n{combined[-2000:]}")
 
-    src = body.get("ca_src") or ""
-    assert src, "the app reports no engine location at all"
-    # The bundle extracts to _MEI<random>/; the dist-info sits beside the package.
-    root = Path(src)
-    for parent in (root, *root.parents):
-        found = sorted(parent.glob("libcuflynx-*.dist-info"))
-        if found:
-            version = found[0].name.split("-")[1].removesuffix(".dist-info")
-            break
-    else:  # pragma: no cover - a bundle without dist-info is itself the failure
-        raise AssertionError(
-            f"no libcuflynx-*.dist-info anywhere above {src!r}: the engine was collected "
-            f"without its metadata, so nothing can tell which version shipped")
-
+    version = combined.split("BUNDLED:", 1)[1].split()[0]
     assert tuple(int(p) for p in version.split(".")[:3]) >= (0, 7, 0), (
         f"the bundle carries libcuflynx {version}, older than the vocabulary change in "
         f"0.7.0 that this app's obs_info reads depend on")
