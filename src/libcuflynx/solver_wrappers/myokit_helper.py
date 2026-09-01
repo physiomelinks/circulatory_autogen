@@ -1,5 +1,6 @@
 import os
 import copy
+import logging
 import time
 import warnings
 
@@ -49,6 +50,8 @@ from libcuflynx.solver_wrappers.name_resolver import VariableNameResolver
 from libcuflynx.utilities.protocol_shapes import materialise_shapes, validate_trace_references
 import xml.etree.ElementTree as ET
 import tempfile
+
+logger = logging.getLogger(__name__)
 import hashlib
 import re
 import os
@@ -482,8 +485,9 @@ class SimulationHelper:
         if "MaximumStep" in self.solver_info:
             try:
                 self.simulation.set_max_step_size(self.solver_info["MaximumStep"])
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("MaximumStep=%r was not applied: %s",
+                             self.solver_info["MaximumStep"], exc)
         self._effective_tolerances = apply_cvodes_tolerances(
             self.simulation, self.solver_info, self._fsa_enabled)
         self.last_log = None
@@ -535,9 +539,10 @@ class SimulationHelper:
         for var in self.all_vars:
             try:
                 self.default_values[var.qname()] = var.eval()
-            except Exception:
-                # leave unset if evaluation fails
-                pass
+            except Exception as exc:
+                # Left unset. Named, because a variable missing from default_values is a
+                # variable that will not be restored by reset_and_clear().
+                logger.debug("no default value for %s: %s", var.qname(), exc)
 
     def _describe_myokit_log_configuration(self):
         """Context for debugging empty logs or failed final-state extraction."""
@@ -572,8 +577,8 @@ class SimulationHelper:
             time_key = None
             try:
                 time_key = self.model.time().qname()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("model has no resolvable time variable: %s", exc)
             if time_key and time_key in self.last_log:
                 tser = np.asarray(self.last_log[time_key])
                 lines.append(
@@ -910,8 +915,8 @@ class SimulationHelper:
         if hasattr(self.last_log, "time"):
             try:
                 return np.asarray(self.last_log.time())
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("DataLog.time() unavailable, trying the next fallback: %s", exc)
 
         # Final fallback: model-declared bound time variable qname.
         model_time = self.model.time()
