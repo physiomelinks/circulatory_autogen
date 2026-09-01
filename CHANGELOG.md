@@ -5,6 +5,51 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+## 0.7.1 — 2026-09-01
+
+### Added — a contract for what `process_obs_info` publishes
+
+`obs_info` is a public API with no schema and no version, indexed by string literal around
+three hundred times here and thirty-one times in CUFLynx. Renaming two of its keys in 0.7.0
+broke the then-current CUFLynx release, and the first thing to notice was an hour-long CI job
+that downloads a built binary.
+
+`tests/test_obs_info_contract.py` now describes all thirty-two keys: which index space each
+belongs to, and whether anything outside this repository may read it. Renaming one fails a
+test whose id is the key's own name, in seconds. Eighteen of them are public with no
+accessor; those are the ones a rename has to plan for.
+
+### Fixed — `process_obs_info` on frames it said it accepted
+
+Two crashes, both on inputs the docstrings invite:
+
+* A caller handing it a `gt_df` it built itself hit `KeyError: 'prob_dist_params'` -- a column
+  the schema adds, read with a bare `[...]`.
+* An obs_data carrying only `protocol_info` parsed to a frame with no rows *and no columns*,
+  so every read raised and such a file could not be opened at all.
+
+### Fixed — the obs_info accessors on numpy columns
+
+`obs_item_names` and its siblings returned `... or []`, which raises "the truth value of an
+array with more than one element is ambiguous" when handed a numpy array. The keys they read
+happen to be lists, so this never fired here; several sibling `obs_info` values *are* arrays,
+and a downstream adapter copying the idiom onto them broke forty-seven tests. They now test
+for `None`.
+
+### Added — `obs_experiment_indices`, `obs_subexperiment_indices`, `obs_scalar_rows`
+
+So the keys CUFLynx reads have the same rename-immunity the label keys already had.
+
+### Changed — the release waits for PyPI to serve what it published
+
+PyPI accepts an upload before its index offers it, and two downstream jobs went red in that
+window on the 0.7.0 release with a message that reads like a dependency mistake.
+
+### Changed — the solver wrapper says what it skipped
+
+Four `except Exception: pass` sites in `myokit_helper` now log at debug. A dropped
+`MaximumStep`, or a variable with no default value, was previously silent.
+
 ## 0.7.0 — 2026-09-01
 
 ### Changed — one spelling per concept in `obs_info` and `prediction_info`
