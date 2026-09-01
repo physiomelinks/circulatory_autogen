@@ -91,6 +91,30 @@ jobs:
     - name: Publish
       uses: pypa/gh-action-pypi-publish@release/v1
 
+    # PyPI accepts the upload before its index serves the new version, and anything that
+    # installs in that window resolves the *old* one -- or fails with
+    # "Could not find a version that satisfies the requirement libcuflynx>=X (from versions:
+    # ...)", which reads like a dependency mistake rather than a race. Two CUFLynx jobs went
+    # red that way on the 0.7.0 release. Waiting here fixes it once, for every consumer,
+    # rather than asking each of them to retry.
+    #
+    # The JSON API, not `pip index versions`, which pip itself flags as experimental.
+    - name: Wait for the index to serve it
+      env:
+        GH_REF_NAME: ${{ github.ref_name }}
+      run: |
+        version="${GH_REF_NAME#v}"
+        for attempt in $(seq 1 40); do
+          if curl -sf "https://pypi.org/pypi/libcuflynx/json" \
+               | python -c "import json,sys; sys.exit(0 if '$version' in json.load(sys.stdin)['releases'] else 1)"; then
+            echo "libcuflynx $version is being served after $attempt attempt(s)"
+            exit 0
+          fi
+          sleep 15
+        done
+        echo "::error::libcuflynx $version was published but the index is still not serving it"
+        exit 1
+
   # A tag publishes to PyPI, and used to stop there -- so v0.4.1, v0.5.0 and v0.5.1 are on
   # PyPI with nothing on the releases page, and v0.4.0's entry was written by hand. The
   # releases page is where someone looks to find out what changed between two versions they

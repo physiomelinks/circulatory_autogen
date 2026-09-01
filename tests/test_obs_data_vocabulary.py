@@ -402,3 +402,21 @@ def test_the_accessors_read_a_canonical_prediction_info():
     assert obs_item_names(pred) == ['y']
     assert obs_item_labels(pred) == ['Y (max)']
     assert obs_trace_labels(pred) == ['Y']
+
+
+@pytest.mark.unit
+def test_the_accessors_survive_a_numpy_column():
+    """`array or []` raises "the truth value of an array ... is ambiguous".
+
+    The keys these read are lists today, so the older `or []` spelling worked -- by luck,
+    and a caller handing an array had no way to know. Several sibling obs_info values *are*
+    arrays, so the luck was not general.
+    """
+    import numpy as np
+    from libcuflynx.utilities.obs_data_helpers import (obs_operand_lists, obs_scalar_rows,
+                                                       obs_item_names)
+
+    assert obs_scalar_rows({"const_idx_to_obs_idx": np.array([0, 1])}) == [0, 1]
+    assert obs_scalar_rows({"const_idx_to_obs_idx": np.array([])}) == []
+    assert obs_item_names({"data_item_names": np.array(["a", "b"])}) == ["a", "b"]
+    assert obs_operand_lists(None) == []

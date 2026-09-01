@@ -208,6 +208,114 @@ def study(app):
     return model_id
 
 
+@pytest.fixture(scope="session")
+def bundled_app(tmp_path_factory):
+    """The released binary with **no** CA configured, so it runs the engine it ships.
+
+    The opposite arrangement to ``app``, and deliberately a second process: which engine is
+    in use is decided before the first libcuflynx import, so it cannot be changed by a POST
+    afterwards. Its own port, so the two can coexist in one session.
+
+    No ``CIRCULATORY_AUTOGEN_SRC``, and a throwaway config dir -- a ``ca_dir`` saved by any
+    previous run on this machine would silently put a checkout back in front of the bundle
+    and this would test the wrong engine while looking like it passed.
+    """
+    config_dir = tmp_path_factory.mktemp("bundled_config")
+    binary = Path(BINARY).resolve()
+    assert binary.is_file(), f"CUFLYNX_EXECUTABLE does not exist: {binary}"
+
+    port = PORT + 1
+    base = f"http://127.0.0.1:{port}"
+    env = {k: v for k, v in os.environ.items() if k != "CIRCULATORY_AUTOGEN_SRC"}
+    env["CUFLYNX_CONFIG_DIR"] = str(config_dir)
+
+    proc = subprocess.Popen(
+        [str(binary), "--port", str(port), "--browser"],
+        cwd=str(tmp_path_factory.mktemp("bundled_cwd")), env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+    )
+    try:
+        deadline = time.monotonic() + 180
+        while time.monotonic() < deadline:
+            if proc.poll() is not None:
+                raise AssertionError(
+                    f"the app exited during startup (code {proc.returncode})")
+            try:
+                urllib.request.urlopen(base + "/api/health", timeout=3).read()
+                break
+            except (urllib.error.URLError, OSError):
+                time.sleep(1)
+        else:
+            raise AssertionError("the app never became healthy")
+        yield base
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=15)
+        except subprocess.TimeoutExpired:  # pragma: no cover - only on a wedged app
+            proc.kill()
+
+
+def test_the_bundle_carries_a_working_engine(bundled_app):
+    """With nothing configured, the app must still have an engine -- its own.
+
+    ``ca_dir`` empty *and* ``ca_exists`` true is the pair that says so: an empty directory
+    with a present engine can only mean the bundled package. Either alone is ambiguous --
+    ``ca_exists`` is true for a configured checkout too, and an empty ``ca_dir`` on a source
+    run just means nobody chose one.
+    """
+    body = json.loads(
+        urllib.request.urlopen(bundled_app + "/api/config", timeout=60).read().decode())
+    assert body.get("packaged") is True, (
+        "not the released executable, so there is no bundle to check")
+    assert body.get("ca_dir") == "", (
+        f"a CA directory is configured ({body.get('ca_dir')!r}), so this is not testing the "
+        f"bundled engine -- a settings file from an earlier run is the usual cause")
+    assert body.get("ca_exists") is True, (
+        "nothing configured and no engine found: the bundle is missing libcuflynx")
+
+
+def test_the_bundled_engine_reports_its_version(tmp_path_factory):
+    """Which libcuflynx is frozen in, asked of the bundle itself.
+
+    CUFLynx's own CI checks the declared floor against the version pip *resolved* into a
+    venv -- not against what PyInstaller actually collected, which is a different question
+    and the one a user's download depends on. Until now the only thing that ever checked the
+    bundle was somebody reading the dist-info by hand.
+
+    Asked through the app's runner mode rather than over HTTP: ``/api/config`` reports
+    ``ca_src`` as empty when no CA directory is configured, which is exactly the arrangement
+    that puts the bundled engine in charge -- so the endpoint cannot answer this. Running a
+    probe inside the bundle can, and it is the same mechanism the checkout test above uses.
+    """
+    work = tmp_path_factory.mktemp("bundled_version")
+    probe = work / "probe.py"
+    probe.write_text(
+        "import importlib.metadata as md\n"
+        "try:\n"
+        "    print('BUNDLED:', md.version('libcuflynx'))\n"
+        "except Exception as exc:\n"
+        # A bundle whose engine has no metadata is itself the finding: nothing downstream
+        # can then tell which version shipped.
+        "    print('NOMETA:', exc)\n",
+        encoding="utf-8",
+    )
+    cfg = work / "cfg.json"
+    cfg.write_text("{}", encoding="utf-8")
+    out = subprocess.run(
+        [BINARY, "--_cuflynx-run-analysis", str(probe), str(cfg)],
+        capture_output=True, text=True, timeout=300,
+    )
+    combined = out.stdout + out.stderr
+    assert "BUNDLED:" in combined, (
+        f"the bundle could not report a libcuflynx version:\n{combined[-2000:]}")
+
+    version = combined.split("BUNDLED:", 1)[1].split()[0]
+    assert tuple(int(p) for p in version.split(".")[:3]) >= (0, 7, 0), (
+        f"the bundle carries libcuflynx {version}, older than the vocabulary change in "
+        f"0.7.0 that this app's obs_info reads depend on")
+
+
 def test_the_app_runs_this_checkout_not_its_own_bundle(app, tmp_path_factory):
     """Everything else here is meaningless if this fails.
 

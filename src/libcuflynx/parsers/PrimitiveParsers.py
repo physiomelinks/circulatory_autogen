@@ -3744,6 +3744,16 @@ class ObsAndParamDataParser(object):
             # before its targets are added. There is nothing to validate, and the
             # column defaults below are derived from other columns -- so on an
             # empty frame they raised KeyError: 'data_item_name' instead.
+            # An empty frame skips validation -- there is nothing to validate, and the
+            # callable defaults derive from other columns -- but it must still carry the
+            # schema's columns. `process_obs_info` reads them by name, so a frame with none
+            # made every read a KeyError and an obs_data carrying only protocol_info
+            # impossible to open at all.
+            if len(gt_df) == 0:
+                for col in schema:
+                    if col not in gt_df.columns:
+                        gt_df[col] = pd.Series(dtype=object)
+
             for col, rules in ({} if len(gt_df) == 0 else schema).items():
                 allowed = rules["types"]
                 default = rules["default"]
@@ -4000,9 +4010,13 @@ class ObsAndParamDataParser(object):
         # Full length over all data_items and indexed by row, like cost_type and the weight
         # vectors, so it stays correct when the per-type vectors are compacted to their own
         # index spaces (the #349 rule).
+        # `.get`, not `[...]`: this function documents itself as a public entry point a
+        # caller may hand a gt_df it built, and such a frame has only the columns the caller
+        # wrote -- the schema adds `prob_dist_params`, so a bare read made that invitation
+        # untrue for every hand-built frame.
         ground_truth_prob_dist_params = [
-            gt_df.iloc[II]["prob_dist_params"] if isinstance(
-                gt_df.iloc[II]["prob_dist_params"], dict) else None
+            gt_df.iloc[II].get("prob_dist_params") if isinstance(
+                gt_df.iloc[II].get("prob_dist_params"), dict) else None
             for II in range(gt_df.shape[0])]
 
 

@@ -88,17 +88,56 @@ def obs_item_names(obs_info):
 
     Works on a ``prediction_info`` too, which is why that dict now spells its keys this way.
     """
-    return (obs_info or {}).get("data_item_names") or []
+    return _column(obs_info, "data_item_names")
 
 
 def obs_item_labels(obs_info):
     """Each data_item's display label (the scalar feature). See ``obs_item_names``."""
-    return (obs_info or {}).get("item_names_for_plotting") or []
+    return _column(obs_info, "item_names_for_plotting")
 
 
 def obs_trace_labels(obs_info):
     """Each data_item's trace label (the series it is drawn from). See ``obs_item_names``."""
-    return (obs_info or {}).get("trace_names_for_plotting") or []
+    return _column(obs_info, "trace_names_for_plotting")
+
+
+def _column(info, key):
+    """The column at *key* as a list, or ``[]``.
+
+    Tested against ``None`` rather than for truthiness. Several obs_info values are numpy
+    arrays -- the ground-truth and std vectors, and the parameter bounds -- and
+    ``array or []`` raises "the truth value of an array with more than one element is
+    ambiguous". The keys these accessors read happen to be lists today, so the older
+    spelling worked; it worked by luck, and a caller passing an array had no way to know.
+    """
+    value = (info or {}).get(key)
+    return [] if value is None else list(value)
+
+
+def obs_experiment_indices(info):
+    """Which experiment each data_item belongs to, one per item.
+
+    An accessor rather than a raw read for the same reason the label ones are: a downstream
+    reader that goes through this is immune to the key being renamed, and CUFLynx reads this
+    in two modules.
+    """
+    return _column(info, "experiment_idxs")
+
+
+def obs_subexperiment_indices(info):
+    """Which sub-experiment each data_item belongs to. See ``obs_experiment_indices``."""
+    return _column(info, "subexperiment_idxs")
+
+
+def obs_scalar_rows(info):
+    """For each *constant* observable in order, the data_item row it came from.
+
+    The bridge between two index spaces, and the one most easily misused: the cost vectors
+    (``ground_truth_const``, ``std_const_vec``) are indexed by position in *this* list, while
+    ``experiment_idxs`` and the labels are indexed by the values *in* it. Reading one with the
+    other's counter is silently a different observable (#349).
+    """
+    return _column(info, "const_idx_to_obs_idx")
 
 
 def obs_operand_lists(info):
@@ -107,7 +146,7 @@ def obs_operand_lists(info):
     Works on an ``obs_info`` and on a ``prediction_info`` alike, which is why
     ``prediction_info`` stores a list per item rather than the bare qname it used to.
     """
-    return (info or {}).get("operands") or []
+    return _column(info, "operands")
 
 
 def migrate_legacy_obs_item_keys(items, where='data_items', variable_was_the_operand=False):
