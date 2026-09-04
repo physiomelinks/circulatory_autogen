@@ -36,6 +36,20 @@ Not affected: the error vectors stay one entry per data_item. Grouping changes h
 figures are drawn, not what is scored — `percent_error_vec` / `std_error_vec` and the
 `error_vec_names` beside them (#341) are untouched.
 
+### Fixed — a partial `apt-get update` no longer fails a job several steps later
+
+`apt-get update` exits 0 when it could not fetch an index: it says *"Some index files failed
+to download. They have been ignored, or old ones used instead"* and carries on with the stale
+one. The install then asks for the package version that index names, the mirror has moved to
+a newer point release, and the fetch 404s — so a mirror wobble arrives as a hard failure in an
+unrelated job rather than as a slow update. On this release's own PR it took out `test-uq` and
+`test-param-id-serial-full-scale` over `libcurl4-openssl-dev`.
+
+`install-system-deps` now notices the partial update and re-runs it (three attempts, backing
+off), and gives the install one refresh-and-retry of its own. The per-fetch timeouts and
+retries already there bound a single request; neither can see that the update as a whole came
+back incomplete. A genuinely broken apt still fails the job — the retries do not swallow it.
+
 ## 0.7.1 — 2026-09-01
 
 ### Added — a contract for what `process_obs_info` publishes
