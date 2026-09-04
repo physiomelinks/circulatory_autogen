@@ -48,7 +48,13 @@ def op_two_operands(x1, x2, scale=1.0):
 
 
 def op_var_kwargs(x=None, series_output=False, **kwargs):
-    """``**kwargs`` op (like ``calculate_two_observable_difference``): accepts any key."""
+    """A ``**kwargs`` op: accepts any key, so nothing can enumerate what it takes.
+
+    No shipped operation is written this way any more --
+    ``calculate_two_observable_difference`` declares ``pred1``/``pred2`` in its
+    signature -- but a user's own operation func may be, and the contract still has
+    to hold for it.
+    """
     if series_output:
         return x
     return kwargs["pred2"] - kwargs["pred1"]
@@ -435,3 +441,59 @@ def test_shipped_extra_ops_obs_data_json_still_validates(tmp_path):
 def test_check_operation_kwargs_is_a_noop_for_empty_kwargs():
     check_operation_kwargs({}, op_windowed, 'op_windowed')
     check_operation_kwargs(None, op_windowed, 'op_windowed')
+
+
+@pytest.mark.unit
+def test_the_two_observable_difference_declares_its_inputs_in_its_signature():
+    """They are the function's arguments, so the signature is where they belong.
+
+    Written as ``**kwargs`` they were invisible to everything that introspects an
+    operation: ``get_operation_kwarg_spec`` could only answer "accepts anything",
+    so a form built from it had nothing to offer and a misspelled key reached the
+    body as a silently missing value. Declared, they are ordinary keyword
+    arguments and the existing checks cover them.
+    """
+    from libcuflynx.funcs.operation_funcs_user import calculate_two_observable_difference
+
+    accepted, from_operands, accepts_any = get_operation_kwarg_spec(
+        calculate_two_observable_difference)
+
+    assert 'pred1' in accepted and 'pred2' in accepted
+    assert not accepts_any, "no **kwargs, so the accepted set is the whole story"
+    # Both have defaults, which is what makes them keyword arguments rather than
+    # operands: an operand is a parameter with no default, filled positionally from
+    # the data_item's `operands`. This item has none -- its inputs are named.
+    assert from_operands == []
+
+
+@pytest.mark.unit
+def test_the_two_observable_difference_subtracts_pred1_from_pred2():
+    from libcuflynx.funcs.operation_funcs_user import calculate_two_observable_difference
+
+    assert calculate_two_observable_difference(pred1=2.0, pred2=5.0) == pytest.approx(3.0)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('missing', ['pred1', 'pred2'])
+def test_the_two_observable_difference_names_the_input_it_was_not_given(missing):
+    """A default of None is not a value to subtract; say which one is absent."""
+    from libcuflynx.funcs.operation_funcs_user import calculate_two_observable_difference
+
+    kwargs = {'pred1': 1.0, 'pred2': 2.0}
+    del kwargs[missing]
+    with pytest.raises(RuntimeError, match=missing):
+        calculate_two_observable_difference(**kwargs)
+
+
+@pytest.mark.unit
+def test_a_misspelled_key_is_refused_now_that_the_inputs_are_declared():
+    """The point of declaring them: `pred_1` used to be accepted and ignored (the
+    func accepted any key), leaving `pred1` unset. Now it is an error that names
+    the func."""
+    from libcuflynx.funcs.operation_funcs_user import calculate_two_observable_difference
+
+    with pytest.raises(ValueError, match='pred_1'):
+        check_operation_kwargs(
+            {'pred_1': 'a', 'pred2': 'b'},
+            calculate_two_observable_difference,
+            'calculate_two_observable_difference')

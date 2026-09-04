@@ -5,6 +5,25 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Changed — `calculate_two_observable_difference` declares `pred1` / `pred2`
+
+It was written `(x=None, series_output=False, **kwargs)` and read its two inputs out of
+`kwargs` in the body. Nothing that introspects an operation could see them:
+`get_operation_kwarg_spec` could only answer *accepts anything*, so a form built from it had
+no fields to offer, and a misspelled key was accepted and ignored — leaving the real one unset
+and the failure to surface later as a missing value.
+
+They are now ordinary keyword arguments, `(pred1=None, pred2=None, series_output=False)`.
+Both keep a default, which is what makes them keyword arguments rather than operands: a
+parameter with no default is filled positionally from the data_item's `operands`, and these
+come from `operation_kwargs`. The vestigial `x` is gone — an operation that takes no operands
+was never handed it.
+
+**No obs_data change is needed.** The key names are the same, so a file that already uses this
+operation keeps working; the shipped cross-experiment fixture passes untouched. What changes is
+that `pred_1` — or any other misspelling — is now refused by the ordinary `operation_kwargs`
+check, naming the func, instead of being silently accepted.
+
 ## 0.7.2 — 2026-09-04
 
 ### Fixed — one reconstruction page per trace, not per feature (#515)

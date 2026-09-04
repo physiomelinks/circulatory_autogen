@@ -859,20 +859,40 @@ def register_user_operations(registry, backend):
 
 
 @series_to_constant
-def calculate_two_observable_difference(x=None, series_output=False, **kwargs):
-    if "pred1" in kwargs:
-        k_value1 = kwargs["pred1"]
-    else:
-        print("predict 1 results did not found in kwargs, please check corresponding experiment's operands/operation!")
-        raise RuntimeError(f"Invalid predict1 results detected: Aborting...")
-    
-    if "pred2" in kwargs:
-        k_value2 = kwargs["pred2"]
-    else:
-        print("predict 2 results did not found in kwargs, please check corresponding experiment's operands/operation!")
-        raise RuntimeError(f"Invalid predict2 results detected: Aborting...")
-    
-    return (k_value2 - k_value1)
+def calculate_two_observable_difference(pred1=None, pred2=None, series_output=False):
+    """``pred2 - pred1``, where each names another data_item.
+
+    The two inputs are declared here rather than read out of ``**kwargs``: they are
+    this function's arguments, so the signature is where they belong. Anything that
+    introspects an operation -- ``get_operation_kwarg_spec``, and the GUI form built
+    from it -- then sees them without having to read the body, and a misspelled key
+    is refused by the usual ``operation_kwargs`` check instead of arriving here as a
+    silently missing value.
+
+    Both carry a default, which is what makes them *keyword* arguments rather than
+    operands: a parameter with no default is filled positionally from the
+    data_item's ``operands``, and these come from ``operation_kwargs``. The
+    data_item therefore has no operands at all, and its ``operation_kwargs`` name
+    the two items to difference:
+
+        "operation": "calculate_two_observable_difference",
+        "operands": [],
+        "operation_kwargs": {"pred1": "peak prey, unforced",
+                             "pred2": "peak prey, forced"}
+
+    The key names are unchanged, so obs_data files that already use this operation
+    keep working.
+    """
+    if pred1 is None:
+        raise RuntimeError(
+            "calculate_two_observable_difference: 'pred1' was not supplied. It names "
+            "the data_item to subtract; set it in this data_item's operation_kwargs.")
+    if pred2 is None:
+        raise RuntimeError(
+            "calculate_two_observable_difference: 'pred2' was not supplied. It names "
+            "the data_item to subtract from; set it in this data_item's operation_kwargs.")
+
+    return pred2 - pred1
 
 
 
