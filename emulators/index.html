@@ -1,0 +1,1674 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://finbarargus.github.io/circulatory_autogen/emulators/">
+      
+      
+        <link rel="prev" href="../identifiability-analysis/">
+      
+      
+        <link rel="next" href="../example-3compartment-model/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Emulators (Surrogate Models) - Circulatory Autogen</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#emulators-surrogate-models" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Circulatory Autogen" class="md-header__button md-logo" aria-label="Circulatory Autogen" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Circulatory Autogen
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Emulators (Surrogate Models)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Circulatory Autogen" class="md-nav__button md-logo" aria-label="Circulatory Autogen" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Circulatory Autogen
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Welcome to Circulatory Autogen
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../model-generation-simulation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Generation and Simulation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../design-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Designing a model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../external-python-solvers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    External Python Solvers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../model-formats/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Importing other model formats
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../parameter-identification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parameter Identification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sensitivity-analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sensitivity Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../identifiability-analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Identifiability Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Emulators (Surrogate Models)
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Emulators (Surrogate Models)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#installation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Installation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#training" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Training
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Training">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#trying-another-emulator-without-re-running-the-simulations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trying another emulator without re-running the simulations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#analysing-the-error" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Analysing the error
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#using-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Using it
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-ca-refuses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When CA refuses
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#if-saving-fails-model_serialiser" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        If saving fails: model_serialiser
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="If saving fails: model_serialiser">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#one-failure-no-container-can-fix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One failure no container can fix
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gradients" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gradients
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#from-python" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        From Python
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Notes
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../example-3compartment-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Example: 3Compartment Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../running-on-hpc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Running on the HPC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../other-features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Other Useful Features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_14" >
+        
+          
+          <label class="md-nav__link" for="__nav_14" id="__nav_14_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_14_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_14">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/generation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model generation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/solver-wrappers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Simulation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/param-id/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parameter identification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sensitivity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sensitivity analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/identifiability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Identifiability analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/emulators/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Emulators
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/protocols/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protocols
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/utilities/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Observation data &amp; utilities
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/internals/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parsers &amp; generators (internal)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#installation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Installation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#training" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Training
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Training">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#trying-another-emulator-without-re-running-the-simulations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trying another emulator without re-running the simulations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#analysing-the-error" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Analysing the error
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#using-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Using it
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-ca-refuses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When CA refuses
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#if-saving-fails-model_serialiser" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        If saving fails: model_serialiser
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="If saving fails: model_serialiser">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#one-failure-no-container-can-fix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One failure no container can fix
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gradients" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gradients
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#from-python" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        From Python
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Notes
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="emulators-surrogate-models">Emulators (Surrogate Models)</h1>
+<p>An <strong>emulator</strong> (or surrogate) is a fast statistical stand-in for your model. Circulatory Autogen
+fits one that maps the parameters in your <code>params_for_id.csv</code> to the <strong>scalar features</strong> of your
+<code>obs_data.json</code> data items — the same numbers the cost function is computed from. Once it is
+trained, calibration, sensitivity analysis, UQ/MCMC and identifiability analysis can all evaluate
+the emulator instead of running the solver.</p>
+<div class="admonition warning">
+<p class="admonition-title">The training runs are paid up front</p>
+<p>Training costs <code>num_train_samples</code> simulations. That is only worth it when the downstream use
+is much larger:</p>
+<ul>
+<li><strong>Sobol sensitivity analysis</strong> — <code>num_samples × (2M + 2)</code> model evaluations. Worth it.</li>
+<li><strong>MCMC / UQ</strong> — tens of thousands of evaluations. Worth it.</li>
+<li><strong>Identifiability analysis</strong> — a Hessian's worth per parameter pair. Usually worth it.</li>
+<li><strong>A single genetic-algorithm calibration</strong> — often <em>cheaper run directly</em>. Not worth it.</li>
+</ul>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Scope: scalar features, not waveforms</p>
+<p>The emulator predicts each data item's value <strong>after</strong> its <code>operation</code> (<code>max</code>, <code>mean</code>,
+<code>max_minus_min</code>, …). It does not produce simulated traces, so <code>data_type: series</code> and
+<code>frequency</code> observables, prediction variables and output plots are not available in emulator
+mode — CA refuses them explicitly rather than returning something that looks plausible.
+Emulating full time series is a planned follow-up.</p>
+</div>
+<h2 id="installation">Installation</h2>
+<p>The emulator backend is <a href="https://pypi.org/project/autoemulate/">autoemulate</a>, an optional
+dependency (it pulls in torch, gpytorch and lightgbm — about 750 MB — and needs Python ≥3.10,
+&lt;3.13):</p>
+<div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">"libcuflynx[emulation]"</span>
+</code></pre></div>
+<p>Everything else in CA works without it; only <code>do_emulation</code> / <code>use_emulator</code> need it. CA never
+imports autoemulate unless one of those flags is set — it checks whether the package exists
+without loading it, so a normal run does not pay torch's import time.</p>
+<div class="admonition tip">
+<p class="admonition-title">Two installation gotchas</p>
+<p><strong>Pin a CPU torch.</strong> Left alone, pip installs the CUDA build and its ~2.5 GB of <code>nvidia-*</code>
+wheels. On a machine without a GPU:</p>
+<div class="highlight"><pre><span></span><code>pip<span class="w"> </span>install<span class="w"> </span><span class="nv">torch</span><span class="o">==</span><span class="m">2</span>.12.1+cpu<span class="w"> </span>--index-url<span class="w"> </span>https://download.pytorch.org/whl/cpu
+pip<span class="w"> </span>install<span class="w"> </span><span class="s2">"autoemulate&gt;=2.1,&lt;3"</span><span class="w"> </span>--extra-index-url<span class="w"> </span>https://download.pytorch.org/whl/cpu
+</code></pre></div>
+<p><strong>autoemulate 2.1.2 cannot sit alongside torch ≥ 2.13.</strong> Its <code>harmonic</code> dependency pins
+<code>setuptools==68.0.0</code> while torch 2.13 requires <code>setuptools&gt;=77.0.3</code>, so pip reports
+<code>ResolutionImpossible</code>. Pinning torch to 2.12.x (as above) resolves it. Without a pin, pip
+silently backtracks through several 500 MB torch wheels looking for a combination that works.</p>
+</div>
+<h2 id="configuration">Configuration</h2>
+<p>Two independent flags, because emulation has two steps:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">do_emulation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">   </span><span class="c1"># train an emulator against the solver named by `solver`</span>
+<span class="nt">use_emulator</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">   </span><span class="c1"># make the analyses evaluate the trained emulator</span>
+</code></pre></div>
+<p><code>solver:</code> keeps meaning the <strong>truth solver</strong> — the one the emulator is trained against, and the
+one you compare it with. That is deliberate: switching to an emulator should not lose track of
+what it is approximating.</p>
+<div class="highlight"><pre><span></span><code><span class="nt">emulator_settings</span><span class="p">:</span>
+<span class="w">  </span><span class="c1"># emulator_dir:            # default &lt;param_id_output_dir&gt;/emulators/&lt;file_prefix&gt;_&lt;obs_prefix&gt;</span>
+<span class="w">  </span><span class="nt">models</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span><span class="w">            </span><span class="c1"># 'default', 'all', or a comma-separated list of emulator names</span>
+<span class="w">  </span><span class="nt">num_train_samples</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">128</span><span class="w">     </span><span class="c1"># simulations run to build the training set</span>
+<span class="w">  </span><span class="nt">reuse_samples</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">       </span><span class="c1"># refit the samples a previous run saved, instead of simulating</span>
+<span class="w">  </span><span class="nt">sample_type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sobol</span><span class="w">         </span><span class="c1"># sobol | latin_hypercube | random</span>
+<span class="w">  </span><span class="nt">log_scale_params</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">    </span><span class="c1"># space the design logarithmically (needs every min &gt; 0)</span>
+<span class="w">  </span><span class="nt">random_seed</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
+<span class="w">  </span><span class="nt">test_fraction</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.2</span><span class="w">         </span><span class="c1"># held out and never trained on -- what R2/RMSE are measured on</span>
+<span class="w">  </span><span class="nt">n_splits</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span><span class="w">                </span><span class="c1"># autoemulate cross-validation folds</span>
+<span class="w">  </span><span class="nt">n_iter</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span><span class="w">                 </span><span class="c1"># hyper-parameter settings sampled per emulator</span>
+<span class="w">  </span><span class="nt">min_r2</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.9</span><span class="w">                </span><span class="c1"># refuse to USE an emulator worse than this</span>
+<span class="w">  </span><span class="nt">out_of_bounds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">error</span><span class="w">       </span><span class="c1"># error | warn | clip</span>
+<span class="w">  </span><span class="nt">fd_rel_step</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0e-3</span><span class="w">        </span><span class="c1"># step for the finite-difference gradient over the emulator</span>
+</code></pre></div>
+<p>The available <code>models</code> names come from the installed autoemulate and are discoverable in code:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">libcuflynx.emulators.emulator_trainer</span><span class="w"> </span><span class="kn">import</span> <span class="n">emulator_model_names</span>
+<span class="nb">print</span><span class="p">(</span><span class="n">emulator_model_names</span><span class="p">())</span>   <span class="c1"># GaussianProcessRBF, RadialBasisFunctions, LightGBM, ...</span>
+</code></pre></div>
+<h2 id="training">Training</h2>
+<div class="highlight"><pre><span></span><code><span class="nb">cd</span><span class="w"> </span>user_run_files
+./run_emulator_training.sh<span class="w"> </span><span class="m">8</span><span class="w">      </span><span class="c1"># 8 MPI processes</span>
+</code></pre></div>
+<p>The design points are spread across MPI ranks, each runs the real solver, and rank 0 fits and
+saves the emulator. The script prints the held-out R² per observable:</p>
+<div class="highlight"><pre><span></span><code>[emulator] training on 64 samples across 8 rank(s)
+[emulator] saved to .../emulators/Simple_ODE_Benchmark_Simple_ODE_Benchmark_obs_data
+    held-out R2   1.0000   x_{SS} (steady_state_avg benchmark/x)
+    held-out R2   1.0000   y_{SS} (steady_state_avg benchmark/y)
+</code></pre></div>
+<p><strong>Read those numbers before using it.</strong> They are the only thing standing between you and a set
+of Sobol indices for a model you did not simulate.</p>
+<div class="admonition warning">
+<p class="admonition-title">How good an emulator you can get depends on the parameter box</p>
+<p>Difficulty grows with the width of the <code>params_for_id</code> ranges, the number of parameters and
+how rough the feature is. Two worked examples from this repo, at opposite ends:</p>
+<ul>
+<li><strong><code>Simple_ODE_Benchmark</code></strong> — steady states of <code>dx/dt = -x + p</code>, <code>dy/dt = -3y + q</code>, i.e. a
+  smooth monotone response. 64 Sobol samples give held-out R² of <strong>0.99999</strong> and <strong>0.99997</strong>.
+  This is what a well-posed emulation problem looks like.</li>
+<li><strong><code>Lotka_Volterra</code></strong> — <code>max</code> of each state over the <em>full</em> declared ranges (<code>alpha</code> 0.1–7,
+  <code>gamma</code> 0.1–10, the response spanning 20–3900). A 128-sample Gaussian process manages only
+  about <strong>0.2 and 0.5</strong>, and 256 samples does not reliably improve it: <code>max</code> of an
+  oscillation whose period shifts sharply with the parameters is close to discontinuous.</li>
+</ul>
+<p>If your R² is poor, the useful moves are, in order: narrow the parameter ranges to the
+region you actually care about; add samples; set <code>log_scale_params: true</code> when a bound spans
+decades; try <code>models: all</code>; and consider whether the feature is a smooth function of the
+parameters at all. What you should <em>not</em> do is lower <code>min_r2</code> to make the run proceed.</p>
+</div>
+<p>The saved directory contains:</p>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>What it is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>emulator.joblib</code></td>
+<td>the fitted emulator</td>
+</tr>
+<tr>
+<td><code>emulator_metadata.json</code></td>
+<td>per-feature R², RMSE, MAE, bias, max abs error and nRMSE; the training box; the design; provenance</td>
+</tr>
+<tr>
+<td><code>training_data.npz</code></td>
+<td>the design and its simulated targets, so it can be refitted or extended without re-simulating</td>
+</tr>
+<tr>
+<td><code>emulator_validation.npz</code></td>
+<td>the held-out points: <code>theta</code>, the simulator's <code>y_true</code> and the emulator's <code>y_pred</code>, in real units</td>
+</tr>
+</tbody>
+</table>
+<h3 id="trying-another-emulator-without-re-running-the-simulations">Trying another emulator without re-running the simulations</h3>
+<p>Training is two costs: the <code>num_train_samples</code> runs of your model — minutes to hours, and the
+whole reason emulators exist — and the fit, which takes seconds. <code>training_data.npz</code> above is
+what makes the second one repeatable on its own:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">emulator_settings</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">reuse_samples</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">        </span><span class="c1"># refit what emulator_dir already holds; run no new simulations</span>
+<span class="w">  </span><span class="nt">models</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">all</span><span class="w">                </span><span class="c1"># ... with a different emulator,</span>
+<span class="w">  </span><span class="nt">test_fraction</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.3</span><span class="w">         </span><span class="c1"># ... or a different split, n_iter, n_splits, min_r2, random_seed</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code>./run_emulator_training.sh<span class="w"> </span><span class="m">1</span><span class="w">    </span><span class="c1"># one rank is enough: there is nothing left to parallelise</span>
+</code></pre></div>
+<p>The result is an ordinary emulator bundle, written over the same directory, and its metadata
+records <code>design.reused_samples: true</code> so the provenance never claims simulations that run did
+not perform.</p>
+<div class="admonition warning">
+<p class="admonition-title">What it does <em>not</em> do</p>
+<ul>
+<li>It runs <strong>no simulations</strong>, so <code>num_train_samples</code>, <code>sample_type</code> and <code>log_scale_params</code>
+  are ignored — the saved design is what gets fitted, however many points it holds. If your
+  <code>num_train_samples</code> disagrees with what was saved, CA prints the number it is really
+  using rather than letting the requested one stand.</li>
+<li>It needs a previous training run in <code>emulator_dir</code>. The first run has to have
+  <code>reuse_samples: false</code>; that is the run that pays for the simulations.</li>
+<li><code>random_seed</code> still applies — it seeds the fit and the train/test split — so re-fitting
+  with a different seed is a meaningful thing to do.</li>
+<li>Samples belong to one problem. If the parameter bounds, <code>obs_data.json</code>, protocol or the
+  model file have changed since they were simulated, CA <strong>refuses</strong> rather than refitting
+  them: retrain with <code>reuse_samples: false</code> instead. Reusing them would produce an emulator
+  that is confidently wrong about a study it was never trained for.</li>
+</ul>
+</div>
+<h3 id="analysing-the-error">Analysing the error</h3>
+<p>The statistics say how wrong the emulator is on average; the held-out points say
+<strong>where</strong>, which is what decides whether the region you care about is one of the good
+ones. Both are read through the bundle:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">libcuflynx.emulators.emulator_bundle</span><span class="w"> </span><span class="kn">import</span> <span class="n">EmulatorBundle</span>
+<span class="n">bundle</span> <span class="o">=</span> <span class="n">EmulatorBundle</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">emulator_dir</span><span class="p">)</span>
+
+<span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">bundle</span><span class="o">.</span><span class="n">error_stats</span><span class="p">():</span>
+    <span class="nb">print</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">'label'</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="s1">'r2'</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="s1">'bias'</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="s1">'nrmse'</span><span class="p">])</span>
+
+<span class="n">points</span> <span class="o">=</span> <span class="n">bundle</span><span class="o">.</span><span class="n">error_points</span><span class="p">()</span>      <span class="c1"># None if the bundle predates this</span>
+<span class="c1"># points['y_pred'] vs points['y_true']  -&gt; parity plot</span>
+<span class="c1"># points['residual'] vs points['theta'] -&gt; where in the space it goes wrong</span>
+</code></pre></div>
+<p><code>residual</code> is <strong>prediction minus truth</strong>, fixed here so every consumer agrees on
+the sign: positive means the emulator reads high. Why more than R²:</p>
+<ul>
+<li><strong><code>bias</code></strong> — a feature can score a good R² and still read systematically high,
+  which shifts every downstream cost rather than just adding noise to it.</li>
+<li><strong><code>nrmse</code></strong> — RMSE in one feature's units says nothing against another's, so it
+  is the only one of these that can rank features against each other.</li>
+<li><strong><code>max_abs_error</code></strong> — an emulator that is good almost everywhere still misleads
+  a calibration that walks through the one place it is not.</li>
+</ul>
+<p>These points are free: training already paid to simulate them and then deliberately
+did not fit to them.</p>
+<h2 id="using-it">Using it</h2>
+<p>Set <code>use_emulator: true</code> and run any of the usual scripts unchanged:</p>
+<div class="highlight"><pre><span></span><code>./run_param_id.sh<span class="w"> </span><span class="m">4</span>
+./run_sensitivity_analysis.sh<span class="w"> </span><span class="m">4</span>
+./run_identifiability_analysis.sh
+</code></pre></div>
+<p>Nothing else in the configuration changes. To sanity-check a result, run the same analysis with
+<code>use_emulator: false</code> and compare — that is what keeping <code>solver:</code> meaningful is for.</p>
+<h2 id="when-ca-refuses">When CA refuses</h2>
+<p>An unvalidated emulator does not fail loudly; it returns plausible wrong numbers, and every
+downstream index, cost and posterior inherits the error with nothing to show for it. So CA
+refuses rather than proceeding quietly:</p>
+<table>
+<thead>
+<tr>
+<th>Situation</th>
+<th>What happens</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Worst held-out R² below <code>min_r2</code></td>
+<td>refused at setup, naming the observable and its R²</td>
+</tr>
+<tr>
+<td>A parameter outside the training box</td>
+<td>refused (or warns/clips, per <code>out_of_bounds</code>)</td>
+</tr>
+<tr>
+<td>Parameter bounds, observables, operations, protocol or the model file changed since training</td>
+<td>refused as <strong>stale</strong> — retrain</td>
+</tr>
+<tr>
+<td>A <code>series</code> or <code>frequency</code> data item</td>
+<td>refused: the emulator predicts scalars only</td>
+</tr>
+<tr>
+<td><code>reuse_samples: true</code> with no previous emulator, or one saved without its samples</td>
+<td>refused, naming the directory it looked in — train once without the setting first</td>
+</tr>
+<tr>
+<td><code>reuse_samples: true</code> after the bounds, obs_data, protocol or model changed</td>
+<td>refused as <strong>stale</strong> — retrain with <code>reuse_samples: false</code></td>
+</tr>
+<tr>
+<td><code>autoemulate</code> not installed</td>
+<td>refused, naming the install command</td>
+</tr>
+</tbody>
+</table>
+<p>An emulator is an interpolant. Outside the box it was trained in it is an extrapolation with no
+error estimate at all, which is why <code>out_of_bounds: error</code> is the default.</p>
+<h2 id="if-saving-fails-model_serialiser">If saving fails: <code>model_serialiser</code></h2>
+<p>Training pays for every simulation <em>before</em> it writes anything, so a model that cannot be
+pickled costs the whole run rather than just the save. Some fitted emulators hold an
+uninitialised C-extension descriptor that <code>pickle</code> cannot take apart, and the run ends with:</p>
+<div class="highlight"><pre><span></span><code>TypeError: cannot pickle '_abc._abc_data' object
+</code></pre></div>
+<p><code>emulator_settings.model_serialiser</code> decides which container is used:</p>
+<table>
+<thead>
+<tr>
+<th>Value</th>
+<th>Behaviour</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>auto</code> (default)</td>
+<td>joblib, then cloudpickle, then dill, until one works — with a warning saying which</td>
+</tr>
+<tr>
+<td><code>joblib</code></td>
+<td>joblib only — fail rather than switch container</td>
+</tr>
+<tr>
+<td><code>cloudpickle</code></td>
+<td>cloudpickle only</td>
+</tr>
+<tr>
+<td><code>dill</code></td>
+<td>dill only</td>
+</tr>
+</tbody>
+</table>
+<p><strong>None of the three is a superset of the others</strong>, which is why <code>auto</code> falls back in order
+rather than simply preferring the most capable one. Measured against autoemulate 2.1.2:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>an object pickle cannot name</th>
+<th>a torch-backed emulator</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>joblib</td>
+<td>fails</td>
+<td>works</td>
+</tr>
+<tr>
+<td>cloudpickle</td>
+<td>works</td>
+<td>works</td>
+</tr>
+<tr>
+<td>dill</td>
+<td>works</td>
+<td><strong>fails</strong> (a <code>PyCapsule</code> it recurses on)</td>
+</tr>
+</tbody>
+</table>
+<p>So joblib stays first — it is what <code>autoemulate</code> itself writes and reads — and switching to
+dill outright would break the common case to fix the rare one.</p>
+<p>Which container wrote a bundle is recorded in <code>emulator_metadata.json</code> as <code>model_serialiser</code>,
+so it reads back without the setting having to be repeated; a bundle written before the
+setting existed still loads, because all three are tried. Note that a bundle saved with a
+fallback needs that library present wherever it is loaded.</p>
+<p>If a training run dies while saving, leave this at <code>auto</code> and make sure the fallbacks are
+installed (<code>pip install "libcuflynx[emulation]"</code> brings them), or name one outright.</p>
+<h3 id="one-failure-no-container-can-fix">One failure no container can fix</h3>
+<div class="highlight"><pre><span></span><code>PicklingError: Can't pickle sentinel: it's not the same object as typing_extensions.sentinel
+</code></pre></div>
+<p>This one is not about the container, and changing <code>model_serialiser</code> will not help — joblib,
+cloudpickle and dill all fail identically. A <a href="https://peps.python.org/pep-0661/">PEP 661</a>
+sentinel pickles by <em>name</em>: its <code>__reduce__</code> returns a string, and pickle stores it as a global,
+checking on the way back in that the name still refers to the same object.
+<code>typing_extensions</code> 4.16.0 ships one where that check cannot pass:</p>
+<div class="highlight"><pre><span></span><code><span class="n">_marker</span> <span class="o">=</span> <span class="nb">sentinel</span><span class="p">(</span><span class="s2">"sentinel"</span><span class="p">)</span>     <span class="c1"># named "sentinel", bound to _marker</span>
+</code></pre></div>
+<p><code>typing_extensions.sentinel</code> is the <em>class</em>, so the identity check fails for any object holding
+<code>_marker</code>. CA handles it by reducing sentinels to where they actually live rather than to what
+they call themselves, so nothing needs configuring — but if you meet this outside CA, the
+workaround is <code>pip install "typing_extensions!=4.16.0"</code> (4.15.0 is unaffected).</p>
+<h2 id="gradients">Gradients</h2>
+<p>Over an emulator the only gradient source is <strong>finite differences on the emulator itself</strong>. The
+analytic arms (CasADi AD, Myokit CVODES FSA, AADC) all differentiate the <em>real</em> model, which is
+not the function an emulator run is evaluating — using one would mean the optimiser descends a
+different function than the cost it reports.</p>
+<p>This costs <code>2M</code> emulator evaluations per gradient, which is a matrix multiply apiece rather than
+<code>2M</code> simulations, so gradient-based calibration (<code>sp_minimize</code>, <code>multi_start_sp_minimize</code>) and
+the Laplace identifiability analysis work normally. <code>do_ad</code> is turned off automatically, with a
+message, when <code>use_emulator</code> is set.</p>
+<h2 id="from-python">From Python</h2>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">libcuflynx.emulators.emulator_trainer</span><span class="w"> </span><span class="kn">import</span> <span class="n">EmulatorTrainer</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">libcuflynx.param_id.paramID</span><span class="w"> </span><span class="kn">import</span> <span class="n">CVS0DParamID</span>
+
+<span class="n">inp</span><span class="p">[</span><span class="s2">"do_emulation"</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+<span class="n">inp</span><span class="p">[</span><span class="s2">"emulator_settings"</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="s2">"num_train_samples"</span><span class="p">:</span> <span class="mi">200</span><span class="p">,</span> <span class="s2">"models"</span><span class="p">:</span> <span class="s2">"GaussianProcessRBF"</span><span class="p">}</span>
+<span class="n">bundle</span> <span class="o">=</span> <span class="n">EmulatorTrainer</span><span class="o">.</span><span class="n">init_from_dict</span><span class="p">(</span><span class="n">inp</span><span class="p">)</span><span class="o">.</span><span class="n">train</span><span class="p">()</span>
+<span class="nb">print</span><span class="p">(</span><span class="nb">dict</span><span class="p">(</span><span class="nb">zip</span><span class="p">(</span><span class="n">bundle</span><span class="o">.</span><span class="n">feature_labels</span><span class="p">,</span> <span class="n">bundle</span><span class="o">.</span><span class="n">meta</span><span class="p">[</span><span class="s2">"feature_r2"</span><span class="p">])))</span>
+
+<span class="n">inp</span><span class="p">[</span><span class="s2">"use_emulator"</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+<span class="n">pid</span> <span class="o">=</span> <span class="n">CVS0DParamID</span><span class="o">.</span><span class="n">init_from_dict</span><span class="p">(</span><span class="n">inp</span><span class="p">)</span>   <span class="c1"># calibrates against the emulator</span>
+</code></pre></div>
+<p><code>EmulatorTrainer.init_from_dict</code> always builds its engine with <code>use_emulator</code> forced off, so
+training runs the real solver even when the config asks for an emulator elsewhere.</p>
+<h2 id="notes">Notes</h2>
+<ul>
+<li>The training targets are computed through the <strong>same code path as the cost</strong>
+  (<code>libcuflynx.param_id.fd_backend.observable_features</code>), so the emulator approximates exactly what your
+  calibration is fitting rather than a second implementation of it.</li>
+<li>Parameters are mapped to the unit box and features are standardised before fitting. CA
+  parameters routinely span a compliance near <code>1e-9</code> and a resistance near <code>1e8</code>, and autoemulate
+  works in float32; the transforms are stored in the bundle and inverted on prediction.</li>
+<li>Modifier and grouped parameters are supported: the emulator is trained on θ — one value per
+  <code>params_for_id</code> entry — not on the expanded per-parameter values.</li>
+<li><code>params_to_change</code> from your protocol are held at the values they had during training. Change
+  the protocol and the emulator is refused as stale.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["instant", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

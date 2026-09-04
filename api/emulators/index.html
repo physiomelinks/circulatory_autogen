@@ -1,0 +1,2640 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://finbarargus.github.io/circulatory_autogen/api/emulators/">
+      
+      
+        <link rel="prev" href="../identifiability/">
+      
+      
+        <link rel="next" href="../protocols/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Emulators - Circulatory Autogen</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#emulators-surrogate-models" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Circulatory Autogen" class="md-header__button md-logo" aria-label="Circulatory Autogen" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Circulatory Autogen
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Emulators
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Circulatory Autogen" class="md-nav__button md-logo" aria-label="Circulatory Autogen" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Circulatory Autogen
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Welcome to Circulatory Autogen
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../model-generation-simulation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Generation and Simulation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../design-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Designing a model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../external-python-solvers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    External Python Solvers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../model-formats/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Importing other model formats
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../parameter-identification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parameter Identification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sensitivity-analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sensitivity Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../identifiability-analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Identifiability Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../emulators/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Emulators (Surrogate Models)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../example-3compartment-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Example: 3Compartment Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../running-on-hpc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Running on the HPC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../other-features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Other Useful Features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_14" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_14" id="__nav_14_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_14_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_14">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../generation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model generation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../solver-wrappers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Simulation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../param-id/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parameter identification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sensitivity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sensitivity analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../identifiability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Identifiability analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Emulators
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Emulators
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_trainer.EmulatorTrainer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        EmulatorTrainer
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="EmulatorTrainer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_trainer.EmulatorTrainer.feature_labels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        feature_labels
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_trainer.EmulatorTrainer.init_from_dict" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        init_from_dict
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_trainer.EmulatorTrainer.design" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        design
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_trainer.EmulatorTrainer.evaluate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        evaluate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_trainer.EmulatorTrainer.fit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        fit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_trainer.EmulatorTrainer.train" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        train
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_trainer.emulator_model_names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        emulator_model_names
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_trainer.resolve_emulator_dir" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        resolve_emulator_dir
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_bundle.EmulatorBundle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        EmulatorBundle
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="EmulatorBundle">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_bundle.EmulatorBundle.predict" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        predict
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_bundle.EmulatorBundle.check_quality" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        check_quality
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_bundle.EmulatorBundle.check_bounds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        check_bounds
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_bundle.EmulatorBundle.check_matches" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        check_matches
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_bundle.EmulatorBundle.save" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        save
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_bundle.EmulatorBundle.load" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_bundle.EmulatorBundle.make_scale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        make_scale
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_bundle.fingerprint" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        fingerprint
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#libcuflynx.solver_wrappers.emulator_solver_helper.SimulationHelper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SimulationHelper
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="SimulationHelper">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.solver_wrappers.emulator_solver_helper.SimulationHelper.set_theta" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        set_theta
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.solver_wrappers.emulator_solver_helper.SimulationHelper.set_param_vals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        set_param_vals
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.solver_wrappers.emulator_solver_helper.SimulationHelper.run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.solver_wrappers.emulator_solver_helper.SimulationHelper.get_results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_results
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.solver_wrappers.emulator_solver_helper.SimulationHelper.get_predicted_features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_predicted_features
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.solver_wrappers.emulator_solver_helper.SimulationHelper.set_obs_map" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        set_obs_map
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.solver_wrappers.emulator_solver_helper.SimulationHelper.update_times" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        update_times
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.solver_wrappers.emulator_solver_helper.SimulationHelper.get_init_param_vals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_init_param_vals
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../protocols/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protocols
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../utilities/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Observation data &amp; utilities
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../internals/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parsers &amp; generators (internal)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_trainer.EmulatorTrainer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        EmulatorTrainer
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="EmulatorTrainer">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_trainer.EmulatorTrainer.feature_labels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        feature_labels
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_trainer.EmulatorTrainer.init_from_dict" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        init_from_dict
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_trainer.EmulatorTrainer.design" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        design
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_trainer.EmulatorTrainer.evaluate" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        evaluate
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_trainer.EmulatorTrainer.fit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        fit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_trainer.EmulatorTrainer.train" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        train
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_trainer.emulator_model_names" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        emulator_model_names
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_trainer.resolve_emulator_dir" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        resolve_emulator_dir
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_bundle.EmulatorBundle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        EmulatorBundle
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="EmulatorBundle">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_bundle.EmulatorBundle.predict" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        predict
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_bundle.EmulatorBundle.check_quality" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        check_quality
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_bundle.EmulatorBundle.check_bounds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        check_bounds
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_bundle.EmulatorBundle.check_matches" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        check_matches
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_bundle.EmulatorBundle.save" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        save
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_bundle.EmulatorBundle.load" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        load
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_bundle.EmulatorBundle.make_scale" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        make_scale
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#libcuflynx.emulators.emulator_bundle.fingerprint" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        fingerprint
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#libcuflynx.solver_wrappers.emulator_solver_helper.SimulationHelper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SimulationHelper
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="SimulationHelper">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.solver_wrappers.emulator_solver_helper.SimulationHelper.set_theta" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        set_theta
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.solver_wrappers.emulator_solver_helper.SimulationHelper.set_param_vals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        set_param_vals
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.solver_wrappers.emulator_solver_helper.SimulationHelper.run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        run
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.solver_wrappers.emulator_solver_helper.SimulationHelper.get_results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_results
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.solver_wrappers.emulator_solver_helper.SimulationHelper.get_predicted_features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_predicted_features
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.solver_wrappers.emulator_solver_helper.SimulationHelper.set_obs_map" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        set_obs_map
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.solver_wrappers.emulator_solver_helper.SimulationHelper.update_times" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        update_times
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#libcuflynx.solver_wrappers.emulator_solver_helper.SimulationHelper.get_init_param_vals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_init_param_vals
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="emulators-surrogate-models">Emulators (surrogate models)</h1>
+<p><code>EmulatorTrainer</code> fits a surrogate of the model's scalar observable features, and
+<code>EmulatorBundle</code> is the saved artefact plus the checks that decide whether it may be
+used. See <a href="../../emulators/">Emulators</a> for the workflow.</p>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="libcuflynx.emulators.emulator_trainer.EmulatorTrainer" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">libcuflynx.emulators.emulator_trainer.EmulatorTrainer</span>
+
+
+</h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">EmulatorTrainer</span><span class="p">(</span><span class="n">param_id</span><span class="p">,</span> <span class="n">emulator_settings</span><span class="p">,</span> <span class="n">comm</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents first">
+
+
+
+        <p>Design -&gt; simulate -&gt; fit -&gt; validate -&gt; persist, for one param-id engine.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>param_id</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>an <code>ParamID</code> built against the <strong>truth</strong> solver. Passing one whose
+sim helper is itself an emulator is rejected: it would fit a surrogate of a
+surrogate.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>emulator_settings</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>the <code>emulator_settings</code> block (see <code>ANALYSIS_OPTIONS</code>).</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>comm</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>an MPI communicator; <code>None</code> means "discover one, or run serially".</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+        <p>There is deliberately no DEBUG shrinking here, unlike the optimiser and MCMC options.
+<code>num_train_samples</code> is the one setting that decides whether the emulator is any good,
+and quietly cutting it would produce an emulator that answers everything and is wrong --
+the failure mode this whole feature is built to prevent. A cheap run asks for it by name.</p>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+<div class="doc doc-object doc-attribute">
+
+
+
+<h3 id="libcuflynx.emulators.emulator_trainer.EmulatorTrainer.feature_labels" class="doc doc-heading">
+            <span class="doc doc-object-name doc-attribute-name">feature_labels</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-property"><code>property</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="n">feature_labels</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The emulator's outputs, named exactly as the run that will use it names them.</p>
+
+    </div>
+
+</div>
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="libcuflynx.emulators.emulator_trainer.EmulatorTrainer.init_from_dict" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">init_from_dict</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-classmethod"><code>classmethod</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">init_from_dict</span><span class="p">(</span><span class="n">inp_data_dict</span><span class="p">,</span> <span class="n">comm</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Build the truth-solver engine this config describes, then a trainer over it.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="libcuflynx.emulators.emulator_trainer.EmulatorTrainer.design" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">design</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">design</span><span class="p">(</span><span class="n">n_samples</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">sample_type</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">seed_offset</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Training points over the <code>params_for_id</code> box, shape <code>(n_samples, num_params)</code>.</p>
+<p>Deterministic given the seed, so every rank builds the identical design and no
+broadcast is needed to agree on who evaluates which sample. <code>seed_offset</code>
+separates one stage from the next: two stages of the same method on the same seed
+would otherwise draw the same points twice.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="libcuflynx.emulators.emulator_trainer.EmulatorTrainer.evaluate" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">evaluate</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">evaluate</span><span class="p">(</span><span class="n">design</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Run the truth model at every design point; returns <code>(x, y)</code> on rank 0.</p>
+<p>Contiguous block split across ranks then a gather, the same shape as the Sobol
+sampler's parallel loop. A sample whose simulation fails is dropped rather than
+imputed: an imputed training target is a fabricated observation, and the emulator
+would learn it as fact.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="libcuflynx.emulators.emulator_trainer.EmulatorTrainer.fit" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">fit</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">fit</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">space_filling</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Fit and compare emulators; returns <code>(model, r2, rmse, name, x_scale, y_scale)</code>.</p>
+<p>Both x and y are mapped onto a well-conditioned range first. CA parameters routinely
+span a compliance near 1e-9 and a resistance near 1e8, and autoemulate works in float32
+torch, where that spread alone is enough to ruin a kernel fit.</p>
+<p>A test split is held out <strong>here</strong>, before fitting, and the reported R2/RMSE are scored
+on it. Scoring on the training points instead would report a number that says how well
+the emulator memorised the design, which is precisely the reassurance a bad emulator
+would give.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="libcuflynx.emulators.emulator_trainer.EmulatorTrainer.train" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">train</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">train</span><span class="p">()</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The whole pipeline. Returns the bundle on rank 0, <code>None</code> elsewhere.</p>
+<p>With <code>reuse_samples</code> set, the design and the simulations are skipped entirely and the
+samples a previous run saved are fitted instead -- see :meth:<code>load_previous_samples</code>.
+The rest of the path (fit, metadata, bundle, save) is the same one a fresh run takes,
+so the artefact is not a lesser kind of emulator.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="libcuflynx.emulators.emulator_trainer.emulator_model_names" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">libcuflynx.emulators.emulator_trainer.emulator_model_names</span>
+
+
+</h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">emulator_model_names</span><span class="p">()</span>
+</code></pre></div>
+
+    <div class="doc doc-contents first">
+
+        <p>The emulator names <code>emulator_settings.models</code> accepts, for a settings form.</p>
+<p>Discovered from autoemulate's registry rather than hardcoded, in the same spirit as
+<code>cost_func_metadata()</code>; empty when autoemulate is not installed, so a tool can show the
+setting as unavailable instead of showing a stale list.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="libcuflynx.emulators.emulator_trainer.resolve_emulator_dir" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">libcuflynx.emulators.emulator_trainer.resolve_emulator_dir</span>
+
+
+</h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">resolve_emulator_dir</span><span class="p">(</span><span class="n">inp_data_dict</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents first">
+
+        <p>Where this config's emulator lives, defaulting beside the param-id output.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="libcuflynx.emulators.emulator_bundle.EmulatorBundle" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">libcuflynx.emulators.emulator_bundle.EmulatorBundle</span>
+
+
+</h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">EmulatorBundle</span><span class="p">(</span>
+    <span class="n">model</span><span class="p">,</span> <span class="n">meta</span><span class="p">,</span> <span class="n">x_train</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">y_train</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">validation</span><span class="o">=</span><span class="kc">None</span>
+<span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents first">
+
+
+
+        <p>A fitted emulator plus the metadata that makes it checkable.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>model</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>the fitted emulator (an autoemulate <code>Emulator</code>, or anything with a
+<code>predict(x)</code> returning an array-like of shape <code>(n, n_features)</code>).</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>meta</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>the metadata dict (see <code>REQUIRED_META_KEYS</code>).</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>x_train / y_train</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>the training design and targets, in real units. Kept so the emulator
+can be refitted, extended or audited without re-running the simulator.</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>validation</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>the held-out report from :func:<code>emulators.emulator_trainer._validation_report</code>
+-- per-feature statistics plus the points they were computed from.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="libcuflynx.emulators.emulator_bundle.EmulatorBundle.predict" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">predict</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">predict</span><span class="p">(</span><span class="n">theta</span><span class="p">,</span> <span class="n">out_of_bounds</span><span class="o">=</span><span class="s1">'error'</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Predicted scalar features for one theta (1-D) or many (2-D).</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="libcuflynx.emulators.emulator_bundle.EmulatorBundle.check_quality" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">check_quality</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">check_quality</span><span class="p">(</span><span class="n">min_r2</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Refuse an emulator whose worst held-out R2 is below <code>min_r2</code>.</p>
+<p>Named per feature, because "the emulator is bad" is not actionable while "max of
+aortic_root/u has R2 0.42" tells the user which observable to add samples for.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="libcuflynx.emulators.emulator_bundle.EmulatorBundle.check_bounds" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">check_bounds</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">check_bounds</span><span class="p">(</span><span class="n">theta</span><span class="p">,</span> <span class="n">policy</span><span class="o">=</span><span class="s1">'error'</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Apply the out-of-training-box policy, returning the theta to evaluate.</p>
+<p>An emulator is an interpolant; outside its design it is an extrapolation with no
+error estimate at all. Refusing is the default for that reason.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="libcuflynx.emulators.emulator_bundle.EmulatorBundle.check_matches" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">check_matches</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">check_matches</span><span class="p">(</span>
+    <span class="n">live_fingerprint</span><span class="p">,</span>
+    <span class="n">param_entry_labels</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">feature_labels</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Refuse a bundle trained against a different model, parameter set or protocol.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="libcuflynx.emulators.emulator_bundle.EmulatorBundle.save" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">save</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">save</span><span class="p">(</span><span class="n">directory</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Write model, metadata and training data to <code>directory</code>. Returns the directory.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="libcuflynx.emulators.emulator_bundle.EmulatorBundle.load" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">load</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-classmethod"><code>classmethod</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">load</span><span class="p">(</span><span class="n">directory</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="libcuflynx.emulators.emulator_bundle.EmulatorBundle.make_scale" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">make_scale</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-staticmethod"><code>staticmethod</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">make_scale</span><span class="p">(</span><span class="n">values</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Shift/span for an affine map onto a well-conditioned range.</p>
+<p>A span of zero (a constant column -- a parameter pinned to one value, or a feature the
+model does not respond to) would divide by zero, so it becomes 1: the column maps to a
+constant, which is exactly what it is.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h2 id="libcuflynx.emulators.emulator_bundle.fingerprint" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">libcuflynx.emulators.emulator_bundle.fingerprint</span>
+
+
+</h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">fingerprint</span><span class="p">(</span>
+    <span class="n">param_id_info</span><span class="p">,</span> <span class="n">obs_info</span><span class="p">,</span> <span class="n">protocol_info</span><span class="p">,</span> <span class="n">model_path</span><span class="o">=</span><span class="kc">None</span>
+<span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents first">
+
+        <p>A stable digest of everything an emulator was trained against.</p>
+<p>Changing a parameter's bounds, adding a data_item, editing an operation, moving a
+sub-experiment or regenerating the model all change what theta -&gt; features <em>means</em>. None of
+those changes make the old emulator raise on its own -- it would keep answering, about a
+different model. Comparing this digest is what turns that into an error.</p>
+<p><code>model_path</code> is hashed by content when it exists, so a regenerated CellML invalidates the
+emulator even if the inputs that produced it are unchanged.</p>
+
+
+    </div>
+
+</div><p>The emulator is used through the ordinary simulation-helper interface, so every analysis
+reaches it the same way it reaches a solver.</p>
+
+
+<div class="doc doc-object doc-class">
+
+
+
+<h2 id="libcuflynx.solver_wrappers.emulator_solver_helper.SimulationHelper" class="doc doc-heading">
+            <span class="doc doc-object-name doc-class-name">libcuflynx.solver_wrappers.emulator_solver_helper.SimulationHelper</span>
+
+
+</h2>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">SimulationHelper</span><span class="p">(</span>
+    <span class="n">emulator_dir</span><span class="p">,</span>
+    <span class="n">dt</span><span class="o">=</span><span class="mf">0.01</span><span class="p">,</span>
+    <span class="n">sim_time</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+    <span class="n">solver_info</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">pre_time</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span>
+    <span class="n">bundle</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+    <span class="n">out_of_bounds</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents first">
+
+
+
+        <p>Emulator-backed drop-in for the solver helpers.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Description</th>
+          <th>Default</th>
+        </tr>
+      </thead>
+      <tbody>
+          <tr class="doc-section-item">
+            <td>
+                <code>emulator_dir</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>directory holding the trained bundle (<code>emulator_metadata.json</code> etc).</p>
+              </div>
+            </td>
+            <td>
+                <em>required</em>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>dt</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>output sampling step, kept only so the time bookkeeping matches the real backends.</p>
+              </div>
+            </td>
+            <td>
+                  <code>0.01</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>sim_time</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>logged duration.</p>
+              </div>
+            </td>
+            <td>
+                  <code>1.0</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>solver_info</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>accepted and ignored; there is no integrator to configure.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>pre_time</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>unlogged spin-up; absorbed into the emulator at training time.</p>
+              </div>
+            </td>
+            <td>
+                  <code>0.0</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>bundle</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>an already-loaded bundle, used instead of reading <code>emulator_dir</code> (tests, and
+callers that have validated one already).</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+          <tr class="doc-section-item">
+            <td>
+                <code>out_of_bounds</code>
+            </td>
+            <td>
+            </td>
+            <td>
+              <div class="doc-md-description">
+                <p>'error' | 'warn' | 'clip' -- what to do off the training box.</p>
+              </div>
+            </td>
+            <td>
+                  <code>None</code>
+            </td>
+          </tr>
+      </tbody>
+    </table>
+
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="libcuflynx.solver_wrappers.emulator_solver_helper.SimulationHelper.set_theta" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">set_theta</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">set_theta</span><span class="p">(</span><span class="n">theta</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Set the calibration vector directly, in <code>params_for_id</code> entry order.</p>
+<p>This, not <code>set_param_vals</code>, is the emulator's real input. A modifier entry occupies
+one slot in theta but names several model parameters, and by the time the executor calls
+<code>set_param_vals</code> those slots have already been expanded to per-parameter values --
+which is the wrong thing to feed a surrogate trained on theta. CA's call sites set theta
+here before the protocol runs, so no inversion is ever needed.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="libcuflynx.solver_wrappers.emulator_solver_helper.SimulationHelper.set_param_vals" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">set_param_vals</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">set_param_vals</span><span class="p">(</span><span class="n">param_names</span><span class="p">,</span> <span class="n">param_vals</span><span class="p">,</span> <span class="n">change_states</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Accept the executor's per-parameter values.</p>
+<p>With no modifiers in play these are theta itself, entry for entry, so they are recorded
+as such and the helper works for a caller that only knows the ordinary interface. With
+modifiers they are the expanded per-target values, which theta cannot be recovered from
+here -- <code>set_theta</code> must have been called, and this is then a consistency check.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="libcuflynx.solver_wrappers.emulator_solver_helper.SimulationHelper.run" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">run</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">run</span><span class="p">()</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Predict the feature vector for the current theta. Returns success, like a solver.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="libcuflynx.solver_wrappers.emulator_solver_helper.SimulationHelper.get_results" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_results</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_results</span><span class="p">(</span><span class="n">variables_list_of_lists</span><span class="p">,</span> <span class="n">flatten</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The predicted features, in the shape the executor expects from a solver.</p>
+<p>Each operand slot holds a length-1 array carrying its data_item's predicted feature.
+The consumers that know about <code>emulates_features</code> read the value and skip the
+operation; anything else applying <code>mean</code>/<code>max</code>/<code>min</code> to it gets the same number
+back, which is the least surprising thing an unaware caller could receive.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="libcuflynx.solver_wrappers.emulator_solver_helper.SimulationHelper.get_predicted_features" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_predicted_features</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_predicted_features</span><span class="p">()</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>The predicted scalar feature per data_item, <code>nan</code> for any the emulator misses.</p>
+<p>Indexed by data_item so both reduction sites can read it positionally.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="libcuflynx.solver_wrappers.emulator_solver_helper.SimulationHelper.set_obs_map" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">set_obs_map</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">set_obs_map</span><span class="p">(</span><span class="n">const_idx_to_obs_idx</span><span class="p">,</span> <span class="n">num_obs</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Tell the helper which data_item each trained feature belongs to.</p>
+<p>The emulator's outputs are ordered by <code>obs_info['const_idx_to_obs_idx']</code> while the
+consumers index by data_item. Rather than assume the two coincide, the caller states
+the mapping once at setup; without it they are taken to be the same, which is true
+whenever every data_item is a scalar one -- the only case the emulator supports.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="libcuflynx.solver_wrappers.emulator_solver_helper.SimulationHelper.update_times" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">update_times</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">update_times</span><span class="p">(</span><span class="n">dt</span><span class="p">,</span> <span class="n">start_time</span><span class="p">,</span> <span class="n">sim_time</span><span class="p">,</span> <span class="n">pre_time</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Time bookkeeping only -- nothing is integrated, but <code>tSim</code> must still be right.</p>
+<p>The protocol executor concatenates each sub-experiment's <code>tSim</code> onto a cumulative
+time vector and drops the duplicated first sample, so a missing or single-point axis
+would break the caller rather than the emulator. Mirrors the opencor backend.</p>
+
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="libcuflynx.solver_wrappers.emulator_solver_helper.SimulationHelper.get_init_param_vals" class="doc doc-heading">
+            <span class="doc doc-object-name doc-function-name">get_init_param_vals</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_init_param_vals</span><span class="p">(</span><span class="n">param_names</span><span class="p">)</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+        <p>Parameter defaults, served from the snapshot taken when the emulator was trained.</p>
+<p>The optimiser's x0 and <code>resolve_modifier_baselines</code> both read these before anything
+is simulated. The emulator has no model to read them from, so training recorded them.</p>
+
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["instant", "content.code.copy"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
