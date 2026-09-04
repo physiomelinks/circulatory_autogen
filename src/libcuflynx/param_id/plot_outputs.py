@@ -294,10 +294,24 @@ class ParamIDPlotOutputs:
         prefix = self.client.file_name_prefix
         obs_stub = self.client.param_id_obs_file_prefix
 
-        obs_tuples_unique = []
+        # One figure per (trace, experiment), not per (item, experiment). A data_item_name is
+        # unique by construction since #466, so grouping on it gave every feature its own page
+        # -- max and min of the same pressure became two figures instead of two lines on one.
+        # trace_name_for_plotting is the name of the series a feature is measured on, is
+        # allowed to repeat, and is already what the y-axis is labelled with, so it is the
+        # thing a page is about. Subexperiment is deliberately not in the key: features of one
+        # trace measured on different subexperiments belong on one page, drawn side by side
+        # along the experiment's timeline (#515).
         item_names = obs_item_names(obs_info)
-        for idx, obs_name in enumerate(item_names):
-            tup = (obs_name, obs_info["experiment_idxs"][idx])
+        trace_labels = obs_trace_labels(obs_info)
+        group_keys = [
+            str(trace_labels[idx]) if idx < len(trace_labels) and trace_labels[idx]
+            else str(item_names[idx])
+            for idx in range(obs_info["num_obs"])
+        ]
+        obs_tuples_unique = []
+        for idx, group_name in enumerate(group_keys):
+            tup = (group_name, obs_info["experiment_idxs"][idx])
             if tup not in obs_tuples_unique:
                 obs_tuples_unique.append(tup)
 
@@ -317,7 +331,12 @@ class ParamIDPlotOutputs:
         plot_saved = False
 
         for unique_obs_count in range(len(obs_tuples_unique)):
-            this_obs_waveform_plotted = False
+            # Which subexperiments this page has already drawn the trace for. Per
+            # subexperiment rather than a single flag, so a group spanning several of them
+            # shows the whole trace instead of only the first segment (#515); still once per
+            # subexperiment, so several features measured on the same segment share one line.
+            subexps_drawn = set()
+            trace_x_window = []
             const_idx = -1
             series_idx = -1
             freq_idx = -1
@@ -331,7 +350,7 @@ class ParamIDPlotOutputs:
                     freq_idx += 1
 
                 if (
-                    item_names[II],
+                    group_keys[II],
                     obs_info["experiment_idxs"][II],
                 ) != obs_tuples_unique[unique_obs_count]:
                     continue
@@ -356,7 +375,10 @@ class ParamIDPlotOutputs:
                             len(best_fit_obs_series[0]),
                         )
 
-                obs_name_for_plot = obs_trace_labels(obs_info)[II]
+                # The same resolved name the page was grouped by, so the y-axis label and the
+                # grouping cannot disagree -- an item whose trace name is empty would
+                # otherwise be grouped under its item name and labelled '$$'.
+                obs_name_for_plot = group_keys[II]
                 if obs_name_for_plot.count("_") > 1:
                     print(
                         f'obs_data variable "{obs_name_for_plot}" has too many underscores',
@@ -387,31 +409,38 @@ class ParamIDPlotOutputs:
 
                 # An observable built from other observables has no trace of its own to draw:
                 # its operation takes its inputs from operation_kwargs, not from a model
-                # variable, so the "series" reconstruction is the scalar it returns. Before
-                # #466 such an item shared its `variable` with the items it was built from and
-                # so was grouped with them, and the group's waveform had already been drawn by
-                # the time it came round -- it never reached here. Names are unique now, so it
-                # gets its own group and does, with nothing to plot.
+                # variable, so the "series" reconstruction is the scalar it returns. It has no
+                # operand either, so its trace_name_for_plotting defaults to its own name and
+                # it lands on a page of its own -- reaching here with nothing to plot, which
+                # `has_waveform` is what handles.
                 reconstruction = series_per_sub[II] if II < len(series_per_sub) else None
                 has_waveform = reconstruction is not None and np.ndim(reconstruction) > 0
 
-                if not this_obs_waveform_plotted and (
+                if subexp_count not in subexps_drawn and (
                         has_waveform or obs_info["data_types"][II] == "frequency"):
                     axs.set_ylabel(f"${obs_name_for_plot}$ ${unit_label}$", fontsize=18)
                     if obs_info["data_types"][II] != "frequency":
-                        # Only the subexperiment this observable belongs to. A
-                        # settle/pre subexperiment is not what the observable was
-                        # measured on, so drawing it stretches the axis over a
-                        # window the ground truth says nothing about.
+                        # Only the subexperiments this page's features were measured on. A
+                        # settle/pre subexperiment nothing is measured on is still left out,
+                        # so the axis never stretches over a window the ground truth says
+                        # nothing about -- but a trace measured on two of them gets both.
                         axs.plot(
                             tSim_per_sub_count[subexp_count],
                             conversion * reconstruction[:],
                             color=protocol_info["experiment_colors"][exp_idx],
-                            label="output",
+                            # One legend entry for the trace, however many segments it has.
+                            # '_nolegend_' rather than None: it is the documented way to keep
+                            # an artist out of the legend, and does not depend on legend()
+                            # happening to skip a None label.
+                            label="output" if not subexps_drawn else "_nolegend_",
+                        )
+                        trace_x_window.append(
+                            (tSim_per_sub_count[subexp_count][0],
+                             tSim_per_sub_count[subexp_count][-1])
                         )
                         axs.set_xlim(
-                            tSim_per_sub_count[subexp_count][0],
-                            tSim_per_sub_count[subexp_count][-1],
+                            min(lo for lo, _ in trace_x_window),
+                            max(hi for _, hi in trace_x_window),
                         )
                         axs.set_xlabel("Time [$s$]", fontsize=18)
                     else:
@@ -437,7 +466,7 @@ class ParamIDPlotOutputs:
                             )
                         axs.set_xlim(0.0, obs_info["freqs"][II][-1])
                         axs.set_xlabel("frequency [$Hz$]", fontsize=18)
-                    this_obs_waveform_plotted = True
+                    subexps_drawn.add(subexp_count)
 
                 dt = self.client.dt
 
