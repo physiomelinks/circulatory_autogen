@@ -5,6 +5,8 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+## 0.7.3 — 2026-09-05
+
 ### Changed — `calculate_two_observable_difference` declares `pred1` / `pred2`
 
 It was written `(x=None, series_output=False, **kwargs)` and read its two inputs out of
@@ -23,6 +25,17 @@ was never handed it.
 operation keeps working; the shipped cross-experiment fixture passes untouched. What changes is
 that `pred_1` — or any other misspelling — is now refused by the ordinary `operation_kwargs`
 check, naming the func, instead of being silently accepted.
+
+**The paired GUI change is CUFLynx #351.** CUFLynx builds its obs_data editor from these
+accessors, and this operation was the one it could not render a form for: with the inputs
+undeclared, `get_operation_kwarg_spec` answered *accepts anything* and there were no fields to
+offer. CUFLynx #351 deletes the workaround it had grown for that (an `ast` parse of the
+function body) and reads the signature like it does for every other operation. That release is
+the one to take this with; nothing else needs it, and CUFLynx's floor (`libcuflynx>=0.7.1`) is
+unchanged because the key names did not move.
+
+No change to the dependency extras, the minimum Python, or the flat-import shims (removed in
+0.6.0, and unaffected here).
 
 ## 0.7.2 — 2026-09-04
 
