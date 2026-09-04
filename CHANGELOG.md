@@ -7,32 +7,52 @@ next release; add to that section as you land a change.
 
 ## 0.7.3 — 2026-09-05
 
-### Changed — `calculate_two_observable_difference` declares `pred1` / `pred2`
+### Changed! — `calculate_two_observable_difference` takes `subtract_from` / `subtract_this`
 
-It was written `(x=None, series_output=False, **kwargs)` and read its two inputs out of
-`kwargs` in the body. Nothing that introspects an operation could see them:
-`get_operation_kwarg_spec` could only answer *accepts anything*, so a form built from it had
-no fields to offer, and a misspelled key was accepted and ignored — leaving the real one unset
-and the failure to surface later as a missing value.
+Two changes to one operation: its inputs are declared, and they are renamed.
 
-They are now ordinary keyword arguments, `(pred1=None, pred2=None, series_output=False)`.
-Both keep a default, which is what makes them keyword arguments rather than operands: a
-parameter with no default is filled positionally from the data_item's `operands`, and these
-come from `operation_kwargs`. The vestigial `x` is gone — an operation that takes no operands
-was never handed it.
+**Declared.** It was written `(x=None, series_output=False, **kwargs)` and read its two inputs
+out of `kwargs` in the body, so nothing that introspects an operation could see them:
+`get_operation_kwarg_spec` could only answer *accepts anything*. A form built from it had no
+fields to offer, and a misspelled key was accepted and ignored — leaving the real one unset,
+to surface later as a missing value. They are now ordinary keyword arguments. Both keep a
+default, which is what makes them keyword arguments rather than operands: a parameter with no
+default is filled positionally from the data_item's `operands`, and these come from
+`operation_kwargs`. The vestigial `x` is gone — an operation that takes no operands was never
+handed it.
 
-**No obs_data change is needed.** The key names are the same, so a file that already uses this
-operation keeps working; the shipped cross-experiment fixture passes untouched. What changes is
-that `pred_1` — or any other misspelling — is now refused by the ordinary `operation_kwargs`
-check, naming the func, instead of being silently accepted.
+**Renamed.** `pred1` / `pred2` said nothing about which way round the subtraction went. The
+function returns `pred2 - pred1`, which you could only learn by reading it, and getting it
+backwards is a sign error that looks like a plausible number. The names now say it:
+
+```
+    result = subtract_from - subtract_this
+```
+
+**This changes obs_data.** An item using this operation must be updated, and the mapping is
+*not* positional — `pred2` is the value subtracted **from**:
+
+| before | after |
+|---|---|
+| `"pred2": "max flow aortic root"` | `"subtract_from": "max flow aortic root"` |
+| `"pred1": "mean flow aortic root"` | `"subtract_this": "mean flow aortic root"` |
+
+Swapping the two flips the sign of the result. Nothing silently accepts the old spelling: the
+inputs are declared now, so `pred1` and `pred2` are unknown keys and the ordinary
+`operation_kwargs` check refuses them, naming the operation. A file that is not updated fails
+at parse time rather than calibrating against a wrong number — which is exactly why the
+declaration had to come first. Both shipped files using this operation
+(`resources/3compartment_extra_ops_obs_data.json` and the cross-experiment test fixture) are
+updated here.
 
 **The paired GUI change is CUFLynx #351.** CUFLynx builds its obs_data editor from these
 accessors, and this operation was the one it could not render a form for: with the inputs
 undeclared, `get_operation_kwarg_spec` answered *accepts anything* and there were no fields to
 offer. CUFLynx #351 deletes the workaround it had grown for that (an `ast` parse of the
 function body) and reads the signature like it does for every other operation. That release is
-the one to take this with; nothing else needs it, and CUFLynx's floor (`libcuflynx>=0.7.1`) is
-unchanged because the key names did not move.
+the one to take this with, and it picks the new names up automatically — it reads them from
+the signature rather than restating them. CUFLynx's floor (`libcuflynx>=0.7.1`) is unchanged,
+but a study whose obs_data still says `pred1`/`pred2` needs editing either way.
 
 No change to the dependency extras, the minimum Python, or the flat-import shims (removed in
 0.6.0, and unaffected here).

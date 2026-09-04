@@ -39,15 +39,15 @@
       "plot_type": "horizontal"
     },
     {
-      "comment": "The quantity actually known: how much forcing lifts the peak. pred2 - pred1, and pred1 names an item in experiment 0 while this item lives in experiment 1 (#466).",
+      "comment": "The quantity actually known: how much forcing lifts the peak. subtract_from - subtract_this, and subtract_this names an item in experiment 0 while this item lives in experiment 1 (#466).",
       "data_item_name": "peak prey, forcing response",
       "trace_name_for_plotting": "\\Delta x",
       "data_type": "constant",
       "operation": "calculate_two_observable_difference",
       "operands": [""],
       "operation_kwargs": {
-        "pred1": "peak prey, unforced",
-        "pred2": "peak prey, forced"
+        "subtract_from": "peak prey, forced",
+        "subtract_this": "peak prey, unforced"
       },
       "unit": "dimensionless",
       "weight": 1.0,

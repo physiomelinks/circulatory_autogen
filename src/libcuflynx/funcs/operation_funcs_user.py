@@ -859,8 +859,14 @@ def register_user_operations(registry, backend):
 
 
 @series_to_constant
-def calculate_two_observable_difference(pred1=None, pred2=None, series_output=False):
-    """``pred2 - pred1``, where each names another data_item.
+def calculate_two_observable_difference(subtract_from=None, subtract_this=None,
+                                        series_output=False):
+    """``subtract_from - subtract_this``, where each names another data_item.
+
+    The names say which way round the subtraction goes, which ``pred1``/``pred2``
+    did not: nothing in those told you that the result was ``pred2 - pred1`` rather
+    than the other way about, and getting it backwards is a sign error that looks
+    like a plausible number.
 
     The two inputs are declared here rather than read out of ``**kwargs``: they are
     this function's arguments, so the signature is where they belong. Anything that
@@ -877,22 +883,26 @@ def calculate_two_observable_difference(pred1=None, pred2=None, series_output=Fa
 
         "operation": "calculate_two_observable_difference",
         "operands": [],
-        "operation_kwargs": {"pred1": "peak prey, unforced",
-                             "pred2": "peak prey, forced"}
+        "operation_kwargs": {"subtract_from": "peak prey, forced",
+                             "subtract_this": "peak prey, unforced"}
 
-    The key names are unchanged, so obs_data files that already use this operation
-    keep working.
+    Renamed from ``pred1``/``pred2``: an obs_data using the old keys is refused,
+    naming them, rather than quietly computing anything. ``pred2`` is the value
+    subtracted *from*, so it becomes ``subtract_from``, and ``pred1`` becomes
+    ``subtract_this`` -- swapping them would flip the sign of the result.
     """
-    if pred1 is None:
+    if subtract_from is None:
         raise RuntimeError(
-            "calculate_two_observable_difference: 'pred1' was not supplied. It names "
-            "the data_item to subtract; set it in this data_item's operation_kwargs.")
-    if pred2 is None:
+            "calculate_two_observable_difference: 'subtract_from' was not supplied. It "
+            "names the data_item to subtract from; set it in this data_item's "
+            "operation_kwargs. (It was called 'pred2' before.)")
+    if subtract_this is None:
         raise RuntimeError(
-            "calculate_two_observable_difference: 'pred2' was not supplied. It names "
-            "the data_item to subtract from; set it in this data_item's operation_kwargs.")
+            "calculate_two_observable_difference: 'subtract_this' was not supplied. It "
+            "names the data_item to subtract; set it in this data_item's "
+            "operation_kwargs. (It was called 'pred1' before.)")
 
-    return pred2 - pred1
+    return subtract_from - subtract_this
 
 
 

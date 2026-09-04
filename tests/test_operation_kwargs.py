@@ -51,7 +51,8 @@ def op_var_kwargs(x=None, series_output=False, **kwargs):
     """A ``**kwargs`` op: accepts any key, so nothing can enumerate what it takes.
 
     No shipped operation is written this way any more --
-    ``calculate_two_observable_difference`` declares ``pred1``/``pred2`` in its
+    ``calculate_two_observable_difference`` declares ``subtract_from``/
+    ``subtract_this`` in its
     signature -- but a user's own operation func may be, and the contract still has
     to hold for it.
     """
@@ -458,7 +459,7 @@ def test_the_two_observable_difference_declares_its_inputs_in_its_signature():
     accepted, from_operands, accepts_any = get_operation_kwarg_spec(
         calculate_two_observable_difference)
 
-    assert 'pred1' in accepted and 'pred2' in accepted
+    assert 'subtract_from' in accepted and 'subtract_this' in accepted
     assert not accepts_any, "no **kwargs, so the accepted set is the whole story"
     # Both have defaults, which is what makes them keyword arguments rather than
     # operands: an operand is a parameter with no default, filled positionally from
@@ -467,33 +468,39 @@ def test_the_two_observable_difference_declares_its_inputs_in_its_signature():
 
 
 @pytest.mark.unit
-def test_the_two_observable_difference_subtracts_pred1_from_pred2():
+def test_the_two_observable_difference_subtracts_this_from_that():
     from libcuflynx.funcs.operation_funcs_user import calculate_two_observable_difference
 
-    assert calculate_two_observable_difference(pred1=2.0, pred2=5.0) == pytest.approx(3.0)
+    assert calculate_two_observable_difference(
+        subtract_from=5.0, subtract_this=2.0) == pytest.approx(3.0)
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize('missing', ['pred1', 'pred2'])
+@pytest.mark.parametrize('missing', ['subtract_from', 'subtract_this'])
 def test_the_two_observable_difference_names_the_input_it_was_not_given(missing):
     """A default of None is not a value to subtract; say which one is absent."""
     from libcuflynx.funcs.operation_funcs_user import calculate_two_observable_difference
 
-    kwargs = {'pred1': 1.0, 'pred2': 2.0}
+    kwargs = {'subtract_from': 2.0, 'subtract_this': 1.0}
     del kwargs[missing]
     with pytest.raises(RuntimeError, match=missing):
         calculate_two_observable_difference(**kwargs)
 
 
 @pytest.mark.unit
-def test_a_misspelled_key_is_refused_now_that_the_inputs_are_declared():
-    """The point of declaring them: `pred_1` used to be accepted and ignored (the
-    func accepted any key), leaving `pred1` unset. Now it is an error that names
-    the func."""
+def test_the_old_pred_keys_are_refused_rather_than_quietly_ignored():
+    """An obs_data written against `pred1`/`pred2` must fail loudly.
+
+    This is the whole reason declaring the inputs matters. While the func took
+    `**kwargs` any key was accepted, so after a rename the old ones would have been
+    passed through and the new ones left unset -- a subtraction against a default
+    rather than an error. Now the ordinary unknown-key check refuses them and names
+    the func.
+    """
     from libcuflynx.funcs.operation_funcs_user import calculate_two_observable_difference
 
-    with pytest.raises(ValueError, match='pred_1'):
+    with pytest.raises(ValueError, match='pred1'):
         check_operation_kwargs(
-            {'pred_1': 'a', 'pred2': 'b'},
+            {'pred1': 'a', 'pred2': 'b'},
             calculate_two_observable_difference,
             'calculate_two_observable_difference')
