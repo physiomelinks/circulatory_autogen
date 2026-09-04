@@ -93,17 +93,18 @@ def test_a_reference_to_a_renamed_item_follows_it(tmp_path):
     doc["data_items"].append({
         "variable": "flow difference", "name_for_plotting": "dv", "data_type": "constant",
         "operation": "calculate_two_observable_difference", "operands": [""],
-        "operation_kwargs": {"pred1": "v", "pred2": "v"},
+        "operation_kwargs": {"subtract_this": "v", "subtract_from": "v"},
         "unit": "dimensionless", "weight": 1.0, "value": 1.0, "std": 0.1})
     # reference the *item* names, which is what resolves post-#466
     doc["data_items"][0]["variable"] = "flow mean"
     doc["data_items"][1]["variable"] = "flow max"
-    doc["data_items"][2]["operation_kwargs"] = {"pred1": "flow mean", "pred2": "flow max"}
+    doc["data_items"][2]["operation_kwargs"] = {
+        "subtract_this": "flow mean", "subtract_from": "flow max"}
     path = _write(tmp_path, doc)
     main([str(path)])
     items = json.loads(path.read_text(encoding="utf-8"))["data_items"]
     kwargs = items[2]["operation_kwargs"]
-    assert kwargs == {"pred1": "flow mean", "pred2": "flow max"}, kwargs
+    assert kwargs == {"subtract_this": "flow mean", "subtract_from": "flow max"}, kwargs
     _parse(path)
 
 

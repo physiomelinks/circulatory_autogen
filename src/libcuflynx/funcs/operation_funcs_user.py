@@ -859,20 +859,50 @@ def register_user_operations(registry, backend):
 
 
 @series_to_constant
-def calculate_two_observable_difference(x=None, series_output=False, **kwargs):
-    if "pred1" in kwargs:
-        k_value1 = kwargs["pred1"]
-    else:
-        print("predict 1 results did not found in kwargs, please check corresponding experiment's operands/operation!")
-        raise RuntimeError(f"Invalid predict1 results detected: Aborting...")
-    
-    if "pred2" in kwargs:
-        k_value2 = kwargs["pred2"]
-    else:
-        print("predict 2 results did not found in kwargs, please check corresponding experiment's operands/operation!")
-        raise RuntimeError(f"Invalid predict2 results detected: Aborting...")
-    
-    return (k_value2 - k_value1)
+def calculate_two_observable_difference(subtract_from=None, subtract_this=None,
+                                        series_output=False):
+    """``subtract_from - subtract_this``, where each names another data_item.
+
+    The names say which way round the subtraction goes, which ``pred1``/``pred2``
+    did not: nothing in those told you that the result was ``pred2 - pred1`` rather
+    than the other way about, and getting it backwards is a sign error that looks
+    like a plausible number.
+
+    The two inputs are declared here rather than read out of ``**kwargs``: they are
+    this function's arguments, so the signature is where they belong. Anything that
+    introspects an operation -- ``get_operation_kwarg_spec``, and the GUI form built
+    from it -- then sees them without having to read the body, and a misspelled key
+    is refused by the usual ``operation_kwargs`` check instead of arriving here as a
+    silently missing value.
+
+    Both carry a default, which is what makes them *keyword* arguments rather than
+    operands: a parameter with no default is filled positionally from the
+    data_item's ``operands``, and these come from ``operation_kwargs``. The
+    data_item therefore has no operands at all, and its ``operation_kwargs`` name
+    the two items to difference:
+
+        "operation": "calculate_two_observable_difference",
+        "operands": [],
+        "operation_kwargs": {"subtract_from": "peak prey, forced",
+                             "subtract_this": "peak prey, unforced"}
+
+    Renamed from ``pred1``/``pred2``: an obs_data using the old keys is refused,
+    naming them, rather than quietly computing anything. ``pred2`` is the value
+    subtracted *from*, so it becomes ``subtract_from``, and ``pred1`` becomes
+    ``subtract_this`` -- swapping them would flip the sign of the result.
+    """
+    if subtract_from is None:
+        raise RuntimeError(
+            "calculate_two_observable_difference: 'subtract_from' was not supplied. It "
+            "names the data_item to subtract from; set it in this data_item's "
+            "operation_kwargs. (It was called 'pred2' before.)")
+    if subtract_this is None:
+        raise RuntimeError(
+            "calculate_two_observable_difference: 'subtract_this' was not supplied. It "
+            "names the data_item to subtract; set it in this data_item's "
+            "operation_kwargs. (It was called 'pred1' before.)")
+
+    return subtract_from - subtract_this
 
 
 

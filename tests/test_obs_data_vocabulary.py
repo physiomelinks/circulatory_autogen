@@ -258,14 +258,18 @@ def test_the_shipped_extra_ops_example_differences_two_distinct_items():
     by_name = {i['data_item_name']: i for i in items}
     diff = next(i for i in items
                 if i.get('operation') == 'calculate_two_observable_difference')
-    pred1, pred2 = diff['operation_kwargs']['pred1'], diff['operation_kwargs']['pred2']
+    kw = diff['operation_kwargs']
+    subtract_this, subtract_from = kw['subtract_this'], kw['subtract_from']
 
-    assert pred1 != pred2, 'both operands name the same item, so the difference is always 0'
-    assert {pred1, pred2} <= set(by_name), 'an operand names no data_item in this file'
+    assert subtract_this != subtract_from, \
+        'both operands name the same item, so the difference is always 0'
+    assert {subtract_this, subtract_from} <= set(by_name), \
+        'an operand names no data_item in this file'
     # and they must be different features, not two spellings of one
-    assert by_name[pred1]['operation'] != by_name[pred2]['operation']
-    # the function returns pred2 - pred1, so the stated ground truth has to match
-    assert diff['value'] == pytest.approx(by_name[pred2]['value'] - by_name[pred1]['value'])
+    assert by_name[subtract_this]['operation'] != by_name[subtract_from]['operation']
+    # the function returns subtract_from - subtract_this, so the ground truth has to match
+    assert diff['value'] == pytest.approx(
+        by_name[subtract_from]['value'] - by_name[subtract_this]['value'])
 
 
 # --- the shipped examples ------------------------------------------------------------------

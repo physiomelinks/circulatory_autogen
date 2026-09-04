@@ -37,10 +37,10 @@
     "operands": [
       ""
     ],
-    "comment": "pred2 - pred1. These name other data_items by their data_item_name; before #466 both said 'v_{AR}', which the mean and the max both answered to, so this silently computed max - max = 0.",
+    "comment": "subtract_from - subtract_this. These name other data_items by their data_item_name; before #466 both said 'v_{AR}', which the mean and the max both answered to, so this silently computed max - max = 0.",
     "operation_kwargs": {
-      "pred1": "mean flow aortic root",
-      "pred2": "max flow aortic root"
+      "subtract_this": "mean flow aortic root",
+      "subtract_from": "max flow aortic root"
     },
     "unit": "m3_per_s",
     "weight": 1.0,

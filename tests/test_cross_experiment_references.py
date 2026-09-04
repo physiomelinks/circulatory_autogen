@@ -67,7 +67,7 @@ def test_an_item_can_difference_two_observables_from_different_experiments(temp_
     assert forced != pytest.approx(unforced, rel=1e-3), (
         'the two experiments produced the same peak, so this fixture cannot tell a working '
         'cross-experiment reference from a collapsed one')
-    # calculate_two_observable_difference returns pred2 - pred1
+    # calculate_two_observable_difference returns subtract_from - subtract_this
     assert float(results[RESPONSE]) == pytest.approx(forced - unforced, rel=1e-9)
     assert np.isfinite(cost)
 
@@ -133,7 +133,7 @@ def test_the_cross_segment_items_are_reported_for_refusal():
         'data_item_names': ['a', 'b', 'diff'],
         'experiment_idxs': [0, 1, 1],
         'subexperiment_idxs': [0, 0, 0],
-        'operation_kwargs': [{}, {}, {'pred1': 'a', 'pred2': 'b'}],
+        'operation_kwargs': [{}, {}, {'subtract_this': 'a', 'subtract_from': 'b'}],
     }
     assert pid.cross_segment_reference_items() == [('diff', 'a')]
     with pytest.raises(NotImplementedError) as excinfo:
