@@ -5,6 +5,51 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+## 0.7.2 — 2026-09-04
+
+### Fixed — one reconstruction page per trace, not per feature (#515)
+
+Before #466 a data_item's `variable` was both its identity and the model variable it reduced,
+so `max` and `min` of one pressure shared a `variable` and were drawn on one figure. #466
+split those two jobs and made `data_item_name` unique by construction — and
+`plot_reconstruction_pages` still grouped on it. Every feature therefore got a page of its
+own: the 3compartment example went from four figures to six, and a study with several
+features per trace lost the merged figures entirely.
+
+Pages are now keyed on `trace_name_for_plotting` — the series a feature is measured on, which
+is allowed to repeat and is already what the y-axis is labelled with. On the shipped fixtures
+that is 3compartment back to four pages from six, with `mean`/`max` of `v_{AR}` and
+`mean`/`max_minus_min` of `u_{AR}` reunited, while the four-experiment multi-trace fixture
+stays at eight, one per trace per experiment.
+
+Subexperiment is deliberately *not* part of the key, which is the second half of the issue: a
+trace measured on several subexperiments is one page carrying a segment for each, drawn along
+the experiment's timeline and sharing a single legend entry. `Lotka_Volterra_multisub` goes
+from four pages to two, each spanning both subexperiments. A subexperiment nothing was
+measured on is still left out, so #474's narrowed axis is unchanged — the window is the union
+of the segments actually measured, not the whole experiment.
+
+The y-axis label now comes from the same resolved name the page is grouped by, so a page
+cannot be grouped under one name and labelled with another.
+
+Not affected: the error vectors stay one entry per data_item. Grouping changes how many
+figures are drawn, not what is scored — `percent_error_vec` / `std_error_vec` and the
+`error_vec_names` beside them (#341) are untouched.
+
+### Fixed — a partial `apt-get update` no longer fails a job several steps later
+
+`apt-get update` exits 0 when it could not fetch an index: it says *"Some index files failed
+to download. They have been ignored, or old ones used instead"* and carries on with the stale
+one. The install then asks for the package version that index names, the mirror has moved to
+a newer point release, and the fetch 404s — so a mirror wobble arrives as a hard failure in an
+unrelated job rather than as a slow update. On this release's own PR it took out `test-uq` and
+`test-param-id-serial-full-scale` over `libcurl4-openssl-dev`.
+
+`install-system-deps` now notices the partial update and re-runs it (three attempts, backing
+off), and gives the install one refresh-and-retry of its own. The per-fetch timeouts and
+retries already there bound a single request; neither can see that the update as a whole came
+back incomplete. A genuinely broken apt still fails the job — the retries do not swallow it.
+
 ## 0.7.1 — 2026-09-01
 
 ### Added — a contract for what `process_obs_info` publishes

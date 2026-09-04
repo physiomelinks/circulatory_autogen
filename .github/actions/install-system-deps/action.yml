@@ -37,5 +37,42 @@ runs:
     - name: Install the packages
       shell: bash
       run: |
-        sudo apt-get update
-        sudo apt-get install -y libopenmpi-dev openmpi-bin libsundials-dev build-essential
+        # `apt-get update` exits 0 when it could not fetch an index. It prints
+        #   "Some index files failed to download. They have been ignored, or old
+        #    ones used instead."
+        # and carries on with the *stale* index it already had. The install then
+        # asks for the package version that index names, the mirror has since
+        # moved to a newer point release, and the fetch 404s -- so a mirror
+        # wobble lands as a hard failure in a later step instead of as a slow
+        # update. Seen on PR #516: after four InRelease timeouts against
+        # archive.ubuntu.com, `libcurl4-openssl-dev 8.5.0-2ubuntu10.12` 404'd and
+        # took out test-uq and test-param-id-serial-full-scale, neither of which
+        # had anything to do with the change under test.
+        #
+        # The timeouts/retries set above bound a single *fetch*; they cannot
+        # notice that the update as a whole came back partial. So: notice it, and
+        # re-run. Retrying the update is cheap next to a lost job, and a stale
+        # index is exactly what a second update fixes.
+        packages=(libopenmpi-dev openmpi-bin libsundials-dev build-essential)
+
+        apt_update_is_complete() {
+          sudo apt-get update 2>&1 | tee /tmp/ca-apt-update.log
+          ! grep -q 'Some index files failed to download' /tmp/ca-apt-update.log
+        }
+
+        for attempt in 1 2 3; do
+          if apt_update_is_complete; then
+            break
+          fi
+          echo "::warning::apt-get update fell back to a stale index (attempt ${attempt}/3); retrying"
+          sleep $((attempt * 10))
+        done
+
+        # Even a complete update can race a mirror mid-publish, so the install
+        # gets one refresh-and-retry of its own rather than failing the job on a
+        # 404 that a second attempt resolves.
+        if ! sudo apt-get install -y "${packages[@]}"; then
+          echo "::warning::apt-get install failed; refreshing the indexes and retrying once"
+          sudo apt-get update
+          sudo apt-get install -y "${packages[@]}"
+        fi
