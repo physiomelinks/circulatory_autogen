@@ -193,6 +193,41 @@ def migrate_legacy_obs_item_keys(items, where='data_items', variable_was_the_ope
         warnings.warn(f"{where}: {LEGACY_OBS_KEY_ADVICE[old]}", DeprecationWarning, stacklevel=3)
     return migrated
 
+#: Top-level key naming an obs_data file: the module instance (or data set) it belongs to. In a
+#: module library an instance's ``instances/<name>/<name>_obs_data.json`` carries
+#: ``"obs_data_name": "<name>"``. Optional; see ``schemas/obs_data.schema.json``.
+OBS_DATA_NAME_KEY = 'obs_data_name'
+
+
+def check_obs_data_name(json_obj, path=None):
+    """The ``obs_data_name`` of an obs_data document, or None when it has none.
+
+    ``json_obj`` is the loaded file (a dict, or the legacy bare list of data items, which has
+    no name). A name that is not a non-empty string is a ValueError. When ``path`` lies in an
+    ``instances/<name>/`` directory of a module library, a missing or different
+    ``obs_data_name`` is warned about (UserWarning), since the file then describes another
+    instance than the one it is filed under.
+    """
+    name = json_obj.get(OBS_DATA_NAME_KEY) if isinstance(json_obj, dict) else None
+    if name is not None and (not isinstance(name, str) or not name.strip()):
+        raise ValueError(f"obs_data{' ' + str(path) if path else ''}: '{OBS_DATA_NAME_KEY}' "
+                         f"must be a non-empty string, not {name!r}.")
+    if isinstance(name, str):
+        name = name.strip()
+    if path is not None:
+        directory = os.path.dirname(os.path.abspath(str(path)))
+        if os.path.basename(os.path.dirname(directory)) == 'instances':
+            instance = os.path.basename(directory)
+            if name != instance:
+                found = f"'{OBS_DATA_NAME_KEY}' is {name!r}" if name is not None else \
+                    f"it has no '{OBS_DATA_NAME_KEY}'"
+                warnings.warn(
+                    f"obs_data {path} is in the directory of instance '{instance}', but "
+                    f"{found}. Set \"{OBS_DATA_NAME_KEY}\": \"{instance}\" if it is that "
+                    f"instance's data, or move it.", UserWarning, stacklevel=2)
+    return name
+
+
 #: Superseded keys of the parsed ``obs_info`` dict. This is a DIFFERENT layer from
 #: :data:`LEGACY_OBS_ITEM_KEYS`, which renames keys of an obs_data *entry* -- the file a user
 #: writes. These rename keys of the dict the parser hands the engine.

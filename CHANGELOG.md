@@ -5,6 +5,25 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Added — module versions and instances
+
+A module library can lay a module version out as `<module_type>/versions/<version>/` with named
+parameter sets in `instances/<instance>/<instance>_parameters.csv` (names without a vessel
+suffix). A vessel-array record, or a supermodule's submodule, picks one with
+`"instance": "<name>"`; without it, the config entry's `"default_instance"` is used if that file
+exists. The instance directory is found next to the config file the record's type came from.
+Rows become `{var}_{vessel}`, except the module's `global_constant`s, and are merged as default
+parameters: the host parameters file wins, then a supermodule's instance, then its
+`default_parameters`, then submodule/component instances. A supermodule entry can have instances
+too, named like `default_parameters` (`{var}_{submodule}` or global); `default_parameters` still
+works. An unknown instance is an error that lists the version's instances. Models without
+instances generate byte-identical CellML.
+
+obs_data files accept a top-level `"obs_data_name"` (returned as `obs_data_name` by
+`parse_obs_data_json`); a file in `instances/<name>/` whose `obs_data_name` is not `<name>` is
+warned about. The JSON Schemas gain `instance` and `default_instance`, and a new
+`obs_data.schema.json` describes the top level of an obs_data file.
+
 ### Added — JSON vessel arrays and supermodules
 
 A vessel array can be a JSON list of records, `[file_prefix]_vessel_array.json`, with PhLynx's

@@ -73,7 +73,7 @@ The vessel array can also be a JSON file, `[file_prefix]_vessel_array.json`: a l
 ]
 ```
 
-A record uses PhLynx's keys, as above, or the libcuflynx keys `name, vessel_type, BC_type, inp_vessels, out_vessels`. A record that mixes the two is an error. `name` and the type and subtype are required. The input and output lists are optional JSON lists; a space-separated string is accepted too. Other keys are allowed, and keys holding plain values become extra columns, as extra CSV columns do.
+A record uses PhLynx's keys, as above, or the libcuflynx keys `name, vessel_type, BC_type, inp_vessels, out_vessels`. A record that mixes the two is an error. `name` and the type and subtype are required. The input and output lists are optional JSON lists; a space-separated string is accepted too. A record may also name the module instance whose parameters it uses, `"instance": "[instance]"` (see [Module versions and instances](#module-versions-and-instances)). Other keys are allowed, and keys holding plain values become extra columns, as extra CSV columns do.
 
 A CSV vessel array is read by converting each row to this record first, so a CSV and its JSON conversion generate byte-identical models. The generator looks for the vessel array in this order: `[file_prefix]_vessel_array.json`, `[file_prefix]_vessel_array.csv`, then PhLynx's `[file_prefix]_module_array.json` and `[file_prefix]_module_array.csv`.
 
@@ -85,7 +85,7 @@ python -m libcuflynx.utilities.config_schemas to-json resources/my_model_vessel_
 
 This writes `my_model_vessel_array.json` next to each CSV, one record per line. The default style is PhLynx's keys. From Python, use `libcuflynx.utilities.config_schemas.vessel_array_to_json(csv_path, json_path=None, style="phlynx")`, and `read_vessel_array_records(path)` to read either form as records.
 
-JSON Schemas for the vessel array and for module config files ship with the package, in `libcuflynx/schemas/`: `vessel_array.schema.json` and `module_config.schema.json`. Editors and other tools can use them to validate the files. The generator checks the same rules itself, and its errors name the file, the record index and the key.
+JSON Schemas for the vessel array, for module config files and for the top level of obs_data files ship with the package, in `libcuflynx/schemas/`: `vessel_array.schema.json`, `module_config.schema.json` and `obs_data.schema.json`. Editors and other tools can use them to validate the files. The generator checks the same rules itself, and its errors name the file, the record index and the key.
 
 Below figure is an example of a vessel_array file.
 
@@ -218,13 +218,15 @@ A supermodule is a named group of modules that a vessel array uses like one modu
    {"name": "clock", "module_type": "cardiac_clock", "module_subtype": "nn", "inp_instances": [], "out_instances": ["ra", "rv", "la", "lv"]},
    {"name": "ra", "module_type": "chamber", "module_subtype": "vv", "inp_instances": ["clock"], "out_instances": ["trv"]}
  ],
- "default_parameters": "heart_parameters.csv"}
+ "default_instance": "adult"}
 ```
 
 - **module_type / module_subtype** (or **vessel_type / BC_type**): the type that instances name in a vessel array.
 - **module_format**: `"supermodule"`. A supermodule has no `component_file`/`component_type`; it is never a component module, and its type may not also be a component module's type.
 - **submodules**: vessel-array records, in either key style. Their names are local to the supermodule, and their input and output lists name other submodules only.
-- **default_parameters** (optional): a parameters CSV, relative to the config file's directory, with the usual `variable_name,units,value,data_reference` columns. A row named `[variable]_[submodule]` is a parameter of that submodule; any other row is a global.
+- **default_instance** (optional): the [instance](#module-versions-and-instances) used when a vessel-array record names none. A supermodule instance's parameters file has the usual `variable_name,units,value,data_reference` columns; a row named `[variable]_[submodule]` is a parameter of that submodule, and any other row is a global.
+- **default_parameters** (optional, kept for backwards compatibility): a parameters CSV, relative to the config file's directory, with the same rows as an instance's parameters file. New supermodules should use an instance instead.
+- A submodule record may name its own `"instance"`.
 - **description** (optional).
 
 An instance in a vessel array names the supermodule's type and links its hosts, the modules outside it, to individual submodules:
@@ -243,11 +245,57 @@ Before anything else reads the vessel array, each instance is replaced, at its p
 - the hosts in `per_submodule_inputs["ra"]` come first in `heart_ra`'s inputs, and the hosts in `per_submodule_outputs["ra"]` last in its outputs;
 - in a host, the instance name is replaced, in place, by every `heart_[submodule]` that the instance links it to.
 
-So parameters and outputs are named after the expanded modules, e.g. `E_heart_lv`, `heart_lv/q`. The default parameters are renamed in the same way (`[variable]_[submodule]` becomes `[variable]_[instance]_[submodule]`; the suffix is matched against the submodule names, longest first). They are used for every name that `[file_prefix]_parameters.csv` does not set, so values in your parameters file always win. A global used by several instances is added once.
+So parameters and outputs are named after the expanded modules, e.g. `E_heart_lv`, `heart_lv/q`. The supermodule's instance parameters and default parameters are renamed in the same way (`[variable]_[submodule]` becomes `[variable]_[instance]_[submodule]`; the suffix is matched against the submodule names, longest first). They are used for every name that `[file_prefix]_parameters.csv` does not set, so values in your parameters file always win. A global used by several instances is added once. The supermodule's values win over those of its submodules' own instances.
 
 A submodule can itself be a supermodule instance, with its own `per_submodule_inputs`/`per_submodule_outputs` naming its siblings; it is expanded in turn. A supermodule that contains itself, directly or through others, is an error.
 
 Expansion stops with an error that names the file, the instance and the key when a `per_submodule_*` names a submodule that does not exist, or a host that does not exist or does not list the instance back; when a module lists the instance but no `per_submodule_*` entry links them; when an expanded name is already in the array; or when no supermodule of the instance's type was found. An instance named `heart` is not treated as the legacy `heart` module: after expansion there is no module called `heart`.
+
+### Module versions and instances
+
+A module library (such as [circulatory-autogen-modules](https://github.com/physiomelinks/circulatory-autogen-modules)) lays out each version of a module with its *instances*, named parameter sets:
+
+```
+modules/<category>/<module_type>/versions/<version>/
+    <module_type>_<version>_modules.cellml
+    <module_type>_<version>_modules_config.json      one entry; module_subtype is <version>
+    <module_type>_<version>_units.cellml
+    instances/<instance>/
+        <instance>_parameters.csv                   variable_name,units,value,data_reference[,sourced]
+        <instance>_obs_data.json                    optional; "obs_data_name": "<instance>"
+        <instance>_params_for_id.csv                optional
+```
+
+An instance changes only parameters, never the equations. Its parameter names carry no vessel suffix: `C`, not `C_[vessel]`.
+
+The config entry names the instance used by default:
+
+```json
+{"module_type": "chamber", "module_subtype": "v1", "component_file": "chamber_v1_modules.cellml",
+ "component_type": "chamber_type", "default_instance": "adult", ...}
+```
+
+A vessel-array record chooses an instance with `"instance"`:
+
+```json
+{"name": "lv", "module_type": "chamber", "module_subtype": "v1", "instance": "neonate",
+ "inp_instances": ["mv"], "out_instances": ["aov"]}
+```
+
+When the model is generated, the instance's parameters file is looked for next to the config file the record's `(module_type, module_subtype)` came from: `[config directory]/instances/[instance]/[instance]_parameters.csv`. Each row `[variable]` becomes `[variable]_[record name]` (`C_lv`). A row for one of the module's `global_constant` variables keeps its plain name. A record without `"instance"` uses the entry's `default_instance`, if the entry has one and that file exists. Otherwise no instance parameters are loaded, as before.
+
+Instance parameters are defaults. A name that `[file_prefix]_parameters.csv` sets keeps the value from that file. The order of precedence is:
+
+1. your `[file_prefix]_parameters.csv`;
+2. a supermodule's instance;
+3. a supermodule's `default_parameters`;
+4. the instance of a submodule, or of an ordinary module.
+
+Within one level, the first record in the (expanded) vessel array wins, so a global set by several instances is added once.
+
+An instance that does not exist is an error. The error names the version directory and lists the instances it has. Naming an instance of a module whose config has no `instances/` directory next to it is an error too.
+
+An obs_data file may carry a top-level `"obs_data_name"`, a string naming the data set. An instance's `[instance]_obs_data.json` sets it to the instance's name. If a file in `instances/[name]/` has a different or missing `obs_data_name`, a warning is raised when the file is read. Files without the key are read as before. The parsed obs_data carries the name as `obs_data_name`, or `None` when the file has none.
 
 ## Converting an existing CellML model to run in Circulatory Autogen
 

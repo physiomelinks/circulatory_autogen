@@ -25,7 +25,7 @@ from datetime import date
 
 from libcuflynx.utilities.protocol_shapes import materialise_shapes, validate_trace_references
 from libcuflynx.utilities.obs_data_helpers import (LEGACY_OBS_ITEM_KEYS, LEGACY_OBS_KEY_ADVICE,
-                                        migrate_legacy_obs_item_keys,
+                                        migrate_legacy_obs_item_keys, check_obs_data_name,
                                         DEFAULT_COST_TYPE, PREVIOUS_DEFAULT_COST_TYPE,
                                         VALID_DATA_TYPES)
 from libcuflynx.param_id.modifier_funcs import (BUILTIN_MODIFIER_FUNCS, get_modifier_funcs,
@@ -676,7 +676,7 @@ def _empty_prediction_info():
     """
     return {'operands': [], 'units': [], 'data_item_names': [],
             'trace_names_for_plotting': [], 'item_names_for_plotting': [],
-            'experiment_idxs': []}
+            'experiment_idxs': [], 'data_types': [], 'values': [], 'stds': [], 'obs_dts': []}
 
 
 def migrate_legacy_obs_columns(gt_df):
@@ -3351,6 +3351,10 @@ class ObsAndParamDataParser(object):
             print("No obs data path or obs data dict provided, exiting")
             return None
 
+        # Optional top-level "obs_data_name" (the instance/data set the file belongs to);
+        # warns when a file filed under instances/<name>/ names another instance.
+        obs_data_name = check_obs_data_name(json_obj, param_id_obs_path)
+
         gt_df, protocol_info, prediction_info = None, None, None
         REQUIRED = "REQUIRED"
 
@@ -3657,7 +3661,16 @@ class ObsAndParamDataParser(object):
                         "types": (str,),
                         "default": lambda entry: str(entry.get("trace_name_for_plotting", ''))},
                     "experiment_idx": {"types": (int, np.integer), "default": 0},
+                    # Optional measured data for the prediction: held-out data it is checked
+                    # against afterwards, never scored in the calibration. A series needs obs_dt.
+                    "data_type": {"types": (str,), "default": None},
+                    "value": {"types": (int, float, np.integer, np.floating, list, tuple, np.ndarray),
+                              "default": None},
+                    "std": {"types": (int, float, np.integer, np.floating, list, tuple, np.ndarray),
+                            "default": None},
+                    "obs_dt": {"types": (int, float, np.integer, np.floating), "default": None},
                 }
+                optional_ground_truth = ("data_type", "value", "std", "obs_dt")
 
                 prediction_info = _empty_prediction_info()
                 for entry_idx, raw_entry in enumerate(prediction_items):
@@ -3685,6 +3698,8 @@ class ObsAndParamDataParser(object):
                                 continue
                             entry[key] = default(entry) if callable(default) else copy.deepcopy(default)
 
+                        if key in optional_ground_truth and entry[key] is None:
+                            continue
                         if not isinstance(entry[key], allowed):
                             pred_type_errors.append(
                                 f"prediction_items[{entry_idx}]['{key}']: expected {allowed}, got {type(entry[key])}"
@@ -3707,6 +3722,18 @@ class ObsAndParamDataParser(object):
                     prediction_info['item_names_for_plotting'].append(
                         entry['item_name_for_plotting'])
                     prediction_info['experiment_idxs'].append(entry['experiment_idx'])
+                    if entry['value'] is not None:
+                        if entry['data_type'] not in ('constant', 'series'):
+                            raise ValueError(
+                                f"prediction_items[{entry_idx}] has a value, so it needs data_type "
+                                f"'constant' or 'series', got {entry['data_type']!r}")
+                        if entry['data_type'] == 'series' and entry['obs_dt'] is None:
+                            raise ValueError(
+                                f"prediction_items[{entry_idx}] is a series with a value, so it needs obs_dt")
+                    prediction_info['data_types'].append(entry['data_type'])
+                    prediction_info['values'].append(entry['value'])
+                    prediction_info['stds'].append(entry['std'])
+                    prediction_info['obs_dts'].append(entry['obs_dt'])
             else:
                 prediction_info = _empty_prediction_info()
             
@@ -3893,7 +3920,8 @@ class ObsAndParamDataParser(object):
         return {
             "gt_df": gt_df, 
             "protocol_info": protocol_info, 
-            "prediction_info": prediction_info
+            "prediction_info": prediction_info,
+            "obs_data_name": obs_data_name,
         }
 
     def process_obs_info(self, gt_df, output_dir, dt):

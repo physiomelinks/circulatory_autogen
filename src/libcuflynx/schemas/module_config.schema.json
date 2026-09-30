@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/physiomelinks/circulatory_autogen/schemas/module_config.schema.json",
   "title": "libcuflynx module config (*_modules_config.json)",
-  "description": "A list of module config entries: component entries in libcuflynx keys (vessel_type, BC_type, module_file, module_type) or PhLynx keys (module_type, module_subtype, component_file, component_type), and supermodule entries (module_format \"supermodule\" with a submodules list of instance records). See libcuflynx/utilities/config_schemas.py.",
+  "description": "A list of module config entries: component entries in libcuflynx keys (vessel_type, BC_type, module_file, module_type) or PhLynx keys (module_type, module_subtype, component_file, component_type), and supermodule entries (module_format \"supermodule\" with a submodules list of instance records). See libcuflynx/utilities/config_schemas.py. Any entry may name a default_instance: a directory under instances/ next to the config file holding <instance>_parameters.csv.",
   "type": "array",
   "items": {
     "$ref": "#/$defs/entry"
@@ -96,6 +96,17 @@
             },
             "minItems": 4
           }
+        },
+        "default_instance": {
+          "type": "string",
+          "pattern": "^[^/\\\\]*[^/\\\\\\s][^/\\\\]*$",
+          "not": {
+            "enum": [
+              ".",
+              ".."
+            ]
+          },
+          "description": "the instance (a directory under instances/ next to this config file) used when a record names none; ignored if its <name>_parameters.csv does not exist"
         }
       },
       "not": {
@@ -182,6 +193,17 @@
             },
             "minItems": 4
           }
+        },
+        "default_instance": {
+          "type": "string",
+          "pattern": "^[^/\\\\]*[^/\\\\\\s][^/\\\\]*$",
+          "not": {
+            "enum": [
+              ".",
+              ".."
+            ]
+          },
+          "description": "the instance (a directory under instances/ next to this config file) used when a record names none; ignored if its <name>_parameters.csv does not exist"
         }
       },
       "not": {
@@ -228,11 +250,22 @@
           "items": {
             "$ref": "#/$defs/record"
           },
-          "description": "instance records whose names are local to the supermodule"
+          "description": "instance records whose names are local to the supermodule; each may name its own module \"instance\""
         },
         "default_parameters": {
           "type": "string",
-          "description": "parameters CSV relative to this config file; rows {var}_{submodule} are local, others global"
+          "description": "legacy: parameters CSV relative to this config file; rows {var}_{submodule} are local, others global. Prefer instances/<instance>/<instance>_parameters.csv with default_instance"
+        },
+        "default_instance": {
+          "type": "string",
+          "pattern": "^[^/\\\\]*[^/\\\\\\s][^/\\\\]*$",
+          "not": {
+            "enum": [
+              ".",
+              ".."
+            ]
+          },
+          "description": "the instance (a directory under instances/ next to this config file) used when a record names none; ignored if its <name>_parameters.csv does not exist"
         }
       },
       "oneOf": [
@@ -382,6 +415,17 @@
         },
         "per_submodule_outputs": {
           "$ref": "#/$defs/perSubmodule"
+        },
+        "instance": {
+          "type": "string",
+          "pattern": "^[^/\\\\]*[^/\\\\\\s][^/\\\\]*$",
+          "not": {
+            "enum": [
+              ".",
+              ".."
+            ]
+          },
+          "description": "the module instance whose parameters this record uses: <config dir>/instances/<instance>/<instance>_parameters.csv (default: the config entry's default_instance, if that file exists)"
         }
       },
       "not": {
@@ -438,6 +482,17 @@
         },
         "per_submodule_outputs": {
           "$ref": "#/$defs/perSubmodule"
+        },
+        "instance": {
+          "type": "string",
+          "pattern": "^[^/\\\\]*[^/\\\\\\s][^/\\\\]*$",
+          "not": {
+            "enum": [
+              ".",
+              ".."
+            ]
+          },
+          "description": "the module instance whose parameters this record uses: <config dir>/instances/<instance>/<instance>_parameters.csv (default: the config entry's default_instance, if that file exists)"
         }
       },
       "not": {

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/physiomelinks/circulatory_autogen/schemas/obs_data.schema.json",
+  "title": "libcuflynx obs_data file (<name>_obs_data.json)",
+  "description": "The top level of an obs_data file: an object with data_items, protocol_info and prediction_items, and an optional obs_data_name; or (legacy) a bare list of data items. Only the top level is described here: the items and protocol_info are validated by PrimitiveParsers.ObsAndParamIdParser.parse_obs_data_json, whose vocabularies are in libcuflynx/utilities/obs_data_helpers.py. Other top-level keys are allowed.",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "obs_data_name": {
+          "type": "string",
+          "pattern": "\\S",
+          "description": "the name of this obs_data set. In a module library, instances/<name>/<name>_obs_data.json must set it to <name> (a different or missing name is warned about)."
+        },
+        "data_items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/item"
+          },
+          "description": "the observations a model is scored against"
+        },
+        "data_item": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/item"
+          },
+          "description": "legacy spelling of data_items"
+        },
+        "prediction_items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/item"
+          },
+          "description": "outputs to predict (not scored in calibration). An item with a value (plus data_type, std, and obs_dt for a series) is held-out data: after calibration the prediction is validated against it (libcuflynx.param_id.validation, validation_results.json)"
+        },
+        "protocol_info": {
+          "type": "object",
+          "description": "pre_times, sim_times, params_to_change, and the optional experiment_*, offline_pre_time, comment, protocol_traces and protocol_shapes keys; unknown keys are rejected by the parser"
+        }
+      }
+    },
+    {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/item"
+      },
+      "description": "legacy: a bare list of data items"
+    }
+  ],
+  "$defs": {
+    "item": {
+      "type": "object",
+      "description": "one data or prediction item; see the obs_data documentation"
+    }
+  }
+}

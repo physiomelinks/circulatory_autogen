@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/physiomelinks/circulatory_autogen/schemas/vessel_array.schema.json",
   "title": "libcuflynx vessel array (<prefix>_vessel_array.json)",
-  "description": "A list of module instance records. Each record uses PhLynx keys (name, module_type, module_subtype, inp_instances, out_instances) or libcuflynx keys (name, vessel_type, BC_type, inp_vessels, out_vessels), never both. Other keys are allowed. A supermodule instance may add per_submodule_inputs / per_submodule_outputs. See libcuflynx/utilities/config_schemas.py.",
+  "description": "A list of module instance records. Each record uses PhLynx keys (name, module_type, module_subtype, inp_instances, out_instances) or libcuflynx keys (name, vessel_type, BC_type, inp_vessels, out_vessels), never both. Other keys are allowed. A record may name its module instance (\"instance\"). A supermodule instance may add per_submodule_inputs / per_submodule_outputs. See libcuflynx/utilities/config_schemas.py.",
   "type": "array",
   "items": {
     "$ref": "#/$defs/record"
@@ -80,6 +80,17 @@
         },
         "per_submodule_outputs": {
           "$ref": "#/$defs/perSubmodule"
+        },
+        "instance": {
+          "type": "string",
+          "pattern": "^[^/\\\\]*[^/\\\\\\s][^/\\\\]*$",
+          "not": {
+            "enum": [
+              ".",
+              ".."
+            ]
+          },
+          "description": "the module instance whose parameters this record uses: <config dir>/instances/<instance>/<instance>_parameters.csv (default: the config entry's default_instance, if that file exists)"
         }
       },
       "not": {
@@ -136,6 +147,17 @@
         },
         "per_submodule_outputs": {
           "$ref": "#/$defs/perSubmodule"
+        },
+        "instance": {
+          "type": "string",
+          "pattern": "^[^/\\\\]*[^/\\\\\\s][^/\\\\]*$",
+          "not": {
+            "enum": [
+              ".",
+              ".."
+            ]
+          },
+          "description": "the module instance whose parameters this record uses: <config dir>/instances/<instance>/<instance>_parameters.csv (default: the config entry's default_instance, if that file exists)"
         }
       },
       "not": {
