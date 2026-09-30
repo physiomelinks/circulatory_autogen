@@ -554,8 +554,11 @@ def test_analysis_options_schema_well_formed():
         return {o['name'] for o in analysis_options(mode)}
     # gradient_method and fd_rel_step are read by run_local_sensitivity for method
     # 'local' (#338): which arm differentiates, and the finite-difference step.
+    # include_prediction_items adds the prediction items with an operation as extra outputs;
+    # read by sobol_SA (and, through it, the local method).
     assert names('sensitivity_analysis') == {
-        'method', 'sample_type', 'num_samples', 'gradient_method', 'fd_rel_step'}
+        'method', 'sample_type', 'num_samples', 'gradient_method', 'fd_rel_step',
+        'include_prediction_items'}
     # 'uq', not 'mcmc': MCMC is one UQ method, and 'method' is the seam the others are added at.
     assert names('uq') == {'method', 'library', 'num_steps', 'num_walkers', 'burn_in',
                            'num_tune', 'pymc_method', 'chain_save_every'}
@@ -572,7 +575,7 @@ def test_analysis_options_schema_well_formed():
         'emulator_dir', 'model_serialiser', 'models', 'num_train_samples', 'reuse_samples',
         'sample_type', 'num_stages', 'frac_per_stage', 'method_per_stage', 'weight_per_stage',
         'log_scale_params', 'random_seed', 'test_fraction', 'n_splits', 'n_iter', 'min_r2',
-        'out_of_bounds', 'fd_rel_step'}
+        'out_of_bounds', 'fd_rel_step', 'include_prediction_items'}
     assert analysis_options('not_a_mode') == []
     # the enabling flags match the documented user_inputs feature flags
     assert {m['enable_flag'] for m in ANALYSIS_OPTIONS.values()} == {

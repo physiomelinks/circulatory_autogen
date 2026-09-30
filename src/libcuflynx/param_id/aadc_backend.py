@@ -132,7 +132,13 @@ def cost_and_grad(pid, param_vals):
     # parameters). Refuse rather than silently differentiate the wrong thing.
     num_experiments = pid.protocol_info["num_experiments"] if pid.protocol_info else 1
     num_sub_per_exp = pid.protocol_info["num_sub_per_exp"] if pid.protocol_info else [1]
-    if num_experiments > 1 or any(n > 1 for n in num_sub_per_exp):
+    # A prediction/validation-only experiment is not part of the cost, so it does not count;
+    # the tape then records experiment 0, which must be the (only) one the cost uses.
+    from libcuflynx.parsers.PrimitiveParsers import cost_experiment_idxs
+    cost_exps = cost_experiment_idxs(pid.protocol_info) if pid.protocol_info else [0]
+    if cost_exps == [0] and num_sub_per_exp[0] == 1:
+        pass
+    elif num_experiments > 1 or any(n > 1 for n in num_sub_per_exp):
         raise NotImplementedError(
             f'the AADC tape cannot represent a protocol with {num_experiments} experiment(s) '
             f'and sub-experiment counts {list(num_sub_per_exp)}: it records a single '

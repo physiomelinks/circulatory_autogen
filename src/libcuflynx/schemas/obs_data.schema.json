@@ -31,7 +31,7 @@
           "items": {
             "$ref": "#/$defs/item"
           },
-          "description": "outputs to predict (not scored in calibration). An item with a value (plus data_type, std, and obs_dt for a series) is held-out data: after calibration the prediction is validated against it (libcuflynx.param_id.validation, validation_results.json)"
+          "description": "outputs to predict (not scored in calibration). An item with a value (plus data_type, std, and obs_dt for a series) is held-out data: after calibration the prediction is validated against it (libcuflynx.param_id.validation, validation_results.json). An item with an operation (and optional operation_kwargs, as for a data item) is a scalar feature: its held-out value is compared with operation(operands), and sensitivity analysis and emulator training include it when sa_options / emulator_settings include_prediction_items is true"
         },
         "protocol_info": {
           "type": "object",
