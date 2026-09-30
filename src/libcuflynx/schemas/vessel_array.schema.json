@@ -1,0 +1,177 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/physiomelinks/circulatory_autogen/schemas/vessel_array.schema.json",
+  "title": "libcuflynx vessel array (<prefix>_vessel_array.json)",
+  "description": "A list of module instance records. Each record uses PhLynx keys (name, module_type, module_subtype, inp_instances, out_instances) or libcuflynx keys (name, vessel_type, BC_type, inp_vessels, out_vessels), never both. Other keys are allowed. A supermodule instance may add per_submodule_inputs / per_submodule_outputs. See libcuflynx/utilities/config_schemas.py.",
+  "type": "array",
+  "items": {
+    "$ref": "#/$defs/record"
+  },
+  "$defs": {
+    "name": {
+      "type": "string",
+      "pattern": "\\S",
+      "description": "an instance name"
+    },
+    "nameList": {
+      "description": "instance names: a list, or one space-separated string",
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "perSubmodule": {
+      "description": "{submodule: [host, ...]}, or a list of one-key objects",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/nameList"
+          }
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "minProperties": 1,
+            "maxProperties": 1,
+            "additionalProperties": {
+              "$ref": "#/$defs/nameList"
+            }
+          }
+        }
+      ]
+    },
+    "phlynxRecord": {
+      "title": "instance record, PhLynx keys",
+      "type": "object",
+      "required": [
+        "name",
+        "module_type",
+        "module_subtype"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "module_type": {
+          "$ref": "#/$defs/name",
+          "description": "the module type (libcuflynx vessel_type)"
+        },
+        "module_subtype": {
+          "$ref": "#/$defs/name",
+          "description": "the module variant (libcuflynx BC_type)"
+        },
+        "inp_instances": {
+          "$ref": "#/$defs/nameList"
+        },
+        "out_instances": {
+          "$ref": "#/$defs/nameList"
+        },
+        "per_submodule_inputs": {
+          "$ref": "#/$defs/perSubmodule"
+        },
+        "per_submodule_outputs": {
+          "$ref": "#/$defs/perSubmodule"
+        }
+      },
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "vessel_type"
+            ]
+          },
+          {
+            "required": [
+              "BC_type"
+            ]
+          },
+          {
+            "required": [
+              "inp_vessels"
+            ]
+          },
+          {
+            "required": [
+              "out_vessels"
+            ]
+          }
+        ]
+      }
+    },
+    "libcuflynxRecord": {
+      "title": "instance record, libcuflynx keys",
+      "type": "object",
+      "required": [
+        "name",
+        "vessel_type",
+        "BC_type"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "vessel_type": {
+          "$ref": "#/$defs/name"
+        },
+        "BC_type": {
+          "$ref": "#/$defs/name"
+        },
+        "inp_vessels": {
+          "$ref": "#/$defs/nameList"
+        },
+        "out_vessels": {
+          "$ref": "#/$defs/nameList"
+        },
+        "per_submodule_inputs": {
+          "$ref": "#/$defs/perSubmodule"
+        },
+        "per_submodule_outputs": {
+          "$ref": "#/$defs/perSubmodule"
+        }
+      },
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "module_type"
+            ]
+          },
+          {
+            "required": [
+              "module_subtype"
+            ]
+          },
+          {
+            "required": [
+              "inp_instances"
+            ]
+          },
+          {
+            "required": [
+              "out_instances"
+            ]
+          }
+        ]
+      }
+    },
+    "record": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/phlynxRecord"
+        },
+        {
+          "$ref": "#/$defs/libcuflynxRecord"
+        }
+      ]
+    }
+  }
+}

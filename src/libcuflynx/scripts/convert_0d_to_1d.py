@@ -13,7 +13,8 @@ import sys
 import json
 import csv
 from pathlib import Path
-from libcuflynx.utilities.config_schemas import read_vessel_array_csv
+from libcuflynx.utilities.config_schemas import (read_vessel_array_records, vessel_array_path,
+                                                 vessel_records_to_string_frame)
 
 
 def convert_0d_to_1d(model, folder_0d, param_file_0d, folder_hyb=None, vess_1d_list=[]):
@@ -31,7 +32,10 @@ def convert_0d_to_1d(model, folder_0d, param_file_0d, folder_hyb=None, vess_1d_l
     if not os.path.exists(folder_hyb):
         os.makedirs(folder_hyb)
     
-    df_vess = read_vessel_array_csv(folder_0d / f"{model}_0d_vessel_array.csv")
+    # <model>_0d_vessel_array.json or .csv (or a PhLynx module array), as strings with the
+    # inp/out lists space-separated
+    df_vess = vessel_records_to_string_frame(
+        read_vessel_array_records(vessel_array_path(str(folder_0d), f"{model}_0d")))
     df_params = pd.read_csv(folder_0d / param_file_0d)
 
     n1d = len(vess_1d_list)

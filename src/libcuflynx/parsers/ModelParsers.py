@@ -6,7 +6,8 @@ Created on 29/10/2021
 
 
 from libcuflynx.parsers.PrimitiveParsers import CSVFileParser, JSONFileParser
-from libcuflynx.utilities.config_schemas import read_vessel_array_csv
+from libcuflynx.utilities.config_schemas import (load_expanded_vessel_records, load_supermodule_registry,
+                                                 load_vessel_array, vessel_records_to_string_frame)
 from libcuflynx.models.LumpedModels import CVS0DModel
 from libcuflynx.checks.LumpedModelChecks import LumpedCompositeCheck, LumpedBCVesselCheck, LumpedIDParamsCheck, LumpedPortVariableCheck
 import pandas as pd
@@ -22,6 +23,24 @@ from libcuflynx.utilities.module_library import ModuleSources
 # column, for instance) without shifting the ones that matter -- see issue #159. 'const_type' is
 # deliberately absent: it is supplied by the module config, not by the CSV.
 _REQUIRED_PARAMETER_COLUMNS = ('variable_name', 'units', 'value', 'data_reference')
+
+
+def merge_default_parameters(parameters_array, extra_param_rows):
+    '''
+    ``parameters_array`` (the structured array of a parameters CSV) with the rows of
+    ``extra_param_rows`` (dicts keyed by column name) whose variable_name it does not already
+    have appended -- so the host file's values win. Columns a row lacks are left empty.
+    '''
+    if not extra_param_rows:
+        return parameters_array
+    fields = parameters_array.dtype.names or ()
+    existing = set(parameters_array['variable_name'].tolist()) if 'variable_name' in fields else set()
+    new_rows = [row for row in extra_param_rows if row['variable_name'] not in existing]
+    if not new_rows:
+        return parameters_array
+    added = np.array([tuple(str(row.get(field, '')) for field in fields) for row in new_rows],
+                     dtype=parameters_array.dtype)
+    return np.concatenate([parameters_array, added])
 
 
 class CSV0DModelParser(object):
@@ -48,10 +67,16 @@ class CSV0DModelParser(object):
 
         self.conn_1d_0d_info = None
 
-    def split_0d_1d_vessel_array(self):
-        # libcuflynx or PhLynx (module array) layout, with libcuflynx column names either way
-        vessels_df = read_vessel_array_csv(self.vessel_filename, header=0, dtype=str, skipinitialspace=True) #, na_filter=False)
-        vessels_df = vessels_df.fillna('')
+    def split_0d_1d_vessel_array(self, supermodule_registry=None):
+        '''
+        Writes the 0D and 1D parts of the vessel array (JSON or CSV, either layout, with its
+        supermodule instances expanded) to vessel_filename_0d and vessel_filename_1d, as CSV.
+        Returns the supermodules' default parameter rows (see config_schemas.load_vessel_array).
+        '''
+        records, extra_param_rows = load_expanded_vessel_records(self.vessel_filename,
+                                                                 supermodule_registry)
+        # strings, with the inp/out lists space-separated, as the code below expects
+        vessels_df = vessel_records_to_string_frame(records)
         
         vessels_rows_0d = []
         vessels_rows_1d = []
@@ -408,19 +433,24 @@ class CSV0DModelParser(object):
         
         vessels_df_0d.to_csv(self.vessel_filename_0d, index=None, header=True) # or index=False
         vessels_df_1d.to_csv(self.vessel_filename_1d, index=None, header=True)
+        return extra_param_rows
 
 
 
     def load_model(self):
-        # TODO if file ending is csv. elif file ending is json
-        # TODO create a json_parser
+        # Supermodule entries of the module configs. They never join the module dataframe:
+        # their instances are expanded into prefixed submodules as the vessel array is read,
+        # before anything below (the heart special case, the module-config join) sees it.
+        supermodule_registry = load_supermodule_registry(self.module_sources.config_files)
+        # The vessel array is JSON records or a CSV converted to the same records
+        # (utilities/config_schemas.py). extra_param_rows are the supermodules' default
+        # parameters under the expanded names; they are merged into the parameters below.
         if self.vessel_filename_0d is None:
-            vessels_df = self.csv_parser.get_data_as_dataframe_multistrings(self.vessel_filename, True,
-                                                                            vessel_array=True)
+            vessels_df, extra_param_rows = load_vessel_array(self.vessel_filename,
+                                                             supermodule_registry)
         else:
-            self.split_0d_1d_vessel_array()
-            vessels_df = self.csv_parser.get_data_as_dataframe_multistrings(self.vessel_filename_0d, True,
-                                                                            vessel_array=True)
+            extra_param_rows = self.split_0d_1d_vessel_array(supermodule_registry)
+            vessels_df, _ = load_vessel_array(self.vessel_filename_0d)
         
 
         # TODO remove the below:
@@ -453,6 +483,12 @@ class CSV0DModelParser(object):
             print("ERROR: Repeated entries of vessel_type and BC_type found in module_config.json:")
             print(duplicates)
             exit()
+        component_keys = set(zip(module_df["vessel_type"], module_df["BC_type"]))
+        shadowed = sorted(key for key in supermodule_registry if key in component_keys)
+        if shadowed:
+            raise ValueError(f'{shadowed} are defined both as supermodules and as component '
+                             f'modules in the module configs; a (vessel_type, BC_type) can be '
+                             f'only one of them.')
          
         # add module info to each row of vessel array
         self.json_parser.append_module_config_info_to_vessel_df(vessels_df, module_df)
@@ -463,6 +499,9 @@ class CSV0DModelParser(object):
 
         # TODO change to using a pandas dataframe
         parameters_array_orig = self.csv_parser.get_data_as_nparray(self.parameter_filename, True)
+        # Supermodule default parameters fill in whatever the parameters file does not set,
+        # before the reduction, so everything downstream (generation, parameter id) sees them.
+        parameters_array_orig = merge_default_parameters(parameters_array_orig, extra_param_rows)
         # Reduce parameters_array so that it only includes the required parameters for
         # this vessel_array.
         # This will output True if all the required parameters have been defined and

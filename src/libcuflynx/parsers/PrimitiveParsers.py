@@ -37,7 +37,7 @@ from libcuflynx.param_id.modifier_funcs import (BUILTIN_MODIFIER_FUNCS, get_modi
 # answers without opening MPI when nothing launched this process.
 from libcuflynx.utilities import mpi_utils as _mpi_utils
 from libcuflynx.utilities.module_library import as_dir_list
-from libcuflynx.utilities.config_schemas import (load_module_config, normalise_vessel_array_columns,
+from libcuflynx.utilities.config_schemas import (load_module_config, load_vessel_array,
                                                  vessel_array_path)
 from libcuflynx.utilities.paths import (default_generated_models_dir, default_funcs_user_dir,
                                         default_param_id_output_dir, default_resources_dir,
@@ -2741,10 +2741,13 @@ class YamlFileParser(object):
             file_prefix_0d = file_prefix + '_0d'
             file_prefix_1d = file_prefix + '_1d'
 
-            vessels_csv_abs_path = inp_data_dict['vessels_csv_abs_path']
-            idx_last = vessels_csv_abs_path.rfind(file_prefix)
-            vessel_filename_0d = vessels_csv_abs_path[:idx_last] + file_prefix_0d + vessels_csv_abs_path[idx_last+len(file_prefix):]
-            vessel_filename_1d = vessels_csv_abs_path[:idx_last] + file_prefix_1d + vessels_csv_abs_path[idx_last+len(file_prefix):]
+            # The 0D and 1D parts are intermediate files written by
+            # CSV0DModelParser.split_0d_1d_vessel_array from the (supermodule-expanded) vessel
+            # array, whatever its format. They are always <prefix>_{0d,1d}_vessel_array.csv, so
+            # the 1D generator finds them under the same names.
+            resources_dir = inp_data_dict['resources_dir']
+            vessel_filename_0d = os.path.join(resources_dir, file_prefix_0d + '_vessel_array.csv')
+            vessel_filename_1d = os.path.join(resources_dir, file_prefix_1d + '_vessel_array.csv')
 
             inp_data_dict['file_prefix_0d'] = file_prefix_0d
             inp_data_dict['file_prefix_1d'] = file_prefix_1d
@@ -3023,18 +3026,19 @@ class CSVFileParser(object):
         entries are put in a list in the entry for the dataframe
         :param filename: filename of CSV file
         :param has_header: If CSV file has a header
-        :param vessel_array: the file is a vessel array, in the libcuflynx layout or PhLynx's
-            module-array layout; its columns are normalised to the libcuflynx names
-            (see utilities/config_schemas.py)
+        :param vessel_array: the file is a vessel array (CSV in the libcuflynx or PhLynx
+            layout, or JSON records); it is read by utilities/config_schemas.load_vessel_array,
+            with libcuflynx column names. Supermodule instances are not expanded here: use
+            load_vessel_array with a supermodule registry for that.
         '''
+        if vessel_array:
+            return load_vessel_array(filename)[0]
         if( has_header ):
             csv_dataframe = pd.read_csv(filename, dtype=str, na_filter=False)
         else:
             csv_dataframe = pd.read_csv(filename, dtype=str, header=None, na_filter=False)
 
         csv_dataframe = csv_dataframe.rename(columns=lambda x: x.strip())
-        if vessel_array:
-            csv_dataframe = normalise_vessel_array_columns(csv_dataframe, source=str(filename))
         # Ensure object dtype so list-like assignments are allowed (pandas >=2.0 uses StringArray)
         csv_dataframe = csv_dataframe.astype(object)
         for II in range(csv_dataframe.shape[0]):
@@ -3169,13 +3173,17 @@ class JSONFileParser(object):
         return file.endswith('.json') and not file.startswith('._')
 
     def module_config_to_dataframe(self, json_path):
-        """The entries of one module config JSON file, in either the libcuflynx or the PhLynx
-        schema, as a dataframe with libcuflynx column names (see utilities/config_schemas.py)."""
+        """The component entries of one module config JSON file, in either the libcuflynx or
+        the PhLynx schema, as a dataframe with libcuflynx column names (see
+        utilities/config_schemas.py). Supermodule entries are left out."""
         return pd.DataFrame(load_module_config(json_path))
 
     def json_files_to_dataframe(self, json_files):
         """All module config entries from ``json_files``, in order, as one dataframe."""
+        # a file of supermodule entries only gives an empty frame: those entries are read by
+        # config_schemas.load_supermodule_registry, never joined as components
         dfs = [self.module_config_to_dataframe(path) for path in json_files]
+        dfs = [df for df in dfs if not df.empty]
         if not dfs:
             raise ValueError('No module config JSON files were found: check use_builtin_modules, '
                              'external_modules_dir and module_library_dirs')
