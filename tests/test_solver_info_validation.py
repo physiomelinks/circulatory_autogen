@@ -568,11 +568,15 @@ def test_analysis_options_schema_well_formed():
     # model_serialiser is an escape hatch rather than a knob: joblib cannot pickle
     # every fitted emulator, and the failure lands after the training simulations
     # have been paid for (#468).
+    # tuning_metric chooses what the fit is *selected on* -- R2, autoemulate's own
+    # default, or the cost the emulator exists to drive. classifier_n_iter tunes the
+    # classifier halves of a two_phase_/multi_phase_ emulator, which previously had no
+    # search at all while the regression halves each got n_iter draws.
     assert names('emulation') == {
         'emulator_dir', 'model_serialiser', 'models', 'num_train_samples', 'reuse_samples',
         'sample_type', 'num_stages', 'frac_per_stage', 'method_per_stage', 'weight_per_stage',
-        'log_scale_params', 'random_seed', 'test_fraction', 'n_splits', 'n_iter', 'min_r2',
-        'out_of_bounds', 'fd_rel_step'}
+        'log_scale_params', 'random_seed', 'test_fraction', 'n_splits', 'n_iter',
+        'classifier_n_iter', 'tuning_metric', 'min_r2', 'out_of_bounds', 'fd_rel_step'}
     assert analysis_options('not_a_mode') == []
     # the enabling flags match the documented user_inputs feature flags
     assert {m['enable_flag'] for m in ANALYSIS_OPTIONS.values()} == {

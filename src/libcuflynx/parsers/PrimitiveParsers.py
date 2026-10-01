@@ -1936,6 +1936,27 @@ ANALYSIS_OPTIONS = {
              'description': 'Cross-validation folds autoemulate uses when comparing emulators.'},
             {'name': 'n_iter', 'type': 'int', 'default': 10, 'required': False,
              'description': 'Hyper-parameter settings sampled per emulator during tuning.'},
+            # The classifier halves of a two_phase_/multi_phase_ emulator had no search at
+            # all while the regression halves got n_iter tuned draws each -- and on an
+            # obs_data where half the items are counts, the untuned half is the one doing
+            # most of the damage. 1 reproduces the untuned behaviour exactly.
+            {'name': 'classifier_n_iter', 'type': 'int', 'default': 4, 'required': False,
+             'description': ('Configurations tried per classifier in a two-phase or '
+                             'multi-phase emulator, scored by cross-validated log loss. '
+                             '1 means sklearn defaults only, as before.')},
+            # What the fit is *selected on*. 'r2' is the default because it is what every
+            # existing bundle was chosen by, and changing that silently would make two runs
+            # of the same config incomparable. 'cost' measures each feature's error in units
+            # of its own obs_data sigma and weights it the way the cost does -- the currency
+            # the emulator is actually used in. R2 divides by the feature's spread across
+            # the design, which has no relationship to the cost: a worst-feature R2 of
+            # 0.9943 has been measured alongside the cost understated 4.1x.
+            {'name': 'tuning_metric', 'type': 'enum', 'default': 'r2', 'required': False,
+             'choices': ['r2', 'cost'],
+             'description': ('Metric the hyper-parameter search and the choice between '
+                             'emulator families are decided by. r2 is autoemulate\'s own '
+                             'default; cost weights each feature by 1/sigma from the '
+                             'obs_data, which is the scale the cost is denominated in.')},
             # The refusal that makes the rest of it safe. An emulator below this is not slower
             # or noisier -- it is confidently wrong, and nothing downstream can tell.
             {'name': 'min_r2', 'type': 'float', 'default': 0.9, 'required': False,
@@ -2669,6 +2690,8 @@ class YamlFileParser(object):
         emulator_settings.setdefault('test_fraction', 0.2)
         emulator_settings.setdefault('n_splits', 5)
         emulator_settings.setdefault('n_iter', 10)
+        emulator_settings.setdefault('classifier_n_iter', 4)
+        emulator_settings.setdefault('tuning_metric', 'r2')
         emulator_settings.setdefault('min_r2', 0.9)
         emulator_settings.setdefault('out_of_bounds', 'error')
         emulator_settings.setdefault('fd_rel_step', 1e-3)
