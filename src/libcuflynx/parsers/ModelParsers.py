@@ -9,6 +9,7 @@ from libcuflynx.parsers.PrimitiveParsers import CSVFileParser, JSONFileParser
 from libcuflynx.utilities.config_schemas import read_vessel_array_csv
 from libcuflynx.models.LumpedModels import CVS0DModel
 from libcuflynx.checks.LumpedModelChecks import LumpedCompositeCheck, LumpedBCVesselCheck, LumpedIDParamsCheck, LumpedPortVariableCheck
+from libcuflynx.generators.cpp.api import validate_module_config_apis
 import pandas as pd
 import numpy as np
 import json
@@ -454,6 +455,10 @@ class CSV0DModelParser(object):
             print(duplicates)
             exit()
          
+        # api blocks describe how a module talks to another model; catch malformed ones here,
+        # at load time, rather than half way through code generation.
+        validate_module_config_apis(module_df)
+
         # add module info to each row of vessel array
         self.json_parser.append_module_config_info_to_vessel_df(vessels_df, module_df)
 

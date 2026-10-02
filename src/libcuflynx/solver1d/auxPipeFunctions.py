@@ -40,13 +40,6 @@ def openPipes(pipePath, N1d0d, couple_volume_sum):
             write_pipe.append( open(pipePath+"one_to_parent_"+pipeID, "wb", buffering=0) )
             # print("1d solver :: Write pipe "+pipeID+" opened successfully")
         
-        if couple_volume_sum:
-            # Open write pipe
-            if not os.path.exists(pipePath+"one_to_parent_vol"):
-                os.mkfifo(pipePath+"one_to_parent_vol")
-            # Open write pipe
-            write_pipe_vol = open(pipePath+"one_to_parent_vol", "wb", buffering=0)
-
         # Open read pipe
         if not os.path.exists(pipePath+"parent_to_one_dt"):
             os.mkfifo(pipePath+"parent_to_one_dt")
@@ -64,6 +57,14 @@ def openPipes(pipePath, N1d0d, couple_volume_sum):
             # print("1d solver :: Opening read pipe "+pipeID+"...")
             read_pipe.append( open(pipePath+"parent_to_one_"+pipeID, "rb", buffering=0) )
             # print("1d solver :: Read pipe "+pipeID+" opened successfully")
+
+        # The volume pipe is opened last: the coupler opens its end of it only after all of the
+        # other pipes, and a FIFO open blocks until both ends are opened, so opening it before
+        # the read pipes above deadlocked every model with a 1D volume sum.
+        if couple_volume_sum:
+            if not os.path.exists(pipePath+"one_to_parent_vol"):
+                os.mkfifo(pipePath+"one_to_parent_vol")
+            write_pipe_vol = open(pipePath+"one_to_parent_vol", "wb", buffering=0)
 
         return write_pipe_dt, read_pipe_dt, write_pipe, read_pipe, write_pipe_vol
     

@@ -63,9 +63,36 @@
     {
       "vessel_type":"FV1D_vessel",
       "BC_type":"vp",
-      "module_format":"cpp",
+      "module_format":"external_api",
       "module_file":"",
-      "module_type":"Muller_1d",
+      "module_type":"FV_1d_pipe",
+      "api":
+      {
+        "name":"FV_1d_pipe",
+        "description":"0D-1D coupling to the FV 1D solver (libcuflynx/solver1d) through the coupler (libcuflynx/coupler) over named pipes. Every 0D right-hand-side evaluation exchanges one message per connection.",
+        "role":"consumer",
+        "transport":"named_pipe",
+        "exchange":"per_rhs",
+        "message_length":2,
+        "channels":
+        {
+          "dt":{"send":"zero_to_parent_dt", "recv":"parent_to_zero_dt"},
+          "conn":{"send":"zero_to_parent_{i}", "recv":"parent_to_zero_{i}", "indexed_by":"connection"},
+          "volume":{"recv":"parent_to_zero_vol"}
+        },
+        "calls":
+        [
+          {"name":"sync_step", "kind":"send_recv", "when":"step_start", "channel":"dt",
+           "send":["$voi", "$dt"], "recv":["$ignore", "$dt"]},
+          {"name":"sync_time", "kind":"send", "when":"rhs_start", "channel":"dt",
+           "send":["$voi", "$dt_stage"]},
+          {"name":"bc_exchange", "kind":"send_recv", "when":"rhs", "channel":"conn", "per":"connection",
+           "send_by_input":{"flow":["port.pressure", "control.FV_resistance_port|0"], "pressure":["port.flow", 0.0]},
+           "recv":["port.input"]},
+          {"name":"step_done", "kind":"send_recv", "when":"step_end", "channel":"dt",
+           "send":["$voi", -999.0], "recv":["$ignore", "$ignore"]}
+        ]
+      },
       "entrance_ports":
       [
         {
@@ -88,9 +115,36 @@
     {
       "vessel_type":"FV1D_vessel",
       "BC_type":"pv",
-      "module_format":"cpp",
+      "module_format":"external_api",
       "module_file":"",
-      "module_type":"Muller_1d",
+      "module_type":"FV_1d_pipe",
+      "api":
+      {
+        "name":"FV_1d_pipe",
+        "description":"0D-1D coupling to the FV 1D solver (libcuflynx/solver1d) through the coupler (libcuflynx/coupler) over named pipes. Every 0D right-hand-side evaluation exchanges one message per connection.",
+        "role":"consumer",
+        "transport":"named_pipe",
+        "exchange":"per_rhs",
+        "message_length":2,
+        "channels":
+        {
+          "dt":{"send":"zero_to_parent_dt", "recv":"parent_to_zero_dt"},
+          "conn":{"send":"zero_to_parent_{i}", "recv":"parent_to_zero_{i}", "indexed_by":"connection"},
+          "volume":{"recv":"parent_to_zero_vol"}
+        },
+        "calls":
+        [
+          {"name":"sync_step", "kind":"send_recv", "when":"step_start", "channel":"dt",
+           "send":["$voi", "$dt"], "recv":["$ignore", "$dt"]},
+          {"name":"sync_time", "kind":"send", "when":"rhs_start", "channel":"dt",
+           "send":["$voi", "$dt_stage"]},
+          {"name":"bc_exchange", "kind":"send_recv", "when":"rhs", "channel":"conn", "per":"connection",
+           "send_by_input":{"flow":["port.pressure", "control.FV_resistance_port|0"], "pressure":["port.flow", 0.0]},
+           "recv":["port.input"]},
+          {"name":"step_done", "kind":"send_recv", "when":"step_end", "channel":"dt",
+           "send":["$voi", -999.0], "recv":["$ignore", "$ignore"]}
+        ]
+      },
       "entrance_ports":
       [
         {
@@ -113,9 +167,36 @@
     {
       "vessel_type":"FV1D_vessel",
       "BC_type":"vv",
-      "module_format":"cpp",
+      "module_format":"external_api",
       "module_file":"",
-      "module_type":"Muller_1d",
+      "module_type":"FV_1d_pipe",
+      "api":
+      {
+        "name":"FV_1d_pipe",
+        "description":"0D-1D coupling to the FV 1D solver (libcuflynx/solver1d) through the coupler (libcuflynx/coupler) over named pipes. Every 0D right-hand-side evaluation exchanges one message per connection.",
+        "role":"consumer",
+        "transport":"named_pipe",
+        "exchange":"per_rhs",
+        "message_length":2,
+        "channels":
+        {
+          "dt":{"send":"zero_to_parent_dt", "recv":"parent_to_zero_dt"},
+          "conn":{"send":"zero_to_parent_{i}", "recv":"parent_to_zero_{i}", "indexed_by":"connection"},
+          "volume":{"recv":"parent_to_zero_vol"}
+        },
+        "calls":
+        [
+          {"name":"sync_step", "kind":"send_recv", "when":"step_start", "channel":"dt",
+           "send":["$voi", "$dt"], "recv":["$ignore", "$dt"]},
+          {"name":"sync_time", "kind":"send", "when":"rhs_start", "channel":"dt",
+           "send":["$voi", "$dt_stage"]},
+          {"name":"bc_exchange", "kind":"send_recv", "when":"rhs", "channel":"conn", "per":"connection",
+           "send_by_input":{"flow":["port.pressure", "control.FV_resistance_port|0"], "pressure":["port.flow", 0.0]},
+           "recv":["port.input"]},
+          {"name":"step_done", "kind":"send_recv", "when":"step_end", "channel":"dt",
+           "send":["$voi", -999.0], "recv":["$ignore", "$ignore"]}
+        ]
+      },
       "entrance_ports":
       [
         {
@@ -138,9 +219,36 @@
     {
       "vessel_type":"FV1D_vessel",
       "BC_type":"nn",
-      "module_format":"cpp",
+      "module_format":"external_api",
       "module_file":"",
-      "module_type":"Muller_1d",
+      "module_type":"FV_1d_pipe",
+      "api":
+      {
+        "name":"FV_1d_pipe",
+        "description":"0D-1D coupling to the FV 1D solver (libcuflynx/solver1d) through the coupler (libcuflynx/coupler) over named pipes. Every 0D right-hand-side evaluation exchanges one message per connection.",
+        "role":"consumer",
+        "transport":"named_pipe",
+        "exchange":"per_rhs",
+        "message_length":2,
+        "channels":
+        {
+          "dt":{"send":"zero_to_parent_dt", "recv":"parent_to_zero_dt"},
+          "conn":{"send":"zero_to_parent_{i}", "recv":"parent_to_zero_{i}", "indexed_by":"connection"},
+          "volume":{"recv":"parent_to_zero_vol"}
+        },
+        "calls":
+        [
+          {"name":"sync_step", "kind":"send_recv", "when":"step_start", "channel":"dt",
+           "send":["$voi", "$dt"], "recv":["$ignore", "$dt"]},
+          {"name":"sync_time", "kind":"send", "when":"rhs_start", "channel":"dt",
+           "send":["$voi", "$dt_stage"]},
+          {"name":"bc_exchange", "kind":"send_recv", "when":"rhs", "channel":"conn", "per":"connection",
+           "send_by_input":{"flow":["port.pressure", "control.FV_resistance_port|0"], "pressure":["port.flow", 0.0]},
+           "recv":["port.input"]},
+          {"name":"step_done", "kind":"send_recv", "when":"step_end", "channel":"dt",
+           "send":["$voi", -999.0], "recv":["$ignore", "$ignore"]}
+        ]
+      },
       "entrance_ports":
       [
         {
@@ -218,6 +326,21 @@
       "module_format":"cellml",
       "module_file":"coupling_modules.cellml",
       "module_type":"volume_sum_1D",
+      "api":
+      {
+        "name":"FV_1d_volume_sum",
+        "description":"Blood volume held in the 1D vessels, received from the FV 1D solver at initialisation and after every 0D step.",
+        "role":"consumer",
+        "transport":"named_pipe",
+        "exchange":"per_time_step",
+        "message_length":2,
+        "channels":{"volume":{"recv":"parent_to_zero_vol"}},
+        "calls":
+        [
+          {"name":"recv_volume", "kind":"recv", "when":["init", "step_end"], "channel":"volume",
+           "recv":["q_sum", "$ignore"]}
+        ]
+      },
       "entrance_ports":
       [
         {

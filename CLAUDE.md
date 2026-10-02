@@ -103,7 +103,7 @@ Each setting is a descriptor `{name, type, default, required, description, choic
 | Dir | Contents / purpose |
 |---|---|
 | `solver_wrappers/` | `SimulationHelper` backends + `get_simulation_helper()` factory (`__init__.py`). Backends: `myokit_helper.py`, `opencor_helper.py`, `python_solver_helper.py`, `casadi_python_solver_helper.py`, `emulator_solver_helper.py` (answers from a trained emulator; `emulates_features = True` tells the two reduction sites to skip the obs `operation`), `external_simulation_helper.py` (wraps a user-supplied solver class for `model_type: external_python`; the wrapper owns the timeline, the user owns the stepping). `name_resolver.py` maps variable names. |
-| `generators/` | `CVSCellMLGenerator.py`, `PythonGenerator.py` (libCellML Analyser, strict ODE), `CVSCppGenerator.py`, `Python1DModelFilesGenerator.py`. |
+| `generators/` | `CVSCellMLGenerator.py`, `PythonGenerator.py` (libCellML Analyser, strict ODE), `cpp/` (model_type cpp: `generator.py` renders libCellML's C output plus Jinja2 `templates/`; external variables come from `delay_info` and module-config `api` blocks, `api.py`/`externals.py`), `CVSCppGenerator.py` (compatibility re-export), `Python1DGenerator.py` + `Python1DModelFilesGenerator.py` (1D solver inputs). |
 | `param_id/` | `paramID.py` (calibration), `optimisers.py`, `differentiable.py` + `math_backend.py` + `operation_funcs.py` (AD), `plot_outputs.py`. |
 | `protocol_runners/` | `protocol_runner.py`, `protocol_executor.py` — the multi-experiment/sub-experiment simulation loop. |
 | `sensitivity_analysis/` | `sensitivityAnalysis.py`, `sobolSA.py`. |

@@ -5,6 +5,44 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Changed! — `model_type: cpp` is generated from libCellML's C output and Jinja2 templates
+
+The C++ generator is rewritten (`libcuflynx/generators/cpp/`). The model equations are
+libCellML's C code, written unmodified (`model0d_core.c/.h`); the `Model0d` class, the solvers,
+`main0d` and a `CMakeLists.txt` are rendered from templates. Build with CMake (add
+`-DSUNDIALS_DIR=<prefix>` if SUNDIALS isn't found; versions 5-7 work). Solvers are CVODE and the
+fixed-step RK4/Heun/midpoint/explEul; **PETSC is no longer supported** and is refused with an
+error. Generated models no longer get the `solver1d/Make_files` copied next to them (they built
+the old C++), and the coupler builds with CMake. FV_1d coupled output is identical to before.
+
+### Added — `api` blocks: couplings to other models described in module configs
+
+A module config entry can carry an `api` block. `role: consumer` describes calls the generated
+C++ makes (the FV 1D named-pipe protocol is now described this way in
+`coupling_modules_config.json`); `role: provider` generates a C++ class another program calls,
+e.g. a drop-in `lifex::Circulation`. A provider is its own vessel-array row
+(`module_format: external_api`) coupled to CellML modules through ports; values it sets become
+libCellML external variables. `external_modules_dir` also accepts a list of directories.
+
+### Added — readable generated C/C++
+
+Generated C code names every state and variable index: `rates[S_heart_module_q_lv] =
+(variables[V_parameters_r_pvn] ...)` instead of `rates[3] = (variables[12] ...)`.
+`model0d_core.h` declares the `StateIndex`/`VariableIndex` enums, with each name's component,
+variable, units and type, and the wrapper, pipe hooks and api classes use the same names. The
+names are the generated Python's attribute names (shared `generators/naming.py`). Results are
+unchanged.
+
+### Fixed — cpp generation and 1D coupling
+
+- `model_type: cpp` with CVODE always failed solver-settings validation.
+- Models with more than one delay variable did not compile; delays now use a time-stamped
+  history that works with variable CVODE steps.
+- 1D volume sum: the 1D solver opened its volume pipe in an order that deadlocked with the
+  coupler, and sent the volume in cm³ instead of m³.
+- 1D input generation wrote an unknown artery/vein type for vessels not named `A_*`/`V_*`;
+  an `art_ven_type_<vessel>` parameter now sets it.
+
 ### Added — PhLynx module-config and vessel-array schemas; `"Sum"` and `"Multiply"` multi_ports
 
 The module library is moving its configs to PhLynx's key names, and libcuflynx now reads both

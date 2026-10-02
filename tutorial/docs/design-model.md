@@ -143,7 +143,7 @@ A module config entry can also use PhLynx's key names. The generator detects the
 
 - **vessel_type**: This will be the "vessel_type" entry in the vessel_array file
 - **BC_type**: This will be the "BC_type" entry in the vessel_array file
-- **module_format**: Currently only cellml is supported but in the future, cpp modules and others will be allowed.
+- **module_format**: `cellml` for a CellML module. `external_api` marks an entry that is not CellML but describes, in an `api` block, how the generated model talks to another model (see below).
 - **module_file**: The file within `[CA_dir]/src/libcuflynx/generators/resources/`, `[CA_dir]/module_config_user/`, or your `external_modules_dir` that contains the CellML module this config entry links to.
 - **module_type**: The name of the module/computational_environment within the module cellml file.
 - **entrance_ports**: Specification of the port types that this module can take if it is connected as an "out_vessel" to another module. If a port_type matches to the port_type of a exit_port in a module coupled as an input, then the port_types variables, e.g. [v_in, u] get mapped to the variables in the coupled modules exit port e.g. [v, u_out].
@@ -181,6 +181,25 @@ A module config entry can also use PhLynx's key names. The generator detects the
         All constants are required to be entered in the `[resources_dir]/[file_prefix]_parameters.csv` file with the following naming convention: **[variable_name]_[vessel_name]**.
 
         All global_constants are required to be entered in the `[resources_dir]/[file_prefix]_parameters.csv` file as just **[variable_name]**.
+
+
+### Coupling to other models: the `api` block
+
+A module config entry can carry an `api` block describing how a generated C++ model (`model_type: cpp`) exchanges values with another model. Values received from the other model become libCellML external variables of the generated code. Two roles exist:
+
+- **`role: consumer`**: the generated code calls out to the other model. The FV 1D solver coupling is described this way, on the `FV1D_vessel` and `FV1D_volume_sum` entries of `src/libcuflynx/generators/resources/coupling_modules_config.json`:
+    - `transport: named_pipe`.
+    - `channels` names the pipes.
+    - Each entry of `calls` says `when` it happens (`init`, `step_start`, `rhs_start`, `rhs`, `step_end`), what it `send`s (`$voi`, `$dt`, `port.flow`, `port.pressure`, `control.<port_type>|default`, numbers) and what it `recv`s (`port.input`, a model variable, `$dt`, `$ignore`).
+- **`role: provider`**: the generated code *is* the interface another program calls.
+    - `transport: cpp_class` generates a C++ class whose methods are listed in `functions`.
+    - Each function has a `kind`: `set`, `get`, `set_state`, `set_indexed`, `get_indexed`, `time`, `time_discretization`, `step`, `noop` or `extrapolate`.
+    - The provider is its own row in the vessel array, with `module_format: external_api`. It is connected to CellML modules through ports, exactly like a CellML module: its entrance ports take same-typed exit ports of its `inp_vessels`, its exit ports feed same-typed entrance ports of its `out_vessels`, and variables pair up by position.
+    - Functions name the provider's own port variable (or `component/variable` for anything else) and its `api_units`. A `set` function's variable becomes an external variable of the connected CellML module.
+    - The CellML model does not include the provider. The CellML variables its ports drive stay boundary-condition constants there, so the CellML model is complete on its own.
+    - Example: in the CVS-ANS 3D-heart coupling, `heart_3D_lifex` (a drop-in `lifex::Circulation`) sends chamber pressures to a CellML heart through `chamber_pressure_port` and receives chamber volumes through `chamber_volume_port`.
+
+The blocks are validated when the module configs are loaded (`libcuflynx/generators/cpp/api.py`).
 
 ## Converting an existing CellML model to run in Circulatory Autogen
 

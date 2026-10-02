@@ -1,0 +1,201 @@
+// ---------------------------------------------------------------------------------------------
+// Output files: "# 0: t[s]; 1: module/variable[units]; ..." headers, one row per saved time.
+// ---------------------------------------------------------------------------------------------
+
+namespace {
+
+std::string stripSuffix(std::string s, const std::string &suffix)
+{
+    size_t pos = s.rfind(suffix);
+    if (pos != std::string::npos && pos == s.size() - suffix.size()) {
+        s.erase(pos);
+    }
+    return s;
+}
+
+std::vector<std::string> moduleList()
+{
+    std::vector<std::string> modules;
+    const std::string modSuffix = "_module";
+    for (size_t i = 0; i < STATE_COUNT; ++i) {
+        std::string m = std::string(STATE_INFO[i].component);
+        size_t pos = m.rfind(modSuffix);
+        if (pos != std::string::npos && pos == m.size() - modSuffix.size()) {
+            m.erase(pos);
+            if (std::find(modules.begin(), modules.end(), m) == modules.end()) {
+                modules.push_back(m);
+            }
+        }
+    }
+    return modules;
+}
+
+// The module/variable key used in the output headers. Values that live in the "parameters"
+// component (e.g. a boundary condition received from a coupled model) are named after the module
+// whose name they carry as a suffix.
+std::string headerKey(const VariableInfo &info, const std::vector<std::string> &modules)
+{
+    std::string modName = std::string(info.component);
+    std::string varName = std::string(info.name);
+    if (modName == "parameters") {
+        for (const auto &m : modules) {
+            if (varName.find(m) != std::string::npos) {
+                return m + "/" + stripSuffix(varName, "_" + m);
+            }
+        }
+        return "parameters/" + varName;
+    }
+    return stripSuffix(modName, "_module") + "/" + varName;
+}
+
+std::string extractNameFromHeader(std::string item)
+{
+    size_t colonPos = item.find(':');
+    if (colonPos != std::string::npos) {
+        item = item.substr(colonPos + 1);
+    }
+    size_t bracketPos = item.find('[');
+    if (bracketPos != std::string::npos) {
+        item = item.substr(0, bracketPos);
+    }
+    item.erase(0, item.find_first_not_of(" \t\r\n"));
+    item.erase(item.find_last_not_of(" \t\r\n") + 1);
+    return item;
+}
+
+bool isOutputVariable(const VariableInfo &info)
+{
+    bool typeOk = (info.type == ALGEBRAIC){% if has_externals %} || (info.type == EXTERNAL){% endif %};
+    if (!typeOk) {
+        return false;
+    }
+    // reported from their module (or the parameters component), not from the wrapper components
+    std::string comp = std::string(info.component);
+    return comp == "parameters" || stripSuffix(comp, "_module") != comp;
+}
+
+} // namespace
+
+void Model0d::openOutputFiles(std::string outDir)
+{
+    if (!outDir.empty() && outDir.back() != '/') {
+        outDir += "/";
+    }
+    if (makeDirectories(outDir) != 0) {
+        std::cerr << "0d solver :: openOutputFiles() could not create folder " << outDir << ": "
+                  << std::strerror(errno) << std::endl;
+    }
+    outFileStates.open(outDir + "sol0D_states.txt");
+    outFileVars.open(outDir + "sol0D_variables.txt");
+    if (!outFileStates.is_open() || !outFileVars.is_open()) {
+        std::cerr << "0d solver :: could not open output files in " << outDir << std::endl;
+    }
+
+    std::vector<std::string> modules = moduleList();
+    idx_states_to_output.clear();
+    idx_vars_to_output.clear();
+
+    int count = 0;
+    outFileStates << "# 0: t[s]; ";
+    for (size_t i = 0; i < STATE_COUNT; ++i) {
+        idx_states_to_output.push_back(static_cast<int>(i));
+        outFileStates << std::to_string(count + 1) << ": " << headerKey(STATE_INFO[i], modules) << "["
+                      << STATE_INFO[i].units << "]; ";
+        count++;
+    }
+    outFileStates << std::endl;
+    outFileStates.flush();
+
+    count = 0;
+    outFileVars << "# 0: t[s]; ";
+    for (size_t i = 0; i < VARIABLE_COUNT; ++i) {
+        if (isOutputVariable(VARIABLE_INFO[i])) {
+            outFileVars << std::to_string(count + 1) << ": " << headerKey(VARIABLE_INFO[i], modules) << "["
+                        << VARIABLE_INFO[i].units << "]; ";
+            idx_vars_to_output.push_back(static_cast<int>(i));
+            count++;
+        }
+    }
+    outFileVars << std::endl;
+    outFileVars.flush();
+}
+
+void Model0d::loadFromFile(const std::string &filename, double *targetArray,
+                           const VariableInfo infoArray[], size_t infoSize, bool useFirstRow)
+{
+    std::ifstream file(filename);
+    if (!file.is_open()) {
+        std::cerr << "0d solver :: could not open " << filename << "; keeping default values." << std::endl;
+        return;
+    }
+    std::string headerLine;
+    if (!std::getline(file, headerLine)) {
+        return;
+    }
+    std::vector<std::string> modules = moduleList();
+    std::map<std::string, int> lookup;
+    for (size_t i = 0; i < infoSize; ++i) {
+        lookup[headerKey(infoArray[i], modules)] = static_cast<int>(i);
+    }
+    std::vector<int> colToArrayIndex;
+    std::stringstream ss(headerLine);
+    std::string item;
+    while (std::getline(ss, item, ';')) {
+        std::string cleaned = extractNameFromHeader(item);
+        if (cleaned.find("t[s]") != std::string::npos || cleaned == "t" || cleaned == "0") {
+            colToArrayIndex.push_back(-1);
+        } else if (lookup.count(cleaned)) {
+            colToArrayIndex.push_back(lookup[cleaned]);
+        } else {
+            colToArrayIndex.push_back(-2);
+        }
+    }
+    std::string dataLine;
+    std::string currentLine;
+    while (std::getline(file, currentLine)) {
+        if (!currentLine.empty()) {
+            dataLine = currentLine;
+            if (useFirstRow) {
+                break;
+            }
+        }
+    }
+    if (!dataLine.empty()) {
+        std::stringstream dataSS(dataLine);
+        double colVal;
+        size_t colIdx = 0;
+        int loadedCount = 0;
+        while (dataSS >> colVal && colIdx < colToArrayIndex.size()) {
+            int targetIdx = colToArrayIndex[colIdx];
+            if (targetIdx >= 0) {
+                targetArray[targetIdx] = colVal;
+                loadedCount++;
+            }
+            colIdx++;
+        }
+        std::cout << "Successfully loaded " << loadedCount << " values from " << filename << std::endl;
+    }
+}
+
+void Model0d::writeOutput(double voiLoc)
+{
+    outFileStates << std::scientific << std::setprecision(18) << voiLoc << " ";
+    for (size_t i = 0; i < idx_states_to_output.size(); ++i) {
+        outFileStates << std::scientific << std::setprecision(18) << states[idx_states_to_output[i]] << " ";
+    }
+    outFileStates << std::endl;
+    outFileStates.flush();
+
+    outFileVars << std::scientific << std::setprecision(18) << voiLoc << " ";
+    for (size_t i = 0; i < idx_vars_to_output.size(); ++i) {
+        outFileVars << std::scientific << std::setprecision(18) << variables[idx_vars_to_output[i]] << " ";
+    }
+    outFileVars << std::endl;
+    outFileVars.flush();
+}
+
+void Model0d::closeOutputFiles()
+{
+    outFileStates.close();
+    outFileVars.close();
+}
