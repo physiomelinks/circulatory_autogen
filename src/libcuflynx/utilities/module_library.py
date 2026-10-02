@@ -17,6 +17,12 @@ Modules come from up to four places, in this order:
 ``use_builtin_modules: false`` switches off (1) and (2) so a module library such as
 circulatory-autogen-modules can be the only source of modules. Without it, redefining a
 built-in (vessel_type, BC_type) in a library is rejected as a duplicate.
+
+The environment variable ``CUFLYNX_MODULE_LIBRARY`` (one directory, or several separated by
+``os.pathsep``) is the default for a config that sets neither ``module_library_dirs`` nor
+``use_builtin_modules``: those modules are used, and the built-in ones are not. It is how a
+whole installation (or the test suite) moves onto a module library without editing every
+user_inputs.yaml.
 '''
 
 import os
@@ -25,6 +31,8 @@ import xml.etree.ElementTree as ET
 
 from libcuflynx.utilities.package_resources import builtin_modules_dir
 from libcuflynx.utilities.paths import default_module_config_user_dir
+
+MODULE_LIBRARY_ENV = 'CUFLYNX_MODULE_LIBRARY'
 
 CELLML_1_1_NS = 'http://www.cellml.org/cellml/1.1#'
 
@@ -77,15 +85,23 @@ def as_dir_list(dirs):
     return list(dirs)
 
 
+def module_settings(inp_data_dict):
+    '''(use_builtin_modules, module_library_dirs) for ``inp_data_dict``, with the
+    CUFLYNX_MODULE_LIBRARY default applied when it sets neither.'''
+    use_builtin = inp_data_dict.get('use_builtin_modules')
+    library_dirs = as_dir_list(inp_data_dict.get('module_library_dirs'))
+    env = os.environ.get(MODULE_LIBRARY_ENV)
+    if env and use_builtin is None and not library_dirs:
+        return False, [d for d in env.split(os.pathsep) if d]
+    return (True if use_builtin is None else bool(use_builtin)), library_dirs
+
+
 class ModuleSources(object):
     '''The module, config and units files a model is generated from.'''
 
     def __init__(self, inp_data_dict):
-        use_builtin = inp_data_dict.get('use_builtin_modules', True)
-        if use_builtin is None:
-            use_builtin = True
+        use_builtin, library_dirs = module_settings(inp_data_dict)
         external_dir = inp_data_dict.get('external_modules_dir')
-        library_dirs = as_dir_list(inp_data_dict.get('module_library_dirs'))
 
         builtin = builtin_modules_dir()
         # base_script.cellml is the skeleton every generated model starts from, not a module,

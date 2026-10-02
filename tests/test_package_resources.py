@@ -74,9 +74,11 @@ def test_builtin_modules_dir_is_a_real_directory():
 
 
 @pytest.mark.unit
-def test_generator_uses_the_packaged_library():
+def test_generator_uses_the_packaged_library(monkeypatch):
     """The generator's own lookup must land in the package, not in a sibling checkout."""
     from libcuflynx.utilities.module_library import ModuleSources
+
+    monkeypatch.delenv('CUFLYNX_MODULE_LIBRARY', raising=False)  # the built-in default, unswitched
 
     sources = ModuleSources({})
     assert os.path.isfile(sources.base_script)
@@ -166,6 +168,11 @@ def test_the_built_wheel_carries_the_data_files_and_not_the_dead_code(tmp_path):
     # Example input for example_format_obs_data_json_file(), which is itself shipped.
     assert any(n.startswith('libcuflynx/scripts/example_data/') and n.endswith('.csv')
                for n in names), sorted(n for n in names if 'example_data' in n)
+
+    # The JSON Schemas of the vessel array, module config and obs_data files.
+    assert 'libcuflynx/schemas/vessel_array.schema.json' in names
+    assert 'libcuflynx/schemas/module_config.schema.json' in names
+    assert 'libcuflynx/schemas/obs_data.schema.json' in names
 
     # ...and the dead code that packages.find excludes stays excluded.
     obsolete = sorted(n for n in names if n.startswith('libcuflynx/obsolete/'))

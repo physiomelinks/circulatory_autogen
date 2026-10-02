@@ -1,0 +1,534 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/physiomelinks/circulatory_autogen/schemas/module_config.schema.json",
+  "title": "libcuflynx module config (*_modules_config.json)",
+  "description": "A list of module config entries: component entries in libcuflynx keys (vessel_type, BC_type, module_file, module_type) or PhLynx keys (module_type, module_subtype, component_file, component_type), and supermodule entries (module_format \"supermodule\" with a submodules list of instance records). See libcuflynx/utilities/config_schemas.py. Any entry may name a default_instance: a directory under instances/ next to the config file holding <instance>_parameters.csv.",
+  "type": "array",
+  "items": {
+    "$ref": "#/$defs/entry"
+  },
+  "$defs": {
+    "port": {
+      "type": "object",
+      "required": [
+        "port_type",
+        "variables"
+      ],
+      "properties": {
+        "port_type": {
+          "type": "string"
+        },
+        "variables": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "multi_port": {
+          "description": "\"True\", \"Sum\", \"Multiply\" (any case), or a list with one entry per variable",
+          "type": [
+            "string",
+            "boolean",
+            "array"
+          ]
+        },
+        "multiply_factor": {
+          "type": "number"
+        }
+      }
+    },
+    "libcuflynxComponent": {
+      "title": "component entry, libcuflynx keys",
+      "type": "object",
+      "required": [
+        "vessel_type",
+        "BC_type",
+        "module_file",
+        "module_type"
+      ],
+      "properties": {
+        "vessel_type": {
+          "type": "string"
+        },
+        "BC_type": {
+          "type": "string"
+        },
+        "module_file": {
+          "type": "string"
+        },
+        "module_type": {
+          "type": "string",
+          "description": "the CellML component name"
+        },
+        "module_format": {
+          "type": "string",
+          "not": {
+            "const": "supermodule"
+          }
+        },
+        "entrance_ports": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/port"
+          }
+        },
+        "exit_ports": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/port"
+          }
+        },
+        "general_ports": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/port"
+          }
+        },
+        "variables_and_units": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 4
+          }
+        },
+        "default_instance": {
+          "type": "string",
+          "pattern": "^[^/\\\\]*[^/\\\\\\s][^/\\\\]*$",
+          "not": {
+            "enum": [
+              ".",
+              ".."
+            ]
+          },
+          "description": "the instance (a directory under instances/ next to this config file) used when a record names none; ignored if its <name>_parameters.csv does not exist"
+        }
+      },
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "module_subtype"
+            ]
+          },
+          {
+            "required": [
+              "component_file"
+            ]
+          },
+          {
+            "required": [
+              "component_type"
+            ]
+          },
+          {
+            "required": [
+              "submodules"
+            ]
+          }
+        ]
+      }
+    },
+    "phlynxComponent": {
+      "title": "component entry, PhLynx keys",
+      "type": "object",
+      "required": [
+        "module_type",
+        "module_subtype",
+        "component_file",
+        "component_type"
+      ],
+      "properties": {
+        "module_type": {
+          "type": "string",
+          "description": "the libcuflynx vessel_type"
+        },
+        "module_subtype": {
+          "type": "string"
+        },
+        "component_file": {
+          "type": "string"
+        },
+        "component_type": {
+          "type": "string"
+        },
+        "module_format": {
+          "type": "string",
+          "not": {
+            "const": "supermodule"
+          }
+        },
+        "entrance_ports": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/port"
+          }
+        },
+        "exit_ports": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/port"
+          }
+        },
+        "general_ports": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/port"
+          }
+        },
+        "variables_and_units": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 4
+          }
+        },
+        "default_instance": {
+          "type": "string",
+          "pattern": "^[^/\\\\]*[^/\\\\\\s][^/\\\\]*$",
+          "not": {
+            "enum": [
+              ".",
+              ".."
+            ]
+          },
+          "description": "the instance (a directory under instances/ next to this config file) used when a record names none; ignored if its <name>_parameters.csv does not exist"
+        }
+      },
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "vessel_type"
+            ]
+          },
+          {
+            "required": [
+              "BC_type"
+            ]
+          },
+          {
+            "required": [
+              "module_file"
+            ]
+          },
+          {
+            "required": [
+              "submodules"
+            ]
+          }
+        ]
+      }
+    },
+    "supermodule": {
+      "title": "supermodule entry",
+      "type": "object",
+      "required": [
+        "submodules"
+      ],
+      "properties": {
+        "module_format": {
+          "const": "supermodule"
+        },
+        "description": {
+          "type": "string"
+        },
+        "submodules": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/record"
+          },
+          "description": "instance records whose names are local to the supermodule; each may name its own module \"instance\""
+        },
+        "default_parameters": {
+          "type": "string",
+          "description": "legacy: parameters CSV relative to this config file; rows {var}_{submodule} are local, others global. Prefer instances/<instance>/<instance>_parameters.csv with default_instance"
+        },
+        "default_instance": {
+          "type": "string",
+          "pattern": "^[^/\\\\]*[^/\\\\\\s][^/\\\\]*$",
+          "not": {
+            "enum": [
+              ".",
+              ".."
+            ]
+          },
+          "description": "the instance (a directory under instances/ next to this config file) used when a record names none; ignored if its <name>_parameters.csv does not exist"
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "module_type",
+            "module_subtype"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "vessel_type"
+                ]
+              },
+              {
+                "required": [
+                  "BC_type"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "vessel_type",
+            "BC_type"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "module_type"
+                ]
+              },
+              {
+                "required": [
+                  "module_subtype"
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "component_file"
+            ]
+          },
+          {
+            "required": [
+              "component_type"
+            ]
+          },
+          {
+            "required": [
+              "module_file"
+            ]
+          }
+        ]
+      }
+    },
+    "entry": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/libcuflynxComponent"
+        },
+        {
+          "$ref": "#/$defs/phlynxComponent"
+        },
+        {
+          "$ref": "#/$defs/supermodule"
+        }
+      ]
+    },
+    "name": {
+      "type": "string",
+      "pattern": "\\S",
+      "description": "an instance name"
+    },
+    "nameList": {
+      "description": "instance names: a list, or one space-separated string",
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "perSubmodule": {
+      "description": "{submodule: [host, ...]}, or a list of one-key objects",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/nameList"
+          }
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "minProperties": 1,
+            "maxProperties": 1,
+            "additionalProperties": {
+              "$ref": "#/$defs/nameList"
+            }
+          }
+        }
+      ]
+    },
+    "phlynxRecord": {
+      "title": "instance record, PhLynx keys",
+      "type": "object",
+      "required": [
+        "name",
+        "module_type",
+        "module_subtype"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "module_type": {
+          "$ref": "#/$defs/name",
+          "description": "the module type (libcuflynx vessel_type)"
+        },
+        "module_subtype": {
+          "$ref": "#/$defs/name",
+          "description": "the module variant (libcuflynx BC_type)"
+        },
+        "inp_instances": {
+          "$ref": "#/$defs/nameList"
+        },
+        "out_instances": {
+          "$ref": "#/$defs/nameList"
+        },
+        "per_submodule_inputs": {
+          "$ref": "#/$defs/perSubmodule"
+        },
+        "per_submodule_outputs": {
+          "$ref": "#/$defs/perSubmodule"
+        },
+        "instance": {
+          "type": "string",
+          "pattern": "^[^/\\\\]*[^/\\\\\\s][^/\\\\]*$",
+          "not": {
+            "enum": [
+              ".",
+              ".."
+            ]
+          },
+          "description": "the module instance whose parameters this record uses: <config dir>/instances/<instance>/<instance>_parameters.csv (default: the config entry's default_instance, if that file exists)"
+        }
+      },
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "vessel_type"
+            ]
+          },
+          {
+            "required": [
+              "BC_type"
+            ]
+          },
+          {
+            "required": [
+              "inp_vessels"
+            ]
+          },
+          {
+            "required": [
+              "out_vessels"
+            ]
+          }
+        ]
+      }
+    },
+    "libcuflynxRecord": {
+      "title": "instance record, libcuflynx keys",
+      "type": "object",
+      "required": [
+        "name",
+        "vessel_type",
+        "BC_type"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "vessel_type": {
+          "$ref": "#/$defs/name"
+        },
+        "BC_type": {
+          "$ref": "#/$defs/name"
+        },
+        "inp_vessels": {
+          "$ref": "#/$defs/nameList"
+        },
+        "out_vessels": {
+          "$ref": "#/$defs/nameList"
+        },
+        "per_submodule_inputs": {
+          "$ref": "#/$defs/perSubmodule"
+        },
+        "per_submodule_outputs": {
+          "$ref": "#/$defs/perSubmodule"
+        },
+        "instance": {
+          "type": "string",
+          "pattern": "^[^/\\\\]*[^/\\\\\\s][^/\\\\]*$",
+          "not": {
+            "enum": [
+              ".",
+              ".."
+            ]
+          },
+          "description": "the module instance whose parameters this record uses: <config dir>/instances/<instance>/<instance>_parameters.csv (default: the config entry's default_instance, if that file exists)"
+        }
+      },
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "module_type"
+            ]
+          },
+          {
+            "required": [
+              "module_subtype"
+            ]
+          },
+          {
+            "required": [
+              "inp_instances"
+            ]
+          },
+          {
+            "required": [
+              "out_instances"
+            ]
+          }
+        ]
+      }
+    },
+    "record": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/phlynxRecord"
+        },
+        {
+          "$ref": "#/$defs/libcuflynxRecord"
+        }
+      ]
+    }
+  }
+}

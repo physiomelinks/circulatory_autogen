@@ -1,0 +1,123 @@
+[
+  {
+    "module_type": "Min_junction",
+    "module_subtype": "vp_simple",
+    "module_format": "cellml",
+    "component_file": "Min_junction_vp_simple_modules.cellml",
+    "component_type": "vp_Min_simple_type",
+    "default_instance": "default",
+    "licence": "CC0-1.0",
+    "creator": [],
+    "entrance_ports": [
+      {
+        "port_type": "vessel_port",
+        "variables": [
+          "v_in_sum",
+          "u"
+        ],
+        "multi_port": "True"
+      },
+      {
+        "port_type": "external_pressure_port",
+        "variables": [
+          "u_ext"
+        ]
+      }
+    ],
+    "exit_ports": [
+      {
+        "port_type": "vessel_port",
+        "variables": [
+          "v",
+          "u_out"
+        ]
+      },
+      {
+        "port_type": "volume_port",
+        "variables": [
+          "q"
+        ]
+      }
+    ],
+    "variables_and_units": [
+      [
+        "u",
+        "J_per_m3",
+        "access",
+        "variable"
+      ],
+      [
+        "v",
+        "m3_per_s",
+        "access",
+        "variable"
+      ],
+      [
+        "v_in_sum",
+        "m3_per_s",
+        "access",
+        "boundary_condition"
+      ],
+      [
+        "u_out",
+        "J_per_m3",
+        "access",
+        "boundary_condition"
+      ],
+      [
+        "u_ext",
+        "J_per_m3",
+        "access",
+        "boundary_condition"
+      ],
+      [
+        "u_0",
+        "J_per_m3",
+        "access",
+        "constant"
+      ],
+      [
+        "u_C",
+        "J_per_m3",
+        "access",
+        "variable"
+      ],
+      [
+        "q_C",
+        "m3",
+        "access",
+        "variable"
+      ],
+      [
+        "q",
+        "m3",
+        "access",
+        "variable"
+      ],
+      [
+        "q_0",
+        "m3",
+        "access",
+        "constant"
+      ],
+      [
+        "R",
+        "Js_per_m6",
+        "access",
+        "constant"
+      ],
+      [
+        "C",
+        "m6_per_J",
+        "access",
+        "constant"
+      ],
+      [
+        "I",
+        "Js2_per_m6",
+        "access",
+        "constant"
+      ]
+    ]
+  }
+]

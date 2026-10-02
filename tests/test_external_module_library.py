@@ -162,8 +162,10 @@ def test_module_library_duplicate_of_builtin_rejected_when_builtins_on(tmp_path)
         generate_with_new_architecture(False, config)
 
 
-def test_module_sources_default_is_builtin_library():
-    """Without the new keys, sources are exactly the built-in (and user) modules."""
+def test_module_sources_default_is_builtin_library(monkeypatch):
+    """Without the new keys (or CUFLYNX_MODULE_LIBRARY), sources are exactly the built-in (and
+    user) modules."""
+    monkeypatch.delenv('CUFLYNX_MODULE_LIBRARY', raising=False)
     sources = ModuleSources({'external_modules_dir': None})
     builtin = builtin_modules_dir()
     assert os.path.join(builtin, 'units.cellml') in sources.units_files
@@ -202,3 +204,26 @@ def test_conflicting_units_raise(tmp_path):
 def test_missing_library_dir_raises(tmp_path):
     with pytest.raises(FileNotFoundError):
         ModuleSources({'external_modules_dir': None, 'module_library_dirs': [str(tmp_path / 'nope')]})
+
+
+def test_module_library_env_is_the_default_library(monkeypatch, tmp_path):
+    """CUFLYNX_MODULE_LIBRARY replaces the built-in modules for a config that chooses neither,
+    and is ignored by one that sets module_library_dirs or use_builtin_modules."""
+    library = tmp_path / 'library'
+    library.mkdir()
+    other = tmp_path / 'other'
+    other.mkdir()
+    builtin = builtin_modules_dir()
+    monkeypatch.setenv('CUFLYNX_MODULE_LIBRARY', os.pathsep.join([str(library), str(other)]))
+
+    sources = ModuleSources({})
+    assert not any(p.startswith(builtin) for p in sources.config_files + sources.cellml_files)
+    assert sources.base_script == os.path.join(builtin, 'base_script.cellml')
+
+    sources = ModuleSources({'use_builtin_modules': True})
+    assert any(p.startswith(builtin) and p.endswith('.json') for p in sources.config_files)
+
+    from libcuflynx.utilities.module_library import module_settings
+    assert module_settings({}) == (False, [str(library), str(other)])
+    assert module_settings({'module_library_dirs': [str(other)]}) == (True, [str(other)])
+    assert module_settings({'use_builtin_modules': False}) == (False, [])

@@ -211,7 +211,9 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
             
             code1d_generator = None
             if generate_1d:
-                vessels1d_csv_abs_path = inp_data_dict['vessels_csv_abs_path'] = os.path.join(inp_data_dict['resources_dir'], file_prefix_1d + '_vessel_array.csv')
+                # the 1D part split_0d_1d_vessel_array wrote, under the name parse_user_inputs_file
+                # chose for it (whatever the input vessel array's name and format)
+                vessels1d_csv_abs_path = inp_data_dict['vessels_csv_abs_path'] = inp_data_dict['vessels_1d_csv_abs_path']
                 if 'solver_1d_type' in inp_data_dict:
                     if inp_data_dict['solver_1d_type'].startswith('py'):
                         code1d_generator = CVS1DPythonGenerator(model, file_prefix_1d, vessels1d_csv_abs_path, parameters_csv_abs_path,

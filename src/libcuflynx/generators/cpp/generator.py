@@ -16,7 +16,6 @@ import jinja2
 
 from libcuflynx.utilities.paths import default_resources_dir
 from libcuflynx.generators.CVSCellMLGenerator import CVS0DCellMLGenerator
-from libcuflynx.generators.multi_port import module_has_list_multi_port
 from libcuflynx.generators.cpp import externals as ext
 from libcuflynx.generators.cpp.api import unit_factor
 from libcuflynx.generators.naming import build_symbols
@@ -80,15 +79,6 @@ class CVS0DCppGenerator(object):
         self.generated_model_file_path = os.path.join(self.generated_model_subdir, self.file_prefix + '.cellml')
 
         self.couple_to_1d = couple_to_1d
-        if self.couple_to_1d and getattr(model, 'vessels_df', None) is not None and \
-                any(module_has_list_multi_port(row) for _, row in model.vessels_df.iterrows()):
-            # the 0D-1D coupling reads port variables straight from the module config
-            # and knows nothing of per-variable multi_port semantics
-            raise NotImplementedError(
-                'List-form (per-variable) multi_port, and the whole-port "Sum" (on ports other '
-                'than volume_port) and "Multiply" forms built on it, are not supported when '
-                'coupling the C++ model to a 1D model (couple_to_1d). Use "True"/volume_port '
-                '"sum" multi_port there, or generate without 1D coupling.')
         self.conn_1d_0d_info = conn_1d_0d_info if couple_to_1d else None
         self.model_1d_config_path = model_1d_config_path
         # main0d.cpp is always written now: it runs standalone as well as under the coupler.

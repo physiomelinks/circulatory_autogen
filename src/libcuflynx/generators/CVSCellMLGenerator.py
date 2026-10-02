@@ -26,6 +26,7 @@ except ImportError as e:
     LIBCELLML_available = False
 
 from libcuflynx.utilities.utility_funcs import UnitConverter
+from libcuflynx.generators.port_nodes import owned_nodes, node_variable_pairs
 from libcuflynx.generators.multi_port import (MULTI_PORT_SUM, MULTI_PORT_MULTIPLY, is_multi_port,
                                               is_multiply_port, list_multi_port, multiply_factor)
 
@@ -616,6 +617,10 @@ class CVS0DCellMLGenerator(object):
                     self.BC_set[module_df.iloc[module_row_idx]["name"]] \
                         [module_df.iloc[module_row_idx]["variables_and_units"][II][0]] = False
 
+        # nodes where several vessels meet, owned by a list-form "sum" vessel_port, are mapped
+        # here as a whole; the pairwise loop below skips the connections inside them
+        self.__write_port_node_mappings(wf, module_df)
+
         # module_df.apply(self.__write_module_mapping_for_row, args=(module_df, wf), axis=1)
         # The above line is much faster but I'm worried about memory access of entrance_ports_connected
         for module_row_idx in range(len(module_df)):
@@ -770,6 +775,10 @@ class CVS0DCellMLGenerator(object):
                                                 "port_type_count": 1})
                     
             for port_type_idx in range(len(port_types)):
+                if port_types[port_type_idx]["port_type"] == "vessel_port" and \
+                        (main_module, out_module) in self._node_edges:
+                    # mapped with the rest of its node (__write_port_node_mappings)
+                    continue
                 entrance_port_type_idx = -1
                 entrance_port_idx = -1
                 for II in range(len(entrance_port_types)):
@@ -1127,6 +1136,48 @@ class CVS0DCellMLGenerator(object):
 
         return entrance_general_ports_connected
 
+    def __write_port_node_mappings(self, wf, module_df):
+        """Map every node owned by a list-form "sum" vessel_port (see generators/port_nodes.py).
+
+        The owner's "sum" variable becomes the signed sum, over every other end of the node, of
+        that end's corresponding variable, and its "True" variables are mapped to every other
+        end's. A node of exactly two ends is a plain one-to-one mapping, so a vessel whose port
+        can sum costs nothing where it meets only one other vessel.
+        """
+        self._node_edges = set()
+        self._node_direct_sums = set()
+        module_formats = dict(zip(module_df["name"], module_df["module_format"]))
+        for node in owned_nodes(module_df):
+            sum_terms, shared = node_variable_pairs(node, module_formats)
+            owner = node.owner.module
+            if any(module_formats.get(e.module) != 'cellml' for e in node.endpoints):
+                # one-to-one with an FV1D vessel or api provider: the pairwise code handles it,
+                # and the owner's port variables stay boundary conditions the coupling supplies
+                # (never the zero of an unconnected sum)
+                for owner_variable, _, _, _ in sum_terms:
+                    self._node_direct_sums.add((owner, owner_variable))
+                continue
+            self._node_edges |= node.edges()
+            for owner_variable, end, end_variable, sign in sum_terms:
+                if len(node.endpoints) == 2:
+                    shared.append((owner_variable, end, end_variable))
+                    self._node_direct_sums.add((owner, owner_variable))
+                else:
+                    self.__add_multiport_sum_term(owner, owner_variable, end, end_variable,
+                                                  factor=None if sign > 0 else -1.0)
+            by_end = {}
+            for owner_variable, end, end_variable in shared:
+                by_end.setdefault(end, ([], []))
+                by_end[end][0].append(owner_variable)
+                by_end[end][1].append(end_variable)
+            for end, (owner_variables, end_variables) in by_end.items():
+                self.__write_mapping(wf, owner + '_module', end + '_module', owner_variables, end_variables,
+                                     check_unit=True)
+            for end_point in node.endpoints:
+                for variable in end_point.port['variables']:
+                    if variable in self.BC_set.get(end_point.module, {}):
+                        self.BC_set[end_point.module][variable] = True
+
     def __map_list_multi_port_pair(self, main_module, out_module, main_port, out_port,
                                    variables_1, variables_2, pending_mappings):
         """Map one port pair where either side has a list-form multi_port, or ``main_port`` is
@@ -1233,7 +1284,15 @@ class CVS0DCellMLGenerator(object):
         entry['terms'].append((neighbour, neighbour_variable, neighbour_units, factor))
 
     def __register_unconnected_multiport_sums(self, module_df):
-        """Register a zero sum (with a warning) for list-form "sum" variables with no neighbour."""
+        """Register a zero sum (with a warning) for list-form "sum" variables with no neighbour.
+
+        An unconnected summing port is a boundary condition like any other unconnected port when
+        the parameters file sets it (``<variable>_<module>``): a vessel generated on its own, or a
+        compliant end left open, takes that value. Only without one is the sum zero.
+        """
+        params = self.model.parameters_array
+        given = {name for name, value in zip(params["variable_name"], params["value"])
+                 if str(value) != 'EMPTY_MUST_BE_FILLED'}
         for module_row_idx in range(len(module_df)):
             module_row = module_df.iloc[module_row_idx]
             if module_row["module_format"] != 'cellml':
@@ -1244,8 +1303,10 @@ class CVS0DCellMLGenerator(object):
                 if entries is None:
                     continue
                 for variable, entry in zip(port['variables'], entries):
-                    if entry != MULTI_PORT_SUM:
+                    if entry != MULTI_PORT_SUM or (module, variable) in self._node_direct_sums:
                         continue
+                    if (module, variable) not in self._multiport_sums and f'{variable}_{module}' in given:
+                        continue  # a boundary condition the parameters file sets
                     if not self.__register_multiport_sum(module, variable)['terms']:
                         print(f'WARNING: "{module}" variable "{variable}" is a multi_port "sum" over '
                               f'port "{port["port_type"]}", but no module is connected through that '
@@ -2155,6 +2216,10 @@ class CVS0DCellMLGenerator(object):
         if out_vessel_BC_type.startswith('nn'):
             return
         if main_vessel_BC_type.startswith('nn'):
+            return
+        if (main_vessel, out_vessel) in getattr(self, '_node_edges', set()):
+            # a node with exactly one owner: it supplies the pressure every other end takes, so
+            # two pressure-input ends meeting there is correct
             return
 
 

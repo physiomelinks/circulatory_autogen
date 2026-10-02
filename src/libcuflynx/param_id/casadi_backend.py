@@ -188,6 +188,9 @@ def build_functions(pid, param_names, param_vals=None, get_all_series=False):
     obs_meta = []
 
     for i, obs_item in enumerate(pid.obs_dict_symb):
+        if obs_item is None:
+            # a segment the cost does not simulate (a prediction/validation-only experiment)
+            continue
         output_dict = pid.get_obs_output_dict(obs_item, get_all_series, is_symbolic=True)
         if get_all_series:
             obs_dict_item, obs_series_array_all = output_dict

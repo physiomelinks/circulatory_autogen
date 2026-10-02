@@ -360,12 +360,23 @@ class SensitivityAnalysis():
             gradient_method=(self.sa_options or {}).get('gradient_method'),
             fd_rel_step=(self.sa_options or {}).get('fd_rel_step'))
 
+        # Nominal feature magnitudes for the dimensionless (relative) normalisation.
+        feat_mag = self._nominal_feature_magnitudes(engine, nominal, list(sens.keys()))
+
+        # sa_options.include_prediction_items: the prediction items with an operation become
+        # extra rows, labelled by data_item_name, after the data_item features.
+        prediction_rows = []
+        if self.SA_manager.include_prediction_items:
+            psens, pnominal, prediction_rows = self._prediction_feature_sensitivities(
+                engine, nominal, sens)
+            sens = dict(sens)
+            sens.update(psens)
+            feat_mag.update({name: abs(float(v)) for name, v in pnominal.items()})
+
         output_names = list(sens.keys())
         n_out, n_par = len(output_names), len(param_names)
         absolute = np.zeros((n_out, n_par))
         relative = np.zeros((n_out, n_par))
-        # Nominal feature magnitudes for the dimensionless (relative) normalisation.
-        feat_mag = self._nominal_feature_magnitudes(engine, nominal, output_names)
         for i, oname in enumerate(output_names):
             fmag = feat_mag.get(oname, 0.0)
             for jj, pname in enumerate(param_names):
@@ -389,6 +400,9 @@ class SensitivityAnalysis():
             'relative': relative,     # dimensionless |p| * d(feature)/d(param) / |feature|
             'raw': sens,
         }
+        if self.SA_manager.include_prediction_items:
+            # which rows are prediction features, by output name
+            self.local_sensitivities['prediction_feature_names'] = prediction_rows
         if rank == 0:
             out_dir = self.SA_manager.output_dir
             print(f"{GREEN}Local sensitivity analysis completed successfully :){RESET}")
@@ -399,6 +413,45 @@ class SensitivityAnalysis():
                 df.index.name = 'output'
                 df.to_csv(os.path.join(out_dir, f'local_sensitivity_{key}.csv'))
         return self.local_sensitivities
+
+    def _prediction_feature_sensitivities(self, engine, nominal, data_sens):
+        """d(prediction feature)/d(param) for the prediction items with an operation.
+
+        Always central finite differences (``fd_rel_step``, default 1e-3), whichever arm gave
+        the data_item rows: the analytic arms differentiate the cost's observables, and a
+        prediction item is not one. Costs 2M extra simulations (emulator evaluations with
+        use_emulator, which then must have been trained with include_prediction_items).
+        Returns ``(sensitivities, nominal values, row names)``.
+        """
+        from libcuflynx.param_id import prediction_features
+
+        info = engine.prediction_info
+        indices = prediction_features.prediction_feature_indices(
+            info, engine.operation_funcs_dict, context='the local sensitivity analysis')
+        if not indices:
+            return {}, {}, []
+        names = prediction_features.prediction_feature_names(info, indices)
+        if getattr(engine, 'emulates_features', False):
+            from libcuflynx.emulators.emulator_bundle import fingerprint
+            prediction_features.check_emulator_has_features(
+                engine.sim_helper.bundle, names,
+                fingerprint(engine.param_id_info, engine.obs_info, engine.protocol_info,
+                            engine.model_path, prediction_info=info,
+                            prediction_indices=indices),
+                min_r2=engine._use_time_setting('min_r2', 0.9))
+        # the same step the FD arm of the data_item rows reads
+        fd_rel_step = (self.sa_options or {}).get('fd_rel_step') or 1e-3
+        psens, pnominal = prediction_features.feature_sensitivities(
+            engine, nominal, info, indices, h=float(fd_rel_step))
+        # A prediction's name is unique among data_item_names, but a data_item's *label* is
+        # free text; never let a prediction row overwrite a data_item row.
+        rows, out, values = [], {}, {}
+        for name in names:
+            row = name if name not in data_sens else f'{name} [prediction]'
+            rows.append(row)
+            out[row] = psens[name]
+            values[row] = pnominal[name]
+        return out, values, rows
 
     def _nominal_feature_magnitudes(self, engine, nominal, output_names):
         """|feature| at the nominal params, keyed by observable label, for relative scaling."""

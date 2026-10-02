@@ -29,7 +29,8 @@ from libcuflynx.utilities.paths import default_param_id_output_dir, default_reso
 paperPlotSetup.Setup_Plot(3)
 from libcuflynx.solver_wrappers import get_simulation_helper
 from libcuflynx.protocol_runners.protocol_executor import ProtocolExecutor
-from libcuflynx.parsers.PrimitiveParsers import scriptFunctionParser
+from libcuflynx.parsers.PrimitiveParsers import scriptFunctionParser, cost_experiment_idxs
+from libcuflynx.param_id import validation
 # Not `from mpi4py import MPI`: that import initialises MPI and registers an
 # atexit MPI_Finalize, and with no launcher present that finalise is what aborts
 # on macOS when a NIC goes away (#396). get_MPI hands back the real
@@ -1543,25 +1544,78 @@ class CVS0DParamID():
     def run_single_sensitivity(self, do_triples_and_quads):
         self.param_id.run_single_sensitivity(self.output_dir, do_triples_and_quads)
 
-    def __get_prediction_data(self):
-        # Currently this function saves all prediction variables for all experiments
-        # only for the best_param_vals
+    def _prediction_segments(self):
+        """``(experiment, sub-experiment)`` per prediction item, and whether it is the
+        experiment's last sub-experiment (the segment recorded before subexperiment_idx)."""
+        from libcuflynx.param_id import prediction_features
+        n = len(self.prediction_info['experiment_idxs'])
+        segments = prediction_features.feature_segments(
+            self.prediction_info, list(range(n)), self.protocol_info)
+        last = [sub == prediction_features.feature_subexperiment(self.protocol_info, exp)
+                for exp, sub in segments]
+        return segments, last
 
+    def __get_prediction_data(self, items):
+        """Traces of the prediction ``items`` recorded over their experiment's last
+        sub-experiment, one entry per item (rows ``[time, the predictions of that experiment's
+        items]``) -- the ``prediction_variable_data_exp_<k>`` files. Also keeps every operand of
+        each item, by item index, in ``_prediction_operands_per_item``."""
         if self.rank !=0:
             return
 
         time_and_pred_per_exp_list = []
-        for exp_idx in self.prediction_info['experiment_idxs']:
+        # Every operand of every item, by item index: an item with an operation may reduce
+        # more than one (e.g. subtraction), and the saved arrays below hold the first only.
+        operands_per_item = {}
+        operand_lists = obs_operand_lists(self.prediction_info)
+        exps = self.prediction_info['experiment_idxs']
+        for k in items:
+            exp_idx = exps[k]
             self.param_id.simulate_once(reset=False, only_one_exp=exp_idx)
             tSim = self.param_id.sim_helper.tSim - self.param_id.pre_time
-            pred_qnames = [str(ops[0]) for ops in obs_operand_lists(self.prediction_info)]
-            pred_names = [name for II, name in enumerate(pred_qnames) if
-                                  self.prediction_info['experiment_idxs'][II] == exp_idx]
+            same_exp = [II for II in items if exps[II] == exp_idx]
+            pred_names = [str(operand_lists[II][0]) for II in same_exp]
             pred_output = np.array(self.param_id.sim_helper.get_results(pred_names))
                     
             time_and_pred_per_exp_list.append(np.concatenate((tSim.reshape(1, -1), 
                                                          pred_output[:, 0, :])))
+            new = [II for II in same_exp if II not in operands_per_item]
+            if new:
+                all_operands = self.param_id.sim_helper.get_results(
+                    [[str(op) for op in operand_lists[II]] for II in new])
+                for II, operand_series in zip(new, all_operands):
+                    operands_per_item[II] = [np.asarray(x, dtype=float).ravel()
+                                             for x in operand_series]
+        self._prediction_operands_per_item = operands_per_item
         return time_and_pred_per_exp_list
+
+    def _segment_prediction_data(self, items, segments):
+        """Traces of prediction ``items`` that name a sub-experiment other than their
+        experiment's last: ``{(exp, sub): (t, {item: [operand series]})}``, ``t`` from the
+        start of the sub-experiment (sample k at k * dt, the data_item series convention)."""
+        best = self.param_id.best_param_vals
+        if best is None:
+            best = np.load(os.path.join(self.output_dir, 'best_param_vals.npy'))
+            self.param_id.best_param_vals = best
+        operand_lists = obs_operand_lists(self.prediction_info)
+        num_sub = self.protocol_info['num_sub_per_exp']
+        out = {}
+        for exp_idx in sorted({segments[k][0] for k in items}):
+            in_exp = [k for k in items if segments[k][0] == exp_idx]
+            _, _, pred_list = self.param_id.get_cost_obs_and_pred_from_params(
+                best, reset=True, only_one_exp=exp_idx,
+                pred_names=[[str(op) for op in operand_lists[k]] for k in in_exp])
+            for sub_idx in sorted({segments[k][1] for k in in_exp}):
+                flat = int(np.sum(num_sub[:exp_idx])) + sub_idx
+                outputs = pred_list[flat] if flat < len(pred_list) else None
+                if outputs is None:
+                    raise RuntimeError(f'the simulation of experiment {exp_idx}, '
+                                       f'sub-experiment {sub_idx} at the best fit failed')
+                series = {k: [np.asarray(x, dtype=float).ravel() for x in outputs[j]]
+                          for j, k in enumerate(in_exp) if segments[k][1] == sub_idx}
+                n = len(next(iter(series.values()))[0])
+                out[(exp_idx, sub_idx)] = (np.arange(n) * self.param_id.dt, series)
+        return out
 
     def save_prediction_data(self):
         if self.rank !=0:
@@ -1572,13 +1626,26 @@ class CVS0DParamID():
             return
         if obs_operand_lists(self.prediction_info):
             print('Saving prediction data')
-            time_and_pred_per_exp_list = self.__get_prediction_data()
+            num_items = len(self.prediction_info['experiment_idxs'])
+            segments, last = self._prediction_segments()
+            # Items recorded over their experiment's last sub-experiment keep the files they
+            # always had; one that names another sub-experiment gets a file per segment.
+            legacy = [k for k in range(num_items) if last[k]]
+            other = [k for k in range(num_items) if not last[k]]
+            time_and_pred_per_exp_list = self.__get_prediction_data(legacy) if legacy else []
 
             #save the prediction output
             for exp_idx in range(len(time_and_pred_per_exp_list)):
                 time_and_pred = time_and_pred_per_exp_list[exp_idx]
                 np.save(os.path.join(self.output_dir, f'prediction_variable_data_exp_{exp_idx}'), 
                         time_and_pred)
+
+            by_segment = self._segment_prediction_data(other, segments) if other else {}
+            for (exp_idx, sub_idx), (t, series) in by_segment.items():
+                rows = [t] + [series[k][0] for k in sorted(series)]
+                np.save(os.path.join(self.output_dir,
+                                     f'prediction_variable_data_exp_{exp_idx}_sub_{sub_idx}'),
+                        np.vstack(rows))
                 
             # also save the prediction variable names to csv
             with open(os.path.join(self.output_dir, 'prediction_variable_names.csv'), 'w') as wf:
@@ -1588,6 +1655,28 @@ class CVS0DParamID():
                     wf.write(str(ops[0]) + '\n')
             
             print('prediction data saved')
+
+            # held-out data carried by prediction items (a value): validate the best fit
+            # against it, over each item's own segment, with every one of its operands (so a
+            # two-operand operation can be evaluated). Time runs from the segment's start.
+            all_operands = getattr(self, '_prediction_operands_per_item', {})
+            time_per_item, pred_per_item = [], []
+            for k in range(num_items):
+                if last[k]:
+                    rows = time_and_pred_per_exp_list[legacy.index(k)]
+                    time_per_item.append(rows[0])
+                    pred_per_item.append(all_operands[k])
+                else:
+                    t, series = by_segment[segments[k]]
+                    time_per_item.append(t)
+                    pred_per_item.append(series[k])
+            results = validation.validation_results(
+                self.prediction_info, None, pred_per_item,
+                operation_funcs_dict=self.param_id.operation_funcs_dict,
+                time_per_item=time_per_item)
+            path = validation.write_validation_results(results, self.output_dir)
+            if path:
+                print(f'validation of {len(results["items"])} held-out prediction item(s) saved in {path}')
 
         else:
             print(f'prediction variables have not been defined, if you want to save predicition variables,',
@@ -2030,6 +2119,7 @@ class ParamID():
             )
         # Fail fast on a stale obs_data.json rather than part-way through an optimisation (#304).
         validate_operation_kwargs(self.obs_info, self.operation_funcs_dict)
+        validate_operation_kwargs(self.prediction_info, self.operation_funcs_dict)
         validate_cost_kwargs(self.obs_info, self.cost_funcs_dict, self.cost_type)
         self.DEBUG = DEBUG
 
@@ -2227,6 +2317,8 @@ class ParamID():
 
     def set_prediction_info(self, prediction_info):
         self.prediction_info = normalise_prediction_info(prediction_info)
+        # A prediction item with an operation is checked like a data_item's (#304).
+        validate_operation_kwargs(self.prediction_info, self.operation_funcs_dict)
     
     def set_obs_info(self, obs_info):
         # Before cost_type is read and before the kwargs validators run, so all three
@@ -2298,8 +2390,9 @@ class ParamID():
                 "(output_dir or protocol_info missing)"
             )
             return
-        num_experiments = int(self.protocol_info.get("num_experiments", 0) or 0)
-        for exp_idx in range(num_experiments):
+        # The experiments the calibration fits. A prediction/validation-only one has no data to
+        # plot against; its traces are saved by save_prediction_data instead.
+        for exp_idx in cost_experiment_idxs(self.protocol_info):
             try:
                 self.simulate_once(
                     param_vals, reset=True, only_one_exp=exp_idx
@@ -2462,17 +2555,26 @@ class ParamID():
         return
     
     def get_cost_obs_and_pred_from_params(self, param_vals, reset=True, 
-                                          only_one_exp=-1, pred_names=None, do_ad=False):
+                                          only_one_exp=-1, pred_names=None, do_ad=False,
+                                          exp_idxs=None):
         # Every cost evaluation funnels through here -- get_cost_from_params and
         # get_cost_and_obs_from_params both delegate -- so this is the one place that can count
         # them without each optimiser keeping its own tally (#344).
         self.num_cost_evals = getattr(self, 'num_cost_evals', 0) + 1
 
         # loop through subexperiments
-        if only_one_exp == -1:
+        cost_exps = cost_experiment_idxs(self.protocol_info)
+        if exp_idxs is not None:
+            # An explicit set -- the cost's experiments plus a validation-only one a prediction
+            # feature needs. The cost is still summed over the cost's experiments only.
+            reset = True
+            exp_idxs_to_run = sorted({int(e) for e in exp_idxs})
+        elif only_one_exp == -1:
             # unless the user wants to just one experiment, reset must be true
             reset = True
-            exp_idxs_to_run = list(range(self.protocol_info["num_experiments"]))
+            # Only the experiments a data_item belongs to: an experiment used only by
+            # prediction items is not part of the cost, so it is not simulated here.
+            exp_idxs_to_run = cost_exps
         else:
             exp_idxs_to_run = [only_one_exp]
 
@@ -2538,8 +2640,10 @@ class ParamID():
         # order, so a reference is backward-only. Declared as a block rather than by assigning
         # the attribute here: `evaluating_segment` gives a *standalone* caller its own fresh
         # table, and it can only tell the two apart if this walk says which it is.
+        cost_exps_run = exp_idxs_to_run if exp_idxs is None else \
+            [e for e in exp_idxs_to_run if e in cost_exps]
         with self.accumulating_temp_results():
-            for exp_idx in exp_idxs_to_run:
+            for exp_idx in cost_exps_run:
                 for this_sub_idx in range(num_sub_per_exp[exp_idx]):
                     subexp_count = int(np.sum([num_sub for num_sub in
                                                num_sub_per_exp[:exp_idx]]) + this_sub_idx)
@@ -3880,7 +3984,7 @@ A caller that steps through the segments in order does so inside
             if os.path.exists(os.path.join(self.output_dir, f'all_outputs_with_best_param_vals_exp_0.npz')):
                 print('calculating some debug metrics for this issue')
 
-                for exp_idx in range(self.protocol_info["num_experiments"]):
+                for exp_idx in cost_experiment_idxs(self.protocol_info):
                     print(f'running simulation for experiment {exp_idx} to compare best fit and this run outputs')
                     best_fit_outputs = np.load(os.path.join(self.output_dir, f'all_outputs_with_best_param_vals_exp_{exp_idx}.npz'))
                     _, _ = self.get_cost_and_obs_from_params(self.best_param_vals, reset=True, only_one_exp=exp_idx)
@@ -3909,6 +4013,9 @@ A caller that steps through the segments in order does so inside
             
         print(f'final obs values :')
         for idx, obs_dict in enumerate(obs_dicts):
+            if obs_dict is None:
+                # a prediction/validation-only experiment: not simulated for the cost
+                continue
             print(f'subexperiment {idx+1}:')
             # TODO make the printing of the obs_dict more informative
             print(obs_dict['const'])

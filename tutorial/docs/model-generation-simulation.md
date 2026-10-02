@@ -36,7 +36,7 @@ This section shows how to generate your desired model. There are several example
 
 The following are the steps for model autogeneration.
 
-1. Create the **vessel_array** and **parameters** files in CSV format for the intended model. Standard names of vessel and parameters files are **[model name]_vessel_array.csv** and **[model name]_parameters.csv**, respectively. 
+1. Create the **vessel_array** and **parameters** files in CSV format for the intended model. Standard names of vessel and parameters files are **[model name]_vessel_array.csv** and **[model name]_parameters.csv**, respectively. The vessel array may also be a JSON file, **[model name]_vessel_array.json** (see [Designing a model](design-model.md#json-vessel-arrays)). 
 
     Those files should be added to your `resources` directory which is set with `resources_dir` in your `[CA_user_dir]/[file_prefix]_user_inputs.yaml` (or `[project_dir]/user_run_files/user_inputs.yaml` if `user_inputs_path_override` isn't defined). 
 

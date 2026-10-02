@@ -9,6 +9,7 @@ import json
 import os
 
 from libcuflynx.parsers.PrimitiveParsers import CSVFileParser
+from libcuflynx.utilities.config_schemas import load_vessel_array
 from libcuflynx.generators.Python1DModelFilesGenerator import generate1DPythonModelFiles, generate1DPythonSimInitFile
 
 
@@ -53,8 +54,8 @@ class CVS1DPythonGenerator(object):
             self.cpp_generated_models_dir = cpp_generated_models_dir
 
         self.csv_parser = CSVFileParser()
-        self.vessels_df = self.csv_parser.get_data_as_dataframe_multistrings(vessels1d_csv_abs_path, True,
-                                                                             vessel_array=True)
+        # the 1D part of an already supermodule-expanded array (split_0d_1d_vessel_array)
+        self.vessels_df, _ = load_vessel_array(vessels1d_csv_abs_path)
         self.params_df = self.csv_parser.get_data_as_dataframe_multistrings(parameters_csv_abs_path, True)
 
         self.vessFileName = self.initFiles1dFold+f'/vess_{self.file_prefix[:-3]}.txt'

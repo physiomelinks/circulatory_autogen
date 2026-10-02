@@ -1,7 +1,7 @@
 name,                    BC_type,     vessel_type,        inp_vessels,          out_vessels
 pvn,                     vp,          venous,             par,                  heart volume_sum
 par,                     vp,          arterial_simple,    heart,                pvn volume_sum
-heart,                   vp_wCont,    heart_nonstiff,     venous_svc pvn,       aortic_root par volume_sum
+heart,                   vp_wCont_nonstiff,    heart,     venous_svc pvn,       aortic_root par volume_sum
 aortic_root,             vv,          arterial_simple,    heart,                systemic_T volume_sum
 systemic_T,              pp_spec_I,   terminal,           aortic_root,          venous_svc volume_sum
 venous_svc,              vp,          venous,             systemic_T,           heart volume_sum

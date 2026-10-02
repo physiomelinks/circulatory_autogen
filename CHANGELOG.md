@@ -43,6 +43,98 @@ unchanged.
 - 1D input generation wrote an unknown artery/vein type for vessels not named `A_*`/`V_*`;
   an `art_ven_type_<vessel>` parameter now sets it.
 
+### Added — prediction items as scalar features
+
+A `prediction_item` may carry an `operation` and `operation_kwargs`, with the same vocabulary and
+checks as a data_item. Such an item is a scalar feature, e.g. the max of a trace over its
+experiment, reduced over the last sub-experiment of that experiment. `prediction_info` gains
+parallel `operations` and `operation_kwargs` columns (`None` / `{}` when absent).
+
+- **Validation.** Held-out data on such an item (`data_type: constant`) is compared with
+  `operation(operands)`. `save_prediction_data` records every operand of the item, so an
+  operation with two operands works. Each item in `validation_results.json` now names its
+  `operation`.
+- **SA.** New `sa_options.include_prediction_items` (bool, default false). Sobol and local SA
+  report these features as extra outputs, labelled `<data_item_name> (Exp<e>, Sub<s>)`. The
+  run also writes `sobol_output_features.json`, which says what each output column is. Local SA
+  computes these rows by finite differences.
+- **Emulators.** New `emulator_settings.include_prediction_items` (bool, default false). The
+  emulator is also trained on these features. The bundle records them in
+  `prediction_feature_labels`, and they get a separate `prediction_sha256` fingerprint.
+  Calibration on such an emulator still fits and checks only the data_item features. An SA that
+  asks for prediction features on an emulator trained without them stops and says to retrain.
+
+**Sub-experiments and validation-only experiments.** A prediction item may set
+`subexperiment_idx` (default: its experiment's last; `prediction_info` gains
+`subexperiment_idxs`). Validation, the features and `save_prediction_data` use that segment, and
+series times run from its start, as for a data_item series. An item on a non-default segment is
+saved in `prediction_variable_data_exp_<e>_sub_<s>.npy`; the existing files are unchanged. For a
+multi-sub-experiment experiment, held-out series times now start at the start of the
+sub-experiment rather than the experiment. An experiment that no data_item belongs to is not
+simulated during calibration: not in any cost path, the best-fit check, or the
+all-outputs npz. It is simulated for the prediction data and validation, and for SA/emulator
+training only when a prediction feature needs it. A one-line message names such experiments.
+`libcuflynx.parsers.PrimitiveParsers.cost_experiment_idxs(protocol_info)` lists the ones the
+cost uses.
+
+**Scalar or series.** Every data_item and prediction_item is a scalar (`constant`: value and
+std are numbers) or a series (`series`: value is a list, std is a number or a list of the same
+length, obs_dt is required). The parser checks this and names the item; before, a `constant` with
+a list value was accepted, and a `series` with a number crashed. A series prediction item may
+have an operation, and is validated with the operation's series. Only scalar prediction items
+are features.
+
+Only scalar prediction items with an operation become features. The others are skipped, with a
+`PredictionFeatureWarning` that names them, and an operation that does not return a scalar
+raises `NonScalarPredictionFeatureError`. With both options off, SA outputs and emulator
+fingerprints are unchanged. Callers can feature-detect with
+`libcuflynx.sensitivity_analysis.SUPPORTS_PREDICTION_FEATURES`.
+
+### Added — module versions and instances
+
+A module library can lay a module version out as `<module_type>/versions/<version>/` with named
+parameter sets in `instances/<instance>/<instance>_parameters.csv` (names without a vessel
+suffix). A vessel-array record, or a supermodule's submodule, picks one with
+`"instance": "<name>"`; without it, the config entry's `"default_instance"` is used if that file
+exists. The instance directory is found next to the config file the record's type came from.
+Rows become `{var}_{vessel}`, except the module's `global_constant`s, and are merged as default
+parameters: the host parameters file wins, then a supermodule's instance, then its
+`default_parameters`, then submodule/component instances. A supermodule entry can have instances
+too, named like `default_parameters` (`{var}_{submodule}` or global); `default_parameters` still
+works. An unknown instance is an error that lists the version's instances. Models without
+instances generate byte-identical CellML.
+
+obs_data files accept a top-level `"obs_data_name"` (returned as `obs_data_name` by
+`parse_obs_data_json`); a file in `instances/<name>/` whose `obs_data_name` is not `<name>` is
+warned about. The JSON Schemas gain `instance` and `default_instance`, and a new
+`obs_data.schema.json` describes the top level of an obs_data file.
+
+### Added — JSON vessel arrays and supermodules
+
+A vessel array can be a JSON list of records, `[file_prefix]_vessel_array.json`, with PhLynx's
+keys (`name, module_type, module_subtype, inp_instances, out_instances`) or libcuflynx's (`name,
+vessel_type, BC_type, inp_vessels, out_vessels`). A CSV array is now read by converting each row
+to the same record, so both are processed identically; the `.json` file is preferred when both
+exist, then `.csv`, then PhLynx's `_module_array.json`/`.csv`. Convert CSV arrays with
+`python -m libcuflynx.utilities.config_schemas to-json <csv>... [--style phlynx|libcuflynx]`.
+Every model in `resources/` that generated before generates byte-identical CellML from its CSV
+and from its JSON conversion.
+
+A module config entry with `"module_format": "supermodule"` and a list of `submodules` defines a
+supermodule. An instance of it in a vessel array expands into `[instance]_[submodule]` modules
+before anything else reads the array; `per_submodule_inputs`/`per_submodule_outputs` on the
+instance link its hosts to individual submodules. Supermodules may nest. An optional
+`default_parameters` CSV supplies parameters (renamed to the expanded names) wherever the
+model's parameters file does not set them. See `tutorial/docs/design-model.md`.
+
+JSON Schemas for both files ship in `libcuflynx/schemas/` (`vessel_array.schema.json`,
+`module_config.schema.json`). The loaders check the same rules without a schema library;
+`jsonschema` is a `[dev]` dependency only, for the tests.
+
+The 0D/1D split for `couple_to_1d` now always writes `[file_prefix]_0d_vessel_array.csv` and
+`[file_prefix]_1d_vessel_array.csv`, and the 1D generator reads the file the split wrote. Before,
+an input named `_module_array.csv` gave split files the 1D generator could not find.
+
 ### Added — PhLynx module-config and vessel-array schemas; `"Sum"` and `"Multiply"` multi_ports
 
 The module library is moving its configs to PhLynx's key names, and libcuflynx now reads both
