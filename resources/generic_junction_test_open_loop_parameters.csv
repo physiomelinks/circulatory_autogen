@@ -937,64 +937,64 @@ b_vessel,per_m,-505.3,Avolio_1980
 c_vessel,dimensionless,0.1324,Avolio_1980
 d_vessel,per_m,-11.14,Avolio_1980
 q_us_external_carotid_R_T,m3,0,user_defined_TO_DO
-q_init_external_carotid_R_T,m3,0,user_defined_TO_DO
 q_us_internal_carotid_R_T,m3,0,user_defined_TO_DO
-q_init_internal_carotid_R_T,m3,0,user_defined_TO_DO
 q_us_vertebral_R_T,m3,0,user_defined_TO_DO
-q_init_vertebral_R_T,m3,0,user_defined_TO_DO
 q_us_radial_R_T,m3,0,user_defined_TO_DO
-q_init_radial_R_T,m3,0,user_defined_TO_DO
 q_us_posterior_interosseous_R_T,m3,0,user_defined_TO_DO
-q_init_posterior_interosseous_R_T,m3,0,user_defined_TO_DO
 q_us_ulnar_R_II_T,m3,0,user_defined_TO_DO
-q_init_ulnar_R_II_T,m3,0,user_defined_TO_DO
 q_us_external_carotid_L_T,m3,0,user_defined_TO_DO
-q_init_external_carotid_L_T,m3,0,user_defined_TO_DO
 q_us_internal_carotid_L_T,m3,0,user_defined_TO_DO
-q_init_internal_carotid_L_T,m3,0,user_defined_TO_DO
 q_us_vertebral_L_T,m3,0,user_defined_TO_DO
-q_init_vertebral_L_T,m3,0,user_defined_TO_DO
 q_us_radial_L_T,m3,0,user_defined_TO_DO
-q_init_radial_L_T,m3,0,user_defined_TO_DO
 q_us_posterior_interosseous_L_T,m3,0,user_defined_TO_DO
-q_init_posterior_interosseous_L_T,m3,0,user_defined_TO_DO
 q_us_ulnar_L_II_T,m3,0,user_defined_TO_DO
-q_init_ulnar_L_II_T,m3,0,user_defined_TO_DO
 q_us_posterior_intercostal_T6_R_T,m3,0,user_defined_TO_DO
-q_init_posterior_intercostal_T6_R_T,m3,0,user_defined_TO_DO
 q_us_posterior_intercostal_T6_L_T,m3,0,user_defined_TO_DO
-q_init_posterior_intercostal_T6_L_T,m3,0,user_defined_TO_DO
 q_us_posterior_intercostal_T7_R_T,m3,0,user_defined_TO_DO
-q_init_posterior_intercostal_T7_R_T,m3,0,user_defined_TO_DO
 q_us_posterior_intercostal_T7_L_T,m3,0,user_defined_TO_DO
-q_init_posterior_intercostal_T7_L_T,m3,0,user_defined_TO_DO
 q_us_common_hepatic_T,m3,0,user_defined_TO_DO
-q_init_common_hepatic_T,m3,0,user_defined_TO_DO
 q_us_left_gastric_T,m3,0,user_defined_TO_DO
-q_init_left_gastric_T,m3,0,user_defined_TO_DO
 q_us_splenic_II_T,m3,0,user_defined_TO_DO
-q_init_splenic_II_T,m3,0,user_defined_TO_DO
 q_us_superior_mesenteric_T,m3,0,user_defined_TO_DO
-q_init_superior_mesenteric_T,m3,0,user_defined_TO_DO
 q_us_renal_L_T,m3,0,user_defined_TO_DO
-q_init_renal_L_T,m3,0,user_defined_TO_DO
 q_us_renal_R_T,m3,0,user_defined_TO_DO
-q_init_renal_R_T,m3,0,user_defined_TO_DO
 q_us_inferior_mesenteric_T,m3,0,user_defined_TO_DO
-q_init_inferior_mesenteric_T,m3,0,user_defined_TO_DO
 q_us_internal_iliac_R_T,m3,0,user_defined_TO_DO
-q_init_internal_iliac_R_T,m3,0,user_defined_TO_DO
 q_us_profunda_femoris_R_T,m3,0,user_defined_TO_DO
-q_init_profunda_femoris_R_T,m3,0,user_defined_TO_DO
 q_us_anterior_tibial_R_T,m3,0,user_defined_TO_DO
-q_init_anterior_tibial_R_T,m3,0,user_defined_TO_DO
 q_us_posterior_tibial_R_T,m3,0,user_defined_TO_DO
-q_init_posterior_tibial_R_T,m3,0,user_defined_TO_DO
 q_us_internal_iliac_L_T,m3,0,user_defined_TO_DO
-q_init_internal_iliac_L_T,m3,0,user_defined_TO_DO
 q_us_profunda_femoris_L_T,m3,0,user_defined_TO_DO
-q_init_profunda_femoris_L_T,m3,0,user_defined_TO_DO
 q_us_anterior_tibial_L_T,m3,0,user_defined_TO_DO
-q_init_anterior_tibial_L_T,m3,0,user_defined_TO_DO
 q_us_posterior_tibial_L_T,m3,0,user_defined_TO_DO
-q_init_posterior_tibial_L_T,m3,0,user_defined_TO_DO
+q_C_init_external_carotid_R_T_C,m3,0.0,lumped_migration: (q_init - q_us) of external_carotid_R_T
+q_C_init_internal_carotid_R_T_C,m3,0.0,lumped_migration: (q_init - q_us) of internal_carotid_R_T
+q_C_init_vertebral_R_T_C,m3,0.0,lumped_migration: (q_init - q_us) of vertebral_R_T
+q_C_init_radial_R_T_C,m3,0.0,lumped_migration: (q_init - q_us) of radial_R_T
+q_C_init_posterior_interosseous_R_T_C,m3,0.0,lumped_migration: (q_init - q_us) of posterior_interosseous_R_T
+q_C_init_ulnar_R_II_T_C,m3,0.0,lumped_migration: (q_init - q_us) of ulnar_R_II_T
+q_C_init_external_carotid_L_T_C,m3,0.0,lumped_migration: (q_init - q_us) of external_carotid_L_T
+q_C_init_internal_carotid_L_T_C,m3,0.0,lumped_migration: (q_init - q_us) of internal_carotid_L_T
+q_C_init_vertebral_L_T_C,m3,0.0,lumped_migration: (q_init - q_us) of vertebral_L_T
+q_C_init_radial_L_T_C,m3,0.0,lumped_migration: (q_init - q_us) of radial_L_T
+q_C_init_posterior_interosseous_L_T_C,m3,0.0,lumped_migration: (q_init - q_us) of posterior_interosseous_L_T
+q_C_init_ulnar_L_II_T_C,m3,0.0,lumped_migration: (q_init - q_us) of ulnar_L_II_T
+q_C_init_posterior_intercostal_T6_R_T_C,m3,0.0,lumped_migration: (q_init - q_us) of posterior_intercostal_T6_R_T
+q_C_init_posterior_intercostal_T6_L_T_C,m3,0.0,lumped_migration: (q_init - q_us) of posterior_intercostal_T6_L_T
+q_C_init_posterior_intercostal_T7_R_T_C,m3,0.0,lumped_migration: (q_init - q_us) of posterior_intercostal_T7_R_T
+q_C_init_posterior_intercostal_T7_L_T_C,m3,0.0,lumped_migration: (q_init - q_us) of posterior_intercostal_T7_L_T
+q_C_init_common_hepatic_T_C,m3,0.0,lumped_migration: (q_init - q_us) of common_hepatic_T
+q_C_init_left_gastric_T_C,m3,0.0,lumped_migration: (q_init - q_us) of left_gastric_T
+q_C_init_splenic_II_T_C,m3,0.0,lumped_migration: (q_init - q_us) of splenic_II_T
+q_C_init_superior_mesenteric_T_C,m3,0.0,lumped_migration: (q_init - q_us) of superior_mesenteric_T
+q_C_init_renal_L_T_C,m3,0.0,lumped_migration: (q_init - q_us) of renal_L_T
+q_C_init_renal_R_T_C,m3,0.0,lumped_migration: (q_init - q_us) of renal_R_T
+q_C_init_inferior_mesenteric_T_C,m3,0.0,lumped_migration: (q_init - q_us) of inferior_mesenteric_T
+q_C_init_internal_iliac_R_T_C,m3,0.0,lumped_migration: (q_init - q_us) of internal_iliac_R_T
+q_C_init_profunda_femoris_R_T_C,m3,0.0,lumped_migration: (q_init - q_us) of profunda_femoris_R_T
+q_C_init_anterior_tibial_R_T_C,m3,0.0,lumped_migration: (q_init - q_us) of anterior_tibial_R_T
+q_C_init_posterior_tibial_R_T_C,m3,0.0,lumped_migration: (q_init - q_us) of posterior_tibial_R_T
+q_C_init_internal_iliac_L_T_C,m3,0.0,lumped_migration: (q_init - q_us) of internal_iliac_L_T
+q_C_init_profunda_femoris_L_T_C,m3,0.0,lumped_migration: (q_init - q_us) of profunda_femoris_L_T
+q_C_init_anterior_tibial_L_T_C,m3,0.0,lumped_migration: (q_init - q_us) of anterior_tibial_L_T
+q_C_init_posterior_tibial_L_T_C,m3,0.0,lumped_migration: (q_init - q_us) of posterior_tibial_L_T
