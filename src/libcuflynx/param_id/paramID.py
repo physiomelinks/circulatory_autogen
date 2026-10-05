@@ -814,6 +814,13 @@ class CVS0DParamID():
         if self.rank == 0:
             print(f'Params for id set: {self.param_id_info["param_names"]}')
 
+    def set_joint_priors(self, joint_priors):
+        """Add priors over several parameters at once; see `ParamID.set_joint_priors`."""
+        if self.mcmc_instead:
+            mcmc_object.set_joint_priors(joint_priors)
+        else:
+            self.param_id.set_joint_priors(joint_priors)
+
     def set_best_param_vals(self, best_param_vals):
         """Manually supply the best-fit parameter vector (e.g. from a previous run).
 
@@ -1953,6 +1960,9 @@ class ParamID():
         self.param_id_method = param_id_method
         self.output_dir = None
         self.model_type = model_type
+        # Priors over several parameters at once, on top of params_for_id's per-parameter
+        # ones: [(indices, logpdf)]. See set_joint_priors.
+        self.joint_priors = []
 
         # Emulator mode (#333). `solver` still names the truth solver -- the one the emulator
         # was trained against, and the one to compare it with -- so this is its own flag.
@@ -2805,7 +2815,44 @@ class ParamID():
                     f"Valid priors are: {', '.join(sorted(PARAM_PRIOR_TYPES))}."
                 )
 
+        for indices, logpdf in getattr(self, 'joint_priors', None) or []:
+            term = logpdf(np.asarray(param_vals, dtype=float)[indices])
+            if not np.isfinite(term):
+                return -np.inf
+            lnprior += term
+
         return lnprior
+
+    def set_joint_priors(self, joint_priors):
+        """Add log densities over several parameters to the log prior.
+
+        ``joint_priors`` is a list of ``(names, logpdf)``: ``names`` are generated-model
+        parameter names (``param_names_for_gen``, e.g. ``g_leak_mod_i_leak_Na``), one per
+        calibrated parameter the density is over, and ``logpdf(values)`` takes those
+        parameters' values, in that order, and returns a log density (-inf outside its
+        support). It is added to the per-parameter priors, whose bounds checks still apply --
+        so a parameter with a joint prior is usually given a ``uniform`` row in params_for_id.
+
+        Used by calibration workflows to make an earlier step's stored posterior the prior of
+        a later one (``libcuflynx.calibration_workflow``). Like every prior, it only affects
+        the log posterior: MCMC, and optimisers run with objective_function 'likelihood'.
+        """
+        resolved = []
+        names_for_gen = self.param_id_info['param_names_for_gen']
+        for names, logpdf in joint_priors or []:
+            indices = []
+            for name in names:
+                matches = [idx for idx, gen in enumerate(names_for_gen)
+                           if name in (gen if isinstance(gen, (list, tuple)) else [gen])]
+                if not matches:
+                    raise ValueError(
+                        f"joint prior over '{name}', which is not a calibrated parameter "
+                        f"(calibrated: {[list(g) if isinstance(g, (list, tuple)) else g for g in names_for_gen]}).")
+                indices.append(matches[0])
+            if len(set(indices)) != len(indices):
+                raise ValueError(f"joint prior names {list(names)} repeat a parameter.")
+            resolved.append((np.asarray(indices, dtype=int), logpdf))
+        self.joint_priors = resolved
 
     def get_lnlikelihood_lnprior_from_params(self, param_vals, reset=True):
         lnprior = self.get_lnprior_from_params(param_vals)

@@ -29,6 +29,7 @@ Runs are launched via shell scripts in `user_run_files/`. Each one invokes a **c
 | `run_autogeneration_with_id_params.sh` | `cuflynx-generate True` → (same) | Regenerate using previously fitted params |
 | `run_param_id.sh` (arg: `num_processors`, uses `mpiexec`) | `cuflynx-param-id` → `param_id_run_script` | Generate + calibrate |
 | `run_sequential_param_id.sh` | `cuflynx-sequential-param-id` → `sequential_param_id_run_script` | Staged/sequential calibration — **not currently implemented**, the `SequentialParamID` class it drives is not in the tree; the command says so and exits 2 |
+| _(no run script)_ | `cuflynx-calibration-workflow <calibration_workflow.json>` → `calibration_workflow_run_script` | Ordered calibrations of module-library instances (submodules, then a supermodule), each against its own obs_data/params_for_id, merged into the target instance; `fixed_from` / `priors_from` pass values or stored posteriors between steps. Takes the workflow path, not the yaml — see `libcuflynx.calibration_workflow` and the "Calibration workflows" docs section. |
 | `run_multiple_param_id.sh` | *(no console command)* → `python -m libcuflynx.scripts.run_multiple_param_id` | Batch calibration over models |
 | `run_sensitivity_analysis.sh` | `cuflynx-sensitivity` → `sensitivity_analysis_run_script` | Sobol SA (`mpiexec`) |
 | `run_identifiability_analysis.sh` | `cuflynx-identifiability` → `identifiability_run_script` | Laplace / profile-likelihood |
