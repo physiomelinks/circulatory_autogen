@@ -35,6 +35,8 @@ EXPECTED_ENTRY_POINTS = {
     "cuflynx-param-id",
     "cuflynx-sequential-param-id",
     "cuflynx-calibration-workflow",
+    "cuflynx-variable-mapping",
+    "cuflynx-methods-latex",
     "cuflynx-sensitivity",
     "cuflynx-identifiability",
     "cuflynx-train-emulator",
@@ -354,10 +356,13 @@ def test_launcher_reports_a_missing_install_before_launching_mpi():
 #:
 #: ``cuflynx-calibration-workflow`` is configured by the calibration_workflow.json it is
 #: given: each step's model, obs_data and params_for_id come from the module library, and its
-#: settings from the workflow file.
+#: settings from the workflow file. ``cuflynx-variable-mapping`` and ``cuflynx-methods-latex``
+#: take a model (or a workflow) and its files by path.
 NON_STAGE_COMMANDS = {
     "cuflynx-migrate-obs-data",
     "cuflynx-calibration-workflow",
+    "cuflynx-variable-mapping",
+    "cuflynx-methods-latex",
 }
 
 

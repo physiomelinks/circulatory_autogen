@@ -5,6 +5,17 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Added — writing a model and its calibration up in LaTeX
+
+- **`cuflynx-variable-mapping`** writes a model's `<prefix>_variable_mapping.csv`.
+  - It lists every variable and parameter by its canonical `component/variable` name, with a LaTeX symbol from a default rule (Greek names, `_` subscripts, the module as a last subscript).
+  - Regenerating the file keeps edited symbols.
+- **`cuflynx-methods-latex`** writes a methods section in LaTeX, for a calibration workflow or for one calibration:
+  - the equations of each module in the mapped symbols, with their parameter tables;
+  - a TikZ flow chart of the calibration;
+  - the protocol, observables, parameters, method, cost function, fixed values, priors, MCMC settings and results of each step.
+- **`libcuflynx.reporting`** is the Python API for both.
+
 ### Added — calibration workflows
 
 `cuflynx-calibration-workflow <calibration_workflow.json>` (and
