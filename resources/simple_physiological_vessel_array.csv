@@ -1,43 +1,43 @@
 name,BC_type,vessel_type,inp_vessels,out_vessels
 heart,                   vp, heart,              venous_ivc venous_svc ,ascending_aorta_A    
-ascending_aorta_A,       vv, arterial,           heart                 ,ascending_aorta_B
-ascending_aorta_B,       pv, arterial,           ascending_aorta_A     ,ascending_aorta_C    
-ascending_aorta_C,       pv, arterial,           ascending_aorta_B     ,ascending_aorta_D    
-ascending_aorta_D,       pv, arterial,           ascending_aorta_C     ,aortic_arch_C2       
-aortic_arch_C2,          pv, arterial,     ascending_aorta_D     ,aortic_arch_C46      brachiocephalic_trunk_C4
-aortic_arch_C46,         pv, arterial,     aortic_arch_C2        ,aortic_arch_C64      common_carotid_L48_A
-aortic_arch_C64,         pv, arterial,     aortic_arch_C46       ,aortic_arch_C94      subclavian_L66
-brachiocephalic_trunk_C4,pv, arterial,     aortic_arch_C2        ,common_carotid_R6_A  subclavian_R28
-common_carotid_L48_A,    pv, arterial,           aortic_arch_C46       ,head_L_T             
-common_carotid_R6_A,     pv, arterial,           brachiocephalic_trunk_C4  ,head_R_T         
-subclavian_L66,          pv, arterial,           aortic_arch_C64       ,arm_L_T              
-subclavian_R28,          pv, arterial,           brachiocephalic_trunk_C4  ,arm_R_T          
-head_L_T,                pp, terminal,           common_carotid_L48_A  ,venous_ub            
-head_R_T,                pp, terminal,           common_carotid_R6_A   ,venous_ub            
-arm_L_T,                 pp, terminal,           subclavian_L66        ,venous_ub            
-arm_R_T,                 pp, terminal,           subclavian_R28        ,venous_ub            
-aortic_arch_C94,         pv, arterial,           aortic_arch_C64       ,thoracic_aorta_C96 
-thoracic_aorta_C96,      pv, arterial,           aortic_arch_C94       ,thoracic_aorta_C100  
-thoracic_aorta_C100,     pv, arterial,           thoracic_aorta_C96    ,thoracic_aorta_C104  
-thoracic_aorta_C104,     pv, arterial,           thoracic_aorta_C100   ,thoracic_aorta_C108  
-thoracic_aorta_C108,     pv, arterial,           thoracic_aorta_C104   ,thoracic_aorta_C112  
-thoracic_aorta_C112,     pv, arterial,           thoracic_aorta_C108   ,abdominal_aorta_C114 
-abdominal_aorta_C114,    pv, arterial,     thoracic_aorta_C112   ,abdominal_aorta_C136 trunk_C_T
-trunk_C_T,               pp, terminal,           abdominal_aorta_C114  ,venous_lb            
-abdominal_aorta_C136,    pv, arterial,           abdominal_aorta_C114  ,abdominal_aorta_C164 
-abdominal_aorta_C164,    pv, arterial,           abdominal_aorta_C136  ,abdominal_aorta_C176 
-abdominal_aorta_C176,    pv, arterial,           abdominal_aorta_C164  ,abdominal_aorta_C188 
-abdominal_aorta_C188,    pv, arterial,           abdominal_aorta_C176  ,abdominal_aorta_C192 
-abdominal_aorta_C192,    pv, arterial,     abdominal_aorta_C188  ,common_iliac_L194    common_iliac_R216
-common_iliac_L194,       pv, arterial,           abdominal_aorta_C192  ,external_iliac_L198  
-external_iliac_L198,     pv, arterial,           common_iliac_L194     ,femoral_L200         
-common_iliac_R216,       pv, arterial,           abdominal_aorta_C192  ,external_iliac_R220  
-external_iliac_R220,     pv, arterial,           common_iliac_R216     ,femoral_R222         
-femoral_L200,            pv, arterial,           external_iliac_L198   ,leg_L_T              
-femoral_R222,            pv, arterial,           external_iliac_R220   ,leg_R_T              
-leg_L_T,                 pp, terminal,           femoral_L200          ,venous_lb            
-leg_R_T,                 pp, terminal,           femoral_R222          ,venous_lb            
-venous_lb,               vp, venous,             leg_L_T leg_R_T trunk_C_T ,venous_ivc           
-venous_ub,               vp, venous,             arm_L_T arm_R_T head_L_T head_R_T ,venous_svc           
-venous_ivc,              vp, venous,             venous_lb             ,heart                
-venous_svc,              vp, venous,             venous_ub             ,heart                
+ascending_aorta_A,       vv_lumped, arterial,           heart                 ,ascending_aorta_B
+ascending_aorta_B,       pv_lumped, arterial,           ascending_aorta_A     ,ascending_aorta_C    
+ascending_aorta_C,       pv_lumped, arterial,           ascending_aorta_B     ,ascending_aorta_D    
+ascending_aorta_D,       pv_lumped, arterial,           ascending_aorta_C     ,aortic_arch_C2       
+aortic_arch_C2,          pv_lumped, arterial,     ascending_aorta_D     ,aortic_arch_C46      brachiocephalic_trunk_C4
+aortic_arch_C46,         pv_lumped, arterial,     aortic_arch_C2        ,aortic_arch_C64      common_carotid_L48_A
+aortic_arch_C64,         pv_lumped, arterial,     aortic_arch_C46       ,aortic_arch_C94      subclavian_L66
+brachiocephalic_trunk_C4,pv_lumped, arterial,     aortic_arch_C2        ,common_carotid_R6_A  subclavian_R28
+common_carotid_L48_A,    pv_lumped, arterial,           aortic_arch_C46       ,head_L_T             
+common_carotid_R6_A,     pv_lumped, arterial,           brachiocephalic_trunk_C4  ,head_R_T         
+subclavian_L66,          pv_lumped, arterial,           aortic_arch_C64       ,arm_L_T              
+subclavian_R28,          pv_lumped, arterial,           brachiocephalic_trunk_C4  ,arm_R_T          
+head_L_T,                pp_lumped, terminal,           common_carotid_L48_A  ,venous_ub            
+head_R_T,                pp_lumped, terminal,           common_carotid_R6_A   ,venous_ub            
+arm_L_T,                 pp_lumped, terminal,           subclavian_L66        ,venous_ub            
+arm_R_T,                 pp_lumped, terminal,           subclavian_R28        ,venous_ub            
+aortic_arch_C94,         pv_lumped, arterial,           aortic_arch_C64       ,thoracic_aorta_C96 
+thoracic_aorta_C96,      pv_lumped, arterial,           aortic_arch_C94       ,thoracic_aorta_C100  
+thoracic_aorta_C100,     pv_lumped, arterial,           thoracic_aorta_C96    ,thoracic_aorta_C104  
+thoracic_aorta_C104,     pv_lumped, arterial,           thoracic_aorta_C100   ,thoracic_aorta_C108  
+thoracic_aorta_C108,     pv_lumped, arterial,           thoracic_aorta_C104   ,thoracic_aorta_C112  
+thoracic_aorta_C112,     pv_lumped, arterial,           thoracic_aorta_C108   ,abdominal_aorta_C114 
+abdominal_aorta_C114,    pv_lumped, arterial,     thoracic_aorta_C112   ,abdominal_aorta_C136 trunk_C_T
+trunk_C_T,               pp_lumped, terminal,           abdominal_aorta_C114  ,venous_lb            
+abdominal_aorta_C136,    pv_lumped, arterial,           abdominal_aorta_C114  ,abdominal_aorta_C164 
+abdominal_aorta_C164,    pv_lumped, arterial,           abdominal_aorta_C136  ,abdominal_aorta_C176 
+abdominal_aorta_C176,    pv_lumped, arterial,           abdominal_aorta_C164  ,abdominal_aorta_C188 
+abdominal_aorta_C188,    pv_lumped, arterial,           abdominal_aorta_C176  ,abdominal_aorta_C192 
+abdominal_aorta_C192,    pv_lumped, arterial,     abdominal_aorta_C188  ,common_iliac_L194    common_iliac_R216
+common_iliac_L194,       pv_lumped, arterial,           abdominal_aorta_C192  ,external_iliac_L198  
+external_iliac_L198,     pv_lumped, arterial,           common_iliac_L194     ,femoral_L200         
+common_iliac_R216,       pv_lumped, arterial,           abdominal_aorta_C192  ,external_iliac_R220  
+external_iliac_R220,     pv_lumped, arterial,           common_iliac_R216     ,femoral_R222         
+femoral_L200,            pv_lumped, arterial,           external_iliac_L198   ,leg_L_T              
+femoral_R222,            pv_lumped, arterial,           external_iliac_R220   ,leg_R_T              
+leg_L_T,                 pp_lumped, terminal,           femoral_L200          ,venous_lb            
+leg_R_T,                 pp_lumped, terminal,           femoral_R222          ,venous_lb            
+venous_lb,               vp_lumped, venous,             leg_L_T leg_R_T trunk_C_T ,venous_ivc           
+venous_ub,               vp_lumped, venous,             arm_L_T arm_R_T head_L_T head_R_T ,venous_svc           
+venous_ivc,              vp_lumped, venous,             venous_lb             ,heart                
+venous_svc,              vp_lumped, venous,             venous_ub             ,heart                

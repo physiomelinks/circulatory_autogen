@@ -1,3 +1,3 @@
 name,                    BC_type,      vessel_type,        inp_vessels,          out_vessels
 inlet,                   nn_fourier_8, inlet_flow,         ,                     vessel_1                  
-vessel_1,                vp,           arterial,           inlet,
+vessel_1,                vp_lumped,    arterial,           inlet,

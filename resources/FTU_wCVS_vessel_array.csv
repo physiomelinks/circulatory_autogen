@@ -1,7 +1,7 @@
 name,BC_type,vessel_type,inp_vessels,out_vessels
-pvn,                     vp, venous,             par,                  heart
-par,                     vp, arterial_simple,    heart,                pvn
+pvn,                     vp_lumped, venous,             par,                  heart
+par,                     vp_lumped, arterial_simple,    heart,                pvn
 heart,                   vp, heart,              venous_svc pvn,       aortic_root par   
-aortic_root,             vv, arterial_simple,    heart,                systemic_T       
-systemic_T,              pp, terminal,           aortic_root,          venous_svc            
-venous_svc,              vp, venous,             systemic_T,           heart                
+aortic_root,             vv_lumped, arterial_simple,    heart,                systemic_T       
+systemic_T,              pp_lumped, terminal,           aortic_root,          venous_svc            
+venous_svc,              vp_lumped, venous,             systemic_T,           heart                

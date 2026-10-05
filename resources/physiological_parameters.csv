@@ -521,31 +521,18 @@ q_C_init_venous_ub,m3,0,user_defined
 q_C_init_venous_ivc,m3,0,user_defined
 q_C_init_venous_svc,m3,0,user_defined
 q_us_posterior_cerebral_L_T,m3,0,user_defined_TO_DO
-q_init_posterior_cerebral_L_T,m3,0,user_defined_TO_DO
 q_us_posterior_cerebral_R_T,m3,0,user_defined_TO_DO
-q_init_posterior_cerebral_R_T,m3,0,user_defined_TO_DO
 q_us_external_carotid_L_T,m3,0,user_defined_TO_DO
-q_init_external_carotid_L_T,m3,0,user_defined_TO_DO
 q_us_external_carotid_R_T,m3,0,user_defined_TO_DO
-q_init_external_carotid_R_T,m3,0,user_defined_TO_DO
 q_us_middle_cerebral_L_T,m3,0,user_defined_TO_DO
-q_init_middle_cerebral_L_T,m3,0,user_defined_TO_DO
 q_us_middle_cerebral_R_T,m3,0,user_defined_TO_DO
-q_init_middle_cerebral_R_T,m3,0,user_defined_TO_DO
 q_us_anterior_cerebral_L_T,m3,0,user_defined_TO_DO
-q_init_anterior_cerebral_L_T,m3,0,user_defined_TO_DO
 q_us_anterior_cerebral_R_T,m3,0,user_defined_TO_DO
-q_init_anterior_cerebral_R_T,m3,0,user_defined_TO_DO
 q_us_arm_L_T,m3,0,user_defined_TO_DO
-q_init_arm_L_T,m3,0,user_defined_TO_DO
 q_us_arm_R_T,m3,0,user_defined_TO_DO
-q_init_arm_R_T,m3,0,user_defined_TO_DO
 q_us_trunk_C_T,m3,0,user_defined_TO_DO
-q_init_trunk_C_T,m3,0,user_defined_TO_DO
 q_us_leg_L_T,m3,0,user_defined_TO_DO
-q_init_leg_L_T,m3,0,user_defined_TO_DO
 q_us_leg_R_T,m3,0,user_defined_TO_DO
-q_init_leg_R_T,m3,0,user_defined_TO_DO
 u_0_par,J_per_m3,1463,Mynard&Smolich_2015_assumedRefOf11mmHg
 q_0_par,m3,0,user_defined_TO_DO
 r_0_par,metre,0.0135,Mynard&Smolich_2015_mainPA_NOT_USED
@@ -554,3 +541,16 @@ u_0_pvn,J_per_m3,1330,Mynard&Smolich_2015_assumedRefOf10mmHg
 q_0_pvn,m3,0,user_defined_TO_DO
 r_0_pvn,metre,0.00864,Mynard&Smolich_2015_rightInfPV_NOT_USED
 l_pvn,metre,0.0235237,Mynard&Smolich_2015_rightInfPV_NOT_USED
+q_C_init_posterior_cerebral_L_T_C,m3,0.0,lumped_migration: (q_init - q_us) of posterior_cerebral_L_T
+q_C_init_posterior_cerebral_R_T_C,m3,0.0,lumped_migration: (q_init - q_us) of posterior_cerebral_R_T
+q_C_init_external_carotid_L_T_C,m3,0.0,lumped_migration: (q_init - q_us) of external_carotid_L_T
+q_C_init_external_carotid_R_T_C,m3,0.0,lumped_migration: (q_init - q_us) of external_carotid_R_T
+q_C_init_middle_cerebral_L_T_C,m3,0.0,lumped_migration: (q_init - q_us) of middle_cerebral_L_T
+q_C_init_middle_cerebral_R_T_C,m3,0.0,lumped_migration: (q_init - q_us) of middle_cerebral_R_T
+q_C_init_anterior_cerebral_L_T_C,m3,0.0,lumped_migration: (q_init - q_us) of anterior_cerebral_L_T
+q_C_init_anterior_cerebral_R_T_C,m3,0.0,lumped_migration: (q_init - q_us) of anterior_cerebral_R_T
+q_C_init_arm_L_T_C,m3,0.0,lumped_migration: (q_init - q_us) of arm_L_T
+q_C_init_arm_R_T_C,m3,0.0,lumped_migration: (q_init - q_us) of arm_R_T
+q_C_init_trunk_C_T_C,m3,0.0,lumped_migration: (q_init - q_us) of trunk_C_T
+q_C_init_leg_L_T_C,m3,0.0,lumped_migration: (q_init - q_us) of leg_L_T
+q_C_init_leg_R_T_C,m3,0.0,lumped_migration: (q_init - q_us) of leg_R_T

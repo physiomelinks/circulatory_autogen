@@ -240,22 +240,18 @@ u_ext_aortic_arch_C94,J_per_m3,0,user_defined
 u_0_aortic_arch_C94,J_per_m3,1.06e+04,assumedRefOf80mmHg
 =======
 q_us_head_L_T,m3,0,user_defined_TO_DO
-q_init_head_L_T,m3,0,user_defined_TO_DO
 R_T_head_R_T,Js_per_m6,1270000000,calculated_from_assumptions
 C_T_head_R_T,m6_per_J,4e-11,to_be_identified
 u_ext_head_R_T,J_per_m3,0,user_defined
 q_us_head_R_T,m3,0,user_defined_TO_DO
-q_init_head_R_T,m3,0,user_defined_TO_DO
 R_T_arm_L_T,Js_per_m6,3240000000,calculated_from_assumptions
 C_T_arm_L_T,m6_per_J,1e-10,to_be_identified
 u_ext_arm_L_T,J_per_m3,0,user_defined
 q_us_arm_L_T,m3,0,user_defined_TO_DO
-q_init_arm_L_T,m3,0,user_defined_TO_DO
 R_T_arm_R_T,Js_per_m6,3240000000,calculated_from_assumptions
 C_T_arm_R_T,m6_per_J,1e-10,to_be_identified
 u_ext_arm_R_T,J_per_m3,0,user_defined
 q_us_arm_R_T,m3,0,user_defined_TO_DO
-q_init_arm_R_T,m3,0,user_defined_TO_DO
 E_K_tube_aortic_arch_C94,J_per_m3,400000,ADAN_86
 u_ext_aortic_arch_C94,J_per_m3,0,user_defined
 u_0_aortic_arch_C94,J_per_m3,10600,assumedRefOf80mmHg
@@ -360,7 +356,6 @@ u_ext_abdominal_aorta_C136,J_per_m3,0,user_defined
 u_0_abdominal_aorta_C136,J_per_m3,1.06e+04,assumedRefOf80mmHg
 =======
 q_us_trunk_C_T,m3,0,user_defined_TO_DO
-q_init_trunk_C_T,m3,0,user_defined_TO_DO
 E_K_tube_abdominal_aorta_C136,J_per_m3,400000,ADAN_86
 u_ext_abdominal_aorta_C136,J_per_m3,0,user_defined
 u_0_abdominal_aorta_C136,J_per_m3,10600,assumedRefOf80mmHg
@@ -521,12 +516,10 @@ C_T_leg_R_T,m6_per_J,4e-10,to_be_identified
 u_ext_leg_R_T,J_per_m3,0,user_defined
 =======
 q_us_leg_L_T,m3,0,user_defined_TO_DO
-q_init_leg_L_T,m3,0,user_defined_TO_DO
 R_T_leg_R_T,Js_per_m6,1200000000,calculated_from_assumptions
 C_T_leg_R_T,m6_per_J,4e-10,to_be_identified
 u_ext_leg_R_T,J_per_m3,0,user_defined
 q_us_leg_R_T,m3,0,user_defined_TO_DO
-q_init_leg_R_T,m3,0,user_defined_TO_DO
 >>>>>>> b3c5f87d55a67a9cbeada02094fa2bda0a5633fb
 R_venous_lb,Js_per_m6,0.0000001,small_chosen
 C_venous_lb,m6_per_J,0.0000003,to_be_identified
@@ -582,3 +575,10 @@ q_0_pvn,m3,0,user_defined_TO_DO
 r_0_pvn,metre,0.00864,Mynard&Smolich_2015_rightInfPV_NOT_USED
 l_pvn,metre,0.0235237,Mynard&Smolich_2015_rightInfPV_NOT_USED
 >>>>>>> b3c5f87d55a67a9cbeada02094fa2bda0a5633fb
+q_C_init_head_L_T_C,m3,0.0,lumped_migration: (q_init - q_us) of head_L_T
+q_C_init_head_R_T_C,m3,0.0,lumped_migration: (q_init - q_us) of head_R_T
+q_C_init_arm_L_T_C,m3,0.0,lumped_migration: (q_init - q_us) of arm_L_T
+q_C_init_arm_R_T_C,m3,0.0,lumped_migration: (q_init - q_us) of arm_R_T
+q_C_init_trunk_C_T_C,m3,0.0,lumped_migration: (q_init - q_us) of trunk_C_T
+q_C_init_leg_L_T_C,m3,0.0,lumped_migration: (q_init - q_us) of leg_L_T
+q_C_init_leg_R_T_C,m3,0.0,lumped_migration: (q_init - q_us) of leg_R_T

@@ -30,6 +30,7 @@ params_for_id, prediction variables: copied unchanged, after checking their outp
 import argparse
 import ast
 import csv
+import io
 import json
 import math
 import os
@@ -166,6 +167,17 @@ def _read_records(path):
     return vessel_array_csv_to_records(path) if path.endswith('.csv') else read_vessel_array_records(path)
 
 
+def _replace_cell(old, new):
+    '''``old`` (a CSV cell, padded to align its column) holding ``new`` instead, the padding
+    shortened to keep the column aligned where it can.'''
+    stripped = old.strip()
+    if not stripped:
+        return new
+    lead = old[:len(old) - len(old.lstrip())]
+    trail = len(old) - len(lead) - len(stripped)
+    return lead + new + ' ' * (max(1, trail - (len(new) - len(stripped))) if trail else 0)
+
+
 def _write_records(path, records, template_path):
     if path.endswith('.json'):
         with open(path, 'w') as f:
@@ -173,17 +185,24 @@ def _write_records(path, records, template_path):
         return
     # a CSV vessel array keeps its layout: only BC_type cells change
     with open(template_path, newline='') as f:
-        rows = list(csv.reader(f))
+        text = f.read()
+    newline = '\r\n' if '\r\n' in text else '\n'
+    rows = list(csv.reader(io.StringIO(text)))
     header = [c.strip() for c in rows[0]]
     name_col, bc_col = header.index('name'), header.index('BC_type')
     bc = {r['name']: r['BC_type'] for r in records}
     for row in rows[1:]:
         if len(row) > max(name_col, bc_col) and row[name_col].strip() in bc:
-            old = row[bc_col]
-            new = bc[row[name_col].strip()]
-            row[bc_col] = old.replace(old.strip(), new) if old.strip() else new
+            grown = len(bc[row[name_col].strip()]) - len(row[bc_col].strip())
+            row[bc_col] = _replace_cell(row[bc_col], bc[row[name_col].strip()])
+            if bc_col + 1 < len(row):
+                # columns padded after the comma: take the growth out of the next cell's padding
+                nxt = row[bc_col + 1]
+                lead = len(nxt) - len(nxt.lstrip(' '))
+                if lead > 1:
+                    row[bc_col + 1] = ' ' * max(1, lead - grown) + nxt.lstrip(' ')
     with open(path, 'w', newline='') as f:
-        csv.writer(f, lineterminator='\n').writerows(rows)
+        csv.writer(f, lineterminator=newline).writerows(rows)
 
 
 def _read_parameters(path):
@@ -194,11 +213,28 @@ def _read_parameters(path):
     return fields, [r for r in rows if r.get('variable_name')]
 
 
-def _write_parameters(path, fields, rows):
+def _write_parameters(path, fields, rows, template_path):
+    '''The parameters file as ``template_path`` with the rows ``rows`` no longer has removed and
+    the new ones appended: every other line is kept as it was.'''
+    keep = {r['variable_name'] for r in rows}
+    with open(template_path, newline='') as f:
+        lines = f.read().splitlines(keepends=True)
+    out, seen = lines[:1], set()
+    for line in lines[1:]:
+        name = next(csv.reader([line]), [''])
+        name = name[0].strip() if name else ''
+        if name and name not in keep:
+            continue
+        seen.add(name)
+        out.append(line)
+    newline = '\r\n' if lines and lines[0].endswith('\r\n') else '\n'
+    if out and not out[-1].endswith(('\n', '\r')):
+        out[-1] += newline
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=fields, extrasaction='ignore', lineterminator=newline)
+    writer.writerows([r for r in rows if r['variable_name'] not in seen])
     with open(path, 'w', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=fields, extrasaction='ignore', lineterminator='\n')
-        writer.writeheader()
-        writer.writerows(rows)
+        f.write(''.join(out) + buffer.getvalue())
 
 
 def migrate_files(library, vessel_array, parameters=None, check_files=(), out_dir=None, prefix=None,
@@ -221,7 +257,7 @@ def migrate_files(library, vessel_array, parameters=None, check_files=(), out_di
     _write_records(target(vessel_array), new_records, vessel_array)
     written.append(target(vessel_array))
     if parameters:
-        _write_parameters(target(parameters), fields, new_rows)
+        _write_parameters(target(parameters), fields, new_rows, parameters)
         written.append(target(parameters))
     unexposed = []
     for path in check_files:

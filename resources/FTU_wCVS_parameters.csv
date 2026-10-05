@@ -56,3 +56,4 @@ v_nom_systemic,m3_per_s,systemic,0.0,not_used
 R_venous_svc,Js_per_m6,systemic,1.0e7,small_chosen
 C_venous_svc,m6_per_J,systemic,1.0e-9,to_be_identified
 I_venous_svc,Js2_per_m6,systemic,1.0e-3,small_chosen
+q_C_init_systemic_T_C,m3,,0.0,lumped_migration: (q_init - q_us) of systemic_T

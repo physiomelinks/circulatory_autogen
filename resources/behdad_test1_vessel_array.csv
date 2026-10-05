@@ -1,5 +1,5 @@
 name,BC_type,vessel_type,inp_vessels,out_vessels
 inlet,                     nn_constant, inlet_flow,             ,                  par
-par,                       vp,arterial_simple,                 inlet,             pvn
-pvn,                      vp,venous,                          par,               outlet
+par,                       vp_lumped,arterial_simple,                 inlet,             pvn
+pvn,                      vp_lumped,venous,                          par,               outlet
 outlet,                    nn_constant,outlet_pressure,        pvn,              

@@ -1,84 +1,84 @@
 name,BC_type,vessel_type,inp_vessels,out_vessels
 heart,                   vp, heart,              venous_ivc venous_svc ,             ascending_aorta_A   
-ascending_aorta_A,       vv, arterial,           heart                 ,             ascending_aorta_B    
-ascending_aorta_B,       pv, arterial,           ascending_aorta_A     ,             ascending_aorta_C    
-ascending_aorta_C,       pv, arterial,           ascending_aorta_B     ,             ascending_aorta_D    
-ascending_aorta_D,       pv, arterial,           ascending_aorta_C     ,             aortic_arch_C2       
-aortic_arch_C2,          pv, arterial,     ascending_aorta_D     ,             aortic_arch_C46 brachiocephalic_trunk_C4
-aortic_arch_C46,         pv, arterial,     aortic_arch_C2        ,             aortic_arch_C64 common_carotid_L48_A
-aortic_arch_C64,         pv, arterial,     aortic_arch_C46       ,             aortic_arch_C94 subclavian_L66
-brachiocephalic_trunk_C4,pv, arterial,     aortic_arch_C2        ,             common_carotid_R6_A subclavian_R28
-subclavian_L66,          pv, arterial,     aortic_arch_C64       ,             subclavian_L78 vertebral_L2
-subclavian_L78,          pv, arterial,           subclavian_L66        ,             brachial_L82              
-brachial_L82,            pv, arterial,           subclavian_L78        ,             arm_L_T              
-common_carotid_L48_A,    pv, arterial,           aortic_arch_C46       ,             common_carotid_L48_B 
-common_carotid_L48_B,    pv, arterial,           common_carotid_L48_A  ,             common_carotid_L48_C 
-common_carotid_L48_C,    pv, arterial,           common_carotid_L48_B  ,             common_carotid_L48_D 
-common_carotid_L48_D,    pv, arterial,     common_carotid_L48_C  ,             external_carotid_L62 internal_carotid_L50_A
-common_carotid_R6_A,     pv, arterial,           brachiocephalic_trunk_C4 ,          common_carotid_R6_B  
-common_carotid_R6_B,     pv, arterial,           common_carotid_R6_A   ,             common_carotid_R6_C 
-common_carotid_R6_C,     pv, arterial,     common_carotid_R6_B   ,             external_carotid_R26 internal_carotid_R8_A
-external_carotid_L62,    pv, arterial,           common_carotid_L48_D  ,             external_carotid_L_T 
-external_carotid_R26,    pv, arterial,           common_carotid_R6_C   ,             external_carotid_R_T 
-internal_carotid_L50_A,  pv, arterial,           common_carotid_L48_D  ,             internal_carotid_L50_B 
-internal_carotid_L50_B,  pv, arterial,           internal_carotid_L50_A  ,           internal_carotid_L50_C 
-internal_carotid_L50_C,  pv, arterial,     internal_carotid_L50_B  ,           internal_carotid_L112 posterior_communicating_L8
-internal_carotid_R8_A,   pv, arterial,           common_carotid_R6_C  ,              internal_carotid_R8_B 
-internal_carotid_R8_B,   pv, arterial,           internal_carotid_R8_A  ,            internal_carotid_R8_C 
-internal_carotid_R8_C,   pv, arterial,     internal_carotid_R8_B  ,            internal_carotid_R48 posterior_communicating_R206
-posterior_communicating_L8, pp, arterial,        internal_carotid_L50_C  ,           posterior_cerebral_post_L12 
-posterior_communicating_R206,pp, arterial,       internal_carotid_R8_C  ,            posterior_cerebral_post_R208 
-internal_carotid_L112,   pv, arterial,     internal_carotid_L50_C  ,           middle_cerebral_L114 anterior_cerebral_L110
-internal_carotid_R48,    pv, arterial,     internal_carotid_R8_C  ,            middle_cerebral_R52 anterior_cerebral_R46
-middle_cerebral_L114,    pv, arterial,           internal_carotid_L112  ,            middle_cerebral_L_T  
-middle_cerebral_R52,     pv, arterial,           internal_carotid_R48  ,             middle_cerebral_R_T  
-anterior_cerebral_L110,  pp, arterial,           internal_carotid_L112  ,            anterior_cerebral_L42 
-anterior_cerebral_R46,   pv, arterial,     internal_carotid_R48  ,             anterior_cerebral_R238 anterior_communicating_C44
-anterior_cerebral_R238,  pv, arterial,           anterior_cerebral_R46  ,            anterior_cerebral_R_T 
-anterior_cerebral_L42,   vv, arterial,     anterior_cerebral_L110 anterior_communicating_C44,             anterior_cerebral_L_T 
-anterior_communicating_C44,pp, arterial,         anterior_cerebral_R46  ,            anterior_cerebral_L42
-vertebral_L2,            pp, arterial,           subclavian_L66        ,             basilar_C4           
-subclavian_R28,          pv, arterial,     brachiocephalic_trunk_C4  ,         subclavian_R30       vertebral_R272
-subclavian_R30,          pv, arterial,           subclavian_R28        ,             brachial_R34              
-brachial_R34,            pv, arterial,           subclavian_R30        ,             arm_R_T              
-vertebral_R272,          pp, arterial,           subclavian_R28        ,             basilar_C4           
-basilar_C4,              vv, arterial,   vertebral_R272 vertebral_L2, posterior_cerebral_pre_L6 posterior_cerebral_pre_R204
-posterior_cerebral_pre_L6,pp,arterial,           basilar_C4            ,             posterior_cerebral_post_L12 
-posterior_cerebral_post_L12,vv,arterial,   posterior_cerebral_pre_L6 posterior_communicating_L8,              posterior_cerebral_L_T    
-posterior_cerebral_pre_R204,pp,arterial,         basilar_C4            ,             posterior_cerebral_post_R208 
-posterior_cerebral_post_R208,vv,arterial,  posterior_cerebral_pre_R204  posterior_communicating_R206,              posterior_cerebral_R_T    
-posterior_cerebral_L_T,  pp, terminal,           posterior_cerebral_post_L12  ,      venous_ub            
-posterior_cerebral_R_T,  pp, terminal,           posterior_cerebral_post_R208  ,     venous_ub            
-external_carotid_L_T,    pp, terminal,           external_carotid_L62  ,             venous_ub            
-external_carotid_R_T,    pp, terminal,           external_carotid_R26   ,            venous_ub            
-middle_cerebral_L_T,     pp, terminal,           middle_cerebral_L114  ,             venous_ub            
-middle_cerebral_R_T,     pp, terminal,           middle_cerebral_R52   ,             venous_ub            
-anterior_cerebral_L_T,   pp, terminal,           anterior_cerebral_L42  ,            venous_ub            
-anterior_cerebral_R_T,   pp, terminal,           anterior_cerebral_R238  ,           venous_ub            
-arm_L_T,                 pp, terminal,           brachial_L82          ,             venous_ub            
-arm_R_T,                 pp, terminal,           brachial_R34          ,             venous_ub            
-aortic_arch_C94,         pv, arterial,           aortic_arch_C64       ,             thoracic_aorta_C96   
-thoracic_aorta_C96,      pv, arterial,           aortic_arch_C94       ,             thoracic_aorta_C100  
-thoracic_aorta_C100,     pv, arterial,           thoracic_aorta_C96    ,             thoracic_aorta_C104  
-thoracic_aorta_C104,     pv, arterial,           thoracic_aorta_C100   ,             thoracic_aorta_C108  
-thoracic_aorta_C108,     pv, arterial,           thoracic_aorta_C104   ,             thoracic_aorta_C112  
-thoracic_aorta_C112,     pv, arterial,           thoracic_aorta_C108   ,             abdominal_aorta_C114 
-abdominal_aorta_C114,    pv, arterial,     thoracic_aorta_C112   ,             abdominal_aorta_C136 trunk_C_T
-trunk_C_T,               pp, terminal,           abdominal_aorta_C114  ,             venous_lb            
-abdominal_aorta_C136,    pv, arterial,           abdominal_aorta_C114  ,             abdominal_aorta_C164 
-abdominal_aorta_C164,    pv, arterial,           abdominal_aorta_C136  ,             abdominal_aorta_C176 
-abdominal_aorta_C176,    pv, arterial,           abdominal_aorta_C164  ,             abdominal_aorta_C188 
-abdominal_aorta_C188,    pv, arterial,           abdominal_aorta_C176  ,             abdominal_aorta_C192 
-abdominal_aorta_C192,    pv, arterial,     abdominal_aorta_C188  ,             common_iliac_L194    common_iliac_R216
-common_iliac_L194,       pv, arterial,           abdominal_aorta_C192  ,             external_iliac_L198  
-external_iliac_L198,     pv, arterial,           common_iliac_L194     ,             femoral_L200         
-common_iliac_R216,       pv, arterial,           abdominal_aorta_C192  ,             external_iliac_R220  
-external_iliac_R220,     pv, arterial,           common_iliac_R216     ,             femoral_R222         
-femoral_L200,            pv, arterial,           external_iliac_L198   ,             leg_L_T              
-femoral_R222,            pv, arterial,           external_iliac_R220   ,             leg_R_T              
-leg_L_T,                 pp, terminal,           femoral_L200          ,             venous_lb            
-leg_R_T,                 pp, terminal,           femoral_R222          ,             venous_lb            
-venous_lb,               vp, venous,             leg_L_T leg_R_T trunk_C_T,          venous_ivc           
-venous_ub,               vp, venous,             arm_L_T arm_R_T external_carotid_L_T external_carotid_R_T posterior_cerebral_L_T posterior_cerebral_R_T middle_cerebral_L_T middle_cerebral_R_T anterior_cerebral_L_T anterior_cerebral_R_T ,           venous_svc           
-venous_ivc,              vp, venous,             venous_lb             ,             heart                
-venous_svc,              vp, venous,             venous_ub             ,             heart                
+ascending_aorta_A,       vv_lumped, arterial,           heart                 ,             ascending_aorta_B    
+ascending_aorta_B,       pv_lumped, arterial,           ascending_aorta_A     ,             ascending_aorta_C    
+ascending_aorta_C,       pv_lumped, arterial,           ascending_aorta_B     ,             ascending_aorta_D    
+ascending_aorta_D,       pv_lumped, arterial,           ascending_aorta_C     ,             aortic_arch_C2       
+aortic_arch_C2,          pv_lumped, arterial,     ascending_aorta_D     ,             aortic_arch_C46 brachiocephalic_trunk_C4
+aortic_arch_C46,         pv_lumped, arterial,     aortic_arch_C2        ,             aortic_arch_C64 common_carotid_L48_A
+aortic_arch_C64,         pv_lumped, arterial,     aortic_arch_C46       ,             aortic_arch_C94 subclavian_L66
+brachiocephalic_trunk_C4,pv_lumped, arterial,     aortic_arch_C2        ,             common_carotid_R6_A subclavian_R28
+subclavian_L66,          pv_lumped, arterial,     aortic_arch_C64       ,             subclavian_L78 vertebral_L2
+subclavian_L78,          pv_lumped, arterial,           subclavian_L66        ,             brachial_L82              
+brachial_L82,            pv_lumped, arterial,           subclavian_L78        ,             arm_L_T              
+common_carotid_L48_A,    pv_lumped, arterial,           aortic_arch_C46       ,             common_carotid_L48_B 
+common_carotid_L48_B,    pv_lumped, arterial,           common_carotid_L48_A  ,             common_carotid_L48_C 
+common_carotid_L48_C,    pv_lumped, arterial,           common_carotid_L48_B  ,             common_carotid_L48_D 
+common_carotid_L48_D,    pv_lumped, arterial,     common_carotid_L48_C  ,             external_carotid_L62 internal_carotid_L50_A
+common_carotid_R6_A,     pv_lumped, arterial,           brachiocephalic_trunk_C4 ,          common_carotid_R6_B  
+common_carotid_R6_B,     pv_lumped, arterial,           common_carotid_R6_A   ,             common_carotid_R6_C 
+common_carotid_R6_C,     pv_lumped, arterial,     common_carotid_R6_B   ,             external_carotid_R26 internal_carotid_R8_A
+external_carotid_L62,    pv_lumped, arterial,           common_carotid_L48_D  ,             external_carotid_L_T 
+external_carotid_R26,    pv_lumped, arterial,           common_carotid_R6_C   ,             external_carotid_R_T 
+internal_carotid_L50_A,  pv_lumped, arterial,           common_carotid_L48_D  ,             internal_carotid_L50_B 
+internal_carotid_L50_B,  pv_lumped, arterial,           internal_carotid_L50_A  ,           internal_carotid_L50_C 
+internal_carotid_L50_C,  pv_lumped, arterial,     internal_carotid_L50_B  ,           internal_carotid_L112 posterior_communicating_L8
+internal_carotid_R8_A,   pv_lumped, arterial,           common_carotid_R6_C  ,              internal_carotid_R8_B 
+internal_carotid_R8_B,   pv_lumped, arterial,           internal_carotid_R8_A  ,            internal_carotid_R8_C 
+internal_carotid_R8_C,   pv_lumped, arterial,     internal_carotid_R8_B  ,            internal_carotid_R48 posterior_communicating_R206
+posterior_communicating_L8, pp_lumped, arterial,        internal_carotid_L50_C  ,           posterior_cerebral_post_L12 
+posterior_communicating_R206,pp_lumped, arterial,       internal_carotid_R8_C  ,            posterior_cerebral_post_R208 
+internal_carotid_L112,   pv_lumped, arterial,     internal_carotid_L50_C  ,           middle_cerebral_L114 anterior_cerebral_L110
+internal_carotid_R48,    pv_lumped, arterial,     internal_carotid_R8_C  ,            middle_cerebral_R52 anterior_cerebral_R46
+middle_cerebral_L114,    pv_lumped, arterial,           internal_carotid_L112  ,            middle_cerebral_L_T  
+middle_cerebral_R52,     pv_lumped, arterial,           internal_carotid_R48  ,             middle_cerebral_R_T  
+anterior_cerebral_L110,  pp_lumped, arterial,           internal_carotid_L112  ,            anterior_cerebral_L42 
+anterior_cerebral_R46,   pv_lumped, arterial,     internal_carotid_R48  ,             anterior_cerebral_R238 anterior_communicating_C44
+anterior_cerebral_R238,  pv_lumped, arterial,           anterior_cerebral_R46  ,            anterior_cerebral_R_T 
+anterior_cerebral_L42,   vv_lumped, arterial,     anterior_cerebral_L110 anterior_communicating_C44,             anterior_cerebral_L_T 
+anterior_communicating_C44,pp_lumped, arterial,         anterior_cerebral_R46  ,            anterior_cerebral_L42
+vertebral_L2,            pp_lumped, arterial,           subclavian_L66        ,             basilar_C4           
+subclavian_R28,          pv_lumped, arterial,     brachiocephalic_trunk_C4  ,         subclavian_R30       vertebral_R272
+subclavian_R30,          pv_lumped, arterial,           subclavian_R28        ,             brachial_R34              
+brachial_R34,            pv_lumped, arterial,           subclavian_R30        ,             arm_R_T              
+vertebral_R272,          pp_lumped, arterial,           subclavian_R28        ,             basilar_C4           
+basilar_C4,              vv_lumped, arterial,   vertebral_R272 vertebral_L2, posterior_cerebral_pre_L6 posterior_cerebral_pre_R204
+posterior_cerebral_pre_L6,pp_lumped,arterial,           basilar_C4            ,             posterior_cerebral_post_L12 
+posterior_cerebral_post_L12,vv_lumped,arterial,   posterior_cerebral_pre_L6 posterior_communicating_L8,              posterior_cerebral_L_T    
+posterior_cerebral_pre_R204,pp_lumped,arterial,         basilar_C4            ,             posterior_cerebral_post_R208 
+posterior_cerebral_post_R208,vv_lumped,arterial,  posterior_cerebral_pre_R204  posterior_communicating_R206,              posterior_cerebral_R_T    
+posterior_cerebral_L_T,  pp_lumped, terminal,           posterior_cerebral_post_L12  ,      venous_ub            
+posterior_cerebral_R_T,  pp_lumped, terminal,           posterior_cerebral_post_R208  ,     venous_ub            
+external_carotid_L_T,    pp_lumped, terminal,           external_carotid_L62  ,             venous_ub            
+external_carotid_R_T,    pp_lumped, terminal,           external_carotid_R26   ,            venous_ub            
+middle_cerebral_L_T,     pp_lumped, terminal,           middle_cerebral_L114  ,             venous_ub            
+middle_cerebral_R_T,     pp_lumped, terminal,           middle_cerebral_R52   ,             venous_ub            
+anterior_cerebral_L_T,   pp_lumped, terminal,           anterior_cerebral_L42  ,            venous_ub            
+anterior_cerebral_R_T,   pp_lumped, terminal,           anterior_cerebral_R238  ,           venous_ub            
+arm_L_T,                 pp_lumped, terminal,           brachial_L82          ,             venous_ub            
+arm_R_T,                 pp_lumped, terminal,           brachial_R34          ,             venous_ub            
+aortic_arch_C94,         pv_lumped, arterial,           aortic_arch_C64       ,             thoracic_aorta_C96   
+thoracic_aorta_C96,      pv_lumped, arterial,           aortic_arch_C94       ,             thoracic_aorta_C100  
+thoracic_aorta_C100,     pv_lumped, arterial,           thoracic_aorta_C96    ,             thoracic_aorta_C104  
+thoracic_aorta_C104,     pv_lumped, arterial,           thoracic_aorta_C100   ,             thoracic_aorta_C108  
+thoracic_aorta_C108,     pv_lumped, arterial,           thoracic_aorta_C104   ,             thoracic_aorta_C112  
+thoracic_aorta_C112,     pv_lumped, arterial,           thoracic_aorta_C108   ,             abdominal_aorta_C114 
+abdominal_aorta_C114,    pv_lumped, arterial,     thoracic_aorta_C112   ,             abdominal_aorta_C136 trunk_C_T
+trunk_C_T,               pp_lumped, terminal,           abdominal_aorta_C114  ,             venous_lb            
+abdominal_aorta_C136,    pv_lumped, arterial,           abdominal_aorta_C114  ,             abdominal_aorta_C164 
+abdominal_aorta_C164,    pv_lumped, arterial,           abdominal_aorta_C136  ,             abdominal_aorta_C176 
+abdominal_aorta_C176,    pv_lumped, arterial,           abdominal_aorta_C164  ,             abdominal_aorta_C188 
+abdominal_aorta_C188,    pv_lumped, arterial,           abdominal_aorta_C176  ,             abdominal_aorta_C192 
+abdominal_aorta_C192,    pv_lumped, arterial,     abdominal_aorta_C188  ,             common_iliac_L194    common_iliac_R216
+common_iliac_L194,       pv_lumped, arterial,           abdominal_aorta_C192  ,             external_iliac_L198  
+external_iliac_L198,     pv_lumped, arterial,           common_iliac_L194     ,             femoral_L200         
+common_iliac_R216,       pv_lumped, arterial,           abdominal_aorta_C192  ,             external_iliac_R220  
+external_iliac_R220,     pv_lumped, arterial,           common_iliac_R216     ,             femoral_R222         
+femoral_L200,            pv_lumped, arterial,           external_iliac_L198   ,             leg_L_T              
+femoral_R222,            pv_lumped, arterial,           external_iliac_R220   ,             leg_R_T              
+leg_L_T,                 pp_lumped, terminal,           femoral_L200          ,             venous_lb            
+leg_R_T,                 pp_lumped, terminal,           femoral_R222          ,             venous_lb            
+venous_lb,               vp_lumped, venous,             leg_L_T leg_R_T trunk_C_T,          venous_ivc           
+venous_ub,               vp_lumped, venous,             arm_L_T arm_R_T external_carotid_L_T external_carotid_R_T posterior_cerebral_L_T posterior_cerebral_R_T middle_cerebral_L_T middle_cerebral_R_T anterior_cerebral_L_T anterior_cerebral_R_T ,           venous_svc           
+venous_ivc,              vp_lumped, venous,             venous_lb             ,             heart                
+venous_svc,              vp_lumped, venous,             venous_ub             ,             heart                

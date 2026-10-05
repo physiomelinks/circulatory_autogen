@@ -72,7 +72,6 @@ R_T_systemic_T,Js_per_m6,110000000,calculated_from_mean_P_and_v
 C_T_systemic_T,m6_per_J,0.0000001,calculated_from_approx_P_and_q
 u_ext_systemic_T,J_per_m3,0,user_defined
 q_us_systemic_T,m3,0.00245,user_defined_70%Of3.5LVenousTotBloodVolume
-q_init_systemic_T,m3,0.00245,user_defined_70%Of3.5LVenousTotBloodVolume
 R_venous_svc,Js_per_m6,1114600,small_chosen
 q_C_init_venous_svc,m3,0.0013,user_defined
 C_venous_svc,m6_per_J,0.000001,calculated_from_typical_venous_pressure_init_stressed_vol
@@ -81,3 +80,4 @@ I_venous_svc,Js2_per_m6,0.01,small_chosen
 q_us_0_venous_svc,m3,0,user_defined
 Delta_q_us_venous_svc,dimensionless,0,user_defined
 Delta_C_venous_svc,dimensionless,0,user_defined
+q_C_init_systemic_T_C,m3,0.0,lumped_migration: (q_init - q_us) of systemic_T

@@ -127,22 +127,18 @@ R_T_head_L_T,Js_per_m6,200000000,to_be_identified
 C_T_head_L_T,m6_per_J,4e-11,to_be_identified
 u_ext_head_L_T,J_per_m3,0,user_defined
 q_us_head_L_T,m3,0,user_defined_TO_DO
-q_init_head_L_T,m3,0,user_defined_TO_DO
 R_T_head_R_T,Js_per_m6,200000000,to_be_identified
 C_T_head_R_T,m6_per_J,4e-11,to_be_identified
 u_ext_head_R_T,J_per_m3,0,user_defined
 q_us_head_R_T,m3,0,user_defined_TO_DO
-q_init_head_R_T,m3,0,user_defined_TO_DO
 R_T_arm_L_T,Js_per_m6,8144900000,28_10_2021_identified
 C_T_arm_L_T,m6_per_J,1e-10,to_be_identified
 u_ext_arm_L_T,J_per_m3,0,user_defined
 q_us_arm_L_T,m3,0,user_defined_TO_DO
-q_init_arm_L_T,m3,0,user_defined_TO_DO
 R_T_arm_R_T,Js_per_m6,8144900000,28_10_2021_identified
 C_T_arm_R_T,m6_per_J,1e-10,to_be_identified
 u_ext_arm_R_T,J_per_m3,0,user_defined
 q_us_arm_R_T,m3,0,user_defined_TO_DO
-q_init_arm_R_T,m3,0,user_defined_TO_DO
 E_aortic_arch_C94,J_per_m3,400000,ADAN_86
 l_aortic_arch_C94,metre,0.0432111,ADAN_86
 r_0_aortic_arch_C94,metre,0.0117401,ADAN_86
@@ -189,7 +185,6 @@ R_T_trunk_C_T,Js_per_m6,200000000,to_be_identified
 C_T_trunk_C_T,m6_per_J,0.000000004,to_be_identified
 u_ext_trunk_C_T,J_per_m3,0,user_defined
 q_us_trunk_C_T,m3,0,user_defined_TO_DO
-q_init_trunk_C_T,m3,0,user_defined_TO_DO
 E_abdominal_aorta_C136,J_per_m3,400000,ADAN_86
 l_abdominal_aorta_C136,metre,0.0139886,ADAN_86
 r_0_abdominal_aorta_C136,metre,0.00742666,ADAN_86
@@ -260,12 +255,10 @@ R_T_leg_L_T,Js_per_m6,280000000,to_be_identified
 C_T_leg_L_T,m6_per_J,4e-10,to_be_identified
 u_ext_leg_L_T,J_per_m3,0,user_defined
 q_us_leg_L_T,m3,0,user_defined_TO_DO
-q_init_leg_L_T,m3,0,user_defined_TO_DO
 R_T_leg_R_T,Js_per_m6,280000000,to_be_identified
 C_T_leg_R_T,m6_per_J,4e-10,to_be_identified
 u_ext_leg_R_T,J_per_m3,0,user_defined
 q_us_leg_R_T,m3,0,user_defined_TO_DO
-q_init_leg_R_T,m3,0,user_defined_TO_DO
 R_venous_lb,Js_per_m6,0.0000001,small_chosen
 C_venous_lb,m6_per_J,0.000001,to_be_identified
 u_ext_venous_lb,J_per_m3,0,user_defined
@@ -314,3 +307,10 @@ q_C_init_venous_lb,m3,0,user_defined
 q_C_init_venous_ub,m3,0,user_defined
 q_C_init_venous_ivc,m3,0,user_defined
 q_C_init_venous_svc,m3,0,user_defined
+q_C_init_head_L_T_C,m3,0.0,lumped_migration: (q_init - q_us) of head_L_T
+q_C_init_head_R_T_C,m3,0.0,lumped_migration: (q_init - q_us) of head_R_T
+q_C_init_arm_L_T_C,m3,0.0,lumped_migration: (q_init - q_us) of arm_L_T
+q_C_init_arm_R_T_C,m3,0.0,lumped_migration: (q_init - q_us) of arm_R_T
+q_C_init_trunk_C_T_C,m3,0.0,lumped_migration: (q_init - q_us) of trunk_C_T
+q_C_init_leg_L_T_C,m3,0.0,lumped_migration: (q_init - q_us) of leg_L_T
+q_C_init_leg_R_T_C,m3,0.0,lumped_migration: (q_init - q_us) of leg_R_T
