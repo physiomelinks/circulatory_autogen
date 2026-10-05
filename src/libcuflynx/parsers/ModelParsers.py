@@ -19,6 +19,7 @@ import re
 import os
 
 from libcuflynx.utilities.module_library import ModuleSources
+from libcuflynx.utilities.vessel_bc import is_vessel_bc
 
 # The columns a {prefix}_parameters.csv must provide. They are looked up by header name, so a file
 # may list them in any order and may carry extra columns (FTU_wCVS_parameters.csv has a 'comp_env'
@@ -234,7 +235,7 @@ class CSV0DModelParser(object):
                     found_K_mod = False
                     for j in range(vessels_df_0d.shape[0]):
                         if vessels_df_0d.at[j,"name"]==out_vess:
-                            if (vessels_df_0d.at[j,"BC_type"]=="nn" and vessels_df_0d.at[j,"inp_vessels"].split()[0]==vess1d):
+                            if (not is_vessel_bc(vessels_df_0d.at[j,"BC_type"]) and vessels_df_0d.at[j,"inp_vessels"].split()[0]==vess1d):
                                 print(f"WARNING: found {out_vess} module coupled to FV1D_vessel {vess1d}. Removing it for now as tube law of 1D vessels is completely managed in 1D model solver.")
                                 vessels_df_0d.drop(index=j, inplace=True)
                                 vessels_df_0d = vessels_df_0d.reset_index(drop=True)
@@ -268,7 +269,7 @@ class CSV0DModelParser(object):
                         if len(idx0d)==1:
                             idx0d_int = idx0d[0]
                             if (vessels_df_0d.at[idx0d_int,"vessel_type"].startswith(("inlet_flow","inlet_pressure"))
-                                    and vessels_df_0d.at[idx0d_int,"BC_type"].startswith("nn")):
+                                    and not is_vessel_bc(vessels_df_0d.at[idx0d_int,"BC_type"])):
 
                                     if vessels_df_0d.at[idx0d_int,"vessel_type"].startswith("inlet_flow"):
                                         vessels_df_1d.at[i,"inp_vessels"] = 'input_flow_BC'
@@ -345,7 +346,7 @@ class CSV0DModelParser(object):
                         if len(idx0d)==1:
                             idx0d_int = idx0d[0]
                             if (vessels_df_0d.at[idx0d_int,"vessel_type"].startswith(("outlet_flow","outlet_pressure"))
-                                    and vessels_df_0d.at[idx0d_int,"BC_type"].startswith("nn")):
+                                    and not is_vessel_bc(vessels_df_0d.at[idx0d_int,"BC_type"])):
 
                                     if vessels_df_0d.at[idx0d_int,"vessel_type"].startswith("outlet_flow"):
                                         vessels_df_1d.at[i,"out_vessels"] = 'output_flow_BC'

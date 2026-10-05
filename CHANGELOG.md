@@ -108,6 +108,17 @@ The 0D/1D split for `couple_to_1d` now always writes `[file_prefix]_0d_vessel_ar
 `[file_prefix]_1d_vessel_array.csv`, and the 1D generator reads the file the split wrote. Before,
 an input named `_module_array.csv` gave split files the 1D generator could not find.
 
+### Fixed — a BC_type's first two letters are a BC pair only for vessels
+
+Non-vessel modules (cells, ion channels, controllers, heart parts, BC modules) can now have any
+`BC_type` / `module_subtype`, with no `nn` prefix. Before, every connection whose two sides did
+not start with `nn` had their first two letters checked as vessel BCs, so a version named
+`lv_...`, `rv_...` or `Up...` stopped generation, and a non-vessel neighbour of an Nout junction
+lost its connection. A module now counts as a vessel when its `BC_type` starts with `vv`, `vp`,
+`pv` or `pp` and it has vessel ports (a `vessel_port`, or a `flow_port` and a `pressure_port` at
+its entrance/exit); see `libcuflynx.utilities.vessel_bc`. Vessel BC pairs are checked as before,
+and all the built-in example models generate byte-identical CellML.
+
 ### Added — PhLynx module-config and vessel-array schemas; `"Sum"` and `"Multiply"` multi_ports
 
 The module library is moving its configs to PhLynx's key names, and libcuflynx now reads both

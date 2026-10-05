@@ -15,6 +15,7 @@ from libcuflynx.utilities.package_resources import package_data_dir
 from libcuflynx.utilities.paths import default_resources_dir
 from libcuflynx.utilities.module_library import ModuleSources, collect_units, CELLML_1_1_NS
 from libcuflynx.utilities.config_schemas import is_heart_vessel_type
+from libcuflynx.utilities.vessel_bc import is_vessel_module
 
 generators_dir = os.path.dirname(__file__)
 # Build/run scripts copied alongside each generated model so it can be compiled/run
@@ -915,7 +916,7 @@ class CVS0DCellMLGenerator(object):
                             any(module_df.loc[module_df["name"] == temp_inp_vess, "vessel_type"].iloc[0].startswith(("Nout_", "MinNout_"))
                                 for temp_inp_vess in module_df.loc[module_df["name"] == temp_out_vess, "inp_vessels"].values[0])
                                     for temp_out_vess in module_row["out_vessels"]
-                                        if not module_df.loc[module_df["name"] == temp_out_vess, "BC_type"].iloc[0].startswith("nn"))):
+                                        if is_vessel_module(module_df.loc[module_df["name"] == temp_out_vess].squeeze()))):
                         # the generic junction connections are done through the generic_junction_connection
                         pass
 
@@ -1381,7 +1382,8 @@ class CVS0DCellMLGenerator(object):
             # (a vessel whose entrance port has a list-form multi_port already sums its inflows,
             # terminals included, through its multiport sum component)
             if vessel_df.loc[vessel_df['name'].isin(vessel_tup.inp_vessels)
-            ]['vessel_type'].str.contains('terminal').any() and vessel_tup.BC_type.startswith('v') and \
+            ]['vessel_type'].str.contains('terminal').any() and is_vessel_module(vessel_tup) and \
+                    vessel_tup.BC_type.startswith('v') and \
                     not any(list_multi_port(port) is not None for port in vessel_tup.entrance_ports):
                 vessel_name = vessel_tup.name
                 first_venous_names.append(vessel_name)
@@ -1538,8 +1540,9 @@ class CVS0DCellMLGenerator(object):
                 in_vessel_signs = []
                 for in_vess_name in vessel_tup.inp_vessels:
                     # This finds the vessels connected to the same junction
-                    in_vess_BC = vessel_df.loc[vessel_df["name"] == in_vess_name].squeeze()["BC_type"][:2]
-                    if in_vess_BC!='nn': # otherwise K_tube modules or other non-vessel modules will also be included
+                    in_vess_row = vessel_df.loc[vessel_df["name"] == in_vess_name].squeeze()
+                    in_vess_BC = in_vess_row["BC_type"][:2]
+                    if is_vessel_module(in_vess_row): # only vessels join the node, not K_tube or other non-vessel modules
                         in_vessel_names.append(in_vess_name)
                         in_vessel_BCs.append(in_vess_BC)
                         for vessel_tup2 in vessel_df.itertuples():
@@ -1558,8 +1561,9 @@ class CVS0DCellMLGenerator(object):
                     if vess_name2 in in_vessel_names and vess_name in vessel_tup2.inp_vessels:
                         for in_vess_name in vessel_tup2.inp_vessels:
                             if in_vess_name!=vess_name and in_vess_name not in in_vessel_names:
-                                in_vess_BC = vessel_df.loc[vessel_df["name"] == in_vess_name].squeeze()["BC_type"][:2]
-                                if in_vess_BC!='nn': # otherwise K_tube modules or other non-vessel modules will also be included
+                                in_vess_row = vessel_df.loc[vessel_df["name"] == in_vess_name].squeeze()
+                                in_vess_BC = in_vess_row["BC_type"][:2]
+                                if is_vessel_module(in_vess_row): # only vessels join the node, not K_tube or other non-vessel modules
                                     in_vessel_names.append(in_vess_name)
                                     in_vessel_BCs.append(in_vess_BC)
                                     in_vess_sign = -1.
@@ -1568,8 +1572,9 @@ class CVS0DCellMLGenerator(object):
                     elif vess_name2 in in_vessel_names and vess_name in vessel_tup2.out_vessels:
                         for in_vess_name in vessel_tup2.out_vessels:
                             if in_vess_name!=vess_name and in_vess_name not in in_vessel_names:
-                                in_vess_BC = vessel_df.loc[vessel_df["name"] == in_vess_name].squeeze()["BC_type"][:2]
-                                if in_vess_BC!='nn': # otherwise K_tube modules or other non-vessel modules will also be included
+                                in_vess_row = vessel_df.loc[vessel_df["name"] == in_vess_name].squeeze()
+                                in_vess_BC = in_vess_row["BC_type"][:2]
+                                if is_vessel_module(in_vess_row): # only vessels join the node, not K_tube or other non-vessel modules
                                     in_vessel_names.append(in_vess_name)
                                     in_vessel_BCs.append(in_vess_BC)
                                     in_vess_sign = -1.
@@ -1648,8 +1653,9 @@ class CVS0DCellMLGenerator(object):
 
                     for in_vess_name in vessel_tup.inp_vessels:
                         # This finds the vessels connected to the same junction
-                        in_vess_BC = vessel_df.loc[vessel_df["name"] == in_vess_name].squeeze()["BC_type"][:2]
-                        if in_vess_BC!='nn': # otherwise K_tube modules or other non-vessel modules will also be included
+                        in_vess_row = vessel_df.loc[vessel_df["name"] == in_vess_name].squeeze()
+                        in_vess_BC = in_vess_row["BC_type"][:2]
+                        if is_vessel_module(in_vess_row): # only vessels join the node, not K_tube or other non-vessel modules
                             in_vessel_names.append(in_vess_name)
                             in_vessel_BCs.append(in_vess_BC)
                             for vessel_tup2 in vessel_df.itertuples():
@@ -1668,8 +1674,9 @@ class CVS0DCellMLGenerator(object):
                         if vess_name2 in in_vessel_names and vess_name in vessel_tup2.inp_vessels:
                             for in_vess_name in vessel_tup2.inp_vessels:
                                 if in_vess_name!=vess_name and in_vess_name not in in_vessel_names:
-                                    in_vess_BC = vessel_df.loc[vessel_df["name"] == in_vess_name].squeeze()["BC_type"][:2]
-                                    if in_vess_BC!='nn': # otherwise K_tube modules or other non-vessel modules will also be included
+                                    in_vess_row = vessel_df.loc[vessel_df["name"] == in_vess_name].squeeze()
+                                    in_vess_BC = in_vess_row["BC_type"][:2]
+                                    if is_vessel_module(in_vess_row): # only vessels join the node, not K_tube or other non-vessel modules
                                         in_vessel_names.append(in_vess_name)
                                         in_vessel_BCs.append(in_vess_BC)
                                         in_vess_sign = -1.
@@ -1678,8 +1685,9 @@ class CVS0DCellMLGenerator(object):
                         elif vess_name2 in in_vessel_names and vess_name in vessel_tup2.out_vessels:
                             for in_vess_name in vessel_tup2.out_vessels:
                                 if in_vess_name!=vess_name and in_vess_name not in in_vessel_names:
-                                    in_vess_BC = vessel_df.loc[vessel_df["name"] == in_vess_name].squeeze()["BC_type"][:2]
-                                    if in_vess_BC!='nn': # otherwise K_tube modules or other non-vessel modules will also be included
+                                    in_vess_row = vessel_df.loc[vessel_df["name"] == in_vess_name].squeeze()
+                                    in_vess_BC = in_vess_row["BC_type"][:2]
+                                    if is_vessel_module(in_vess_row): # only vessels join the node, not K_tube or other non-vessel modules
                                         in_vessel_names.append(in_vess_name)
                                         in_vessel_BCs.append(in_vess_BC)
                                         in_vess_sign = -1.
@@ -1735,8 +1743,9 @@ class CVS0DCellMLGenerator(object):
 
                     for out_vess_name in vessel_tup.out_vessels:
                         # This finds the vessels connected to the same junction
-                        out_vess_BC = vessel_df.loc[vessel_df["name"] == out_vess_name].squeeze()["BC_type"][:2]
-                        if out_vess_BC!='nn': # otherwise K_tube modules or other non-vessel modules will also be included
+                        out_vess_row = vessel_df.loc[vessel_df["name"] == out_vess_name].squeeze()
+                        out_vess_BC = out_vess_row["BC_type"][:2]
+                        if is_vessel_module(out_vess_row): # only vessels join the node, not K_tube or other non-vessel modules
                             out_vessel_names.append(out_vess_name)
                             out_vessel_BCs.append(out_vess_BC)
                             for vessel_tup2 in vessel_df.itertuples():
@@ -1755,8 +1764,9 @@ class CVS0DCellMLGenerator(object):
                         if vess_name2 in out_vessel_names and vess_name in vessel_tup2.inp_vessels:
                             for out_vess_name in vessel_tup2.inp_vessels:
                                 if out_vess_name!=vess_name and out_vess_name not in out_vessel_names:
-                                    out_vess_BC = vessel_df.loc[vessel_df["name"] == out_vess_name].squeeze()["BC_type"][:2]
-                                    if out_vess_BC!='nn': # otherwise K_tube modules or other non-vessel modules will also be included
+                                    out_vess_row = vessel_df.loc[vessel_df["name"] == out_vess_name].squeeze()
+                                    out_vess_BC = out_vess_row["BC_type"][:2]
+                                    if is_vessel_module(out_vess_row): # only vessels join the node, not K_tube or other non-vessel modules
                                         out_vessel_names.append(out_vess_name)
                                         out_vessel_BCs.append(out_vess_BC)
                                         out_vess_sign = 1.
@@ -1765,8 +1775,9 @@ class CVS0DCellMLGenerator(object):
                         elif vess_name2 in out_vessel_names and vess_name in vessel_tup2.out_vessels:
                             for out_vess_name in vessel_tup2.out_vessels:
                                 if out_vess_name!=vess_name and out_vess_name not in out_vessel_names:
-                                    out_vess_BC = vessel_df.loc[vessel_df["name"] == out_vess_name].squeeze()["BC_type"][:2]
-                                    if out_vess_BC!='nn': # otherwise K_tube modules or other non-vessel modules will also be included
+                                    out_vess_row = vessel_df.loc[vessel_df["name"] == out_vess_name].squeeze()
+                                    out_vess_BC = out_vess_row["BC_type"][:2]
+                                    if is_vessel_module(out_vess_row): # only vessels join the node, not K_tube or other non-vessel modules
                                         out_vessel_names.append(out_vess_name)
                                         out_vessel_BCs.append(out_vess_BC)
                                         out_vess_sign = 1.
@@ -1839,8 +1850,9 @@ class CVS0DCellMLGenerator(object):
                     out_vessel_signs = []
                     for out_vess_name in vessel_tup.out_vessels:
                         # This finds the vessels connected to the same junction
-                        out_vess_BC = vessel_df.loc[vessel_df["name"] == out_vess_name].squeeze()["BC_type"][:2]
-                        if out_vess_BC!='nn': # otherwise K_tube modules or other non-vessel modules will also be included
+                        out_vess_row = vessel_df.loc[vessel_df["name"] == out_vess_name].squeeze()
+                        out_vess_BC = out_vess_row["BC_type"][:2]
+                        if is_vessel_module(out_vess_row): # only vessels join the node, not K_tube or other non-vessel modules
                             out_vessel_names.append(out_vess_name)
                             out_vessel_BCs.append(out_vess_BC)
                             for vessel_tup2 in vessel_df.itertuples():
@@ -1859,8 +1871,9 @@ class CVS0DCellMLGenerator(object):
                         if vess_name2 in out_vessel_names and vess_name in vessel_tup2.inp_vessels:
                             for out_vess_name in vessel_tup2.inp_vessels:
                                 if out_vess_name!=vess_name and out_vess_name not in out_vessel_names:
-                                    out_vess_BC = vessel_df.loc[vessel_df["name"] == out_vess_name].squeeze()["BC_type"][:2]
-                                    if out_vess_BC!='nn': # otherwise K_tube modules or other non-vessel modules will also be included
+                                    out_vess_row = vessel_df.loc[vessel_df["name"] == out_vess_name].squeeze()
+                                    out_vess_BC = out_vess_row["BC_type"][:2]
+                                    if is_vessel_module(out_vess_row): # only vessels join the node, not K_tube or other non-vessel modules
                                         out_vessel_names.append(out_vess_name)
                                         out_vessel_BCs.append(out_vess_BC)
                                         out_vess_sign = 1.
@@ -1869,8 +1882,9 @@ class CVS0DCellMLGenerator(object):
                         elif vess_name2 in out_vessel_names and vess_name in vessel_tup2.out_vessels:
                             for out_vess_name in vessel_tup2.out_vessels:
                                 if out_vess_name!=vess_name and out_vess_name not in out_vessel_names:
-                                    out_vess_BC = vessel_df.loc[vessel_df["name"] == out_vess_name].squeeze()["BC_type"][:2]
-                                    if out_vess_BC!='nn': # otherwise K_tube modules or other non-vessel modules will also be included
+                                    out_vess_row = vessel_df.loc[vessel_df["name"] == out_vess_name].squeeze()
+                                    out_vess_BC = out_vess_row["BC_type"][:2]
+                                    if is_vessel_module(out_vess_row): # only vessels join the node, not K_tube or other non-vessel modules
                                         out_vessel_names.append(out_vess_name)
                                         out_vessel_BCs.append(out_vess_BC)
                                         out_vess_sign = 1.
@@ -2430,11 +2444,13 @@ class CVS0DCellMLGenerator(object):
             print(f'"{main_vessel}" and "{out_vessel}" are incorrectly connected, '
                   f'check that they have eachother as output/input')
             exit()
-        if out_vessel_BC_type.startswith('nn'):
+        # The BC letters are only checked between two vessels. A module that is not a
+        # vessel (a cell, controller, heart part, an ``nn`` BC module, ...) may have any
+        # BC_type, e.g. ``lv_test`` or ``SN_soma``, without it being read as a BC pair.
+        main_row = vessel_df.loc[vessel_df["name"] == main_vessel].squeeze()
+        out_row = vessel_df.loc[vessel_df["name"] == out_vessel].squeeze()
+        if not (is_vessel_module(main_row) and is_vessel_module(out_row)):
             return
-        if main_vessel_BC_type.startswith('nn'):
-            return
-
 
         if len(main_vessel_BC_type) > 2:
             temp_main_vessel_BC_type = main_vessel_BC_type[:2]
