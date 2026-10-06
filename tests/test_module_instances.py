@@ -2,7 +2,7 @@
 
 A module library lays a module version out as ``<module_type>/versions/<version>/`` with its
 CellML, a one-entry ``*_modules_config.json`` (module_subtype == version) and named parameter
-sets in ``instances/<instance>/<instance>_parameters.csv``. A vessel-array record (or a
+sets in ``instances/<instance>/<instance>_parameters.csv``. A module-array record (or a
 supermodule's submodule) picks one with ``"instance"``; without it, the entry's
 ``default_instance`` is used when its file exists. Rows ``{var}`` become ``{var}_{vessel}``,
 except the module's global constants, and are default parameters: the host parameters file
@@ -149,7 +149,7 @@ def _rec(name, module_type, subtype='nn', inp=(), out=(), **extra):
 
 
 def _load(tmp_path, library, records):
-    path = str(tmp_path / 'm_vessel_array.json')
+    path = str(tmp_path / 'm_module_array.json')
     _write_json(path, records)
     files = _config_files(library)
     return load_expanded_vessel_records(path, load_supermodule_registry(files),
@@ -308,7 +308,7 @@ def test_an_unknown_submodule_instance_is_an_error(tmp_path, library):
     bad_pair = {k: v for k, v in PAIR.items() if k not in ('default_instance', 'default_parameters')}
     _write_json(str(directory / 'badpair_modules_config.json'),
                 [dict(bad_pair, module_type='badpair', submodules=[_sub('a', instance='nope')])])
-    path = str(tmp_path / 'm_vessel_array.json')
+    path = str(tmp_path / 'm_module_array.json')
     _write_json(path, [_rec('pr', 'badpair', 'v1', out=['coll'],
                             per_submodule_outputs={'a': ['coll']}),
                        _rec('coll', 'collector', inp=['pr'])])
@@ -325,7 +325,7 @@ def test_an_unknown_submodule_instance_is_an_error(tmp_path, library):
 def _generate(work_dir, library, prefix, records, params):
     modules, readers = library
     resources = os.path.join(str(work_dir), 'resources')
-    _write_json(os.path.join(resources, f'{prefix}_vessel_array.json'), records)
+    _write_json(os.path.join(resources, f'{prefix}_module_array.json'), records)
     _write_parameters(os.path.join(resources, f'{prefix}_parameters.csv'), params, 'host_value')
     generated = os.path.join(str(work_dir), 'generated_models')
     config = {'file_prefix': prefix, 'input_param_file': f'{prefix}_parameters.csv',
@@ -366,14 +366,14 @@ def test_generation_uses_instances_and_the_host_file_wins(tmp_path, library):
 @pytest.mark.unit
 def test_the_json_schemas_accept_instances_and_obs_data_names(library):
     jsonschema = pytest.importorskip('jsonschema')
-    from libcuflynx.schemas import (MODULE_CONFIG_SCHEMA, OBS_DATA_SCHEMA, VESSEL_ARRAY_SCHEMA,
+    from libcuflynx.schemas import (MODULE_CONFIG_SCHEMA, OBS_DATA_SCHEMA, MODULE_ARRAY_SCHEMA,
                                     load_schema)
     validators = {}
-    for name in (VESSEL_ARRAY_SCHEMA, MODULE_CONFIG_SCHEMA, OBS_DATA_SCHEMA):
+    for name in (MODULE_ARRAY_SCHEMA, MODULE_CONFIG_SCHEMA, OBS_DATA_SCHEMA):
         schema = load_schema(name)
         jsonschema.Draft202012Validator.check_schema(schema)
         validators[name] = jsonschema.Draft202012Validator(schema)
-    vessels, configs, obs = (validators[VESSEL_ARRAY_SCHEMA], validators[MODULE_CONFIG_SCHEMA],
+    vessels, configs, obs = (validators[MODULE_ARRAY_SCHEMA], validators[MODULE_CONFIG_SCHEMA],
                              validators[OBS_DATA_SCHEMA])
 
     vessels.validate(_two_sources('other') + _pair_host(instance='alt'))
@@ -462,14 +462,14 @@ def test_obs_data_outside_an_instance_directory_is_not_checked(tmp_path):
 # --------------------------------------------------------------------------------------------
 
 def _resource_prefixes():
-    from test_json_vessel_arrays import RESOURCE_PREFIXES
+    from test_json_module_arrays import RESOURCE_PREFIXES
     return RESOURCE_PREFIXES
 
 
 def _generate_resource(work_dir, prefix):
     resources = os.path.join(str(work_dir), 'resources')
     os.makedirs(resources, exist_ok=True)
-    for suffix in ('_parameters.csv', '_vessel_array.csv'):
+    for suffix in ('_parameters.csv', '_module_array.csv'):
         shutil.copy(os.path.join(RESOURCES_DIR, prefix + suffix), resources)
     config = {'file_prefix': prefix, 'input_param_file': f'{prefix}_parameters.csv',
               'model_type': 'cellml', 'solver': 'CVODE_myokit', 'resources_dir': resources,
@@ -499,7 +499,7 @@ def test_resources_models_generate_identically_without_the_instance_lookup(
     _assert_same_generated_models(with_lookup, without)
 
 
-# --- rows libcuflynx appends itself must fit vessel arrays with extra columns ("instance", ...) ---
+# --- rows libcuflynx appends itself must fit module arrays with extra columns ("instance", ...) ---
 
 def test_appended_vessel_rows_fill_extra_columns():
     import pandas as pd
@@ -512,16 +512,16 @@ def test_appended_vessel_rows_fill_extra_columns():
     _append_vessel_row(df2, 'volume_sum_1D', 'nn', 'FV1D_volume_sum', '', 'total')
     assert df2.loc[0, 'name'] == 'volume_sum_1D' and df2.loc[0, 'instance'] == ''
 
-def _generate_cpp_1d(work_dir, vessel_array_name, records=None):
+def _generate_cpp_1d(work_dir, module_array_name, records=None):
     import contextlib
     import io
     res = os.path.join(work_dir, 'res')
     os.makedirs(res, exist_ok=True)
     shutil.copy(os.path.join(RESOURCES_DIR, 'aortic_bif_1d_parameters.csv'), res)
     if records is None:
-        shutil.copy(os.path.join(RESOURCES_DIR, 'aortic_bif_1d_vessel_array.csv'), res)
+        shutil.copy(os.path.join(RESOURCES_DIR, 'aortic_bif_1d_module_array.csv'), res)
     else:
-        _write_json(os.path.join(res, vessel_array_name), records)
+        _write_json(os.path.join(res, module_array_name), records)
     cfg = {'file_prefix': 'aortic_bif_1d', 'input_param_file': 'aortic_bif_1d_parameters.csv',
            'model_type': 'cpp', 'solver': 'RK4', 'couple_to_1d': True, 'resources_dir': res,
            'generated_models_dir': os.path.join(work_dir, 'gen'), 'cpp_generated_models_dir': os.path.join(work_dir, 'cpp'),
@@ -534,26 +534,26 @@ def _generate_cpp_1d(work_dir, vessel_array_name, records=None):
 
 
 def test_0d_1d_split_accepts_records_with_extra_keys(tmp_path):
-    '''split_0d_1d_vessel_array appends volume_sum_1D / 1D-coupling rows; with an extra record key
+    '''split_0d_1d_module_array appends volume_sum_1D / 1D-coupling rows; with an extra record key
     (such as "instance") a positional 5-value row used to raise "cannot set a row with mismatched
     columns". The generated C++ is the same as from the plain array.'''
-    from libcuflynx.utilities.config_schemas import read_vessel_array_records
+    from libcuflynx.utilities.config_schemas import read_module_array_records
     plain = _generate_cpp_1d(str(tmp_path / 'plain'), None)
     records = [dict(r, comment='extra column') for r in
-               read_vessel_array_records(os.path.join(RESOURCES_DIR, 'aortic_bif_1d_vessel_array.csv'))]
-    extra = _generate_cpp_1d(str(tmp_path / 'extra'), 'aortic_bif_1d_vessel_array.json', records)
+               read_module_array_records(os.path.join(RESOURCES_DIR, 'aortic_bif_1d_module_array.csv'))]
+    extra = _generate_cpp_1d(str(tmp_path / 'extra'), 'aortic_bif_1d_module_array.json', records)
     assert extra == plain
 
 
 def test_an_empty_optional_csv_cell_is_not_set(tmp_path):
-    '''An empty "instance" cell in a CSV vessel array (e.g. the 0D part libcuflynx writes itself
+    '''An empty "instance" cell in a CSV module array (e.g. the 0D part libcuflynx writes itself
     for the 1D split, where appended rows have no instance) leaves the key unset rather than
     giving an invalid empty instance name.'''
-    from libcuflynx.utilities.config_schemas import read_vessel_array_records
-    p = tmp_path / 'm_vessel_array.csv'
+    from libcuflynx.utilities.config_schemas import read_module_array_records
+    p = tmp_path / 'm_module_array.csv'
     p.write_text('name,BC_type,vessel_type,inp_vessels,out_vessels,instance\n'
                  'a,nn,pulse_src,,b,other\n'
                  'b,nn,volume_sum,a,,\n')
-    recs = read_vessel_array_records(str(p))
+    recs = read_module_array_records(str(p))
     assert recs[0]['instance'] == 'other'
     assert 'instance' not in recs[1]

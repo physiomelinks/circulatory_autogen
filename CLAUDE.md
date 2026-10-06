@@ -69,7 +69,7 @@ Then call the same stages the scripts call, all taking that dict:
 
 ## `user_inputs.yaml` — key fields
 
-- `file_prefix` — model name; ties together `{prefix}_vessel_array.json` or `.csv` (JSON records, or CSV converted to the same records; see `utilities/config_schemas.py`, and `utilities/supermodules.py` for supermodule instances), `{prefix}_parameters.csv`, `{prefix}_obs_data.json` in `resources/`.
+- `file_prefix` — model name; ties together `{prefix}_module_array.json` or `.csv` (JSON records, or CSV converted to the same records; see `utilities/config_schemas.py`, and `utilities/supermodules.py` for supermodule instances), `{prefix}_parameters.csv`, `{prefix}_obs_data.json` in `resources/`.
 - `model_type` — `cellml` (default) | `python` | `casadi_python` | `cpp` | `aadc_python` | `external_python`.
 - `solver` — `CVODE_myokit` (default) | `CVODE_opencor` | `solve_ivp` (python models) | `casadi_integrator` (casadi_python models) | `RK4_cpp` | `external` (external_python).
 - `solver_info` — `MaximumStep`, `MaximumNumberOfSteps`, and `method` (e.g. `RK45` for solve_ivp; `cvodes`/`idas`/`collocation`/`rk` for CasADi). Validated — see `tests/test_solver_info_validation.py`.

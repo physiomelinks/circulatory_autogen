@@ -1,6 +1,6 @@
 """Machine-readable JSON Schemas of libcuflynx's input files, shipped as package data.
 
-* ``vessel_array.schema.json`` -- ``<prefix>_vessel_array.json``: a list of instance records,
+* ``module_array.schema.json`` -- ``<prefix>_module_array.json``: a list of instance records,
   in PhLynx or libcuflynx keys, with the optional ``per_submodule_inputs`` /
   ``per_submodule_outputs`` of a supermodule instance and the optional module ``instance``.
 * ``module_config.schema.json`` -- ``*_modules_config.json``: component entries in either key
@@ -17,7 +17,7 @@ import json
 
 from libcuflynx.utilities.package_resources import package_data_file
 
-VESSEL_ARRAY_SCHEMA = 'vessel_array.schema.json'
+MODULE_ARRAY_SCHEMA = 'module_array.schema.json'
 MODULE_CONFIG_SCHEMA = 'module_config.schema.json'
 OBS_DATA_SCHEMA = 'obs_data.schema.json'
 
@@ -28,5 +28,5 @@ def schema_file(name):
 
 
 def load_schema(name):
-    """The shipped schema ``name`` (e.g. ``VESSEL_ARRAY_SCHEMA``) as a dict."""
+    """The shipped schema ``name`` (e.g. ``MODULE_ARRAY_SCHEMA``) as a dict."""
     return json.loads(schema_file(name).read_text(encoding='utf-8'))

@@ -887,7 +887,7 @@ def test_init_states_myokit(generated_cellml_model_factory):
     """
     Repro for computed-constant initial state values via Myokit wrapper.
 
-    - Uses resources/test_init_states_vessel_array.csv
+    - Uses resources/test_init_states_module_array.csv
     - Uses resources/test_init_states_parameters.csv where a_test_vessel = 3
     - Module defines x0 = 2 * a and x has initial_value=\"x0\"
     - Expect x(0) == 6 and y(0) == 1

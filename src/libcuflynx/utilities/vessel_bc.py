@@ -16,7 +16,7 @@ A module counts as a vessel when both hold:
 * its ports are those of a vessel: a ``vessel_port`` among its entrance, exit or general
   ports, or both a ``flow_port`` and a ``pressure_port`` among its entrance/exit ports
   (the microvasculature network modules). When a row carries no port information
-  (the raw vessel array, before the module config is merged in) the prefix alone decides.
+  (the raw module array, before the module config is merged in) the prefix alone decides.
 """
 
 VESSEL_BC_PREFIXES = ('vv', 'vp', 'pv', 'pp')

@@ -16,7 +16,7 @@ from libcuflynx.utilities.paths import default_resources_dir
 from libcuflynx.generators.CVSCellMLGenerator import CVS0DCellMLGenerator
 from libcuflynx.generators.multi_port import module_has_list_multi_port
 from libcuflynx.parsers.PrimitiveParsers import CSVFileParser
-from libcuflynx.utilities.config_schemas import is_heart_vessel_type, load_vessel_array
+from libcuflynx.utilities.config_schemas import is_heart_vessel_type, load_module_array
 from libcuflynx.generators.Python1DModelFilesGenerator import generate1DPythonModelFiles, generate1DPythonSimInitFile
 from libcuflynx.utilities.package_resources import generator_template
 
@@ -3768,8 +3768,8 @@ class CVS1DPythonGenerator(object):
             self.cpp_generated_models_dir = cpp_generated_models_dir
 
         self.csv_parser = CSVFileParser()
-        # the 1D part of an already supermodule-expanded array (split_0d_1d_vessel_array)
-        self.vessels_df, _ = load_vessel_array(vessels1d_csv_abs_path)
+        # the 1D part of an already supermodule-expanded array (split_0d_1d_module_array)
+        self.vessels_df, _ = load_module_array(vessels1d_csv_abs_path)
         # the model's merged parameters (the file's, plus supermodule default_parameters the
         # file does not set); reading the file again left out the supermodules' defaults
         all_parameters = getattr(model, 'all_parameters_array', None)

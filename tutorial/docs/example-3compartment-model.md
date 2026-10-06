@@ -9,11 +9,11 @@
 
 A schematic view of this model is shown above with details of boundary conditions, parts' names, vein connection, and direction of blood flow through. The heart is modeled as a simple valve module in this example. According to this schematic, the vessel and parameters files are designed as shown in below figures.
 
-![Vessel array file of 3compartment model](images/3compartment-vessel-array.png)
+![Module array file of 3compartment model](images/3compartment-module-array.png)
 
-![Vessel array file of 3compartment model](images/3compartment-parameters.png)
+![Module array file of 3compartment model](images/3compartment-parameters.png)
 
-In the `vessel_array` file, there are five columns: **name**, **BC_type**, **vessel_type**, **inp_vessels**, and **out_vessels**. 
+In the `module_array` file, there are five columns: **name**, **BC_type**, **vessel_type**, **inp_vessels**, and **out_vessels**. 
 
 **name** is the user-chosen module's name, for example *"heart"* or *"aortic_root"*. 
 

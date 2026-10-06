@@ -1,5 +1,5 @@
 '''
-Expands supermodule instances in a vessel array into their prefixed submodules.
+Expands supermodule instances in a module array into their prefixed submodules.
 
 A supermodule is a module config entry with ``"module_format": "supermodule"`` and a
 ``submodules`` list (see ``utilities/config_schemas.py``). An instance of it in a vessel
@@ -188,7 +188,7 @@ def _expand_one(records, index, registry, source, ancestry):
             for host in hosts:
                 if host not in by_name:
                     raise ValueError(f'{where}: {per_key}["{sub}"] names host "{host}", which '
-                                     f'is not in the vessel array.')
+                                     f'is not in the module array.')
                 if name not in by_name[host][host_list]:
                     raise ValueError(
                         f'{where}: {per_key}["{sub}"] names host "{host}", but "{host}" does '
@@ -235,7 +235,7 @@ def _expand_one(records, index, registry, source, ancestry):
     clashes = [r['name'] for r in new_records if r['name'] in by_name]
     if clashes:
         raise ValueError(f'{where}: expanding it gives the names {clashes}, which are already '
-                         f'in the vessel array. Rename the instance or the clashing records.')
+                         f'in the module array. Rename the instance or the clashing records.')
 
     for other in by_name.values():
         if name in other['out_vessels']:
@@ -275,7 +275,7 @@ def expand_supermodules(records, registry, source=None):
     instance back, a record that names the instance without a per_submodule_* entry linking
     them, an expanded name that clashes with an existing record, or nesting in a cycle.
     '''
-    source = source or 'vessel array'
+    source = source or 'module array'
     records = copy.deepcopy(list(records))
     ancestry = {}
     extra_param_rows = []

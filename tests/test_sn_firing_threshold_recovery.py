@@ -112,7 +112,7 @@ def _resources(resources_dir, work_dir):
     """
     out = os.path.join(work_dir, "resources")
     os.makedirs(out, exist_ok=True)
-    for name in ("SN_simple_vessel_array.csv", "SN_simple_parameters.csv"):
+    for name in ("SN_simple_module_array.csv", "SN_simple_parameters.csv"):
         shutil.copy(os.path.join(resources_dir, name), out)
     with open(os.path.join(out, "SN_simple_params_for_id.csv"), "w") as handle:
         handle.write("vessel_name, param_name, min, max, name_for_plotting\n")

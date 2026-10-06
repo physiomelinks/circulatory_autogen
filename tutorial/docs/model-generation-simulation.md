@@ -4,13 +4,13 @@
 
 - OpenCOR Python environment set up (see [Getting Started](getting-started.md)).
 - A `user_inputs.yaml` file configured with `file_prefix`, `resources_dir`, and `generated_models_dir`.
-- `*_vessel_array.csv` and `*_parameters.csv` files in your resources directory.
+- `*_module_array.csv` and `*_parameters.csv` files in your resources directory.
 
 ## Software Outline
 
 The Circulatory_Autogen project (`[project_dir]`) contains five folders as presented below:       
 
-- **resources**: Contains example config csv files that define models (`[file_prefix]_vessel_array.csv`), parameters (`[file_prefix]_parameters.csv`), parameters to calibrate (`[file_prefix]_params_for_id.csv`), and ground truth data to calibrate towards (`[file_prefix]_obs_data.json`) for generating and calibrating models.
+- **resources**: Contains example config csv files that define models (`[file_prefix]_module_array.csv`), parameters (`[file_prefix]_parameters.csv`), parameters to calibrate (`[file_prefix]_params_for_id.csv`), and ground truth data to calibrate towards (`[file_prefix]_obs_data.json`) for generating and calibrating models.
 - **src**: Containts the source code for autogeneration, parameter id, and other utilities.
 - **user_run_files**: Includes bash run files for the user and the `user_inputs.yaml` file, which is the main config file for the run settings.
 - **funcs_user**: Where *you* put your own functions for calculating output features from model outputs (operations), your own cost functions, and your own modifier functions. Name the file in `user_inputs.yaml` with `operation_funcs_external_path` / `cost_funcs_external_path` / `modifier_funcs_external_path`; copy one of the `*_funcs_example.py` templates to start, and see `funcs_user/README.md`. The built-in operations and costs ship inside the package, at `[project_dir]/src/libcuflynx/param_id/operation_funcs.py` and `[project_dir]/src/libcuflynx/funcs/`.
@@ -20,7 +20,7 @@ The Circulatory_Autogen project (`[project_dir]`) contains five folders as prese
     For recommended use, the user should create a separate `[CA_user_dir]` for the specific model they are creating. In this dir there should be the following:
 
     - **[file_prefix]_user_inputs.yaml**
-    - **resources**: Contains the config csv files that defines model connection network ([file_prefix]_vessel_array.csv) and parameters ([file_prefix]_parameters.csv) that will be generated and config files to prescribe the parameters to calibrate ([file_prefix]_params_for_id.csv) and the ground truth to calibrate towards ([file_prefix]_obs_data.json).
+    - **resources**: Contains the config csv files that defines model connection network ([file_prefix]_module_array.csv) and parameters ([file_prefix]_parameters.csv) that will be generated and config files to prescribe the parameters to calibrate ([file_prefix]_params_for_id.csv) and the ground truth to calibrate towards ([file_prefix]_obs_data.json).
 
 !!! Note 
     Set `external_modules_dir` to a directory where you store additional `*_modules.cellml` and `*_modules_config.json` files if you want modules external to the repo. This path can be relative to your `user_inputs.yaml` location. To load a whole module library (one module per subdirectory), use `module_library_dirs`, and set `use_builtin_modules: false` to use it instead of the built-in modules; see [Designing a model](design-model.md).
@@ -36,7 +36,7 @@ This section shows how to generate your desired model. There are several example
 
 The following are the steps for model autogeneration.
 
-1. Create the **vessel_array** and **parameters** files in CSV format for the intended model. Standard names of vessel and parameters files are **[model name]_vessel_array.csv** and **[model name]_parameters.csv**, respectively. The vessel array may also be a JSON file, **[model name]_vessel_array.json** (see [Designing a model](design-model.md#json-vessel-arrays)). 
+1. Create the **module_array** and **parameters** files in CSV format for the intended model. Standard names of vessel and parameters files are **[model name]_module_array.csv** and **[model name]_parameters.csv**, respectively. The module array may also be a JSON file, **[model name]_module_array.json** (see [Designing a model](design-model.md#json-module-arrays)). 
 
     Those files should be added to your `resources` directory which is set with `resources_dir` in your `[CA_user_dir]/[file_prefix]_user_inputs.yaml` (or `[project_dir]/user_run_files/user_inputs.yaml` if `user_inputs_path_override` isn't defined). 
 
@@ -46,11 +46,11 @@ The following are the steps for model autogeneration.
 !!! info
     If the name of your model is *3compartment*, the user files needed for generation are:
 
-    - `3compartment_vessel_array.csv`
+    - `3compartment_module_array.csv`
     - `3compartment_parameters.csv`
 
 !!! Note
-    You can refer to the section [Designing a new model](design-model.md) for more details on creating vessel_array and parameters files.
+    You can refer to the section [Designing a new model](design-model.md) for more details on creating module_array and parameters files.
 
 2. Go to the `[CA_user_dir]` and open the `[file_prefix]_user_inputs.yaml` to edit. You can use your editor of choice. `file_prefix` should be the name of your model, and `input_param_file` should be `[file_prefix]_parameters.csv` as shown below. If you keep the default `user_run_files/user_inputs.yaml`, set `user_inputs_path_override` to point to your `[CA_user_dir]/[file_prefix]_user_inputs.yaml`. Set `model_type` to `cellml` (default), `python`, or `cpp` depending on the output you want.
 

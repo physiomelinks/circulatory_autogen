@@ -37,8 +37,8 @@ from libcuflynx.param_id.modifier_funcs import (BUILTIN_MODIFIER_FUNCS, get_modi
 # answers without opening MPI when nothing launched this process.
 from libcuflynx.utilities import mpi_utils as _mpi_utils
 from libcuflynx.utilities.module_library import as_dir_list
-from libcuflynx.utilities.config_schemas import (load_module_config, load_vessel_array,
-                                                 vessel_array_path)
+from libcuflynx.utilities.config_schemas import (load_module_config, load_module_array,
+                                                 module_array_path)
 from libcuflynx.utilities.paths import (default_generated_models_dir, default_funcs_user_dir,
                                         default_param_id_output_dir, default_resources_dir,
                                         default_sensitivity_outputs_dir, default_user_inputs_dir,
@@ -2879,7 +2879,7 @@ class YamlFileParser(object):
 
         # for generation only
     
-        inp_data_dict['vessels_csv_abs_path'] = vessel_array_path(inp_data_dict['resources_dir'], file_prefix)
+        inp_data_dict['vessels_csv_abs_path'] = module_array_path(inp_data_dict['resources_dir'], file_prefix)
         inp_data_dict['parameters_csv_abs_path'] = os.path.join(inp_data_dict['resources_dir'], inp_data_dict['input_param_file'])
 
         if inp_data_dict.get('model_type') == 'cpp' and inp_data_dict.get('couple_to_1d'):
@@ -2887,12 +2887,12 @@ class YamlFileParser(object):
             file_prefix_1d = file_prefix + '_1d'
 
             # The 0D and 1D parts are intermediate files written by
-            # CSV0DModelParser.split_0d_1d_vessel_array from the (supermodule-expanded) vessel
-            # array, whatever its format. They are always <prefix>_{0d,1d}_vessel_array.csv, so
+            # CSV0DModelParser.split_0d_1d_module_array from the (supermodule-expanded) vessel
+            # array, whatever its format. They are always <prefix>_{0d,1d}_module_array.csv, so
             # the 1D generator finds them under the same names.
             resources_dir = inp_data_dict['resources_dir']
-            vessel_filename_0d = os.path.join(resources_dir, file_prefix_0d + '_vessel_array.csv')
-            vessel_filename_1d = os.path.join(resources_dir, file_prefix_1d + '_vessel_array.csv')
+            vessel_filename_0d = os.path.join(resources_dir, file_prefix_0d + '_module_array.csv')
+            vessel_filename_1d = os.path.join(resources_dir, file_prefix_1d + '_module_array.csv')
 
             inp_data_dict['file_prefix_0d'] = file_prefix_0d
             inp_data_dict['file_prefix_1d'] = file_prefix_1d
@@ -3171,13 +3171,13 @@ class CSVFileParser(object):
         entries are put in a list in the entry for the dataframe
         :param filename: filename of CSV file
         :param has_header: If CSV file has a header
-        :param vessel_array: the file is a vessel array (CSV in the libcuflynx or PhLynx
-            layout, or JSON records); it is read by utilities/config_schemas.load_vessel_array,
+        :param vessel_array: the file is a module array (CSV in the libcuflynx or PhLynx
+            layout, or JSON records); it is read by utilities/config_schemas.load_module_array,
             with libcuflynx column names. Supermodule instances are not expanded here: use
-            load_vessel_array with a supermodule registry for that.
+            load_module_array with a supermodule registry for that.
         '''
         if vessel_array:
-            return load_vessel_array(filename)[0]
+            return load_module_array(filename)[0]
         if( has_header ):
             csv_dataframe = pd.read_csv(filename, dtype=str, na_filter=False)
         else:
@@ -3382,7 +3382,7 @@ class JSONFileParser(object):
             vessel_type = vessel_tup.vessel_type
             BC_type = vessel_tup.BC_type
             if len(BC_type) <1 or len(vessel_type) <1:
-                print('You have an empty entry in your vessel array, exiting')
+                print('You have an empty entry in your module array, exiting')
                 exit()
             this_vessel_module_df = module_df.loc[((module_df["vessel_type"] == vessel_type)
                                                    & (module_df["BC_type"] == BC_type))].squeeze()

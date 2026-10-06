@@ -227,7 +227,7 @@ def test_config_defaults_follow_the_user_dir_when_nothing_is_configured(tmp_path
 
 _MODEL_PREFIX = '3compartment'
 _MODEL_FILES = (
-    f'{_MODEL_PREFIX}_vessel_array.csv',
+    f'{_MODEL_PREFIX}_module_array.csv',
     f'{_MODEL_PREFIX}_parameters.csv',
     f'{_MODEL_PREFIX}_params_for_id.csv',
     f'{_MODEL_PREFIX}_obs_data.json',

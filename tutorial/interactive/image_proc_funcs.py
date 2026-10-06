@@ -83,7 +83,7 @@ except Exception as e:
     print(f"\n!!! [CRITICAL ERROR] Import crashed: {e} !!!\n", file=sys.stderr)
     raise e
 
-# # from generate_vessel_array import *
+# # from generate_module_array import *
 # from generate_param_array import *
 
 ###############################
@@ -101,7 +101,7 @@ class VesselNetwork():
             self.vessel_df = None
             self.parameter_df = None
 
-    def generate_vessel_array(self):
+    def generate_module_array(self):
 
         # --- LAZY LOAD ---
         import pandas as pd
@@ -114,7 +114,7 @@ class VesselNetwork():
         np.random.seed(42)
         # -----------------
 
-        print('Generating Vessel Array...')
+        print('Generating Module Array...')
 
         #####################################
         ### // Define helper functions // ###
@@ -2842,12 +2842,12 @@ def run_image_to_model(target_image_path, resources_path, ilastik_path, model_pa
                                     vessel_mods=vessel_mods,
                                     vessel_centroids=vessel_centroids)
 
-    vessel_network.generate_vessel_array()
+    vessel_network.generate_module_array()
 
-    vessel_array_csv_filepath_resources = resources_path / 'image_to_model_vessel_array.csv'
-    vessel_array_csv_filepath_user_output = output_dir / 'image_to_model_vessel_array.csv'
-    vessel_network.vessel_df.to_csv(vessel_array_csv_filepath_resources, index=False)
-    vessel_network.vessel_df.to_csv(vessel_array_csv_filepath_user_output, index=False)
+    module_array_csv_filepath_resources = resources_path / 'image_to_model_module_array.csv'
+    module_array_csv_filepath_user_output = output_dir / 'image_to_model_module_array.csv'
+    vessel_network.vessel_df.to_csv(module_array_csv_filepath_resources, index=False)
+    vessel_network.vessel_df.to_csv(module_array_csv_filepath_user_output, index=False)
 
     vessel_network.generate_parameter_array()
     vessel_network.populate_parameter_array()

@@ -1,12 +1,12 @@
-"""JSON vessel arrays, CSV read through the same records, and supermodules.
+"""JSON module arrays, CSV read through the same records, and supermodules.
 
-A vessel array may be ``<prefix>_vessel_array.json`` -- a list of records in PhLynx keys
+A module array may be ``<prefix>_module_array.json`` -- a list of records in PhLynx keys
 (``name, module_type, module_subtype, inp_instances, out_instances``) or libcuflynx keys
 (``name, vessel_type, BC_type, inp_vessels, out_vessels``) -- and a CSV array is read by
 converting each row to the same record (utilities/config_schemas.py).
 
 A supermodule is a module config entry with ``"module_format": "supermodule"`` and a list of
-``submodules``; an instance of it in a vessel array expands into ``<instance>_<sub>`` records
+``submodules``; an instance of it in a module array expands into ``<instance>_<sub>`` records
 before anything else sees the array (utilities/supermodules.py). Its hosts are linked to
 submodules by ``per_submodule_inputs`` / ``per_submodule_outputs``.
 
@@ -16,6 +16,7 @@ import copy
 import csv
 import glob
 import json
+import warnings
 import os
 import shutil
 import subprocess
@@ -29,11 +30,11 @@ from test_config_schemas import (FULL_PARAMS, FULL_ROWS, _assert_same_generated_
                                  _prescribed_params, _simulate, _write_library, modules_config)
 
 from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
-from libcuflynx.utilities.config_schemas import (load_supermodule_registry, load_vessel_array,
+from libcuflynx.utilities.config_schemas import (load_supermodule_registry, load_module_array,
                                                  main as config_schemas_main,
                                                  normalise_module_config_entry,
-                                                 read_vessel_array_records, vessel_array_path,
-                                                 vessel_array_to_json, vessel_records_to_frame)
+                                                 read_module_array_records, module_array_path,
+                                                 module_array_to_json, vessel_records_to_frame)
 from libcuflynx.utilities.supermodules import expand_supermodules
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -124,19 +125,19 @@ def _write_csv(path, records):
 def _write_array(resources_dir, prefix, records, fmt):
     """Write ``records`` (PhLynx keys) as csv, json (PhLynx keys) or json_libcuflynx."""
     if fmt == 'csv':
-        path = os.path.join(resources_dir, f'{prefix}_vessel_array.csv')
+        path = os.path.join(resources_dir, f'{prefix}_module_array.csv')
         _write_csv(path, records)
         return path
     if fmt == 'json_libcuflynx':
         records = [_to_libcuflynx(r) for r in records]
-    path = os.path.join(resources_dir, f'{prefix}_vessel_array.json')
+    path = os.path.join(resources_dir, f'{prefix}_module_array.json')
     with open(path, 'w') as f:
         json.dump(records, f, indent=1)
     return path
 
 
 def _generate(work_dir, modules_dir, prefix, records, params, fmt='json', data_reference='test'):
-    """Write the vessel array and parameters and generate the model; returns the CellML path."""
+    """Write the module array and parameters and generate the model; returns the CellML path."""
     work_dir = str(work_dir)
     resources_dir = os.path.join(work_dir, 'resources')
     os.makedirs(resources_dir, exist_ok=True)
@@ -240,7 +241,7 @@ def test_json_and_csv_give_the_same_frame(tmp_path):
     for fmt in ('csv', 'json', 'json_libcuflynx'):
         directory = tmp_path / fmt
         directory.mkdir()
-        frames[fmt] = load_vessel_array(_write_array(str(directory), 'm', records, fmt))[0]
+        frames[fmt] = load_module_array(_write_array(str(directory), 'm', records, fmt))[0]
     for fmt in ('json', 'json_libcuflynx'):
         assert frames[fmt].equals(frames['csv'])
     assert list(frames['csv'].columns) == ['name', 'BC_type', 'vessel_type', 'inp_vessels',
@@ -250,12 +251,12 @@ def test_json_and_csv_give_the_same_frame(tmp_path):
 
 @pytest.mark.unit
 def test_space_separated_lists_are_accepted_in_json(tmp_path):
-    path = tmp_path / 'm_vessel_array.json'
+    path = tmp_path / 'm_module_array.json'
     path.write_text(json.dumps([_rec('a', 'flow_src', out=['b c'])]))
-    assert read_vessel_array_records(str(path))[0]['out_vessels'] == ['b', 'c']
+    assert read_module_array_records(str(path))[0]['out_vessels'] == ['b', 'c']
     path.write_text(json.dumps([{'name': 'a', 'module_type': 'x', 'module_subtype': 'nn',
                                  'out_instances': 'b  c'}]))
-    record = read_vessel_array_records(str(path))[0]
+    record = read_module_array_records(str(path))[0]
     assert record['out_vessels'] == ['b', 'c'] and record['inp_vessels'] == []
 
 
@@ -274,27 +275,41 @@ def test_space_separated_lists_are_accepted_in_json(tmp_path):
     ('not a record', r'record 1 is a str'),
 ])
 def test_bad_json_records_are_reported_with_file_index_and_key(tmp_path, record, message):
-    path = tmp_path / 'm_vessel_array.json'
+    path = tmp_path / 'm_module_array.json'
     path.write_text(json.dumps([_rec('ok', 'flow_src'), record]))
     with pytest.raises(ValueError, match=message) as info:
-        read_vessel_array_records(str(path))
+        read_module_array_records(str(path))
     assert str(path) in str(info.value)
 
 
 @pytest.mark.unit
-def test_vessel_array_file_is_looked_for_json_first(tmp_path):
-    names = ['m_module_array.csv', 'm_module_array.json', 'm_vessel_array.csv',
-             'm_vessel_array.json']
-    assert vessel_array_path(str(tmp_path), 'm').endswith('m_vessel_array.csv')
+def test_split_0d_1d_vessel_array_is_the_old_name_of_split_0d_1d_module_array(monkeypatch):
+    from libcuflynx.parsers.ModelParsers import CSV0DModelParser
+    monkeypatch.setattr(CSV0DModelParser, 'split_0d_1d_module_array', lambda self, registry=None, components=None: ('split', registry, components))
+    parser = CSV0DModelParser.__new__(CSV0DModelParser)
+    with pytest.warns(FutureWarning, match='now split_0d_1d_module_array'):
+        assert parser.split_0d_1d_vessel_array('reg', 'comp') == ('split', 'reg', 'comp')
+
+
+@pytest.mark.unit
+def test_module_array_file_is_looked_for_json_first(tmp_path):
+    # lowest priority first: the old vessel_array names, then the module_array names
+    names = ['m_vessel_array.csv', 'm_vessel_array.json', 'm_module_array.csv',
+             'm_module_array.json']
+    assert module_array_path(str(tmp_path), 'm').endswith('m_module_array.csv')
     for i, name in enumerate(names):
         (tmp_path / name).write_text('')
-        if i == 0:
-            assert vessel_array_path(str(tmp_path), 'm').endswith(name)
-        else:
-            # more than one: the first is used, and the others are named in a warning (a CSV
-            # edited after `to-json` wrote the JSON beside it would otherwise be ignored silently)
-            with pytest.warns(UserWarning, match=f'Using {name}; the others are ignored'):
-                assert vessel_array_path(str(tmp_path), 'm').endswith(name)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            assert module_array_path(str(tmp_path), 'm').endswith(name)
+        messages = [(w.category, str(w.message)) for w in caught]
+        # more than one: the first is used, and the others are named in a warning (a CSV
+        # edited after `to-json` wrote the JSON beside it would otherwise be ignored silently)
+        assert any(c is UserWarning and f'Using {name}; the others are ignored' in m
+                   for c, m in messages) == (i > 0)
+        # an old name asks to be renamed
+        assert any(c is FutureWarning and 'uses the old name' in m
+                   for c, m in messages) == name.startswith('m_vessel_array')
 
 
 # --------------------------------------------------------------------------------------------
@@ -305,8 +320,8 @@ def test_vessel_array_file_is_looked_for_json_first(tmp_path):
 @pytest.mark.parametrize('style', ['phlynx', 'libcuflynx'])
 def test_csv_to_json_round_trip(tmp_path, style):
     csv_path = _write_array(str(tmp_path), 'm', _full_records(), 'csv')
-    json_path = vessel_array_to_json(csv_path, str(tmp_path / f'{style}.json'), style=style)
-    assert read_vessel_array_records(json_path) == read_vessel_array_records(csv_path)
+    json_path = module_array_to_json(csv_path, str(tmp_path / f'{style}.json'), style=style)
+    assert read_module_array_records(json_path) == read_module_array_records(csv_path)
     with open(json_path) as f:
         text = f.read()
     raw = json.loads(text)
@@ -322,13 +337,13 @@ def test_to_json_command_line(tmp_path):
     csv_a = _write_array(str(tmp_path), 'a', _full_records(), 'csv')
     csv_b = _write_array(str(tmp_path), 'b', _full_records()[:3], 'csv')
     assert config_schemas_main(['to-json', csv_a, csv_b, '--style', 'libcuflynx']) == 0
-    assert 'vessel_type' in json.loads((tmp_path / 'b_vessel_array.json').read_text())[0]
+    assert 'vessel_type' in json.loads((tmp_path / 'b_module_array.json').read_text())[0]
     result = subprocess.run([sys.executable, '-m', 'libcuflynx.utilities.config_schemas',
                              'to-json', csv_a], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             universal_newlines=True)
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == str(tmp_path / 'a_vessel_array.json')
-    assert 'module_type' in json.loads((tmp_path / 'a_vessel_array.json').read_text())[0]
+    assert result.stdout.strip() == str(tmp_path / 'a_module_array.json')
+    assert 'module_type' in json.loads((tmp_path / 'a_module_array.json').read_text())[0]
 
 
 # --------------------------------------------------------------------------------------------
@@ -486,7 +501,7 @@ def test_merge_default_parameters_keeps_host_rows():
      r'per_submodule_outputs\["g"\] names host "rd", but "rd" does not list "pair"'),
     # a host that does not exist
     (lambda h: h[2]['per_submodule_outputs'].update(coll=['ghost']),
-     r'names host "ghost", which is not in the vessel array'),
+     r'names host "ghost", which is not in the module array'),
     # an expanded name that clashes with an existing record
     (lambda h: h.append(_rec('pair_g', 'reader')), r"gives the names \['pair_g'\], which are"),
     # an unknown supermodule type
@@ -577,7 +592,7 @@ def test_load_model_expands_before_the_heart_block(tmp_path, super_library_dir):
         'variable_name,units,value,data_reference\n' +
         ''.join(f'{n},{u},{v},t\n' for n, u, v in HOST_PARAMS))
     parser = CSV0DModelParser({
-        'vessels_csv_abs_path': str(resources / 'm_vessel_array.json'),
+        'vessels_csv_abs_path': str(resources / 'm_module_array.json'),
         'parameters_csv_abs_path': str(resources / 'm_parameters.csv'),
         'model_type': 'cellml', 'external_modules_dir': super_library_dir})
     model = parser.load_model()
@@ -585,25 +600,25 @@ def test_load_model_expands_before_the_heart_block(tmp_path, super_library_dir):
 
 
 # --------------------------------------------------------------------------------------------
-# 4. every resources/ vessel array, as JSON
+# 4. every resources/ module array, as JSON
 # --------------------------------------------------------------------------------------------
 
-RESOURCE_PREFIXES = sorted(os.path.basename(p)[:-len('_vessel_array.csv')]
-                           for p in glob.glob(os.path.join(RESOURCES_DIR, '*_vessel_array.csv')))
+RESOURCE_PREFIXES = sorted(os.path.basename(p)[:-len('_module_array.csv')]
+                           for p in glob.glob(os.path.join(RESOURCES_DIR, '*_module_array.csv')))
 # 1D/0D split intermediates that tests write into resources/ (gitignored), not inputs
 RESOURCE_PREFIXES = [p for p in RESOURCE_PREFIXES if not p.endswith(('_0d', '_1d'))
-                     or not os.path.exists(os.path.join(RESOURCES_DIR, p[:-3] + '_vessel_array.csv'))]
+                     or not os.path.exists(os.path.join(RESOURCES_DIR, p[:-3] + '_module_array.csv'))]
 
 
 def _generate_resource(work_dir, prefix, fmt):
     resources = os.path.join(str(work_dir), 'resources')
     os.makedirs(resources, exist_ok=True)
     shutil.copy(os.path.join(RESOURCES_DIR, f'{prefix}_parameters.csv'), resources)
-    csv_path = os.path.join(RESOURCES_DIR, f'{prefix}_vessel_array.csv')
+    csv_path = os.path.join(RESOURCES_DIR, f'{prefix}_module_array.csv')
     if fmt == 'csv':
         shutil.copy(csv_path, resources)
     else:
-        vessel_array_to_json(csv_path, os.path.join(resources, f'{prefix}_vessel_array.json'))
+        module_array_to_json(csv_path, os.path.join(resources, f'{prefix}_module_array.json'))
     config = {'file_prefix': prefix, 'input_param_file': f'{prefix}_parameters.csv',
               'model_type': 'cellml', 'solver': 'CVODE_myokit', 'resources_dir': resources,
               'generated_models_dir': os.path.join(str(work_dir), 'generated_models'),
@@ -618,7 +633,7 @@ def _generate_resource(work_dir, prefix, fmt):
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.parametrize('prefix', RESOURCE_PREFIXES)
-def test_every_resources_vessel_array_generates_identically_as_json(tmp_path, prefix):
+def test_every_resources_module_array_generates_identically_as_json(tmp_path, prefix):
     if not os.path.exists(os.path.join(RESOURCES_DIR, f'{prefix}_parameters.csv')):
         pytest.skip(f'{prefix} has no parameters file')
     ok, reference = _generate_resource(tmp_path / 'csv', prefix, 'csv')
@@ -642,8 +657,8 @@ def test_a_heart_inside_a_supermodule_is_still_the_heart(tmp_path):
                     'module_format': 'supermodule',
                     'submodules': [{'name': 'heart', 'module_type': 'heart', 'module_subtype': 'vp_Ca',
                                     'inp_instances': [], 'out_instances': []}]}], f)
-    from libcuflynx.utilities.config_schemas import vessel_array_csv_to_records
-    plain = vessel_array_csv_to_records(os.path.join(RESOURCES_DIR, '3compartment_vessel_array.csv'))
+    from libcuflynx.utilities.config_schemas import module_array_csv_to_records
+    plain = module_array_csv_to_records(os.path.join(RESOURCES_DIR, '3compartment_module_array.csv'))
     params = [tuple(r) for r in pd.read_csv(os.path.join(RESOURCES_DIR, '3compartment_parameters.csv'),
                                             dtype=str).fillna('')[['variable_name', 'units', 'value']]
               .itertuples(index=False)]
@@ -680,14 +695,14 @@ def test_convert_0d_to_1d_keeps_a_json_arrays_supermodule_links(tmp_path, regist
     from libcuflynx.scripts.convert_0d_to_1d import convert_0d_to_1d
     from libcuflynx.utilities.config_schemas import dump_vessel_records
     records = read_records(_flowpair_host() + [_rec('A', 'flow_src', out=[])])
-    (tmp_path / 'm_0d_vessel_array.json').write_text(dump_vessel_records(records, style))
+    (tmp_path / 'm_0d_module_array.json').write_text(dump_vessel_records(records, style))
     (tmp_path / 'm_0d_parameters.csv').write_text('variable_name,units,value,data_reference\n')
     convert_0d_to_1d('m', str(tmp_path), 'm_0d_parameters.csv', vess_1d_list=['A'])
-    hybrid = tmp_path / 'm_hybrid_vessel_array.json'
-    assert hybrid.exists() and not (tmp_path / 'm_hybrid_vessel_array.csv').exists()
+    hybrid = tmp_path / 'm_hybrid_module_array.json'
+    assert hybrid.exists() and not (tmp_path / 'm_hybrid_module_array.csv').exists()
     raw = json.loads(hybrid.read_text())
     assert ('module_type' in raw[0]) == (style == 'phlynx')
-    converted = {r['name']: r for r in read_vessel_array_records(str(hybrid))}
+    converted = {r['name']: r for r in read_module_array_records(str(hybrid))}
     assert (converted['A']['vessel_type'], converted['A']['BC_type']) == ('FV1D_vessel', 'nn')
     assert converted['pair']['per_submodule_inputs'] == {'coll': ['src_a', 'src_b']}
     assert converted['pair']['per_submodule_outputs'] == {'g': ['rd']}
@@ -706,7 +721,7 @@ def test_the_1d_generator_reads_the_merged_parameters(tmp_path):
     from libcuflynx.parsers.PrimitiveParsers import CSVFileParser
     params = tmp_path / 'm_parameters.csv'
     params.write_text('variable_name,units,value,data_reference\nr_FV1D_0,metre,0.01,file\n')
-    vessels = tmp_path / 'm_1d_vessel_array.csv'
+    vessels = tmp_path / 'm_1d_module_array.csv'
     vessels.write_text('name,BC_type,vessel_type,inp_vessels,out_vessels\nFV1D_0,nn,FV1D_vessel,,\n')
     merged = merge_default_parameters(
         CSVFileParser().get_data_as_nparray(str(params), True),
@@ -758,7 +773,7 @@ def test_a_bad_submodule_record_is_reported_in_its_module_config():
     message = str(error.value)
     assert message.startswith('supermodule entry (x, s) in lib/x_modules_config.json, submodules, '
                               'record 0 ("I_p")')
-    assert 'vessel array' not in message
+    assert 'module array' not in message
 
 
 def _component_entry(**port):
@@ -801,12 +816,12 @@ def test_a_libcuflynx_component_entry_needs_its_cellml_file():
 @pytest.mark.unit
 def test_a_null_connection_list_is_empty_in_the_code_and_the_schema(tmp_path):
     jsonschema = pytest.importorskip('jsonschema')
-    from libcuflynx.schemas import VESSEL_ARRAY_SCHEMA, load_schema
+    from libcuflynx.schemas import MODULE_ARRAY_SCHEMA, load_schema
     records = [{'name': 'a', 'vessel_type': 'x', 'BC_type': 'nn', 'inp_vessels': None, 'out_vessels': None}]
-    assert jsonschema.Draft202012Validator(load_schema(VESSEL_ARRAY_SCHEMA)).is_valid(records)
-    path = tmp_path / 'm_vessel_array.json'
+    assert jsonschema.Draft202012Validator(load_schema(MODULE_ARRAY_SCHEMA)).is_valid(records)
+    path = tmp_path / 'm_module_array.json'
     path.write_text(json.dumps(records))
-    record = read_vessel_array_records(str(path))[0]
+    record = read_module_array_records(str(path))[0]
     assert record['inp_vessels'] == [] and record['out_vessels'] == []
 
 
@@ -885,8 +900,8 @@ def test_a_space_separated_string_is_still_a_list_of_names():
 @pytest.mark.unit
 def test_the_schema_rejects_a_name_with_whitespace():
     jsonschema = pytest.importorskip('jsonschema')
-    from libcuflynx.schemas import VESSEL_ARRAY_SCHEMA, load_schema
-    validator = jsonschema.Draft202012Validator(load_schema(VESSEL_ARRAY_SCHEMA))
+    from libcuflynx.schemas import MODULE_ARRAY_SCHEMA, load_schema
+    validator = jsonschema.Draft202012Validator(load_schema(MODULE_ARRAY_SCHEMA))
     assert not validator.is_valid([{"name": "a b", "vessel_type": "heart", "BC_type": "vp"}])
     assert validator.is_valid([{"name": "a", "vessel_type": "heart", "BC_type": "vp",
                                 "inp_vessels": "b c"}])
@@ -903,8 +918,8 @@ def test_extra_keys_in_a_json_array_do_not_change_the_model(tmp_path):
     resources = tmp_path / 'json' / 'resources'
     resources.mkdir(parents=True)
     shutil.copy(os.path.join(RESOURCES_DIR, f'{prefix}_parameters.csv'), resources)
-    json_path = vessel_array_to_json(os.path.join(RESOURCES_DIR, f'{prefix}_vessel_array.csv'),
-                                     str(resources / f'{prefix}_vessel_array.json'))
+    json_path = module_array_to_json(os.path.join(RESOURCES_DIR, f'{prefix}_module_array.csv'),
+                                     str(resources / f'{prefix}_module_array.json'))
     with open(json_path) as f:
         records = json.load(f)
     for i, record in enumerate(records):
@@ -920,12 +935,12 @@ def test_extra_keys_in_a_json_array_do_not_change_the_model(tmp_path):
 
 
 @pytest.mark.unit
-def test_resources_vessel_arrays_and_module_configs_validate_against_the_json_schemas(
+def test_resources_module_arrays_and_module_configs_validate_against_the_json_schemas(
         tmp_path, super_library_dir):
     jsonschema = pytest.importorskip('jsonschema')
-    from libcuflynx.schemas import MODULE_CONFIG_SCHEMA, VESSEL_ARRAY_SCHEMA, load_schema
+    from libcuflynx.schemas import MODULE_CONFIG_SCHEMA, MODULE_ARRAY_SCHEMA, load_schema
     from libcuflynx.utilities.package_resources import builtin_modules_dir
-    vessel_schema = load_schema(VESSEL_ARRAY_SCHEMA)
+    vessel_schema = load_schema(MODULE_ARRAY_SCHEMA)
     module_schema = load_schema(MODULE_CONFIG_SCHEMA)
     for schema in (vessel_schema, module_schema):
         jsonschema.Draft202012Validator.check_schema(schema)
@@ -933,9 +948,9 @@ def test_resources_vessel_arrays_and_module_configs_validate_against_the_json_sc
     module_validator = jsonschema.Draft202012Validator(module_schema)
 
     for prefix in RESOURCE_PREFIXES:
-        csv_path = os.path.join(RESOURCES_DIR, f'{prefix}_vessel_array.csv')
+        csv_path = os.path.join(RESOURCES_DIR, f'{prefix}_module_array.csv')
         for style in ('phlynx', 'libcuflynx'):
-            json_path = vessel_array_to_json(csv_path, str(tmp_path / f'{prefix}_{style}.json'),
+            json_path = module_array_to_json(csv_path, str(tmp_path / f'{prefix}_{style}.json'),
                                              style=style)
             with open(json_path) as f:
                 vessel_validator.validate(json.load(f))

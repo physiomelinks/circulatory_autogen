@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/physiomelinks/circulatory_autogen/schemas/vessel_array.schema.json",
-  "title": "libcuflynx vessel array (<prefix>_vessel_array.json)",
+  "$id": "https://github.com/physiomelinks/circulatory_autogen/schemas/module_array.schema.json",
+  "title": "libcuflynx module array (<prefix>_module_array.json)",
   "description": "A list of module instance records. Each record uses PhLynx keys (name, module_type, module_subtype, inp_instances, out_instances) or libcuflynx keys (name, vessel_type, BC_type, inp_vessels, out_vessels), never both. Other keys are allowed. A record may name its module instance (\"instance\"). A supermodule instance may add per_submodule_inputs / per_submodule_outputs. See libcuflynx/utilities/config_schemas.py.",
   "type": "array",
   "items": {
