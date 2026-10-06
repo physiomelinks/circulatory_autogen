@@ -104,7 +104,7 @@ def build(tmp_path, tag, records, params, with_legacy=False):
     '''Generate the model; returns the path of its CellML.'''
     resources = tmp_path / tag
     resources.mkdir()
-    with open(resources / f'{tag}_vessel_array.json', 'w') as f:
+    with open(resources / f'{tag}_module_array.json', 'w') as f:
         json.dump(records, f)
     params.to_csv(resources / f'{tag}_parameters.csv', index=False)
     config = {'file_prefix': tag, 'input_param_file': f'{tag}_parameters.csv', 'model_type': 'cellml',

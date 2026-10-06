@@ -224,7 +224,7 @@ def _sanitize_generation_and_calibration_test(source: str) -> str:
         "obs_data_dict = obs_data_creator.get_obs_data_dict()\nparam_id.set_ground_truth_data(obs_data_dict)\n",
     )
 
-    truncation_marker = "# TODO: update vessel array to set specific vessels to 1D in PhLynx"
+    truncation_marker = "# TODO: update module array to set specific vessels to 1D in PhLynx"
     if truncation_marker in source:
         source = source.split(truncation_marker, 1)[0]
         source += '\nprint("INTERACTIVE_NOTEBOOK_COMPLETED")\n'

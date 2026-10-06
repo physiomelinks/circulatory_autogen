@@ -6,7 +6,7 @@ inertance submodules) uses the twin instead.
 
 What changes, and what does not:
 
-* the vessel array: the record's ``BC_type`` (module_subtype), nothing else; the supermodule's
+* the module array: the record's ``BC_type`` (module_subtype), nothing else; the supermodule's
   ``routes`` connect its neighbours to the right submodules;
 * the parameters file: a parameter the twin keeps by name (a ``shared_parameters`` entry, e.g.
   ``C_aortic_root``, ``R_T_systemic_T``) is unchanged. A value the twin computes from the
@@ -20,10 +20,10 @@ What changes, and what does not:
 
 Usage::
 
-    python -m libcuflynx.utilities.lumped_migration --library <modules dir> <vessel_array> \\
+    python -m libcuflynx.utilities.lumped_migration --library <modules dir> <module_array> \\
         [--parameters P] [--check F ...] [--out-dir D --prefix NEW]
 
-rewrites the vessel array and parameters file in place, or, with ``--out-dir``/``--prefix``,
+rewrites the module array and parameters file in place, or, with ``--out-dir``/``--prefix``,
 writes ``<D>/<NEW>_<suffix>`` copies of them and of every ``--check`` file (obs_data,
 params_for_id, prediction variables: copied unchanged, after checking their outputs).
 '''
@@ -36,8 +36,8 @@ import os
 import re
 
 from libcuflynx.utilities.config_schemas import (load_component_registry, load_supermodule_registry,
-                                                 read_vessel_array_records, record_to_style,
-                                                 vessel_array_csv_to_records)
+                                                 read_module_array_records, record_to_style,
+                                                 module_array_csv_to_records)
 from libcuflynx.utilities.module_instances import instance_parameter_rows
 from libcuflynx.utilities.module_library import ModuleSources
 
@@ -163,7 +163,7 @@ def unexposed_outputs(text, records, library, outputs):
 # ---- files ---------------------------------------------------------------------------------------
 
 def _read_records(path):
-    return vessel_array_csv_to_records(path) if path.endswith('.csv') else read_vessel_array_records(path)
+    return module_array_csv_to_records(path) if path.endswith('.csv') else read_module_array_records(path)
 
 
 def _write_records(path, records, template_path):
@@ -171,7 +171,7 @@ def _write_records(path, records, template_path):
         with open(path, 'w') as f:
             f.write('[\n' + ',\n'.join(' ' + json.dumps(record_to_style(r)) for r in records) + '\n]\n')
         return
-    # a CSV vessel array keeps its layout: only BC_type cells change
+    # a CSV module array keeps its layout: only BC_type cells change
     with open(template_path, newline='') as f:
         rows = list(csv.reader(f))
     header = [c.strip() for c in rows[0]]
@@ -201,7 +201,7 @@ def _write_parameters(path, fields, rows):
         writer.writerows(rows)
 
 
-def migrate_files(library, vessel_array, parameters=None, check_files=(), out_dir=None, prefix=None,
+def migrate_files(library, module_array, parameters=None, check_files=(), out_dir=None, prefix=None,
                   old_prefix=None):
     '''Migrates the files; returns {'replaced', 'outputs', 'notes', 'unexposed', 'written'}.'''
     def target(path):
@@ -214,12 +214,12 @@ def migrate_files(library, vessel_array, parameters=None, check_files=(), out_di
 
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
-    records = _read_records(vessel_array)
+    records = _read_records(module_array)
     fields, rows = _read_parameters(parameters) if parameters else ([], [])
     new_records, new_rows, outputs, notes = migrate(records, rows, library)
     written = []
-    _write_records(target(vessel_array), new_records, vessel_array)
-    written.append(target(vessel_array))
+    _write_records(target(module_array), new_records, module_array)
+    written.append(target(module_array))
     if parameters:
         _write_parameters(target(parameters), fields, new_rows)
         written.append(target(parameters))
@@ -239,7 +239,7 @@ def migrate_files(library, vessel_array, parameters=None, check_files=(), out_di
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('vessel_array')
+    parser.add_argument('module_array')
     parser.add_argument('--library', action='append', required=True, help='a module library modules/ directory')
     parser.add_argument('--parameters')
     parser.add_argument('--check', action='append', default=[],
@@ -247,8 +247,8 @@ def main(argv=None):
     parser.add_argument('--out-dir')
     parser.add_argument('--prefix', help='the new file prefix (with --out-dir)')
     args = parser.parse_args(argv)
-    old_prefix = re.sub(r'_vessel_array\.(csv|json)$', '', os.path.basename(args.vessel_array))
-    result = migrate_files(Library(args.library), args.vessel_array, args.parameters, args.check,
+    old_prefix = re.sub(r'_(module|vessel)_array\.(csv|json)$', '', os.path.basename(args.module_array))
+    result = migrate_files(Library(args.library), args.module_array, args.parameters, args.check,
                            args.out_dir, args.prefix, old_prefix)
     for path in result['written']:
         print('wrote', path)

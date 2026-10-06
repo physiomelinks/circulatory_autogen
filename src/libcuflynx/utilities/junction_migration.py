@@ -1,5 +1,5 @@
 '''
-Move a vessel array off the junction module types, onto ordinary vessels whose ports sum.
+Move a module array off the junction module types, onto ordinary vessels whose ports sum.
 
 The junction types (``Min_junction``, ``Nout_junction``, ``MinNout_junction``, their ``_2``
 variants, ``split_junction``, ``merge_junction``, ``2in2out_junction``, the ``_simple`` and
@@ -13,7 +13,7 @@ the same equations once its port flows are collapsed (``v_in_sum`` -> ``v_in``,
 
 Usage::
 
-    python -m libcuflynx.utilities.junction_migration <vessel_array.json|.csv> [...]
+    python -m libcuflynx.utilities.junction_migration <module_array.json|.csv> [...]
 
 rewrites each array in place and prints the variables whose names change, so obs_data,
 params_for_id and plotting files that name them can be updated.
@@ -23,7 +23,7 @@ import json
 import os
 import re
 
-from libcuflynx.utilities.config_schemas import vessel_array_csv_to_records
+from libcuflynx.utilities.config_schemas import module_array_csv_to_records
 
 # (junction module_type, version) -> (ordinary module_type, version), names as in
 # circulatory-autogen-modules. Each pair has the same equations, compared symbolically after the
@@ -162,7 +162,7 @@ def renamed_outputs(renamed):
 
 
 def migrate_file(path, parameters_path=None):
-    '''Rewrite the vessel array at ``path`` (JSON or CSV) without junction types, and the
+    '''Rewrite the module array at ``path`` (JSON or CSV) without junction types, and the
     parameter names it changes in ``parameters_path`` (a parameters CSV), if given.
 
     Records are rewritten as they are, keeping their key style, ``instance`` and any other keys:
@@ -173,7 +173,7 @@ def migrate_file(path, parameters_path=None):
         with open(path, encoding='utf-8-sig') as f:
             records = json.load(f)
     else:
-        records = vessel_array_csv_to_records(path)
+        records = module_array_csv_to_records(path)
     migrated, renamed, parameters = migrate_records(records)
     if not renamed:
         return renamed
@@ -241,11 +241,11 @@ def _write_csv(path, records):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
-    parser.add_argument('vessel_arrays', nargs='+',
-                        help='vessel arrays; <prefix>_parameters.csv next to each is updated too')
+    parser.add_argument('module_arrays', nargs='+',
+                        help='module arrays; <prefix>_parameters.csv next to each is updated too')
     args = parser.parse_args(argv)
-    for path in args.vessel_arrays:
-        parameters = re.sub(r'_vessel_array\.(json|csv)$', '_parameters.csv', path)
+    for path in args.module_arrays:
+        parameters = re.sub(r'_(module|vessel)_array\.(json|csv)$', '_parameters.csv', path)
         renamed = migrate_file(os.path.abspath(path), os.path.abspath(parameters))
         print(f'{path}: {len(renamed)} junction module(s) converted')
         for name, (old, new) in renamed.items():

@@ -13,10 +13,10 @@ A module library (e.g. circulatory-autogen-modules) lays a module out as::
             <instance>_params_for_id.csv  optional
 
 An instance only changes parameters, never the math. Its parameter names carry no instance
-suffix: a row ``C`` becomes ``C_<vessel>`` for the vessel-array record that uses it, except a
+suffix: a row ``C`` becomes ``C_<vessel>`` for the module-array record that uses it, except a
 row naming one of the module's ``global_constant`` variables, which keeps its plain name.
 
-A vessel-array record (or a supermodule's submodule) picks an instance with
+A module-array record (or a supermodule's submodule) picks an instance with
 ``"instance": "<name>"``; without one, the config entry's ``"default_instance"`` is used if
 that instance's parameters file exists, and otherwise nothing is loaded. The instance
 directory is looked for next to the config file the (vessel_type, BC_type) entry came from:
@@ -28,7 +28,7 @@ them (``ModelParsers.merge_default_parameters``). The order of precedence is
     host parameters file > supermodule instance > supermodule default_parameters
                          > submodule / component instance
 
-and within one tier the first record in the (expanded) vessel array wins, so a global set by
+and within one tier the first record in the (expanded) module array wins, so a global set by
 several instances is added once.
 
 A supermodule entry may also live in a version directory with instances. Its instance's rows
@@ -168,7 +168,7 @@ def component_instance_rows(records, component_registry, source=None):
     A record naming an instance of a type with no config entry is an error; one naming no
     instance of such a type is left to the module-config join to report.
     '''
-    source = source or 'vessel array'
+    source = source or 'module array'
     rows = []
     for record in records:
         key = (record['vessel_type'], record['BC_type'])

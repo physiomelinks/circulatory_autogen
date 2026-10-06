@@ -23,7 +23,7 @@ This software is designed so the user can easily make their own modules and coup
 
 4. When possible, use units defined in `[project_dir]/src/libcuflynx/generators/resources/units.cellml`. If you need to define new units, define them in `[project_dir]/module_config_user/user_units.cellml` (or in an external modules directory; see below).
 
-5. Include your new module into a `[CA_user_dir]/[file_prefix]_vessel_array.csv` file.
+5. Include your new module into a `[CA_user_dir]/[file_prefix]_module_array.csv` file.
 
     !!! Note
         Modules that are connected as each others inputs and outputs will be coupled together with any ports with corresponding name. 
@@ -38,11 +38,11 @@ This software is designed so the user can easily make their own modules and coup
 
 The following sections include more details on creating the above required files.
 
-### Creating vessel_array and parameter files
+### Creating module_array and parameter files
 
-This section discusses creating a vessel_array and parameters files to build a new desired model.
+This section discusses creating a module_array and parameters files to build a new desired model.
 
-One standard vessel array file contains five important columns as elaborated in the table below. 
+One standard module array file contains five important columns as elaborated in the table below. 
 
 - **vessel_name** is the name of a common organ or part of the cardiovascular system.
 - **BC_type** is the type of the boundary condition for the vessel's input and output or more generally, the subtype of the module.
@@ -60,11 +60,11 @@ Some examples of possible inputs
 | inp_vessels    | name of the input vessels, which is one (or more) of the vessel_name entries in the other rows                |
 | out_vessel     | name of the output vessels, which is one (or more) of the vessel_name entries in other rows                   |
 
-The vessel array can also be in the layout of PhLynx's "Circulatory Autogen" export, with the columns `name, module_type, module_subtype, inp_instances, out_instances`. There `module_type` is the vessel_type, `module_subtype` the BC_type, and `inp_instances`/`out_instances` the inp_vessels/out_vessels. The layout is detected from the header. A header that mixes the two layouts is an error.
+The module array can also be in the layout of PhLynx's "Circulatory Autogen" export, with the columns `name, module_type, module_subtype, inp_instances, out_instances`. There `module_type` is the vessel_type, `module_subtype` the BC_type, and `inp_instances`/`out_instances` the inp_vessels/out_vessels. The layout is detected from the header. A header that mixes the two layouts is an error.
 
-#### JSON vessel arrays
+#### JSON module arrays
 
-The vessel array can also be a JSON file, `[file_prefix]_vessel_array.json`: a list of records, one per module instance.
+The module array can also be a JSON file, `[file_prefix]_module_array.json`: a list of records, one per module instance.
 
 ```json
 [
@@ -75,23 +75,23 @@ The vessel array can also be a JSON file, `[file_prefix]_vessel_array.json`: a l
 
 A record uses PhLynx's keys, as above, or the libcuflynx keys `name, vessel_type, BC_type, inp_vessels, out_vessels`. A record that mixes the two is an error. `name` and the type and subtype are required. The input and output lists are optional JSON lists; a space-separated string is accepted too. A record may also name the module instance whose parameters it uses, `"instance": "[instance]"` (see [Module versions and instances](#module-versions-and-instances)). Other keys are allowed, and keys holding plain values become extra columns, as extra CSV columns do.
 
-A CSV vessel array is read by converting each row to this record first, so a CSV and its JSON conversion generate byte-identical models. The generator looks for the vessel array in this order: `[file_prefix]_vessel_array.json`, `[file_prefix]_vessel_array.csv`, then PhLynx's `[file_prefix]_module_array.json` and `[file_prefix]_module_array.csv`.
+A CSV module array is read by converting each row to this record first, so a CSV and its JSON conversion generate byte-identical models. The generator looks for the module array in this order: `[file_prefix]_module_array.json`, then `[file_prefix]_module_array.csv`. Module arrays used to be called vessel arrays: a `[file_prefix]_vessel_array.json` or `.csv` is still read, with a warning asking you to rename it.
 
 To convert CSV arrays, run
 
 ```bash
-python -m libcuflynx.utilities.config_schemas to-json resources/my_model_vessel_array.csv [more.csv ...] [--style phlynx|libcuflynx]
+python -m libcuflynx.utilities.config_schemas to-json resources/my_model_module_array.csv [more.csv ...] [--style phlynx|libcuflynx]
 ```
 
-This writes `my_model_vessel_array.json` next to each CSV, one record per line. The default style is PhLynx's keys. From Python, use `libcuflynx.utilities.config_schemas.vessel_array_to_json(csv_path, json_path=None, style="phlynx")`, and `read_vessel_array_records(path)` to read either form as records.
+This writes `my_model_module_array.json` next to each CSV, one record per line. The default style is PhLynx's keys. From Python, use `libcuflynx.utilities.config_schemas.module_array_to_json(csv_path, json_path=None, style="phlynx")`, and `read_module_array_records(path)` to read either form as records.
 
-JSON Schemas for the vessel array, for module config files and for the top level of obs_data files ship with the package, in `libcuflynx/schemas/`: `vessel_array.schema.json`, `module_config.schema.json` and `obs_data.schema.json`. Editors and other tools can use them to validate the files. The generator checks the same rules itself, and its errors name the file, the record index and the key.
+JSON Schemas for the module array, for module config files and for the top level of obs_data files ship with the package, in `libcuflynx/schemas/`: `module_array.schema.json`, `module_config.schema.json` and `obs_data.schema.json`. Editors and other tools can use them to validate the files. The generator checks the same rules itself, and its errors name the file, the record index and the key.
 
-Below figure is an example of a vessel_array file.
+Below figure is an example of a module_array file.
 
-![Example of vessel_array file](images/vessel-array.png)
+![Example of module_array file](images/module-array.png)
 
-Every row of the vessel array file represents a specific part or module in the defined system. Therefore, each module needs several parameters for modeling and generating a CellML file.
+Every row of the module array file represents a specific part or module in the defined system. Therefore, each module needs several parameters for modeling and generating a CellML file.
 
 These parameters should be inserted in the parameters file: `[resources_dir]/[file_prefix]_parameters.csv`.
 
@@ -121,7 +121,7 @@ In the `[CA_dir]/src/libcuflynx/generators/resources` directory, there are sever
 
 ![Modules](images/module-folder.png)
 
-<!-- The `base_script.cellml` is the template of the main cellml file that gets generated (shown below). It uses the `units.cellml` in the main generated code to add all types of units. Also, the modules config JSON files are used in autogeneration to know how to couple the cellml files in the arrangement defined by the vessel_array file. -->
+<!-- The `base_script.cellml` is the template of the main cellml file that gets generated (shown below). It uses the `units.cellml` in the main generated code to add all types of units. Also, the modules config JSON files are used in autogeneration to know how to couple the cellml files in the arrangement defined by the module_array file. -->
 <!--  -->
 <!-- ![base_script.cellml](images/base-script.png) -->
 
@@ -149,7 +149,7 @@ This section shows a simple example to create a new module
 
 We want to define a new vessel type with the name of **"arterial"** with boundary condition type **"vp"**. Additionally, we want to use the **"vp_type"** module, whose cellml code is shown in the above figure. Also, the module is located in the `BG_modules.cellml` file.
 
-Vessel_type, BC_type, module_format, module_file location, module_type and other related information are added to the modules config JSON file, as shown below. We can now use this vessel_type in the vessel_array file in `[resources_dir]` to add the module with specified inputs, outputs and parameters. In the ports, you should add the **"vessel_port"** type for connecting to the other parts. Additionally, each module can be used in many vessel_types.
+Vessel_type, BC_type, module_format, module_file location, module_type and other related information are added to the modules config JSON file, as shown below. We can now use this vessel_type in the module_array file in `[resources_dir]` to add the module with specified inputs, outputs and parameters. In the ports, you should add the **"vessel_port"** type for connecting to the other parts. Additionally, each module can be used in many vessel_types.
 
 ![vp_type module](images/vp_type-module.png)
 
@@ -159,15 +159,15 @@ A module config entry can also use PhLynx's key names. The generator detects the
 
 | libcuflynx      | PhLynx            | meaning                                          |
 |-----------------|-------------------|--------------------------------------------------|
-| `vessel_type`   | `module_type`     | the name used in the vessel array's type column  |
+| `vessel_type`   | `module_type`     | the name used in the module array's type column  |
 | `BC_type`       | `module_subtype`  | the boundary-condition variant                   |
 | `module_file`   | `component_file`  | the CellML file that holds the module            |
 | `module_type`   | `component_type`  | the name of the CellML component                 |
 
 `module_type` means different things in the two schemas. So an entry is read as PhLynx's schema when it has `module_subtype`, `component_file` or `component_type`, never because of `module_type`. An entry that mixes keys from both schemas, or a PhLynx entry that is missing one of its four keys, stops the generation with an error. The remaining keys (`module_format`, the ports and `variables_and_units`) are the same in both schemas.
 
-- **vessel_type**: This will be the "vessel_type" entry in the vessel_array file
-- **BC_type**: This will be the "BC_type" entry in the vessel_array file
+- **vessel_type**: This will be the "vessel_type" entry in the module_array file
+- **BC_type**: This will be the "BC_type" entry in the module_array file
 - **module_format**: `cellml` for a CellML module. `external_api` marks an entry that is not CellML but describes, in an `api` block, how the generated model talks to another model (see below).
 - **module_file**: The file within `[CA_dir]/src/libcuflynx/generators/resources/`, `[CA_dir]/module_config_user/`, or your `external_modules_dir` that contains the CellML module this config entry links to.
 - **module_type**: The name of the module/computational_environment within the module cellml file.
@@ -210,25 +210,23 @@ A module config entry can also use PhLynx's key names. The generator detects the
 
 ### Coupling to other models: the `api` block
 
-A module config entry can carry an `api` block describing how a generated C++ model (`model_type: cpp`) exchanges values with another model. Values received from the other model become libCellML external variables of the generated code. Two roles exist:
+A module config entry with `"module_format": "external_api"` and an `api` block is a module
+that is not CellML: another model the generated C++ (`model_type: cpp`) runs with. It is a row
+of the module array, connected to CellML modules through its ports like any module, and values
+it sets become libCellML external variables of the generated code. Three kinds exist:
 
-- **`role: consumer`**: the generated code calls out to the other model. The FV 1D solver coupling is described this way, on the `FV1D_vessel` and `FV1D_volume_sum` entries of `src/libcuflynx/generators/resources/coupling_modules_config.json`:
-    - `transport: named_pipe`.
-    - `channels` names the pipes.
-    - Each entry of `calls` says `when` it happens (`init`, `step_start`, `rhs_start`, `rhs`, `step_end`), what it `send`s (`$voi`, `$dt`, `port.flow`, `port.pressure`, `control.<port_type>|default`, numbers) and what it `recv`s (`port.input`, a model variable, `$dt`, `$ignore`).
-- **`role: provider`**: the generated code *is* the interface another program calls.
-    - `transport: cpp_class` generates a C++ class whose methods are listed in `functions`.
-    - Each function has a `kind`: `set`, `get`, `set_state`, `set_indexed`, `get_indexed`, `time`, `time_discretization`, `step`, `noop` or `extrapolate`.
-    - The provider is its own row in the vessel array, with `module_format: external_api`. It is connected to CellML modules through ports, exactly like a CellML module: its entrance ports take same-typed exit ports of its `inp_vessels`, its exit ports feed same-typed entrance ports of its `out_vessels`, and variables pair up by position.
-    - Functions name the provider's own port variable (or `component/variable` for anything else) and its `api_units`. A `set` function's variable becomes an external variable of the connected CellML module.
-    - The CellML model does not include the provider. The CellML variables its ports drive stay boundary-condition constants there, so the CellML model is complete on its own.
-    - Example: in the CVS-ANS 3D-heart coupling, `heart_3D_lifex` (a drop-in `lifex::Circulation`) sends chamber pressures to a CellML heart through `chamber_pressure_port` and receives chamber volumes through `chamber_volume_port`.
+- a **Python model**, such as a FEniCS PDE (`role: provider`, `transport: python`), run with
+  `cuflynx-couple`;
+- the **FV 1D solver** (`FV1D_vessel` / `FV1D_solver`: `named_pipe` consumers and a `process`),
+  run through the coupler;
+- a **C++ program** driving a generated class (`role: provider`, `transport: cpp_class`).
 
-The blocks are validated when the module configs are loaded (`libcuflynx/generators/cpp/api.py`).
+[Coupling to external models](external-coupling/index.md) describes all three. The blocks are
+validated when the module configs load (`libcuflynx/generators/cpp/api.py`).
 
 ### Supermodules
 
-A supermodule is a named group of modules that a vessel array uses like one module. It is an entry in a `*_modules_config.json` file, in a directory listed in `module_library_dirs` (or in `external_modules_dir`):
+A supermodule is a named group of modules that a module array uses like one module. It is an entry in a `*_modules_config.json` file, in a directory listed in `module_library_dirs` (or in `external_modules_dir`):
 
 ```json
 {"module_type": "heart", "module_subtype": "supermodule", "module_format": "supermodule",
@@ -240,15 +238,15 @@ A supermodule is a named group of modules that a vessel array uses like one modu
  "default_instance": "adult"}
 ```
 
-- **module_type / module_subtype** (or **vessel_type / BC_type**): the type that instances name in a vessel array.
+- **module_type / module_subtype** (or **vessel_type / BC_type**): the type that instances name in a module array.
 - **module_format**: `"supermodule"`. A supermodule has no `component_file`/`component_type`; it is never a component module, and its type may not also be a component module's type.
-- **submodules**: vessel-array records, in either key style. Their names are local to the supermodule, and their input and output lists name other submodules only.
-- **default_instance** (optional): the [instance](#module-versions-and-instances) used when a vessel-array record names none. A supermodule instance's parameters file has the usual `variable_name,units,value,data_reference` columns; a row named `[variable]_[submodule]` is a parameter of that submodule, and any other row is a global.
+- **submodules**: module-array records, in either key style. Their names are local to the supermodule, and their input and output lists name other submodules only.
+- **default_instance** (optional): the [instance](#module-versions-and-instances) used when a module-array record names none. A supermodule instance's parameters file has the usual `variable_name,units,value,data_reference` columns; a row named `[variable]_[submodule]` is a parameter of that submodule, and any other row is a global.
 - **default_parameters** (optional, kept for backwards compatibility): a parameters CSV, relative to the config file's directory, with the same rows as an instance's parameters file. New supermodules should use an instance instead.
 - A submodule record may name its own `"instance"`.
 - **description** (optional).
 
-An instance in a vessel array names the supermodule's type and links its hosts, the modules outside it, to individual submodules:
+An instance in a module array names the supermodule's type and links its hosts, the modules outside it, to individual submodules:
 
 ```json
 {"name": "heart", "module_type": "heart", "module_subtype": "supermodule",
@@ -258,7 +256,7 @@ An instance in a vessel array names the supermodule's type and links its hosts, 
 
 `per_submodule_inputs` lists, for a submodule, the hosts that feed it; each of those hosts lists the instance (`heart`) in its outputs. `per_submodule_outputs` lists the hosts a submodule feeds; each of those lists the instance in its inputs. Either may also be written as a list of one-key objects, `[{"ra": ["venous_svc"]}, {"la": ["pvn"]}]`.
 
-Before anything else reads the vessel array, each instance is replaced, at its position, by one record per submodule:
+Before anything else reads the module array, each instance is replaced, at its position, by one record per submodule:
 
 - submodule `ra` becomes `heart_ra`, and its links to other submodules are prefixed the same way;
 - the hosts in `per_submodule_inputs["ra"]` come first in `heart_ra`'s inputs, and the hosts in `per_submodule_outputs["ra"]` last in its outputs;
@@ -294,7 +292,7 @@ The config entry names the instance used by default:
  "component_type": "chamber_type", "default_instance": "adult", ...}
 ```
 
-A vessel-array record chooses an instance with `"instance"`:
+A module-array record chooses an instance with `"instance"`:
 
 ```json
 {"name": "lv", "module_type": "chamber", "module_subtype": "v1", "instance": "neonate",
@@ -310,7 +308,7 @@ Instance parameters are defaults. A name that `[file_prefix]_parameters.csv` set
 3. a supermodule's `default_parameters`;
 4. the instance of a submodule, or of an ordinary module.
 
-Within one level, the first record in the (expanded) vessel array wins, so a global set by several instances is added once.
+Within one level, the first record in the (expanded) module array wins, so a global set by several instances is added once.
 
 An instance that does not exist is an error. The error names the version directory and lists the instances it has. Naming an instance of a module whose config has no `instances/` directory next to it is an error too.
 
@@ -323,7 +321,7 @@ You can find the script **"generate_modules_files.py"** at `[CA_dir]/src/libcufl
 
 Update the script to change the `input_model` variable to the path of your CellML model and `output_dir` variable to the directory where you need to create the resources files and the new `[file_prefix]_user_inputs.yaml` file.
 
-This script generates `[file_prefix]_modules.cellml` and `[file_prefix]_module_config.json` in the `module_config_user` directory. `[file_prefix]_parameters.csv` and `[file_prefix]_vessel_array.csv` files are created in `[output_dir]/resources` and `[file_prefix]_user_inputs.yaml` is created in `[output_dir]`.
+This script generates `[file_prefix]_modules.cellml` and `[file_prefix]_module_config.json` in the `module_config_user` directory. `[file_prefix]_parameters.csv` and `[file_prefix]_module_array.csv` files are created in `[output_dir]/resources` and `[file_prefix]_user_inputs.yaml` is created in `[output_dir]`.
 
 You only need to update the `user_inputs.yaml` file at the `user_run_files` directory to set **`user_inputs_path_override:`** to `[output_dir]/[file_prefix]_user_inputs.yaml` to run model autogeneration.
 
@@ -340,6 +338,6 @@ You only need to update the `user_inputs.yaml` file at the `user_run_files` dire
 You should have:
 
 - A `*_modules.cellml` file and a matching modules config JSON.
-- Updated `*_vessel_array.csv` and `*_parameters.csv` files referencing your modules.
+- Updated `*_module_array.csv` and `*_parameters.csv` files referencing your modules.
 - A `user_inputs.yaml` file that points to your resources directory.
 

@@ -80,7 +80,7 @@ def _write_module(library_dir, name, vessel_type, module_type, units_exponent='-
 
 def _write_resources(resources_dir, prefix, vessel_type, k=0.5, x_init=2.0):
     os.makedirs(resources_dir, exist_ok=True)
-    with open(os.path.join(resources_dir, f'{prefix}_vessel_array.csv'), 'w') as f:
+    with open(os.path.join(resources_dir, f'{prefix}_module_array.csv'), 'w') as f:
         f.write(textwrap.dedent(f"""\
             name,BC_type,vessel_type,inp_vessels,out_vessels
             decay,nn,{vessel_type},,

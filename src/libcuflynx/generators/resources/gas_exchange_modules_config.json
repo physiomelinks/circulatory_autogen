@@ -162,6 +162,7 @@
         "general_ports":[],
         "variables_and_units":
         [
+          ["saturation_cap", "dimensionless", "access", "global_constant"],
           ["C_CO2_p", "dimensionless", "access", "variable"],
           ["C_O2_p", "dimensionless", "access", "variable"],
           ["C_CO2_p_capped", "dimensionless", "access", "variable"],
@@ -372,6 +373,7 @@
         ],
         "variables_and_units":
         [
+          ["saturation_cap", "dimensionless", "access", "global_constant"],
           ["C_CO2_a", "mol_per_m3", "access", "boundary_condition"],
           ["C_O2_a", "mol_per_m3", "access", "boundary_condition"],
           ["C_CO2_c", "mol_per_m3", "access", "variable"],
@@ -407,12 +409,6 @@
           ["exp_threshold", "millimolar", "access", "constant"],
           ["S_O2", "mol_per_m3_per_Pa", "access", "constant"],
           ["S_CO2", "mol_per_m3_per_Pa", "access", "constant"],
-          ["d_1", "J_per_m3", "access", "variable"],
-          ["d_2", "J_per_m3", "access", "variable"],
-          ["r_1", "J_per_m3", "access", "variable"],
-          ["r_2", "J_per_m3", "access", "variable"],
-          ["s_1", "J2_per_m6", "access", "variable"],
-          ["s_2", "J2_per_m6", "access", "variable"],
           ["k_1", "mmHg", "access", "constant"],
           ["k_2", "mmHg", "access", "constant"],
           ["a_1", "dimensionless", "access", "constant"],
@@ -526,12 +522,6 @@
           ["exp_threshold", "millimolar", "access", "constant"],
           ["S_O2", "mol_per_m3_per_Pa", "access", "constant"],
           ["S_CO2", "mol_per_m3_per_Pa", "access", "constant"],
-          ["d_1", "J_per_m3", "access", "variable"],
-          ["d_2", "J_per_m3", "access", "variable"],
-          ["r_1", "J_per_m3", "access", "variable"],
-          ["r_2", "J_per_m3", "access", "variable"],
-          ["s_1", "J2_per_m6", "access", "variable"],
-          ["s_2", "J2_per_m6", "access", "variable"],
           ["k_1", "mmHg", "access", "constant"],
           ["k_2", "mmHg", "access", "constant"],
           ["a_1", "dimensionless", "access", "constant"],

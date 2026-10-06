@@ -34,7 +34,7 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
     nRow = df_vess.shape[0]
     nCol = df_vess.shape[1]
 
-    print("1D vessel array file")
+    print("1D module array file")
     print(type(df_vess))
     print('****')
     print(df_vess.dtypes)
@@ -80,7 +80,7 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
     for i in range(nV):
         nameV = vess[i]['name']
 
-        # The vessel array has no artery/vein column, so an explicit parameter
+        # The module array has no artery/vein column, so an explicit parameter
         # art_ven_type_<vessel> (1 = artery, 0 = vein) takes precedence over guessing from the name.
         nameP = "art_ven_type_"+nameV
         idxParam = df_params.index[df_params["variable_name"] == nameP].tolist()

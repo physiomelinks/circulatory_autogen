@@ -94,6 +94,7 @@ int main(int argc, char *argv[])
     std::cout << " " << std::endl;
 
     bool run_0d = true;
+    bool failed = false;
     while (run_0d) {
         try {
             if (!is_coupled) {
@@ -101,9 +102,11 @@ int main(int argc, char *argv[])
                 if (time + dt > tEnd) {
                     dt = tEnd - time;
                 }
-                model0d->solveOneStep(dt);
-            } else {
-                model0d->solveOneStep(dt0D);
+                if (model0d->solveOneStep(dt) != 0) {
+                    throw std::runtime_error(model0d->lastError());
+                }
+            } else if (model0d->solveOneStep(dt0D) != 0) {
+                throw std::runtime_error(model0d->lastError());
             }
             time = model0d->voi;
 
@@ -119,6 +122,7 @@ int main(int argc, char *argv[])
             }
         } catch (const std::exception &e) {
             std::cerr << "0d solver :: Error: " << e.what() << std::endl;
+            failed = true;
             break;
         }
     }
@@ -129,5 +133,5 @@ int main(int argc, char *argv[])
     }
     delete model0d;
     std::cout << "### 0d solver :: Object model0d deleted ###" << std::endl;
-    return 0;
+    return failed ? 1 : 0;
 }

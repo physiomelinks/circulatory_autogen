@@ -1,7 +1,7 @@
 '''
 Nodes: the points where vessel ports meet.
 
-A vessel array connects modules in pairs (``A`` lists ``B`` in its out_vessels), but where several
+A module array connects modules in pairs (``A`` lists ``B`` in its out_vessels), but where several
 vessels meet, the physics is a property of the point they share, not of each pair. Take
 ``aortic_arch_II`` flowing into a node that ``aortic_arch_III`` and ``common_carotid_L`` both leave
 from, where ``aortic_arch_III``'s inlet compliance sets the pressure: ``aortic_arch_III``'s net
@@ -68,7 +68,7 @@ def _owns(port):
 
 
 def find_nodes(module_df):
-    '''The nodes of the vessel array in ``module_df``, each with its owner set (or None).
+    '''The nodes of the module array in ``module_df``, each with its owner set (or None).
 
     Only nodes that some module could own are returned: nodes of two or more ends, every end of
     which is a single vessel_port of a module. Raises ValueError for a node with more than one

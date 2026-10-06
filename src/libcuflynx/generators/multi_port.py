@@ -92,6 +92,23 @@ def normalise_port_multi_port(port, module_description):
     value = port.get('multi_port')
     port_type = port.get('port_type')
     variables = port.get('variables', [])
+    if value is None or value is False or (isinstance(value, str) and value.lower() == 'false'):
+        # no multi_port (null, false or "False")
+        port = {k: v for k, v in port.items() if k != 'multi_port'}
+        if 'multiply_factor' in port:
+            raise ValueError(f'{module_description}: port "{port_type}" has a multiply_factor but no '
+                             f'multi_port; multiply_factor only applies to "Multiply" ports.')
+        return port
+    if value is True or (isinstance(value, str) and value.lower() == 'true'):
+        if value != 'True':
+            value = 'True'
+            port = dict(port, multi_port=value)
+    elif not (isinstance(value, (list, tuple))
+              or (isinstance(value, str) and value.lower() in ('sum', 'multiply'))):
+        raise ValueError(
+            f'{module_description}: port "{port_type}" has multi_port {value!r}. It must be '
+            f'"True", "Sum" or "Multiply" (any case), true/false, or a list with one entry per '
+            f'port variable.')
 
     def _single_variable(kind):
         if not isinstance(variables, (list, tuple)) or len(variables) != 1:

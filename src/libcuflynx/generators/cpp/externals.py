@@ -15,6 +15,7 @@ the ``calls`` of an ``api`` block (see ``api.py`` and the FV1D entries in
 import re
 from dataclasses import dataclass, field
 
+from libcuflynx.utilities.config_schemas import is_heart_vessel_type
 from libcuflynx.generators.cpp.api import is_api, call_whens, unit_factor, APIConfigError
 
 HOOKS = ('init', 'step_start', 'rhs_start', 'rhs', 'step_end')
@@ -105,7 +106,7 @@ def _select_vessel_port(row, side, neighbour_name):
     vessel_ports = [p for p in ports if p['port_type'] == 'vessel_port']
     if len(vessel_ports) == 1:
         return vessel_ports[0]
-    if row.name == 'heart' or str(row.module_type).startswith('heart'):
+    if row.name == 'heart' or str(row.module_type).startswith('heart') or is_heart_vessel_type(row.vessel_type):
         for keys, var_pos, var_name in HEART_PORT_BY_NEIGHBOUR[side]:
             if any(k in neighbour_name for k in keys):
                 for p in vessel_ports:
@@ -127,7 +128,7 @@ def _control_port_variable(row, side, port_type):
 def collect_named_pipe_connections(vessels_df, conn_1d_0d_info, flat_model):
     '''Build the pipe connections (and their external variables) from conn_1d_0d_info.
 
-    conn_1d_0d_info is written by CSV0DModelParser.split_0d_1d_vessel_array; this fills in its
+    conn_1d_0d_info is written by CSV0DModelParser.split_0d_1d_module_array; this fills in its
     cellml_idx / port_idx / port_state0_or_var1 / R_T_variable_idx entries once indices exist.
     '''
     connections, volume_specs, externals = [], [], []
@@ -138,7 +139,7 @@ def collect_named_pipe_connections(vessels_df, conn_1d_0d_info, flat_model):
         idx0 = int(info['vess0d_idx'])
         if idx0 < 0 or idx0 >= len(vessels_df):
             raise ExternalsError(f'conn_1d_0d_info[{key}] refers to 0D vessel index {idx0}, '
-                                 f'which is outside the 0D vessel array.')
+                                 f'which is outside the 0D module array.')
         row = vessels_df.iloc[idx0]
 
         if info.get('port_volume_sum') == 1:
@@ -158,7 +159,7 @@ def collect_named_pipe_connections(vessels_df, conn_1d_0d_info, flat_model):
         neighbours = _fv1d_neighbours(vessels_df, row, side)
         if not neighbours:
             raise ExternalsError(f"conn_1d_0d_info[{key}]: 0D module '{row['name']}' has no 1D (named-pipe api) "
-                                 f"neighbour on its {side} side. Check the vessel array.")
+                                 f"neighbour on its {side} side. Check the module array.")
         if len(neighbours) > 1:
             by_index = [n for n in neighbours if re.fullmatch(rf"FV1D_0*{info['vess1d_idx']}", n['name'])]
             neighbours = by_index if len(by_index) == 1 else neighbours[:1]
@@ -366,7 +367,7 @@ def collect_delays(vessels_df, flat_model):
 
 # ---------------------------------------------------------------------------------------------
 # Provider APIs (a class the other model calls, e.g. lifex Circulation): an external module in
-# the vessel array, coupled to CellML modules through its ports
+# the module array, coupled to CellML modules through its ports
 # ---------------------------------------------------------------------------------------------
 
 def provider_port_refs(vessels_df, prow, flat_model):
@@ -400,7 +401,7 @@ def provider_port_refs(vessels_df, prow, flat_model):
                      if pp['port_type'] == port['port_type']]
             if not found:
                 raise ExternalsError(f"Port '{port['port_type']}' of external module '{prow['name']}' is not "
-                                     f"connected to a CellML module with a matching port; check the vessel array.")
+                                     f"connected to a CellML module with a matching port; check the module array.")
             comp, pp = found[0]
             if len(pp['variables']) != len(port['variables']):
                 raise ExternalsError(f"Port '{port['port_type']}' has {len(port['variables'])} variables on "
@@ -411,7 +412,7 @@ def provider_port_refs(vessels_df, prow, flat_model):
 
 
 def collect_provider_apis(vessels_df, flat_model):
-    """External modules (vessel-array rows) whose api block has role: provider.
+    """External modules (module-array rows) whose api block has role: provider.
 
     Their api functions name the module's own port variables (resolved through the ports to the
     connected CellML modules), or an absolute "component/variable".
@@ -422,7 +423,7 @@ def collect_provider_apis(vessels_df, flat_model):
         return providers
     for _, prow in vessels_df.iterrows():
         api = prow['api']
-        if not is_api(api) or api.get('role') != 'provider':
+        if not is_api(api) or api.get('role') != 'provider' or api.get('transport') != 'cpp_class':
             continue
         port_refs = provider_port_refs(vessels_df, prow, flat_model)
 
@@ -458,3 +459,152 @@ def collect_provider_apis(vessels_df, flat_model):
         providers.append({'api': api, 'vessel': prow['name'], 'set_specs': set_specs,
                           'get_refs': get_refs, 'state_refs': state_refs})
     return providers
+
+
+# ---------------------------------------------------------------------------------------------
+# Python external models (api transport "python"): rows of the module array whose api block
+# names a Python class. Their port variables are exchanged with the connected CellML modules
+# through the C interface (templates/model0d_capi.cpp.j2) that libcuflynx.coupling drives.
+# ---------------------------------------------------------------------------------------------
+
+@dataclass
+class ExchangeVariable:
+    '''One port variable of a Python external model, and the 0D variable(s) it is connected to.'''
+    name: str                 # "<row>/<port variable>"
+    row: str
+    variable: str
+    refs: list                # one ModelRef per connected 0D module, in neighbour order
+    neighbours: list          # the connected 0D modules' names, in the same order
+    direction: str = None     # 'to_external' | 'from_external'
+    units: str = ''
+    factor: float = 1.0
+    specs: list = field(default_factory=list)  # ExternalSpecs (from_external only)
+
+
+def python_rows(vessels_df):
+    '''Module-array rows whose api block has transport "python".'''
+    if 'api' not in vessels_df.columns:
+        return []
+    return [row for _, row in vessels_df.iterrows()
+            if is_api(row['api']) and row['api'].get('transport') == 'python']
+
+
+def _all_port_refs(vessels_df, prow, flat_model):
+    '''{own port variable: [(neighbour name, ModelRef), ...]} over every CellML module connected to
+    each port of the external row (entrance ports: inp_vessels; exit ports: out_vessels; general
+    ports: both), in the order the module array lists them. Variables pair up by position.'''
+    refs = {}
+    sides = [('entrance_ports', list(prow['inp_vessels']), ('exit_ports', 'general_ports')),
+             ('exit_ports', list(prow['out_vessels']), ('entrance_ports', 'general_ports')),
+             ('general_ports', list(prow['inp_vessels']) + list(prow['out_vessels']),
+              ('general_ports', 'entrance_ports', 'exit_ports'))]
+    for own_kind, neighbours, partner_kinds in sides:
+        for port in prow[own_kind] if isinstance(prow[own_kind], list) else []:
+            found = []
+            for name in neighbours:
+                match = vessels_df.loc[vessels_df['name'] == name]
+                if len(match) != 1 or match.iloc[0]['module_format'] != 'cellml':
+                    continue
+                partner = match.iloc[0]
+                for kind in partner_kinds:
+                    for pp in partner[kind] if isinstance(partner[kind], list) else []:
+                        if pp['port_type'] == port['port_type']:
+                            found.append((name, pp))
+                            break
+                    else:
+                        continue
+                    break
+            if not found:
+                raise ExternalsError(
+                    f"Port '{port['port_type']}' of external module '{prow['name']}' is not connected to any "
+                    f"CellML module with a matching port. Name the module(s) in its "
+                    f"{'inp_vessels' if own_kind == 'entrance_ports' else 'out_vessels' if own_kind == 'exit_ports' else 'inp/out_vessels'} "
+                    f"and check they have a '{port['port_type']}' port.")
+            for name, pp in found:
+                if len(pp['variables']) != len(port['variables']):
+                    raise ExternalsError(f"Port '{port['port_type']}' has {len(port['variables'])} variables on "
+                                         f"'{prow['name']}' but {len(pp['variables'])} on '{name}'.")
+                for own_var, partner_var in zip(port['variables'], pp['variables']):
+                    if own_var in refs and any(n == name for n, _ in refs[own_var]):
+                        raise ExternalsError(f"'{prow['name']}/{own_var}' is on more than one port connected "
+                                             f"to '{name}'.")
+                    refs.setdefault(own_var, []).append(
+                        (name, ModelRef(flat_variable(flat_model, name, partner_var), f'{name}/{partner_var}')))
+    return refs
+
+
+def variable_kinds(flat_model):
+    '''Analyse the flat model with no external variables and return a function giving, for a
+    variable of the flat model, 'constant' (a parameter or an unconnected boundary condition),
+    'state' or 'computed'.'''
+    import libcellml
+    import libcuflynx.utilities.libcellml_helper_funcs as cellml
+    analyser = libcellml.Analyser()
+    analyser.analyseModel(flat_model)
+    am = cellml.get_analysed_model(analyser)
+    constant_type = libcellml.AnalyserVariable.Type.CONSTANT
+
+    def kind(variable):
+        for astate in am.states():
+            if am.areEquivalentVariables(astate.variable(), variable):
+                return 'state'
+        for av in am.variables():
+            if am.areEquivalentVariables(av.variable(), variable):
+                return 'constant' if av.type() == constant_type else 'computed'
+        return None
+    return kind
+
+
+def collect_python_exchange(vessels_df, flat_model):
+    '''The exchange table of every python-transport row, with each variable's direction:
+
+    * connected to a CellML variable the 0D model computes (a state or an equation's result):
+      ``to_external``, the Python model receives it;
+    * connected to a constant (a boundary condition left open for the external model, whose
+      parameter value is the starting value): ``from_external``, the Python model sets it, and it
+      becomes a libCellML external variable of the generated C.
+
+    ``api.variables[<var>].direction`` overrides the inference. Returns (rows, exchange) where
+    rows is [{row, api, variables: [ExchangeVariable]}].
+    '''
+    rows, exchange = [], []
+    py_rows = python_rows(vessels_df)
+    if not py_rows:
+        return rows, exchange
+    kind = variable_kinds(flat_model)
+    for prow in py_rows:
+        api = prow['api']
+        overrides = api.get('variables') or {}
+        units_of = {v[0]: v[1] for v in prow['variables_and_units']} \
+            if isinstance(prow['variables_and_units'], list) else {}
+        port_refs = _all_port_refs(vessels_df, prow, flat_model)
+        unknown = set(overrides) - set(port_refs)
+        if unknown:
+            raise ExternalsError(f"api.variables of '{prow['name']}' names {sorted(unknown)}, which are not "
+                                 f"variables on its ports ({sorted(port_refs)}).")
+        row_vars = []
+        for var, pairs in port_refs.items():
+            refs = [r for _, r in pairs]
+            spec = overrides.get(var, {})
+            direction = spec.get('direction')
+            if direction is None:
+                kinds = {kind(r.variable) for r in refs}
+                if None in kinds:
+                    raise ExternalsError(f"'{prow['name']}/{var}': a connected variable is not in the analysed model.")
+                directions = {'from_external' if k == 'constant' else 'to_external' for k in kinds}
+                if len(directions) > 1:
+                    raise ExternalsError(
+                        f"'{prow['name']}/{var}' connects to {[r.label for r in refs]}, some computed by the 0D "
+                        f"model and some not; set api.variables['{var}'].direction.")
+                direction = directions.pop()
+            x = ExchangeVariable(name=f"{prow['name']}/{var}", row=prow['name'], variable=var, refs=refs,
+                                 neighbours=[n for n, _ in pairs], direction=direction,
+                                 units=refs[0].variable.units().name() if refs[0].variable.units() else
+                                 units_of.get(var, ''),
+                                 factor=unit_factor(spec) if spec else 1.0)
+            if direction == 'from_external':
+                x.specs = [ExternalSpec(r, 'api', initial=None, meta={'exchange': x.name}) for r in refs]
+            row_vars.append(x)
+            exchange.append(x)
+        rows.append({'row': prow['name'], 'api': api, 'variables': row_vars})
+    return rows, exchange

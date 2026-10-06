@@ -143,11 +143,11 @@ def compare(ref, ref_states, new, replaced, outputs):
 def test_lumped_vessels_reproduce_the_model(tmp_path, library, model):
     mono = tmp_path / 'monolithic'
     mono.mkdir()
-    vessel_array = os.path.join(RESOURCES, f'{model}_vessel_array.csv')
+    module_array = os.path.join(RESOURCES, f'{model}_module_array.csv')
     parameters = os.path.join(RESOURCES, f'{model}_parameters.csv')
-    shutil.copy(vessel_array, mono)
+    shutil.copy(module_array, mono)
     shutil.copy(parameters, mono)
-    result = migrate_files(library, vessel_array, parameters, out_dir=str(tmp_path / 'lumped'),
+    result = migrate_files(library, module_array, parameters, out_dir=str(tmp_path / 'lumped'),
                            prefix=f'{model}_lumped', old_prefix=model)
     assert result['replaced'], f'{model} has no vessel with a lumped twin'
     ref, ref_states = _simulate(_generate(mono, model, tmp_path / 'generated'))
@@ -163,11 +163,11 @@ def test_shared_parameters_keep_their_names(library):
     '''Migrating 3compartment changes only what the lumped vessels compute: the terminal's
     q_init becomes its compliance's q_C_init (q_init - q_us); every other parameter, and every
     output obs_data names, keeps its name.'''
-    vessel_array = os.path.join(RESOURCES, '3compartment_vessel_array.csv')
+    module_array = os.path.join(RESOURCES, '3compartment_module_array.csv')
     parameters = os.path.join(RESOURCES, '3compartment_parameters.csv')
     records, rows = None, None
     from libcuflynx.utilities.lumped_migration import _read_parameters, _read_records, migrate
-    records = _read_records(vessel_array)
+    records = _read_records(module_array)
     _, rows = _read_parameters(parameters)
     _, new_rows, outputs, notes = migrate(records, rows, library)
     before = {r['variable_name'] for r in rows}

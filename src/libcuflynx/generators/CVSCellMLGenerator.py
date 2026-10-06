@@ -12,7 +12,7 @@ import tempfile
 from sys import exit
 from libcuflynx.utilities.paths import default_resources_dir
 from libcuflynx.utilities.module_library import ModuleSources, collect_units, CELLML_1_1_NS
-from libcuflynx.utilities.config_schemas import parameter_name
+from libcuflynx.utilities.config_schemas import is_heart_vessel_type, parameter_name
 
 generators_dir = os.path.dirname(__file__)
 LIBCELLML_available = True
@@ -578,15 +578,17 @@ class CVS0DCellMLGenerator(object):
                 continue
             self.__write_import(wf, vessel_tup)
 
-        # TODO change the below to vessel_type, not "name"
-        if len(vessel_df.loc[vessel_df["name"] == 'heart']) == 1:
+        # the heart is found by its vessel_type, so it can have any name (a heart inside a
+        # supermodule is <instance>_<submodule>)
+        hearts = [n for n, vt in zip(vessel_df["name"], vessel_df["vessel_type"]) if is_heart_vessel_type(vt)]
+        if len(hearts) == 1:
             # the heart's inputs by the names the model gave them (a supermodule vessel such as a
             # lumped venous_svc is venous_svc_I after expansion)
             origin = {}
             if 'supermodule_instance' in vessel_df.columns:
                 origin = {n: o for n, o in zip(vessel_df["name"], vessel_df["supermodule_instance"])
                           if isinstance(o, str) and o}
-            heart_inputs = [origin.get(n, n) for n in vessel_df.loc[vessel_df["name"] == 'heart'].inp_vessels.values[0]]
+            heart_inputs = [origin.get(n, n) for n in vessel_df.loc[vessel_df["name"] == hearts[0]].inp_vessels.values[0]]
             # add a zero mapping to heart ivc or svc flow input if only one input is specified
             if "venous_ivc" not in heart_inputs or "venous_svc" not in heart_inputs:
                 wf.writelines([f'<import xlink:href="{self.file_prefix}_modules.cellml">\n',
@@ -595,9 +597,7 @@ class CVS0DCellMLGenerator(object):
             if "venous_ivc" not in heart_inputs and "venous_svc" not in heart_inputs:
                 print('either venous_ivc, or venous_svc, or both must be inputs to the heart, exiting')
                 exit()
-        elif len(vessel_df.loc[vessel_df["name"] == 'heart']) < 1:
-            pass
-        elif len(vessel_df.loc[vessel_df["name"] == 'heart']) > 1:
+        elif len(hearts) > 1:
             print('you have declared more that one heart module, exiting')
             exit()
 
@@ -855,18 +855,18 @@ class CVS0DCellMLGenerator(object):
 
                     # TODO this part is kind of hacky, but it works, there is definitely a better way to do the mapping with the
                     #  heart module!
-                    if out_module_type.startswith('heart'):
+                    if is_heart_vessel_type(out_module_row["vessel_type"]):
                         if len(out_module_row["inp_vessels"]) == 2 and self.ivc_connection_done == 0:
                             # this is the case if there is only one vc and one pulmonary
                             # We map the ivc to a zero flow mapping
-                            self.__write_mapping(wf, 'zero_flow_module', 'heart_module', ['v_zero'], ['v_ivc'])
+                            self.__write_mapping(wf, 'zero_flow_module', out_module + '_module', ['v_zero'], ['v_ivc'])
                             self.ivc_connection_done = 1
                             self.BC_set[out_module]['v_ivc'] = True
                             # TODO the above isnt robust
 
                         for heart_inp_idx in range(3):
                             # there are three vessel_port entrances to the heart, ivc, svc, and pulmonary
-                            # in the vessel_array file, they must be ordered ivc, svc, pulmonary
+                            # in the module_array file, they must be ordered ivc, svc, pulmonary
                             if main_module == out_module_row["inp_vessels"][heart_inp_idx]:
                                 # if the ivc connection was done artificially, then we need to skip it
                                 entrance_port_idx = heart_inp_idx + self.ivc_connection_done
@@ -1533,7 +1533,7 @@ class CVS0DCellMLGenerator(object):
                         if vessel_tup.out_vessels[II] == venous_name:
                             if vessel_name not in vessel_df.loc[vessel_df["name"] == venous_name].squeeze()["inp_vessels"]:
                                 print(f'venous input of {venous_name} does not include the terminal vessel '
-                                      f'{vessel_name} as an inp_vessel in {self.file_prefix}_vessel_array. '
+                                      f'{vessel_name} as an inp_vessel in {self.file_prefix}_module_array. '
                                       f'not including terminal names as input has been deprecated')
                                 exit()
                             terminal_names_for_first_venous[idx].append(vessel_name)
@@ -2487,9 +2487,15 @@ class CVS0DCellMLGenerator(object):
                     if inp_unit != out_unit:  
                         try:  
                             scale = self.unit_converter.get_scale_factor(inp_unit, out_unit)  
+                            if abs(float(scale) - 1.0) < 1e-12:
+                                # equivalent units under different names (e.g. mol_per_m3 and
+                                # millimolar): a plain connection, no converter
+                                direct_mappings.append((inp_var, out_var))
+                                continue
                             converter_key = (inp_unit, out_unit, scale)  
                             if converter_key not in converter_mappings:  
-                                converter_name = f"unit_converter_{inp_unit}_to_{out_unit}"  
+                                # one per connection: a model can need the same conversion twice
+                                converter_name = f"unit_converter_{inp_name}_{out_name}_{inp_unit}_to_{out_unit}"  
                                 converter_mappings[converter_key] = {  
                                     'inp_vars': [], 'out_vars': [],   
                                     'converter_name': converter_name,  

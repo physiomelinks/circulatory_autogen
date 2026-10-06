@@ -5,6 +5,21 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Changed — vessel arrays are now called module arrays
+
+The file is `[file_prefix]_module_array.json` or `.csv`, and every model in `resources/` has been
+renamed. A `[file_prefix]_vessel_array.json`/`.csv` is still read, after the new names, with a
+`FutureWarning` asking for it to be renamed; to rename yours, run
+`for f in *_vessel_array.*; do git mv "$f" "${f/_vessel_array./_module_array.}"; done`. The
+functions and constants that carried the old name are renamed in the same way
+(`module_array_path`, `read_module_array_records`, `load_module_array`, `module_array_to_json`,
+`PHLYNX_MODULE_ARRAY_COLUMNS`, ...), without aliases, as none of them was released;
+`CSV0DModelParser.split_0d_1d_vessel_array`, which was, is now `split_0d_1d_module_array`, and
+the old name still works with a `FutureWarning`. The 0D/1D split writes `[file_prefix]_{0d,1d}_module_array.csv`,
+`convert_0d_to_1d` writes `[model]_hybrid_module_array.*`, and the JSON Schema is
+`libcuflynx/schemas/module_array.schema.json`. The record keys (`vessel_type`, `BC_type`,
+`inp_vessels`, `out_vessels`) and the `vessels_csv_abs_path` config key are unchanged.
+
 ### Added — supermodules that stand in for a module under the same names
 
 For circulatory-autogen-modules' lumped vessels (a vessel as a supermodule of compliance,
@@ -21,10 +36,9 @@ resistance and inertance submodules), a supermodule config entry can now say how
 - `template`: an empty supermodule whose submodules name only a module_type (and `choices`), for a
   GUI to fill; generating one is an error that lists its slots.
 
-`python -m libcuflynx.utilities.lumped_migration --library <modules> <vessel_array> --parameters
+`python -m libcuflynx.utilities.lumped_migration --library <modules> <module_array> --parameters
 <file>` moves a model onto a library's lumped twins (configs with `replaces`): only the records'
 BC_type and the parameters the twins compute (e.g. a terminal's `q_C_init` from `q_init`) change.
-
 
 ### Changed! — `model_type: cpp` is generated from libCellML's C output and Jinja2 templates
 
@@ -41,9 +55,65 @@ the old C++), and the coupler builds with CMake. FV_1d coupled output is identic
 A module config entry can carry an `api` block. `role: consumer` describes calls the generated
 C++ makes (the FV 1D named-pipe protocol is now described this way in
 `coupling_modules_config.json`); `role: provider` generates a C++ class another program calls,
-e.g. a drop-in `lifex::Circulation`. A provider is its own vessel-array row
+e.g. a drop-in `lifex::Circulation`. A provider is its own module-array row
 (`module_format: external_api`) coupled to CellML modules through ports; values it sets become
 libCellML external variables. `external_modules_dir` also accepts a list of directories.
+
+### Added — the FV 1D solver as a `process` module; `coupler_config.json` is generated
+
+A new `api` role, `process`, describes a program run alongside the generated model: what to
+launch (`program`), who launches it (`coordinator: coupler`) and the pipes it talks over
+(`channels`, `message_length`). `FV1D_solver` in `coupling_modules_config.json` is the FV 1D
+solver. The `FV1D_vessel` and `FV1D_volume_sum` entries name it (`"process": "FV1D_solver"`)
+instead of each repeating the pipe names. From it, C++ generation of a model coupled to 1D now
+writes `coupler_config.json`, which until now had to be written by hand:
+- `T0` is the global parameter `T`;
+- `nCC` is the number of whole periods covering `pre_time + sim_time`;
+- the pipe folder is the user input `coupler_pipe_dir` (default `cuflynx_pipes/<model>/` in the
+  system temp folder, which `TMPDIR` moves);
+- `python_path` is the generating Python, and the 1D solver is the installed one.
+
+`convert_0d_to_1d` adds an `FV1D_solver` row to the hybrid module array, and reads
+`<model>_module_array.csv` when there is no `<model>_0d_module_array.csv`. The coupler creates
+the pipe folder, and its default pipe folder and Python are no longer paths on one machine.
+`main0d`'s coupled defaults (`T0`, `nCC`) match the configuration. New example model
+`aortic_bif_0d` (all 0D); a test runs it against the same model with its vessels in 1D.
+
+### Added — coupling generated C++ to external Python models (e.g. FEniCS)
+
+A module config entry with `"module_format": "external_api"` and
+`"api": {"role": "provider", "transport": "python", "python": {"file": ..., "class": ...}}` is an
+external Python model: a row of the module array, connected to CellML modules through its ports.
+- **Generation.** Generating the model as C++ also writes a C interface (`model0d_capi.cpp`,
+  built as the shared library `model0d_capi`) and `external_models.json`.
+- **Running.** `cuflynx-couple <model folder>` (or `libcuflynx.coupling.run_coupled`) builds the
+  library, then steps the C++ model and the class together.
+- **Directions.** No function list is needed: each port variable connected to a boundary
+  condition of the 0D model is set by the class, and each connected to a computed variable is
+  read by it. A port connected to several modules exchanges arrays.
+- **Coupling scheme.** Explicit staggered coupling (first order), or `subiterations` for a
+  trapezoidal fixed point (second order).
+- **Also:** MPI (the 0D model runs on every rank), output on the model's `dt`, and timings.
+
+New tutorial section "Coupling to External Models": an overview, coupling your own Python
+model, FEniCS tissue O2 with capillaries, FEniCS NE around a sympathetic varicosity, 1D
+finite-volume coupling, and troubleshooting. The FEniCS modules and system models live in
+circulatory-autogen-modules.
+
+### Fixed — C++ generation
+
+- `Model0d::solveOneStep` returns a status (and `lastError()`) instead of calling `exit(1)`, and
+  `main0d` now exits non-zero when the solver fails (it returned 0).
+- CVODE restarts from the last good state after an error-test or convergence failure, so
+  models with time switches (a stimulus pulse train) run.
+- State initial values given by computed variables (e.g. a gate starting at its steady state)
+  are evaluated with Myokit; libCellML 0.6 accepts only constants there, so these models
+  could not be generated as C++ before.
+- CellML generation connects variables of equivalent units under different names (e.g.
+  `mol_per_m3` and `millimolar`) directly. It used to create an unconnected "converter", and the
+  converter name was not unique per connection.
+- `GE_capillary` listed `d_1` ... `s_2` twice in its config, and `capillary_GE` and
+  `pulmonary_GE_5_lobe_type` used `saturation_cap` without declaring it.
 
 ### Added — readable generated C/C++
 
@@ -115,7 +185,7 @@ fingerprints are unchanged. Callers can feature-detect with
 
 A module library can lay a module version out as `<module_type>/versions/<version>/` with named
 parameter sets in `instances/<instance>/<instance>_parameters.csv` (names without a vessel
-suffix). A vessel-array record, or a supermodule's submodule, picks one with
+suffix). A module-array record, or a supermodule's submodule, picks one with
 `"instance": "<name>"`; without it, the config entry's `"default_instance"` is used if that file
 exists. The instance directory is found next to the config file the record's type came from.
 Rows become `{var}_{vessel}`, except the module's `global_constant`s, and are merged as default
@@ -130,33 +200,33 @@ obs_data files accept a top-level `"obs_data_name"` (returned as `obs_data_name`
 warned about. The JSON Schemas gain `instance` and `default_instance`, and a new
 `obs_data.schema.json` describes the top level of an obs_data file.
 
-### Added — JSON vessel arrays and supermodules
+### Added — JSON module arrays and supermodules
 
-A vessel array can be a JSON list of records, `[file_prefix]_vessel_array.json`, with PhLynx's
+A module array can be a JSON list of records, `[file_prefix]_module_array.json`, with PhLynx's
 keys (`name, module_type, module_subtype, inp_instances, out_instances`) or libcuflynx's (`name,
 vessel_type, BC_type, inp_vessels, out_vessels`). A CSV array is now read by converting each row
 to the same record, so both are processed identically; the `.json` file is preferred when both
-exist, then `.csv`, then PhLynx's `_module_array.json`/`.csv`. Convert CSV arrays with
+exist, then `.csv`. Convert CSV arrays with
 `python -m libcuflynx.utilities.config_schemas to-json <csv>... [--style phlynx|libcuflynx]`.
 Every model in `resources/` that generated before generates byte-identical CellML from its CSV
 and from its JSON conversion.
 
 A module config entry with `"module_format": "supermodule"` and a list of `submodules` defines a
-supermodule. An instance of it in a vessel array expands into `[instance]_[submodule]` modules
+supermodule. An instance of it in a module array expands into `[instance]_[submodule]` modules
 before anything else reads the array; `per_submodule_inputs`/`per_submodule_outputs` on the
 instance link its hosts to individual submodules. Supermodules may nest. An optional
 `default_parameters` CSV supplies parameters (renamed to the expanded names) wherever the
 model's parameters file does not set them. See `tutorial/docs/design-model.md`.
 
-JSON Schemas for both files ship in `libcuflynx/schemas/` (`vessel_array.schema.json`,
+JSON Schemas for both files ship in `libcuflynx/schemas/` (`module_array.schema.json`,
 `module_config.schema.json`). The loaders check the same rules without a schema library;
 `jsonschema` is a `[dev]` dependency only, for the tests.
 
-The 0D/1D split for `couple_to_1d` now always writes `[file_prefix]_0d_vessel_array.csv` and
-`[file_prefix]_1d_vessel_array.csv`, and the 1D generator reads the file the split wrote. Before,
+The 0D/1D split for `couple_to_1d` now always writes `[file_prefix]_0d_module_array.csv` and
+`[file_prefix]_1d_module_array.csv`, and the 1D generator reads the file the split wrote. Before,
 an input named `_module_array.csv` gave split files the 1D generator could not find.
 
-### Added — PhLynx module-config and vessel-array schemas; `"Sum"` and `"Multiply"` multi_ports
+### Added — PhLynx module-config and module-array schemas; `"Sum"` and `"Multiply"` multi_ports
 
 The module library is moving its configs to PhLynx's key names, and libcuflynx now reads both
 schemas. In PhLynx's schema, `module_type` is the vessel_type, `module_subtype` is the BC_type,
@@ -164,10 +234,9 @@ schemas. In PhLynx's schema, `module_type` is the vessel_type, `module_subtype` 
 entry is detected on its own, by `module_subtype`, `component_file` or `component_type`, and is
 converted to the libcuflynx names when the config is loaded
 (`libcuflynx.utilities.config_schemas.normalise_module_config_entry`). An entry that mixes the
-two schemas is an error. Vessel arrays can use PhLynx's export layout too
+two schemas is an error. Module arrays can use PhLynx's export layout too
 (`name, module_type, module_subtype, inp_instances, out_instances`). The layout is detected from
-the header. `[file_prefix]_module_array.csv` is read when there is no
-`[file_prefix]_vessel_array.csv`.
+the header.
 
 `multi_port` values are now case-insensitive. Before, only lowercase `"sum"` summed, and PhLynx's
 `"Sum"` behaved like `"True"`. On a `volume_port`, `"Sum"` now gives the same `sum_blood_volume`
@@ -406,7 +475,6 @@ Two bugs fell out. `posterior_predictive` captioned a series panel with the item
 where it meant the trace label, and `print_observable_errors` named one of its six branches by
 identity where the other five used the label.
 
-
 ## 0.6.0 — 2026-08-31
 
 ### Removed — the flat-import shims (#428)
@@ -451,7 +519,6 @@ They are the parameter-identification and MCMC engines, and they run against myo
 casadi and trained emulators as readily as against OpenCOR — the name came from the only backend
 that existed when they were written. **The old names still work**: `OpencorParamID` and
 `OpencorMCMC` remain as aliases, so nothing importing them has to change.
-
 
 ## 0.5.0 — 2026-08-24
 
@@ -519,7 +586,6 @@ README, CONTRIBUTING, CLAUDE.md and the tutorial say so.
 The tests that check those docs agree now read `REMOVAL_VERSION` rather than restating it: the
 literal `"0.5.0"` in three test files would have passed happily while every document said
 something else.
-
 
 ### Added — a whole study in one call, shipped for readers outside this repo (#478)
 

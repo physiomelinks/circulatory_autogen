@@ -6,15 +6,17 @@ Created on 29/10/2021
 
 
 from libcuflynx.parsers.PrimitiveParsers import CSVFileParser, JSONFileParser
-from libcuflynx.utilities.config_schemas import (load_component_registry, load_expanded_vessel_records,
-                                                 load_supermodule_registry, load_vessel_array,
-                                                 parameter_name, vessel_records_to_string_frame)
+from libcuflynx.utilities.config_schemas import (is_heart_vessel_type, load_component_registry,
+                                                 load_expanded_vessel_records, load_supermodule_registry,
+                                                 load_module_array, parameter_name,
+                                                 vessel_records_to_string_frame)
 from libcuflynx.models.LumpedModels import CVS0DModel
 from libcuflynx.checks.LumpedModelChecks import LumpedCompositeCheck, LumpedBCVesselCheck, LumpedIDParamsCheck, LumpedPortVariableCheck
 from libcuflynx.generators.cpp.api import validate_module_config_apis
 import pandas as pd
 import numpy as np
 import json
+import warnings
 import re
 import os
 
@@ -25,17 +27,6 @@ from libcuflynx.utilities.module_library import ModuleSources
 # column, for instance) without shifting the ones that matter -- see issue #159. 'const_type' is
 # deliberately absent: it is supplied by the module config, not by the CSV.
 _REQUIRED_PARAMETER_COLUMNS = ('variable_name', 'units', 'value', 'data_reference')
-
-
-
-_VESSEL_COLUMNS = ('name', 'BC_type', 'vessel_type', 'inp_vessels', 'out_vessels')
-
-
-def _vessel_row(df, values):
-    '''A row for df from the five standard vessel columns: vessel records may carry more columns
-    (e.g. "instance"), which a positional 5-value row can't fill. Extra columns are left empty.'''
-    row = dict(zip(_VESSEL_COLUMNS, values))
-    return [row.get(c, '') for c in df.columns]
 
 
 def merge_default_parameters(parameters_array, extra_param_rows):
@@ -73,6 +64,17 @@ def merge_default_parameters(parameters_array, extra_param_rows):
     return np.concatenate([parameters_array, added])
 
 
+
+def _append_vessel_row(df, name, BC_type, vessel_type, inp_vessels, out_vessels, blank=''):
+    """Append a vessel row by column name. Any other column (a module array's extra keys, e.g.
+    ``instance``) gets ``blank``: ``''`` in a string frame, ``[]`` in the list-form one. Appending
+    a fixed 5-element list failed with "cannot set a row with mismatched columns" as soon as the
+    array had one."""
+    values = {'name': name, 'BC_type': BC_type, 'vessel_type': vessel_type,
+              'inp_vessels': inp_vessels, 'out_vessels': out_vessels}
+    row = [values.get(column, blank) for column in df.columns]
+    df.loc[df.index.max() + 1 if len(df) else 0] = row
+
 class CSV0DModelParser(object):
     '''
     Creates a 0D model representation from a vessel and a parameter CSV files.
@@ -98,11 +100,16 @@ class CSV0DModelParser(object):
         self.conn_1d_0d_info = None
 
     def split_0d_1d_vessel_array(self, supermodule_registry=None, component_registry=None):
+        """The old name of split_0d_1d_module_array (vessel arrays are now module arrays)."""
+        warnings.warn('split_0d_1d_vessel_array is now split_0d_1d_module_array', FutureWarning, stacklevel=2)
+        return self.split_0d_1d_module_array(supermodule_registry, component_registry)
+
+    def split_0d_1d_module_array(self, supermodule_registry=None, component_registry=None):
         '''
-        Writes the 0D and 1D parts of the vessel array (JSON or CSV, either layout, with its
+        Writes the 0D and 1D parts of the module array (JSON or CSV, either layout, with its
         supermodule instances expanded) to vessel_filename_0d and vessel_filename_1d, as CSV.
         Returns the default parameter rows of the supermodules and module instances (see
-        config_schemas.load_vessel_array).
+        config_schemas.load_module_array).
         '''
         records, extra_param_rows = load_expanded_vessel_records(self.vessel_filename,
                                                                  supermodule_registry,
@@ -155,7 +162,7 @@ class CSV0DModelParser(object):
             N1d = vessels_df_1d.shape[0]
             if N1d>0:
                 name_BVsumTot =  vessels_df_0d.at[idxBVsumTot,"name"]
-                vessels_df_0d.loc[len(vessels_df_0d)] = _vessel_row(vessels_df_0d, ['volume_sum_1D', 'nn', 'FV1D_volume_sum', '', name_BVsumTot])
+                _append_vessel_row(vessels_df_0d, 'volume_sum_1D', 'nn', 'FV1D_volume_sum', '', name_BVsumTot)
 
                 for k in range(len(idxBVsum_list)):
                     idxBVsum = idxBVsum_list[k]
@@ -207,7 +214,7 @@ class CSV0DModelParser(object):
             N1d = vessels_df_1d.shape[0]
             if N1d>0:
                 name_BVsum =  vessels_df_0d.at[idxBVsum,"name"]
-                vessels_df_0d.loc[len(vessels_df_0d)] = _vessel_row(vessels_df_0d, ['volume_sum_1D', 'nn', 'FV1D_volume_sum', '', name_BVsum])
+                _append_vessel_row(vessels_df_0d, 'volume_sum_1D', 'nn', 'FV1D_volume_sum', '', name_BVsum)
 
                 inp_vess_BVsum =  vessels_df_0d.at[idxBVsum,"inp_vessels"].split()
                 inp_vess_BVsum_new = []
@@ -253,10 +260,10 @@ class CSV0DModelParser(object):
                                 found_K_mod = True
                                 break
                             else:
-                                print(f"ERROR: wrong BC_type for {out_vess} module OR {out_vess} module incorrectly connected to FV1D_vessel {vess1d}. Check your vessel array file.")
+                                print(f"ERROR: wrong BC_type for {out_vess} module OR {out_vess} module incorrectly connected to FV1D_vessel {vess1d}. Check your module array file.")
                                 exit()
                     if not found_K_mod:
-                        print(f"ERROR: entry for {out_vess} module coupled to FV1D_vessel {vess1d} NOT found. Check your vessel array file.")
+                        print(f"ERROR: entry for {out_vess} module coupled to FV1D_vessel {vess1d} NOT found. Check your module array file.")
                         exit()
 
 
@@ -326,11 +333,9 @@ class CSV0DModelParser(object):
                                             found_idx1d = j
                                             break
                                     if found_idx1d == -1:
-                                        vessels_df_0d.loc[len(vessels_df_0d)] = _vessel_row(vessels_df_0d, [vess1d,
-                                                                                BC_type_1d,
-                                                                                vessels_df_1d.at[i,"vessel_type"],
-                                                                                vessels_df_1d.at[i,"inp_vessels"],
-                                                                                ''])
+                                        _append_vessel_row(vessels_df_0d, vess1d, BC_type_1d,
+                                                           vessels_df_1d.at[i,"vessel_type"],
+                                                           vessels_df_1d.at[i,"inp_vessels"], '')
                                     else:
                                         if vessels_df_0d.at[found_idx1d,"inp_vessels"]=='':
                                             vessels_df_0d.at[found_idx1d,"inp_vessels"] = vessels_df_1d.at[i,"inp_vessels"]
@@ -340,13 +345,13 @@ class CSV0DModelParser(object):
                                     print(f"ERROR :: {inp_vess} found in inp_vessels of 1D vessel {vess1d}, but {vess1d} not found in out_vessels_0d of 0D vessel {inp_vess}")
                                     exit()
                         elif len(idx0d)==0:
-                            print(f"ERROR :: no index found for {inp_vess} in 1D or 0D vessel array")
+                            print(f"ERROR :: no index found for {inp_vess} in 1D or 0D module array")
                             exit()
                         elif len(idx0d)>1:
-                            print(f"ERROR :: more than one index found for {inp_vess} in 0D vessel array")
+                            print(f"ERROR :: more than one index found for {inp_vess} in 0D module array")
                             exit()
                     else: # TODO
-                        print(f"ERROR :: more than one index found for {inp_vess} in 1D vessel array")
+                        print(f"ERROR :: more than one index found for {inp_vess} in 1D module array")
                         exit()
 
             if len(out_vessels)>0:
@@ -405,11 +410,9 @@ class CSV0DModelParser(object):
                                             found_idx1d = j
                                             break
                                     if found_idx1d == -1:
-                                        vessels_df_0d.loc[len(vessels_df_0d)] = _vessel_row(vessels_df_0d, [vessels_df_1d.at[i,"name"],
-                                                                                BC_type_1d,
-                                                                                vessels_df_1d.at[i,"vessel_type"],
-                                                                                '',
-                                                                                vessels_df_1d.at[i,"out_vessels"]])
+                                        _append_vessel_row(vessels_df_0d, vessels_df_1d.at[i,"name"], BC_type_1d,
+                                                           vessels_df_1d.at[i,"vessel_type"], '',
+                                                           vessels_df_1d.at[i,"out_vessels"])
                                     else:
                                         if vessels_df_0d.at[found_idx1d,"out_vessels"]=='':
                                             vessels_df_0d.at[found_idx1d,"out_vessels"] = vessels_df_1d.at[i,"out_vessels"]
@@ -419,13 +422,13 @@ class CSV0DModelParser(object):
                                     print(f"ERROR :: {out_vess} found in out_vessels of 1D vessel {vess1d}, but {vess1d} not found in inp_vessels_0d of 0D vessel {out_vess}")
                                     exit()
                         elif len(idx0d)==0:
-                            print(f"ERROR :: no index found for {out_vess} in 1D or 0D vessel array")
+                            print(f"ERROR :: no index found for {out_vess} in 1D or 0D module array")
                             exit()
                         elif len(idx0d)>1:
-                            print(f"ERROR :: more than one index found for {out_vess} in 0D vessel array")
+                            print(f"ERROR :: more than one index found for {out_vess} in 0D module array")
                             exit()
                     else:
-                        print(f"ERROR :: more than one index found for {out_vess} in 1D vessel array")
+                        print(f"ERROR :: more than one index found for {out_vess} in 1D module array")
                         exit()
 
         print(f"Number of one-to-one 1D-0D connections: {N1d0d}")
@@ -454,13 +457,13 @@ class CSV0DModelParser(object):
         # if N1d0d>0:
         #     print(self.conn_1d_0d_info)
         
-        idx_last = max(self.vessel_filename.rfind("vessel_array"), self.vessel_filename.rfind("module_array"))
+        idx_last = max(self.vessel_filename.rfind("module_array"), self.vessel_filename.rfind("vessel_array"))
         json_filename = self.vessel_filename[:idx_last] + "coupler1d0d_unfinished.json"
         with open(json_filename, "w") as f:
             json.dump(self.conn_1d_0d_info, f, indent=4)
 
-        # print("0D vessel array", vessels_df_0d.head())
-        # print("1D vessel array", vessels_df_1d.head())
+        # print("0D module array", vessels_df_0d.head())
+        # print("1D module array", vessels_df_1d.head())
         # print("\n")
         
         vessels_df_0d.to_csv(self.vessel_filename_0d, index=None, header=True) # or index=False
@@ -471,45 +474,46 @@ class CSV0DModelParser(object):
 
     def load_model(self):
         # Supermodule entries of the module configs. They never join the module dataframe:
-        # their instances are expanded into prefixed submodules as the vessel array is read,
+        # their instances are expanded into prefixed submodules as the module array is read,
         # before anything below (the heart special case, the module-config join) sees it.
         supermodule_registry = load_supermodule_registry(self.module_sources.config_files)
         # Component entries with the config file each came from: a record's module instance
         # ("instance", or the entry's default_instance) is read from instances/ next to it
         # (utilities/module_instances.py).
         component_registry = load_component_registry(self.module_sources.config_files)
-        # The vessel array is JSON records or a CSV converted to the same records
+        # The module array is JSON records or a CSV converted to the same records
         # (utilities/config_schemas.py). extra_param_rows are the default parameters under
         # the expanded names -- supermodule instances and default_parameters, then module
         # instances -- and are merged into the parameters below.
         if self.vessel_filename_0d is None:
-            vessels_df, extra_param_rows = load_vessel_array(self.vessel_filename,
+            vessels_df, extra_param_rows = load_module_array(self.vessel_filename,
                                                              supermodule_registry,
                                                              component_registry)
         else:
-            extra_param_rows = self.split_0d_1d_vessel_array(supermodule_registry,
+            extra_param_rows = self.split_0d_1d_module_array(supermodule_registry,
                                                              component_registry)
-            vessels_df, _ = load_vessel_array(self.vessel_filename_0d)
+            vessels_df, _ = load_module_array(self.vessel_filename_0d)
         
 
         # TODO remove the below:
         #  Temporarily we add a pulmonary system if there isnt one defined, this should be defined by
         #   the user but we include this to improve backwards compatitibility.
 
-        # TODO This should check if the vessel_type is heart, not the name
-        #  we should be able to call the heart module whatever we want
-        if len(vessels_df.loc[vessels_df["name"] == 'heart']) == 1:
-            if len(vessels_df.loc[vessels_df["name"] == 'heart'].out_vessels.values[0]) < 2:
+        # the heart is found by its vessel_type, so it can have any name (a heart inside a
+        # supermodule is <instance>_<submodule>)
+        hearts = [n for n, vt in zip(vessels_df["name"], vessels_df["vessel_type"]) if is_heart_vessel_type(vt)]
+        if len(hearts) == 1:
+            heart = hearts[0]
+            heart_row = vessels_df.loc[vessels_df["name"] == heart]
+            if len(heart_row.out_vessels.values[0]) < 2:
                 # if the heart only has one output we assume it doesn't have an output to a pulmonary artery
                 # add pulmonary vein and artery to df
-                vessels_df.loc[vessels_df.index.max()+1] = _vessel_row(vessels_df, ['par', 'vp', 'arterial_simple', ['heart'], ['pvn']])
-                vessels_df.loc[vessels_df.index.max()+1] = _vessel_row(vessels_df, ['pvn', 'vp', 'arterial_simple', ['par'], ['heart']])
+                _append_vessel_row(vessels_df, 'par', 'vp', 'arterial_simple', [heart], ['pvn'], blank=[])
+                _append_vessel_row(vessels_df, 'pvn', 'vp', 'arterial_simple', ['par'], [heart], blank=[])
                 # add pulmonary artery (par) to output of heart and pvn to input
-                vessels_df.loc[vessels_df["name"] == 'heart'].out_vessels.values[0].append('par')
-                vessels_df.loc[vessels_df["name"] == 'heart'].inp_vessels.values[0].append('pvn')
-        elif len(vessels_df.loc[vessels_df["name"] == 'heart']) == 0:
-            pass
-        else:
+                vessels_df.loc[vessels_df["name"] == heart].out_vessels.values[0].append('par')
+                vessels_df.loc[vessels_df["name"] == heart].inp_vessels.values[0].append('pvn')
+        elif len(hearts) > 1:
             print('cannot have 2 hearts or more, we dont model octopii')
             exit()
 
@@ -533,7 +537,7 @@ class CSV0DModelParser(object):
         # at load time, rather than half way through code generation.
         validate_module_config_apis(module_df)
 
-        # add module info to each row of vessel array
+        # add module info to each row of module array
         self.json_parser.append_module_config_info_to_vessel_df(vessels_df, module_df)
 
         ports_columns = ["entrance_ports", "exit_ports", "general_ports"]
@@ -546,12 +550,12 @@ class CSV0DModelParser(object):
         # before the reduction, so everything downstream (generation, parameter id) sees them.
         parameters_array_orig = merge_default_parameters(parameters_array_orig, extra_param_rows)
         # Reduce parameters_array so that it only includes the required parameters for
-        # this vessel_array.
+        # this module_array.
         # This will output True if all the required parameters have been defined and
         # False if they have not.
         # TODO change reduce_parameters_array to be automatic with respect to the modules
         parameters_array = self.__reduce_parameters_array(parameters_array_orig, vessels_df)
-        # this vessel_array
+        # this module_array
         if self.parameter_id_dir:
             param_id_name_and_vals, param_id_date = self.csv_parser.get_param_id_params_as_lists_of_tuples(
                 self.parameter_id_dir)
@@ -562,6 +566,9 @@ class CSV0DModelParser(object):
         model_0D = CVS0DModel(vessels_df,parameters_array,
                               param_id_name_and_vals=param_id_name_and_vals,
                               param_id_date=param_id_date)
+        # every parameter, supermodule defaults included, before the reduction to this 0D model:
+        # the 1D generator reads its vessels' parameters from here, not from the file
+        model_0D.all_parameters_array = parameters_array_orig
 
         # get the allowable types from the modules_config.json file
         model_0D.possible_vessel_BC_types = list(set(list(zip(module_df["vessel_type"].to_list(), module_df["BC_type"].to_list()))))

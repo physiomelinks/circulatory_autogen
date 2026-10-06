@@ -69,17 +69,11 @@
       "api":
       {
         "name":"FV_1d_pipe",
-        "description":"0D-1D coupling to the FV 1D solver (libcuflynx/solver1d) through the coupler (libcuflynx/coupler) over named pipes. Every 0D right-hand-side evaluation exchanges one message per connection.",
+        "description":"One end of a 1D vessel coupled to a 0D module: what the 0D side sends and receives, and when. Every 0D right-hand-side evaluation exchanges one message per connection. The pipes, the message length and the 1D program are those of the FV1D_solver process.",
         "role":"consumer",
         "transport":"named_pipe",
+        "process":"FV1D_solver",
         "exchange":"per_rhs",
-        "message_length":2,
-        "channels":
-        {
-          "dt":{"send":"zero_to_parent_dt", "recv":"parent_to_zero_dt"},
-          "conn":{"send":"zero_to_parent_{i}", "recv":"parent_to_zero_{i}", "indexed_by":"connection"},
-          "volume":{"recv":"parent_to_zero_vol"}
-        },
         "calls":
         [
           {"name":"sync_step", "kind":"send_recv", "when":"step_start", "channel":"dt",
@@ -121,17 +115,11 @@
       "api":
       {
         "name":"FV_1d_pipe",
-        "description":"0D-1D coupling to the FV 1D solver (libcuflynx/solver1d) through the coupler (libcuflynx/coupler) over named pipes. Every 0D right-hand-side evaluation exchanges one message per connection.",
+        "description":"One end of a 1D vessel coupled to a 0D module: what the 0D side sends and receives, and when. Every 0D right-hand-side evaluation exchanges one message per connection. The pipes, the message length and the 1D program are those of the FV1D_solver process.",
         "role":"consumer",
         "transport":"named_pipe",
+        "process":"FV1D_solver",
         "exchange":"per_rhs",
-        "message_length":2,
-        "channels":
-        {
-          "dt":{"send":"zero_to_parent_dt", "recv":"parent_to_zero_dt"},
-          "conn":{"send":"zero_to_parent_{i}", "recv":"parent_to_zero_{i}", "indexed_by":"connection"},
-          "volume":{"recv":"parent_to_zero_vol"}
-        },
         "calls":
         [
           {"name":"sync_step", "kind":"send_recv", "when":"step_start", "channel":"dt",
@@ -173,17 +161,11 @@
       "api":
       {
         "name":"FV_1d_pipe",
-        "description":"0D-1D coupling to the FV 1D solver (libcuflynx/solver1d) through the coupler (libcuflynx/coupler) over named pipes. Every 0D right-hand-side evaluation exchanges one message per connection.",
+        "description":"One end of a 1D vessel coupled to a 0D module: what the 0D side sends and receives, and when. Every 0D right-hand-side evaluation exchanges one message per connection. The pipes, the message length and the 1D program are those of the FV1D_solver process.",
         "role":"consumer",
         "transport":"named_pipe",
+        "process":"FV1D_solver",
         "exchange":"per_rhs",
-        "message_length":2,
-        "channels":
-        {
-          "dt":{"send":"zero_to_parent_dt", "recv":"parent_to_zero_dt"},
-          "conn":{"send":"zero_to_parent_{i}", "recv":"parent_to_zero_{i}", "indexed_by":"connection"},
-          "volume":{"recv":"parent_to_zero_vol"}
-        },
         "calls":
         [
           {"name":"sync_step", "kind":"send_recv", "when":"step_start", "channel":"dt",
@@ -225,17 +207,11 @@
       "api":
       {
         "name":"FV_1d_pipe",
-        "description":"0D-1D coupling to the FV 1D solver (libcuflynx/solver1d) through the coupler (libcuflynx/coupler) over named pipes. Every 0D right-hand-side evaluation exchanges one message per connection.",
+        "description":"One end of a 1D vessel coupled to a 0D module: what the 0D side sends and receives, and when. Every 0D right-hand-side evaluation exchanges one message per connection. The pipes, the message length and the 1D program are those of the FV1D_solver process.",
         "role":"consumer",
         "transport":"named_pipe",
+        "process":"FV1D_solver",
         "exchange":"per_rhs",
-        "message_length":2,
-        "channels":
-        {
-          "dt":{"send":"zero_to_parent_dt", "recv":"parent_to_zero_dt"},
-          "conn":{"send":"zero_to_parent_{i}", "recv":"parent_to_zero_{i}", "indexed_by":"connection"},
-          "volume":{"recv":"parent_to_zero_vol"}
-        },
         "calls":
         [
           {"name":"sync_step", "kind":"send_recv", "when":"step_start", "channel":"dt",
@@ -269,6 +245,36 @@
       ]
     },
 
+    {
+      "vessel_type":"FV1D_solver",
+      "BC_type":"nn",
+      "module_format":"external_api",
+      "module_file":"",
+      "module_type":"FV_1d_solver",
+      "api":
+      {
+        "name":"FV_1d_solver",
+        "description":"The FV 1D solver (libcuflynx/solver1d) run alongside the 0D model. The coupler (libcuflynx/coupler) launches both programs and relays their messages over named pipes; the FV1D_vessel and FV1D_volume_sum entries say what each connection exchanges over these pipes. From this entry the C++ generator writes coupler_config.json. The coupler and the 1D solver are run for whole cycles of the global period T.",
+        "role":"process",
+        "transport":"named_pipe",
+        "coordinator":"coupler",
+        "program":{"interpreter":"python", "package":"libcuflynx.solver1d", "script":"main1D.py"},
+        "message_length":2,
+        "channels":
+        {
+          "dt":{"send":"zero_to_parent_dt", "recv":"parent_to_zero_dt"},
+          "conn":{"send":"zero_to_parent_{i}", "recv":"parent_to_zero_{i}", "indexed_by":"connection"},
+          "volume":{"recv":"parent_to_zero_vol"}
+        }
+      },
+      "entrance_ports":[],
+      "exit_ports":[],
+      "general_ports":[],
+      "variables_and_units":
+      [
+        ["T", "second", "access", "global_constant"]
+      ]
+    },
     {
       "vessel_type":"volume_sum",
       "BC_type":"nn",
@@ -332,9 +338,8 @@
         "description":"Blood volume held in the 1D vessels, received from the FV 1D solver at initialisation and after every 0D step.",
         "role":"consumer",
         "transport":"named_pipe",
+        "process":"FV1D_solver",
         "exchange":"per_time_step",
-        "message_length":2,
-        "channels":{"volume":{"recv":"parent_to_zero_vol"}},
         "calls":
         [
           {"name":"recv_volume", "kind":"recv", "when":["init", "step_end"], "channel":"volume",

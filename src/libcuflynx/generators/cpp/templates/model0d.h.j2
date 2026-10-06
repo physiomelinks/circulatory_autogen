@@ -64,7 +64,10 @@ public:
     // Recompute all algebraic variables from the states, without any external exchange.
     void computeVariables(double voiLoc, double *statesLoc, double *ratesLoc, double *varLoc);
 
-    void solveOneStep(double dtLoc);
+    // One step of dtLoc. Returns 0, or non-zero on a solver failure or a non-finite state; the
+    // message is then in lastError() and the model is left at the last good state's time.
+    int solveOneStep(double dtLoc);
+    const std::string &lastError() const { return lastError_; }
 
     // Output / input of model values.
     void openOutputFiles(std::string outDir);
@@ -118,6 +121,7 @@ public:
 {% endif %}
 
 private:
+    std::string lastError_;
     void hookInit();
     void hookStepStart();
     void hookRhsStart(double voiLoc, double dtLoc, double *s, double *v);

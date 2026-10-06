@@ -39,7 +39,7 @@ import pytest
 from test_cpp_template_generator import _cmake_build, _generation_inputs, _load_output
 
 PREFIX = 'nodes_1d'
-VESSEL_ARRAY = '''name,BC_type,vessel_type,inp_vessels,out_vessels
+MODULE_ARRAY = '''name,BC_type,vessel_type,inp_vessels,out_vessels
 input_flow_aorticroot,nn_aorticbif,inlet_flow,,parent
 parent,nn,FV1D_vessel,input_flow_aorticroot,daughter_1 daughter_2
 daughter_1,nn,FV1D_vessel,parent,terminal_1
@@ -57,11 +57,11 @@ ZERO_D = {
 UNITS = {'R': 'Js_per_m6', 'C': 'm6_per_J', 'I': 'Js2_per_m6', 'q_0': 'm3', 'u_0': 'J_per_m3', 'u_ext': 'J_per_m3'}
 
 
-def _resources(tmp_path, resources_dir, vessel_array):
-    '''The extended model's vessel array and parameters, in a resources dir of their own.'''
+def _resources(tmp_path, resources_dir, module_array):
+    '''The extended model's module array and parameters, in a resources dir of their own.'''
     res = tmp_path / 'node_resources'
     res.mkdir()
-    (res / f'{PREFIX}_vessel_array.csv').write_text(vessel_array)
+    (res / f'{PREFIX}_module_array.csv').write_text(module_array)
     params = pd.read_csv(os.path.join(resources_dir, 'aortic_bif_hybrid_V1_parameters.csv'))
     params = params[~params['variable_name'].isin(['u_out_terminal_1', 'u_out_terminal_2'])].copy()
     # aortic_bif_hybrid_V1's terminal inertance (I_T_global 1e-6 against R_T ~ 3e9: a time constant
@@ -87,7 +87,7 @@ def test_nodes_downstream_of_a_1d_tree(user_inputs_dir, resources_dir, tmp_path)
     solver = 'CVODE'
     from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
     from libcuflynx.utilities.package_resources import package_data_file
-    res = _resources(tmp_path, resources_dir, VESSEL_ARRAY)
+    res = _resources(tmp_path, resources_dir, MODULE_ARRAY)
     cpp_dir = tmp_path / 'gen' / 'cpp'
     ini = tmp_path / '1d' / 'run000' / 'input.ini'
     inp = _generation_inputs(user_inputs_dir, str(res), tmp_path, PREFIX, solver,
@@ -152,7 +152,7 @@ def test_a_1d_vessel_cannot_share_a_node_with_two_0d_modules(user_inputs_dir, re
     two 0D vessels at one node is refused, with the vessel named.'''
     from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
     # daughter_2 feeds terminal_2 and the venous vessel (whose inlet owns the node) directly
-    array = VESSEL_ARRAY.replace('daughter_2,nn,FV1D_vessel,parent,terminal_2', 'daughter_2,nn,FV1D_vessel,parent,terminal_2 venous')
+    array = MODULE_ARRAY.replace('daughter_2,nn,FV1D_vessel,parent,terminal_2', 'daughter_2,nn,FV1D_vessel,parent,terminal_2 venous')
     array = array.replace('venous,vp,venous,terminal_1 terminal_2 c,sink', 'venous,vp,venous,terminal_1 terminal_2 c daughter_2,sink')
     res = _resources(tmp_path, resources_dir, array)
     inp = _generation_inputs(user_inputs_dir, str(res), tmp_path, PREFIX, 'CVODE',

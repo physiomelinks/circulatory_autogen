@@ -45,14 +45,18 @@ void {{ class_name }}::advance(double dt) const
     }
     if (model_.solver_0d == "CVODE") {
         // CVODE limits its own internal step to the generated maximum step.
-        model_.solveOneStep(dt);
+        if (model_.solveOneStep(dt) != 0) {
+            throw std::runtime_error(model_.lastError());
+        }
         return;
     }
     const double dtMax = {{ dt_solver }};
     int n = static_cast<int>(std::ceil(dt / dtMax - 1e-9));
     n = std::max(n, 1);
     for (int i = 0; i < n; ++i) {
-        model_.solveOneStep(dt / n);
+        if (model_.solveOneStep(dt / n) != 0) {
+            throw std::runtime_error(model_.lastError());
+        }
     }
 }
 {% if chambers %}

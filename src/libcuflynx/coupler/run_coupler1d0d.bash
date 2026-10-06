@@ -41,7 +41,7 @@ FILEconfig="coupler_config.json"
 
 if [[ ! -f "$FOLDERcpp/$FILEconfig" ]]; then
     echo "No $FILEconfig in $FOLDERcpp." >&2
-    echo "The notebook/driver writes it next to the generated model before running the coupler." >&2
+    echo "The C++ generator writes it when the model is coupled to 1D (couple_to_1d): regenerate the model." >&2
     exit 1
 fi
 if [[ ! -f "$FOLDERcpp/CMakeLists.txt" ]]; then
@@ -67,7 +67,8 @@ cmake --build "$FOLDERcoupler/build" -j || exit 1
 
 # Stale FIFOs from an interrupted run would be reused by the next one.
 PIPE_DIR=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('tmp_pipe_path',''))" "$FOLDERcpp/$FILEconfig" 2>/dev/null)
-if [[ -n "$PIPE_DIR" && -d "$PIPE_DIR" ]]; then
+if [[ -n "$PIPE_DIR" ]]; then
+    mkdir -p "$PIPE_DIR" || exit 1
     rm -f "$PIPE_DIR"/zero_to_* "$PIPE_DIR"/one_to_* "$PIPE_DIR"/parent_to_*
 fi
 

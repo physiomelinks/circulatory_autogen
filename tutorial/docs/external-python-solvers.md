@@ -8,6 +8,12 @@ uses for CellML models.
 
 This is `model_type: external_python` with `solver: external`.
 
+!!! note "Running alongside a generated model instead?"
+    This page is for a model CA runs on its own, for calibration, sweeps and emulators. To run
+    your model **together with** a generated C++ 0D model, exchanging values every step (a
+    FEniCS tissue fed by 0D capillaries, say), see
+    [Coupling to External Models](external-coupling/index.md).
+
 ## Which backend do I want?
 
 There is **one** way to bring your own Python, and this is it. The choice is only between
@@ -15,7 +21,7 @@ letting CA build the model for you and writing it yourself:
 
 | | You provide | CA does the time-stepping | Use when |
 |---|---|---|---|
-| `cellml` | CellML modules and a vessel array | yes (OpenCOR / Myokit CVODE) | the model is a network of reusable CellML components |
+| `cellml` | CellML modules and a module array | yes (OpenCOR / Myokit CVODE) | the model is a network of reusable CellML components |
 | `python` | the same, emitted as Python | yes (`scipy.solve_ivp`) | you want CA's generated model in Python |
 | **`external_python`** | **a solver class with its own `run()`** | **no — you do** | **the model is code you already have, or an ODE you would rather write directly** |
 

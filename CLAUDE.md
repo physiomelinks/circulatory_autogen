@@ -35,6 +35,7 @@ Runs are launched via shell scripts in `user_run_files/`. Each one invokes a **c
 | `run_emulator_training.sh` (arg: `num_processors`, uses `mpiexec`) | `cuflynx-train-emulator` → `train_emulator_run_script` | Train a surrogate of the obs features |
 | `plot_param_id.sh` | `cuflynx-plot` → `plot_param_id_script` | Plot calibration results |
 | _(no run script)_ | `cuflynx-generate-pipeline` → `generate_pipeline_script` | Write a self-contained bundle — model, resources, a `user_inputs_*.yaml` with every path relative, and a `run_pipeline.py` — that reruns the study elsewhere. Not driven by a `user_run_files/*.sh`: it takes `--user-inputs` and `--output-dir` directly. |
+| _(no run script)_ | `cuflynx-couple` → `libcuflynx.coupling.runner` | Run a generated C++ model (`model_type: cpp`) coupled to its external Python models (api `transport: python`, e.g. FEniCS): builds the model's shared library, then steps both. Takes the generated model folder (its `external_models.json`); `--check` lists the exchange. |
 
 One command has no launcher and is not a pipeline stage: **`cuflynx-migrate-obs-data`** (`libcuflynx.scripts.migrate_obs_data`) rewrites obs_data files into the #466 vocabulary (`variable` → `data_item_name` + `operands`, `name_for_plotting` → `trace_name_for_plotting` + `item_name_for_plotting`) and makes `data_item_name` unique. It takes paths, not the yaml, and is the documented upgrade path in `CHANGELOG.md`.
 
@@ -69,7 +70,7 @@ Then call the same stages the scripts call, all taking that dict:
 
 ## `user_inputs.yaml` — key fields
 
-- `file_prefix` — model name; ties together `{prefix}_vessel_array.json` or `.csv` (JSON records, or CSV converted to the same records; see `utilities/config_schemas.py`, and `utilities/supermodules.py` for supermodule instances), `{prefix}_parameters.csv`, `{prefix}_obs_data.json` in `resources/`.
+- `file_prefix` — model name; ties together `{prefix}_module_array.json` or `.csv` (JSON records, or CSV converted to the same records; see `utilities/config_schemas.py`, and `utilities/supermodules.py` for supermodule instances), `{prefix}_parameters.csv`, `{prefix}_obs_data.json` in `resources/`.
 - `model_type` — `cellml` (default) | `python` | `casadi_python` | `cpp` | `aadc_python` | `external_python`.
 - `solver` — `CVODE_myokit` (default) | `CVODE_opencor` | `solve_ivp` (python models) | `casadi_integrator` (casadi_python models) | `RK4_cpp` | `external` (external_python).
 - `solver_info` — `MaximumStep`, `MaximumNumberOfSteps`, and `method` (e.g. `RK45` for solve_ivp; `cvodes`/`idas`/`collocation`/`rk` for CasADi). Validated — see `tests/test_solver_info_validation.py`.

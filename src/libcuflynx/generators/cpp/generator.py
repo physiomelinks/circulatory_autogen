@@ -9,15 +9,18 @@ blocks in the module configs (see ``api.py``).
 '''
 
 import json
+import math
 import os
 import re
+import sys
+import tempfile
 
 import jinja2
 
 from libcuflynx.utilities.paths import default_resources_dir
 from libcuflynx.generators.CVSCellMLGenerator import CVS0DCellMLGenerator
 from libcuflynx.generators.cpp import externals as ext
-from libcuflynx.generators.cpp.api import unit_factor
+from libcuflynx.generators.cpp.api import CAPI_VERSION, python_model_path, unit_factor
 from libcuflynx.generators.naming import build_symbols
 
 try:
@@ -59,7 +62,11 @@ class CVS0DCppGenerator(object):
       main0d.cpp          driver, standalone or launched by the 1D-0D coupler
       CMakeLists.txt      builds libmodel0d and main0d
       <name>_coupler1d0d.json   (coupled to 1D) connection info read by the coupler and 1D solver
+      coupler_config.json       (coupled to 1D) what the coupler launches and how, from the api
+                                block of the process the connections name (e.g. FV1D_solver)
       circulation_api.h/.cpp, api_test_driver.cpp   (a provider api is linked, e.g. lifex)
+      model0d_capi.cpp, external_models.json   (python external models: a C interface built as
+                                the shared library model0d_capi, and what libcuflynx.coupling runs)
     '''
 
     def __init__(self, model, generated_model_subdir, file_prefix, resources_dir=None,
@@ -104,6 +111,12 @@ class CVS0DCppGenerator(object):
         self.sim_time = None
         self.pre_time = None
         self.cpp_output_dir = None
+        self.coupler_pipe_dir = None
+        self.parameters_csv = None
+
+        # cardiac-cycle period and number of cycles of a coupled run (see _coupled_run_length)
+        self.T0 = 1.0
+        self.nCC = 5
 
         # filled by generate_cpp()
         self.externals = []
@@ -121,6 +134,9 @@ class CVS0DCppGenerator(object):
         self.sim_time = inp_data_dict.get('sim_time')
         self.pre_time = inp_data_dict.get('pre_time')
         self.cpp_output_dir = inp_data_dict.get('cpp_output_dir')
+        self.coupler_pipe_dir = inp_data_dict.get('coupler_pipe_dir')
+        if inp_data_dict.get('input_param_file') and inp_data_dict.get('resources_dir'):
+            self.parameters_csv = os.path.join(inp_data_dict['resources_dir'], inp_data_dict['input_param_file'])
         cellml_generator = CVS0DCellMLGenerator(self.model, inp_data_dict)
         cellml_generator.generate_files()
 
@@ -157,8 +173,17 @@ class CVS0DCppGenerator(object):
         providers = ext.collect_provider_apis(vessels_df, flat_model)
         if len(providers) > 1:
             raise CppGenerationError('Only one provider api per model is supported.')
+        python_externals, exchange = ext.collect_python_exchange(vessels_df, flat_model)
+        if exchange and (connections or providers):
+            raise CppGenerationError('A model coupled to Python external models (api transport "python") cannot '
+                                     'also be coupled to the 1D solver or to a cpp_class provider yet.')
 
         externals = list(pipe_externals) + list(delays)
+        for x in exchange:
+            for spec in x.specs:
+                # start from the parameter value of the boundary condition until the external sets it
+                spec.initial = self._initial_value(spec.ref.variable)
+                externals.append(spec)
         for prov in providers:
             for spec in prov['set_specs'].values():
                 if spec.initial is None:
@@ -190,6 +215,8 @@ class CVS0DCppGenerator(object):
             refs += [c.output_ref] + ([c.control_ref] if c.control_ref is not None else [])
         for prov in providers:
             refs += list(prov['get_refs'].values()) + list(prov['state_refs'].values())
+        for x in exchange:
+            refs += x.refs
         for r in refs:
             self._resolve(r)
         for spec in externals:
@@ -199,13 +226,20 @@ class CVS0DCppGenerator(object):
         if self.couple_to_1d and self.conn_1d_0d_info is not None:
             ext.fill_conn_info(self.conn_1d_0d_info, connections, volume_specs)
             self._write_conn_info()
+        process_api = self._process_api(connections, volume_specs)
+        if self.couple_to_1d:
+            self.T0, self.nCC = self._coupled_run_length()
 
         pipes = ext.build_named_pipe_code(connections, volume_specs) if connections else None
         hooks = pipes['hooks'] if pipes else {h: [] for h in ext.HOOKS}
 
         self._write_core(am)
         self._render_all(pipes, hooks, externals, delays, providers, len(connections),
-                         len(connections) + len(volume_specs))
+                         len(connections) + len(volume_specs), exchange)
+        if exchange:
+            self._write_external_models(python_externals, exchange)
+        if process_api is not None:
+            self._write_coupler_config(process_api)
         self.externals = externals
         print(f'C++ files generated in {self.cpp_generated_models_dir}. Build with: '
               f'cmake -S {self.cpp_generated_models_dir} -B {os.path.join(self.cpp_generated_models_dir, "build")} '
@@ -218,9 +252,51 @@ class CVS0DCppGenerator(object):
         model = cellml.parse_model(self.generated_model_file_path, False)
         importer = cellml.resolve_imports(model, os.path.dirname(self.generated_model_file_path), False)
         flat_model = cellml.flatten_model(model, importer)
+        self._numeric_initial_values(flat_model)
         with open(os.path.join(self.generated_model_subdir, self.file_prefix + '_flat.cellml'), 'w') as f:
             f.write(cellml.print_model(flat_model))
         return flat_model
+
+    def _numeric_initial_values(self, flat_model):
+        '''Replace state initial values given by computed variables with their numbers.
+
+        CellML 2.0 allows a state's initial value to be a variable computed from constants (e.g.
+        a gate starting at its steady state, m_init = m_inf(V_rest)); libCellML 0.6's analyser
+        accepts only constants there. Myokit evaluates them, so the generated C starts from the
+        same values as the CellML model run with Myokit.'''
+        analyser = Analyser()
+        analyser.analyseModel(flat_model)
+        if not any('is initialised using variable' in analyser.issue(i).description()
+                   for i in range(analyser.issueCount())):
+            return
+        import tempfile
+        import myokit
+        import myokit.formats
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, 'flat.cellml')
+            with open(path, 'w') as f:
+                f.write(cellml.print_model(flat_model))
+            mk = myokit.formats.importer('cellml').model(path)
+        values = {s.qname(): float(v) for s, v in zip(mk.states(), mk.initial_values(as_floats=True))}
+        replaced = 0
+        for c in range(flat_model.componentCount()):
+            comp = flat_model.component(c)
+            for v in range(comp.variableCount()):
+                var = comp.variable(v)
+                init = var.initialValue()
+                if not init:
+                    continue
+                try:
+                    float(init)
+                    continue
+                except ValueError:
+                    pass
+                key = f'{comp.name()}.{var.name()}'
+                if key in values:
+                    var.setInitialValue(repr(values[key]))
+                    replaced += 1
+        if self.DEBUG:
+            print(f'C++ generation: {replaced} computed initial values evaluated with Myokit')
 
     @staticmethod
     def _initial_value(variable):
@@ -279,6 +355,79 @@ class CVS0DCppGenerator(object):
                 ref.symbol = self.variable_symbols[ref.index] if self.human_readable else None
                 return ref
         raise CppGenerationError(f'{ref.label} is not a state or variable of the analysed model.')
+
+    @staticmethod
+    def _process_api(connections, volume_specs):
+        '''The api block of the process (e.g. the FV 1D solver) the pipe connections talk to, or None.'''
+        apis = [c.api for c in connections] + [v['api'] for v in volume_specs]
+        procs = {a['process_api']['name']: a['process_api'] for a in apis if 'process_api' in a}
+        if len(procs) > 1:
+            raise CppGenerationError('The pipe connections name more than one process; only one is supported.')
+        return next(iter(procs.values()), None)
+
+    def _global_parameter(self, name, units):
+        '''A parameter's value: from the model's parameters, or, when no 0D module uses it (e.g. the
+        inflow period T of a model whose inflow is in the 1D part), from the parameters file, as
+        the 1D model generator reads it.'''
+        params = getattr(self.model, 'parameters_array', None)
+        if params is not None and len(params):
+            match = params[params['variable_name'] == name]
+            if len(match):
+                return float(match['value'][0])
+        if self.parameters_csv and os.path.isfile(self.parameters_csv):
+            import pandas as pd
+            df = pd.read_csv(self.parameters_csv, skipinitialspace=True, dtype=str)
+            df.columns = [c.strip() for c in df.columns]
+            match = df[(df['variable_name'].str.strip() == name) & (df['units'].str.strip() == units)]
+            if len(match):
+                return float(match['value'].iloc[0])
+        return None
+
+    def _coupled_run_length(self):
+        '''Period T0 and number of cycles nCC for the coupler, the 1D solver and main0d.
+
+        T0 is the global period T (the heart period, or the inflow period of an open-loop model),
+        which the FV1D_solver module declares as a global constant and the 1D model already reads.
+        The coupled run lasts nCC whole periods, enough to cover pre_time + sim_time.
+        '''
+        T0 = self._global_parameter('T', 'second')
+        if T0 is None or T0 <= 0.0:
+            print("WARNING: no global parameter 'T' (cycle period) for the coupled run; using T0 = 1 s.")
+            T0 = 1.0
+        if self.sim_time is None:
+            return T0, 5
+        total = float(self.sim_time) + float(self.pre_time or 0.0)
+        return T0, max(1, math.ceil(total / T0 - 1e-9))
+
+    def _write_coupler_config(self, process_api):
+        '''coupler_config.json: what the coordinator (the coupler) launches, and with what.'''
+        from libcuflynx.utilities.package_resources import package_data_file
+        program = process_api['program']
+        if 'package' in program:
+            script = os.path.abspath(str(package_data_file(program['package'], program['script'])))
+        else:
+            script = os.path.abspath(os.path.join(program['path'], program['script']))
+        cpp_dir = os.path.abspath(self.cpp_generated_models_dir)
+        # the system temp folder, so TMPDIR moves it where /tmp is unwritable
+        pipe_dir = self.coupler_pipe_dir or os.path.join(tempfile.gettempdir(), 'cuflynx_pipes', self._model_name())
+        config = {
+            'inputFold': os.path.join(cpp_dir, ''),
+            'networkName': self._model_name(),
+            'ODEsolver': self.solver,
+            'T0': self.T0,
+            'nCC': self.nCC,
+            'tmp_pipe_path': os.path.join(os.path.abspath(pipe_dir), ''),
+            'solver0d_path': os.path.join(cpp_dir, 'build', 'main0d'),
+            'python_path': sys.executable,
+            'solver1d_path': script,
+            'initFile_sim1d_path': os.path.abspath(self.model_1d_config_path) if self.model_1d_config_path else 'None',
+            'initStatePath': 'None',
+        }
+        text = template_environment().get_template('coupler_config.json.j2').render(
+            config=config, process_name=process_api['name'])
+        json.loads(text)  # the template must produce valid JSON
+        with open(os.path.join(self.cpp_generated_models_dir, 'coupler_config.json'), 'w') as f:
+            f.write(text)
 
     def _json_name(self):
         name = self.file_prefix[:-3] if self.file_prefix.endswith('_0d') else self.file_prefix
@@ -370,7 +519,7 @@ class CVS0DCppGenerator(object):
                                 'simulation_outputs_cpp', self._model_name(), '')
         return os.path.join(os.path.abspath(self.cpp_generated_models_dir), 'simulation_outputs_cpp', '')
 
-    def _render_all(self, pipes, hooks, externals, delays, providers, n_conn, n_conn_tot):
+    def _render_all(self, pipes, hooks, externals, delays, providers, n_conn, n_conn_tot, exchange=()):
         env = template_environment()
         pre = float(self.pre_time) if self.pre_time is not None else None
         sim = float(self.sim_time) if self.sim_time is not None else None
@@ -394,8 +543,8 @@ class CVS0DCppGenerator(object):
             n_connections=n_conn,
             n_connections_total=n_conn_tot,
             output_dir=self._default_output_dir(),
-            default_T0=1.0,
-            default_nCC=5,
+            default_T0=self.T0,
+            default_nCC=self.nCC,
             default_end_time=(pre or 0.0) + sim if sim is not None else 20.0,
             default_save_time=pre if pre is not None else 0.0,
             cmake_project=''.join(c if c.isalnum() else '_' for c in self._model_name()) or 'model0d',
@@ -418,6 +567,20 @@ class CVS0DCppGenerator(object):
                 'add_executable(api_test_driver api_test_driver.cpp)\n'
                 'target_link_libraries(api_test_driver PRIVATE circulation_api)'
             ]
+        if exchange:
+            files['model0d_capi.cpp'] = env.get_template('model0d_capi.cpp.j2').render(
+                **ctx, exchange=exchange, capi_version=CAPI_VERSION)
+            ctx['extra_targets'] = ctx['extra_targets'] + [
+                '# C interface for Python external models (libcuflynx.coupling loads it with ctypes):\n'
+                '# only the cf_* functions are exported, so several models can share one process.\n'
+                'add_library(model0d_capi SHARED model0d_capi.cpp)\n'
+                'target_link_libraries(model0d_capi PRIVATE model0d)\n'
+                'set_target_properties(model0d_capi PROPERTIES CXX_VISIBILITY_PRESET hidden\n'
+                '                      VISIBILITY_INLINES_HIDDEN ON)\n'
+                'if(CMAKE_SYSTEM_NAME STREQUAL "Linux")\n'
+                '    target_link_options(model0d_capi PRIVATE "LINKER:--exclude-libs,ALL")\n'
+                'endif()'
+            ]
         files['CMakeLists.txt'] = env.get_template('CMakeLists.txt.j2').render(**ctx)
         for name, text in files.items():
             with open(os.path.join(self.cpp_generated_models_dir, name), 'w') as f:
@@ -427,6 +590,63 @@ class CVS0DCppGenerator(object):
             p = os.path.join(self.cpp_generated_models_dir, stale)
             if os.path.exists(p) and stale != 'model0d.h':
                 os.remove(p)
+
+    def _row_parameters(self, row_name, variables_and_units):
+        '''{variable: value} of an external row's constants (<var>_<row> in the parameters file)
+        and global constants (<var>), for its Python model.'''
+        params = getattr(self.model, 'parameters_array', None)
+        out = {}
+        if params is None or not isinstance(variables_and_units, list):
+            return out
+        values = {str(n): v for n, v in zip(params['variable_name'], params['value'])}
+        for entry in variables_and_units:
+            var, kind = entry[0], entry[3]
+            key = f'{var}_{row_name}' if kind == 'constant' else var if kind == 'global_constant' else None
+            if key is None:
+                continue
+            if key not in values:
+                raise CppGenerationError(f"Parameter {key} (constant {var} of external module '{row_name}') "
+                                         f"is not in the parameters file.")
+            out[var] = float(values[key])
+        return out
+
+    def _write_external_models(self, python_externals, exchange):
+        '''external_models.json: what libcuflynx.coupling runs -- the C interface's exchange table,
+        and for each Python external model its class, parameters and variables.'''
+        index = {x.name: i for i, x in enumerate(exchange)}
+        rows = self.model.vessels_df.set_index('name')
+        models = []
+        for entry in python_externals:
+            api = entry['api']
+            params = self._row_parameters(entry['row'], rows.loc[entry['row'], 'variables_and_units'])
+            models.append({
+                'row': entry['row'],
+                'name': api.get('name', entry['row']),
+                'file': python_model_path(api),
+                'class': api['python']['class'],
+                'parameters': params,
+                # a coupling_dt constant of the module (set per instance in the parameters file)
+                # overrides the api block's default
+                'coupling_dt': float(params.get('coupling_dt', api.get('coupling_dt', self.dtSample))),
+                'subiterations': int(api.get('subiterations', 0)),
+                'tol': float(api.get('tol', 1e-8)),
+                'relaxation': float(api.get('relaxation', 1.0)),
+                'variables': [{'variable': x.variable, 'exchange_index': index[x.name], 'direction': x.direction,
+                               'units': x.units, 'neighbours': x.neighbours} for x in entry['variables']],
+            })
+        info = {
+            'capi_version': CAPI_VERSION,
+            'model_name': self._model_name(),
+            'library': 'model0d_capi',
+            'solver': self.solver,
+            'pre_time': float(self.pre_time or 0.0),
+            'sim_time': float(self.sim_time) if self.sim_time is not None else None,
+            'dt_output': float(self.dtSample),
+            'output_dir': self._default_output_dir(),
+            'external_models': models,
+        }
+        with open(os.path.join(self.cpp_generated_models_dir, 'external_models.json'), 'w') as f:
+            json.dump(info, f, indent=2)
 
     def _provider_context(self, prov):
         '''Context for the provider (e.g. lifex Circulation) templates.'''
