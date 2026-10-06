@@ -1,7 +1,7 @@
 """A numpy external model: one well-mixed tissue volume per connected capillary.
 
-dC/dt = J/V + M (1 - exp(-k_reduce C)), as the CellML module tissue_diffusion with no-flux faces,
-so a coupled run can be checked against the all-CellML model."""
+dC/dt = J/V + M (1 - exp(-k_reduce C)), as the CellML module well_mixed_volume next to it, so a
+coupled run can be checked against the all-CellML model."""
 import copy
 
 import numpy as np

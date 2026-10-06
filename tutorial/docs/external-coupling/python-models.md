@@ -72,7 +72,8 @@ Put a module config next to the file: `well_mixed_tissue_module_config.json`.
 The **port** decides what is exchanged. `GE_capillary` has an exit port
 `capillary_to_flux_port [ub_O2_t, flux_O2_c]`, so this module's entrance port of the same type
 pairs `C_t` with `ub_O2_t` and `J_c` with `flux_O2_c`. Matching an existing CellML module's port
-(here `tissue_diffusion`'s) means a model can swap between the CellML module and yours by
+(here the tissue cell's: `tissue_diffusion` in the built-in modules,
+`tissue_diffusion_volume` in the module library) means a model can swap between the CellML module and yours by
 changing one row. The **directions** come from the CellML side:
 - `ub_O2_t` is a boundary condition of `GE_capillary`, so the class sets `C_t`;
 - `flux_O2_c` is computed, so the class receives `J_c`.
@@ -152,6 +153,6 @@ rank 0 writes the 0D files.
 ## Checking it against CellML
 
 When an all-CellML version of the external side exists, compare the two. The test
-`tests/test_external_coupling.py` runs this example against the same model with CellML
-`tissue_diffusion` volumes, and they agree to 0.06 % at a coupling step of 0.01 s. The FEniCS
+`tests/test_external_coupling.py` runs this example against the same model with a CellML
+well-mixed volume per capillary (`well_mixed_volume`, the same equations, kept with the tests), and they agree to 0.06 % at a coupling step of 0.01 s. The FEniCS
 examples do the same against finite-volume CellML grids.

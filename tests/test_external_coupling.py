@@ -6,7 +6,8 @@ The fixture (tests/data/external_coupling) is two capillaries exchanging O2 with
 ``cap_k`` (haemodynamics) feeds ``capillary_GE_k`` (O2 exchange), whose
 ``capillary_to_flux_port`` connects to
 
-* ``microvasc_O2_0d``: one CellML ``tissue_diffusion`` volume per capillary (no-flux faces), or
+* ``microvasc_O2_0d``: one CellML ``well_mixed_volume`` per capillary (a module kept with the
+  tests, so they mean the same with the built-in modules or a module library), or
 * ``microvasc_O2_ext``: one external row, ``well_mixed_tissue`` (a numpy class), connected to
   both capillaries, with the same equations.
 

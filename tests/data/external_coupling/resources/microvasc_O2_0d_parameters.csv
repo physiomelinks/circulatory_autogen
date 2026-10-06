@@ -54,40 +54,11 @@ C_CO2_sat_capillary_GE_1,mol_per_m3,86.11,capillary_network C_CO2_sat_capillary_
 C_CO2_a_capillary_GE_1,mol_per_m3,21.43,capillary_network C_CO2_a_capillary_GE_0
 C_O2_a_capillary_GE_1,mol_per_m3,8.75,capillary_network C_O2_a_capillary_GE_0
 C_P_init_volume_0,millimolar,0.02,capillary_network C_P_init_volume_32
-no_flux_flag_N_volume_0,dimensionless,0,isolated volume
-no_flux_flag_S_volume_0,dimensionless,0,isolated volume
-no_flux_flag_E_volume_0,dimensionless,0,isolated volume
-no_flux_flag_W_volume_0,dimensionless,0,isolated volume
-x_P_volume_0,metre,0.0002,capillary_network x_P_volume_32
-y_P_volume_0,metre,2e-05,capillary_network y_P_volume_32
-z_P_volume_0,metre,2e-05,capillary_network z_P_volume_32
 M_volume_0,millimolar_per_s,-0.0011830357142857144,capillary_network M_volume_32
 k_reduce_volume_0,per_millimolar,50,capillary_network k_reduce_volume_32
-C_N_volume_0,millimolar,0,unused: no-flux faces
-C_S_volume_0,millimolar,0,unused
-C_E_volume_0,millimolar,0,unused
-C_W_volume_0,millimolar,0,unused
-y_N_volume_0,metre,2e-05,unused
-y_S_volume_0,metre,2e-05,unused
-x_E_volume_0,metre,0.0002,unused
-x_W_volume_0,metre,0.0002,unused
-sigma_diff,m2_per_s,1e-09,capillary_network sigma_diff
 C_P_init_volume_1,millimolar,0.02,capillary_network C_P_init_volume_32
-no_flux_flag_N_volume_1,dimensionless,0,isolated volume
-no_flux_flag_S_volume_1,dimensionless,0,isolated volume
-no_flux_flag_E_volume_1,dimensionless,0,isolated volume
-no_flux_flag_W_volume_1,dimensionless,0,isolated volume
-x_P_volume_1,metre,0.0002,capillary_network x_P_volume_32
-y_P_volume_1,metre,2e-05,capillary_network y_P_volume_32
-z_P_volume_1,metre,2e-05,capillary_network z_P_volume_32
 M_volume_1,millimolar_per_s,-0.0011830357142857144,capillary_network M_volume_32
 k_reduce_volume_1,per_millimolar,50,capillary_network k_reduce_volume_32
-C_N_volume_1,millimolar,0,unused: no-flux faces
-C_S_volume_1,millimolar,0,unused
-C_E_volume_1,millimolar,0,unused
-C_W_volume_1,millimolar,0,unused
-y_N_volume_1,metre,2e-05,unused
-y_S_volume_1,metre,2e-05,unused
-x_E_volume_1,metre,0.0002,unused
-x_W_volume_1,metre,0.0002,unused
 saturation_cap,dimensionless,0.9999,circulatory-autogen-modules pulmonary_GE default (numerical stability)
+V_P_volume_0,m3,8.000000000000001e-14,x_P*y_P*z_P of capillary_network volume_32 (200 x 20 x 20 um)
+V_P_volume_1,m3,8.000000000000001e-14,x_P*y_P*z_P of capillary_network volume_32 (200 x 20 x 20 um)

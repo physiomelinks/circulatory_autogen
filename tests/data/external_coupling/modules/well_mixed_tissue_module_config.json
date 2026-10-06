@@ -18,7 +18,7 @@
     ],
     "api": {
       "name": "well_mixed_tissue",
-      "description": "One well-mixed tissue volume per connected capillary, with saturating consumption: the same equations as the CellML module tissue_diffusion with no-flux faces.",
+      "description": "One well-mixed tissue volume per connected capillary, with saturating consumption: the same equations as the CellML module well_mixed_volume.",
       "role": "provider",
       "transport": "python",
       "python": {"file": "well_mixed_tissue.py", "class": "WellMixedTissue"},
