@@ -15,6 +15,7 @@ the ``calls`` of an ``api`` block (see ``api.py`` and the FV1D entries in
 import re
 from dataclasses import dataclass, field
 
+from libcuflynx.utilities.config_schemas import is_heart_vessel_type
 from libcuflynx.generators.cpp.api import is_api, call_whens, unit_factor, APIConfigError
 
 HOOKS = ('init', 'step_start', 'rhs_start', 'rhs', 'step_end')
@@ -105,7 +106,7 @@ def _select_vessel_port(row, side, neighbour_name):
     vessel_ports = [p for p in ports if p['port_type'] == 'vessel_port']
     if len(vessel_ports) == 1:
         return vessel_ports[0]
-    if row.name == 'heart' or str(row.module_type).startswith('heart'):
+    if row.name == 'heart' or str(row.module_type).startswith('heart') or is_heart_vessel_type(row.vessel_type):
         for keys, var_pos, var_name in HEART_PORT_BY_NEIGHBOUR[side]:
             if any(k in neighbour_name for k in keys):
                 for p in vessel_ports:

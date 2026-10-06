@@ -8,7 +8,10 @@ Moved out of CVSCppGenerator.py unchanged.
 import json
 import os
 
+import pandas as pd
+
 from libcuflynx.parsers.PrimitiveParsers import CSVFileParser
+from libcuflynx.utilities.config_schemas import load_vessel_array
 from libcuflynx.generators.Python1DModelFilesGenerator import generate1DPythonModelFiles, generate1DPythonSimInitFile
 
 
@@ -53,9 +56,15 @@ class CVS1DPythonGenerator(object):
             self.cpp_generated_models_dir = cpp_generated_models_dir
 
         self.csv_parser = CSVFileParser()
-        self.vessels_df = self.csv_parser.get_data_as_dataframe_multistrings(vessels1d_csv_abs_path, True,
-                                                                             vessel_array=True)
-        self.params_df = self.csv_parser.get_data_as_dataframe_multistrings(parameters_csv_abs_path, True)
+        # the 1D part of an already supermodule-expanded array (split_0d_1d_vessel_array)
+        self.vessels_df, _ = load_vessel_array(vessels1d_csv_abs_path)
+        # the model's merged parameters (the file's, plus supermodule default_parameters the
+        # file does not set); reading the file again left out the supermodules' defaults
+        all_parameters = getattr(model, 'all_parameters_array', None)
+        if all_parameters is not None:
+            self.params_df = pd.DataFrame(all_parameters).astype(object)
+        else:
+            self.params_df = self.csv_parser.get_data_as_dataframe_multistrings(parameters_csv_abs_path, True)
 
         self.vessFileName = self.initFiles1dFold+f'/vess_{self.file_prefix[:-3]}.txt'
         self.nodeFileName = self.initFiles1dFold+f'/nodes_{self.file_prefix[:-3]}.txt'

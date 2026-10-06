@@ -12,6 +12,7 @@ import tempfile
 from sys import exit
 from libcuflynx.utilities.paths import default_resources_dir
 from libcuflynx.utilities.module_library import ModuleSources, collect_units, CELLML_1_1_NS
+from libcuflynx.utilities.config_schemas import is_heart_vessel_type
 
 generators_dir = os.path.dirname(__file__)
 LIBCELLML_available = True
@@ -571,21 +572,20 @@ class CVS0DCellMLGenerator(object):
                 continue
             self.__write_import(wf, vessel_tup)
 
-        # TODO change the below to vessel_type, not "name"
-        if len(vessel_df.loc[vessel_df["name"] == 'heart']) == 1:
+        # the heart is found by its vessel_type, so it can have any name (a heart inside a
+        # supermodule is <instance>_<submodule>)
+        hearts = [n for n, vt in zip(vessel_df["name"], vessel_df["vessel_type"]) if is_heart_vessel_type(vt)]
+        if len(hearts) == 1:
+            heart_inputs = vessel_df.loc[vessel_df["name"] == hearts[0]].inp_vessels.values[0]
             # add a zero mapping to heart ivc or svc flow input if only one input is specified
-            if "venous_ivc" not in vessel_df.loc[vessel_df["name"] == 'heart'].inp_vessels.values[0] or \
-                    "venous_svc" not in vessel_df.loc[vessel_df["name"] == 'heart'].inp_vessels.values[0]:
+            if "venous_ivc" not in heart_inputs or "venous_svc" not in heart_inputs:
                 wf.writelines([f'<import xlink:href="{self.file_prefix}_modules.cellml">\n',
                                f'    <component component_ref="zero_flow" name="zero_flow_module"/>\n',
                                '</import>\n'])
-            if "venous_ivc" not in vessel_df.loc[vessel_df["name"] == 'heart'].inp_vessels.values[0] and \
-                    "venous_svc" not in vessel_df.loc[vessel_df["name"] == 'heart'].inp_vessels.values[0]:
+            if "venous_ivc" not in heart_inputs and "venous_svc" not in heart_inputs:
                 print('either venous_ivc, or venous_svc, or both must be inputs to the heart, exiting')
                 exit()
-        elif len(vessel_df.loc[vessel_df["name"] == 'heart']) < 1:
-            pass
-        elif len(vessel_df.loc[vessel_df["name"] == 'heart']) > 1:
+        elif len(hearts) > 1:
             print('you have declared more that one heart module, exiting')
             exit()
 
@@ -823,11 +823,11 @@ class CVS0DCellMLGenerator(object):
 
                     # TODO this part is kind of hacky, but it works, there is definitely a better way to do the mapping with the
                     #  heart module!
-                    if out_module_type.startswith('heart'):
+                    if is_heart_vessel_type(out_module_row["vessel_type"]):
                         if len(out_module_row["inp_vessels"]) == 2 and self.ivc_connection_done == 0:
                             # this is the case if there is only one vc and one pulmonary
                             # We map the ivc to a zero flow mapping
-                            self.__write_mapping(wf, 'zero_flow_module', 'heart_module', ['v_zero'], ['v_ivc'])
+                            self.__write_mapping(wf, 'zero_flow_module', out_module + '_module', ['v_zero'], ['v_ivc'])
                             self.ivc_connection_done = 1
                             self.BC_set[out_module]['v_ivc'] = True
                             # TODO the above isnt robust

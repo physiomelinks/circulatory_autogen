@@ -148,6 +148,9 @@ exclude = ["obsolete*", "libcuflynx.obsolete*"]
 "libcuflynx.generators.cpp" = ["templates/*.j2"]
 # Example input for example_format_obs_data_json_file(), which is itself shipped.
 "libcuflynx.scripts" = ["example_data/*.csv"]
+# JSON Schemas of the vessel array and module config files (for editors, PhLynx and tests;
+# the loaders in utilities/config_schemas.py check the same rules without a schema library).
+"libcuflynx.schemas" = ["*.schema.json"]
 
 [project.optional-dependencies]
 # Parallel runs -- issue #435. mpi4py is only 5 MB, but it compiles against a system MPI
@@ -218,6 +221,10 @@ dev = [
     # those tests need tomli. They used to `pytest.importorskip` it and pass by skipping,
     # which meant a green run said nothing at all about pyproject.toml.
     "tomli; python_version < '3.11'",
+    # tests/test_json_vessel_arrays.py validates vessel arrays and module configs against the
+    # shipped JSON Schemas (src/libcuflynx/schemas). Test-only: the loaders check the same
+    # rules themselves, so it is not a runtime dependency.
+    "jsonschema>=4.0",
     # Whole extras, not a hand-picked subset of them. `[dev]` listing `mpi4py` on its own
     # was enough to collect the suite (tests/conftest.py does `from mpi4py import MPI` at
     # module scope) but not to run it: paramID's multi-rank branch imports `schwimmbad`,

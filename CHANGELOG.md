@@ -99,6 +99,32 @@ unchanged.
 - 1D input generation wrote an unknown artery/vein type for vessels not named `A_*`/`V_*`;
   an `art_ven_type_<vessel>` parameter now sets it.
 
+### Added — JSON vessel arrays and supermodules
+
+A vessel array can be a JSON list of records, `[file_prefix]_vessel_array.json`, with PhLynx's
+keys (`name, module_type, module_subtype, inp_instances, out_instances`) or libcuflynx's (`name,
+vessel_type, BC_type, inp_vessels, out_vessels`). A CSV array is now read by converting each row
+to the same record, so both are processed identically; the `.json` file is preferred when both
+exist, then `.csv`, then PhLynx's `_module_array.json`/`.csv`. Convert CSV arrays with
+`python -m libcuflynx.utilities.config_schemas to-json <csv>... [--style phlynx|libcuflynx]`.
+Every model in `resources/` that generated before generates byte-identical CellML from its CSV
+and from its JSON conversion.
+
+A module config entry with `"module_format": "supermodule"` and a list of `submodules` defines a
+supermodule. An instance of it in a vessel array expands into `[instance]_[submodule]` modules
+before anything else reads the array; `per_submodule_inputs`/`per_submodule_outputs` on the
+instance link its hosts to individual submodules. Supermodules may nest. An optional
+`default_parameters` CSV supplies parameters (renamed to the expanded names) wherever the
+model's parameters file does not set them. See `tutorial/docs/design-model.md`.
+
+JSON Schemas for both files ship in `libcuflynx/schemas/` (`vessel_array.schema.json`,
+`module_config.schema.json`). The loaders check the same rules without a schema library;
+`jsonschema` is a `[dev]` dependency only, for the tests.
+
+The 0D/1D split for `couple_to_1d` now always writes `[file_prefix]_0d_vessel_array.csv` and
+`[file_prefix]_1d_vessel_array.csv`, and the 1D generator reads the file the split wrote. Before,
+an input named `_module_array.csv` gave split files the 1D generator could not find.
+
 ### Added — PhLynx module-config and vessel-array schemas; `"Sum"` and `"Multiply"` multi_ports
 
 The module library is moving its configs to PhLynx's key names, and libcuflynx now reads both

@@ -389,7 +389,8 @@ def test_module_array_file_name_is_a_fallback(tmp_path):
     (tmp_path / "m_module_array.csv").write_text(PHLYNX_HEADER + "\n")
     assert vessel_array_path(str(tmp_path), "m").endswith("m_module_array.csv")
     (tmp_path / "m_vessel_array.csv").write_text(LIBCUFLYNX_HEADER + "\n")
-    assert vessel_array_path(str(tmp_path), "m").endswith("m_vessel_array.csv")
+    with pytest.warns(UserWarning, match="Using m_vessel_array.csv; the others are ignored"):
+        assert vessel_array_path(str(tmp_path), "m").endswith("m_vessel_array.csv")
 
 
 @pytest.mark.integration
