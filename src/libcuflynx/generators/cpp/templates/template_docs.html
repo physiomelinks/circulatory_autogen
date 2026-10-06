@@ -121,11 +121,11 @@ td:first-child { white-space: nowrap; }
 
 <section id="overview">
 <h2>How it fits together</h2>
-<p>You run generation with <code>model_type: cpp</code>, e.g. <code>python scripts/model_generation.py --variant 3Dheart --model-type cpp</code>. The generator builds the CellML model from your vessel array and module configs as usual, then:</p>
+<p>You run generation with <code>model_type: cpp</code>, e.g. <code>python scripts/model_generation.py --variant 3Dheart --model-type cpp</code>. The generator builds the CellML model from your module array and module configs as usual, then:</p>
 <pre class="mermaid">
 flowchart LR
   subgraph IN[Your inputs]
-    VA[vessel array CSV]
+    VA[module array CSV]
     PA[parameters CSV]
     MC[module configs JSON\nincluding api blocks]
     CM[CellML modules]
@@ -165,7 +165,7 @@ flowchart LR
 <h3>Inputs you provide</h3>
 <div class="tablewrap"><table>
 <tr><th>File</th><th>Where (CVS-ANS)</th><th>What it contributes</th></tr>
-<tr><td>Vessel array</td><td><code>resources/3C_ANS_3Dheart/3C_ANS_3Dheart_vessel_array.csv</code></td><td>Which modules exist and how they connect. The <code>heart_3D</code> row connects the api module to the CellML heart.</td></tr>
+<tr><td>Module array</td><td><code>resources/3C_ANS_3Dheart/3C_ANS_3Dheart_module_array.csv</code></td><td>Which modules exist and how they connect. The <code>heart_3D</code> row connects the api module to the CellML heart.</td></tr>
 <tr><td>Parameters</td><td><code>resources/3C_ANS_3Dheart/3C_ANS_3Dheart_parameters.csv</code></td><td>Constant values, including the placeholder <code>u_x_ext_heart</code> pressures the C++ starts from.</td></tr>
 <tr><td>Module configs</td><td><code>module_config_user/*.json</code>, <code>resources/external_modules/*.json</code>, and the built-in ones</td><td>Ports and variables per module. An <code>api</code> block describes a coupling to another program: <code>lifex_heart_3D_config.json</code> for lifex, and the FV1D entries of <code>coupling_modules_config.json</code> for the 1D solver.</td></tr>
 <tr><td>CellML modules</td><td><code>module_config_user/heart_external_pressure_modules.cellml</code>, …</td><td>The equations. The C code is generated from these.</td></tr>

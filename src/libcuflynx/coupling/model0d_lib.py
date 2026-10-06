@@ -29,7 +29,7 @@ class Model0dError(RuntimeError):
 def load_info(model_dir):
     path = os.path.join(model_dir, INFO_FILE)
     if not os.path.isfile(path):
-        raise Model0dError(f'{path} not found: generate the model with model_type: cpp from a vessel array '
+        raise Model0dError(f'{path} not found: generate the model with model_type: cpp from a module array '
                            f'that has a python external model (api transport "python").')
     with open(path) as f:
         return json.load(f)

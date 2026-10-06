@@ -5,6 +5,21 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Changed — vessel arrays are now called module arrays
+
+The file is `[file_prefix]_module_array.json` or `.csv`, and every model in `resources/` has been
+renamed. A `[file_prefix]_vessel_array.json`/`.csv` is still read, after the new names, with a
+`FutureWarning` asking for it to be renamed; to rename yours, run
+`for f in *_vessel_array.*; do git mv "$f" "${f/_vessel_array./_module_array.}"; done`. The
+functions and constants that carried the old name are renamed in the same way
+(`module_array_path`, `read_module_array_records`, `load_module_array`, `module_array_to_json`,
+`PHLYNX_MODULE_ARRAY_COLUMNS`, ...), without aliases, as none of them was released;
+`CSV0DModelParser.split_0d_1d_vessel_array`, which was, is now `split_0d_1d_module_array`, and
+the old name still works with a `FutureWarning`. The 0D/1D split writes `[file_prefix]_{0d,1d}_module_array.csv`,
+`convert_0d_to_1d` writes `[model]_hybrid_module_array.*`, and the JSON Schema is
+`libcuflynx/schemas/module_array.schema.json`. The record keys (`vessel_type`, `BC_type`,
+`inp_vessels`, `out_vessels`) and the `vessels_csv_abs_path` config key are unchanged.
+
 ### Changed! — `model_type: cpp` is generated from libCellML's C output and Jinja2 templates
 
 The C++ generator is rewritten (`libcuflynx/generators/cpp/`). The model equations are
@@ -20,7 +35,7 @@ the old C++), and the coupler builds with CMake. FV_1d coupled output is identic
 A module config entry can carry an `api` block. `role: consumer` describes calls the generated
 C++ makes (the FV 1D named-pipe protocol is now described this way in
 `coupling_modules_config.json`); `role: provider` generates a C++ class another program calls,
-e.g. a drop-in `lifex::Circulation`. A provider is its own vessel-array row
+e.g. a drop-in `lifex::Circulation`. A provider is its own module-array row
 (`module_format: external_api`) coupled to CellML modules through ports; values it sets become
 libCellML external variables. `external_modules_dir` also accepts a list of directories.
 
@@ -38,8 +53,8 @@ writes `coupler_config.json`, which until now had to be written by hand:
   system temp folder, which `TMPDIR` moves);
 - `python_path` is the generating Python, and the 1D solver is the installed one.
 
-`convert_0d_to_1d` adds an `FV1D_solver` row to the hybrid vessel array, and reads
-`<model>_vessel_array.csv` when there is no `<model>_0d_vessel_array.csv`. The coupler creates
+`convert_0d_to_1d` adds an `FV1D_solver` row to the hybrid module array, and reads
+`<model>_module_array.csv` when there is no `<model>_0d_module_array.csv`. The coupler creates
 the pipe folder, and its default pipe folder and Python are no longer paths on one machine.
 `main0d`'s coupled defaults (`T0`, `nCC`) match the configuration. New example model
 `aortic_bif_0d` (all 0D); a test runs it against the same model with its vessels in 1D.
@@ -48,7 +63,7 @@ the pipe folder, and its default pipe folder and Python are no longer paths on o
 
 A module config entry with `"module_format": "external_api"` and
 `"api": {"role": "provider", "transport": "python", "python": {"file": ..., "class": ...}}` is an
-external Python model: a row of the vessel array, connected to CellML modules through its ports.
+external Python model: a row of the module array, connected to CellML modules through its ports.
 - **Generation.** Generating the model as C++ also writes a C interface (`model0d_capi.cpp`,
   built as the shared library `model0d_capi`) and `external_models.json`.
 - **Running.** `cuflynx-couple <model folder>` (or `libcuflynx.coupling.run_coupled`) builds the
@@ -99,33 +114,33 @@ unchanged.
 - 1D input generation wrote an unknown artery/vein type for vessels not named `A_*`/`V_*`;
   an `art_ven_type_<vessel>` parameter now sets it.
 
-### Added — JSON vessel arrays and supermodules
+### Added — JSON module arrays and supermodules
 
-A vessel array can be a JSON list of records, `[file_prefix]_vessel_array.json`, with PhLynx's
+A module array can be a JSON list of records, `[file_prefix]_module_array.json`, with PhLynx's
 keys (`name, module_type, module_subtype, inp_instances, out_instances`) or libcuflynx's (`name,
 vessel_type, BC_type, inp_vessels, out_vessels`). A CSV array is now read by converting each row
 to the same record, so both are processed identically; the `.json` file is preferred when both
-exist, then `.csv`, then PhLynx's `_module_array.json`/`.csv`. Convert CSV arrays with
+exist, then `.csv`. Convert CSV arrays with
 `python -m libcuflynx.utilities.config_schemas to-json <csv>... [--style phlynx|libcuflynx]`.
 Every model in `resources/` that generated before generates byte-identical CellML from its CSV
 and from its JSON conversion.
 
 A module config entry with `"module_format": "supermodule"` and a list of `submodules` defines a
-supermodule. An instance of it in a vessel array expands into `[instance]_[submodule]` modules
+supermodule. An instance of it in a module array expands into `[instance]_[submodule]` modules
 before anything else reads the array; `per_submodule_inputs`/`per_submodule_outputs` on the
 instance link its hosts to individual submodules. Supermodules may nest. An optional
 `default_parameters` CSV supplies parameters (renamed to the expanded names) wherever the
 model's parameters file does not set them. See `tutorial/docs/design-model.md`.
 
-JSON Schemas for both files ship in `libcuflynx/schemas/` (`vessel_array.schema.json`,
+JSON Schemas for both files ship in `libcuflynx/schemas/` (`module_array.schema.json`,
 `module_config.schema.json`). The loaders check the same rules without a schema library;
 `jsonschema` is a `[dev]` dependency only, for the tests.
 
-The 0D/1D split for `couple_to_1d` now always writes `[file_prefix]_0d_vessel_array.csv` and
-`[file_prefix]_1d_vessel_array.csv`, and the 1D generator reads the file the split wrote. Before,
+The 0D/1D split for `couple_to_1d` now always writes `[file_prefix]_0d_module_array.csv` and
+`[file_prefix]_1d_module_array.csv`, and the 1D generator reads the file the split wrote. Before,
 an input named `_module_array.csv` gave split files the 1D generator could not find.
 
-### Added — PhLynx module-config and vessel-array schemas; `"Sum"` and `"Multiply"` multi_ports
+### Added — PhLynx module-config and module-array schemas; `"Sum"` and `"Multiply"` multi_ports
 
 The module library is moving its configs to PhLynx's key names, and libcuflynx now reads both
 schemas. In PhLynx's schema, `module_type` is the vessel_type, `module_subtype` is the BC_type,
@@ -133,10 +148,9 @@ schemas. In PhLynx's schema, `module_type` is the vessel_type, `module_subtype` 
 entry is detected on its own, by `module_subtype`, `component_file` or `component_type`, and is
 converted to the libcuflynx names when the config is loaded
 (`libcuflynx.utilities.config_schemas.normalise_module_config_entry`). An entry that mixes the
-two schemas is an error. Vessel arrays can use PhLynx's export layout too
+two schemas is an error. Module arrays can use PhLynx's export layout too
 (`name, module_type, module_subtype, inp_instances, out_instances`). The layout is detected from
-the header. `[file_prefix]_module_array.csv` is read when there is no
-`[file_prefix]_vessel_array.csv`.
+the header.
 
 `multi_port` values are now case-insensitive. Before, only lowercase `"sum"` summed, and PhLynx's
 `"Sum"` behaved like `"True"`. On a `volume_port`, `"Sum"` now gives the same `sum_blood_volume`

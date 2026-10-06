@@ -22,9 +22,9 @@ The rendering code lives next to this folder:
 
 1. **Generate the CellML.** `generate_cellml()` writes it, and `generate_cpp()` flattens it (`<prefix>_flat.cellml`).
 2. **Collect the external variables** from the module configs:
-   - **Pipe inputs:** from `api` blocks with `role: consumer` and `transport: named_pipe`, for FV 1D coupling, using `conn_1d_0d_info` from the vessel-array split. Their pipes come from the `role: process` entry they name (`FV1D_solver`).
+   - **Pipe inputs:** from `api` blocks with `role: consumer` and `transport: named_pipe`, for FV 1D coupling, using `conn_1d_0d_info` from the module-array split. Their pipes come from the `role: process` entry they name (`FV1D_solver`).
    - **Delays:** from `delay_info` entries. Each delayed variable depends on the variable to delay and on the delay amount.
-   - **API-set values:** from vessel-array rows whose `api` block has `role: provider`. Every `set` function's variable, resolved through the row's ports, becomes external.
+   - **API-set values:** from module-array rows whose `api` block has `role: provider`. Every `set` function's variable, resolved through the row's ports, becomes external.
 3. **Analyse.** The libCellML analyser runs with those external variables. Every state and variable gets an index (`states[i]`, `variables[i]`); `externals.ModelRef` records it.
 4. **Write the equations.** libCellML's C output goes to `model0d_core.c/.h`, unchanged.
 5. **Render.** Each template is rendered with the context described below. Jinja2 runs with `trim_blocks`, `lstrip_blocks` and `StrictUndefined`, so a misspelt variable is an error rather than empty text.
@@ -253,7 +253,7 @@ Added for the provider templates:
 | `chamber_units` | factors for `chamber_enum.units` (`pressure`, `volume`) |
 | `namespace`, `class_name` | where the class goes and what it's called |
 | `chamber_type`, `chamber_header` | the enum type and lifex header |
-| `provider_vessel` | the provider's vessel-array row name |
+| `provider_vessel` | the provider's module-array row name |
 
 ## `api` blocks in brief
 
@@ -266,7 +266,7 @@ The full description is in `tutorial/docs/design-model.md`; validation is in `..
 - **Process** (`role: process`, e.g. `FV1D_solver` in `resources/coupling_modules_config.json`): a program run alongside the model.
   - **`program`:** what to launch (`package` + `script`, or `path` + `script`); **`coordinator`:** `coupler`.
   - **`channels`, `message_length`:** the pipes, shared by every consumer that names the process. No `calls`.
-  - Gives `coupler_config.json`. It can be a vessel-array row with no connections; it doesn't have to be.
+  - Gives `coupler_config.json`. It can be a module-array row with no connections; it doesn't have to be.
 - **Named-pipe consumer** (e.g. the FV1D entries in `resources/coupling_modules_config.json`):
   - **`process`:** the process entry whose `channels` and `message_length` it uses (`api.resolve_process_apis` copies them in when the configs load). It may add `channels` of its own.
   - **`channels`:** pipe names; `{i}` is replaced by the connection number.
@@ -276,7 +276,7 @@ The full description is in `tutorial/docs/design-model.md`; validation is in `..
   - **Per connection:** calls marked `"per": "connection"` are repeated for each connection. All the sends are emitted before all the receives.
   - **Where the code goes:** `externals.build_named_pipe_code` turns the calls into the `hooks` lines.
 - **Provider** (`transport: cpp_class`):
-  - The provider is a vessel-array row with `module_format: external_api`, connected to CellML modules through ports matched by `port_type`, with variables paired by position.
+  - The provider is a module-array row with `module_format: external_api`, connected to CellML modules through ports matched by `port_type`, with variables paired by position.
   - Its `functions` name its own port variables, or `component/variable`.
   - `externals.provider_port_refs` resolves them.
 

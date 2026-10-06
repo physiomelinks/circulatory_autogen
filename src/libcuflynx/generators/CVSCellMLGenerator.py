@@ -834,7 +834,7 @@ class CVS0DCellMLGenerator(object):
 
                         for heart_inp_idx in range(3):
                             # there are three vessel_port entrances to the heart, ivc, svc, and pulmonary
-                            # in the vessel_array file, they must be ordered ivc, svc, pulmonary
+                            # in the module_array file, they must be ordered ivc, svc, pulmonary
                             if main_module == out_module_row["inp_vessels"][heart_inp_idx]:
                                 # if the ivc connection was done artificially, then we need to skip it
                                 entrance_port_idx = heart_inp_idx + self.ivc_connection_done
@@ -1413,7 +1413,7 @@ class CVS0DCellMLGenerator(object):
                         if vessel_tup.out_vessels[II] == venous_name:
                             if vessel_name not in vessel_df.loc[vessel_df["name"] == venous_name].squeeze()["inp_vessels"]:
                                 print(f'venous input of {venous_name} does not include the terminal vessel '
-                                      f'{vessel_name} as an inp_vessel in {self.file_prefix}_vessel_array. '
+                                      f'{vessel_name} as an inp_vessel in {self.file_prefix}_module_array. '
                                       f'not including terminal names as input has been deprecated')
                                 exit()
                             terminal_names_for_first_venous[idx].append(vessel_name)

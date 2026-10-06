@@ -5,7 +5,7 @@ solver, a 1D blood-flow solver, or any code of your own. The two exchange values
 **coupling step**. The 0D side stays generated C++, so it runs fast, and the other model keeps
 its own solver, mesh and time stepping.
 
-To CA, the other model is a **module**: a row of the vessel array, connected to CellML modules
+To CA, the other model is a **module**: a row of the module array, connected to CellML modules
 through ports like any other. What makes it external is its module config entry:
 
 - `"module_format": "external_api"`: it has no CellML;
@@ -44,7 +44,7 @@ functions:
 `cuflynx-couple --check <model folder>` prints this table for a generated model.
 
 A port connected to **several** 0D modules (several capillaries feeding one tissue model, say)
-exchanges one value per module, as an array ordered as the vessel array lists them.
+exchanges one value per module, as an array ordered as the module array lists them.
 
 Values are in the CellML units of the 0D variables (mol/s, mM, Pa, …). Add `api_units` or a
 `factor` per variable in `api.variables` if your model works in other units.

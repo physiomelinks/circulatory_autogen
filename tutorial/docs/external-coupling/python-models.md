@@ -77,7 +77,7 @@ changing one row. The **directions** come from the CellML side:
 - `ub_O2_t` is a boundary condition of `GE_capillary`, so the class sets `C_t`;
 - `flux_O2_c` is computed, so the class receives `J_c`.
 
-## 3. Add a row to the vessel array
+## 3. Add a row to the module array
 
 ```
 name,BC_type,vessel_type,inp_vessels,out_vessels

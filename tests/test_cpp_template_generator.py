@@ -46,7 +46,7 @@ def _fv1d_solver_api():
 
 def _generation_inputs(user_inputs_dir, resources_src, tmp_path, file_prefix, solver, **extra):
     """user inputs for one generation, with the resources copied so nothing is written into the
-    repository's resources/ (the 1D split writes derived vessel arrays next to its input)."""
+    repository's resources/ (the 1D split writes derived module arrays next to its input)."""
     with open(os.path.join(user_inputs_dir, 'user_inputs.yaml')) as f:
         d = yaml.safe_load(f)
     for k in ['user_inputs_path_override', 'resources_dir', 'generated_models_dir',
@@ -310,7 +310,7 @@ def test_coupled_fv1d_generation_fills_connection_info(user_inputs_dir, resource
                              couple_to_1d=True, create_main_0d=True, generate_1d=True, solver_1d_type='py',
                              cpp_generated_models_dir=str(cpp_dir), cpp_1d_model_config_path=str(ini),
                              pre_time=1.0, sim_time=2.0, coupler_pipe_dir=str(tmp_path / 'pipes'))
-    array = tmp_path / 'resources' / 'aortic_bif_hybrid_V1_vessel_array.csv'
+    array = tmp_path / 'resources' / 'aortic_bif_hybrid_V1_module_array.csv'
     assert 'FV1D_solver' in array.read_text()
     if not solver_row:
         array.write_text(''.join(l for l in array.read_text().splitlines(True) if not l.startswith('FV1D_solver')))
@@ -377,7 +377,7 @@ def test_coupled_fv1d_simulation_runs(user_inputs_dir, resources_dir, tmp_path):
 @pytest.mark.integration
 @pytest.mark.slow
 def test_provider_api_module_couples_through_ports(user_inputs_dir, resources_dir, tmp_path):
-    """An external (api) module in the vessel array is coupled to a CellML module through
+    """An external (api) module in the module array is coupled to a CellML module through
     matching ports: its api functions name its own port variables, which resolve to the CellML
     variables on the other end. The CellML model itself does not include it."""
     from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
@@ -400,7 +400,7 @@ def test_provider_api_module_couples_through_ports(user_inputs_dir, resources_di
     (ext_dir / 'probe_module_config.json').write_text(json.dumps(probe))
     inp = _generation_inputs(user_inputs_dir, resources_dir, tmp_path, '3compartment', 'CVODE',
                              pre_time=0.0, sim_time=1.0, dt=0.01, external_modules_dir=str(ext_dir))
-    array = tmp_path / 'resources' / '3compartment_vessel_array.csv'
+    array = tmp_path / 'resources' / '3compartment_module_array.csv'
     lines = array.read_text().splitlines()
     lines = [(l.rstrip() + ' api_probe') if l.split(',')[0].strip() == 'heart' else l for l in lines]
     lines.append('api_probe, nn, api_probe, heart, ')
@@ -458,7 +458,7 @@ def test_coupled_fv1d_model_stays_close_to_the_0d_model(user_inputs_dir, resourc
     # the hybrid model: the vessels moved to 1D, plus the FV1D_solver row
     converted = tmp_path / 'converted'
     convert_0d_to_1d('aortic_bif', zero / 'resources', 'aortic_bif_0d_parameters.csv', converted, CONVERTED_VESSELS)
-    array = (converted / 'aortic_bif_hybrid_vessel_array.csv').read_text()
+    array = (converted / 'aortic_bif_hybrid_module_array.csv').read_text()
     assert 'FV1D_solver,nn,FV1D_solver' in array
     assert 'K_tube_parent' not in array
 

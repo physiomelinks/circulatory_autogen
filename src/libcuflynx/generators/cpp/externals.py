@@ -128,7 +128,7 @@ def _control_port_variable(row, side, port_type):
 def collect_named_pipe_connections(vessels_df, conn_1d_0d_info, flat_model):
     '''Build the pipe connections (and their external variables) from conn_1d_0d_info.
 
-    conn_1d_0d_info is written by CSV0DModelParser.split_0d_1d_vessel_array; this fills in its
+    conn_1d_0d_info is written by CSV0DModelParser.split_0d_1d_module_array; this fills in its
     cellml_idx / port_idx / port_state0_or_var1 / R_T_variable_idx entries once indices exist.
     '''
     connections, volume_specs, externals = [], [], []
@@ -139,7 +139,7 @@ def collect_named_pipe_connections(vessels_df, conn_1d_0d_info, flat_model):
         idx0 = int(info['vess0d_idx'])
         if idx0 < 0 or idx0 >= len(vessels_df):
             raise ExternalsError(f'conn_1d_0d_info[{key}] refers to 0D vessel index {idx0}, '
-                                 f'which is outside the 0D vessel array.')
+                                 f'which is outside the 0D module array.')
         row = vessels_df.iloc[idx0]
 
         if info.get('port_volume_sum') == 1:
@@ -159,7 +159,7 @@ def collect_named_pipe_connections(vessels_df, conn_1d_0d_info, flat_model):
         neighbours = _fv1d_neighbours(vessels_df, row, side)
         if not neighbours:
             raise ExternalsError(f"conn_1d_0d_info[{key}]: 0D module '{row['name']}' has no 1D (named-pipe api) "
-                                 f"neighbour on its {side} side. Check the vessel array.")
+                                 f"neighbour on its {side} side. Check the module array.")
         if len(neighbours) > 1:
             by_index = [n for n in neighbours if re.fullmatch(rf"FV1D_0*{info['vess1d_idx']}", n['name'])]
             neighbours = by_index if len(by_index) == 1 else neighbours[:1]
@@ -367,7 +367,7 @@ def collect_delays(vessels_df, flat_model):
 
 # ---------------------------------------------------------------------------------------------
 # Provider APIs (a class the other model calls, e.g. lifex Circulation): an external module in
-# the vessel array, coupled to CellML modules through its ports
+# the module array, coupled to CellML modules through its ports
 # ---------------------------------------------------------------------------------------------
 
 def provider_port_refs(vessels_df, prow, flat_model):
@@ -401,7 +401,7 @@ def provider_port_refs(vessels_df, prow, flat_model):
                      if pp['port_type'] == port['port_type']]
             if not found:
                 raise ExternalsError(f"Port '{port['port_type']}' of external module '{prow['name']}' is not "
-                                     f"connected to a CellML module with a matching port; check the vessel array.")
+                                     f"connected to a CellML module with a matching port; check the module array.")
             comp, pp = found[0]
             if len(pp['variables']) != len(port['variables']):
                 raise ExternalsError(f"Port '{port['port_type']}' has {len(port['variables'])} variables on "
@@ -412,7 +412,7 @@ def provider_port_refs(vessels_df, prow, flat_model):
 
 
 def collect_provider_apis(vessels_df, flat_model):
-    """External modules (vessel-array rows) whose api block has role: provider.
+    """External modules (module-array rows) whose api block has role: provider.
 
     Their api functions name the module's own port variables (resolved through the ports to the
     connected CellML modules), or an absolute "component/variable".
@@ -462,7 +462,7 @@ def collect_provider_apis(vessels_df, flat_model):
 
 
 # ---------------------------------------------------------------------------------------------
-# Python external models (api transport "python"): rows of the vessel array whose api block
+# Python external models (api transport "python"): rows of the module array whose api block
 # names a Python class. Their port variables are exchanged with the connected CellML modules
 # through the C interface (templates/model0d_capi.cpp.j2) that libcuflynx.coupling drives.
 # ---------------------------------------------------------------------------------------------
@@ -482,7 +482,7 @@ class ExchangeVariable:
 
 
 def python_rows(vessels_df):
-    '''Vessel-array rows whose api block has transport "python".'''
+    '''Module-array rows whose api block has transport "python".'''
     if 'api' not in vessels_df.columns:
         return []
     return [row for _, row in vessels_df.iterrows()
@@ -492,7 +492,7 @@ def python_rows(vessels_df):
 def _all_port_refs(vessels_df, prow, flat_model):
     '''{own port variable: [(neighbour name, ModelRef), ...]} over every CellML module connected to
     each port of the external row (entrance ports: inp_vessels; exit ports: out_vessels; general
-    ports: both), in the order the vessel array lists them. Variables pair up by position.'''
+    ports: both), in the order the module array lists them. Variables pair up by position.'''
     refs = {}
     sides = [('entrance_ports', list(prow['inp_vessels']), ('exit_ports', 'general_ports')),
              ('exit_ports', list(prow['out_vessels']), ('entrance_ports', 'general_ports')),

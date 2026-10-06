@@ -1,7 +1,7 @@
 '''
 Coupling generated C++ 0D models to external Python models (e.g. FEniCS PDE models).
 
-An external model is a row of the vessel array whose module config has an ``api`` block with
+An external model is a row of the module array whose module config has an ``api`` block with
 ``"transport": "python"``. Generating the model as C++ (``model_type: cpp``) then also writes
 
 * ``model0d_capi.cpp``, a C interface built as the shared library ``model0d_capi``, and

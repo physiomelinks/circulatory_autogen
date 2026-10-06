@@ -37,7 +37,7 @@ convert_0d_to_1d('aortic_bif', 'resources', 'aortic_bif_0d_parameters.csv', 'res
                  ['parent', 'daughter_1', 'daughter_2'])
 ```
 
-This writes `aortic_bif_hybrid_vessel_array.csv` and `aortic_bif_hybrid_parameters.csv`:
+This writes `aortic_bif_hybrid_module_array.csv` and `aortic_bif_hybrid_parameters.csv`:
 - the listed vessels become `FV1D_vessel` rows, and their `K_tube_*` rows go;
 - an `FV1D_solver` row is added;
 - the boundary-condition parameters of the 0D modules now fed by the 1D vessels are marked

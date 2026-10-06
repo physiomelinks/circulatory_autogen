@@ -9,7 +9,7 @@ describes, in data, the calls that couple the generated 0D model to something ou
 * ``role: provider``  -- the generated code *is* called by the other model (e.g. a 3D heart
   driving it through a lifex ``Circulation``-style class). ``functions`` lists the methods the
   generated class exposes and which variable each one sets or gets. A provider is a row of the
-  vessel array, connected to CellML modules through its ports; its functions name its own port
+  module array, connected to CellML modules through its ports; its functions name its own port
   variables (or ``component/variable``).
   ``transport: python``: the other model is a Python class (e.g. a FEniCS model). The generated
   C++ is also built as a shared library, and ``libcuflynx.coupling`` steps it together with the

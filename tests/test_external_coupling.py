@@ -150,7 +150,7 @@ def test_malformed_python_api_blocks_are_rejected(mutate, message):
 def test_generation_writes_the_exchange_table(coupled_model):
     """Directions are inferred from the connected CellML variables: GE_capillary's ub_O2_t is a
     boundary condition (set by the external model), flux_O2_c is computed (read by it). The port
-    connects to two capillaries, so each variable has two values, in vessel-array order."""
+    connects to two capillaries, so each variable has two values, in module-array order."""
     info = json.loads((coupled_model / 'external_models.json').read_text())
     (ext,) = info['external_models']
     assert ext['class'] == 'WellMixedTissue' and os.path.isfile(ext['file'])

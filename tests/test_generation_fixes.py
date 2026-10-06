@@ -26,15 +26,15 @@ def _read_resource(filename):
         return f.read()
 
 
-def _generate(tmp_path, prefix, vessel_array, parameters, model_type='cellml',
+def _generate(tmp_path, prefix, module_array, parameters, model_type='cellml',
               external_modules_dir=None):
-    """Write ``{prefix}_vessel_array.csv`` / ``_parameters.csv`` and generate the model.
+    """Write ``{prefix}_module_array.csv`` / ``_parameters.csv`` and generate the model.
 
     Returns the directory the model was generated into.
     """
     resources_dir = tmp_path / 'resources'
     resources_dir.mkdir(exist_ok=True)
-    (resources_dir / f'{prefix}_vessel_array.csv').write_text(textwrap.dedent(vessel_array))
+    (resources_dir / f'{prefix}_module_array.csv').write_text(textwrap.dedent(module_array))
     (resources_dir / f'{prefix}_parameters.csv').write_text(textwrap.dedent(parameters))
     config = {
         'file_prefix': prefix,
@@ -311,9 +311,9 @@ def test_casadi_helpers_accept_symbolic_arguments():
 def test_empty_sum_multi_port_is_zero(tmp_path, capsys):
     """#525: a volume_sum with nothing connected generates, is mapped to its vessel, and is
     0, with a warning naming the vessel. It used to raise ``IndexError``."""
-    vessel_array = _read_resource('3compartment_vessel_array.csv').rstrip('\n') + \
+    module_array = _read_resource('3compartment_module_array.csv').rstrip('\n') + \
         '\nextra_sum, nn, volume_sum, , \n'
-    generated_dir = _generate(tmp_path, 'empty_sum', vessel_array,
+    generated_dir = _generate(tmp_path, 'empty_sum', module_array,
                               _read_resource('3compartment_parameters.csv'))
     warnings = [line for line in capsys.readouterr().out.splitlines() if 'WARNING' in line]
     assert any('extra_sum' in line for line in warnings), warnings
