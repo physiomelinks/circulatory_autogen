@@ -35,21 +35,27 @@ libcuflynx              PhLynx              meaning
 ``module_format``       ``module_format``   ``"supermodule"``
 ``submodules``          ``submodules``      a module array (list of records, below) whose
                                             names are local to the supermodule
+``default_instance``    same                optional: the instance used when a record
+                                            names none (see *Module versions and instances*)
 ``default_parameters``  same                optional parameters CSV, relative to the
-                                            config file's directory
+                                            config file's directory (legacy; prefer an
+                                            instance)
 ``description``         same                optional free text
 ======================  ==================  ===============================================
 
-A submodule's inp/out lists name sibling submodules only. A submodule may itself be a
-supermodule instance, with its own ``per_submodule_inputs``/``per_submodule_outputs`` naming
-siblings. ``default_parameters`` rows are ``variable_name,units,value,data_reference``; a row
-named ``{var}_{submodule}`` is a local parameter of that submodule, any other row a global.
+A submodule's inp/out lists name sibling submodules only, and it may name its own
+``instance``. A submodule may itself be a supermodule instance, with its own
+``per_submodule_inputs``/``per_submodule_outputs`` naming siblings. ``default_parameters``
+rows (and those of the supermodule's own instances) are
+``variable_name,units,value,data_reference``; a row named ``{var}_{submodule}`` is a local
+parameter of that submodule, any other row a global. ``default_parameters`` is kept for
+backwards compatibility; new supermodules should put their parameters in an instance.
 Supermodule entries never reach the module dataframe or the (vessel_type, BC_type) join:
 they are collected by ``load_supermodule_registry`` and expanded out of the module array
 (``utilities/supermodules.py``) before anything else reads it.
 
-Module arrays
-=============
+Module versions and instances
+===================================
 
 ``<prefix>_module_array.json`` (preferred) or ``<prefix>_module_array.csv``, looked for in
 that order (``module_array_path``). Module arrays used to be called vessel arrays, and
@@ -65,6 +71,8 @@ libcuflynx          PhLynx              meaning
 ``BC_type``         ``module_subtype``  its boundary-condition variant (required)
 ``inp_vessels``     ``inp_instances``   list of upstream instance names (optional)
 ``out_vessels``     ``out_instances``   list of downstream instance names (optional)
+``instance``        ``instance``        the module instance whose parameters it uses
+                                        (optional; default: the entry's default_instance)
 ==================  ==================  ==================================================
 
 A record uses one key style; mixing the two in one record is an error. A list may also be
@@ -88,8 +96,9 @@ converting each row to the JSON record above (``read_module_array_records``), so
 are processed identically. ``python -m libcuflynx.utilities.config_schemas to-json <csv>...``
 converts CSV arrays to JSON.
 
-Machine-readable JSON Schemas for both files ship as package data in ``libcuflynx/schemas/``
-(``module_array.schema.json``, ``module_config.schema.json``). The loaders here check the
+Machine-readable JSON Schemas ship as package data in ``libcuflynx/schemas/``
+(``module_array.schema.json``, ``module_config.schema.json``, and ``obs_data.schema.json``
+for the top level of an obs_data file). The loaders here check the
 same rules themselves, so no JSON Schema library is needed at run time.
 
 Normalisation happens where the files are loaded, so everything downstream only ever sees
@@ -105,6 +114,7 @@ import sys
 import pandas as pd
 
 from libcuflynx.generators.multi_port import normalise_port_multi_port
+from libcuflynx.utilities.module_instances import PARAMETER_COLUMNS, check_instance_name
 
 # PhLynx key -> libcuflynx key, for module config entries
 PHLYNX_MODULE_KEYS = {
@@ -139,8 +149,8 @@ _LIBCUFLYNX_COLUMN_ORDER = ('name', 'BC_type', 'vessel_type', 'inp_vessels', 'ou
 _LIST_COLUMNS = ('inp_vessels', 'out_vessels')
 PER_SUBMODULE_KEYS = ('per_submodule_inputs', 'per_submodule_outputs')
 
-# the columns a parameters CSV (and a supermodule's default_parameters) must have
-PARAMETER_COLUMNS = ('variable_name', 'units', 'value', 'data_reference')
+# PARAMETER_COLUMNS (imported above) are the columns a parameters CSV -- a module
+# instance's, or a supermodule's default_parameters -- must have
 
 
 # --------------------------------------------------------------------------------------------
@@ -197,9 +207,31 @@ def normalise_supermodule_entry(entry, source=None):
     if default_parameters is not None and not isinstance(default_parameters, str):
         raise ValueError(f'{description}: "default_parameters" must be a file name (string), '
                          f'not {default_parameters!r}.')
+    if 'default_instance' in entry:
+        check_instance_name(entry['default_instance'], description, 'default_instance')
 
-    records = [normalise_vessel_record(sub, source=f'{description}, submodules', index=i, what=None)
-               for i, sub in enumerate(submodules)]
+    template = bool(entry.get('template'))
+    if not template:
+        for i, sub in enumerate(submodules):
+            if isinstance(sub, dict) and not (sub.get('module_subtype') or sub.get('BC_type')):
+                raise ValueError(f'{description}, submodules[{i}]: a submodule without a version '
+                                 f'(module_subtype) is only allowed in a template ("template": true).')
+    records = []
+    for i, sub in enumerate(submodules):
+        open_slot = template and isinstance(sub, dict) and not (sub.get('module_subtype') or sub.get('BC_type'))
+        if open_slot:
+            # a template's slot names its module_type and the versions that fit, not a version
+            choices = sub.get('choices')
+            if choices is not None and not (isinstance(choices, list) and all(isinstance(c, str) for c in choices)):
+                raise ValueError(f'{description}, submodules[{i}]: "choices" must be a list of version names.')
+            sub = dict(sub, **({'module_subtype': '?'} if 'module_type' in sub else {'BC_type': '?'}))
+        record = normalise_vessel_record(sub, source=f'{description}, submodules', index=i, what=None)
+        if open_slot:
+            record['BC_type'] = None
+        records.append(record)
+    if not template and any(r['BC_type'] is None for r in records):
+        raise ValueError(f'{description}: a submodule without a version is only allowed in a template '
+                         f'("template": true).')
     names = [r['name'] for r in records]
     duplicated = sorted({n for n in names if names.count(n) > 1})
     if duplicated:
@@ -221,12 +253,47 @@ def normalise_supermodule_entry(entry, source=None):
                         f'{description}, submodules[{i}] ("{record["name"]}"): "{key}" names '
                         f'{unknown} for "{sub}", which are not submodules of this supermodule.')
 
+    routes = entry.get('routes')
+    if routes is not None:
+        if not isinstance(routes, dict) or set(routes) - {'inputs', 'outputs'}:
+            raise ValueError(f'{description}: "routes" must be {{"inputs": {{port_type: submodule(s)}}, '
+                             f'"outputs": {{...}}}}, not {routes!r}.')
+        for side, table in routes.items():
+            for port_type, targets in (table or {}).items():
+                for target in ([targets] if isinstance(targets, str) else targets):
+                    if target not in names:
+                        raise ValueError(f'{description}: routes["{side}"]["{port_type}"] names '
+                                         f'"{target}", which is not one of its submodules {names}.')
+    outputs = entry.get('outputs')
+    if outputs is not None:
+        names = {r['name'] for r in records}
+        if not isinstance(outputs, dict) or not all(
+                isinstance(t, str) and t.count('/') == 1 and t.split('/')[0] in names for t in outputs.values()):
+            raise ValueError(f'{description}: "outputs" must map each output name to "<submodule>/<variable>" '
+                             f'of one of its submodules {sorted(names)}.')
+    shared = entry.get('shared_parameters')
+    if shared is not None:
+        names = {r['name'] for r in records}
+        ok = isinstance(shared, list)
+        for item in shared if ok else []:
+            if isinstance(item, str):
+                continue
+            if not (isinstance(item, dict) and isinstance(item.get('name'), str)
+                    and isinstance(item.get('variable', ''), str)
+                    and set(item.get('submodules') or []) <= names):
+                ok = False
+        if not ok:
+            raise ValueError(f'{description}: "shared_parameters" must be a list of variable names, or of '
+                             '{"name", "variable", "submodules"} objects whose submodules are its own.')
+
     normalised = {'vessel_type': entry[type_key], 'BC_type': entry[subtype_key]}
     for key, value in entry.items():
         if key not in (type_key, subtype_key):
             normalised[key] = value
     normalised['module_format'] = SUPERMODULE_FORMAT
     normalised['submodules'] = records
+    if 'default_instance' in normalised:
+        normalised['default_instance'] = normalised['default_instance'].strip()
     return normalised
 
 
@@ -282,6 +349,9 @@ def normalise_module_config_entry(entry, source=None):
             f'module_subtype/component_file/component_type (PhLynx). Keys: {list(entry)}')
 
     description = _describe(normalised, source)
+    if 'default_instance' in normalised:
+        normalised['default_instance'] = check_instance_name(normalised['default_instance'],
+                                                             description, 'default_instance')
     for port_key in _PORT_KEYS:
         ports = normalised.get(port_key)
         if isinstance(ports, list):
@@ -310,11 +380,27 @@ def load_module_config(path, include_supermodules=False):
     return [e for e in entries if not is_supermodule_entry(e)]
 
 
+def load_component_registry(config_files):
+    '''
+    ``{(vessel_type, BC_type): component entry}`` for every component entry in
+    ``config_files``, each a normalised copy with ``config_path`` (the file it came from), in
+    whose directory its ``instances/`` are looked for (``utilities/module_instances.py``). A
+    type defined twice keeps its first entry; the module-config join reports the duplicate.
+    '''
+    registry = {}
+    for path in config_files:
+        for entry in load_module_config(path):
+            key = (entry['vessel_type'], entry['BC_type'])
+            if key not in registry:
+                registry[key] = dict(entry, config_path=str(path))
+    return registry
+
+
 def load_supermodule_registry(config_files):
     '''
     ``{(vessel_type, BC_type): supermodule entry}`` for every supermodule entry in
     ``config_files``. Each entry also gets ``config_path`` (the file it came from), against
-    whose directory its ``default_parameters`` is resolved. Raises ValueError if the same
+    whose directory its ``default_parameters`` and ``instances/`` are resolved. Raises ValueError if the same
     (vessel_type, BC_type) supermodule is defined twice.
     '''
     registry = {}
@@ -471,8 +557,8 @@ def normalise_vessel_record(record, source=None, index=None, what='module array'
     '''
     One module-array record, in either key style, as a libcuflynx record: ``name, BC_type,
     vessel_type, inp_vessels, out_vessels`` (the last two lists of names), then any other
-    keys in their original order, with ``per_submodule_*`` as ordered dicts. ``record``
-    itself is not modified.
+    keys in their original order, with ``per_submodule_*`` as ordered dicts and ``instance``
+    stripped. ``record`` itself is not modified.
 
     Raises ValueError naming ``source``, ``index`` and the key for a record that is not an
     object, mixes the two key styles, lacks name/type/subtype, or has a malformed list.
@@ -514,6 +600,8 @@ def normalise_vessel_record(record, source=None, index=None, what='module array'
             out[new_key] = _name_list(value, where, key)
         elif new_key in PER_SUBMODULE_KEYS:
             out[new_key] = normalise_per_submodule(value, where, key)
+        elif new_key == 'instance':
+            out[new_key] = check_instance_name(value, where)
         else:
             out[new_key] = value
     for key in _LIST_COLUMNS:
@@ -540,7 +628,9 @@ def module_array_csv_to_records(path):
     '''
     The rows of a CSV module array (either layout) as raw libcuflynx-keyed records: list
     columns split on whitespace, every other cell reduced to its first token ('' if empty),
-    exactly as the CSV reader has always treated them.
+    exactly as the CSV reader has always treated them. An empty cell in an optional column
+    (anything but name, BC_type, vessel_type and the inp/out lists, e.g. "instance") means the
+    key isn't set for that row, so it is left out of the record.
     '''
     df = pd.read_csv(path, dtype=str, na_filter=False)
     df = df.rename(columns=lambda c: str(c).strip())
@@ -551,7 +641,7 @@ def module_array_csv_to_records(path):
         for column, cell in zip(df.columns, row):
             if column in _LIST_COLUMNS:
                 record[column] = cell.split() if isinstance(cell, str) else []
-            else:
+            elif column in _LIBCUFLYNX_COLUMN_ORDER or _first_token(cell) != '':
                 record[column] = _first_token(cell)
         records.append(record)
     return records
@@ -585,6 +675,9 @@ def _frame_cell(value, is_list):
     return tokens[0].strip() if tokens else []
 
 
+_DICT_COLUMNS = ('parameter_names', 'output_aliases')
+
+
 def vessel_records_to_frame(records):
     '''
     Normalised vessel records as the list-form dataframe the generator uses: the libcuflynx
@@ -598,11 +691,28 @@ def vessel_records_to_frame(records):
         for key, value in record.items():
             if key not in columns and not isinstance(value, (dict, list)):
                 columns.append(key)
+    # a supermodule's submodules name the shared parameters they take (see parameter_name) and
+    # the instance outputs they stand for: dict columns the generator reads
+    for column in _DICT_COLUMNS:
+        if any(record.get(column) for record in records):
+            columns.append(column)
     df = pd.DataFrame(index=range(len(records)), columns=columns, dtype=object)
     for i, record in enumerate(records):
         for j, column in enumerate(columns):
-            df.iat[i, j] = _frame_cell(record.get(column), column in _LIST_COLUMNS)
+            if column in _DICT_COLUMNS:
+                df.iat[i, j] = dict(record.get(column) or {})
+            else:
+                df.iat[i, j] = _frame_cell(record.get(column), column in _LIST_COLUMNS)
     return df
+
+
+def parameter_name(module, variable, parameter_names=None):
+    '''The model parameter of ``module``'s constant ``variable``: ``<variable>_<module>``, or the
+    shared supermodule parameter its record names (``parameter_names``, set when a supermodule
+    is expanded: e.g. ``C_aortic_root`` for both halves of a lumped vessel's compliance).'''
+    if isinstance(parameter_names, dict) and variable in parameter_names:
+        return parameter_names[variable]
+    return f'{variable}_{module}'
 
 
 def vessel_records_to_string_frame(records):
@@ -612,32 +722,46 @@ def vessel_records_to_string_frame(records):
     '''
     frame = vessel_records_to_frame(records)
     for column in frame.columns:
+        if column in _DICT_COLUMNS:
+            continue        # stays a dict: it is not written to a CSV, the generator reads it
         frame[column] = [' '.join(v) if column in _LIST_COLUMNS else (v if isinstance(v, str) else '')
                          for v in frame[column]]
     return frame
 
 
-def load_expanded_vessel_records(path, supermodule_registry=None):
+def load_expanded_vessel_records(path, supermodule_registry=None, component_registry=None):
     '''
     The records of the module array at ``path`` with every supermodule instance expanded,
-    and the supermodules' default parameter rows: ``(records, extra_param_rows)``.
+    and the default parameter rows: ``(records, extra_param_rows)``. The rows are the
+    supermodules' (their instances', then their default_parameters) and, when
+    ``component_registry`` (``load_component_registry``) is given, every expanded record's
+    module instance's, in that order of precedence, each name once.
     '''
+    from libcuflynx.utilities.module_instances import component_instance_rows, first_rows_win
     from libcuflynx.utilities.supermodules import expand_supermodules
-    return expand_supermodules(read_module_array_records(path), supermodule_registry or {},
-                               source=str(path))
+    records, extra_param_rows = expand_supermodules(read_module_array_records(path),
+                                                    supermodule_registry or {}, source=str(path),
+                                                    component_registry=component_registry)
+    if component_registry is not None:
+        extra_param_rows = first_rows_win(
+            extra_param_rows + component_instance_rows(records, component_registry, str(path)))
+    return records, extra_param_rows
 
 
-def load_module_array(path, supermodule_registry=None):
+def load_module_array(path, supermodule_registry=None, component_registry=None):
     '''
     The module array at ``path`` (JSON or CSV), with every supermodule instance expanded
     (``utilities/supermodules.py``), as ``(frame, extra_param_rows)``:
 
     * ``frame`` -- the list-form dataframe of ``vessel_records_to_frame``;
-    * ``extra_param_rows`` -- the supermodules' default parameters under the expanded names,
-      a list of ``{variable_name, units, value, data_reference}`` dicts, to be used wherever
-      the model's parameters file does not set that name.
+    * ``extra_param_rows`` -- default parameters under the expanded names (supermodule
+      instances and default_parameters, then module instances when ``component_registry``
+      is given; see ``load_expanded_vessel_records``), a list of ``{variable_name, units,
+      value, data_reference}`` dicts, to be used wherever the model's parameters file does
+      not set that name.
     '''
-    records, extra_param_rows = load_expanded_vessel_records(path, supermodule_registry)
+    records, extra_param_rows = load_expanded_vessel_records(path, supermodule_registry,
+                                                             component_registry)
     return vessel_records_to_frame(records), extra_param_rows
 
 

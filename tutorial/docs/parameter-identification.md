@@ -148,6 +148,18 @@ The entries in the data_item list in the `obs_data.json` file are:
 - **obs_dt**: required for *series* data types and not needed for constant or frequency. It defines the timestep for the observable series values.
 - **prob_dist_params**: the ground truth when it is a *distribution* rather than a value — see below. An item that sets this needs no **value** or **std**; an item that does not, needs both.
 
+**Every item is either a scalar or a series, never both**. The same rule applies to
+`prediction_items`, and the parser checks it, naming the item:
+
+- `data_type: constant`: **value** and **std** are single numbers.
+- `data_type: series`: **value** is a list; **std** is a number or a list of the same length;
+  **obs_dt** is required. Sample k is at `k * obs_dt` from the start of the item's
+  sub-experiment.
+- `frequency` keeps its own rules.
+
+A series may still have an **operation**, as long as it returns a series. Examples are
+`addition` of two traces, or an operation with `series_output`.
+
 ### Ground truth as a distribution (`prob_dist_params`)
 
 Some observables are not known as a single number plus a standard deviation. A measurement repeated across a cohort is a **set of points**, and it may not even be unimodal. For these, state the ground truth as `prob_dist_params` and choose a `cost_type` that scores against a distribution:
@@ -436,13 +448,120 @@ You can include a `prediction_items` list in `obs_data.json` to request addition
   the old **variable** entry named; it no longer doubles as the item's name.
 - **unit**: The unit of the recorded variable.
 - **experiment_idx** (optional; defaults to 0)
+- **subexperiment_idx** (optional): the sub-experiment of `experiment_idx` whose run the item is
+  recorded over. Defaults to that experiment's **last** sub-experiment, and must exist.
 - **trace_name_for_plotting** (optional): The axis label, in latex format. Defaults to the
   first operand.
 - **item_name_for_plotting** (optional): The item's own label. Defaults to
   `"<trace_name_for_plotting> (<operation>)"`.
+- **operation** and **operation_kwargs** (optional): the same operations and the same
+  `operation_kwargs` checks as a `data_item`. On a scalar item the operation reduces the
+  operands to one number. On a series item it returns a series, exactly as for a data_item. See
+  [Prediction items as scalar features](#prediction-items-as-scalar-features).
 
-Together the last two replace the old **name_for_plotting**. A file still using `variable` or
+Together the two plotting names replace the old **name_for_plotting**. A file still using `variable` or
 `name_for_plotting` loads with a deprecation warning; `cuflynx-migrate-obs-data` rewrites it.
+
+#### Validation data in prediction items
+
+A prediction item can also carry **held-out data**: measurements the calibration does not fit,
+which the calibrated model is then checked against. Give the item:
+
+- **value**: the data, a number (`data_type: constant`) or a list (`data_type: series`)
+- **data_type**: `constant` or `series`
+- **std** (optional): its standard deviation, a number or a list
+- **obs_dt**: the spacing of a series' samples. They start at the start of the item's
+  sub-experiment, as a data_item series does. With one sub-experiment, that is the start of the
+  experiment.
+
+For example, fit the first 15 years of a series and validate the prediction to year 20, in one
+file with one experiment that runs to 20:
+
+```json
+"prediction_items": [
+  {"data_item_name": "x_validation", "operands": ["mod/x"], "unit": "dimensionless",
+   "data_type": "series", "value": [30.0, 47.2, "..."], "std": [7.5, 11.8, "..."], "obs_dt": 1.0}
+]
+```
+
+After a calibration, saving the prediction data (`plot_param_id`) also writes
+`validation_results.json` in the output directory: for each item with data, the RMSE, the RMSE
+over the data's range, the mean |model - data|/std and the fraction within 2 std, with the
+model and data at the observation times. A series is compared at the times the simulation
+reaches. A constant is compared with the model's value at the end of its sub-experiment. An
+item with an operation is compared with the operation's result: a scalar for a constant, or
+the operation's series (`series_output` for a `@series_to_constant` operation) for a series.
+Each result item also names its `operation` (`null` for an item without one). The traces are
+saved as `prediction_variable_data_exp_<k>.npy`, as before. An item that sets a
+`subexperiment_idx` other than its experiment's last is saved in
+`prediction_variable_data_exp_<e>_sub_<s>.npy` instead. Its rows are the time from the start of
+the sub-experiment, then each item's first operand.
+
+#### Experiments used only for validation
+
+An experiment in `protocol_info` that **no data_item belongs to** is not part of the cost. The
+calibration does not simulate it: not in any cost evaluation, nor in the best-fit check and the
+plots. The run prints one line naming such experiments as prediction/validation only. They
+**are** simulated after calibration, for the prediction data and `validation_results.json`.
+SA and emulator training simulate them only when `include_prediction_items` needs a feature
+measured there. When every experiment has a data_item, nothing changes.
+
+Example: experiment 0 is fitted. Experiment 1 has a different `sim_time` and a different
+`params_to_change`, and holds only held-out prediction items:
+
+```json
+{
+  "protocol_info": {
+    "pre_times": [0.0, 0.0],
+    "sim_times": [[8.0], [3.0]],
+    "params_to_change": {"benchmark/x_init": [[0.0], [2.0]]}
+  },
+  "data_items": [
+    {"data_item_name": "x_ss", "operands": ["benchmark/x"], "data_type": "constant",
+     "operation": "steady_state_avg", "unit": "dimensionless", "value": 1.0, "std": 0.1,
+     "experiment_idx": 0}
+  ],
+  "prediction_items": [
+    {"data_item_name": "x_recovery", "operands": ["benchmark/x"], "unit": "dimensionless",
+     "experiment_idx": 1, "data_type": "series", "value": [2.0, 1.61, 1.37, 1.22, 1.14, 1.08, 1.05],
+     "std": 0.05, "obs_dt": 0.5},
+    {"data_item_name": "x_recovery_mean", "operands": ["benchmark/x"], "unit": "dimensionless",
+     "experiment_idx": 1, "operation": "mean", "data_type": "constant", "value": 1.3, "std": 0.1}
+  ]
+}
+```
+
+
+#### Prediction items as scalar features
+
+A prediction item with an **operation** is a scalar *feature* of the prediction, e.g. the maximum
+of a pressure over an experiment. It is still not part of the cost. It changes three things:
+
+- **Validation.** Its held-out `value` (`data_type: constant`) is compared with
+  `operation(operands)` over the recorded run rather than with the value at the end of the
+  experiment. Every operand is recorded, so a two-operand operation works.
+- **Sensitivity analysis.** With `sa_options.include_prediction_items: true` it is an extra SA
+  output. See [Sensitivity analysis](sensitivity-analysis.md#prediction-items-as-extra-outputs).
+- **Emulators.** With `emulator_settings.include_prediction_items: true` the emulator is also
+  trained on it. See [Emulators](emulators.md#prediction-features).
+
+```json
+"prediction_items": [
+  {"data_item_name": "p_max_validation", "operands": ["aortic_root/u"], "unit": "J_per_m3",
+   "operation": "max", "data_type": "constant", "value": 16000.0, "std": 800.0}
+]
+```
+
+**Only a scalar prediction item with an operation becomes a feature.** That means
+`data_type: constant`, or no data at all and an operation that reduces a trace to a number
+(`max`, `min`, `mean` and the other `@series_to_constant` ones). Items without an operation,
+and series items with or without one, are not features. SA and emulator training skip them,
+with a warning that names them. If a feature's operation returns more than one number, the run
+stops with an error naming the item. An item's `operation_kwargs` may refer to an *earlier
+prediction item* by its `data_item_name`, but not to a data_item. The operation is applied
+over the item's `(experiment_idx, subexperiment_idx)` segment, which by default is the
+experiment's last sub-experiment. That is the same segment the prediction data records and
+the validation uses.
 
 ## Running external cellml models
 

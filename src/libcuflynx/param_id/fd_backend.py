@@ -77,7 +77,14 @@ def observable_features(pid, param_vals):
         np.asarray(param_vals, dtype=float), reset=True)
     if not operands_list:
         return None
+    return features_from_operands(pid, operands_list)
 
+
+def features_from_operands(pid, operands_list):
+    """The scalar observable features from one run's ``operands_list`` (see
+    :func:`observable_features`). Split out so a caller that also records other outputs in
+    the same run -- prediction features (``param_id.prediction_features``) -- reduces the
+    data_items exactly as the cost does, without a second simulation."""
     obs = pid.obs_info
     const_to_obs = obs["const_idx_to_obs_idx"]
     num_sub_per_exp = pid.protocol_info["num_sub_per_exp"]

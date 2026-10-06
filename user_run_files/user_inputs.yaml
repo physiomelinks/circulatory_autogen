@@ -161,6 +161,9 @@ sa_options:
   method: sobol
   sample_type: saltelli
   num_samples: 256 # this is multiplied by (2M + 2) to get the actual number of samples (M is the number of parameters).
+  # Also report the obs_data prediction_items that are scalar features (an operation, not a series) as
+  # extra outputs. Items without an operation are skipped with a warning.
+  include_prediction_items: false
     # output_dir: /non/default/path
 
 # identifiability analysis
@@ -214,5 +217,9 @@ emulator_settings:
   out_of_bounds: error
   # Relative step for the finite-difference gradient over the emulator
   fd_rel_step: 1.0e-3
+  # Also train on the obs_data prediction_items that are scalar features (an operation, not a series), for
+  # sa_options.include_prediction_items on the emulator. Items without an operation are skipped
+  # with a warning. Calibration still uses only the data_item features.
+  include_prediction_items: false
 
 plot_predictions: true

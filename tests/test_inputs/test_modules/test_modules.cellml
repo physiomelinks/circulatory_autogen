@@ -1,0 +1,143 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<model name="modules" xmlns="http://www.cellml.org/cellml/1.1#" xmlns:cellml="http://www.cellml.org/cellml/1.1#">
+    <units name="per_s">
+        <unit exponent="-1" units="second"/>
+    </units>
+    <component name="vessel_type1_type">
+        <variable name="t" public_interface="in" units="second"/>
+        <variable name="a" public_interface="in" units="dimensionless"/>
+        <variable name="b" public_interface="in" units="dimensionless"/>
+        <variable name="c" public_interface="in" units="dimensionless"/>
+        <variable name="d" public_interface="in" units="dimensionless"/>
+        <variable name="y_init" public_interface="in" units="dimensionless"/>
+        <variable initial_value="y_init" name="y" public_interface="out" units="dimensionless"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <apply>
+                    <diff/>
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>y</ci>
+                </apply>
+                <apply>
+                    <plus/>
+                    <ci>a</ci>
+                    <apply>
+                        <divide/>
+                        <apply>
+                            <times/>
+                            <ci>c</ci>
+                            <ci>d</ci>
+                        </apply>
+                        <ci>b</ci>
+                    </apply>
+                </apply>
+            </apply>
+        </math>
+    </component>
+    <component name="vessel_type2_type">
+        <variable name="t" public_interface="in" units="second"/>
+        <variable name="p" public_interface="in" units="dimensionless"/>
+        <variable name="q" public_interface="in" units="dimensionless"/>
+        <variable name="r" public_interface="in" units="dimensionless"/>
+        <variable name="s" public_interface="in" units="dimensionless"/>
+        <variable name="z" public_interface="in" units="dimensionless"/>
+        <variable name="x_init" public_interface="in" units="dimensionless"/>
+        <variable initial_value="x_init" name="x" public_interface="out" units="dimensionless"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <apply>
+                    <diff/>
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>x</ci>
+                </apply>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <divide/>
+                        <apply>
+                            <times/>
+                            <ci>p</ci>
+                            <ci>r</ci>
+                        </apply>
+                        <ci>z</ci>
+                    </apply>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <divide/>
+                            <ci>q</ci>
+                            <ci>r</ci>
+                        </apply>
+                        <ci>s</ci>
+                        <ci>z</ci>
+                    </apply>
+                </apply>
+            </apply>
+        </math>
+    </component>
+
+    <!-- Minimal module to test Myokit handling of computed-constant initial values.
+         The state x has initial_value="x0" where x0 is computed from constant a. -->
+    <component name="init_states_test_type">
+        <variable name="t" public_interface="in" units="second"/>
+        <variable name="a" public_interface="in" units="dimensionless"/>
+
+        <!-- Computed constant -->
+        <variable name="x0" public_interface="out" units="dimensionless"/>
+
+        <!-- Two state variables -->
+        <variable initial_value="x0" name="x" public_interface="out" units="dimensionless"/>
+        <variable initial_value="1" name="y" public_interface="out" units="dimensionless"/>
+
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <!-- x0 = 2 * a -->
+            <apply>
+                <eq/>
+                <ci>x0</ci>
+                <apply>
+                    <times/>
+                    <cn cellml:units="dimensionless">2</cn>
+                    <ci>a</ci>
+                </apply>
+            </apply>
+
+            <!-- dot(x) = -x -->
+            <apply>
+                <eq/>
+                <apply>
+                    <diff/>
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>x</ci>
+                </apply>
+                <apply>
+                    <minus/>
+                    <ci>x</ci>
+                </apply>
+            </apply>
+
+            <!-- dot(y) = -y -->
+            <apply>
+                <eq/>
+                <apply>
+                    <diff/>
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>y</ci>
+                </apply>
+                <apply>
+                    <minus/>
+                    <ci>y</ci>
+                </apply>
+            </apply>
+        </math>
+    </component>
+</model>

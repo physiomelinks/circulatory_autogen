@@ -88,7 +88,8 @@ def weighted_non_scalar_obs(obs_info):
             if dtype != 'constant' and jj not in unweighted}
 
 
-def fingerprint(param_id_info, obs_info, protocol_info, model_path=None):
+def fingerprint(param_id_info, obs_info, protocol_info, model_path=None, prediction_info=None,
+                prediction_indices=None):
     """A stable digest of everything an emulator was trained against.
 
     Changing a parameter's bounds, adding a data_item, editing an operation, moving a
@@ -98,6 +99,12 @@ def fingerprint(param_id_info, obs_info, protocol_info, model_path=None):
 
     ``model_path`` is hashed by content when it exists, so a regenerated CellML invalidates the
     emulator even if the inputs that produced it are unchanged.
+
+    ``prediction_info`` with ``prediction_indices`` (the prediction items an emulator trained
+    with ``include_prediction_items`` predicts) adds a separate ``prediction_sha256``. Separate
+    so ``inputs_sha256`` is unchanged by it: a calibration, which uses the data_item features
+    only, computes no ``prediction_sha256`` and so is not refused for an edited prediction item
+    (``check_matches`` compares the keys the live fingerprint has).
     """
     payload = {
         'param_labels': [str(x) for x in _param_entry_labels(param_id_info)],
@@ -118,7 +125,26 @@ def fingerprint(param_id_info, obs_info, protocol_info, model_path=None):
     if model_path and os.path.isfile(model_path):
         with open(model_path, 'rb') as file:
             digest['model_sha256'] = hashlib.sha256(file.read()).hexdigest()
+    if prediction_info is not None and prediction_indices:
+        digest['prediction_sha256'] = _prediction_digest(prediction_info, prediction_indices)
     return digest
+
+
+def _prediction_digest(prediction_info, indices):
+    """What each predicted prediction feature is: name, operands, operation, its kwargs and
+    the (experiment, sub-experiment) it is reduced over."""
+    def column(key):
+        values = prediction_info.get(key)
+        return [None] * (max(indices) + 1) if values is None else list(values)
+    names, operands = column('data_item_names'), column('operands')
+    operations, kwargs = column('operations'), column('operation_kwargs')
+    exps, subs = column('experiment_idxs'), column('subexperiment_idxs')
+    payload = [{'name': str(names[i]), 'operands': _jsonable(operands[i]),
+                'operation': operations[i], 'operation_kwargs': _jsonable(kwargs[i]),
+                'experiment_idx': _jsonable(exps[i]),
+                'subexperiment_idx': _jsonable(subs[i])} for i in indices]
+    blob = json.dumps(payload, sort_keys=True, default=str).encode('utf-8')
+    return hashlib.sha256(blob).hexdigest()
 
 
 def _param_entry_labels(param_id_info):
@@ -185,6 +211,11 @@ class EmulatorBundle:
         self.param_maxs = np.asarray(meta['param_maxs'], dtype=float)
         self.param_entry_labels = list(meta['param_entry_labels'])
         self.feature_labels = list(meta['feature_labels'])
+        # Prediction features (include_prediction_items) come after the data_item features,
+        # so a consumer of the data_item features reads the same positions as before.
+        self.prediction_feature_labels = list(meta.get('prediction_feature_labels') or [])
+        num_data = len(self.feature_labels) - len(self.prediction_feature_labels)
+        self.data_feature_labels = self.feature_labels[:num_data]
         self._x_shift = np.asarray(meta['x_scale']['shift'], dtype=float)
         self._x_span = np.asarray(meta['x_scale']['span'], dtype=float)
         self._y_shift = np.asarray(meta['y_scale']['shift'], dtype=float)
@@ -217,16 +248,24 @@ class EmulatorBundle:
 
     # ------------------------------------------------------------------ checks
 
-    def check_quality(self, min_r2):
+    def check_quality(self, min_r2, labels=None):
         """Refuse an emulator whose worst held-out R2 is below ``min_r2``.
 
         Named per feature, because "the emulator is bad" is not actionable while "max of
         aortic_root/u has R2 0.42" tells the user which observable to add samples for.
+
+        ``labels`` limits the check to the features a run actually reads; by default the
+        data_item features. A calibration reads only those, so a poorly emulated *prediction*
+        feature does not stop it; a sensitivity analysis that includes prediction features
+        checks them by passing their labels.
         """
         if min_r2 is None:
             return
+        wanted = set(self.data_feature_labels if labels is None else labels)
         worst_label, worst_r2 = None, np.inf
         for label, r2 in zip(self.feature_labels, self.meta['feature_r2']):
+            if label not in wanted:
+                continue
             if r2 is None or not np.isfinite(r2):
                 worst_label, worst_r2 = label, float('-inf')
                 break
@@ -264,16 +303,33 @@ class EmulatorBundle:
             message + '. Retrain over the wider box, or set '
                       'emulator_settings.out_of_bounds to "warn" or "clip".')
 
-    def check_matches(self, live_fingerprint, param_entry_labels=None, feature_labels=None):
-        """Refuse a bundle trained against a different model, parameter set or protocol."""
+    def check_matches(self, live_fingerprint, param_entry_labels=None, feature_labels=None,
+                      prediction_feature_labels=None):
+        """Refuse a bundle trained against a different model, parameter set or protocol.
+
+        ``feature_labels`` are the data_item features (the prediction features, if the bundle
+        has any, follow them and are not part of this comparison); ``prediction_feature_labels``
+        the prediction features the run needs, ``[]`` for none.
+        """
         if param_entry_labels is not None and list(param_entry_labels) != self.param_entry_labels:
             raise EmulatorQualityError(
                 f'emulator was trained for parameters {self.param_entry_labels} but this run '
                 f'calibrates {list(param_entry_labels)}. Retrain the emulator.')
-        if feature_labels is not None and list(feature_labels) != self.feature_labels:
+        if feature_labels is not None and list(feature_labels) != self.data_feature_labels:
             raise EmulatorQualityError(
-                f'emulator was trained for observables {self.feature_labels} but this run uses '
-                f'{list(feature_labels)}. Retrain the emulator.')
+                f'emulator was trained for observables {self.data_feature_labels} but this run '
+                f'uses {list(feature_labels)}. Retrain the emulator.')
+        if prediction_feature_labels is not None \
+                and list(prediction_feature_labels) != self.prediction_feature_labels:
+            if prediction_feature_labels and not self.prediction_feature_labels:
+                raise EmulatorQualityError(
+                    f'this emulator was trained without prediction features, so it cannot '
+                    f'predict {list(prediction_feature_labels)}. Retrain it with '
+                    f'emulator_settings.include_prediction_items: true.')
+            raise EmulatorQualityError(
+                f'emulator was trained for prediction features {self.prediction_feature_labels} '
+                f'but this run uses {list(prediction_feature_labels)}. Retrain the emulator '
+                f'with emulator_settings.include_prediction_items set as this run needs.')
         stored = self.meta['fingerprint']
         for key, value in live_fingerprint.items():
             if key in stored and stored[key] != value:

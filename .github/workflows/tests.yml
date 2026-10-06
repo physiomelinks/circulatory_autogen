@@ -7,6 +7,12 @@ on:
     branches: [ master, main, devel ]
   workflow_dispatch:
 
+# The tests run on circulatory-autogen-modules, not on the built-in modules (tests/conftest.py).
+# Each job checks it out at this ref next to the repository and points CUFLYNX_MODULE_LIBRARY at it.
+env:
+  MODULE_LIBRARY_REF: fix/consistent-junctions
+  CUFLYNX_MODULE_LIBRARY: ${{ github.workspace }}/circulatory-autogen-modules/modules
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -32,6 +38,12 @@ jobs:
     
     steps:
     - uses: actions/checkout@v4
+    - name: Check out the module library the tests run on
+      uses: actions/checkout@v4
+      with:
+        repository: physiomelinks/circulatory-autogen-modules
+        ref: ${{ env.MODULE_LIBRARY_REF }}
+        path: circulatory-autogen-modules
     
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
@@ -145,6 +157,12 @@ jobs:
     timeout-minutes: 45
     steps:
     - uses: actions/checkout@v4
+    - name: Check out the module library the tests run on
+      uses: actions/checkout@v4
+      with:
+        repository: physiomelinks/circulatory-autogen-modules
+        ref: ${{ env.MODULE_LIBRARY_REF }}
+        path: circulatory-autogen-modules
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -168,6 +186,12 @@ jobs:
     timeout-minutes: 45
     steps:
     - uses: actions/checkout@v4
+    - name: Check out the module library the tests run on
+      uses: actions/checkout@v4
+      with:
+        repository: physiomelinks/circulatory-autogen-modules
+        ref: ${{ env.MODULE_LIBRARY_REF }}
+        path: circulatory-autogen-modules
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -193,6 +217,12 @@ jobs:
     timeout-minutes: 45
     steps:
     - uses: actions/checkout@v4
+    - name: Check out the module library the tests run on
+      uses: actions/checkout@v4
+      with:
+        repository: physiomelinks/circulatory-autogen-modules
+        ref: ${{ env.MODULE_LIBRARY_REF }}
+        path: circulatory-autogen-modules
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -216,6 +246,12 @@ jobs:
     timeout-minutes: 45
     steps:
     - uses: actions/checkout@v4
+    - name: Check out the module library the tests run on
+      uses: actions/checkout@v4
+      with:
+        repository: physiomelinks/circulatory-autogen-modules
+        ref: ${{ env.MODULE_LIBRARY_REF }}
+        path: circulatory-autogen-modules
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -270,6 +306,12 @@ jobs:
     timeout-minutes: 25
     steps:
     - uses: actions/checkout@v4
+    - name: Check out the module library the tests run on
+      uses: actions/checkout@v4
+      with:
+        repository: physiomelinks/circulatory-autogen-modules
+        ref: ${{ env.MODULE_LIBRARY_REF }}
+        path: circulatory-autogen-modules
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -358,6 +400,12 @@ jobs:
     timeout-minutes: 45
     steps:
     - uses: actions/checkout@v4
+    - name: Check out the module library the tests run on
+      uses: actions/checkout@v4
+      with:
+        repository: physiomelinks/circulatory-autogen-modules
+        ref: ${{ env.MODULE_LIBRARY_REF }}
+        path: circulatory-autogen-modules
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -425,6 +473,12 @@ jobs:
         shell: bash -el {0}
     steps:
     - uses: actions/checkout@v4
+    - name: Check out the module library the tests run on
+      uses: actions/checkout@v4
+      with:
+        repository: physiomelinks/circulatory-autogen-modules
+        ref: ${{ env.MODULE_LIBRARY_REF }}
+        path: circulatory-autogen-modules
 
     - name: Set up a FEniCSx environment
       uses: mamba-org/setup-micromamba@v1
@@ -475,6 +529,12 @@ jobs:
     timeout-minutes: 45
     steps:
     - uses: actions/checkout@v4
+    - name: Check out the module library the tests run on
+      uses: actions/checkout@v4
+      with:
+        repository: physiomelinks/circulatory-autogen-modules
+        ref: ${{ env.MODULE_LIBRARY_REF }}
+        path: circulatory-autogen-modules
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -558,6 +618,12 @@ jobs:
     if: false  # Disabled by default - enable if OpenCOR is available in CI
     steps:
     - uses: actions/checkout@v4
+    - name: Check out the module library the tests run on
+      uses: actions/checkout@v4
+      with:
+        repository: physiomelinks/circulatory-autogen-modules
+        ref: ${{ env.MODULE_LIBRARY_REF }}
+        path: circulatory-autogen-modules
     
     - name: Set up Python
       uses: actions/setup-python@v5

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/physiomelinks/circulatory_autogen/schemas/module_config.schema.json",
   "title": "libcuflynx module config (*_modules_config.json)",
-  "description": "A list of module config entries: component entries in libcuflynx keys (vessel_type, BC_type, module_file, module_type) or PhLynx keys (module_type, module_subtype, component_file, component_type), and supermodule entries (module_format \"supermodule\" with a submodules list of instance records). See libcuflynx/utilities/config_schemas.py.",
+  "description": "A list of module config entries: component entries in libcuflynx keys (vessel_type, BC_type, module_file, module_type) or PhLynx keys (module_type, module_subtype, component_file, component_type), and supermodule entries (module_format \"supermodule\" with a submodules list of instance records). See libcuflynx/utilities/config_schemas.py. Any entry may name a default_instance: a directory under instances/ next to the config file holding <instance>_parameters.csv.",
   "type": "array",
   "items": {
     "$ref": "#/$defs/entry"
@@ -106,6 +106,22 @@
             },
             "minItems": 4
           }
+        },
+        "default_instance": {
+          "type": "string",
+          "pattern": "^[^/\\\\]*[^/\\\\\\s][^/\\\\]*$",
+          "not": {
+            "enum": [
+              ".",
+              ".."
+            ]
+          },
+          "description": "the instance (a directory under instances/ next to this config file) used when a record names none; ignored if its <name>_parameters.csv does not exist"
+        },
+        "available_to_phlynx": {
+          "type": "boolean",
+          "default": true,
+          "description": "false: the module library keeps this version but does not offer it in PhLynx"
         }
       },
       "not": {
@@ -192,6 +208,22 @@
             },
             "minItems": 4
           }
+        },
+        "default_instance": {
+          "type": "string",
+          "pattern": "^[^/\\\\]*[^/\\\\\\s][^/\\\\]*$",
+          "not": {
+            "enum": [
+              ".",
+              ".."
+            ]
+          },
+          "description": "the instance (a directory under instances/ next to this config file) used when a record names none; ignored if its <name>_parameters.csv does not exist"
+        },
+        "available_to_phlynx": {
+          "type": "boolean",
+          "default": true,
+          "description": "false: the module library keeps this version but does not offer it in PhLynx"
         }
       },
       "not": {
@@ -236,13 +268,124 @@
           "type": "array",
           "minItems": 1,
           "items": {
-            "$ref": "#/$defs/record"
+            "oneOf": [
+              {
+                "$ref": "#/$defs/record"
+              },
+              {
+                "$ref": "#/$defs/slot"
+              }
+            ]
           },
-          "description": "instance records whose names are local to the supermodule"
+          "description": "instance records whose names are local to the supermodule; each may name its own module \"instance\". In a template, a submodule may instead be an open slot (a record without a version; see $defs/slot)"
         },
         "default_parameters": {
           "type": "string",
-          "description": "parameters CSV relative to this config file; rows {var}_{submodule} are local, others global"
+          "description": "legacy: parameters CSV relative to this config file; rows {var}_{submodule} are local, others global. Prefer instances/<instance>/<instance>_parameters.csv with default_instance"
+        },
+        "default_instance": {
+          "type": "string",
+          "pattern": "^[^/\\\\]*[^/\\\\\\s][^/\\\\]*$",
+          "not": {
+            "enum": [
+              ".",
+              ".."
+            ]
+          },
+          "description": "the instance (a directory under instances/ next to this config file) used when a record names none; ignored if its <name>_parameters.csv does not exist"
+        },
+        "template": {
+          "type": "boolean",
+          "description": "an empty supermodule: its slots name the module_type of each submodule but not the version, for a user (e.g. in PhLynx) to choose. A template cannot be generated; libcuflynx says which slots need a version."
+        },
+        "routes": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "inputs": {
+              "type": "object",
+              "additionalProperties": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1
+                  }
+                ]
+              }
+            },
+            "outputs": {
+              "type": "object",
+              "additionalProperties": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1
+                  }
+                ]
+              }
+            }
+          },
+          "description": "port_type -> the submodule(s) a host connected to the supermodule is linked to through that port type: \"inputs\" for hosts upstream (the supermodule is in their out list), \"outputs\" for hosts downstream. Lets a model connect to the supermodule as one vessel, e.g. {\"inputs\": {\"vessel_port\": \"C\"}, \"outputs\": {\"vessel_port\": \"I\", \"volume_port\": \"C\"}}."
+        },
+        "shared_parameters": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "the supermodule-level name (an instance row <name>, a host row <name>_<instance>)"
+                  },
+                  "variable": {
+                    "type": "string",
+                    "description": "the submodule variable it sets (default: name)"
+                  },
+                  "submodules": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "the submodules it sets (default: all)"
+                  }
+                }
+              }
+            ]
+          },
+          "description": "parameters set once for the whole supermodule: a variable name (shared under its own name by every submodule), or {name, variable, submodules}, e.g. {\"name\": \"C_T\", \"variable\": \"C\", \"submodules\": [\"C\"]} to keep a monolithic version's parameter name. An instance row <name>, or a host parameters-file row <name>_<instance>, sets <variable> in each listed submodule."
+        },
+        "available_to_phlynx": {
+          "type": "boolean",
+          "default": true,
+          "description": "false: the module library keeps this version but does not offer it in PhLynx"
+        },
+        "outputs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[^/]+/[^/]+$"
+          },
+          "description": "outputs the instance exposes under its own name: {\"u\": \"C_p/u\"} gives a model the output <instance>/u, the submodule C_p's u (e.g. a lumped vessel keeps its monolithic version's output names)"
         }
       },
       "oneOf": [
@@ -395,6 +538,17 @@
         },
         "per_submodule_outputs": {
           "$ref": "#/$defs/perSubmodule"
+        },
+        "instance": {
+          "type": "string",
+          "pattern": "^[^/\\\\]*[^/\\\\\\s][^/\\\\]*$",
+          "not": {
+            "enum": [
+              ".",
+              ".."
+            ]
+          },
+          "description": "the module instance whose parameters this record uses: <config dir>/instances/<instance>/<instance>_parameters.csv (default: the config entry's default_instance, if that file exists)"
         }
       },
       "not": {
@@ -451,6 +605,17 @@
         },
         "per_submodule_outputs": {
           "$ref": "#/$defs/perSubmodule"
+        },
+        "instance": {
+          "type": "string",
+          "pattern": "^[^/\\\\]*[^/\\\\\\s][^/\\\\]*$",
+          "not": {
+            "enum": [
+              ".",
+              ".."
+            ]
+          },
+          "description": "the module instance whose parameters this record uses: <config dir>/instances/<instance>/<instance>_parameters.csv (default: the config entry's default_instance, if that file exists)"
         }
       },
       "not": {
@@ -487,6 +652,58 @@
           "$ref": "#/$defs/libcuflynxRecord"
         }
       ]
+    },
+    "slot": {
+      "title": "open slot of a template supermodule",
+      "type": "object",
+      "required": [
+        "name",
+        "module_type"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "module_type": {
+          "$ref": "#/$defs/name",
+          "description": "the module type that fits this slot"
+        },
+        "choices": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "the versions (module_subtype) of module_type that fit; default: any"
+        },
+        "description": {
+          "type": "string"
+        },
+        "inp_instances": {
+          "$ref": "#/$defs/nameList"
+        },
+        "out_instances": {
+          "$ref": "#/$defs/nameList"
+        }
+      },
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "module_subtype"
+            ]
+          },
+          {
+            "required": [
+              "BC_type"
+            ]
+          },
+          {
+            "required": [
+              "vessel_type"
+            ]
+          }
+        ]
+      }
     }
   }
 }

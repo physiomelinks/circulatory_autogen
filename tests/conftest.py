@@ -9,6 +9,35 @@ import re
 import sys
 
 
+def _use_module_library():
+    """Run every test on circulatory-autogen-modules rather than the built-in modules.
+
+    The module library replaces the modules libcuflynx ships, so the suite tests the modules
+    users will generate from. CUFLYNX_MODULE_LIBRARY (read by libcuflynx's ModuleSources for
+    any config that does not choose its own modules) points at the library's ``modules/``
+    directory: set it to a checkout, or keep one next to this repository. It is set here, before
+    anything runs, so MPI ranks and subprocesses inherit it.
+    """
+    library = os.environ.get('CUFLYNX_MODULE_LIBRARY')
+    if not library:
+        repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        library = os.path.join(os.path.dirname(repo), 'circulatory-autogen-modules', 'modules')
+    # modules only the tests use (generator fixtures, a benchmark), alongside the library
+    test_modules = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'test_inputs', 'test_modules')
+    if test_modules not in library.split(os.pathsep):
+        library = library + os.pathsep + test_modules
+    for directory in library.split(os.pathsep):
+        if not os.path.isdir(directory):
+            raise RuntimeError(
+                f'The tests run on the circulatory-autogen-modules library, but {directory} is not a '
+                f'directory. Check out https://github.com/physiomelinks/circulatory-autogen-modules '
+                f'next to this repository, or set CUFLYNX_MODULE_LIBRARY to its modules/ directory.')
+    os.environ['CUFLYNX_MODULE_LIBRARY'] = library
+
+
+_use_module_library()
+
+
 def _validate_aadc_license():
     """Record a throwaway AADC tape to force the licence check, and report whether
     it succeeded.

@@ -18,9 +18,10 @@ the emulator instead of running the solver.
 !!! note "Scope: scalar features, not waveforms"
     The emulator predicts each data item's value **after** its `operation` (`max`, `mean`,
     `max_minus_min`, …). It does not produce simulated traces, so `data_type: series` and
-    `frequency` observables, prediction variables and output plots are not available in emulator
+    `frequency` observables, prediction traces and output plots are not available in emulator
     mode — CA refuses them explicitly rather than returning something that looks plausible.
-    Emulating full time series is a planned follow-up.
+    Emulating full time series is a planned follow-up. Prediction items that reduce to a scalar
+    can be emulated: see [Prediction features](#prediction-features).
 
 ## Installation
 
@@ -78,6 +79,7 @@ emulator_settings:
   min_r2: 0.9                # refuse to USE an emulator worse than this
   out_of_bounds: error       # error | warn | clip
   fd_rel_step: 1.0e-3        # step for the finite-difference gradient over the emulator
+  include_prediction_items: false  # also emulate prediction items that have an operation
 ```
 
 The available `models` names come from the installed autoemulate and are discoverable in code:
@@ -212,6 +214,30 @@ Set `use_emulator: true` and run any of the usual scripts unchanged:
 Nothing else in the configuration changes. To sanity-check a result, run the same analysis with
 `use_emulator: false` and compare — that is what keeping `solver:` meaningful is for.
 
+## Prediction features
+
+With `include_prediction_items: true`, the emulator is also trained on the `prediction_items`
+that have an `operation` (see
+[Prediction items as scalar features](parameter-identification.md#prediction-items-as-scalar-features)).
+This is for a sensitivity analysis with `sa_options.include_prediction_items: true` on the
+emulator.
+
+- **Only scalar prediction items with an operation are included**: `data_type: constant`, or
+  no data and a reducing operation such as `max`. Series items are never included. The others are skipped, with a warning that names them. An operation that returns
+  more than one number is an error.
+- They are the last emulator outputs, after the data_item features, named by `data_item_name`.
+  The bundle lists them in `emulator_metadata.json` as `prediction_feature_labels`, and
+  `EmulatorBundle.prediction_feature_labels` / `data_feature_labels` split `feature_labels`.
+- The fingerprint gains a separate `prediction_sha256` covering them. `inputs_sha256` does not
+  change, so an emulator trained without the option has the same fingerprint as before.
+- A **calibration** (or UQ, or IA) on this emulator still fits only the data_item features. It
+  does not check the prediction features, so editing a prediction item does not make the
+  emulator stale for calibration, and a poorly emulated prediction feature does not stop it.
+- An SA with `include_prediction_items: true` checks both: the same prediction items as at
+  training (otherwise stale), and their held-out R² against `min_r2`. On an emulator trained
+  without the option it stops, saying to retrain with
+  `emulator_settings.include_prediction_items: true`.
+
 ## When CA refuses
 
 An unvalidated emulator does not fail loudly; it returns plausible wrong numbers, and every
@@ -224,6 +250,7 @@ refuses rather than proceeding quietly:
 | A parameter outside the training box | refused (or warns/clips, per `out_of_bounds`) |
 | Parameter bounds, observables, operations, protocol or the model file changed since training | refused as **stale** — retrain |
 | A `series` or `frequency` data item | refused: the emulator predicts scalars only |
+| `sa_options.include_prediction_items` on an emulator trained without `include_prediction_items`, or for other prediction items | refused — retrain with `emulator_settings.include_prediction_items: true` |
 | `reuse_samples: true` with no previous emulator, or one saved without its samples | refused, naming the directory it looked in — train once without the setting first |
 | `reuse_samples: true` after the bounds, obs_data, protocol or model changed | refused as **stale** — retrain with `reuse_samples: false` |
 | `autoemulate` not installed | refused, naming the install command |

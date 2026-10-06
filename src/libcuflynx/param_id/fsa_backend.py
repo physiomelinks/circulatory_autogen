@@ -86,17 +86,23 @@ def observable_feature_sensitivities(pid, param_vals):
     param_vals = np.asarray(param_vals, dtype=float)
     labels = param_entry_labels(pid.param_id_info)
 
-    num_sub_total = sum(len(st) for st in pid.protocol_info["sim_times"])
+    # Counted over the experiments the cost uses: a prediction/validation-only experiment is
+    # not an observable's, so it does not stop this.
+    from libcuflynx.parsers.PrimitiveParsers import cost_experiment_idxs
+    cost_exps = cost_experiment_idxs(pid.protocol_info)
+    num_sub_total = sum(len(pid.protocol_info["sim_times"][e]) for e in cost_exps)
     if num_sub_total != 1:
         raise NotImplementedError(
             "Local (CVODES) observable sensitivities currently support a single sub-experiment; "
             f"this protocol has {num_sub_total} sub-experiments.")
 
+    exp_idx = cost_exps[0]
     _, operands_list, _ = pid.get_cost_obs_and_pred_from_params(
-        param_vals, reset=True, only_one_exp=0)
-    if not operands_list or operands_list[0] is None:
+        param_vals, reset=True, only_one_exp=exp_idx)
+    flat = int(sum(len(st) for st in pid.protocol_info["sim_times"][:exp_idx]))
+    if not operands_list or flat >= len(operands_list) or operands_list[flat] is None:
         raise RuntimeError("Local sensitivity nominal simulation failed to converge.")
-    operands = operands_list[0]
+    operands = operands_list[flat]
 
     sens = operand_sensitivities(
         pid.sim_helper, pid._fsa_dependent_names, pid._fsa_param_names_flat)
@@ -273,7 +279,9 @@ def get_jac_cost(pid, param_vals, return_cost=False):
     raw_cost = 0.0  # unperturbed sub-costs, so we can also return J(p) from this same solve
 
     # ---- Eligible params: directional derivative via FSA, summed over (exp, sub) ----
-    for exp_idx in range(num_experiments):
+    # Only the experiments the cost uses: one only prediction items use is not in it.
+    from libcuflynx.parsers.PrimitiveParsers import cost_experiment_idxs
+    for exp_idx in cost_experiment_idxs(pid.protocol_info):
         _, operands_list, _ = pid.get_cost_obs_and_pred_from_params(
             param_vals, reset=True, only_one_exp=exp_idx)
         # Per-sub sensitivities captured during this experiment's protocol run, in sub order

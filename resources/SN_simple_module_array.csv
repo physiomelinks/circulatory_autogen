@@ -1,4 +1,4 @@
 name,BC_type,vessel_type,inp_vessels,out_vessels
-soma_SN, nn, SN_soma, , axon_SN
-axon_SN, nn, SN_axon, soma_SN, var_SN
-var_SN, nn, SN_varicosity, axon_SN, 
+soma_SN, sympathetic_monolithic_v01, soma, , axon_SN
+axon_SN, sympathetic_monolithic_v01, axon, soma_SN, var_SN
+var_SN, sympathetic_monolithic_v01, varicosity, axon_SN, 

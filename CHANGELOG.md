@@ -20,6 +20,26 @@ the old name still works with a `FutureWarning`. The 0D/1D split writes `[file_p
 `libcuflynx/schemas/module_array.schema.json`. The record keys (`vessel_type`, `BC_type`,
 `inp_vessels`, `out_vessels`) and the `vessels_csv_abs_path` config key are unchanged.
 
+### Added — supermodules that stand in for a module under the same names
+
+For circulatory-autogen-modules' lumped vessels (a vessel as a supermodule of compliance,
+resistance and inertance submodules), a supermodule config entry can now say how a model sees it:
+
+- `routes`: the submodule a neighbour connects to, by port type, so a model keeps one record per
+  vessel with its usual `inp_vessels`/`out_vessels`.
+- `shared_parameters`: parameters set once for the whole supermodule. Each is one parameter of the
+  generated model, `<name>_<instance>`, mapped to every submodule that takes it, and may keep
+  another name (`{"name": "C_T", "variable": "C", "submodules": ["C"]}`), so a model's parameter
+  names (`C_T_systemic_T`) do not change.
+- `outputs`: outputs the instance exposes under its own name (`{"u": "C_p/u"}` gives
+  `aortic_root/u`), so obs_data and plots do not change.
+- `template`: an empty supermodule whose submodules name only a module_type (and `choices`), for a
+  GUI to fill; generating one is an error that lists its slots.
+
+`python -m libcuflynx.utilities.lumped_migration --library <modules> <module_array> --parameters
+<file>` moves a model onto a library's lumped twins (configs with `replaces`): only the records'
+BC_type and the parameters the twins compute (e.g. a terminal's `q_C_init` from `q_init`) change.
+
 ### Changed! — `model_type: cpp` is generated from libCellML's C output and Jinja2 templates
 
 The C++ generator is rewritten (`libcuflynx/generators/cpp/`). The model equations are
@@ -113,6 +133,72 @@ unchanged.
   coupler, and sent the volume in cm³ instead of m³.
 - 1D input generation wrote an unknown artery/vein type for vessels not named `A_*`/`V_*`;
   an `art_ven_type_<vessel>` parameter now sets it.
+
+### Added — prediction items as scalar features
+
+A `prediction_item` may carry an `operation` and `operation_kwargs`, with the same vocabulary and
+checks as a data_item. Such an item is a scalar feature, e.g. the max of a trace over its
+experiment, reduced over the last sub-experiment of that experiment. `prediction_info` gains
+parallel `operations` and `operation_kwargs` columns (`None` / `{}` when absent).
+
+- **Validation.** Held-out data on such an item (`data_type: constant`) is compared with
+  `operation(operands)`. `save_prediction_data` records every operand of the item, so an
+  operation with two operands works. Each item in `validation_results.json` now names its
+  `operation`.
+- **SA.** New `sa_options.include_prediction_items` (bool, default false). Sobol and local SA
+  report these features as extra outputs, labelled `<data_item_name> (Exp<e>, Sub<s>)`. The
+  run also writes `sobol_output_features.json`, which says what each output column is. Local SA
+  computes these rows by finite differences.
+- **Emulators.** New `emulator_settings.include_prediction_items` (bool, default false). The
+  emulator is also trained on these features. The bundle records them in
+  `prediction_feature_labels`, and they get a separate `prediction_sha256` fingerprint.
+  Calibration on such an emulator still fits and checks only the data_item features. An SA that
+  asks for prediction features on an emulator trained without them stops and says to retrain.
+
+**Sub-experiments and validation-only experiments.** A prediction item may set
+`subexperiment_idx` (default: its experiment's last; `prediction_info` gains
+`subexperiment_idxs`). Validation, the features and `save_prediction_data` use that segment, and
+series times run from its start, as for a data_item series. An item on a non-default segment is
+saved in `prediction_variable_data_exp_<e>_sub_<s>.npy`; the existing files are unchanged. For a
+multi-sub-experiment experiment, held-out series times now start at the start of the
+sub-experiment rather than the experiment. An experiment that no data_item belongs to is not
+simulated during calibration: not in any cost path, the best-fit check, or the
+all-outputs npz. It is simulated for the prediction data and validation, and for SA/emulator
+training only when a prediction feature needs it. A one-line message names such experiments.
+`libcuflynx.parsers.PrimitiveParsers.cost_experiment_idxs(protocol_info)` lists the ones the
+cost uses.
+
+**Scalar or series.** Every data_item and prediction_item is a scalar (`constant`: value and
+std are numbers) or a series (`series`: value is a list, std is a number or a list of the same
+length, obs_dt is required). The parser checks this and names the item; before, a `constant` with
+a list value was accepted, and a `series` with a number crashed. A series prediction item may
+have an operation, and is validated with the operation's series. Only scalar prediction items
+are features.
+
+Only scalar prediction items with an operation become features. The others are skipped, with a
+`PredictionFeatureWarning` that names them, and an operation that does not return a scalar
+raises `NonScalarPredictionFeatureError`. With both options off, SA outputs and emulator
+fingerprints are unchanged. Callers can feature-detect with
+`libcuflynx.sensitivity_analysis.SUPPORTS_PREDICTION_FEATURES`.
+
+### Added — module versions and instances
+
+A module library can lay a module version out as `<module_type>/versions/<version>/` with named
+parameter sets in `instances/<instance>/<instance>_parameters.csv` (names without a vessel
+suffix). A module-array record, or a supermodule's submodule, picks one with
+`"instance": "<name>"`; without it, the config entry's `"default_instance"` is used if that file
+exists. The instance directory is found next to the config file the record's type came from.
+Rows become `{var}_{vessel}`, except the module's `global_constant`s, and are merged as default
+parameters: the host parameters file wins, then a supermodule's instance, then its
+`default_parameters`, then submodule/component instances. A supermodule entry can have instances
+too, named like `default_parameters` (`{var}_{submodule}` or global); `default_parameters` still
+works. An unknown instance is an error that lists the version's instances. Models without
+instances generate byte-identical CellML.
+
+obs_data files accept a top-level `"obs_data_name"` (returned as `obs_data_name` by
+`parse_obs_data_json`); a file in `instances/<name>/` whose `obs_data_name` is not `<name>` is
+warned about. The JSON Schemas gain `instance` and `default_instance`, and a new
+`obs_data.schema.json` describes the top level of an obs_data file.
 
 ### Added — JSON module arrays and supermodules
 
@@ -389,7 +475,6 @@ Two bugs fell out. `posterior_predictive` captioned a series panel with the item
 where it meant the trace label, and `print_observable_errors` named one of its six branches by
 identity where the other five used the label.
 
-
 ## 0.6.0 — 2026-08-31
 
 ### Removed — the flat-import shims (#428)
@@ -434,7 +519,6 @@ They are the parameter-identification and MCMC engines, and they run against myo
 casadi and trained emulators as readily as against OpenCOR — the name came from the only backend
 that existed when they were written. **The old names still work**: `OpencorParamID` and
 `OpencorMCMC` remain as aliases, so nothing importing them has to change.
-
 
 ## 0.5.0 — 2026-08-24
 
@@ -502,7 +586,6 @@ README, CONTRIBUTING, CLAUDE.md and the tutorial say so.
 The tests that check those docs agree now read `REMOVAL_VERSION` rather than restating it: the
 literal `"0.5.0"` in three test files would have passed happily while every document said
 something else.
-
 
 ### Added — a whole study in one call, shipped for readers outside this repo (#478)
 

@@ -22,6 +22,7 @@ from scipy.stats import qmc
 
 from libcuflynx.emulators.emulator_bundle import (METADATA_FILE, TRAINING_DATA_FILE, EmulatorBundle,
                                        EmulatorQualityError, EmulatorReuseError, fingerprint)
+from libcuflynx.param_id import prediction_features
 
 AUTOEMULATE_MISSING_MESSAGE = (
     'autoemulate is not installed. Install it with `pip install '
@@ -125,6 +126,13 @@ class EmulatorTrainer:
         self.rank = self.comm.Get_rank() if self.comm is not None else 0
         self.num_procs = self.comm.Get_size() if self.comm is not None else 1
         self._check_observables_are_scalar()
+        # Prediction items with an operation, as extra outputs (include_prediction_items).
+        # Resolved once here so the warning naming the items left out is given once.
+        self.prediction_indices = []
+        if prediction_features.include_prediction_items(self.settings):
+            self.prediction_indices = prediction_features.prediction_feature_indices(
+                getattr(param_id, 'prediction_info', None),
+                getattr(param_id, 'operation_funcs_dict', None), context='the emulator features')
 
     # ------------------------------------------------------------------ construction
 
@@ -181,10 +189,43 @@ class EmulatorTrainer:
         return bool(self._setting('reuse_samples', False))
 
     @property
-    def feature_labels(self):
-        """The emulator's outputs, named exactly as the run that will use it names them."""
+    def data_feature_labels(self):
+        """The data_item features, named exactly as the run that will use them names them."""
         from libcuflynx.param_id.paramID import emulated_feature_labels
         return emulated_feature_labels(self.pid.obs_info)
+
+    @property
+    def prediction_feature_labels(self):
+        """The prediction features (``include_prediction_items``), by data_item_name."""
+        return prediction_features.prediction_feature_names(
+            getattr(self.pid, 'prediction_info', None), self.prediction_indices)
+
+    @property
+    def feature_labels(self):
+        """The emulator's outputs: the data_item features, then any prediction features."""
+        return self.data_feature_labels + self.prediction_feature_labels
+
+    def _fingerprint(self):
+        """The fingerprint the bundle is stored with; ``prediction_sha256`` only when it has
+        prediction features, so an emulator trained without them keeps the old fingerprint."""
+        return fingerprint(self.pid.param_id_info, self.pid.obs_info, self.pid.protocol_info,
+                           self.pid.model_path,
+                           prediction_info=getattr(self.pid, 'prediction_info', None),
+                           prediction_indices=self.prediction_indices)
+
+    def _features_at(self, theta):
+        """The training targets at ``theta``: data_item features, then prediction features,
+        from one simulation."""
+        from libcuflynx.param_id.fd_backend import observable_features
+
+        if not self.prediction_indices:
+            return observable_features(self.pid, theta)
+        data, predicted = prediction_features.simulate_features(
+            self.pid, theta, self.pid.prediction_info, self.prediction_indices)
+        if data is None or predicted is None:
+            return None
+        return np.concatenate([np.asarray(data, dtype=float),
+                               np.asarray(predicted, dtype=float)])
 
     # ------------------------------------------------------------------ stages
 
@@ -304,15 +345,11 @@ class EmulatorTrainer:
         imputed: an imputed training target is a fabricated observation, and the emulator
         would learn it as fact.
         """
-        # Imported here rather than at module scope: this module is reachable from
-        # solver_wrappers, which every CA run imports, and fd_backend pulls in the parsers.
-        from libcuflynx.param_id.fd_backend import observable_features
-
         n_samples = len(design)
         start, end = _block_for_rank(n_samples, self.rank, self.num_procs)
         local_rows = []
         for local_idx, theta in enumerate(design[start:end]):
-            features = observable_features(self.pid, theta)
+            features = self._features_at(theta)
             if features is None or not np.all(np.isfinite(features)):
                 print(f'[emulator rank {self.rank}] sample {start + local_idx} failed; dropping it')
                 continue
@@ -570,12 +607,12 @@ class EmulatorTrainer:
                 f'to simulate and save a design, after which reuse works.')
         try:
             bundle.check_matches(
-                fingerprint(self.pid.param_id_info, self.pid.obs_info, self.pid.protocol_info,
-                            self.pid.model_path),
+                self._fingerprint(),
                 # str() to match how train() writes them, or an equal set of labels of a
                 # different type would read as a changed parameter list.
                 param_entry_labels=[str(label) for label in _param_labels(self.pid)],
-                feature_labels=self.feature_labels)
+                feature_labels=self.data_feature_labels,
+                prediction_feature_labels=self.prediction_feature_labels)
         except EmulatorQualityError as error:
             raise EmulatorQualityError(
                 f'{error} emulator_settings.reuse_samples cannot be used here: the samples in '
@@ -692,10 +729,12 @@ class EmulatorTrainer:
             # told it was "the configured min_r2". The emulator now carries its own
             # configuration; see _use_time_setting in param_id/paramID.py.
             'settings': _jsonable_settings(self.settings),
-            'fingerprint': fingerprint(self.pid.param_id_info, self.pid.obs_info,
-                                       self.pid.protocol_info, self.pid.model_path),
+            'fingerprint': self._fingerprint(),
             'provenance': _provenance(self.pid),
         }
+        if self.prediction_indices:
+            # Which of feature_labels are prediction features (they are the last ones).
+            meta['prediction_feature_labels'] = self.prediction_feature_labels
         bundle = EmulatorBundle(model, meta, x_train=x, y_train=y,
                                 validation=validation)
         output_dir = self.output_directory()
@@ -831,6 +870,10 @@ def _jsonable_settings(settings):
     """
     out = {}
     for key, value in (settings or {}).items():
+        if key == prediction_features.INCLUDE_PREDICTION_ITEMS and not value:
+            # off is the default, and leaving it out keeps a bundle trained without it
+            # identical to one trained before the setting existed
+            continue
         if isinstance(value, (bool, int, float, str)) or value is None:
             out[str(key)] = value
         elif isinstance(value, (list, tuple)):

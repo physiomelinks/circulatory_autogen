@@ -14,7 +14,7 @@ The fixture modules below live in an ``external_modules_dir``:
 
 * ``flow_source`` -- a prescribed flow ``v`` (sinusoid) that reads a pressure ``u_out``;
   ``flow_source_mm3`` is the same in mm3_per_s, ``bad_source`` has flow in pressure units.
-* ``flow_merge`` (BC ``vp``) -- entrance vessel_port [v_in, u], multi_port ["sum", "True"];
+* ``mp_flow_merge`` (BC ``vp``) -- entrance vessel_port [v_in, u], multi_port ["sum", "True"];
   exit vessel_port [v_out, u_d]; ``v_out = v_in``, ``u = u_d``. ``flow_merge_plain`` is the
   same module with a plain entrance port.
 * ``windkessel`` -- takes a flow, gives a pressure (one state).
@@ -85,13 +85,13 @@ MODULES_CELLML = (
     + _flow_source('flow_source_type', 'm3_per_s')
     + _flow_source('flow_source_mm3_type', 'mm3_per_s')
     + _flow_source('bad_source_type', 'J_per_m3')
-    + _component('flow_merge_type', [
+    + _component('mp_flow_merge_type', [
         _var('v_in', 'm3_per_s', 'in'),
         _var('u', 'J_per_m3', 'out'),
         _var('v_out', 'm3_per_s', 'out'),
         _var('u_d', 'J_per_m3', 'in'),
     ], [_eq('<ci>v_out</ci>', '<ci>v_in</ci>'), _eq('<ci>u</ci>', '<ci>u_d</ci>')])
-    + _component('flow_split_type', [
+    + _component('mp_flow_split_type', [
         _var('v_in', 'm3_per_s', 'out'),
         _var('u', 'J_per_m3', 'in'),
         _var('v_out', 'm3_per_s', 'in'),
@@ -172,15 +172,15 @@ MODULES_CONFIG = [
     _source_config("flow_source", "flow_source_type", "m3_per_s"),
     _source_config("flow_source_mm3", "flow_source_mm3_type", "mm3_per_s"),
     _source_config("bad_source", "bad_source_type", "J_per_m3"),
-    _module("flow_merge", "vp", "flow_merge_type",
+    _module("mp_flow_merge", "vp", "mp_flow_merge_type",
             [_port("vessel_port", ["v_in", "u"], ["sum", "True"])],
             [_port("vessel_port", ["v_out", "u_d"])], MERGE_VARIABLES),
     # the same node without a multi_port: a plain one-to-one entrance port
-    _module("flow_merge_plain", "vp", "flow_merge_type",
+    _module("flow_merge_plain", "vp", "mp_flow_merge_type",
             [_port("vessel_port", ["v_in", "u"])],
             [_port("vessel_port", ["v_out", "u_d"])], MERGE_VARIABLES),
     # malformed: two variables, one multi_port entry
-    _module("flow_merge_bad_list", "vp", "flow_merge_type",
+    _module("flow_merge_bad_list", "vp", "mp_flow_merge_type",
             [_port("vessel_port", ["v_in", "u"], ["sum"])],
             [_port("vessel_port", ["v_out", "u_d"])], MERGE_VARIABLES),
     _module("windkessel", "nn", "windkessel_type", [_port("vessel_port", ["v_in", "u"])], [], [
@@ -198,7 +198,7 @@ MODULES_CONFIG = [
                 ["amp", "dimensionless", "access", "constant"],
                 ["omega", "per_s", "access", "constant"],
             ]),
-    _module("flow_split", "pv", "flow_split_type",
+    _module("mp_flow_split", "pv", "mp_flow_split_type",
             [_port("vessel_port", ["v_in", "u"])],
             [_port("vessel_port", ["v_out", "u_d"], ["sum", "True"])], [
                 ["v_in", "m3_per_s", "access", "variable"],
@@ -216,12 +216,24 @@ MODULES_CONFIG = [
 ]
 
 
+UNITS_CELLML = """<?xml version='1.0' encoding='UTF-8'?>
+<model name="multiport_test_units" xmlns="http://www.cellml.org/cellml/1.1#">
+    <units name="mm3_per_s">
+        <unit prefix="milli" units="metre" exponent="3"/>
+        <unit units="second" exponent="-1"/>
+    </units>
+</model>
+"""
+
+
 @pytest.fixture(scope="module")
 def external_modules_dir(tmp_path_factory):
     modules_dir = tmp_path_factory.mktemp("multiport_modules")
     (modules_dir / "multiport_test_modules.cellml").write_text(MODULES_CELLML)
     (modules_dir / "multiport_test_modules_config.json").write_text(
         json.dumps(MODULES_CONFIG, indent=2))
+    # the flow_source_mm3 fixture's units, which no module library is guaranteed to define
+    (modules_dir / "multiport_test_units.cellml").write_text(UNITS_CELLML)
     return str(modules_dir)
 
 
@@ -355,21 +367,6 @@ def test_malformed_list_multi_port_fails_generation(tmp_path, external_modules_d
         _generate(tmp_path, external_modules_dir, "mp_bad_list", rows, params)
 
 
-@pytest.mark.unit
-def test_cpp_generator_refuses_list_multi_port_with_1d_coupling(tmp_path):
-    from libcuflynx.generators.CVSCppGenerator import CVS0DCppGenerator
-
-    class _Model:
-        vessels_df = pd.DataFrame([{
-            "name": "merge",
-            "entrance_ports": [_port("vessel_port", ["v_in", "u"], ["sum", "True"])],
-            "exit_ports": [], "general_ports": []}])
-
-    with pytest.raises(NotImplementedError, match="List-form"):
-        CVS0DCppGenerator(_Model(), str(tmp_path / "gen"), "mp", couple_to_1d=True,
-                          cpp_generated_models_dir=str(tmp_path / "gen_cpp"))
-
-
 # --------------------------------------------------------------------------------------------
 # flow_merge: "sum" on an entrance port, "True" shares the node pressure upstream
 # --------------------------------------------------------------------------------------------
@@ -385,7 +382,7 @@ MERGE_SOURCES = {
 def test_flow_merge_two_upstream_sources(tmp_path, external_modules_dir):
     rows = [("src_a", "nn", "flow_source", [], ["merge"]),
             ("src_b", "nn", "flow_source", [], ["merge"]),
-            ("merge", "vp", "flow_merge", ["src_a", "src_b"], ["wk"]),
+            ("merge", "vp", "mp_flow_merge", ["src_a", "src_b"], ["wk"]),
             ("wk", "nn", "windkessel", ["merge"], [])]
     params = (_source_params("src_a", *MERGE_SOURCES["src_a"]) +
               _source_params("src_b", *MERGE_SOURCES["src_b"]) + _windkessel_params("wk"))
@@ -420,7 +417,7 @@ def test_flow_merge_three_upstream_vessels(tmp_path, external_modules_dir):
             ("src_b", "nn", "flow_source", [], ["art_b"]),
             ("art_b", "vp", "arterial_simple", ["src_b"], ["merge"]),
             ("src_c", "nn", "flow_source", [], ["merge"]),
-            ("merge", "vp", "flow_merge", ["art_a", "art_b", "src_c"], ["wk"]),
+            ("merge", "vp", "mp_flow_merge", ["art_a", "art_b", "src_c"], ["wk"]),
             ("wk", "nn", "windkessel", ["merge"], [])]
     params = (_source_params("src_a", *MERGE_SOURCES["src_a"]) +
               _source_params("src_b", *MERGE_SOURCES["src_b"]) +
@@ -454,7 +451,7 @@ def test_flow_merge_takes_a_terminal_inflow(tmp_path, external_modules_dir):
     rows = [("psrc", "nn", "pressure_source", [], ["term"]),
             ("term", "pp", "terminal", ["psrc"], ["merge"]),
             ("src_a", "nn", "flow_source", [], ["merge"]),
-            ("merge", "vp", "flow_merge", ["term", "src_a"], ["wk"]),
+            ("merge", "vp", "mp_flow_merge", ["term", "src_a"], ["wk"]),
             ("wk", "nn", "windkessel", ["merge"], [])]
     params = ([("u_mean_psrc", "J_per_m3", 1.0e4), ("amp_psrc", "dimensionless", 0.5),
                ("omega_psrc", "per_s", 6.0),
@@ -481,7 +478,7 @@ def test_flow_merge_one_neighbour_matches_one_to_one(tmp_path, external_modules_
     params = _source_params("src_a", *MERGE_SOURCES["src_a"]) + _windkessel_params("wk")
     names = ["src_a/v", "merge/v_out", "merge/u", "wk/u", "wk/q", "src_a/u_seen"]
     results = {}
-    for vessel_type in ["flow_merge", "flow_merge_plain"]:
+    for vessel_type in ["mp_flow_merge", "flow_merge_plain"]:
         rows = [("src_a", "nn", "flow_source", [], ["merge"]),
                 ("merge", "vp", vessel_type, ["src_a"], ["wk"]),
                 ("wk", "nn", "windkessel", ["merge"], [])]
@@ -489,15 +486,15 @@ def test_flow_merge_one_neighbour_matches_one_to_one(tmp_path, external_modules_
                                 f"mp_one_{vessel_type}", rows, params)
         results[vessel_type] = _simulate(cellml_path, names)
     for name in names:
-        np.testing.assert_allclose(results["flow_merge"][name], results["flow_merge_plain"][name],
+        np.testing.assert_allclose(results["mp_flow_merge"][name], results["flow_merge_plain"][name],
                                    rtol=1e-12, atol=1e-30, err_msg=name)
-    np.testing.assert_allclose(results["flow_merge"]["merge/v_out"],
-                               results["flow_merge"]["src_a/v"], **EXACT)
+    np.testing.assert_allclose(results["mp_flow_merge"]["merge/v_out"],
+                               results["mp_flow_merge"]["src_a/v"], **EXACT)
 
 
 @pytest.mark.integration
 def test_flow_merge_without_neighbours_sums_to_zero(tmp_path, external_modules_dir, capsys):
-    rows = [("merge", "vp", "flow_merge", [], ["wk"]),
+    rows = [("merge", "vp", "mp_flow_merge", [], ["wk"]),
             ("wk", "nn", "windkessel", ["merge"], [])]
     # no v_in_merge parameter: the unconnected "sum" is not turned into a constant
     cellml_path = _generate(tmp_path, external_modules_dir, "mp_none", rows,
@@ -516,7 +513,7 @@ def test_flow_merge_without_neighbours_sums_to_zero(tmp_path, external_modules_d
 def test_flow_merge_converts_neighbour_units(tmp_path, external_modules_dir):
     rows = [("src_a", "nn", "flow_source", [], ["merge"]),
             ("src_mm3", "nn", "flow_source_mm3", [], ["merge"]),
-            ("merge", "vp", "flow_merge", ["src_a", "src_mm3"], ["wk"]),
+            ("merge", "vp", "mp_flow_merge", ["src_a", "src_mm3"], ["wk"]),
             ("wk", "nn", "windkessel", ["merge"], [])]
     params = (_source_params("src_a", *MERGE_SOURCES["src_a"]) +
               _source_params("src_mm3", 2.0e4, 0.3, 4.0, units="mm3_per_s") +
@@ -540,7 +537,7 @@ def test_flow_merge_converts_neighbour_units(tmp_path, external_modules_dir):
 def test_flow_merge_rejects_incompatible_units(tmp_path, external_modules_dir):
     rows = [("src_a", "nn", "flow_source", [], ["merge"]),
             ("src_bad", "nn", "bad_source", [], ["merge"]),
-            ("merge", "vp", "flow_merge", ["src_a", "src_bad"], ["wk"]),
+            ("merge", "vp", "mp_flow_merge", ["src_a", "src_bad"], ["wk"]),
             ("wk", "nn", "windkessel", ["merge"], [])]
     params = (_source_params("src_a", *MERGE_SOURCES["src_a"]) +
               _source_params("src_bad", 1.0, 0.3, 4.0, units="J_per_m3") +
@@ -557,7 +554,7 @@ def test_flow_merge_rejects_incompatible_units(tmp_path, external_modules_dir):
 def test_flow_split_three_downstream_vessels(tmp_path, external_modules_dir):
     """Two R-L sinks and a built-in arterial_simple (pp) vessel take flow from the node."""
     rows = [("psrc", "nn", "pressure_source", [], ["split"]),
-            ("split", "pv", "flow_split", ["psrc"], ["sink_a", "sink_b", "art_d"]),
+            ("split", "pv", "mp_flow_split", ["psrc"], ["sink_a", "sink_b", "art_d"]),
             ("sink_a", "nn", "rl_sink", ["split"], []),
             ("sink_b", "nn", "rl_sink", ["split"], []),
             ("art_d", "pp", "arterial_simple", ["split"], [])]
@@ -589,7 +586,7 @@ def test_flow_split_three_downstream_vessels(tmp_path, external_modules_dir):
 def test_flow_split_python_model(tmp_path, external_modules_dir):
     """The generated sum component also goes through PythonGenerator (libCellML Analyser)."""
     rows = [("psrc", "nn", "pressure_source", [], ["split"]),
-            ("split", "pv", "flow_split", ["psrc"], ["sink_a", "sink_b"]),
+            ("split", "pv", "mp_flow_split", ["psrc"], ["sink_a", "sink_b"]),
             ("sink_a", "nn", "rl_sink", ["split"], []),
             ("sink_b", "nn", "rl_sink", ["split"], [])]
     params = ([("u_mean_psrc", "J_per_m3", 1.0e4), ("amp_psrc", "dimensionless", 0.5),

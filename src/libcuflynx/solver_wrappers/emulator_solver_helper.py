@@ -240,12 +240,34 @@ class SimulationHelper:
         """
         if self._features is None:
             self.run()
-        mapping = self._obs_map if self._obs_map is not None else list(range(len(self._features)))
+        # Only the data_item features: prediction features (include_prediction_items) follow
+        # them in the bundle and are read by name, through get_predicted_prediction_features.
+        num_data = len(self._features) - len(getattr(self.bundle, 'prediction_feature_labels',
+                                                     None) or [])
+        mapping = self._obs_map if self._obs_map is not None else list(range(num_data))
         n_items = self._num_obs if self._num_obs is not None else len(mapping)
         by_item = np.full(max(n_items, len(mapping)), np.nan)
         for k, obs_idx in enumerate(mapping):
             by_item[obs_idx] = self._features[k]
         return by_item
+
+    def get_predicted_prediction_features(self, names):
+        """The predicted prediction features (``include_prediction_items``), by name.
+
+        Refuses with a clear message when the emulator was trained without them.
+        """
+        have = list(getattr(self.bundle, 'prediction_feature_labels', None) or [])
+        missing = [str(name) for name in names if str(name) not in have]
+        if missing:
+            raise NotImplementedError(
+                f'the emulator has no prediction feature(s) {missing}; it was trained with '
+                f'prediction features {have}. Retrain it with '
+                f'emulator_settings.include_prediction_items: true.')
+        if self._features is None:
+            self.run()
+        offset = len(self._features) - len(have)
+        return np.asarray([self._features[offset + have.index(str(name))] for name in names],
+                          dtype=float)
 
     def get_results(self, variables_list_of_lists, flatten=False):
         """The predicted features, in the shape the executor expects from a solver.
