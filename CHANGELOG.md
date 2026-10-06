@@ -173,6 +173,20 @@ Every `*units.cellml` there (and in `module_library_dirs`) is now merged into th
 units file. A unit defined identically in several files is written once; one defined
 differently in two files raises a `ValueError` naming both files.
 
+### Fixed
+
+- Unit converter components are named after the connection they sit on,
+  `unit_converter_[from module]_[from variable]_to_[to module]_[to variable]`, with one per
+  variable pair. They were named `unit_converter_[from units]_to_[to units]`, so a module output
+  shared (multi_port `"True"`) with two modules that both needed the same conversion gave two
+  components with the same name, and libCellML / Myokit rejected the model ("Component name must
+  be unique within model").
+- A venous module fed by a terminal takes the terminal flow into `v_in` through the
+  `terminal_venous_connection` when one of its *other* entrance ports has a list-form
+  multi_port, e.g. a separate `blood_uptake_port` with `multi_port: "sum"`. Only a list-form
+  multi_port on the module's `vessel_port` entrance (which sums the terminal flow itself) skips
+  that mapping now; before, any list-form entrance port did, and `v_in` was left unconnected.
+
 ## 0.7.3 — 2026-09-05
 
 ### Changed! — `calculate_two_observable_difference` takes `subtract_from` / `subtract_this`
