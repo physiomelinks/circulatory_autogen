@@ -560,7 +560,7 @@ def _ap_thresholds(t, V, peak_idxs, dV_dt_thresh):
 
 @series_to_constant
 def mean_AP_threshold(t, V, series_output=False, spike_min_thresh=None, distance=None, dV_dt_thresh=10e3,
-                      start_frac=0.0, end_frac=1.0):
+                      start_frac=0.0, end_frac=1.0, no_spike_value=None):
     """Mean action-potential threshold: the voltage at which dV/dt first exceeds ``dV_dt_thresh``
     ahead of each peak (default 10 mV/ms, 10e3 mV/s; Platkiewicz & Brette 2010).
 
@@ -576,6 +576,13 @@ def mean_AP_threshold(t, V, series_output=False, spike_min_thresh=None, distance
     That stays near the data's value scale, so a cost keeps a usable gradient towards firing. (A
     missing threshold used to return 9999, which swamped every other term of a cost.)
 
+    ``no_spike_value`` replaces that fallback with a fixed value. The mean voltage can land close to
+    the data's threshold -- a silent cell rests near where a firing one takes off -- so under a
+    Gaussian cost a silent model can score better than one that fires with its threshold a little
+    off. Paired with ``gaussian_MLE_robust``, a value far from the data (e.g. +100 mV: a silent
+    cell's threshold is above anything it reached) puts a silent model exactly on the mixture's
+    cap, which firing can never exceed, so silence is never the cheaper way to miss.
+
     # TODO this won't work with noise
     """
     if series_output:
@@ -587,7 +594,7 @@ def mean_AP_threshold(t, V, series_output=False, spike_min_thresh=None, distance
     thresholds = [v for _, v in _ap_thresholds(t, V, peak_idxs, dV_dt_thresh) if v is not None] \
         if len(peak_idxs) else []
     if not thresholds:
-        return mb.mean(V)
+        return mb.mean(V) if no_spike_value is None else no_spike_value
     return mb.mean(thresholds)
 
 @series_to_constant

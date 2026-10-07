@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from libcuflynx.funcs.operation_funcs_user import mean_AP_threshold as threshold
+from libcuflynx.funcs.cost_funcs_user import gaussian_MLE_robust
 
 pytestmark = pytest.mark.unit
 
@@ -84,6 +85,32 @@ def test_peaks_without_an_upstroke_return_the_mean_not_a_sentinel():
     got = threshold(t, V, spike_min_thresh=-10)
     assert got == pytest.approx(np.mean(V))
     assert got < 0
+
+
+def test_no_spike_value_replaces_the_mean_when_silent():
+    t, V = trace([(0.3, -60.0, 1e-3)])
+    assert threshold(t, V, spike_min_thresh=-10, end_frac=0.5, no_spike_value=100.0) == 100.0
+
+
+def test_no_spike_value_leaves_a_firing_trace_alone():
+    t, V = trace([(0.1, -60.0, 1e-3)])
+    assert threshold(t, V, spike_min_thresh=-10, no_spike_value=100.0) == \
+        threshold(t, V, spike_min_thresh=-10)
+
+
+def test_a_silent_model_costs_the_robust_cap_and_firing_never_costs_more():
+    """The point of ``no_spike_value``: under the mixture a silent model sits on the cap,
+    log(W/eps), and a firing one with any threshold error costs at most that."""
+    std, eps, width, target = 6.0, 0.04, 170.0, -50.0
+    cap = np.log(width / eps)
+    silent = gaussian_MLE_robust(np.array([100.0]), np.array([target]), np.array([std]),
+                                 np.array([1.0]), p_outlier=eps, outlier_width=width)
+    assert float(np.sum(silent)) == pytest.approx(cap)
+    for error in (0.0, 5.0, 15.0, 30.0, 60.0):
+        firing = gaussian_MLE_robust(np.array([target + error]), np.array([target]),
+                                     np.array([std]), np.array([1.0]),
+                                     p_outlier=eps, outlier_width=width)
+        assert float(np.sum(firing)) <= cap + 1e-12
 
 
 def test_series_output_returns_the_trace():
