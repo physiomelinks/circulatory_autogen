@@ -3317,17 +3317,20 @@ class JSONFileParser(object):
         # match '.json' but are binary and blow up json.load, so skip them here (issue #83).
         return file.endswith('.json') and not file.startswith('._')
 
-    def module_config_to_dataframe(self, json_path):
+    def module_config_to_dataframe(self, json_path, exclude=()):
         """The component entries of one module config JSON file, in either the libcuflynx or
         the PhLynx schema, as a dataframe with libcuflynx column names (see
-        utilities/config_schemas.py). Supermodule entries are left out."""
-        return pd.DataFrame(load_module_config(json_path))
+        utilities/config_schemas.py). Supermodule entries are left out, and so are the
+        ``(file, (vessel_type, BC_type))`` pairs in ``exclude``."""
+        return pd.DataFrame([e for e in load_module_config(json_path)
+                             if (str(json_path), (e['vessel_type'], e['BC_type'])) not in exclude])
 
-    def json_files_to_dataframe(self, json_files):
-        """All module config entries from ``json_files``, in order, as one dataframe."""
+    def json_files_to_dataframe(self, json_files, exclude=()):
+        """All module config entries from ``json_files``, in order, as one dataframe, without
+        those in ``exclude`` (``ModuleSources.excluded_entries``: shadowed definitions)."""
         # a file of supermodule entries only gives an empty frame: those entries are read by
         # config_schemas.load_supermodule_registry, never joined as components
-        dfs = [self.module_config_to_dataframe(path) for path in json_files]
+        dfs = [self.module_config_to_dataframe(path, exclude) for path in json_files]
         dfs = [df for df in dfs if not df.empty]
         if not dfs:
             raise ValueError('No module config JSON files were found: check use_builtin_modules, '

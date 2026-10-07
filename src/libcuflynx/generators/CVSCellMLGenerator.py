@@ -10,10 +10,12 @@ import pandas as pd
 import os
 import shutil
 import tempfile
+import warnings
 from sys import exit
 from libcuflynx.utilities.package_resources import package_data_dir
 from libcuflynx.utilities.paths import default_resources_dir
-from libcuflynx.utilities.module_library import ModuleSources, collect_units, CELLML_1_1_NS
+from libcuflynx.utilities.module_library import (ModuleSources, ModuleShadowWarning, collect_units,
+                                                 CELLML_1_1_NS)
 from libcuflynx.utilities.config_schemas import is_heart_vessel_type
 from libcuflynx.utilities.vessel_bc import is_vessel_module
 
@@ -66,9 +68,13 @@ class CVS0DCellMLGenerator(object):
 
         # Built-in, module_config_user, external_modules_dir and module_library_dirs modules
         # are gathered in one place so the config parser sees exactly the same set.
-        module_sources = ModuleSources(inp_data_dict)
+        # (load_model already warned about types several sources define)
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', ModuleShadowWarning)
+            module_sources = ModuleSources(inp_data_dict)
         self.base_script = module_sources.base_script
         self.module_scripts = module_sources.cellml_files
+        self.module_sources = module_sources
         self.units_scripts = module_sources.units_files
         self.all_parameters_defined = False
         self.BC_set = {}
@@ -555,7 +561,10 @@ class CVS0DCellMLGenerator(object):
                         if "<component name" in line:
                             # check the name of the module we are in
                             module_type = re.search('name="(.*?)"', line).group(1)
-                        if module_type in self.model.vessels_df.module_type.values or module_type == 'zero_flow':
+                        if (module_type in self.model.vessels_df.module_type.values
+                                or module_type == 'zero_flow') \
+                                and self.module_sources.uses_component(module_file_path, module_type):
+                            # (a type a more specific module source defines is written from there)
                             wf.write(line)
             wf.write('</model>\n')
 

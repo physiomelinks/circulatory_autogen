@@ -5,6 +5,25 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Changed — a module type several sources define comes from the most specific one
+
+A `(vessel_type, BC_type)` defined in more than one module source used to keep the first entry
+in the type registry, then stop generation with a print and `exit()`. That is why a module
+library that copies built-in modules needed `use_builtin_modules: false`.
+
+- **Precedence.** The type is now taken from the most specific source: `external_modules_dir`,
+  then `module_library_dirs` in order, then `module_config_user`, then the built-in modules.
+- **One rule for everything.** The type registries (so instances resolve next to the winning
+  config), the module-config join and the CellML modules file all apply it, through
+  `ModuleSources` (`excluded_entries`, `excluded_components`, `component_registry()`,
+  `supermodule_registry()`).
+- **What is left out.** The shadowed definitions' config entries and CellML components. A
+  component that a type still in use needs is kept.
+- **Competition is reported.** A `ModuleShadowWarning` lists every type defined more than once
+  and the source that won.
+- **Within one source, a duplicate is a `ValueError`** naming the files. So is a repeated type
+  at the module-config join, which used to `exit()`.
+
 ### Changed — vessel arrays are now called module arrays
 
 The file is `[file_prefix]_module_array.json` or `.csv`, and every model in `resources/` has been
