@@ -21,6 +21,7 @@ import re
 import os
 
 from libcuflynx.utilities.module_library import ModuleSources
+from libcuflynx.utilities.module_instances import reissue_warnings
 
 # The columns a {prefix}_parameters.csv must provide. They are looked up by header name, so a file
 # may list them in any order and may carry extra columns (FTU_wCVS_parameters.csv has a 'comp_env'
@@ -501,14 +502,18 @@ class CSV0DModelParser(object):
         # (utilities/config_schemas.py). extra_param_rows are the default parameters under
         # the expanded names -- supermodule instances and default_parameters, then module
         # instances -- and are merged into the parameters below.
-        if self.vessel_filename_0d is None:
-            vessels_df, extra_param_rows = load_module_array(self.vessel_filename,
-                                                             supermodule_registry,
-                                                             component_registry)
-        else:
-            extra_param_rows = self.split_0d_1d_module_array(supermodule_registry,
-                                                             component_registry)
-            vessels_df, _ = load_module_array(self.vessel_filename_0d)
+        # Instances that set one global to different values warn; those warnings are held
+        # until the host parameters are read, since a host value settles the conflict.
+        with warnings.catch_warnings(record=True) as held:
+            warnings.simplefilter('always')
+            if self.vessel_filename_0d is None:
+                vessels_df, extra_param_rows = load_module_array(self.vessel_filename,
+                                                                 supermodule_registry,
+                                                                 component_registry)
+            else:
+                extra_param_rows = self.split_0d_1d_module_array(supermodule_registry,
+                                                                 component_registry)
+                vessels_df, _ = load_module_array(self.vessel_filename_0d)
         
 
         # TODO remove the below:
@@ -562,6 +567,8 @@ class CSV0DModelParser(object):
         # here on every name is the model's {variable}_{vessel}.
         parameters_array_orig = _with_model_names(parameters_array_orig, vessels_df,
                                                   self.parameter_filename)
+        # a host value settles a conflict between instances (written global/T or T)
+        reissue_warnings(held, settled=set(parameters_array_orig['variable_name'].tolist()))
         # Supermodule and module-instance parameters fill in whatever the parameters file does not set,
         # before the reduction, so everything downstream (generation, parameter id) sees them.
         parameters_array_orig = merge_default_parameters(parameters_array_orig, extra_param_rows)

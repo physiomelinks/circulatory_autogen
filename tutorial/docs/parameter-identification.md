@@ -451,7 +451,7 @@ which the calibrated model is then checked against. Give the item:
 
 - **value**: the data, a number (`data_type: constant`) or a list (`data_type: series`)
 - **data_type**: `constant` or `series`
-- **std** (optional): its standard deviation, a number or a list
+- **std** (optional): its standard deviation. For a constant this is one number. For a series it is one number for every point, or a list with one per point. Every entry must be greater than 0. Without it, the item is scored by RMSE alone.
 - **obs_dt**: the spacing of a series' samples, which start at the start of the experiment
 
 For example, fit the first 15 years of a series and validate the prediction to year 20, in one

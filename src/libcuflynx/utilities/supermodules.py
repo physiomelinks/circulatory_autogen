@@ -47,6 +47,7 @@ import os
 from libcuflynx.utilities.config_schemas import PER_SUBMODULE_KEYS, SUPERMODULE_FORMAT
 from libcuflynx.utilities.module_instances import (first_rows_win, instance_parameter_rows,
                                                    instance_parameters_path,
+                                                   warn_conflicting_globals,
                                                    read_parameter_rows)
 from libcuflynx.utilities.parameter_names import (supermodule_row_name,
                                                   warn_old_supermodule_names)
@@ -286,10 +287,23 @@ def _expand_one(records, index, registry, source, ancestry):
     for record in new_records:
         ancestry[record['name']] = chain + (key,)
     param_rows = read_supermodule_parameters(supermodule, instance, where, registry)
-    return records[:index] + new_records + records[index + 1:], param_rows
+    return records[:index] + new_records + records[index + 1:], param_rows, \
+        _global_settings(param_rows, instance, supermodule, registry)
 
 
-def expand_supermodules(records, registry, source=None):
+def _global_settings(rows, instance, supermodule, registry):
+    '''The rows of ``instance``'s parameters that set a global (those the renaming left
+    alone), as ``warn_conflicting_globals`` settings.'''
+    name = instance['name']
+    local = tuple(f'_{name}_{path}' for path in submodule_paths(supermodule, registry))
+    used = instance.get('instance') or supermodule.get('default_instance')
+    who = f'supermodule "{name}"' + (f' (instance "{used}")' if used else '')
+    return [(row['variable_name'], row['value'], row['units'], who, name) for row in rows
+            if not row['variable_name'].endswith(local)]
+
+
+
+def expand_supermodules(records, registry, source=None, settings=None):
     '''
     ``(records, extra_param_rows)``: ``records`` (normalised vessel records, see
     ``config_schemas.normalise_vessel_record``) with every supermodule instance -- a record
@@ -307,10 +321,15 @@ def expand_supermodules(records, registry, source=None):
     records = copy.deepcopy(list(records))
     ancestry = {}
     extra_param_rows = []
+    check_here = settings is None
+    settings = [] if check_here else settings
     while True:
         index = next((i for i, r in enumerate(records) if _is_instance(r, registry, source)), None)
         if index is None:
             break
-        records, rows = _expand_one(records, index, registry, source, ancestry)
+        records, rows, sets = _expand_one(records, index, registry, source, ancestry)
         extra_param_rows += rows
+        settings += sets
+    if check_here:
+        warn_conflicting_globals(settings, source)
     return records, first_rows_win(extra_param_rows)

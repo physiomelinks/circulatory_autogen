@@ -47,7 +47,8 @@ from libcuflynx.utilities.config_schemas import (load_component_registry,
                                                  load_supermodule_registry,
                                                  normalise_module_config_entry,
                                                  normalise_vessel_record)
-from libcuflynx.utilities.module_instances import (available_instances, global_constants,
+from libcuflynx.utilities.module_instances import (ConflictingGlobalWarning,
+                                                   available_instances, global_constants,
                                                    instance_parameters_path, read_parameter_rows)
 from libcuflynx.utilities.supermodules import rename_default_parameter
 
@@ -269,12 +270,92 @@ def test_a_named_instance_and_the_default_instance_are_applied_with_the_vessel_s
     assert all(set(r) == {'variable_name', 'units', 'value', 'data_reference'} for r in rows)
 
 
+def _conflicts(caught):
+    return [w.message for w in caught if isinstance(w.message, ConflictingGlobalWarning)]
+
+
+def _load_caught(tmp_path, library, records):
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter('always')
+        records, rows = _load(tmp_path, library, records)
+    return rows, _conflicts(caught)
+
+
 @pytest.mark.unit
 def test_the_first_record_sets_a_global_shared_by_several_instances(tmp_path, library):
     # synthetic: no two instances in the real library set a global to different values
-    _, rows = _load(tmp_path, library, _two_sources(None, 'other'))
+    rows, conflicts = _load_caught(tmp_path, library, _two_sources(None, 'other'))
     assert _values(rows)['omega'] == ('6.0', 'default_ref')
     assert _values(rows)['mean_s2'] == ('2e-05', 'other_ref')
+    # ...and the disagreement is reported, naming both values and who set them
+    assert len(conflicts) == 1
+    conflict = conflicts[0]
+    assert conflict.name == 'omega'
+    assert [v for v, _, _ in conflict.values] == ['6.0', '4.0']
+    message = str(conflict)
+    assert '"s1" (instance "default")' in message and '"s2" (instance "other")' in message
+    assert 'host parameters file' in message
+
+
+@pytest.mark.unit
+def test_instances_that_agree_on_a_global_do_not_warn(tmp_path, library):
+    _, conflicts = _load_caught(tmp_path, library, _two_sources('other', 'other'))
+    assert not conflicts
+
+
+@pytest.mark.unit
+def test_a_global_a_supermodule_instance_sets_is_not_a_conflict_of_its_submodules(tmp_path,
+                                                                                  library):
+    # pair's submodules' instances set omega to 4.0 (a: other) and 6.0 (b: default), but pair's
+    # own instance sets 5.0, which outranks both
+    rows, conflicts = _load_caught(tmp_path, library, _pair_host())
+    assert _values(rows)['omega'][0] == '5.0'
+    assert not conflicts
+
+
+@pytest.mark.unit
+def test_a_supermodule_s_global_used_for_modules_outside_it_warns(tmp_path, library):
+    # pr1 (instance base) sets omega 5.0; pr2 (alt) sets none, so its submodules' instances
+    # chose 4.0 and 6.0 -- but a global is one value for the model, and pr2's modules run at 5.0
+    records = [_rec('pr1', 'pair', 'v1', out=['coll'], instance='base',
+                    per_submodule_outputs={'a': ['coll'], 'b': ['coll']}),
+               _rec('pr2', 'pair', 'v1', out=['coll'], instance='alt',
+                    per_submodule_outputs={'a': ['coll'], 'b': ['coll']}),
+               _rec('coll', 'collector', inp=['pr1', 'pr2'])]
+    rows, conflicts = _load_caught(tmp_path, library, records)
+    assert _values(rows)['omega'][0] == '5.0'
+    assert len(conflicts) == 1
+    assert [v for v, _, _ in conflicts[0].values] == ['5.0', '4.0', '6.0']
+    message = str(conflicts[0])
+    assert 'supermodule "pr1" (instance "base")' in message and '"pr2_a"' in message
+    # pr1's own submodules (pr1_a: 4.0, pr1_b: 6.0) are overridden on purpose: not listed
+    assert '"pr1_a"' not in message and '"pr1_b"' not in message
+
+
+@pytest.mark.unit
+def test_the_host_file_settles_a_conflicting_global():
+    from libcuflynx.utilities.module_instances import reissue_warnings, warn_conflicting_globals
+    settings = [('T', '295.15', 'kelvin', '"a"', 'a'), ('T', '310', 'kelvin', '"b"', 'b')]
+    for settled, expected in (((), 1), ({'T'}, 0)):
+        with warnings.catch_warnings(record=True) as held:
+            warnings.simplefilter('always')
+            warn_conflicting_globals(settings, 'm')
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            reissue_warnings(held, settled=settled)
+        assert len(_conflicts(caught)) == expected
+    # different units: most likely two quantities sharing a name
+    with warnings.catch_warnings(record=True) as held:
+        warnings.simplefilter('always')
+        warn_conflicting_globals([('T', '295.15', 'kelvin', '"cell"', 'cell'),
+                                  ('T', '1', 'second', '"clock"', 'clock')], 'm')
+    assert 'units differ' in str(_conflicts(held)[0])
+    # an outer supermodule overriding the global of one nested in it is not a conflict
+    with warnings.catch_warnings(record=True) as held:
+        warnings.simplefilter('always')
+        warn_conflicting_globals([('T', '1', 'K', 'outer', 'h'), ('T', '2', 'K', 'inner', 'h_soma')],
+                                 'm')
+    assert not _conflicts(held)
 
 
 @pytest.mark.unit

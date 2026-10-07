@@ -43,6 +43,10 @@ constant at the end of its experiment), and `save_prediction_data` writes
 and data at the observation times. Prediction items without a `value` behave as before. See
 `tutorial/docs/parameter-identification.md`.
 
+The `std` is optional; without it there are no z-scores. When given, it is checked like a data
+item's: one finite positive number for a constant, and for a series one such number or one per
+point. A zero, negative or wrong-length `std` is a parse error naming the item.
+
 ### Added — module versions and instances
 
 A module library can lay a module version out as `<module_type>/versions/<version>/` with named
@@ -56,6 +60,13 @@ parameters: the host parameters file wins, then a supermodule's instance, then i
 too, named like `default_parameters` (`{var}_{submodule}` or global); `default_parameters` still
 works. An unknown instance is an error that lists the version's instances. Models without
 instances generate byte-identical CellML.
+
+A global constant is one value for the whole model, so when instances set one to different values
+the first is used and a `ConflictingGlobalWarning` names each value, its units and the record that
+set it. The warning is skipped when the host parameters file sets the global, and when a
+supermodule's instance overrides the instances inside it. It also says when the units differ: two
+modules then most likely mean different quantities by one name (in the module library, `T` is a
+temperature in the ion channels and a period in the cardiac clock).
 
 obs_data files accept a top-level `"obs_data_name"` (returned as `obs_data_name` by
 `parse_obs_data_json`); a file in `instances/<name>/` whose `obs_data_name` is not `<name>` is

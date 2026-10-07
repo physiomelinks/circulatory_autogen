@@ -3320,6 +3320,30 @@ def validate_params_to_change(protocol_info):
         )
 
 
+def _held_out_std(entry, entry_idx):
+    """A prediction item's held-out std, checked like a data item's: one finite
+    positive number for a constant; for a series, one such number (applied to every
+    point) or a list as long as the series, every entry finite and positive."""
+    where = f"prediction_items[{entry_idx}] ({entry.get('data_item_name')!r})"
+    std = entry['std']
+    if entry['data_type'] == 'constant':
+        if isinstance(std, (list, tuple, np.ndarray)):
+            raise ValueError(f"{where}: a constant's 'std' is one number, got a list.")
+        stds = np.array([float(std)])
+    else:
+        n = np.atleast_1d(np.asarray(entry['value'], dtype=float)).size
+        stds = np.atleast_1d(np.asarray(std, dtype=float)).ravel()
+        if stds.size == 1:
+            stds = np.full(n, stds[0])
+        elif stds.size != n:
+            raise ValueError(f"{where}: 'std' has {stds.size} entries but the series "
+                             f"has {n} points; give one number or one per point.")
+    if not np.all(np.isfinite(stds)) or np.any(stds <= 0.0):
+        raise ValueError(f"{where}: every 'std' entry must be finite and > 0, got "
+                         f"{std!r}.")
+    return float(stds[0]) if entry['data_type'] == 'constant' else stds.tolist()
+
+
 class ObsAndParamDataParser(object):
     def __init__(self, modifier_funcs_external_path=None):
         # Optional external file of user modifier functions (issue #383), threaded from the
@@ -3730,6 +3754,8 @@ class ObsAndParamDataParser(object):
                         if entry['data_type'] == 'series' and entry['obs_dt'] is None:
                             raise ValueError(
                                 f"prediction_items[{entry_idx}] is a series with a value, so it needs obs_dt")
+                        if entry['std'] is not None:
+                            entry['std'] = _held_out_std(entry, entry_idx)
                     prediction_info['data_types'].append(entry['data_type'])
                     prediction_info['values'].append(entry['value'])
                     prediction_info['stds'].append(entry['std'])

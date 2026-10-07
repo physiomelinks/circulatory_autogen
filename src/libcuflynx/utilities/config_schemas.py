@@ -662,13 +662,19 @@ def load_expanded_vessel_records(path, supermodule_registry=None, component_regi
     ``component_registry`` (``load_component_registry``) is given, every expanded record's
     module instance's, in that order of precedence, each name once.
     '''
-    from libcuflynx.utilities.module_instances import component_instance_rows, first_rows_win
+    from libcuflynx.utilities.module_instances import (component_instance_rows, first_rows_win,
+                                                       warn_conflicting_globals)
     from libcuflynx.utilities.supermodules import expand_supermodules
+    # the globals every instance sets, in precedence order, checked together: a supermodule's
+    # value used for a module outside it is as much a conflict as two siblings disagreeing
+    settings = []
     records, extra_param_rows = expand_supermodules(read_module_array_records(path),
-                                                    supermodule_registry or {}, source=str(path))
+                                                    supermodule_registry or {}, source=str(path),
+                                                    settings=settings)
     if component_registry is not None:
-        extra_param_rows = first_rows_win(
-            extra_param_rows + component_instance_rows(records, component_registry, str(path)))
+        extra_param_rows = first_rows_win(extra_param_rows + component_instance_rows(
+            records, component_registry, str(path), settings=settings))
+    warn_conflicting_globals(settings, str(path))
     return records, extra_param_rows
 
 

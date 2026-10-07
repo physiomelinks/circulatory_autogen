@@ -29,7 +29,11 @@ them (``ModelParsers.merge_default_parameters``). The order of precedence is
                          > submodule / component instance
 
 and within one tier the first record in the (expanded) module array wins, so a global set by
-several instances is added once.
+several instances is added once. A global is one value for the whole model, so an instance
+that set it to another value than the one used is warned about (``ConflictingGlobalWarning``):
+its module runs at a value it did not choose. The exceptions are a supermodule overriding
+the instances inside it, which is what a supermodule instance is for, and a global the host
+parameters file sets.
 
 A supermodule entry may also live in a version directory with instances. Its instance's rows
 are named ``{var}_{submodule}`` (local) or are globals, like ``default_parameters``, and are
@@ -37,6 +41,7 @@ renamed to ``{var}_{instance}_{submodule}`` (``supermodules.rename_default_param
 '''
 
 import os
+import warnings
 
 import pandas as pd
 
@@ -149,6 +154,68 @@ def instance_parameter_rows(entry, instance, where):
     return instance, read_parameter_rows(path, where, f'instance "{instance}" file')
 
 
+class ConflictingGlobalWarning(UserWarning):
+    '''Module instances set the global constant ``name`` to different values; ``values`` is
+    ``[(value, units, who)]`` in precedence order, the first used.
+    ``ModelParsers.load_model`` drops it when the host parameters file sets ``name``.'''
+
+    def __init__(self, message, name=None, values=()):
+        super().__init__(message)
+        self.name = name
+        self.values = list(values)
+
+
+def _same_value(a, b):
+    try:
+        return float(a) == float(b)
+    except (TypeError, ValueError):
+        return str(a).strip() == str(b).strip()
+
+
+def inside(record, supermodule):
+    '''Whether the expanded record ``record`` comes from the supermodule instance
+    ``supermodule`` (expansion names it ``<supermodule>_<submodule>``, nesting included).'''
+    return record.startswith(supermodule + '_')
+
+
+def warn_conflicting_globals(settings, source):
+    '''One ConflictingGlobalWarning per global in ``settings`` -- ``[(name, value, units, who,
+    record)]`` in precedence order, the first one used -- that a record's instance set to a
+    different value than the one used, unless that record is inside the supermodule whose
+    value is used. Different units are called out: two modules then most likely mean
+    different quantities by one name (``T``, a temperature in one and a period in another).'''
+    by_name = {}
+    for name, value, units, who, record in settings:
+        by_name.setdefault(name, []).append((value, units, who, record))
+    for name, entries in by_name.items():
+        first_value, first_units, first_who, first_record = entries[0]
+        others = [(v, u, w) for v, u, w, record in entries[1:]
+                  if not _same_value(v, first_value) and not inside(record, first_record)]
+        if not others:
+            continue
+        values = [(first_value, first_units, first_who)] + others
+        listed = '; '.join(f'{v} {u} by {w}' for v, u, w in values)
+        clash = ('' if len({u for _, u, _ in values}) == 1 else
+                 f' The units differ too, so these modules may mean different quantities by '
+                 f'"{name}"; one of them needs renaming.')
+        warnings.warn(ConflictingGlobalWarning(
+            f'{source}: the global constant "{name}" is set to different values by module '
+            f'instances ({listed}). The model uses {first_value} {first_units} (the first), so '
+            f'the other modules run at a value their instance did not choose. Set "{name}" in '
+            f'the host parameters file to choose the value for the whole model.{clash}',
+            name, values), stacklevel=3)
+
+
+def reissue_warnings(held, settled=()):
+    '''Re-issues the warnings in ``held`` (a ``catch_warnings(record=True)`` list), except a
+    ``ConflictingGlobalWarning`` for a global in ``settled``: one a higher level of precedence
+    (a supermodule instance, or the host parameters file) sets, which ends the conflict.'''
+    for w in held:
+        if isinstance(w.message, ConflictingGlobalWarning) and w.message.name in settled:
+            continue
+        warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)
+
+
 def global_constants(entry):
     '''The names of ``entry``'s ``global_constant`` variables (variables_and_units kind).'''
     names = set()
@@ -158,18 +225,24 @@ def global_constants(entry):
     return names
 
 
-def component_instance_rows(records, component_registry, source=None):
+def component_instance_rows(records, component_registry, source=None, settings=None):
     '''
-    The instance parameter rows of every record in ``records`` (normalised, expanded vessel
-    records) whose (vessel_type, BC_type) is in ``component_registry`` (see
+    The instance parameter rows of every record in ``records`` (the normalised records of an
+    expanded module array) whose (vessel_type, BC_type) is in ``component_registry`` (see
     ``config_schemas.load_component_registry``), in record order: each row ``{var}`` renamed
     to ``{var}_{record name}``, or kept if ``var`` is a global constant of the module.
 
     A record naming an instance of a type with no config entry is an error; one naming no
     instance of such a type is left to the module-config join to report.
+
+    The globals the instances set are added to ``settings`` (see ``warn_conflicting_globals``)
+    when it is given, for the caller to check with the supermodules'; otherwise they are
+    checked here.
     '''
     source = source or 'module array'
     rows = []
+    check_here = settings is None
+    settings = [] if check_here else settings
     for record in records:
         key = (record['vessel_type'], record['BC_type'])
         instance = record.get('instance')
@@ -181,7 +254,7 @@ def component_instance_rows(records, component_registry, source=None):
                                  f'entry of that type was found, so there is no module library '
                                  f'directory to look for its instances in.')
             continue
-        _, raw = instance_parameter_rows(entry, instance, where)
+        used, raw = instance_parameter_rows(entry, instance, where)
         globals_ = global_constants(entry)
         for row in raw:
             row = dict(row)
@@ -193,7 +266,12 @@ def component_instance_rows(records, component_registry, source=None):
                     f'vessel is the module-array record that uses the instance.')
             if row['variable_name'] not in globals_:
                 row['variable_name'] = f'{row["variable_name"]}_{record["name"]}'
+            else:
+                settings.append((row['variable_name'], row['value'], row['units'],
+                                 f'"{record["name"]}" (instance "{used}")', record['name']))
             rows.append(row)
+    if check_here:
+        warn_conflicting_globals(settings, source)
     return rows
 
 
