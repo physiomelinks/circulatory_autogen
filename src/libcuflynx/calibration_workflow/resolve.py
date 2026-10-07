@@ -9,8 +9,7 @@ from dataclasses import dataclass, field
 from libcuflynx.calibration_workflow import naming
 from libcuflynx.calibration_workflow.spec import WorkflowError
 from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser
-from libcuflynx.utilities.config_schemas import (is_supermodule_entry, load_component_registry,
-                                                 load_supermodule_registry)
+from libcuflynx.utilities.config_schemas import is_supermodule_entry
 from libcuflynx.utilities.module_instances import instances_dir
 from libcuflynx.utilities.module_library import ModuleSources
 
@@ -112,11 +111,14 @@ def resolve_workflow(workflow):
             f'the file\'s "module_library_dirs".')
     inputs = library_inputs(workflow)
     try:
-        config_files = ModuleSources(inputs).config_files
+        sources = ModuleSources(inputs)
     except FileNotFoundError as exc:
         raise WorkflowError(str(exc)) from exc
-    components = load_component_registry(config_files)
-    supermodules = load_supermodule_registry(config_files)
+    config_files = sources.config_files
+    # through ModuleSources, so a type defined in several sources is the one generation uses
+    # (the most specific, with a ModuleShadowWarning), not whichever config file comes last
+    components = sources.component_registry()
+    supermodules = sources.supermodule_registry()
 
     target = _resolve_instance(workflow.target, components, supermodules,
                                f'workflow "{workflow.name}" target', need_parameters=True)

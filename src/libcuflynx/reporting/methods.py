@@ -546,10 +546,11 @@ def target_module_info(resolved):
 
 
 def _supermodule(resolved, sub):
-    from libcuflynx.utilities.config_schemas import load_supermodule_registry
+    from libcuflynx.utilities.module_library import ModuleSources
     registry = getattr(resolved, '_supermodules', None)
     if registry is None:
-        registry = load_supermodule_registry(resolved.config_files)
+        # the sources' registry, shadowed types left out, as the workflow resolved them
+        registry = ModuleSources(resolved.library_inputs).supermodule_registry()
         resolved._supermodules = registry
     return registry.get((sub['vessel_type'], sub['BC_type']))
 

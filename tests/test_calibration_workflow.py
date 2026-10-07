@@ -218,6 +218,25 @@ def test_an_ambiguous_submodule_must_be_named(library):
     assert resolved.steps['fit_a'].path == 'A2'
 
 
+@pytest.mark.unit
+def test_a_type_in_two_libraries_resolves_to_the_one_generation_uses(library, tmp_path):
+    """A (module_type, version) defined in two module sources is taken from the most specific
+    one (the first module_library_dir), as generation takes it, with a ModuleShadowWarning. The
+    workflow read every config file into one registry before, so the copy it resolved could
+    differ from the copy generation used."""
+    import shutil
+    from libcuflynx.utilities.module_library import ModuleShadowWarning
+    first = str(tmp_path / 'first' / 'modules')
+    shutil.copytree(library['modules'], first)
+    with open(library['twin_split']) as f:
+        raw = json.load(f)
+    raw['module_library_dirs'] = [first, library['modules']]
+    with pytest.warns(ModuleShadowWarning):
+        resolved = resolve_workflow(parse_workflow(raw, path=library['twin_split']))
+    assert resolved.target.entry['config_path'].startswith(first)
+    assert all(step.instance.entry['config_path'].startswith(first) for step in resolved.steps.values())
+
+
 # --------------------------------------------------------------------------------------------
 # stored distributions and joint priors (no simulation)
 # --------------------------------------------------------------------------------------------
