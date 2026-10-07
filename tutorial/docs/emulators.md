@@ -40,12 +40,12 @@ without loading it, so a normal run does not pay torch's import time.
     **Pin a CPU torch.** Left alone, pip installs the CUDA build and its ~2.5 GB of `nvidia-*`
     wheels. On a machine without a GPU:
 
-    ```bash
-    pip install torch==2.12.1+cpu --index-url https://download.pytorch.org/whl/cpu
-    pip install "autoemulate>=2.1,<3" --extra-index-url https://download.pytorch.org/whl/cpu
-    ```
+```bash
+  pip install torch==2.12.1+cpu --index-url https://download.pytorch.org/whl/cpu
+  pip install "autoemulate>=2.1,<3" --extra-index-url https://download.pytorch.org/whl/cpu
+```
 
-    **autoemulate 2.1.2 cannot sit alongside torch ≥ 2.13.** Its `harmonic` dependency pins
+**autoemulate 2.1.2 cannot sit alongside torch ≥ 2.13.** Its `harmonic` dependency pins
     `setuptools==68.0.0` while torch 2.13 requires `setuptools>=77.0.3`, so pip reports
     `ResolutionImpossible`. Pinning torch to 2.12.x (as above) resolves it. Without a pin, pip
     silently backtracks through several 500 MB torch wheels looking for a combination that works.
