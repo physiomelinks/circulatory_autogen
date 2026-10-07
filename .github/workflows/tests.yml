@@ -32,6 +32,21 @@ jobs:
     
     steps:
     - uses: actions/checkout@v4
+
+    # The module-library tests (tests/test_module_instances.py) run against the real
+    # circulatory-autogen-modules, at the commit pinned in tests/MODULE_LIBRARY_REF. Only its
+    # modules/ directory is needed.
+    - name: Read the pinned module library commit
+      id: module-library
+      run: echo "ref=$(grep -v '^#' tests/MODULE_LIBRARY_REF | grep -m1 .)" >> "$GITHUB_OUTPUT"
+
+    - name: Check out the module library
+      uses: actions/checkout@v4
+      with:
+        repository: physiomelinks/circulatory-autogen-modules
+        ref: ${{ steps.module-library.outputs.ref }}
+        path: _module_library
+        sparse-checkout: modules
     
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
@@ -47,6 +62,10 @@ jobs:
     
     - name: Run tests (Myokit-first, skip OpenCOR-only)
       id: pytest
+      env:
+        CUFLYNX_MODULE_LIBRARY: ${{ github.workspace }}/_module_library/modules
+        # a missing library fails these tests rather than skipping them green
+        CUFLYNX_REQUIRE_MODULE_LIBRARY: "1"
       run: |
         # Run non-MPI suite, excluding OpenCOR-specific tests.
         pytest tests/ -v -m "not need_opencor and not mpi" --tb=short --junitxml=junit.xml

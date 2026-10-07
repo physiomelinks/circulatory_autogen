@@ -559,37 +559,36 @@ def _ap_thresholds(t, V, peak_idxs, dV_dt_thresh):
 
 
 @series_to_constant
-def mean_AP_threshold(t, V, series_output=False, spike_min_thresh=None, distance=None, dV_dt_thresh=10e3):
-    """
-    This function calculates the mean action potential threshold
-    using the peak detection algorithm from scipy.
-    It finds the peaks in the voltage signal and then 
-    moves back to pre AP (approximately) It then moves foreward until
-    dV/dt is greater than dV_dt_thresh, default is 10 mV/ms (10e3 mV/s) from platkiewicz2010Threshold.
+def mean_AP_threshold(t, V, series_output=False, spike_min_thresh=None, distance=None, dV_dt_thresh=10e3,
+                      start_frac=0.0, end_frac=1.0):
+    """Mean action-potential threshold: the voltage at which dV/dt first exceeds ``dV_dt_thresh``
+    ahead of each peak (default 10 mV/ms, 10e3 mV/s; Platkiewicz & Brette 2010).
+
+    Peaks are found with scipy's ``find_peaks`` above ``spike_min_thresh``; give one (e.g. -10 mV),
+    or every ripple counts as a peak. The thresholds come from :func:`_ap_thresholds`, the walk
+    :func:`V_plateau` also uses, so the two observables agree on where an AP starts.
+
+    ``start_frac`` / ``end_frac`` restrict it to a window, as fractions of the trace, the same way
+    :func:`calc_spike_count_windowed` does; the default is the whole trace.
+
+    With no AP in the window -- or peaks with no upstroke fast enough to have a threshold, as in
+    depolarisation block -- there is no threshold, and the mean voltage of the window is returned.
+    That stays near the data's value scale, so a cost keeps a usable gradient towards firing. (A
+    missing threshold used to return 9999, which swamped every other term of a cost.)
 
     # TODO this won't work with noise
     """
-            
     if series_output:
         return V
-    # set distance = 5 to make sure it doesn't count a peak as two
-    peak_idxs, peak_properties = find_peaks(V, height=spike_min_thresh, distance=distance)
-    # TODO maybe check peak properties here
-    if len(peak_idxs) < 1:
-        # there are no peaks, so set value to mean of the voltage
-        threshold = mb.mean(V)
-    else:
-        thresholds = [v for _, v in _ap_thresholds(t, V, peak_idxs, dV_dt_thresh)
-                      if v is not None]
-
-        if len(thresholds) == 0:
-            # no thresholds found, exit
-            print("no thresholds found, setting cost to large")
-            threshold = 9999
-        else:
-            threshold = mb.mean(thresholds)
-
-    return threshold
+    start_idx = int(start_frac * (len(t) - 1))
+    end_idx = int(end_frac * (len(t) - 1)) + 1
+    t, V = t[start_idx:end_idx], V[start_idx:end_idx]
+    peak_idxs, _ = find_peaks(V, height=spike_min_thresh, distance=distance)
+    thresholds = [v for _, v in _ap_thresholds(t, V, peak_idxs, dV_dt_thresh) if v is not None] \
+        if len(peak_idxs) else []
+    if not thresholds:
+        return mb.mean(V)
+    return mb.mean(thresholds)
 
 @series_to_constant
 def mean_peak_to_trough_time(t, V, series_output=False, spike_min_thresh=None, distance=None):

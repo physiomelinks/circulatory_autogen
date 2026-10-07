@@ -78,6 +78,10 @@ constant at the end of its experiment), and `save_prediction_data` writes
 and data at the observation times. Prediction items without a `value` behave as before. See
 `tutorial/docs/parameter-identification.md`.
 
+The `std` is optional; without it there are no z-scores. When given, it is checked like a data
+item's: one finite positive number for a constant, and for a series one such number or one per
+point. A zero, negative or wrong-length `std` is a parse error naming the item.
+
 ### Added — module versions and instances
 
 A module library can lay a module version out as `<module_type>/versions/<version>/` with named
@@ -91,6 +95,13 @@ parameters: the host parameters file wins, then a supermodule's instance, then i
 too, named like `default_parameters` (`{var}_{submodule}` or global); `default_parameters` still
 works. An unknown instance is an error that lists the version's instances. Models without
 instances generate byte-identical CellML.
+
+A global constant is one value for the whole model, so when instances set one to different values
+the first is used and a `ConflictingGlobalWarning` names each value, its units and the record that
+set it. The warning is skipped when the host parameters file sets the global, and when a
+supermodule's instance overrides the instances inside it. It also says when the units differ: two
+modules then most likely mean different quantities by one name (in the module library, `T` is a
+temperature in the ion channels and a period in the cardiac clock).
 
 obs_data files accept a top-level `"obs_data_name"` (returned as `obs_data_name` by
 `parse_obs_data_json`); a file in `instances/<name>/` whose `obs_data_name` is not `<name>` is
@@ -197,6 +208,36 @@ The docs said a `user_units.cellml` in `external_modules_dir` was picked up; it 
 Every `*units.cellml` there (and in `module_library_dirs`) is now merged into the generated
 units file. A unit defined identically in several files is written once; one defined
 differently in two files raises a `ValueError` naming both files.
+
+### Fixed
+
+- `model_type: python` (and the CasADi / AADC variants) now defines every helper libCellML's
+  Python profile can emit: `eq_func`, `neq_func`, `or_func`, `xor_func`, `not_func`, `min` and
+  the reciprocal trig functions `sec` ... `acoth`. A model using `<eq/>`, `<or/>`, `<min/>` etc.
+  used to fail at run time with `NameError: name 'eq_func' is not defined` (#526).
+- A `sum` multi-port (e.g. a `volume_sum` vessel) with no inputs connected is now 0, with a
+  warning naming the vessel, and is still mapped to the vessel's port variable. Generation used
+  to fail with `IndexError: list index out of range` (#525).
+- The built-in constant boundary conditions (`inlet_pressure`, `outlet_pressure`, `inlet_flow`,
+  `outlet_flow` with BC_type `nn_constant`) list their port's flow / pressure variable in
+  `variables_and_units`, so they can be connected. Generation used to stop with "the port variable
+  v is not a variable for vessel type: inlet_pressure" (#529).
+- Generic junctions (`Min_junction`, `Nout_junction`, `MinNout_junction`) now include every
+  neighbour with a `vessel_port` facing the junction node, taking its flow and pressure from that
+  port, instead of skipping any neighbour whose BC_type starts with `nn`. A junction fed directly by
+  boundary conditions such as `inlet_flow nn_constant` used to fail with "Min_junction junc has NO
+  other vessels connected to its inlet node". Existing models generate byte-identical CellML (#524).
+- Unit converter components are named after the connection they sit on,
+  `unit_converter_[from module]_[from variable]_to_[to module]_[to variable]`, with one per
+  variable pair. They were named `unit_converter_[from units]_to_[to units]`, so a module output
+  shared (multi_port `"True"`) with two modules that both needed the same conversion gave two
+  components with the same name, and libCellML / Myokit rejected the model ("Component name must
+  be unique within model").
+- A venous module fed by a terminal takes the terminal flow into `v_in` through the
+  `terminal_venous_connection` when one of its *other* entrance ports has a list-form
+  multi_port, e.g. a separate `blood_uptake_port` with `multi_port: "sum"`. Only a list-form
+  multi_port on the module's `vessel_port` entrance (which sums the terminal flow itself) skips
+  that mapping now; before, any list-form entrance port did, and `v_in` was left unconnected.
 
 ## 0.7.3 — 2026-09-05
 

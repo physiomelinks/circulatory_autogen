@@ -291,7 +291,7 @@ Instance parameters are defaults. A name that `[file_prefix]_parameters.csv` set
 3. a supermodule's `default_parameters`;
 4. the instance of a submodule, or of an ordinary module.
 
-Within one level, the first record in the (expanded) module array wins, so a global set by several instances is added once.
+Within one level, the first record in the (expanded) module array wins, so a global set by several instances is added once. A global is one value for the whole model, so if instances set it to different values you get a `ConflictingGlobalWarning` naming each value, its units and the record that set it: the modules after the first run at a value their instance did not choose. Set the global in `[file_prefix]_parameters.csv` to choose it, which also silences the warning. A supermodule instance overriding the instances inside it is not warned about. If the units differ too, the modules most likely mean different quantities by one name, and one of them needs renaming.
 
 An instance that does not exist is an error. The error names the version directory and lists the instances it has. Naming an instance of a module whose config has no `instances/` directory next to it is an error too.
 
