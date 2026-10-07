@@ -426,6 +426,14 @@ class EmulatorTrainer:
         if models is not None:
             kwargs['models'] = models
 
+        tuning = self._tuning_metric(y_scale, y_train)
+        if tuning is not None:
+            # Both the hyperparameter search and the choice between model families read
+            # this. evaluation_metrics keeps r2 alongside it so the familiar number is
+            # still printed and still stored -- only what is *selected on* changes.
+            kwargs['tuning_metric'] = tuning
+            kwargs['evaluation_metrics'] = [tuning, 'r2', 'rmse']
+
         # Imported here, not at module scope: internal_emulators asks this module
         # for the emulator list when it builds its two_phase_<name> helpers, so a
         # top-level import either way closes the cycle.
@@ -452,7 +460,8 @@ class EmulatorTrainer:
                       f'{counts["smooth"]} smooth')
             model, result = fit_multi_phase(
                 x_train, y_train, x_test, y_test, base_name,
-                _load_autoemulate(), kwargs, kinds)
+                _load_autoemulate(), kwargs, kinds,
+                settings=self._phase_settings(seed, tuning))
             validation = _validation_report(model, x_test, y_test, x_scale, y_scale)
             return (model, validation, multi_phase_name(base_name), x_scale, y_scale)
 
@@ -468,7 +477,8 @@ class EmulatorTrainer:
             kwargs.pop('models', None)
             model, result = fit_two_phase(
                 x_train, y_train, x_test, y_test, base_name,
-                _load_autoemulate(), kwargs)
+                _load_autoemulate(), kwargs,
+                settings=self._phase_settings(seed, tuning))
             validation = _validation_report(model, x_test, y_test, x_scale, y_scale)
             return (model, validation, two_phase_name(base_name), x_scale, y_scale)
 
@@ -476,6 +486,67 @@ class EmulatorTrainer:
         result = emulation.best_result()
         validation = _validation_report(result.model, x_test, y_test, x_scale, y_scale)
         return (result.model, validation, _result_model_name(result), x_scale, y_scale)
+
+    def _phase_settings(self, seed, tuning=None):
+        """Settings the classifier halves need, which autoemulate must not receive.
+
+        Kept out of ``kwargs``: that dict is splatted into ``AutoEmulate(...)``, and an
+        unknown keyword there is a TypeError rather than a warning. These go down the
+        separate ``settings`` argument the phased fitters take.
+
+        ``feature_weights`` is the cost metric's per-feature multiplier when there is
+        one, so that a boundary's threshold is calibrated against the error the *cost*
+        would see rather than against raw squared error -- an error in a tight-sigma
+        observable should move the threshold more than the same error in a loose one.
+        """
+        return {
+            'classifier_n_iter': int(self._setting('classifier_n_iter', 4) or 1),
+            'n_splits': int(self._setting('n_splits', 5)),
+            'random_seed': int(seed),
+            'feature_weights': getattr(tuning, 'weights', None),
+        }
+
+    def _tuning_metric(self, y_scale, y_train):
+        """The metric autoemulate should select on, or None to leave it at R2.
+
+        ``emulator_settings.tuning_metric`` -- ``r2`` (the default, so no existing run
+        changes) or ``cost``, which measures each feature's error in units of its own
+        obs_data sigma and weights it the way the cost does. See
+        ``emulators/cost_metric.py`` for why R2 is the wrong currency for an object
+        whose only job is to drive a cost.
+
+        Anything that stops the cost metric being built -- an obs_info without
+        per-constant sigmas, every feature unweighted -- degrades to R2 with a reason
+        printed, rather than failing a training run that would otherwise have worked.
+        """
+        choice = str(self._setting('tuning_metric', 'r2') or 'r2').strip().lower()
+        if choice in ('r2', 'default', ''):
+            return None
+        if choice not in ('cost', 'cost_weighted_error'):
+            raise ValueError(
+                f"emulator_settings.tuning_metric is {choice!r}; expected 'r2' or "
+                f"'cost'. autoemulate's own names (rmse, mse, mae, crps, msll) are "
+                f"not accepted here because none of them is in cost units either.")
+
+        from libcuflynx.emulators.cost_metric import build_metric  # noqa: PLC0415
+
+        metric, notes = build_metric(self.pid, y_scale, y_train=y_train)
+        if metric is None:
+            if self.rank == 0:
+                print(f'[emulator] tuning_metric: cost was asked for but cannot be '
+                      f'built ({"; ".join(notes)}); selecting on R2 instead')
+            return None
+        if notes and self.rank == 0:
+            labels = self.feature_labels
+            named = ', '.join(str(labels[i]) if i < len(labels) else f'feature {i}'
+                              for i in notes[:4])
+            more = '' if len(notes) <= 4 else f' and {len(notes) - 4} more'
+            print(f'[emulator] tuning_metric: cost, in sigma units. '
+                  f'{len(notes)} feature(s) declare no sigma and are weighted by their '
+                  f'design spread instead ({named}{more}).')
+        elif self.rank == 0:
+            print('[emulator] tuning_metric: cost, in sigma units')
+        return metric
 
     def output_directory(self):
         """Where this trainer's bundle is written, and read back from when reusing samples."""

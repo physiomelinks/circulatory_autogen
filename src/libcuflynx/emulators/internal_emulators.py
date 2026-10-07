@@ -154,7 +154,7 @@ class TwoPhaseEmulator:
 
 
 def fit_two_phase(x_train, y_train, x_test, y_test, base_name, autoemulate_cls,
-                  fit_kwargs, floor_share=DEFAULT_FLOOR_SHARE):
+                  fit_kwargs, floor_share=DEFAULT_FLOOR_SHARE, settings=None):
     """Fit the classifier and both regressors. Returns ``(model, base_result_name)``.
 
     Two autoemulate runs rather than one per feature: the second is fitted on the
@@ -182,7 +182,7 @@ def fit_two_phase(x_train, y_train, x_test, y_test, base_name, autoemulate_cls,
     labels = np.column_stack([
         ~np.isclose(y_train[:, index], floor_value[index]) for index in floor_indices])
 
-    classifier = _fit_classifier(x_train, labels)
+    classifier = _fit_classifier(x_train, labels, settings)
 
     active_rows = labels.any(axis=1)
     active_model = None
@@ -198,7 +198,227 @@ def fit_two_phase(x_train, y_train, x_test, y_test, base_name, autoemulate_cls,
             base_result)
 
 
-def _fit_classifier(x, labels):
+#: Candidate configurations tried per classifier, the first of which is always
+#: sklearn's own defaults -- so ``classifier_n_iter: 1`` reproduces the untuned
+#: behaviour exactly and any regression is attributable.
+DEFAULT_CLASSIFIER_N_ITER = 4
+
+#: The space the remaining candidates are drawn from. Deliberately small: a
+#: classifier is fitted per count column and per jump group, so a grid that looks
+#: modest is multiplied by tens of fits and folds. These three knobs are the ones
+#: that move a gradient-boosted classifier on a few hundred to a few thousand rows.
+_CLASSIFIER_SPACE = {
+    'n_estimators': (50, 100, 200, 400),
+    'learning_rate': (0.03, 0.1, 0.3),
+    'max_depth': (2, 3, 5),
+}
+
+#: Thresholds tried when calibrating a boundary. 0.5 is included and preferred on a
+#: tie, so a classifier with nothing to gain keeps the textbook answer.
+_THRESHOLD_GRID = np.round(np.arange(0.05, 0.96, 0.05), 3)
+
+#: A calibrated threshold has to beat 0.5 by more than this share of the error to be
+#: adopted. Without it the threshold chases noise in a small held-out set and moves
+#: for no measurable gain.
+THRESHOLD_MIN_GAIN = 0.02
+
+#: ...and the error at 0.5 has to be this large relative to the targets themselves
+#: before a relative gain means anything. A relative test alone is not enough: where
+#: both branches already predict the truth, the error at 0.5 is near zero and a 2%
+#: improvement on near zero is reachable by noise, so the threshold would wander for
+#: nothing. Below this the boundary is not worth calibrating at all.
+THRESHOLD_NEGLIGIBLE = 1e-3
+
+
+def _classifier_candidates(n_iter, seed):
+    """``n_iter`` configurations, defaults first, then seeded random draws.
+
+    Random rather than a grid for the same reason autoemulate samples the regressors'
+    space: at this budget a grid spends most of it varying one axis.
+    """
+    candidates = [{}]
+    if n_iter <= 1:
+        return candidates
+    rng = np.random.default_rng(seed)
+    seen = {()}
+    while len(candidates) < n_iter:
+        draw = {key: values[int(rng.integers(len(values)))]
+                for key, values in _CLASSIFIER_SPACE.items()}
+        key = tuple(sorted(draw.items()))
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append(draw)
+    return candidates
+
+
+def _log_loss_cv(cls, x, labels, params, n_splits, seed):
+    """Mean cross-validated log loss, or None when it cannot be computed.
+
+    Log loss rather than accuracy, and deliberately: accuracy on these columns is
+    dominated by whichever class is common -- most draws do not spike -- and a
+    classifier that always answers "floored" can score well on it while being useless.
+    Log loss is a proper scoring rule, so it rewards *calibrated* probabilities, which
+    is what the threshold calibration below then has something to work with.
+    """
+    from sklearn.metrics import log_loss
+    from sklearn.model_selection import StratifiedKFold
+
+    labels = np.asarray(labels)
+    classes, counts = np.unique(labels, return_counts=True)
+    if classes.size < 2:
+        return None
+    folds = int(min(n_splits, counts.min()))
+    if folds < 2:
+        return None
+
+    scores = []
+    splitter = StratifiedKFold(n_splits=folds, shuffle=True, random_state=seed)
+    for train_idx, test_idx in splitter.split(x, labels):
+        if np.unique(labels[train_idx]).size < 2:
+            return None
+        try:
+            model = cls(random_state=0, **params)
+            model.fit(x[train_idx], labels[train_idx])
+            proba = model.predict_proba(x[test_idx])
+            scores.append(log_loss(labels[test_idx], proba, labels=list(classes)))
+        except Exception:  # noqa: BLE001 - a candidate that will not fit simply loses
+            return None
+    return float(np.mean(scores)) if scores else None
+
+
+def _tune_classifier(cls, x, labels, settings=None):
+    """Fit ``cls`` with the best of a few configurations, by cross-validated log loss.
+
+    The classifier halves were previously fitted at sklearn's defaults with no search
+    at all, while the regression halves got ``n_iter`` tuned draws each. On an obs_data
+    where half the items are counts, the untuned half is the one doing most of the
+    damage.
+
+    Every failure degrades to the default fit rather than raising: one column must
+    never end a training run, and an untuned classifier is what the previous behaviour
+    was anyway.
+    """
+    settings = settings or {}
+    n_iter = int(settings.get('classifier_n_iter', DEFAULT_CLASSIFIER_N_ITER) or 1)
+    n_splits = int(settings.get('n_splits', 5) or 5)
+    seed = int(settings.get('random_seed', 0) or 0)
+
+    x = np.asarray(x, dtype=float)
+    labels = np.asarray(labels)
+    best_params, best_score = {}, None
+    if n_iter > 1:
+        for params in _classifier_candidates(n_iter, seed):
+            score = _log_loss_cv(cls, x, labels, params, n_splits, seed)
+            if score is not None and (best_score is None or score < best_score):
+                best_params, best_score = params, score
+
+    try:
+        model = cls(random_state=0, **best_params)
+        model.fit(x, labels)
+        return model
+    except Exception as error:  # noqa: BLE001
+        if best_params:
+            print(f'[emulator] a tuned classifier could not be refitted '
+                  f'({type(error).__name__}: {error}); using the defaults')
+            model = cls(random_state=0)
+            model.fit(x, labels)
+            return model
+        raise
+
+
+def _positive_proba(model, x):
+    """P(class 1) from a fitted binary classifier, or None if it cannot say.
+
+    A constant column has no probability to give, and a model without
+    ``predict_proba`` cannot be thresholded -- both mean "no calibration", not an
+    error.
+    """
+    proba = getattr(model, 'predict_proba', None)
+    if proba is None:
+        return None
+    try:
+        values = np.asarray(proba(np.asarray(x, dtype=float)), dtype=float)
+    except Exception:  # noqa: BLE001
+        return None
+    if values.ndim != 2 or values.shape[1] != 2:
+        return None
+    return values[:, 1]
+
+
+def _calibrate_threshold(model, x_test, y_test, members, values_false, values_true,
+                         weights=None, min_rows=8):
+    """The decision threshold that minimises the assembled prediction's own error.
+
+    0.5 is the right threshold when the two mistakes cost the same. Here they do not:
+    calling a floored row active puts a regressor's value where a floor belongs, and
+    calling an active row floored puts the floor where a magnitude belongs, and those
+    are different distances. The asymmetry is a property of the data, not something to
+    be guessed -- so it is measured, by assembling the prediction the emulator would
+    actually make at each candidate threshold and taking the one with the smallest
+    held-out error.
+
+    This is free: both branches' predictions are already computed, so a candidate
+    costs one comparison and one mean.
+
+    Returns 0.5 whenever there is no information to move it -- no probabilities, too
+    few held-out rows, one class only -- and only moves it when the gain clears
+    :data:`THRESHOLD_MIN_GAIN`, so it does not chase noise.
+    """
+    proba = _positive_proba(model, x_test)
+    if proba is None or len(proba) < min_rows:
+        return 0.5, None
+
+    truth = np.asarray(y_test, dtype=float)[:, members]
+    false_branch = np.broadcast_to(np.asarray(values_false, dtype=float),
+                                   truth.shape)
+    true_branch = np.broadcast_to(np.asarray(values_true, dtype=float), truth.shape)
+
+    scale = np.ones(len(members))
+    if weights is not None:
+        picked = np.asarray(weights, dtype=float).reshape(-1)[list(members)]
+        scale = np.where(np.isfinite(picked) & (picked > 0), picked, 1.0)
+
+    def score(threshold):
+        mask = proba >= threshold
+        pred = np.where(mask[:, None], true_branch, false_branch)
+        err = ((pred - truth) * scale) ** 2
+        return float(np.nanmean(err)) if np.isfinite(err).any() else float('inf')
+
+    baseline = score(0.5)
+    if not np.isfinite(baseline) or baseline == 0.0:
+        return 0.5, None
+    # Scale the "is this worth doing" test against the targets, not against the error:
+    # two branches that both already predict the truth leave a near-zero baseline, on
+    # which any relative gain is noise.
+    reference = float(np.nanmean((truth * scale) ** 2))
+    if np.isfinite(reference) and baseline <= THRESHOLD_NEGLIGIBLE * reference:
+        return 0.5, None
+    scored = [(score(t), float(t)) for t in _THRESHOLD_GRID]
+    best_score, best = min(scored, key=lambda pair: (pair[0], abs(pair[1] - 0.5)))
+    if not np.isfinite(best_score) or best_score > baseline * (1.0 - THRESHOLD_MIN_GAIN):
+        return 0.5, None
+    return best, (baseline - best_score) / baseline
+
+
+class _Thresholded:
+    """A binary classifier answered at a calibrated threshold rather than at 0.5."""
+
+    def __init__(self, model, threshold=0.5):
+        self.model = model
+        self.threshold = float(threshold)
+
+    def predict(self, x):
+        proba = _positive_proba(self.model, x)
+        if proba is None:
+            return np.asarray(self.model.predict(x)).astype(bool)
+        return proba >= self.threshold
+
+    def predict_proba(self, x):
+        return self.model.predict_proba(x)
+
+
+def _fit_classifier(x, labels, settings=None):
     """The boundary. One gradient-boosted classifier per floored feature.
 
     sklearn rather than autoemulate: autoemulate has no classifier at all, and this
@@ -209,16 +429,14 @@ def _fit_classifier(x, labels):
     from sklearn.ensemble import GradientBoostingClassifier
 
     return _MultiOutputBinary([
-        _fit_column(GradientBoostingClassifier, x, labels[:, column])
+        _fit_column(GradientBoostingClassifier, x, labels[:, column], settings)
         for column in range(labels.shape[1])])
 
 
-def _fit_column(cls, x, column):
+def _fit_column(cls, x, column, settings=None):
     if column.all() or not column.any():
         return _Constant(bool(column.all()))
-    model = cls(random_state=0)
-    model.fit(x, column.astype(int))
-    return model
+    return _tune_classifier(cls, x, column.astype(int), settings)
 
 
 class _Constant:
@@ -550,7 +768,7 @@ class MultiPhaseEmulator:
 
 
 def fit_multi_phase(x_train, y_train, x_test, y_test, base_name, autoemulate_cls,
-                    fit_kwargs, kinds):
+                    fit_kwargs, kinds, settings=None):
     """Fit the base regressor, the count classifiers and the per-branch regressors.
 
     ``kinds`` comes from :func:`classify_features` on the *unscaled* targets; ``y_train``
@@ -575,15 +793,15 @@ def fit_multi_phase(x_train, y_train, x_test, y_test, base_name, autoemulate_cls
     count_columns = [int(c) for c in np.flatnonzero(kinds == 'count')]
     count_models = {}
     for column in count_columns:
-        count_models[column] = _fit_expected_count(x_train, y_train[:, column])
+        count_models[column] = _fit_expected_count(x_train, y_train[:, column], settings)
 
     jump_groups = _fit_jump_groups(x_train, y_train, y_test, x_test, kinds,
                                    base_name, autoemulate_cls, fit_kwargs,
-                                   base_result.model)
+                                   base_result.model, settings)
 
     floor_groups = _fit_floor_groups(x_train, y_train, y_test, x_test, kinds,
                                      base_name, autoemulate_cls, fit_kwargs,
-                                     base_result.model)
+                                     base_result.model, settings)
     count_columns += [int(c) for c in np.flatnonzero(kinds == 'floored_count')]
 
     return (MultiPhaseEmulator(base_result.model, kinds, count_models, jump_groups,
@@ -592,7 +810,7 @@ def fit_multi_phase(x_train, y_train, x_test, y_test, base_name, autoemulate_cls
             base_result)
 
 
-def _fit_expected_count(x, column):
+def _fit_expected_count(x, column, settings=None):
     """One multiclass classifier over the values this count takes."""
     from sklearn.ensemble import GradientBoostingClassifier
 
@@ -602,8 +820,7 @@ def _fit_expected_count(x, column):
     # Fitted on indices into `values`, not on the values themselves -- see _ExpectedCount.
     labels = np.searchsorted(values, column)
     try:
-        model = GradientBoostingClassifier(random_state=0)
-        model.fit(x, labels)
+        model = _tune_classifier(GradientBoostingClassifier, x, labels, settings)
     except Exception as error:  # noqa: BLE001 - one column must not end the run
         print(f'[emulator] a count classifier could not be fitted '
               f'({type(error).__name__}: {error}); predicting its mean instead')
@@ -612,7 +829,7 @@ def _fit_expected_count(x, column):
 
 
 def _fit_floor_groups(x_train, y_train, y_test, x_test, kinds, base_name,
-                      autoemulate_cls, fit_kwargs, fallback_model):
+                      autoemulate_cls, fit_kwargs, fallback_model, settings=None):
     """On-floor/active classifier plus a magnitude regressor, for each floored count.
 
     The same two-stage shape :class:`TwoPhaseEmulator` uses, applied inside multi_phase to
@@ -642,18 +859,33 @@ def _fit_floor_groups(x_train, y_train, y_test, x_test, kinds, base_name,
         active = y_train[:, members[0]] != floor_value[members[0]]
         if int(active.sum()) < MIN_ACTIVE_ROWS:
             continue
-        classifier = _fit_column(GradientBoostingClassifier, x_train, active)
+        classifier = _fit_column(GradientBoostingClassifier, x_train, active, settings)
         magnitude = _fit_side(x_train, y_train, x_test, y_test, active, base_name,
                               autoemulate_cls, fit_kwargs, fallback_model)
+
+        # The two mistakes cost different amounts -- a floor put where a magnitude
+        # belongs is not the same distance as the reverse -- so the threshold is
+        # measured rather than left at 0.5. Both branches are already predictable on
+        # the held-out set, so this costs one comparison per candidate.
+        floors = np.array([[floor_value[c] for c in members]], dtype=float)
+        magnitudes = _branch_values(magnitude, x_test, members, fallback=floors)
+        threshold, gain = _calibrate_threshold(
+            classifier, x_test, y_test, members, floors, magnitudes,
+            weights=(settings or {}).get('feature_weights'))
+        if gain:
+            print(f'[emulator] floor boundary for {len(members)} column(s): threshold '
+                  f'{threshold:.2f} rather than 0.50, {gain:.0%} less held-out error')
+
         fitted.append({'columns': members,
-                       'classifier': _SingleOutputBinary(classifier),
+                       'classifier': _SingleOutputBinary(
+                           _Thresholded(classifier, threshold)),
                        'floor_value': {c: float(floor_value[c]) for c in members},
                        'magnitude': magnitude})
     return fitted
 
 
 def _fit_jump_groups(x_train, y_train, y_test, x_test, kinds, base_name,
-                     autoemulate_cls, fit_kwargs, fallback_model):
+                     autoemulate_cls, fit_kwargs, fallback_model, settings=None):
     """A classifier and a regressor per side, for each set of columns that jump together."""
     columns = [int(c) for c in np.flatnonzero(kinds == 'jump')]
     if not columns:
@@ -677,14 +909,48 @@ def _fit_jump_groups(x_train, y_train, y_test, x_test, kinds, base_name,
     fitted = []
     for members in groups.values():
         mask = sides[members[0]]
-        classifier = _fit_column(GradientBoostingClassifier, x_train, mask)
+        classifier = _fit_column(GradientBoostingClassifier, x_train, mask, settings)
         low = _fit_side(x_train, y_train, x_test, y_test, ~mask, base_name,
                         autoemulate_cls, fit_kwargs, fallback_model)
         high = _fit_side(x_train, y_train, x_test, y_test, mask, base_name,
                          autoemulate_cls, fit_kwargs, fallback_model)
-        fitted.append({'columns': members, 'classifier': _SingleOutputBinary(classifier),
+
+        # Same asymmetry as the floor boundary, and worse here: the two sides of a jump
+        # are by construction far apart, so putting a row on the wrong one is the
+        # largest single error this emulator can make.
+        low_values = _branch_values(low, x_test, members)
+        high_values = _branch_values(high, x_test, members)
+        threshold, gain = _calibrate_threshold(
+            classifier, x_test, y_test, members, low_values, high_values,
+            weights=(settings or {}).get('feature_weights'))
+        if gain:
+            print(f'[emulator] jump boundary for {len(members)} column(s): threshold '
+                  f'{threshold:.2f} rather than 0.50, {gain:.0%} less held-out error')
+
+        fitted.append({'columns': members,
+                       'classifier': _SingleOutputBinary(
+                           _Thresholded(classifier, threshold)),
                        'low': low, 'high': high})
     return fitted
+
+
+def _branch_values(model, x_test, members, fallback=None):
+    """What one branch of a boundary predicts for ``members`` on the held-out set.
+
+    Used only to score candidate thresholds, so a branch that cannot predict is not an
+    error: it falls back to whatever the caller says that branch would have produced,
+    and the calibration simply finds nothing to gain.
+    """
+    if model is None:
+        return fallback if fallback is not None else np.zeros((1, len(members)))
+    try:
+        values = _as_array(model.predict(_backend_input(model, x_test)), len(x_test))
+    except Exception:  # noqa: BLE001 - scoring a threshold must not end a run
+        return fallback if fallback is not None else np.zeros((1, len(members)))
+    picked = [c for c in members if c < values.shape[1]]
+    if len(picked) != len(members):
+        return fallback if fallback is not None else np.zeros((1, len(members)))
+    return values[:, picked]
 
 
 def _fit_side(x_train, y_train, x_test, y_test, rows, base_name, autoemulate_cls,
