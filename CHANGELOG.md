@@ -90,8 +90,7 @@ circulatory-autogen-modules.
   are evaluated with Myokit; libCellML 0.6 accepts only constants there, so these models
   could not be generated as C++ before.
 - CellML generation connects variables of equivalent units under different names (e.g.
-  `mol_per_m3` and `millimolar`) directly. It used to create an unconnected "converter", and the
-  converter name was not unique per connection.
+  `mol_per_m3` and `millimolar`) directly. It used to create an unconnected "converter".
 - `GE_capillary` listed `d_1` ... `s_2` twice in its config, and `capillary_GE` and
   `pulmonary_GE_5_lobe_type` used `saturation_cap` without declaring it.
 
