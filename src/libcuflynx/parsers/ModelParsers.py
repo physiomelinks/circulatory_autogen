@@ -11,6 +11,7 @@ from libcuflynx.utilities.config_schemas import (is_heart_vessel_type, load_comp
                                                  load_supermodule_registry, load_module_array,
                                                  vessel_records_to_string_frame)
 from libcuflynx.models.LumpedModels import CVS0DModel
+from libcuflynx.utilities.parameter_names import host_model_names
 from libcuflynx.checks.LumpedModelChecks import LumpedCompositeCheck, LumpedBCVesselCheck, LumpedIDParamsCheck, LumpedPortVariableCheck
 import pandas as pd
 import numpy as np
@@ -26,6 +27,34 @@ from libcuflynx.utilities.module_library import ModuleSources
 # column, for instance) without shifting the ones that matter -- see issue #159. 'const_type' is
 # deliberately absent: it is supplied by the module config, not by the CSV.
 _REQUIRED_PARAMETER_COLUMNS = ('variable_name', 'units', 'value', 'data_reference')
+
+
+def _vessel_variables(vessels_df):
+    '''``{vessel name: {variable: kind}}`` from a module dataframe with module info.'''
+    out = {}
+    for row in vessels_df.itertuples():
+        variables = row.variables_and_units
+        if variables is None or isinstance(variables, str):
+            variables = []
+        out[row.name] = {v[0]: v[3] for v in variables if len(v) > 3}
+    return out
+
+
+def _with_model_names(parameters_array, vessels_df, source):
+    '''``parameters_array`` with any ``<vessel>/<variable>`` names turned into model names.'''
+    fields = parameters_array.dtype.names or ()
+    if 'variable_name' not in fields or not len(parameters_array):
+        return parameters_array
+    names = parameters_array['variable_name'].tolist()
+    if not any('/' in str(n) for n in names):
+        return parameters_array
+    model_names = host_model_names(names, _vessel_variables(vessels_df), source)
+    width = max(len(n) for n in model_names)
+    dtype = [(f, f'<U{max(width, parameters_array.dtype[f].itemsize // 4)}')
+             if f == 'variable_name' else (f, parameters_array.dtype[f]) for f in fields]
+    out = parameters_array.astype(dtype)
+    out['variable_name'] = model_names
+    return out
 
 
 def merge_default_parameters(parameters_array, extra_param_rows):
@@ -529,6 +558,10 @@ class CSV0DModelParser(object):
 
         # TODO change to using a pandas dataframe
         parameters_array_orig = self.csv_parser.get_data_as_nparray(self.parameter_filename, True)
+        # A parameter may be written <vessel>/<variable> (utilities/parameter_names.py); from
+        # here on every name is the model's {variable}_{vessel}.
+        parameters_array_orig = _with_model_names(parameters_array_orig, vessels_df,
+                                                  self.parameter_filename)
         # Supermodule and module-instance parameters fill in whatever the parameters file does not set,
         # before the reduction, so everything downstream (generation, parameter id) sees them.
         parameters_array_orig = merge_default_parameters(parameters_array_orig, extra_param_rows)

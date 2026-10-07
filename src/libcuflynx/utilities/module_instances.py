@@ -185,6 +185,12 @@ def component_instance_rows(records, component_registry, source=None):
         globals_ = global_constants(entry)
         for row in raw:
             row = dict(row)
+            if '/' in row['variable_name']:
+                raise ValueError(
+                    f'{where}: instance "{instance or entry.get("default_instance")}" names '
+                    f'"{row["variable_name"]}", but a module instance\'s parameters are the '
+                    f'module\'s own variables, named without a vessel ("C", not "lv/C"); the '
+                    f'vessel is the module-array record that uses the instance.')
             if row['variable_name'] not in globals_:
                 row['variable_name'] = f'{row["variable_name"]}_{record["name"]}'
             rows.append(row)
