@@ -66,17 +66,19 @@ else is configured.
 
 | Extracellular model | NE at the varicosity: largest difference (share of peak) | NE peak | Run time |
 |---|---|---|---|
-| CellML grid (27 cells, 54 faces), C++ through `main0d` | (reference) | 2.277e-4 mM | 0.43 s, after 61 s of generation and 4 s of build |
-| FEniCS, DG0 (the same scheme), coupled with `subiterations` | 1.4 % | 2.276e-4 mM (−0.03 %) | 9.0 s (0D 2.8 s, FEniCS 1.9 s) |
-| FEniCS, Q1 elements refined twice, coupled | 41 % | 1.82e-4 mM | 6.7 s (0D 0.5 s, FEniCS 1.4 s) |
+| CellML grid (27 cells, 54 faces), C++ through `main0d` | (reference) | 3.142e-4 mM | 0.38 s, after 33 s of generation and 3 s of build |
+| FEniCS, DG0 (the same scheme), coupled with `subiterations` | 1.1 % | 3.141e-4 mM (−0.02 %) | 5.1 s (0D 1.2 s, FEniCS 0.8 s) |
+| FEniCS, Q1 elements refined twice, coupled | 28 % | 2.76e-4 mM | 4.6 s (0D 0.4 s, FEniCS 0.9 s) |
 
 - **DG0** is the same discrete model as the CellML grid, and the two agree to the coupling and
   time stepping. NE is released in pulses of about 1 ms, a few coupling steps each, so the
-  comparison iterates each step (`subiterations: 3`); the explicit default gives 2.8 %.
+  comparison iterates each step (`subiterations: 3`); the explicit default, first order, roughly
+  doubles the difference.
 - **Q1** differs because the 1 µm CellML cells can't resolve the steep gradient around a release
-  this size. Refining the elements from 2 to 4 per cell moves the FEniCS peak by 2 %. The coarse
-  CellML grid's peak is 25 % higher, so here the FEniCS model is the better-resolved of the two.
-- **Time:** on this grid the CellML model runs faster but takes a minute to generate. Generation
+  this size. Refining the elements from 2 to 4 per cell moved the FEniCS peak by 2 % (measured before
+  the varicosity had a PMCA). The coarse CellML grid's peak is 14 % higher, so here the FEniCS
+  model is the better-resolved of the two.
+- **Time:** on this grid the CellML model runs faster but takes half a minute to generate. Generation
   grows quickly with the number of cells, which the FEniCS model avoids.
 
 ## Running it
