@@ -1,5 +1,5 @@
 '''
-Expands supermodule instances in a vessel array into their prefixed submodules.
+Expands supermodule instances in a module array into their prefixed submodules.
 
 A supermodule is a module config entry with ``"module_format": "supermodule"`` and a
 ``submodules`` list (see ``utilities/config_schemas.py``). An instance of it in a vessel
@@ -96,8 +96,23 @@ def _rename_rows(rows, instance, submodule_names):
             for row in rows]
 
 
-def read_default_parameters(supermodule, instance, where):
-    '''The supermodule's default_parameters rows, renamed for ``instance``.'''
+def submodule_paths(supermodule, registry=None, _depth=0):
+    '''Every submodule of ``supermodule`` as the path its expanded name carries after the
+    instance: ``sub``, and for a submodule that is itself a supermodule ``sub_subsub`` ...
+    (its expansion names a nested submodule ``<instance>_<sub>_<subsub>``).'''
+    paths = []
+    for sub in supermodule['submodules']:
+        paths.append(sub['name'])
+        nested = (registry or {}).get(_key(sub))
+        if nested is not None and _depth < _MAX_DEPTH:
+            paths += [f"{sub['name']}_{p}" for p in submodule_paths(nested, registry, _depth + 1)]
+    return paths
+
+
+def read_default_parameters(supermodule, instance, where, registry=None):
+    '''The supermodule's default_parameters rows, renamed for ``instance``: a row
+    ``{var}_{path}`` names a submodule, or one nested in a submodule that is a supermodule
+    (``{var}_{sub}_{subsub}``), and becomes ``{var}_{instance}_{path}``.'''
     file_name = supermodule.get('default_parameters')
     if not file_name:
         return []
@@ -108,10 +123,10 @@ def read_default_parameters(supermodule, instance, where):
                          f'({supermodule["vessel_type"]}, {supermodule["BC_type"]}) not found '
                          f'(it is resolved against {supermodule.get("config_path")}).')
     rows = read_parameter_rows(path, where, 'default_parameters file')
-    return _rename_rows(rows, instance, [s['name'] for s in supermodule['submodules']])
+    return _rename_rows(rows, instance, submodule_paths(supermodule, registry))
 
 
-def read_supermodule_parameters(supermodule, record, where):
+def read_supermodule_parameters(supermodule, record, where, registry=None):
     '''
     The parameters of the supermodule instance ``record`` (its name is the prefix), renamed:
     those of its module instance (``record["instance"]`` or the entry's default_instance)
@@ -119,8 +134,8 @@ def read_supermodule_parameters(supermodule, record, where):
     '''
     name = record['name']
     _, instance_rows = instance_parameter_rows(supermodule, record.get('instance'), where)
-    instance_rows = _rename_rows(instance_rows, name, [s['name'] for s in supermodule['submodules']])
-    return first_rows_win(instance_rows + read_default_parameters(supermodule, name, where))
+    instance_rows = _rename_rows(instance_rows, name, submodule_paths(supermodule, registry))
+    return first_rows_win(instance_rows + read_default_parameters(supermodule, name, where, registry))
 
 
 def _expand_one(records, index, registry, source, ancestry):
@@ -152,7 +167,20 @@ def _expand_one(records, index, registry, source, ancestry):
                              f'supermodule instances; connect the host to one of their '
                              f'submodules through that supermodule\'s own per_submodule_*.')
 
+    for per_key, per in (('per_submodule_inputs', per_inputs),
+                         ('per_submodule_outputs', per_outputs)):
+        for sub, hosts in per.items():
+            repeated = sorted({h for h in hosts if hosts.count(h) > 1})
+            if repeated:
+                raise ValueError(f'{where}: {per_key}["{sub}"] names {repeated} more than once; '
+                                 f'each host is linked once per submodule.')
     by_name = {r['name']: r for i, r in enumerate(records) if i != index}
+    for other in by_name.values():
+        for list_key in ('out_vessels', 'inp_vessels'):
+            if other[list_key].count(name) > 1:
+                raise ValueError(f'{where}: "{other["name"]}" lists "{name}" more than once in its '
+                                 f'{list_key.split("_")[0]} list. List it once; the instance\'s '
+                                 f'per_submodule_* entries say which of its submodules it links to.')
     for per_key, per, host_key, host_list in (
             ('per_submodule_inputs', per_inputs, 'out', 'out_vessels'),
             ('per_submodule_outputs', per_outputs, 'inp', 'inp_vessels')):
@@ -160,7 +188,7 @@ def _expand_one(records, index, registry, source, ancestry):
             for host in hosts:
                 if host not in by_name:
                     raise ValueError(f'{where}: {per_key}["{sub}"] names host "{host}", which '
-                                     f'is not in the vessel array.')
+                                     f'is not in the module array.')
                 if name not in by_name[host][host_list]:
                     raise ValueError(
                         f'{where}: {per_key}["{sub}"] names host "{host}", but "{host}" does '
@@ -207,7 +235,7 @@ def _expand_one(records, index, registry, source, ancestry):
     clashes = [r['name'] for r in new_records if r['name'] in by_name]
     if clashes:
         raise ValueError(f'{where}: expanding it gives the names {clashes}, which are already '
-                         f'in the vessel array. Rename the instance or the clashing records.')
+                         f'in the module array. Rename the instance or the clashing records.')
 
     for other in by_name.values():
         if name in other['out_vessels']:
@@ -218,10 +246,18 @@ def _expand_one(records, index, registry, source, ancestry):
             other['inp_vessels'] = _splice(
                 other['inp_vessels'], name,
                 [prefixed(s) for s, hosts in per_outputs.items() if other['name'] in hosts])
+        # another instance not expanded yet that names this one as a host: its per_submodule_*
+        # lists now name the submodules that link to it (whichever of the two expands first)
+        for per_key, links in (('per_submodule_inputs', per_outputs),
+                               ('per_submodule_outputs', per_inputs)):
+            if per_key in other:
+                replacement = [prefixed(s) for s, hosts in links.items() if other['name'] in hosts]
+                other[per_key] = {s: _splice(hosts, name, replacement)
+                                  for s, hosts in other[per_key].items()}
 
     for record in new_records:
         ancestry[record['name']] = chain + (key,)
-    param_rows = read_supermodule_parameters(supermodule, instance, where)
+    param_rows = read_supermodule_parameters(supermodule, instance, where, registry)
     return records[:index] + new_records + records[index + 1:], param_rows
 
 
@@ -239,7 +275,7 @@ def expand_supermodules(records, registry, source=None):
     instance back, a record that names the instance without a per_submodule_* entry linking
     them, an expanded name that clashes with an existing record, or nesting in a cycle.
     '''
-    source = source or 'vessel array'
+    source = source or 'module array'
     records = copy.deepcopy(list(records))
     ancestry = {}
     extra_param_rows = []

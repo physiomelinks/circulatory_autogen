@@ -1,7 +1,7 @@
 '''
 How a parameter calibrated in one workflow step is named in another model.
 
-Every step model is generated alone, as a single vessel-array record named ``STEP_VESSEL``
+Every step model is generated alone, as a single module-array record named ``STEP_VESSEL``
 (``mod``). A params_for_id row ``(vessel_name, param_name)`` of a step therefore names
 ``param_name_for_gen(vessel_name, param_name)`` in that step's model: ``rho_M_mod`` for a
 plain module, ``g_leak_mod_i_leak_Na`` for a supermodule's submodule, ``R`` for a global.

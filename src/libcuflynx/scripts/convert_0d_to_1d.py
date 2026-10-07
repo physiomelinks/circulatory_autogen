@@ -13,8 +13,29 @@ import sys
 import json
 import csv
 from pathlib import Path
-from libcuflynx.utilities.config_schemas import (read_vessel_array_records, vessel_array_path,
-                                                 vessel_records_to_string_frame)
+from libcuflynx.utilities.config_schemas import (dump_vessel_records, read_module_array_records,
+                                                 module_array_path, vessel_records_to_string_frame)
+
+
+def _write_json_records(source_path, source_records, df_vess, out_path):
+    """The converted frame as JSON records: each source record (every key kept) with the
+    frame's edited columns, in the key style of the source file."""
+    with open(source_path, encoding='utf-8-sig') as f:
+        raw = json.load(f)
+    style = 'phlynx' if raw and 'module_type' in raw[0] and 'module_subtype' in raw[0] else 'libcuflynx'
+    by_name = {r['name']: r for r in source_records}
+    records = []
+    for _, row in df_vess.iterrows():
+        record = dict(by_name.get(row['name'], {}))
+        for column in df_vess.columns:
+            value = row[column]
+            if column in ('inp_vessels', 'out_vessels'):
+                record[column] = str(value).split()
+            elif column in record or value not in ('', None):
+                record[column] = value
+        records.append(record)
+    with open(out_path, 'w') as f:
+        f.write(dump_vessel_records(records, style))
 
 
 def convert_0d_to_1d(model, folder_0d, param_file_0d, folder_hyb=None, vess_1d_list=[]):
@@ -32,10 +53,11 @@ def convert_0d_to_1d(model, folder_0d, param_file_0d, folder_hyb=None, vess_1d_l
     if not os.path.exists(folder_hyb):
         os.makedirs(folder_hyb)
     
-    # <model>_0d_vessel_array.json or .csv (or a PhLynx module array), as strings with the
+    # <model>_0d_module_array.json or .csv (or a PhLynx module array), as strings with the
     # inp/out lists space-separated
-    df_vess = vessel_records_to_string_frame(
-        read_vessel_array_records(vessel_array_path(str(folder_0d), f"{model}_0d")))
+    source_path = module_array_path(str(folder_0d), f"{model}_0d")
+    source_records = read_module_array_records(source_path)
+    df_vess = vessel_records_to_string_frame(source_records)
     df_params = pd.read_csv(folder_0d / param_file_0d)
 
     n1d = len(vess_1d_list)
@@ -46,7 +68,7 @@ def convert_0d_to_1d(model, folder_0d, param_file_0d, folder_hyb=None, vess_1d_l
         vess = vess_1d_list[i]
         idxs = df_vess.index[df_vess['name'] == vess].tolist()
         if len(idxs) == 0:
-            sys.exit(f"Error :: Vessel {vess} not found in 0D vessel array for model {model}.")
+            sys.exit(f"Error :: Vessel {vess} not found in 0D module array for model {model}.")
 
         idxV = idxs[0]
         df_vess.at[idxV, 'BC_type'] = 'nn'
@@ -110,7 +132,13 @@ def convert_0d_to_1d(model, folder_0d, param_file_0d, folder_hyb=None, vess_1d_l
                         else:
                             df_params.loc[df_params.shape[0]] = ['v_in_'+vess, 'm3_per_s', 0.0, 'WONT_BE_USED']
 
-    df_vess.to_csv(folder_hyb / f"{model}_hybrid_vessel_array.csv", index=False, header=True)
+    if str(source_path).endswith('.json'):
+        # JSON in, JSON out: a CSV cannot hold a supermodule instance's per_submodule_* links
+        # (or any other object-valued key), which the frame above leaves out
+        _write_json_records(source_path, source_records, df_vess,
+                            folder_hyb / f"{model}_hybrid_module_array.json")
+    else:
+        df_vess.to_csv(folder_hyb / f"{model}_hybrid_module_array.csv", index=False, header=True)
     df_params.to_csv(folder_hyb / f"{model}_hybrid_parameters.csv", index=False, header=True)
 
     print(f"Converted {n1d} vessels from 0D to 1D for model {model}.")

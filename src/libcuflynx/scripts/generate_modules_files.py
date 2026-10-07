@@ -1,6 +1,6 @@
 """
 Converts a CellML model to Circulatory Autogen format and generate files to run Circulatory Autogen.
-Inputs: CellML model and the output directory where resources ('parameters.csv' and 'vessel_array.csv') and 'user_inputs.yaml' files are created.
+Inputs: CellML model and the output directory where resources ('parameters.csv' and 'module_array.csv') and 'user_inputs.yaml' files are created.
 'module_config.json' and 'modules.cellml' files are generated at 'module_config_user' directory.
 """
 import argparse
@@ -201,19 +201,19 @@ def _generate_module_config(variables, constants, states, file_prefix, component
 
     print(f"Generated module_config.json file: {file_path}")
 
-# Generate vessel_array.csv file
-def _generate_vessel_array_csv(output_dir, vessel_name, file_prefix):
+# Generate module_array.csv file
+def _generate_module_array_csv(output_dir, vessel_name, file_prefix):
 
     resources_dir = os.path.join(output_dir, "resources")
     os.makedirs(resources_dir, exist_ok=True)
 
-    file_path = os.path.join(resources_dir, f"{file_prefix}_vessel_array.csv")
+    file_path = os.path.join(resources_dir, f"{file_prefix}_module_array.csv")
 
     with open(file_path, "w") as fh:
         fh.writelines(["name,BC_type,vessel_type,inp_vessels,out_vessels\n"])
         fh.writelines([f"{vessel_name},nn,{file_prefix},,\n"])
 
-    print(f"Generated vessel_array.csv file: {file_prefix}_vessel_array.csv")
+    print(f"Generated module_array.csv file: {file_prefix}_module_array.csv")
 
 # Generate parameters.csv file
 def _generate_parameters_csv(output_dir, constants, vessel_name, file_prefix, data_reference):
@@ -467,7 +467,7 @@ def main():
 
     _generate_module_config(variables, constants, states, file_prefix, component_name)
 
-    _generate_vessel_array_csv(args["output_dir"], vessel_name, file_prefix)
+    _generate_module_array_csv(args["output_dir"], vessel_name, file_prefix)
 
     _generate_parameters_csv(args["output_dir"], constants, vessel_name, file_prefix, data_reference)
 

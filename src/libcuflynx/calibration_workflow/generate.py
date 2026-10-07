@@ -30,7 +30,7 @@ def read_parameter_rows(path):
 
 def generate_module_instance(target, work_dir, file_prefix, overrides=(), library_inputs=None,
                              model_type='cellml', solver=None, vessel=STEP_VESSEL):
-    '''Generate the module instance ``target`` (a spec.Target) alone, as a single vessel-array
+    '''Generate the module instance ``target`` (a spec.Target) alone, as a single module-array
     record named ``vessel``, under ``work_dir``.
 
     ``overrides`` are parameter rows (``variable_name`` in the generated model's naming,
@@ -54,7 +54,7 @@ def generate_module_instance(target, work_dir, file_prefix, overrides=(), librar
     record = {'name': vessel, 'module_type': target.module_type,
               'module_subtype': target.version, 'instance': target.instance,
               'inp_instances': [], 'out_instances': []}
-    with open(os.path.join(resources_dir, f'{file_prefix}_vessel_array.json'), 'w') as f:
+    with open(os.path.join(resources_dir, f'{file_prefix}_module_array.json'), 'w') as f:
         json.dump([record], f, indent=1)
     write_parameter_rows(os.path.join(resources_dir, f'{file_prefix}_parameters.csv'),
                          list(overrides))

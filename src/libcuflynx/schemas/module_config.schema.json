@@ -25,11 +25,21 @@
           }
         },
         "multi_port": {
-          "description": "\"True\", \"Sum\", \"Multiply\" (any case), or a list with one entry per variable",
-          "type": [
-            "string",
-            "boolean",
-            "array"
+          "description": "\"True\", \"Sum\" or \"Multiply\" (any case), true/false, null (no multi_port), or a list with one entry per variable (\"sum\"/\"True\"/...)",
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "type": "array"
+            },
+            {
+              "type": "string",
+              "pattern": "^([Tt][Rr][Uu][Ee]|[Ff][Aa][Ll][Ss][Ee]|[Ss][Uu][Mm]|[Mm][Uu][Ll][Tt][Ii][Pp][Ll][Yy])$"
+            }
           ]
         },
         "multiply_factor": {
@@ -345,11 +355,11 @@
     },
     "name": {
       "type": "string",
-      "pattern": "\\S",
+      "pattern": "^\\S+$",
       "description": "an instance name"
     },
     "nameList": {
-      "description": "instance names: a list, or one space-separated string",
+      "description": "instance names: a list, or one space-separated string (null: none)",
       "oneOf": [
         {
           "type": "array",
@@ -359,11 +369,14 @@
         },
         {
           "type": "string"
+        },
+        {
+          "type": "null"
         }
       ]
     },
     "perSubmodule": {
-      "description": "{submodule: [host, ...]}, or a list of one-key objects",
+      "description": "{submodule: [host, ...]}, or a list of one-key objects A submodule may appear once (the loader checks this; JSON Schema cannot).",
       "oneOf": [
         {
           "type": "object",

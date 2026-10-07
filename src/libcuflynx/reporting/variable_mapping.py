@@ -29,7 +29,7 @@ COLUMNS = ('variable_name', 'latex', 'kind', 'component', 'units')
 PARAMETER_COMPONENTS = ('parameters', 'parameters_global')
 ENVIRONMENT = 'environment'
 MODULE_SUFFIX = '_module'
-# the single vessel-array record a module (or supermodule) is generated alone as; see
+# the single module-array record a module (or supermodule) is generated alone as; see
 # calibration_workflow/naming.py
 STANDALONE_VESSEL = 'mod'
 

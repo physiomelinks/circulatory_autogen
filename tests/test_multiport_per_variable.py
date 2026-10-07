@@ -230,7 +230,7 @@ def external_modules_dir(tmp_path_factory):
 # --------------------------------------------------------------------------------------------
 
 # parameters for every fixture/built-in module used below; the generator keeps only the ones
-# the vessel array needs
+# the module array needs
 def _source_params(name, v_mean, amp, omega, units="m3_per_s"):
     return [(f"v_mean_{name}", units, v_mean), (f"amp_{name}", "dimensionless", amp),
             (f"omega_{name}", "per_s", omega)]
@@ -252,13 +252,13 @@ def _rl_params(name, R):
 
 
 def _generate(tmp_path, external_modules_dir, prefix, vessel_rows, params, model_type="cellml"):
-    """Write the vessel array and parameters for ``vessel_rows`` and generate the model."""
+    """Write the module array and parameters for ``vessel_rows`` and generate the model."""
     resources_dir = tmp_path / "resources"
     resources_dir.mkdir(parents=True, exist_ok=True)
     lines = ["name,BC_type,vessel_type,inp_vessels,out_vessels"]
     for name, BC_type, vessel_type, inp, out in vessel_rows:
         lines.append(f"{name},{BC_type},{vessel_type},{' '.join(inp)},{' '.join(out)}")
-    (resources_dir / f"{prefix}_vessel_array.csv").write_text("\n".join(lines) + "\n")
+    (resources_dir / f"{prefix}_module_array.csv").write_text("\n".join(lines) + "\n")
     param_lines = ["variable_name,units,value,data_reference"]
     for variable_name, units, value in params:
         param_lines.append(f"{variable_name},{units},{value},test")

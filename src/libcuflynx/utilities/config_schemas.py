@@ -1,5 +1,5 @@
 '''
-Reads module configs and vessel arrays written in either of the two schemas in use, and
+Reads module configs and module arrays written in either of the two schemas in use, and
 converts them to libcuflynx's internal names.
 
 Module config entries (``*_modules_config.json``)
@@ -13,7 +13,7 @@ Component entries:
 ==================  ==================  ============================================
 libcuflynx          PhLynx              meaning
 ==================  ==================  ============================================
-``vessel_type``     ``module_type``     the kind of module named in a vessel array
+``vessel_type``     ``module_type``     the kind of module named in a module array
 ``BC_type``         ``module_subtype``  its boundary-condition variant
 ``module_file``     ``component_file``  the CellML file the module lives in
 ``module_type``     ``component_type``  the CellML component name
@@ -30,10 +30,10 @@ Supermodule entries are recognised by ``"module_format": "supermodule"`` (or by 
 ======================  ==================  ===============================================
 libcuflynx              PhLynx              meaning
 ======================  ==================  ===============================================
-``vessel_type``         ``module_type``     the type an instance names in a vessel array
+``vessel_type``         ``module_type``     the type an instance names in a module array
 ``BC_type``             ``module_subtype``  its variant (conventionally ``supermodule``)
 ``module_format``       ``module_format``   ``"supermodule"``
-``submodules``          ``submodules``      a vessel array (list of records, below) whose
+``submodules``          ``submodules``      a module array (list of records, below) whose
                                             names are local to the supermodule
 ``default_instance``    same                optional: the instance used when a record
                                             names none (see *Module versions and instances*)
@@ -51,27 +51,15 @@ rows (and those of the supermodule's own instances) are
 parameter of that submodule, any other row a global. ``default_parameters`` is kept for
 backwards compatibility; new supermodules should put their parameters in an instance.
 Supermodule entries never reach the module dataframe or the (vessel_type, BC_type) join:
-they are collected by ``load_supermodule_registry`` and expanded out of the vessel array
+they are collected by ``load_supermodule_registry`` and expanded out of the module array
 (``utilities/supermodules.py``) before anything else reads it.
 
 Module versions and instances
-=============================
+===================================
 
-A component or supermodule entry may declare ``"default_instance": "<name>"``. A module
-library lays a module version out as ``<module_type>/versions/<version>/`` holding the
-version's CellML, its one-entry ``*_modules_config.json`` (``module_subtype`` is the version)
-and ``instances/<instance>/<instance>_parameters.csv`` (plus an optional
-``<instance>_obs_data.json`` and ``<instance>_params_for_id.csv``). An instance changes
-parameters only. Its rows have no vessel suffix; they are applied to a record as default
-parameters -- ``{var}_{name}``, or ``{var}`` for the module's ``global_constant`` variables --
-under the host parameters file. See ``utilities/module_instances.py``.
-
-Vessel arrays
-=============
-
-``<prefix>_vessel_array.json`` (preferred), ``<prefix>_vessel_array.csv``, or PhLynx's
-``<prefix>_module_array.json`` / ``<prefix>_module_array.csv``, looked for in that order
-(``vessel_array_path``).
+``<prefix>_module_array.json`` (preferred) or ``<prefix>_module_array.csv``, looked for in
+that order (``module_array_path``). Module arrays used to be called vessel arrays, and
+``<prefix>_vessel_array.json``/``.csv`` are still read, with a warning to rename them.
 
 The JSON form is a list of instance records:
 
@@ -104,12 +92,12 @@ The CSV forms have the columns
   out_instances``
 
 with space-separated lists; every other cell keeps its first token. A CSV is read by
-converting each row to the JSON record above (``read_vessel_array_records``), so both forms
+converting each row to the JSON record above (``read_module_array_records``), so both forms
 are processed identically. ``python -m libcuflynx.utilities.config_schemas to-json <csv>...``
 converts CSV arrays to JSON.
 
 Machine-readable JSON Schemas ship as package data in ``libcuflynx/schemas/``
-(``vessel_array.schema.json``, ``module_config.schema.json``, and ``obs_data.schema.json``
+(``module_array.schema.json``, ``module_config.schema.json``, and ``obs_data.schema.json``
 for the top level of an obs_data file). The loaders here check the
 same rules themselves, so no JSON Schema library is needed at run time.
 
@@ -119,6 +107,7 @@ the libcuflynx names.
 
 import argparse
 import json
+import warnings
 import os
 import sys
 
@@ -143,8 +132,11 @@ _PORT_KEYS = ('entrance_ports', 'exit_ports', 'general_ports')
 
 SUPERMODULE_FORMAT = 'supermodule'
 
-# PhLynx column -> libcuflynx column, for vessel arrays
-PHLYNX_VESSEL_ARRAY_COLUMNS = {
+# module arrays used to be called vessel arrays: <prefix>_vessel_array.json/.csv are still read
+LEGACY_ARRAY_SUFFIXES = ('_vessel_array.json', '_vessel_array.csv')
+
+# PhLynx column -> libcuflynx column, for module arrays
+PHLYNX_MODULE_ARRAY_COLUMNS = {
     'module_type': 'vessel_type',
     'module_subtype': 'BC_type',
     'inp_instances': 'inp_vessels',
@@ -218,7 +210,7 @@ def normalise_supermodule_entry(entry, source=None):
     if 'default_instance' in entry:
         check_instance_name(entry['default_instance'], description, 'default_instance')
 
-    records = [normalise_vessel_record(sub, source=f'{description}, submodules', index=i)
+    records = [normalise_vessel_record(sub, source=f'{description}, submodules', index=i, what=None)
                for i, sub in enumerate(submodules)]
     names = [r['name'] for r in records]
     duplicated = sorted({n for n in names if names.count(n) > 1})
@@ -290,6 +282,12 @@ def normalise_module_config_entry(entry, source=None):
         normalised = {'vessel_type': renamed.pop('vessel_type'), 'BC_type': renamed.pop('BC_type')}
         normalised.update(renamed)
     elif libcuflynx_keys:
+        missing = [k for k in ('vessel_type', 'BC_type', 'module_file', 'module_type') if k not in entry]
+        if missing:
+            raise ValueError(
+                f'{_describe(entry, source)} is in the libcuflynx schema (has {libcuflynx_keys}) but '
+                f'is missing {missing}. A libcuflynx-schema entry needs vessel_type, BC_type, '
+                f'module_file and module_type (the CellML component).')
         normalised = dict(entry)
     else:
         raise ValueError(
@@ -320,7 +318,7 @@ def load_module_config(path, include_supermodules=False):
     '''
     The normalised entries of the module config JSON file at ``path``. Supermodule entries
     are left out unless ``include_supermodules`` (they are read by
-    ``load_supermodule_registry``, never joined to a vessel array as components).
+    ``load_supermodule_registry``, never joined to a module array as components).
     '''
     with open(path, encoding='utf-8-sig') as f:
         entries = normalise_module_config(json.load(f), source=str(path))
@@ -371,12 +369,12 @@ def load_supermodule_registry(config_files):
 
 
 # --------------------------------------------------------------------------------------------
-# vessel arrays
+# module arrays
 # --------------------------------------------------------------------------------------------
 
-def normalise_vessel_array_columns(df, source=None):
+def normalise_module_array_columns(df, source=None):
     '''
-    A vessel-array dataframe with libcuflynx column names.
+    A module-array dataframe with libcuflynx column names.
 
     A PhLynx-layout array (``module_type``, ``module_subtype``, ``inp_instances``,
     ``out_instances``) has its columns renamed and put in the libcuflynx order (``name,
@@ -389,45 +387,59 @@ def normalise_vessel_array_columns(df, source=None):
     where = f' {source}' if source else ''
     if phlynx_columns and libcuflynx_columns:
         raise ValueError(
-            f'vessel array{where} mixes libcuflynx columns {libcuflynx_columns} and PhLynx '
+            f'module array{where} mixes libcuflynx columns {libcuflynx_columns} and PhLynx '
             f'columns {phlynx_columns}. Use either name,BC_type,vessel_type,inp_vessels,'
             f'out_vessels or name,module_type,module_subtype,inp_instances,out_instances.')
     if not phlynx_columns:
         return df
-    missing = [c for c in ('name',) + tuple(PHLYNX_VESSEL_ARRAY_COLUMNS) if c not in columns]
+    missing = [c for c in ('name',) + tuple(PHLYNX_MODULE_ARRAY_COLUMNS) if c not in columns]
     if missing:
-        raise ValueError(f'vessel array{where} is in the PhLynx layout (has {phlynx_columns}) '
+        raise ValueError(f'module array{where} is in the PhLynx layout (has {phlynx_columns}) '
                          f'but is missing the columns {missing}.')
-    df = df.rename(columns=PHLYNX_VESSEL_ARRAY_COLUMNS)
+    df = df.rename(columns=PHLYNX_MODULE_ARRAY_COLUMNS)
     ordered = list(_LIBCUFLYNX_COLUMN_ORDER) + [c for c in df.columns if c not in _LIBCUFLYNX_COLUMN_ORDER]
     return df[ordered]
 
 
-def read_vessel_array_csv(path, **read_csv_kwargs):
-    '''``pd.read_csv`` of a vessel array, with its columns normalised to libcuflynx names.'''
+def read_module_array_csv(path, **read_csv_kwargs):
+    '''``pd.read_csv`` of a module array, with its columns normalised to libcuflynx names.'''
     df = pd.read_csv(path, **read_csv_kwargs)
     df = df.rename(columns=lambda c: str(c).strip())
-    return normalise_vessel_array_columns(df, source=str(path))
+    return normalise_module_array_columns(df, source=str(path))
 
 
-def vessel_array_path(resources_dir, file_prefix):
+def module_array_path(resources_dir, file_prefix):
     '''
-    The vessel array of ``file_prefix`` in ``resources_dir``: the first that exists of
-    ``<prefix>_vessel_array.json``, ``<prefix>_vessel_array.csv``, and PhLynx's
-    ``<prefix>_module_array.json`` and ``<prefix>_module_array.csv``. When none exists the
-    ``_vessel_array.csv`` path is returned, so the error names the usual file.
+    The module array of ``file_prefix`` in ``resources_dir``: the first that exists of
+    ``<prefix>_module_array.json`` and ``<prefix>_module_array.csv``, then the older names
+    ``<prefix>_vessel_array.json`` and ``<prefix>_vessel_array.csv``, which are still read with
+    a FutureWarning asking for the file to be renamed. When none exists the
+    ``_module_array.csv`` path is returned, so the error names the usual file.
     '''
     candidates = [os.path.join(resources_dir, file_prefix + suffix)
-                  for suffix in ('_vessel_array.json', '_vessel_array.csv',
-                                 '_module_array.json', '_module_array.csv')]
-    for candidate in candidates:
-        if os.path.exists(candidate):
-            return candidate
-    return candidates[1]
+                  for suffix in ('_module_array.json', '_module_array.csv') + LEGACY_ARRAY_SUFFIXES]
+    existing = [c for c in candidates if os.path.exists(c)]
+    if len(existing) > 1:
+        # e.g. after `config_schemas to-json`, which writes the JSON next to the CSV: edits to
+        # the CSV would otherwise be ignored without a word
+        warnings.warn(f'{len(existing)} module arrays for "{file_prefix}" in {resources_dir}: '
+                      f'{[os.path.basename(c) for c in existing]}. Using '
+                      f'{os.path.basename(existing[0])}; the others are ignored. Remove or rename '
+                      f'the ones you do not mean.', UserWarning, stacklevel=2)
+    if not existing:
+        return candidates[1]
+    chosen = existing[0]
+    if chosen.endswith(LEGACY_ARRAY_SUFFIXES):
+        # FutureWarning, not DeprecationWarning: this is for the person running the model, and
+        # Python hides DeprecationWarning outside __main__
+        renamed = os.path.basename(chosen).replace('_vessel_array.', '_module_array.')
+        warnings.warn(f'{os.path.basename(chosen)} uses the old name "vessel array"; rename it to '
+                      f'{renamed}. The old name is still read for now.', FutureWarning, stacklevel=2)
+    return chosen
 
 
-def _record_where(source, index, record=None):
-    where = f'vessel array {source}' if source else 'vessel array'
+def _record_where(source, index, record=None, what='module array'):
+    where = f'{what} {source}' if what and source else (source or what)
     if index is not None:
         where += f', record {index}'
     if isinstance(record, dict) and isinstance(record.get('name'), str):
@@ -478,9 +490,19 @@ def normalise_per_submodule(value, where, key):
     return out
 
 
-def normalise_vessel_record(record, source=None, index=None):
+def is_heart_vessel_type(vessel_type):
+    """Whether ``vessel_type`` is the monolithic heart (heart, heart_ASD, heart_nonstiff, ...),
+    which the generators special-case: its venous (ivc/svc) and pulmonary inputs, and the
+    pulmonary circuit added when it has one output. Not the heart_effector* controllers. The
+    generators used to find the heart by its *name*, "heart", which a heart inside a
+    supermodule (named <instance>_<submodule>) cannot have."""
+    vessel_type = str(vessel_type or '')
+    return vessel_type.startswith('heart') and not vessel_type.startswith('heart_effector')
+
+
+def normalise_vessel_record(record, source=None, index=None, what='module array'):
     '''
-    One vessel-array record, in either key style, as a libcuflynx record: ``name, BC_type,
+    One module-array record, in either key style, as a libcuflynx record: ``name, BC_type,
     vessel_type, inp_vessels, out_vessels`` (the last two lists of names), then any other
     keys in their original order, with ``per_submodule_*`` as ordered dicts and ``instance``
     stripped. ``record`` itself is not modified.
@@ -488,10 +510,10 @@ def normalise_vessel_record(record, source=None, index=None):
     Raises ValueError naming ``source``, ``index`` and the key for a record that is not an
     object, mixes the two key styles, lacks name/type/subtype, or has a malformed list.
     '''
-    where = _record_where(source, index, record)
+    where = _record_where(source, index, record, what=what)
     if not isinstance(record, dict):
         raise ValueError(f'{where} is a {type(record).__name__}, not a JSON object: {record!r}')
-    phlynx_keys = [k for k in PHLYNX_VESSEL_ARRAY_COLUMNS if k in record]
+    phlynx_keys = [k for k in PHLYNX_MODULE_ARRAY_COLUMNS if k in record]
     libcuflynx_keys = [k for k in _LIBCUFLYNX_ONLY_COLUMNS if k in record]
     if phlynx_keys and libcuflynx_keys:
         raise ValueError(
@@ -499,7 +521,7 @@ def normalise_vessel_record(record, source=None, index=None):
             f'Use either name/vessel_type/BC_type/inp_vessels/out_vessels or '
             f'name/module_type/module_subtype/inp_instances/out_instances.')
     if phlynx_keys:
-        rename = PHLYNX_VESSEL_ARRAY_COLUMNS
+        rename = PHLYNX_MODULE_ARRAY_COLUMNS
         type_key, subtype_key = 'module_type', 'module_subtype'
     else:
         rename = {}
@@ -509,6 +531,11 @@ def normalise_vessel_record(record, source=None, index=None):
         if not isinstance(value, str) or not value.strip():
             raise ValueError(f'{where}: "{key}" is required and must be a non-empty string '
                              f'(got {value!r}).')
+        if len(value.split()) > 1:
+            # names become CellML component and variable names, and the generator's frame
+            # keeps a cell's first word only: "a b" was silently truncated to "a"
+            raise ValueError(f'{where}: "{key}" {value!r} contains whitespace. Names, module '
+                             f'types and versions cannot contain spaces; use underscores.')
     out = {'name': record['name'].strip(),
            'BC_type': record[subtype_key].strip(),
            'vessel_type': record[type_key].strip()}
@@ -534,7 +561,7 @@ def normalise_vessel_record(record, source=None, index=None):
 def normalise_vessel_records(records, source=None):
     '''A list of vessel records (one JSON file), each normalised on its own.'''
     if not isinstance(records, list):
-        raise ValueError(f'vessel array {source or ""} must be a JSON list of records, not a '
+        raise ValueError(f'module array {source or ""} must be a JSON list of records, not a '
                          f'{type(records).__name__}.')
     return [normalise_vessel_record(r, source=source, index=i) for i, r in enumerate(records)]
 
@@ -544,9 +571,9 @@ def _first_token(cell):
     return tokens[0].strip() if tokens else ''
 
 
-def vessel_array_csv_to_records(path):
+def module_array_csv_to_records(path):
     '''
-    The rows of a CSV vessel array (either layout) as raw libcuflynx-keyed records: list
+    The rows of a CSV module array (either layout) as raw libcuflynx-keyed records: list
     columns split on whitespace, every other cell reduced to its first token ('' if empty),
     exactly as the CSV reader has always treated them. An empty cell in an optional column
     (anything but name, BC_type, vessel_type and the inp/out lists, e.g. "instance") means the
@@ -554,7 +581,7 @@ def vessel_array_csv_to_records(path):
     '''
     df = pd.read_csv(path, dtype=str, na_filter=False)
     df = df.rename(columns=lambda c: str(c).strip())
-    df = normalise_vessel_array_columns(df, source=str(path))
+    df = normalise_module_array_columns(df, source=str(path))
     records = []
     for row in df.itertuples(index=False, name=None):
         record = {}
@@ -567,11 +594,11 @@ def vessel_array_csv_to_records(path):
     return records
 
 
-def read_vessel_array_records(path):
+def read_module_array_records(path):
     '''
-    The records of the vessel array at ``path`` -- a ``.json`` list of records, or a CSV
+    The records of the module array at ``path`` -- a ``.json`` list of records, or a CSV
     converted row by row -- normalised to libcuflynx keys (``normalise_vessel_record``).
-    Supermodule instances are not expanded here (see ``load_vessel_array``).
+    Supermodule instances are not expanded here (see ``load_module_array``).
     '''
     path = str(path)
     if path.lower().endswith('.json'):
@@ -579,9 +606,9 @@ def read_vessel_array_records(path):
             try:
                 raw = json.load(f)
             except json.JSONDecodeError as e:
-                raise ValueError(f'vessel array {path} is not valid JSON: {e}') from e
+                raise ValueError(f'module array {path} is not valid JSON: {e}') from e
         return normalise_vessel_records(raw, source=path)
-    return normalise_vessel_records(vessel_array_csv_to_records(path), source=path)
+    return normalise_vessel_records(module_array_csv_to_records(path), source=path)
 
 
 def _frame_cell(value, is_list):
@@ -618,7 +645,7 @@ def vessel_records_to_frame(records):
 def vessel_records_to_string_frame(records):
     '''
     Normalised vessel records as a dataframe of strings (lists joined by spaces, empty cells
-    ''), the form a CSV vessel array is written from.
+    ''), the form a CSV module array is written from.
     '''
     frame = vessel_records_to_frame(records)
     for column in frame.columns:
@@ -629,7 +656,7 @@ def vessel_records_to_string_frame(records):
 
 def load_expanded_vessel_records(path, supermodule_registry=None, component_registry=None):
     '''
-    The records of the vessel array at ``path`` with every supermodule instance expanded,
+    The records of the module array at ``path`` with every supermodule instance expanded,
     and the default parameter rows: ``(records, extra_param_rows)``. The rows are the
     supermodules' (their instances', then their default_parameters) and, when
     ``component_registry`` (``load_component_registry``) is given, every expanded record's
@@ -637,7 +664,7 @@ def load_expanded_vessel_records(path, supermodule_registry=None, component_regi
     '''
     from libcuflynx.utilities.module_instances import component_instance_rows, first_rows_win
     from libcuflynx.utilities.supermodules import expand_supermodules
-    records, extra_param_rows = expand_supermodules(read_vessel_array_records(path),
+    records, extra_param_rows = expand_supermodules(read_module_array_records(path),
                                                     supermodule_registry or {}, source=str(path))
     if component_registry is not None:
         extra_param_rows = first_rows_win(
@@ -645,9 +672,9 @@ def load_expanded_vessel_records(path, supermodule_registry=None, component_regi
     return records, extra_param_rows
 
 
-def load_vessel_array(path, supermodule_registry=None, component_registry=None):
+def load_module_array(path, supermodule_registry=None, component_registry=None):
     '''
-    The vessel array at ``path`` (JSON or CSV), with every supermodule instance expanded
+    The module array at ``path`` (JSON or CSV), with every supermodule instance expanded
     (``utilities/supermodules.py``), as ``(frame, extra_param_rows)``:
 
     * ``frame`` -- the list-form dataframe of ``vessel_records_to_frame``;
@@ -680,21 +707,21 @@ def record_to_style(record, style='phlynx'):
 
 
 def dump_vessel_records(records, style='phlynx'):
-    '''JSON text of a vessel array: a list with one record per line, indent 1.'''
+    '''JSON text of a module array: a list with one record per line, indent 1.'''
     lines = [' ' + json.dumps(record_to_style(r, style)) for r in records]
     return '[\n' + ',\n'.join(lines) + '\n]\n' if lines else '[]\n'
 
 
-def vessel_array_to_json(csv_path, json_path=None, style='phlynx'):
+def module_array_to_json(csv_path, json_path=None, style='phlynx'):
     '''
-    Convert the CSV vessel array at ``csv_path`` to JSON records at ``json_path`` (default:
+    Convert the CSV module array at ``csv_path`` to JSON records at ``json_path`` (default:
     the same name with ``.json``), with PhLynx keys (``style='phlynx'``, the default) or
     libcuflynx keys. Returns the JSON path.
     '''
     csv_path = str(csv_path)
     if json_path is None:
         json_path = os.path.splitext(csv_path)[0] + '.json'
-    records = read_vessel_array_records(csv_path)
+    records = read_module_array_records(csv_path)
     with open(json_path, 'w', encoding='utf-8') as f:
         f.write(dump_vessel_records(records, style))
     return str(json_path)
@@ -704,17 +731,17 @@ def main(argv=None):
     '''``python -m libcuflynx.utilities.config_schemas to-json <csv>... [--style ...]``'''
     parser = argparse.ArgumentParser(
         prog='python -m libcuflynx.utilities.config_schemas',
-        description='Tools for libcuflynx vessel arrays and module configs.')
+        description='Tools for libcuflynx module arrays and module configs.')
     commands = parser.add_subparsers(dest='command', required=True)
     to_json = commands.add_parser(
-        'to-json', help='convert CSV vessel arrays to JSON records, written next to each CSV')
-    to_json.add_argument('csv', nargs='+', help='CSV vessel array(s) to convert')
+        'to-json', help='convert CSV module arrays to JSON records, written next to each CSV')
+    to_json.add_argument('csv', nargs='+', help='CSV module array(s) to convert')
     to_json.add_argument('--style', choices=('phlynx', 'libcuflynx'), default='phlynx',
                          help='key names to write (default: phlynx)')
     args = parser.parse_args(argv)
     if args.command == 'to-json':
         for csv_path in args.csv:
-            print(vessel_array_to_json(csv_path, style=args.style))
+            print(module_array_to_json(csv_path, style=args.style))
     return 0
 
 

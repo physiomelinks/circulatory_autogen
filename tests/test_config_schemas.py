@@ -1,4 +1,4 @@
-"""Module configs and vessel arrays in either schema, and PhLynx's multi_port semantics.
+"""Module configs and module arrays in either schema, and PhLynx's multi_port semantics.
 
 The module library (circulatory-autogen-modules) and PhLynx write module configs with
 PhLynx's key names; libcuflynx reads both (utilities/config_schemas.py):
@@ -12,7 +12,7 @@ libcuflynx          PhLynx
 ``module_type``     ``component_type``
 ==================  ==================
 
-and both vessel-array layouts (``name,BC_type,vessel_type,inp_vessels,out_vessels`` and
+and both module-array layouts (``name,BC_type,vessel_type,inp_vessels,out_vessels`` and
 PhLynx's ``name,module_type,module_subtype,inp_instances,out_instances``, which may be named
 ``<prefix>_module_array.csv``).
 
@@ -49,8 +49,8 @@ from libcuflynx.generators.multi_port import normalise_port_multi_port
 from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
 from libcuflynx.solver_wrappers import get_simulation_helper
 from libcuflynx.utilities.config_schemas import (normalise_module_config_entry,
-                                                 normalise_vessel_array_columns,
-                                                 vessel_array_path)
+                                                 normalise_module_array_columns,
+                                                 module_array_path)
 
 
 # --------------------------------------------------------------------------------------------
@@ -219,8 +219,8 @@ PHLYNX_HEADER = "name,module_subtype,module_type,inp_instances,out_instances"
 
 
 def _generate(work_dir, modules_dir, prefix, vessel_rows, params, layout="libcuflynx",
-              array_name="vessel_array"):
-    """Write the vessel array (in ``layout``) and parameters and generate the model."""
+              array_name="module_array"):
+    """Write the module array (in ``layout``) and parameters and generate the model."""
     resources_dir = os.path.join(work_dir, "resources")
     os.makedirs(resources_dir, exist_ok=True)
     lines = [LIBCUFLYNX_HEADER if layout == "libcuflynx" else PHLYNX_HEADER]
@@ -366,35 +366,39 @@ def test_mixed_entry_fails_generation(tmp_path):
 
 
 # --------------------------------------------------------------------------------------------
-# 2. vessel array layouts
+# 2. module array layouts
 # --------------------------------------------------------------------------------------------
 
 @pytest.mark.unit
-def test_vessel_array_columns_are_normalised():
+def test_module_array_columns_are_normalised():
     phlynx = pd.DataFrame([["a", "nn", "src", "", "b"]], columns=PHLYNX_HEADER.split(","))
-    out = normalise_vessel_array_columns(phlynx)
+    out = normalise_module_array_columns(phlynx)
     assert list(out.columns) == LIBCUFLYNX_HEADER.split(",")
     assert out.iloc[0].tolist() == ["a", "nn", "src", "", "b"]
     libcuflynx = pd.DataFrame([["a", "nn", "src", "", "b"]], columns=LIBCUFLYNX_HEADER.split(","))
-    assert normalise_vessel_array_columns(libcuflynx) is libcuflynx
+    assert normalise_module_array_columns(libcuflynx) is libcuflynx
     mixed = pd.DataFrame([["a", "nn", "src", "", "b"]],
                          columns=["name", "BC_type", "module_type", "inp_instances", "out_vessels"])
     with pytest.raises(ValueError, match="mixes libcuflynx columns"):
-        normalise_vessel_array_columns(mixed)
+        normalise_module_array_columns(mixed)
 
 
 @pytest.mark.unit
-def test_module_array_file_name_is_a_fallback(tmp_path):
-    assert vessel_array_path(str(tmp_path), "m").endswith("m_vessel_array.csv")
-    (tmp_path / "m_module_array.csv").write_text(PHLYNX_HEADER + "\n")
-    assert vessel_array_path(str(tmp_path), "m").endswith("m_module_array.csv")
-    (tmp_path / "m_vessel_array.csv").write_text(LIBCUFLYNX_HEADER + "\n")
-    assert vessel_array_path(str(tmp_path), "m").endswith("m_vessel_array.csv")
+def test_the_old_vessel_array_file_name_is_a_fallback(tmp_path):
+    assert module_array_path(str(tmp_path), "m").endswith("m_module_array.csv")
+    (tmp_path / "m_vessel_array.csv").write_text(PHLYNX_HEADER + "\n")
+    with pytest.warns(FutureWarning, match="m_vessel_array.csv uses the old name.*rename it to m_module_array.csv"):
+        assert module_array_path(str(tmp_path), "m").endswith("m_vessel_array.csv")
+    (tmp_path / "m_module_array.csv").write_text(LIBCUFLYNX_HEADER + "\n")
+    with pytest.warns(UserWarning, match="Using m_module_array.csv; the others are ignored"):
+        assert module_array_path(str(tmp_path), "m").endswith("m_module_array.csv")
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("array_name", ["vessel_array", "module_array"])
-def test_phlynx_vessel_array_generates_identically(tmp_path, library_dir, array_name):
+@pytest.mark.parametrize("array_name", ["module_array", "vessel_array"])
+@pytest.mark.filterwarnings("ignore:m_vessel_array.csv uses the old name:FutureWarning")
+def test_phlynx_module_array_generates_identically(tmp_path, library_dir, array_name):
+    """Either file name (vessel_array is the old one), in the PhLynx layout."""
     reference = _generate_full(tmp_path / "lib", library_dir)
     phlynx = _generate_full(tmp_path / "phlynx", library_dir, layout="phlynx", array_name=array_name)
     _assert_same_generated_models(reference, phlynx)

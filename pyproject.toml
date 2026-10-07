@@ -12,7 +12,7 @@ name = "libcuflynx"
 # through this release as deprecation shims and are removed in 0.6.0 -- see
 # libcuflynx/_deprecated_aliases.py::REMOVAL_VERSION, which the shims' warning text quotes.
 version = "0.7.3"
-description = "Generation and calibration of CellML circulatory system models from module/vessel arrays"
+description = "Generation and calibration of CellML circulatory system models from module arrays"
 readme = "README.md"
 # 3.9 is the real floor, not a conservative label: utilities/package_resources.py needs
 # importlib.resources.files/as_file, which arrived in 3.9. Claiming >=3.7 let pip install
@@ -151,7 +151,7 @@ exclude = ["obsolete*", "libcuflynx.obsolete*"]
 "libcuflynx.solver1d" = ["Make_files/*"]
 # Example input for example_format_obs_data_json_file(), which is itself shipped.
 "libcuflynx.scripts" = ["example_data/*.csv"]
-# JSON Schemas of the vessel array and module config files (for editors, PhLynx and tests;
+# JSON Schemas of the module array and module config files (for editors, PhLynx and tests;
 # the loaders in utilities/config_schemas.py check the same rules without a schema library).
 "libcuflynx.schemas" = ["*.schema.json"]
 
@@ -224,7 +224,7 @@ dev = [
     # those tests need tomli. They used to `pytest.importorskip` it and pass by skipping,
     # which meant a green run said nothing at all about pyproject.toml.
     "tomli; python_version < '3.11'",
-    # tests/test_json_vessel_arrays.py validates vessel arrays and module configs against the
+    # tests/test_json_module_arrays.py validates module arrays and module configs against the
     # shipped JSON Schemas (src/libcuflynx/schemas). Test-only: the loaders check the same
     # rules themselves, so it is not a runtime dependency.
     "jsonschema>=4.0",
