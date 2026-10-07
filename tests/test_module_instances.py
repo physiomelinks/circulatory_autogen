@@ -733,8 +733,9 @@ def test_resources_models_generate_identically_without_the_instance_lookup(
     ok, with_lookup = _generate_resource(tmp_path / 'instances', prefix)
     if not ok:
         pytest.skip(f'{prefix} does not generate')
-    import libcuflynx.parsers.ModelParsers as model_parsers
-    monkeypatch.setattr(model_parsers, 'load_component_registry', lambda files: None)
+    # load_model reads the registry through ModuleSources; None means no instance lookup
+    from libcuflynx.utilities.module_library import ModuleSources
+    monkeypatch.setattr(ModuleSources, 'component_registry', lambda self: None)
     ok, without = _generate_resource(tmp_path / 'plain', prefix)
     assert ok
     _assert_same_generated_models(with_lookup, without)
