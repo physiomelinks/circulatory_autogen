@@ -271,23 +271,6 @@ def test_non_vessel_modules_with_arbitrary_names_connect_and_generate(tmp_path, 
     np.testing.assert_allclose(res['snk/y'], 3.0 * 2.0 * np.exp(-0.5 * t), rtol=1e-4)
 
 
-def _constant_bcs_connect():
-    """The constant inlet/outlet BCs can be connected (#529) and join junction nodes (#524)
-    only once the generation fixes of #531 are in this branch."""
-    import json
-    import os
-    from libcuflynx.utilities.package_resources import builtin_modules_dir
-    path = os.path.join(builtin_modules_dir(), 'boundary_condition_modules_config.json')
-    for entry in json.load(open(path)):
-        if entry['vessel_type'] == 'inlet_flow' and entry['BC_type'] == 'nn_constant':
-            return any(v[0] == 'P' for v in entry['variables_and_units'])
-    return False
-
-
-requires_constant_bcs = pytest.mark.skipif(
-    not _constant_bcs_connect(), reason='needs the constant-BC generation fixes of #531')
-
-
 # Min_junction vp and the constant BCs as in test_generation_fixes (#524).
 JUNCTION_PARAMETERS = """\
     variable_name,units,value,data_reference
@@ -325,7 +308,6 @@ def _write_volume_reader(library_dir, bc_type, n_ports):
 
 
 @pytest.mark.integration
-@requires_constant_bcs
 @pytest.mark.parametrize('reader_bc', ['lv_test', 'SN_soma_v01', 'cardiomyocyte_v01'])
 def test_min_junction_with_non_vessel_neighbour(tmp_path, reader_bc):
     """A non-vessel module reading a Min_junction's volume connects whatever its name, and
@@ -358,7 +340,6 @@ def test_min_junction_with_non_vessel_neighbour(tmp_path, reader_bc):
 
 
 @pytest.mark.integration
-@requires_constant_bcs
 def test_non_vessel_neighbour_of_nout_junction_keeps_its_connections(tmp_path):
     """A non-vessel reading volumes from an Nout_junction and from one of the junction's
     vessels gets both connections. With a name not starting nn, the vessel -> reader

@@ -4731,6 +4731,7 @@
                     <apply>
                         <plus/>
                         <ci>j_Na</ci>
+                        <ci>j_Na1_6</ci>
                         <ci>j_NaCa_Na</ci>
                         <ci>j_NaK_Na</ci>
                         <ci>j_leak_Na</ci>
@@ -4970,7 +4971,11 @@ Vol_ER = Vol*c_ER;-->
                             <ci>R</ci>
                             <ci>T</ci>
                         </apply>
-                        <ci>F</ci>
+                        <apply>
+                            <times/>
+                            <cn cellml:units="dimensionless">2</cn>
+                            <ci>F</ci>
+                        </apply>
                     </apply>
                     <apply>
                         <ln/>

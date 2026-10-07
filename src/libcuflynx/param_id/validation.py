@@ -2,7 +2,9 @@
 Validation of a calibrated model against held-out data.
 
 Held-out data lives in the obs_data it validates, as ``prediction_items`` that carry a
-``value`` (and ``data_type``, ``std``, and ``obs_dt`` for a series). A prediction item is
+``value`` (and ``data_type``, ``std``, and ``obs_dt`` for a series). The parser checks a ``std``
+as it does a data item's -- one positive number, or for a series one per point -- so every
+point of an item with a std gets a z-score. A prediction item is
 never scored during calibration; after it, the model's prediction is compared with the item's
 data here.
 
@@ -72,20 +74,18 @@ def _item_result(name, operand, unit, data_type, value, std, obs_dt, t_sim, mode
         t_obs = np.arange(data.size) * float(obs_dt)
         keep = t_obs <= t_sim[-1] + 1e-12 * max(1.0, abs(t_sim[-1]))
         t_obs, data = t_obs[keep], data[keep]
-        if std is not None and std.size > 1:
-            std = std[:keep.size][keep]
+        if std is not None:
+            std = std[keep]     # the parser made it one positive std per point
         model_at = np.interp(t_obs, t_sim, model)
     else:
         t_obs = np.array([t_sim[-1]])
         data = data[:1]
         model_at = model[-1:]
-    if std is not None and std.size == 1 and data.size > 1:
-        std = np.full(data.shape, float(std[0]))
     diff = model_at - data
     rmse = float(np.sqrt(np.mean(diff ** 2))) if data.size else None
     span = float(np.ptp(data)) if data.size > 1 else float(np.max(np.abs(data))) if data.size else 0.0
     nrmse = rmse / span if rmse is not None and span > 0 else None
-    z = np.abs(diff) / std if std is not None and np.all(std > 0) else None
+    z = np.abs(diff) / std if std is not None else None
     return {
         'data_item_name': name,
         'operand': operand,

@@ -66,3 +66,6 @@ resources/user_inputs_[0-9]*.yaml
 *.swo
 *~
 .*.swp
+
+# the module library CI checks out beside the tests (tests/_module_library.py)
+/_module_library/

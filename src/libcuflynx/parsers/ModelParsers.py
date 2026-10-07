@@ -6,9 +6,8 @@ Created on 29/10/2021
 
 
 from libcuflynx.parsers.PrimitiveParsers import CSVFileParser, JSONFileParser
-from libcuflynx.utilities.config_schemas import (is_heart_vessel_type, load_component_registry,
-                                                 load_expanded_vessel_records,
-                                                 load_supermodule_registry, load_module_array,
+from libcuflynx.utilities.config_schemas import (is_heart_vessel_type,
+                                                 load_expanded_vessel_records, load_module_array,
                                                  vessel_records_to_string_frame)
 from libcuflynx.models.LumpedModels import CVS0DModel
 from libcuflynx.checks.LumpedModelChecks import LumpedCompositeCheck, LumpedBCVesselCheck, LumpedIDParamsCheck, LumpedPortVariableCheck
@@ -20,6 +19,7 @@ import re
 import os
 
 from libcuflynx.utilities.module_library import ModuleSources
+from libcuflynx.utilities.module_instances import reissue_warnings
 from libcuflynx.utilities.vessel_bc import is_vessel_bc
 
 # The columns a {prefix}_parameters.csv must provide. They are looked up by header name, so a file
@@ -464,23 +464,27 @@ class CSV0DModelParser(object):
         # Supermodule entries of the module configs. They never join the module dataframe:
         # their instances are expanded into prefixed submodules as the module array is read,
         # before anything below (the heart special case, the module-config join) sees it.
-        supermodule_registry = load_supermodule_registry(self.module_sources.config_files)
+        supermodule_registry = self.module_sources.supermodule_registry()
         # Component entries with the config file each came from: a record's module instance
         # ("instance", or the entry's default_instance) is read from instances/ next to it
         # (utilities/module_instances.py).
-        component_registry = load_component_registry(self.module_sources.config_files)
+        component_registry = self.module_sources.component_registry()
         # The module array is JSON records or a CSV converted to the same records
         # (utilities/config_schemas.py). extra_param_rows are the default parameters under
         # the expanded names -- supermodule instances and default_parameters, then module
         # instances -- and are merged into the parameters below.
-        if self.vessel_filename_0d is None:
-            vessels_df, extra_param_rows = load_module_array(self.vessel_filename,
-                                                             supermodule_registry,
-                                                             component_registry)
-        else:
-            extra_param_rows = self.split_0d_1d_module_array(supermodule_registry,
-                                                             component_registry)
-            vessels_df, _ = load_module_array(self.vessel_filename_0d)
+        # Instances that set one global to different values warn; those warnings are held
+        # until the host parameters are read, since a host value settles the conflict.
+        with warnings.catch_warnings(record=True) as held:
+            warnings.simplefilter('always')
+            if self.vessel_filename_0d is None:
+                vessels_df, extra_param_rows = load_module_array(self.vessel_filename,
+                                                                 supermodule_registry,
+                                                                 component_registry)
+            else:
+                extra_param_rows = self.split_0d_1d_module_array(supermodule_registry,
+                                                                 component_registry)
+                vessels_df, _ = load_module_array(self.vessel_filename_0d)
         
 
         # TODO remove the below:
@@ -506,14 +510,14 @@ class CSV0DModelParser(object):
             exit()
 
 
-        module_df = self.json_parser.json_files_to_dataframe(self.module_sources.config_files)
-        
-        # Check for repeated entries of vessel_type and BC_type in module_df
+        # a type several module sources define comes from the most specific one
+        # (utilities/module_library.py), so each (vessel_type, BC_type) is here once
+        module_df = self.json_parser.json_files_to_dataframe(
+            self.module_sources.config_files, exclude=self.module_sources.excluded_entries)
         duplicates = module_df[module_df.duplicated(subset=["vessel_type", "BC_type"], keep=False)]
         if not duplicates.empty:
-            print("ERROR: Repeated entries of vessel_type and BC_type found in module_config.json:")
-            print(duplicates)
-            exit()
+            raise ValueError('Repeated (vessel_type, BC_type) entries in the module configs:\n'
+                             + duplicates[['vessel_type', 'BC_type']].to_string())
         component_keys = set(zip(module_df["vessel_type"], module_df["BC_type"]))
         shadowed = sorted(key for key in supermodule_registry if key in component_keys)
         if shadowed:
@@ -530,6 +534,7 @@ class CSV0DModelParser(object):
 
         # TODO change to using a pandas dataframe
         parameters_array_orig = self.csv_parser.get_data_as_nparray(self.parameter_filename, True)
+        reissue_warnings(held, settled=set(parameters_array_orig['variable_name'].tolist()))
         # Supermodule and module-instance parameters fill in whatever the parameters file does not set,
         # before the reduction, so everything downstream (generation, parameter id) sees them.
         parameters_array_orig = merge_default_parameters(parameters_array_orig, extra_param_rows)

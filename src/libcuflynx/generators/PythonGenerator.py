@@ -279,14 +279,83 @@ class PythonGenerator:
         ast.fix_missing_locations(transformed)
         return ast.unparse(transformed) + "\n"
 
+    # Every helper function libCellML's Python generator profile can emit
+    # (GeneratorProfile(Profile.PYTHON).<name>FunctionString()).  The generated
+    # compute functions call them by these names, and _build_main_code imports
+    # them from the utilities module, so a name missing here is a NameError at
+    # run time for any model that uses the matching MathML element.
+    HELPER_FUNCTION_NAMES = (
+        "eq_func", "neq_func", "lt_func", "leq_func", "gt_func", "geq_func",
+        "and_func", "or_func", "xor_func", "not_func",
+        "min", "max",
+        "sec", "csc", "cot", "sech", "csch", "coth",
+        "asec", "acsc", "acot", "asech", "acsch", "acoth",
+    )
+
     @staticmethod
-    def _comparison_helper_lines(casadi_compat: bool, aadc_compat: bool = False) -> list:
+    def _reciprocal_trig_helper_lines(m: str) -> list:
+        """Reciprocal trig helpers, as in libCellML's Python profile.
+
+        ``m`` is the prefix for the math functions they call: ``""`` for the
+        plain variant (``from math import *``), ``"ca."`` for CasADi and
+        ``"aadc.math."`` for AADC, so they work on symbolic / active values too.
+        """
+        return [
+            "def sec(x):",
+            f"    return 1.0/{m}cos(x)",
+            "",
+            "def csc(x):",
+            f"    return 1.0/{m}sin(x)",
+            "",
+            "def cot(x):",
+            f"    return 1.0/{m}tan(x)",
+            "",
+            "def sech(x):",
+            f"    return 1.0/{m}cosh(x)",
+            "",
+            "def csch(x):",
+            f"    return 1.0/{m}sinh(x)",
+            "",
+            "def coth(x):",
+            f"    return 1.0/{m}tanh(x)",
+            "",
+            "def asec(x):",
+            f"    return {m}acos(1.0/x)",
+            "",
+            "def acsc(x):",
+            f"    return {m}asin(1.0/x)",
+            "",
+            "def acot(x):",
+            f"    return {m}atan(1.0/x)",
+            "",
+            "def asech(x):",
+            "    one_over_x = 1.0/x",
+            f"    return {m}log(one_over_x+{m}sqrt(one_over_x*one_over_x-1.0))",
+            "",
+            "def acsch(x):",
+            "    one_over_x = 1.0/x",
+            f"    return {m}log(one_over_x+{m}sqrt(one_over_x*one_over_x+1.0))",
+            "",
+            "def acoth(x):",
+            "    one_over_x = 1.0/x",
+            f"    return 0.5*{m}log((1.0+one_over_x)/(1.0-one_over_x))",
+            "",
+        ]
+
+    @classmethod
+    def _comparison_helper_lines(cls, casadi_compat: bool, aadc_compat: bool = False) -> list:
         if aadc_compat:
             return [
                 "import aadc",
                 "",
                 "def _aadc_passive(x):",
                 "    return x.val() if hasattr(x, 'val') else float(x)",
+                "",
+                "def eq_func(x, y):",
+                "    return x == y",
+                "",
+                "def neq_func(x, y):",
+                "    return x != y",
                 "",
                 "def lt_func(x, y):",
                 "    return x < y",
@@ -303,12 +372,30 @@ class PythonGenerator:
                 "def and_func(x, y):",
                 "    return aadc.iand(x, y)",
                 "",
+                "def or_func(x, y):",
+                "    return aadc.ior(x, y)",
+                "",
+                "def xor_func(x, y):",
+                "    return aadc.ixor(x, y)",
+                "",
+                "def not_func(x):",
+                "    return aadc.inot(x)",
+                "",
+                "def min(x, y):",
+                "    return aadc.iif(x <= y, x, y)",
+                "",
                 "def max(x, y):",
                 "    return aadc.iif(x >= y, x, y)",
                 "",
-            ]
+            ] + cls._reciprocal_trig_helper_lines("aadc.math.")
         if casadi_compat:
             return [
+                "def eq_func(x, y):",
+                "    return ca.if_else(x == y, 1.0, 0.0)",
+                "",
+                "def neq_func(x, y):",
+                "    return ca.if_else(x != y, 1.0, 0.0)",
+                "",
                 "def lt_func(x, y):",
                 "    return ca.if_else(x < y, 1.0, 0.0)",
                 "",
@@ -324,11 +411,29 @@ class PythonGenerator:
                 "def and_func(x, y):",
                 "    return ca.if_else(x > 0, ca.if_else(y > 0, 1.0, 0.0), 0.0)",
                 "",
+                "def or_func(x, y):",
+                "    return ca.if_else(ca.logic_or(x != 0, y != 0), 1.0, 0.0)",
+                "",
+                "def xor_func(x, y):",
+                "    return ca.if_else((x != 0) != (y != 0), 1.0, 0.0)",
+                "",
+                "def not_func(x):",
+                "    return ca.if_else(x != 0, 0.0, 1.0)",
+                "",
+                "def min(x, y):",
+                "    return ca.if_else(x < y, x, y)",
+                "",
                 "def max(x, y):",
                 "    return ca.if_else(x > y, x, y)",
                 "",
-            ]
+            ] + cls._reciprocal_trig_helper_lines("ca.")
         return [
+            "def eq_func(x, y):",
+            "    return 1.0 if x == y else 0.0",
+            "",
+            "def neq_func(x, y):",
+            "    return 1.0 if x != y else 0.0",
+            "",
             "def lt_func(x, y):",
             "    return 1.0 if x < y else 0.0",
             "",
@@ -344,10 +449,22 @@ class PythonGenerator:
             "def and_func(x, y):",
             "    return 1.0 if bool(x) & bool(y) else 0.0",
             "",
+            "def or_func(x, y):",
+            "    return 1.0 if bool(x) | bool(y) else 0.0",
+            "",
+            "def xor_func(x, y):",
+            "    return 1.0 if bool(x) ^ bool(y) else 0.0",
+            "",
+            "def not_func(x):",
+            "    return 1.0 if not bool(x) else 0.0",
+            "",
+            "def min(x, y):",
+            "    return x if x < y else y",
+            "",
             "def max(x, y):",
             "    return x if x > y else y",
             "",
-        ]
+        ] + cls._reciprocal_trig_helper_lines("")
 
     @staticmethod
     def _format_info_dict(name: str, info: dict) -> str:
@@ -576,12 +693,7 @@ class PythonGenerator:
             "create_variables_array",
             "describe_states",
             "describe_variables",
-            "lt_func",
-            "leq_func",
-            "gt_func",
-            "geq_func",
-            "and_func",
-            "max",
+            *self.HELPER_FUNCTION_NAMES,
         ]
         if self.aadc_compat:
             export_names.append("_aadc_passive")

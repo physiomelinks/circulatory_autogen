@@ -3317,17 +3317,20 @@ class JSONFileParser(object):
         # match '.json' but are binary and blow up json.load, so skip them here (issue #83).
         return file.endswith('.json') and not file.startswith('._')
 
-    def module_config_to_dataframe(self, json_path):
+    def module_config_to_dataframe(self, json_path, exclude=()):
         """The component entries of one module config JSON file, in either the libcuflynx or
         the PhLynx schema, as a dataframe with libcuflynx column names (see
-        utilities/config_schemas.py). Supermodule entries are left out."""
-        return pd.DataFrame(load_module_config(json_path))
+        utilities/config_schemas.py). Supermodule entries are left out, and so are the
+        ``(file, (vessel_type, BC_type))`` pairs in ``exclude``."""
+        return pd.DataFrame([e for e in load_module_config(json_path)
+                             if (str(json_path), (e['vessel_type'], e['BC_type'])) not in exclude])
 
-    def json_files_to_dataframe(self, json_files):
-        """All module config entries from ``json_files``, in order, as one dataframe."""
+    def json_files_to_dataframe(self, json_files, exclude=()):
+        """All module config entries from ``json_files``, in order, as one dataframe, without
+        those in ``exclude`` (``ModuleSources.excluded_entries``: shadowed definitions)."""
         # a file of supermodule entries only gives an empty frame: those entries are read by
         # config_schemas.load_supermodule_registry, never joined as components
-        dfs = [self.module_config_to_dataframe(path) for path in json_files]
+        dfs = [self.module_config_to_dataframe(path, exclude) for path in json_files]
         dfs = [df for df in dfs if not df.empty]
         if not dfs:
             raise ValueError('No module config JSON files were found: check use_builtin_modules, '
@@ -3463,6 +3466,30 @@ def validate_params_to_change(protocol_info):
         raise ValueError(
             "params_to_change shape mismatch:\n" + "\n".join(errors)
         )
+
+
+def _held_out_std(entry, entry_idx):
+    """A prediction item's held-out std, checked like a data item's: one finite
+    positive number for a constant; for a series, one such number (applied to every
+    point) or a list as long as the series, every entry finite and positive."""
+    where = f"prediction_items[{entry_idx}] ({entry.get('data_item_name')!r})"
+    std = entry['std']
+    if entry['data_type'] == 'constant':
+        if isinstance(std, (list, tuple, np.ndarray)):
+            raise ValueError(f"{where}: a constant's 'std' is one number, got a list.")
+        stds = np.array([float(std)])
+    else:
+        n = np.atleast_1d(np.asarray(entry['value'], dtype=float)).size
+        stds = np.atleast_1d(np.asarray(std, dtype=float)).ravel()
+        if stds.size == 1:
+            stds = np.full(n, stds[0])
+        elif stds.size != n:
+            raise ValueError(f"{where}: 'std' has {stds.size} entries but the series "
+                             f"has {n} points; give one number or one per point.")
+    if not np.all(np.isfinite(stds)) or np.any(stds <= 0.0):
+        raise ValueError(f"{where}: every 'std' entry must be finite and > 0, got "
+                         f"{std!r}.")
+    return float(stds[0]) if entry['data_type'] == 'constant' else stds.tolist()
 
 
 class ObsAndParamDataParser(object):
@@ -3908,6 +3935,8 @@ class ObsAndParamDataParser(object):
                             f"{entry['data_type']!r}.")
                     check_value_shape(where, entry['data_type'], entry['value'], entry['std'],
                                       entry['obs_dt'])
+                    if entry['value'] is not None and entry['std'] is not None:
+                        entry['std'] = _held_out_std(entry, entry_idx)
                     operation = entry['operation']
                     if operation is not None and str(operation).strip() in _NO_OPERATION_SPELLINGS:
                         operation = None

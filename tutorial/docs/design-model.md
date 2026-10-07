@@ -127,7 +127,9 @@ In the `[CA_dir]/src/libcuflynx/generators/resources` directory, there are sever
 
 If you want to create a new module, create or add to a `module_config_user/[module_category]_modules.cellml` file and a matching JSON config file (e.g. `module_config_user/[module_category]_modules_config.json`). You can also keep these files outside the repo by setting `external_modules_dir` in your `user_inputs.yaml` to a directory containing `*_modules.cellml`, `*_modules_config.json`, and optionally any `*units.cellml` files (e.g. `user_units.cellml`).
 
-To use a module library laid out one module per directory (for example [circulatory-autogen-modules](https://github.com/physiomelinks/circulatory-autogen-modules)), set `module_library_dirs` to one or more directories. Each one is searched recursively for `*_modules.cellml`, `*_modules_config.json` (or `*_module_config.json`) and `*units.cellml` files; other JSON files, such as parameter or obs_data files kept next to a module, are ignored. Set `use_builtin_modules: false` to use only external modules. The built-in and `module_config_user` modules are then not loaded, so a library can define its own version of a built-in `(vessel_type, BC_type)`. Units defined identically in several files are written once; a unit defined differently in two files is an error.
+To use a module library laid out one module per directory (for example [circulatory-autogen-modules](https://github.com/physiomelinks/circulatory-autogen-modules)), set `module_library_dirs` to one or more directories. Each one is searched recursively for `*_modules.cellml`, `*_modules_config.json` (or `*_module_config.json`) and `*units.cellml` files; other JSON files, such as parameter or obs_data files kept next to a module, are ignored. Set `use_builtin_modules: false` to use only external modules. The built-in and `module_config_user` modules are then not loaded. Units defined identically in several files are written once; a unit defined differently in two files is an error.
+
+A `(vessel_type, BC_type)` defined in more than one source comes from the most specific source: `external_modules_dir` first, then `module_library_dirs` in the order you list them, then `module_config_user`, then the built-in modules. The other definitions' config entries and CellML components are left out of the model. Because one module silently replacing another is easy to miss, a `ModuleShadowWarning` lists every type defined more than once and which source won. For a library that replaces the built-in modules, set `use_builtin_modules: false` to avoid the warning. A type defined twice within one source (two files of one library, say) is an error.
 
 ```yaml
 module_library_dirs:
@@ -291,7 +293,7 @@ Instance parameters are defaults. A name that `[file_prefix]_parameters.csv` set
 3. a supermodule's `default_parameters`;
 4. the instance of a submodule, or of an ordinary module.
 
-Within one level, the first record in the (expanded) module array wins, so a global set by several instances is added once.
+Within one level, the first record in the (expanded) module array wins, so a global set by several instances is added once. A global is one value for the whole model, so if instances set it to different values you get a `ConflictingGlobalWarning` naming each value, its units and the record that set it: the modules after the first run at a value their instance did not choose. Set the global in `[file_prefix]_parameters.csv` to choose it, which also silences the warning. A supermodule instance overriding the instances inside it is not warned about. If the units differ too, the modules most likely mean different quantities by one name, and one of them needs renaming.
 
 An instance that does not exist is an error. The error names the version directory and lists the instances it has. Naming an instance of a module whose config has no `instances/` directory next to it is an error too.
 
