@@ -22,6 +22,12 @@ The fixture modules below live in an ``external_modules_dir``:
 * ``flow_split`` (BC ``pv``) -- entrance vessel_port [v_in, u]; exit vessel_port [v_out, u_d],
   multi_port ["sum", "True"]; ``v_in = v_out``, ``u_d = u``.
 * ``rl_sink`` -- takes a pressure, gives a flow through an R-L branch (one state).
+* ``volume_store`` -- a prescribed volume ``q`` [m3] on an exit volume_link_port with
+  multi_port "True"; ``volume_reader`` reads it as ``q_vc`` [litre], so every connection needs
+  a unit converter.
+* ``venous_uptake`` (BC ``vp``) -- a venous node with a plain entrance vessel_port [v_in, u]
+  and a separate entrance blood_uptake_port [v_uptake], multi_port "sum";
+  ``v_out = v_in + v_uptake``. ``uptake_source`` feeds that port.
 
 Built-in ``arterial_simple`` vessels are mixed in as neighbours too.
 """
@@ -125,6 +131,30 @@ MODULES_CELLML = (
             '<apply><divide/><apply><minus/><ci>u_in</ci><apply><times/><ci>R</ci><ci>v</ci>'
             '</apply></apply><ci>L</ci></apply>'),
         _eq('<ci>u_seen</ci>', '<ci>u_in</ci>')])
+    + _component('volume_store_type', [
+        _var('q', 'm3', 'out'),
+        _var('q_mean', 'm3', 'in'),
+        _var('amp', 'dimensionless', 'in'),
+        _var('omega', 'per_s', 'in'),
+    ], [_eq('<ci>q</ci>', _sinusoid('q_mean', 'amp', 'omega'))])
+    + _component('volume_reader_type', [
+        _var('q_vc', 'litre', 'in'),
+        _var('q_seen', 'litre', 'out'),
+    ], [_eq('<ci>q_seen</ci>', '<ci>q_vc</ci>')])
+    + _component('uptake_source_type', [
+        _var('v_up', 'm3_per_s', 'out'),
+        _var('v_mean', 'm3_per_s', 'in'),
+        _var('amp', 'dimensionless', 'in'),
+        _var('omega', 'per_s', 'in'),
+    ], [_eq('<ci>v_up</ci>', _sinusoid('v_mean', 'amp', 'omega'))])
+    + _component('venous_uptake_type', [
+        _var('v_in', 'm3_per_s', 'in'),
+        _var('v_uptake', 'm3_per_s', 'in'),
+        _var('u', 'J_per_m3', 'out'),
+        _var('v_out', 'm3_per_s', 'out'),
+        _var('u_d', 'J_per_m3', 'in'),
+    ], [_eq('<ci>v_out</ci>', '<apply><plus/><ci>v_in</ci><ci>v_uptake</ci></apply>'),
+        _eq('<ci>u</ci>', '<ci>u_d</ci>')])
     + '</model>\n'
 )
 
@@ -213,6 +243,34 @@ MODULES_CONFIG = [
         ["L", "Js2_per_m6", "access", "constant"],
         ["u_seen", "J_per_m3", "access", "variable"],
     ]),
+    _module("volume_store", "nn", "volume_store_type", [],
+            [_port("volume_link_port", ["q"], "True")], [
+                ["q", "m3", "access", "variable"],
+                ["q_mean", "m3", "access", "constant"],
+                ["amp", "dimensionless", "access", "constant"],
+                ["omega", "per_s", "access", "constant"],
+            ]),
+    _module("volume_reader", "nn", "volume_reader_type",
+            [_port("volume_link_port", ["q_vc"])], [], [
+                ["q_vc", "litre", "access", "boundary_condition"],
+                ["q_seen", "litre", "access", "variable"],
+            ]),
+    _module("uptake_source", "nn", "uptake_source_type", [],
+            [_port("blood_uptake_port", ["v_up"])], [
+                ["v_up", "m3_per_s", "access", "variable"],
+                ["v_mean", "m3_per_s", "access", "constant"],
+                ["amp", "dimensionless", "access", "constant"],
+                ["omega", "per_s", "access", "constant"],
+            ]),
+    _module("venous_uptake", "vp", "venous_uptake_type",
+            [_port("vessel_port", ["v_in", "u"]), _port("blood_uptake_port", ["v_uptake"], "sum")],
+            [_port("vessel_port", ["v_out", "u_d"])], [
+                ["v_in", "m3_per_s", "access", "boundary_condition"],
+                ["v_uptake", "m3_per_s", "access", "boundary_condition"],
+                ["u", "J_per_m3", "access", "variable"],
+                ["v_out", "m3_per_s", "access", "variable"],
+                ["u_d", "J_per_m3", "access", "boundary_condition"],
+            ]),
 ]
 
 
@@ -474,6 +532,90 @@ def test_flow_merge_takes_a_terminal_inflow(tmp_path, external_modules_dir):
     np.testing.assert_allclose(res["merge/v_out"], res["term/v_T"] + res["src_a/v"], **EXACT)
     assert np.max(np.abs(res["term/v_T"])) > 0
     np.testing.assert_allclose(res["merge/u"], res["wk/u"], **EXACT)
+
+
+def _terminal_params(name):
+    return [("R_T_" + name, "Js_per_m6", 1.0e8), ("C_T_" + name, "m6_per_J", 1.0e-9),
+            ("u_ext_" + name, "J_per_m3", 0.0), ("q_us_" + name, "m3", 0.0),
+            ("q_init_" + name, "m3", 1.0e-6)]
+
+
+PSRC_PARAMS = [("u_mean_psrc", "J_per_m3", 1.0e4), ("amp_psrc", "dimensionless", 0.5),
+               ("omega_psrc", "per_s", 6.0)]
+
+
+@pytest.mark.integration
+def test_terminal_inflow_with_separate_list_form_uptake_port(tmp_path, external_modules_dir):
+    """A venous module whose vessel_port is plain still takes the terminal flow through the
+    terminal_venous_connection when another of its entrance ports (here a blood_uptake_port
+    with multi_port "sum", which is read as the list form ["sum"]) sums other inflows.
+
+    Before the fix, any list-form entrance port skipped the terminal -> venous v_in mapping,
+    so v_in was left unconnected and the model did not load."""
+    rows = [("psrc", "nn", "pressure_source", [], ["term"]),
+            ("term", "pp", "terminal", ["psrc"], ["ven"]),
+            ("up_a", "nn", "uptake_source", [], ["ven"]),
+            ("up_b", "nn", "uptake_source", [], ["ven"]),
+            ("ven", "vp", "venous_uptake", ["term", "up_a", "up_b"], ["wk"]),
+            ("wk", "nn", "windkessel", ["ven"], [])]
+    params = (PSRC_PARAMS + _terminal_params("term") +
+              [("v_mean_up_a", "m3_per_s", 1.0e-6), ("amp_up_a", "dimensionless", 0.5),
+               ("omega_up_a", "per_s", 6.0),
+               ("v_mean_up_b", "m3_per_s", 2.0e-6), ("amp_up_b", "dimensionless", 0.3),
+               ("omega_up_b", "per_s", 4.0)] +
+              _windkessel_params("wk"))
+    cellml_path = _generate(tmp_path, external_modules_dir, "mp_term_uptake", rows, params)
+
+    conns = _connections(_read(cellml_path))
+    # the terminal flow reaches v_in through the terminal_venous_connection
+    assert _mapped(conns, "term_module", "v_T", "terminal_venous_connection", "v_term")
+    assert _mapped(conns, "terminal_venous_connection", "v_ven", "ven_module", "v_in")
+    assert _mapped(conns, "term_module", "u_out", "ven_module", "u")
+    # the uptake port sums its two neighbours
+    for src in ["up_a", "up_b"]:
+        assert _mapped(conns, f"{src}_module", "v_up", "multiport_sum_ven_v_uptake", f"v_up_{src}")
+    assert _mapped(conns, "multiport_sum_ven_v_uptake", "v_uptake", "ven_module", "v_uptake")
+
+    res = _simulate(cellml_path, ["term/v_T", "up_a/v_up", "up_b/v_up", "ven/v_out", "ven/u",
+                                  "wk/u"])
+    np.testing.assert_allclose(res["ven/v_out"],
+                               res["term/v_T"] + res["up_a/v_up"] + res["up_b/v_up"], **EXACT)
+    assert np.max(np.abs(res["term/v_T"])) > 0
+    np.testing.assert_allclose(res["ven/u"], res["wk/u"], **EXACT)
+
+
+@pytest.mark.integration
+def test_fan_out_to_two_modules_needing_the_same_unit_conversion(tmp_path,
+                                                                 external_modules_dir):
+    """One output (q, m3) shared through a multi_port "True" port with two modules that both
+    read it in litre: each connection gets its own, uniquely named converter.
+
+    Before the fix both converters were named unit_converter_m3_to_litre, and the model was
+    rejected ("Component name must be unique within model")."""
+    rows = [("store", "nn", "volume_store", [], ["reader_a", "reader_b"]),
+            ("reader_a", "nn", "volume_reader", ["store"], []),
+            ("reader_b", "nn", "volume_reader", ["store"], [])]
+    params = [("q_mean_store", "m3", 2.0e-3), ("amp_store", "dimensionless", 0.5),
+              ("omega_store", "per_s", 6.0)]
+    cellml_path = _generate(tmp_path, external_modules_dir, "mp_fan_units", rows, params)
+
+    text = _read(cellml_path)
+    converters = re.findall(r'<component name="(unit_converter[^"]*)"', text)
+    assert len(converters) == 2, converters
+    assert len(set(converters)) == 2, converters
+    for name in converters:
+        assert re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name), name
+    conns = _connections(text)
+    for reader in ["reader_a", "reader_b"]:
+        converter = [name for name in converters if reader in name]
+        assert len(converter) == 1, (reader, converters)
+        assert _mapped(conns, "store_module", "q", converter[0], "q")
+        assert _mapped(conns, converter[0], "q_vc", f"{reader}_module", "q_vc")
+
+    res = _simulate(cellml_path, ["store/q", "reader_a/q_seen", "reader_b/q_seen"])
+    assert np.ptp(res["store/q"]) > 0
+    for reader in ["reader_a", "reader_b"]:
+        np.testing.assert_allclose(res[f"{reader}/q_seen"], 1.0e3 * res["store/q"], rtol=1e-12)
 
 
 @pytest.mark.integration
