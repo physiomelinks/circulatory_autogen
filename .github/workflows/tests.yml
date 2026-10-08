@@ -8,476 +8,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    # Runs 13-31 minutes depending on the apt weather. This is a backstop, not a budget:
-    # without one, `test (3.11)` sat in the apt step for 45 minutes and had to be cancelled
-    # by hand, because the job would otherwise have run to GitHub's 360-minute default.
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        # 3.9 is gone: numpy, scipy, matplotlib, scikit-learn and numdifftools all declare
-        # requires-python >=3.10, so a 3.9 job either resolved older pins than any real user
-        # gets or failed to resolve at all -- testing a configuration the dependency tree no
-        # longer supports (#459).
-        #
-        # 3.12 is the top because that is where the wheels stop being universal, not because of
-        # requires-python: libcellml 0.6.3 (what `<0.7.0` resolves to) has wheels to cp313, but
-        # autoemulate declares `<3.13`, so the [emulation] extra cannot go past 3.12. If this
-        # ever reaches 3.13, the emulator jobs have to stay behind -- see the note on them below,
-        # and tests/test_python_matrix.py, which asserts it rather than leaving it to be
-        # rediscovered as a resolution failure.
-        python-version: ["3.10", "3.11", "3.12"]
-    
-    steps:
-    - uses: actions/checkout@v4
-
-    # The module-library tests (tests/test_module_instances.py) run against the real
-    # circulatory-autogen-modules, at the commit pinned in tests/MODULE_LIBRARY_REF. Only its
-    # modules/ directory is needed.
-    - name: Read the pinned module library commit
-      id: module-library
-      run: echo "ref=$(grep -v '^#' tests/MODULE_LIBRARY_REF | grep -m1 .)" >> "$GITHUB_OUTPUT"
-
-    - name: Check out the module library
-      uses: actions/checkout@v4
-      with:
-        repository: physiomelinks/circulatory-autogen-modules
-        ref: ${{ steps.module-library.outputs.ref }}
-        path: _module_library
-        sparse-checkout: modules
-    
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ matrix.python-version }}
-    
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -e ".[dev]"
-    
-    - uses: ./.github/actions/install-system-deps
-    
-    - name: Run tests (Myokit-first, skip OpenCOR-only)
-      id: pytest
-      env:
-        CUFLYNX_MODULE_LIBRARY: ${{ github.workspace }}/_module_library/modules
-        # a missing library fails these tests rather than skipping them green
-        CUFLYNX_REQUIRE_MODULE_LIBRARY: "1"
-      run: |
-        # Run non-MPI suite, excluding OpenCOR-specific tests.
-        pytest tests/ -v -m "not need_opencor and not mpi" --tb=short --junitxml=junit.xml
-    
-    - name: Parse test results
-      if: always()
-      run: |
-        # Parse JUnit XML to get test statistics
-        python3 << 'EOF'
-        import xml.etree.ElementTree as ET
-        import os
-        import json
-        
-        junit_file = 'junit.xml'
-        if os.path.exists(junit_file):
-            tree = ET.parse(junit_file)
-            root = tree.getroot()
-            
-            # Get test suite stats
-            tests = int(root.get('tests', 0))
-            failures = int(root.get('failures', 0))
-            errors = int(root.get('errors', 0))
-            skipped = int(root.get('skipped', 0))
-            passed = tests - failures - errors - skipped
-            
-            if tests > 0:
-                pass_rate = (passed / tests) * 100
-            else:
-                pass_rate = 0
-            
-            # Write to output file
-            with open('test_results.json', 'w') as f:
-                json.dump({
-                    'total': tests,
-                    'passed': passed,
-                    'failed': failures + errors,
-                    'skipped': skipped,
-                    'pass_rate': round(pass_rate, 1)
-                }, f)
-            
-            print(f"Tests: {tests}, Passed: {passed}, Failed: {failures + errors}, Skipped: {skipped}")
-            print(f"Pass Rate: {pass_rate:.1f}%")
-        else:
-            # No test results file
-            with open('test_results.json', 'w') as f:
-                json.dump({
-                    'total': 0,
-                    'passed': 0,
-                    'failed': 0,
-                    'skipped': 0,
-                    'pass_rate': 0
-                }, f)
-        EOF
-    
-    - name: Test Summary
-      if: always()
-      run: |
-        if [ -f test_results.json ]; then
-          TOTAL=$(python3 -c "import json; print(json.load(open('test_results.json'))['total'])")
-          PASSED=$(python3 -c "import json; print(json.load(open('test_results.json'))['passed'])")
-          FAILED=$(python3 -c "import json; print(json.load(open('test_results.json'))['failed'])")
-          SKIPPED=$(python3 -c "import json; print(json.load(open('test_results.json'))['skipped'])")
-          PASS_RATE=$(python3 -c "import json; print(json.load(open('test_results.json'))['pass_rate'])")
-          
-          echo "## Test Results (Python ${{ matrix.python-version }})" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
-          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Total Tests | $TOTAL |" >> $GITHUB_STEP_SUMMARY
-          echo "| ✅ Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
-          echo "| ❌ Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
-          echo "| ⏭️ Skipped | $SKIPPED |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Pass Rate** | **$PASS_RATE%** |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "> Note: OpenCOR-specific tests are marked need_opencor and excluded in this job." >> $GITHUB_STEP_SUMMARY
-          echo "> CI runs the Myokit-first suite and fails on real test failures." >> $GITHUB_STEP_SUMMARY
-        fi
-
-  # The param_id suite is split in two, serial and MPI alike, because one test was half of it.
-  # Measured on the run that prompted the split (per-test, from the job logs):
-  #
-  #   test_param_id_simple_physiological_succeeds     705 s serial / 621 s MPI
-  #   everything else in both files, together         801 s serial / 600 s MPI
-  #
-  # That one test calibrates a whole-circulation model where every other test uses a small one
-  # (3compartment, lotka_volterra, fitzhugh_nagumo), so the split is by model scale rather than
-  # an arbitrary halving: `full_scale_model` marks it, and the two halves select on the marker.
-  # A new full-scale test joins the first half by wearing the marker; anything else lands in the
-  # second half by default. Splitting on a marker rather than on `-k <test name>` means renaming
-  # the test cannot silently put 12 minutes back into one job.
-  #
-  # Each half is ~10-13 minutes and they run in parallel, so the wall clock is halved rather
-  # than the work reduced.
-  test-param-id-mpi-full-scale:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.10"
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -e ".[dev]"
-
-    - uses: ./.github/actions/install-system-deps
-
-    - name: Run the full-scale model calibration with MPI
-      run: |
-        mpiexec -n 2 python -m pytest tests/test_param_id.py -m full_scale_model -v --with-mpi \
-          --tb=short --durations=0 --junitxml=junit-param-id-full-scale.xml
-
-  test-param-id-mpi:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.10"
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -e ".[dev]"
-
-    - uses: ./.github/actions/install-system-deps
-
-    - name: Run param_id and sensitivity analysis tests with MPI
-      run: |
-        mpiexec -n 2 python -m pytest tests/test_param_id.py tests/test_sensitivity_analysis.py \
-          -m "not full_scale_model" -v --with-mpi --tb=short --durations=0 \
-          --junitxml=junit-param-id.xml
-
-  # Split on the same marker as the MPI pair above, for the same reason -- see the note there.
-  test-param-id-serial-full-scale:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.10"
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -e ".[dev]"
-
-    - uses: ./.github/actions/install-system-deps
-
-    - name: Run the full-scale model calibration in serial mode
-      run: |
-        python -m pytest tests/test_param_id.py -m full_scale_model -v --with-mpi --tb=short \
-          --durations=0 --junitxml=junit-param-id-serial-full-scale.xml
-
-  test-param-id-serial:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.10"
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -e ".[dev]"
-
-    - uses: ./.github/actions/install-system-deps
-
-    - name: Run param_id and sensitivity analysis tests in serial mode
-      run: |
-        python -m pytest tests/test_param_id.py tests/test_sensitivity_analysis.py \
-          -m "not full_scale_model" -v --with-mpi --tb=short --durations=0 \
-          --junitxml=junit-param-id-serial.xml
-
-  # The end-to-end UQ tests: a real chain checked against a posterior whose answer is known in
-  # closed form (issue #179). Nothing else runs them.
-  #
-  # Every case here is sampled through an emulator. Measured on Simple_ODE_Benchmark, which is
-  # what decided that:
-  #
-  #   tests/test_uq_on_emulator.py [emcee]                ~47 s   (through an emulator)
-  #   tests/test_uq_on_emulator.py [pymc]                ~126 s   (same, pyMC backend)
-  #   tests/test_uq_on_emulator.py [bimodal]              ~69 s   (same, both modes present)
-  #   test_UQ.py::test_mcmc_unimodal_with_validation     ~25 min  (emcee, real model)
-  #   test_UQ.py::test_mcmc_bimodal_with_validation      ~56 min  (emcee, real model)
-  #   test_UQ.py::..._KDE_likelihood                     >50 min  (pyMC -- killed, unfinished)
-  #
-  # The full-model three are marked `manual`: not collected at all without --run-manual, so they
-  # run neither here nor in a default local run. They make the same assertions the emulator ones
-  # do -- the same recovery of the analytic answer, the same both-modes-present statistic -- and
-  # the only difference is that the likelihood comes from the solver rather than from an
-  # emulator faithful to it (held-out R2 1.0000). They took 82 of this job's 89 minutes to say
-  # so. Run them by hand when the solver-driven path itself changes.
-  #
-  # pyMC is slow against the real model for a structural reason worth remembering: its Metropolis
-  # takes one likelihood evaluation *per parameter per step* where emcee moves the whole ensemble
-  # at once, and num_tune defaults to 1000, so it runs 1500 iterations for 500 draws. Through an
-  # emulator each of those evaluations is a matrix multiply, which is what makes it affordable.
-  #
-  # It is its own job rather than extra cases on test-param-id-*, because it needs two optional
-  # extras those jobs have no use for.
-  test-uq:
-    runs-on: ubuntu-latest
-    # ~5 minutes of tests plus ~3 of installs. Deliberately not generous: this job used to take
-    # 89 minutes against the real model, and a timeout close to the real cost is what makes a
-    # regression back to that visible instead of merely slow.
-    timeout-minutes: 25
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        # Pinned, and cannot follow the matrix past 3.12: autoemulate declares
-        # requires-python <3.13, so [emulation] stops there (#459).
-        python-version: "3.10"
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        # [uq] brings pymc/pytensor and [emulation] brings autoemulate. Without them the
-        # corresponding tests skip, and those code paths go unexercised in CI -- which is how
-        # the pyMC backend stayed unproven for as long as it did.
-        # --build-constraint, not a runtime pin: [emulation] reaches harmonic, which has no
-        # cp310 wheel and so is built here. See build-constraints.txt for what it holds back.
-        pip install --build-constraint "${{ github.workspace }}/build-constraints.txt" \
-          -e ".[dev,uq,emulation]"
-
-    - uses: ./.github/actions/install-system-deps
-
-    # Seconds, and the only place the pyMC-sampling half of these runs: without [uq] they skip,
-    # which is exactly how the backend's live-chain checkpointing could regress unnoticed.
-    - name: Run the pyMC live-chain tests
-      run: |
-        python -m pytest tests/test_uq_pymc_live_chain.py -v --tb=short \
-          --junitxml=junit-uq-pymc-live.xml
-
-    # Launches its own `mpiexec -n 2`, so it needs no MPI harness of its own -- but it is the
-    # only multi-rank UQ coverage anywhere in CI, for either backend. Both arrangements (pyMC
-    # sampling per rank, emcee farming likelihoods to a pool) hang rather than fail when they
-    # are wrong, so the test carries a deadline and the step carries one too.
-    - name: Run the multi-rank UQ tests
-      timeout-minutes: 15
-      run: |
-        python -m pytest tests/test_uq_pymc_mpi.py -v --tb=short \
-          --junitxml=junit-uq-pymc-mpi.xml
-
-    # The whole UQ stack -- the cost, the priors, both samplers, the statistics -- checked
-    # against a posterior whose answer is known in closed form, including the bimodal case.
-    #
-    # The full-model equivalents in test_UQ.py are deliberately not run here. They took 82
-    # minutes of this job's 89 (the bimodal one alone: 56), and they sample the same posteriors
-    # these do -- the only difference being that the likelihood comes from the solver rather
-    # than from an emulator faithful to it (held-out R2 1.0000). Paying 16x the wall clock on
-    # every PR for that difference is not a good trade, so they are marked `manual` and run on
-    # demand with --run-manual when the solver-driven path itself changes.
-    - name: Run UQ on an emulator (posterior recovery, both samplers, bimodal)
-      run: |
-        python -m pytest tests/test_uq_on_emulator.py -v --with-mpi --tb=short \
-          --durations=0 --junitxml=junit-uq-emulator.xml
-
-    # A skipped test is a green step, so this job could report success having run nothing at
-    # all -- and that is the likely failure, not a red X: every UQ test is guarded by a skipif
-    # on an optional extra (autoemulate, pymc). If [emulation] or [uq] silently fails to
-    # resolve, the whole point of this job evaporates and the badge still says pass.
-    - name: Fail if the UQ tests did not actually run
-      if: always()
-      run: python .github/scripts/fail_if_tests_skipped.py "junit-uq*.xml"
-
-    - name: Upload UQ test results
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: uq-test-results
-        path: |
-          junit-uq-emulator.xml
-          junit-uq-pymc-mpi.xml
-          junit-uq-pymc-live.xml
-
-  # UQ with more than one rank -- the way a real UQ run is launched (`run_param_id.sh` takes a
-  # processor count), and, until this job, the way nothing was ever tested. Every other UQ job
-  # runs pytest directly, on one rank, where the multi-rank branches are not taken at all: that
-  # is how a deadlock in the pyMC arm survived from #408 until #424.
-  #
-  # It runs the emulator UQ tests because they are the only end-to-end UQ that is affordable on
-  # a pull request -- both samplers, a posterior with a closed-form answer, minutes not hours --
-  # and they cover the two arrangements that can deadlock: emcee farming likelihoods to an
-  # MPIPool, and pyMC sampling its own chains per rank.
-  #
-  # Each rank writes its own junit file, since both ranks run the whole file and a shared path
-  # would have them overwrite each other. The quoting matters: OMPI_COMM_WORLD_RANK must be
-  # expanded by each rank's own shell, not by the shell that launches mpiexec.
-  test-uq-mpi:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        # Pinned, and cannot follow the matrix past 3.12: autoemulate declares
-        # requires-python <3.13, so [emulation] stops there (#459).
-        python-version: "3.10"
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        # See build-constraints.txt: [emulation] reaches harmonic, built from sdist on 3.10.
-        pip install --build-constraint "${{ github.workspace }}/build-constraints.txt" \
-          -e ".[dev,uq,emulation]"
-
-    - uses: ./.github/actions/install-system-deps
-
-    - name: Run the emulator UQ tests on two ranks
-      timeout-minutes: 30
-      run: |
-        mpiexec -n 2 bash -c 'python -m pytest tests/test_uq_on_emulator.py -v --with-mpi \
-          --tb=short --durations=0 --junitxml=junit-uq-2rank-$OMPI_COMM_WORLD_RANK.xml'
-
-    # Same reasoning as the serial UQ job: these are all behind skipif on an optional extra, so
-    # a job that installed neither would pass having run nothing. Rank 0's results are the ones
-    # checked -- both ranks run the same tests.
-    - name: Fail if the multi-rank UQ tests did not actually run
-      if: always()
-      run: python .github/scripts/fail_if_tests_skipped.py "junit-uq-2rank-0.xml"
-
-    - name: Upload multi-rank UQ test results
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: uq-mpi-test-results
-        path: |
-          junit-uq-2rank-*.xml
-
-  # The FEniCSx flagship for `model_type: external_python` (funcs_user/heat_fenics). It is a
-  # finite-element solver written against dolfinx, and dolfinx is a conda-forge package that
-  # pip cannot provide -- so no other job here can install it, and without this one every
-  # test in tests/test_heat_fenics_example.py that actually solves something skips and the
-  # shipped example goes untested. (Only its obs_data check runs elsewhere: that one reads a
-  # JSON file.) That is the failure this job exists to prevent: an example that stops working
-  # against a new dolfinx, or against a change to the external backend, with CI still green.
-  #
-  # Its own job rather than extra cases on `test`, for the same reason test-uq is its own job:
-  # the environment is conda rather than pip, and the emulator round trip needs the
-  # [emulation] extra that the ordinary jobs have no use for.
-  #
-  # dolfinx is pinned to 0.9.x on purpose. The example renames-proofs the handful of calls
-  # that have moved between releases (functionspace, bb_tree, the PETSc assembly helpers),
-  # but an unpinned conda-forge install would silently move CI onto a release nobody has
-  # tested this against, and a finite-element API break reads as a physics failure. Bump the
-  # pin deliberately, with the example, and the version named in its docstring.
-  test-fenics-emulator:
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    # micromamba activates the environment through the shell profile, so every step needs a
-    # *login* shell. Without this the steps run against the runner's system python and
-    # `import dolfinx` fails -- which, because the test file uses importorskip, would show up
-    # as a green job that ran nothing at all.
-    defaults:
-      run:
-        shell: bash -el {0}
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up a FEniCSx environment
-      uses: mamba-org/setup-micromamba@v1
-      with:
-        environment-name: fenicsx
-        condarc: |
-          channels:
-            - conda-forge
-        create-args: >-
-          python=3.11
-          fenics-dolfinx=0.9
-          pip
-        cache-environment: true
-
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        # [emulation] brings autoemulate, which the emulator round-trip test needs; without
-        # it that test skips and the external backend's integration with CA goes unchecked.
-        # See build-constraints.txt: autoemulate reaches harmonic, built from sdist on 3.10.
-        pip install --build-constraint "${{ github.workspace }}/build-constraints.txt" \
-          -e ".[dev,emulation]"
-
-    # A skipped test is a green step, and every test in this file sits behind an
-    # importorskip. If the conda environment failed to activate, or the extra failed to
-    # resolve, the job would pass having run nothing -- so assert the imports first.
-    - name: Fail if the FEniCSx or emulator stack did not install
-      run: |
-        python -c "import dolfinx, petsc4py, autoemulate; print('dolfinx', dolfinx.__version__)"
-
-    - name: Run the FEniCSx example tests
-      run: |
-        python -m pytest tests/test_heat_fenics_example.py -v -p no:xdist --tb=short
-
+  # Jobs are listed fastest first (measured on CI), so with few runners free the quick checks
+  # start, and report a failure, before the long ones.
   # Job to run full test suite if OpenCOR is available (optional)
   # This can be enabled if OpenCOR is set up in CI environment
   # The released CUFLynx desktop app, driven against this checkout.
@@ -571,6 +103,519 @@ jobs:
         name: cuflynx-executable-results
         path: junit-cuflynx-executable.xml
 
+  # The FEniCSx flagship for `model_type: external_python` (funcs_user/heat_fenics). It is a
+  # finite-element solver written against dolfinx, and dolfinx is a conda-forge package that
+  # pip cannot provide -- so no other job here can install it, and without this one every
+  # test in tests/test_heat_fenics_example.py that actually solves something skips and the
+  # shipped example goes untested. (Only its obs_data check runs elsewhere: that one reads a
+  # JSON file.) That is the failure this job exists to prevent: an example that stops working
+  # against a new dolfinx, or against a change to the external backend, with CI still green.
+  #
+  # Its own job rather than extra cases on `test`, for the same reason test-uq is its own job:
+  # the environment is conda rather than pip, and the emulator round trip needs the
+  # [emulation] extra that the ordinary jobs have no use for.
+  #
+  # dolfinx is pinned to 0.9.x on purpose. The example renames-proofs the handful of calls
+  # that have moved between releases (functionspace, bb_tree, the PETSc assembly helpers),
+  # but an unpinned conda-forge install would silently move CI onto a release nobody has
+  # tested this against, and a finite-element API break reads as a physics failure. Bump the
+  # pin deliberately, with the example, and the version named in its docstring.
+  test-fenics-emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    # micromamba activates the environment through the shell profile, so every step needs a
+    # *login* shell. Without this the steps run against the runner's system python and
+    # `import dolfinx` fails -- which, because the test file uses importorskip, would show up
+    # as a green job that ran nothing at all.
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up a FEniCSx environment
+      uses: mamba-org/setup-micromamba@v1
+      with:
+        environment-name: fenicsx
+        condarc: |
+          channels:
+            - conda-forge
+        create-args: >-
+          python=3.11
+          fenics-dolfinx=0.9
+          pip
+        cache-environment: true
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        # [emulation] brings autoemulate, which the emulator round-trip test needs; without
+        # it that test skips and the external backend's integration with CA goes unchecked.
+        # See build-constraints.txt: autoemulate reaches harmonic, built from sdist on 3.10.
+        pip install --extra-index-url https://download.pytorch.org/whl/cpu \
+          --build-constraint "${{ github.workspace }}/build-constraints.txt" \
+          -e ".[dev,emulation]"
+
+    # A skipped test is a green step, and every test in this file sits behind an
+    # importorskip. If the conda environment failed to activate, or the extra failed to
+    # resolve, the job would pass having run nothing -- so assert the imports first.
+    - name: Fail if the FEniCSx or emulator stack did not install
+      run: |
+        python -c "import dolfinx, petsc4py, autoemulate; print('dolfinx', dolfinx.__version__)"
+
+    - name: Run the FEniCSx example tests
+      run: |
+        python -m pytest tests/test_heat_fenics_example.py -v -p no:xdist --tb=short
+
+  # Sharded like the serial job (tests/ci_shards.json, suite param-id). Only the `mpi`-marked
+  # tests: the others in these two files run in every `test` job already.
+  test-param-id-mpi:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [rest, heavy]
+    name: test-param-id-mpi (${{ matrix.shard }})
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.10"
+        cache: pip
+        cache-dependency-path: pyproject.toml
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[dev]"
+
+    - uses: ./.github/actions/install-system-deps
+
+    - name: Run param_id and sensitivity analysis tests with MPI
+      run: |
+        mpiexec -n 2 python -m pytest tests/test_param_id.py tests/test_sensitivity_analysis.py \
+          -m "mpi and not full_scale_model" --ci-shard "param-id:${{ matrix.shard }}" -v --with-mpi \
+          --tb=short --durations=0 --junitxml=junit-param-id.xml
+
+  # UQ with more than one rank -- the way a real UQ run is launched (`run_param_id.sh` takes a
+  # processor count), and, until this job, the way nothing was ever tested. Every other UQ job
+  # runs pytest directly, on one rank, where the multi-rank branches are not taken at all: that
+  # is how a deadlock in the pyMC arm survived from #408 until #424.
+  #
+  # It runs the emulator UQ tests because they are the only end-to-end UQ that is affordable on
+  # a pull request -- both samplers, a posterior with a closed-form answer, minutes not hours --
+  # and they cover the two arrangements that can deadlock: emcee farming likelihoods to an
+  # MPIPool, and pyMC sampling its own chains per rank.
+  #
+  # Each rank writes its own junit file, since both ranks run the whole file and a shared path
+  # would have them overwrite each other. The quoting matters: OMPI_COMM_WORLD_RANK must be
+  # expanded by each rank's own shell, not by the shell that launches mpiexec.
+  test-uq-mpi:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        # Pinned, and cannot follow the matrix past 3.12: autoemulate declares
+        # requires-python <3.13, so [emulation] stops there (#459).
+        python-version: "3.10"
+        cache: pip
+        cache-dependency-path: pyproject.toml
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        # See build-constraints.txt: [emulation] reaches harmonic, built from sdist on 3.10.
+        pip install --extra-index-url https://download.pytorch.org/whl/cpu \
+          --build-constraint "${{ github.workspace }}/build-constraints.txt" \
+          -e ".[dev,uq,emulation]"
+
+    - uses: ./.github/actions/install-system-deps
+
+    - name: Run the emulator UQ tests on two ranks
+      timeout-minutes: 30
+      run: |
+        mpiexec -n 2 bash -c 'python -m pytest tests/test_uq_on_emulator.py -v --with-mpi \
+          --tb=short --durations=0 --junitxml=junit-uq-2rank-$OMPI_COMM_WORLD_RANK.xml'
+
+    # Same reasoning as the serial UQ job: these are all behind skipif on an optional extra, so
+    # a job that installed neither would pass having run nothing. Rank 0's results are the ones
+    # checked -- both ranks run the same tests.
+    - name: Fail if the multi-rank UQ tests did not actually run
+      if: always()
+      run: python .github/scripts/fail_if_tests_skipped.py "junit-uq-2rank-0.xml"
+
+    - name: Upload multi-rank UQ test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: uq-mpi-test-results
+        path: |
+          junit-uq-2rank-*.xml
+
+  # The end-to-end UQ tests: a real chain checked against a posterior whose answer is known in
+  # closed form (issue #179). Nothing else runs them.
+  #
+  # Every case here is sampled through an emulator. Measured on Simple_ODE_Benchmark, which is
+  # what decided that:
+  #
+  #   tests/test_uq_on_emulator.py [emcee]                ~47 s   (through an emulator)
+  #   tests/test_uq_on_emulator.py [pymc]                ~126 s   (same, pyMC backend)
+  #   tests/test_uq_on_emulator.py [bimodal]              ~69 s   (same, both modes present)
+  #   test_UQ.py::test_mcmc_unimodal_with_validation     ~25 min  (emcee, real model)
+  #   test_UQ.py::test_mcmc_bimodal_with_validation      ~56 min  (emcee, real model)
+  #   test_UQ.py::..._KDE_likelihood                     >50 min  (pyMC -- killed, unfinished)
+  #
+  # The full-model three are marked `manual`: not collected at all without --run-manual, so they
+  # run neither here nor in a default local run. They make the same assertions the emulator ones
+  # do -- the same recovery of the analytic answer, the same both-modes-present statistic -- and
+  # the only difference is that the likelihood comes from the solver rather than from an
+  # emulator faithful to it (held-out R2 1.0000). They took 82 of this job's 89 minutes to say
+  # so. Run them by hand when the solver-driven path itself changes.
+  #
+  # pyMC is slow against the real model for a structural reason worth remembering: its Metropolis
+  # takes one likelihood evaluation *per parameter per step* where emcee moves the whole ensemble
+  # at once, and num_tune defaults to 1000, so it runs 1500 iterations for 500 draws. Through an
+  # emulator each of those evaluations is a matrix multiply, which is what makes it affordable.
+  #
+  # It is its own job rather than extra cases on test-param-id-*, because it needs two optional
+  # extras those jobs have no use for.
+  test-uq:
+    runs-on: ubuntu-latest
+    # ~5 minutes of tests plus ~3 of installs. Deliberately not generous: this job used to take
+    # 89 minutes against the real model, and a timeout close to the real cost is what makes a
+    # regression back to that visible instead of merely slow.
+    timeout-minutes: 25
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        # Pinned, and cannot follow the matrix past 3.12: autoemulate declares
+        # requires-python <3.13, so [emulation] stops there (#459).
+        python-version: "3.10"
+        cache: pip
+        cache-dependency-path: pyproject.toml
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        # The CPU-only torch index: these runners have no GPU, and the default CUDA build pulled
+        # ~2.8 GB (torch, nvidia-*, triton) into every emulator job. pip ranks 2.x.y+cpu above
+        # 2.x.y, so the resolver still picks whichever torch version it needs, as a CPU build.
+        # [uq] brings pymc/pytensor and [emulation] brings autoemulate. Without them the
+        # corresponding tests skip, and those code paths go unexercised in CI -- which is how
+        # the pyMC backend stayed unproven for as long as it did.
+        # --build-constraint, not a runtime pin: [emulation] reaches harmonic, which has no
+        # cp310 wheel and so is built here. See build-constraints.txt for what it holds back.
+        pip install --extra-index-url https://download.pytorch.org/whl/cpu \
+          --build-constraint "${{ github.workspace }}/build-constraints.txt" \
+          -e ".[dev,uq,emulation]"
+
+    - uses: ./.github/actions/install-system-deps
+
+    # Seconds, and the only place the pyMC-sampling half of these runs: without [uq] they skip,
+    # which is exactly how the backend's live-chain checkpointing could regress unnoticed.
+    - name: Run the pyMC live-chain tests
+      run: |
+        python -m pytest tests/test_uq_pymc_live_chain.py -v --tb=short \
+          --junitxml=junit-uq-pymc-live.xml
+
+    # Launches its own `mpiexec -n 2`, so it needs no MPI harness of its own -- but it is the
+    # only multi-rank UQ coverage anywhere in CI, for either backend. Both arrangements (pyMC
+    # sampling per rank, emcee farming likelihoods to a pool) hang rather than fail when they
+    # are wrong, so the test carries a deadline and the step carries one too.
+    - name: Run the multi-rank UQ tests
+      timeout-minutes: 15
+      run: |
+        python -m pytest tests/test_uq_pymc_mpi.py -v --tb=short \
+          --junitxml=junit-uq-pymc-mpi.xml
+
+    # The whole UQ stack -- the cost, the priors, both samplers, the statistics -- checked
+    # against a posterior whose answer is known in closed form, including the bimodal case.
+    #
+    # The full-model equivalents in test_UQ.py are deliberately not run here. They took 82
+    # minutes of this job's 89 (the bimodal one alone: 56), and they sample the same posteriors
+    # these do -- the only difference being that the likelihood comes from the solver rather
+    # than from an emulator faithful to it (held-out R2 1.0000). Paying 16x the wall clock on
+    # every PR for that difference is not a good trade, so they are marked `manual` and run on
+    # demand with --run-manual when the solver-driven path itself changes.
+    - name: Run UQ on an emulator (posterior recovery, both samplers, bimodal)
+      run: |
+        python -m pytest tests/test_uq_on_emulator.py -v --with-mpi --tb=short \
+          --durations=0 --junitxml=junit-uq-emulator.xml
+
+    # A skipped test is a green step, so this job could report success having run nothing at
+    # all -- and that is the likely failure, not a red X: every UQ test is guarded by a skipif
+    # on an optional extra (autoemulate, pymc). If [emulation] or [uq] silently fails to
+    # resolve, the whole point of this job evaporates and the badge still says pass.
+    - name: Fail if the UQ tests did not actually run
+      if: always()
+      run: python .github/scripts/fail_if_tests_skipped.py "junit-uq*.xml"
+
+    - name: Upload UQ test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: uq-test-results
+        path: |
+          junit-uq-emulator.xml
+          junit-uq-pymc-mpi.xml
+          junit-uq-pymc-live.xml
+
+  # The param_id suite is split in two, serial and MPI alike, because one test was half of it.
+  # Measured on the run that prompted the split (per-test, from the job logs):
+  #
+  #   test_param_id_simple_physiological_succeeds     705 s serial / 621 s MPI
+  #   everything else in both files, together         801 s serial / 600 s MPI
+  #
+  # That one test calibrates a whole-circulation model where every other test uses a small one
+  # (3compartment, lotka_volterra, fitzhugh_nagumo), so the split is by model scale rather than
+  # an arbitrary halving: `full_scale_model` marks it, and the two halves select on the marker.
+  # A new full-scale test joins the first half by wearing the marker; anything else lands in the
+  # second half by default. Splitting on a marker rather than on `-k <test name>` means renaming
+  # the test cannot silently put 12 minutes back into one job.
+  #
+  # Each half is ~10-13 minutes and they run in parallel, so the wall clock is halved rather
+  # than the work reduced.
+  test-param-id-mpi-full-scale:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.10"
+        cache: pip
+        cache-dependency-path: pyproject.toml
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[dev]"
+
+    - uses: ./.github/actions/install-system-deps
+
+    - name: Run the full-scale model calibration with MPI
+      run: |
+        mpiexec -n 2 python -m pytest tests/test_param_id.py -m full_scale_model -v --with-mpi \
+          --tb=short --durations=0 --junitxml=junit-param-id-full-scale.xml
+
+  # 13.5 minutes of tests unsharded; two shards of ~5 (tests/ci_shards.json, suite param-id).
+  # Only the `mpi`-marked tests: the others in these two files run in every `test` job already.
+  test-param-id-serial:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [rest, heavy]
+    name: test-param-id-serial (${{ matrix.shard }})
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.10"
+        cache: pip
+        cache-dependency-path: pyproject.toml
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[dev]"
+
+    - uses: ./.github/actions/install-system-deps
+
+    - name: Run param_id and sensitivity analysis tests in serial mode
+      run: |
+        python -m pytest tests/test_param_id.py tests/test_sensitivity_analysis.py \
+          -m "mpi and not full_scale_model" --ci-shard "param-id:${{ matrix.shard }}" -v --with-mpi \
+          --tb=short --durations=0 --junitxml=junit-param-id-serial.xml
+
+  # Split on the same marker as the MPI jobs, for the same reason -- see the note on
+  # test-param-id-mpi-full-scale.
+  test-param-id-serial-full-scale:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.10"
+        cache: pip
+        cache-dependency-path: pyproject.toml
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[dev]"
+
+    - uses: ./.github/actions/install-system-deps
+
+    - name: Run the full-scale model calibration in serial mode
+      run: |
+        python -m pytest tests/test_param_id.py -m full_scale_model -v --with-mpi --tb=short \
+          --durations=0 --junitxml=junit-param-id-serial-full-scale.xml
+
+  test:
+    runs-on: ubuntu-latest
+    # Each shard is meant to take under ~10 minutes. The timeout is a backstop, not a budget:
+    # without one, `test (3.11)` sat in the apt step for 45 minutes and had to be cancelled
+    # by hand, because the job would otherwise have run to GitHub's 360-minute default.
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # Two shards per version, so no job runs much over 10 minutes; unsharded it took 14-37
+        # minutes on one commit (most of the spread was pandas 3 on 3.11/3.12, fixed in #566).
+        # tests/ci_shards.json defines the groups, `rest` is every test no group names (so a new
+        # test file needs no entry there), and tests/test_ci_shards.py checks that this list
+        # covers every group of the suite. Faster shard first.
+        shard: [rest, autogeneration]
+        # 3.9 is gone: numpy, scipy, matplotlib, scikit-learn and numdifftools all declare
+        # requires-python >=3.10, so a 3.9 job either resolved older pins than any real user
+        # gets or failed to resolve at all -- testing a configuration the dependency tree no
+        # longer supports (#459).
+        #
+        # 3.12 is the top because that is where the wheels stop being universal, not because of
+        # requires-python: libcellml 0.6.3 (what `<0.7.0` resolves to) has wheels to cp313, but
+        # autoemulate declares `<3.13`, so the [emulation] extra cannot go past 3.12. If this
+        # ever reaches 3.13, the emulator jobs have to stay behind -- see the note on test-uq,
+        # and tests/test_python_matrix.py, which asserts it rather than leaving it to be
+        # rediscovered as a resolution failure.
+        python-version: ["3.10", "3.11", "3.12"]
+    name: test (${{ matrix.python-version }}, ${{ matrix.shard }})
+
+    steps:
+    - uses: actions/checkout@v4
+
+    # The module-library tests (tests/test_module_instances.py) run against the real
+    # circulatory-autogen-modules, at the commit pinned in tests/MODULE_LIBRARY_REF. Only its
+    # modules/ directory is needed.
+    - name: Read the pinned module library commit
+      id: module-library
+      run: echo "ref=$(grep -v '^#' tests/MODULE_LIBRARY_REF | grep -m1 .)" >> "$GITHUB_OUTPUT"
+
+    - name: Check out the module library
+      uses: actions/checkout@v4
+      with:
+        repository: physiomelinks/circulatory-autogen-modules
+        ref: ${{ steps.module-library.outputs.ref }}
+        path: _module_library
+        sparse-checkout: modules
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: pip
+        cache-dependency-path: pyproject.toml
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[dev]"
+    
+    - uses: ./.github/actions/install-system-deps
+    
+    - name: Run tests (Myokit-first, skip OpenCOR-only)
+      id: pytest
+      env:
+        CUFLYNX_MODULE_LIBRARY: ${{ github.workspace }}/_module_library/modules
+        # a missing library fails these tests rather than skipping them green
+        CUFLYNX_REQUIRE_MODULE_LIBRARY: "1"
+      run: |
+        # Run non-MPI suite, excluding OpenCOR-specific tests.
+        pytest tests/ -v -m "not need_opencor and not mpi" --ci-shard "main:${{ matrix.shard }}" \
+          --tb=short --junitxml=junit.xml
+    
+    - name: Parse test results
+      if: always()
+      run: |
+        # Parse JUnit XML to get test statistics
+        python3 << 'EOF'
+        import xml.etree.ElementTree as ET
+        import os
+        import json
+        
+        junit_file = 'junit.xml'
+        if os.path.exists(junit_file):
+            tree = ET.parse(junit_file)
+            root = tree.getroot()
+            
+            # Get test suite stats
+            tests = int(root.get('tests', 0))
+            failures = int(root.get('failures', 0))
+            errors = int(root.get('errors', 0))
+            skipped = int(root.get('skipped', 0))
+            passed = tests - failures - errors - skipped
+            
+            if tests > 0:
+                pass_rate = (passed / tests) * 100
+            else:
+                pass_rate = 0
+            
+            # Write to output file
+            with open('test_results.json', 'w') as f:
+                json.dump({
+                    'total': tests,
+                    'passed': passed,
+                    'failed': failures + errors,
+                    'skipped': skipped,
+                    'pass_rate': round(pass_rate, 1)
+                }, f)
+            
+            print(f"Tests: {tests}, Passed: {passed}, Failed: {failures + errors}, Skipped: {skipped}")
+            print(f"Pass Rate: {pass_rate:.1f}%")
+        else:
+            # No test results file
+            with open('test_results.json', 'w') as f:
+                json.dump({
+                    'total': 0,
+                    'passed': 0,
+                    'failed': 0,
+                    'skipped': 0,
+                    'pass_rate': 0
+                }, f)
+        EOF
+    
+    - name: Test Summary
+      if: always()
+      run: |
+        if [ -f test_results.json ]; then
+          TOTAL=$(python3 -c "import json; print(json.load(open('test_results.json'))['total'])")
+          PASSED=$(python3 -c "import json; print(json.load(open('test_results.json'))['passed'])")
+          FAILED=$(python3 -c "import json; print(json.load(open('test_results.json'))['failed'])")
+          SKIPPED=$(python3 -c "import json; print(json.load(open('test_results.json'))['skipped'])")
+          PASS_RATE=$(python3 -c "import json; print(json.load(open('test_results.json'))['pass_rate'])")
+          
+          echo "## Test Results (Python ${{ matrix.python-version }}, ${{ matrix.shard }})" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Total Tests | $TOTAL |" >> $GITHUB_STEP_SUMMARY
+          echo "| ✅ Passed | $PASSED |" >> $GITHUB_STEP_SUMMARY
+          echo "| ❌ Failed | $FAILED |" >> $GITHUB_STEP_SUMMARY
+          echo "| ⏭️ Skipped | $SKIPPED |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Pass Rate** | **$PASS_RATE%** |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "> Note: OpenCOR-specific tests are marked need_opencor and excluded in this job." >> $GITHUB_STEP_SUMMARY
+          echo "> CI runs the Myokit-first suite and fails on real test failures." >> $GITHUB_STEP_SUMMARY
+        fi
+
   test-with-opencor:
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -602,4 +647,3 @@ jobs:
         # Run all tests with OpenCOR Python shell
         # This requires OpenCOR to be available
         echo "Full test suite would run here"
-

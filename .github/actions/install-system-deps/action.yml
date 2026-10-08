@@ -34,9 +34,37 @@ runs:
         echo 'Acquire::http::Timeout "15"; Acquire::https::Timeout "15"; Acquire::Retries "3";' \
           | sudo tee /etc/apt/apt.conf.d/99-ca-timeouts > /dev/null
 
-    - name: Install the packages
+    # The packages are ~190 MB of .debs (libsundials-dev pulls in petsc-dev, hypre, gfortran and
+    # cmake), ~30 s to download in every job. They are cached by runner image: a new image gets a
+    # new key, and the prefix fallback still restores the last set, so only what changed is
+    # fetched. A miss or a stale .deb costs only the download; apt still resolves every version
+    # from the fresh index, and the retry logic below is unchanged.
+    - name: Key the apt package cache by runner image
+      id: apt-cache-key
       shell: bash
       run: |
+        echo "dir=${RUNNER_TEMP}/apt-archives" >> "$GITHUB_OUTPUT"
+        prefix="apt-debs-v1-${ImageOS:-unknown}-"
+        echo "prefix=${prefix}" >> "$GITHUB_OUTPUT"
+        echo "key=${prefix}${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
+        mkdir -p "${RUNNER_TEMP}/apt-archives/partial"
+
+    - name: Restore the apt package cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ steps.apt-cache-key.outputs.dir }}
+        key: ${{ steps.apt-cache-key.outputs.key }}
+        restore-keys: ${{ steps.apt-cache-key.outputs.prefix }}
+
+    - name: Install the packages
+      shell: bash
+      env:
+        APT_ARCHIVES: ${{ steps.apt-cache-key.outputs.dir }}
+      run: |
+        # Download into (and install from) the cached folder.
+        echo "Dir::Cache::Archives \"${APT_ARCHIVES}\";" \
+          | sudo tee /etc/apt/apt.conf.d/98-ca-archives > /dev/null
+
         # `apt-get update` exits 0 when it could not fetch an index. It prints
         #   "Some index files failed to download. They have been ignored, or old
         #    ones used instead."
@@ -76,3 +104,7 @@ runs:
           sudo apt-get update
           sudo apt-get install -y "${packages[@]}"
         fi
+
+        # apt's lock file is root-only, which would make saving the cache fail.
+        sudo rm -f "${APT_ARCHIVES}/lock"
+        sudo chmod -R a+rX "${APT_ARCHIVES}"
