@@ -10,7 +10,8 @@
   "main": {
     "autogeneration": [
       "tests/test_autogeneration.py",
-      "tests/test_json_module_arrays.py"
+      "tests/test_json_module_arrays.py",
+      "tests/test_console_entry_points.py"
     ]
   },
   "param-id": {
