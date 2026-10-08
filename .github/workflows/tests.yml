@@ -10,13 +10,18 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    # Runs 13-31 minutes depending on the apt weather. This is a backstop, not a budget:
+    # Each shard is meant to take under ~10 minutes. The timeout is a backstop, not a budget:
     # without one, `test (3.11)` sat in the apt step for 45 minutes and had to be cancelled
     # by hand, because the job would otherwise have run to GitHub's 360-minute default.
-    timeout-minutes: 60
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
+        # The suite is split into shards so no job runs much over 10 minutes; unsharded it took
+        # 14-37 minutes on one commit, depending on the runner. tests/ci_shards.json defines the
+        # groups, `rest` is every test no group names (so a new test file needs no entry here),
+        # and tests/test_ci_shards.py checks that this list covers every group of the suite.
+        shard: [autogeneration, json-module-arrays, module-instances, generation, analysis, rest]
         # 3.9 is gone: numpy, scipy, matplotlib, scikit-learn and numdifftools all declare
         # requires-python >=3.10, so a 3.9 job either resolved older pins than any real user
         # gets or failed to resolve at all -- testing a configuration the dependency tree no
@@ -29,7 +34,8 @@ jobs:
         # and tests/test_python_matrix.py, which asserts it rather than leaving it to be
         # rediscovered as a resolution failure.
         python-version: ["3.10", "3.11", "3.12"]
-    
+    name: test (${{ matrix.python-version }}, ${{ matrix.shard }})
+
     steps:
     - uses: actions/checkout@v4
 
@@ -52,6 +58,8 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
+        cache: pip
+        cache-dependency-path: pyproject.toml
     
     - name: Install dependencies
       run: |
@@ -68,7 +76,8 @@ jobs:
         CUFLYNX_REQUIRE_MODULE_LIBRARY: "1"
       run: |
         # Run non-MPI suite, excluding OpenCOR-specific tests.
-        pytest tests/ -v -m "not need_opencor and not mpi" --tb=short --junitxml=junit.xml
+        pytest tests/ -v -m "not need_opencor and not mpi" --ci-shard "main:${{ matrix.shard }}" \
+          --tb=short --junitxml=junit.xml
     
     - name: Parse test results
       if: always()
@@ -130,7 +139,7 @@ jobs:
           SKIPPED=$(python3 -c "import json; print(json.load(open('test_results.json'))['skipped'])")
           PASS_RATE=$(python3 -c "import json; print(json.load(open('test_results.json'))['pass_rate'])")
           
-          echo "## Test Results (Python ${{ matrix.python-version }})" >> $GITHUB_STEP_SUMMARY
+          echo "## Test Results (Python ${{ matrix.python-version }}, ${{ matrix.shard }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Metric | Count |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
@@ -169,6 +178,8 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: "3.10"
+        cache: pip
+        cache-dependency-path: pyproject.toml
 
     - name: Install dependencies
       run: |
@@ -182,9 +193,16 @@ jobs:
         mpiexec -n 2 python -m pytest tests/test_param_id.py -m full_scale_model -v --with-mpi \
           --tb=short --durations=0 --junitxml=junit-param-id-full-scale.xml
 
+  # Sharded as well (tests/ci_shards.json, suite param-id): the three heaviest calibrations, then
+  # everything else. Each MPI shard is a few minutes of tests.
   test-param-id-mpi:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ["heavy", "sensitivity-and-python,rest"]
+    name: test-param-id-mpi (${{ matrix.shard }})
     steps:
     - uses: actions/checkout@v4
 
@@ -192,6 +210,8 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: "3.10"
+        cache: pip
+        cache-dependency-path: pyproject.toml
 
     - name: Install dependencies
       run: |
@@ -203,8 +223,8 @@ jobs:
     - name: Run param_id and sensitivity analysis tests with MPI
       run: |
         mpiexec -n 2 python -m pytest tests/test_param_id.py tests/test_sensitivity_analysis.py \
-          -m "not full_scale_model" -v --with-mpi --tb=short --durations=0 \
-          --junitxml=junit-param-id.xml
+          -m "not full_scale_model" --ci-shard "param-id:${{ matrix.shard }}" -v --with-mpi \
+          --tb=short --durations=0 --junitxml=junit-param-id.xml
 
   # Split on the same marker as the MPI pair above, for the same reason -- see the note there.
   test-param-id-serial-full-scale:
@@ -217,6 +237,8 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: "3.10"
+        cache: pip
+        cache-dependency-path: pyproject.toml
 
     - name: Install dependencies
       run: |
@@ -230,9 +252,15 @@ jobs:
         python -m pytest tests/test_param_id.py -m full_scale_model -v --with-mpi --tb=short \
           --durations=0 --junitxml=junit-param-id-serial-full-scale.xml
 
+  # 13.5 minutes of tests unsharded; three shards of ~4-5 (tests/ci_shards.json, suite param-id).
   test-param-id-serial:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [heavy, sensitivity-and-python, rest]
+    name: test-param-id-serial (${{ matrix.shard }})
     steps:
     - uses: actions/checkout@v4
 
@@ -240,6 +268,8 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: "3.10"
+        cache: pip
+        cache-dependency-path: pyproject.toml
 
     - name: Install dependencies
       run: |
@@ -251,8 +281,8 @@ jobs:
     - name: Run param_id and sensitivity analysis tests in serial mode
       run: |
         python -m pytest tests/test_param_id.py tests/test_sensitivity_analysis.py \
-          -m "not full_scale_model" -v --with-mpi --tb=short --durations=0 \
-          --junitxml=junit-param-id-serial.xml
+          -m "not full_scale_model" --ci-shard "param-id:${{ matrix.shard }}" -v --with-mpi \
+          --tb=short --durations=0 --junitxml=junit-param-id-serial.xml
 
   # The end-to-end UQ tests: a real chain checked against a posterior whose answer is known in
   # closed form (issue #179). Nothing else runs them.
@@ -296,6 +326,8 @@ jobs:
         # Pinned, and cannot follow the matrix past 3.12: autoemulate declares
         # requires-python <3.13, so [emulation] stops there (#459).
         python-version: "3.10"
+        cache: pip
+        cache-dependency-path: pyproject.toml
 
     - name: Install dependencies
       run: |
@@ -384,6 +416,8 @@ jobs:
         # Pinned, and cannot follow the matrix past 3.12: autoemulate declares
         # requires-python <3.13, so [emulation] stops there (#459).
         python-version: "3.10"
+        cache: pip
+        cache-dependency-path: pyproject.toml
 
     - name: Install dependencies
       run: |
