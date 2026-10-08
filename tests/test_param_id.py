@@ -1154,6 +1154,10 @@ def test_param_id_simple_physiological_succeeds(base_user_inputs, resources_dir,
         'generated_models_dir': temp_generated_models_dir,
         'debug_optimiser_options': {'num_calls_to_function': 60, 'max_patience': 50, 'cost_type': 'gaussian_MLE'},
     })
+    # emcee's minimum: two walkers per parameter (5 here). The debug default of 40 made MCMC
+    # ~75% of this test (~7 of ~11 minutes on CI); nothing below reads the chain, so the
+    # sampler, chain save and statistics run the same with fewer walkers.
+    config['debug_UQ_options'] = dict(config['debug_UQ_options'], num_walkers=10)
 
     _ensure_cellml_model_generated(config, mpi_comm)
 
@@ -2809,6 +2813,14 @@ def test_laplace_approximation_hessian_validation(base_user_inputs, resources_di
         'param_id_output_dir': temp_output_dir,  
         'debug_optimiser_options': {'num_calls_to_function': 20, 'cost_type': 'gaussian_MLE'},  
     })  
+    # A small GA (the debug defaults, 2 generations): the model is linear at steady state and
+    # the cost Gaussian, so the cost is exactly quadratic in the parameters and its Hessian, the
+    # thing compared below, is the same wherever the GA stops. The full GA (1488 evaluations)
+    # made the same covariance to 1e-12 in ~11x the time. Kept DEBUG off: debug's 20 calls is
+    # fewer than one generation, and the GA would exit before Laplace runs.
+    config['optimiser_options'] = dict(
+        config['optimiser_options'], num_calls_to_function=60, num_elite=4, num_survivors=6,
+        num_mutations_per_survivor=2, num_cross_breed=10)
       
     # Generate model and run parameter identification (rank 0 only for setup)  
     if rank == 0:  
