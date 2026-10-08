@@ -214,6 +214,10 @@ def pytest_addoption(parser):
         help='also run the tests marked "manual" -- ones too slow for CI or for a normal local '
              'run, kept because they check something a faster test only approximates (e.g. the '
              'full-model UQ posterior recovery, ~80 min, whose emulated equivalents run in ~5).')
+    parser.addoption(
+        '--ci-shard', default=None, metavar='SUITE:GROUP[,GROUP...]',
+        help='keep only the tests of these groups of tests/ci_shards.json; SUITE:rest is every '
+             'collected test no group of SUITE names. Used by CI to split long jobs.')
 
 
 def pytest_configure(config):
@@ -741,6 +745,65 @@ def drop_manual_tests(config, items):
         config.hook.pytest_deselected(items=manual)
 
 
+CI_SHARDS_FILE = os.path.join(os.path.dirname(__file__), 'ci_shards.json')
+
+
+def load_ci_shards(path=CI_SHARDS_FILE):
+    """The suites of ``tests/ci_shards.json``: {suite: {group: [entry, ...]}}."""
+    import json
+    with open(path) as f:
+        return {suite: groups for suite, groups in json.load(f).items()
+                if not suite.startswith('_')}
+
+
+def ci_shard_entry_matches(entry, nodeid):
+    """``tests/x.py`` matches every test in the file; ``tests/x.py::name`` matches the test
+    function ``name`` and each of its parametrizations, and nothing that only starts with it."""
+    if '::' not in entry:
+        return nodeid.split('::', 1)[0] == entry
+    return nodeid == entry or nodeid.startswith(entry + '[')
+
+
+def select_ci_shard(config, items, shards=None):
+    """Deselect every test outside ``--ci-shard SUITE:GROUP[,GROUP...]``.
+
+    Runs before anything counts the collected one-rank tests, so the expected-result totals
+    the session waits for at the end are those of the shard. Deselected rather than skipped,
+    like ``drop_manual_tests``, and a module-level function for the same reason: it can be
+    tested directly, without a nested pytest session.
+    """
+    spec = config.getoption('--ci-shard')
+    if not spec:
+        return
+    suite, _, wanted = spec.partition(':')
+    if shards is None:
+        shards = load_ci_shards()
+    if suite not in shards or not wanted:
+        raise pytest.UsageError(
+            f"--ci-shard {spec!r}: expected SUITE:GROUP[,GROUP...] with SUITE one of "
+            f"{sorted(shards)}")
+    groups = shards[suite]
+    wanted = wanted.split(',')
+    unknown = [g for g in wanted if g != 'rest' and g not in groups]
+    if unknown:
+        raise pytest.UsageError(
+            f"--ci-shard {spec!r}: no group {unknown} in suite {suite!r}; "
+            f"groups are {sorted(groups)} and 'rest'")
+
+    def group_of(nodeid):
+        for name, entries in groups.items():
+            if any(ci_shard_entry_matches(e, nodeid) for e in entries):
+                return name
+        return 'rest'
+
+    kept, deselected = [], []
+    for item in items:
+        (kept if group_of(item.nodeid) in wanted else deselected).append(item)
+    if deselected:
+        items[:] = kept
+        config.hook.pytest_deselected(items=deselected)
+
+
 def pytest_collection_modifyitems(config, items):
     """
     Ensure autogeneration tests run before param_id tests, which in turn run before others.
@@ -750,6 +813,7 @@ def pytest_collection_modifyitems(config, items):
     import os
 
     drop_manual_tests(config, items)
+    select_ci_shard(config, items)
 
     autogen_items = [item for item in items if _is_autogen_like_nodeid(item.nodeid)]
     misc_items = [item for item in items if _is_misc_nodeid(item.nodeid)]
