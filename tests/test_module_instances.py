@@ -771,8 +771,11 @@ def _generate_cpp_1d(work_dir, module_array_name, records=None):
            'solver_info': {'dt_solver': 1e-4, 'MaximumNumberOfSteps': 5000, 'solver': 'RK4'}, 'DEBUG': False}
     with contextlib.redirect_stdout(io.StringIO()):
         assert generate_with_new_architecture(False, cfg)
-    with open(os.path.join(work_dir, 'cpp', 'model0d.cc')) as f:
-        return f.read()
+    sources = ''
+    for name in ('model0d_core.c', 'model0d_core.h', 'model0d.cpp', 'model0d.h'):
+        with open(os.path.join(work_dir, 'cpp', name)) as f:
+            sources += f.read()
+    return sources
 
 
 def test_0d_1d_split_accepts_records_with_extra_keys(tmp_path):
