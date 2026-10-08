@@ -34,8 +34,23 @@ The entries in the file are detailed as follows:
 !!! Note
     **param_type** will be deprecated. All should be **"const"**. Initial values that need to identified should be defined as constants within the cellml module.
 
-!!! info
-    In the future we plan on including other types of priors rather than just uniform.
+### Priors
+
+Without further columns every parameter has a uniform prior on `[min, max]`. An optional
+**prior** column chooses another, with its settings in further columns:
+
+| `prior` | Columns | Notes |
+|---|---|---|
+| `uniform` (default) | — | flat on `[min, max]` |
+| `normal` | `prior_mean`, `prior_std` | default mean: the middle of the range; default std: a sixth of it |
+| `exponential` | `prior_scale` (or `prior_lambda`), `prior_origin` | decays from `prior_origin`; scale defaults to `max / prior_lambda` |
+
+Each prior is truncated to `[min, max]` unless the **unbounded** column is set, in which case
+the range is derived from the prior. Priors shape the log posterior, so they affect MCMC (`do_uq`)
+and optimisers run with `objective_function: likelihood` (the genetic algorithm); a calibration
+that minimises the cost does not see them. A calibration workflow can also give a step a prior
+over several parameters at once, from an earlier step's posterior (see
+[Calibration workflows](#calibration-workflows)).
 
 ## Creating param id observables file
 
@@ -991,6 +1006,140 @@ If you already have a model and do not want to run autogeneration, use:
 ```
 ./run_param_id_without_autogen.sh <NUM_CORES>
 ```
+
+## Calibration workflows
+
+Some parameters can only be calibrated on an assembled supermodule, after its submodules have
+been calibrated alone -- a neuron soma's leak conductances, say, once every channel has its own
+calibrated values. A **calibration workflow** records that order in a `calibration_workflow.json`
+and repeats it with one command:
+
+```
+cuflynx-calibration-workflow <path>/calibration_workflow.json --module-library-dir <library>
+mpiexec -n 4 cuflynx-calibration-workflow <path>/calibration_workflow.json    # every step on 4 ranks
+```
+
+or from Python:
+
+```python
+from libcuflynx.calibration_workflow import run_calibration_workflow
+result = run_calibration_workflow(path, module_library_dirs=[library], output_dir='wf_out')
+result['merged_parameters']    # [{'instance_name': 'g_leak_i_leak_Na', 'value': ..., 'from_step': ...}]
+```
+
+It is built on [module instances](design-model.md): every step calibrates **one instance** of a
+module library, against that instance's own `<instance>_obs_data.json` and
+`<instance>_params_for_id.csv`, through the ordinary param_id path. To redo a calibration, edit
+the obs_data and run the workflow again -- every step after it is redone with the new values.
+
+!!! note
+    This is not `cuflynx-sequential-param-id`, which was the idea of fitting *one* model in
+    stages (fit, drop the unidentifiable parameters, refit) and is not implemented.
+
+### The file
+
+The file usually lives in the directory of the supermodule instance it calibrates
+(`<module_type>/versions/<version>/instances/<instance>/calibration_workflow.json`); that instance
+is then its **target**, the instance whose parameters the results are merged into.
+
+```json
+{
+  "schema_version": 1,
+  "workflow_name": "soma_sympathetic_rest_balance",
+  "description": "Channel calibrations, then the soma's resting Na/K balance",
+  "module_library_dirs": ["../../../../../../.."],
+  "settings": {"param_id_method": "CMA-ES", "dt": 0.001,
+               "optimiser_options": {"num_calls_to_function": 400}},
+  "steps": [
+    {"id": "i_M_g",
+     "target": {"module_type": "i_M", "version": "Argus2026_v01", "instance": "davis2020_wistar"}},
+    {"id": "rest_balance",
+     "target": {"module_type": "soma", "version": "sympathetic", "instance": "rest_balance"},
+     "depends_on": ["i_M_g"], "fixed_from": ["i_M_g"]}
+  ]
+}
+```
+
+| Key | Meaning |
+|---|---|
+| `target` | the supermodule instance results are merged into; defaults to the instance holding the file |
+| `module_library_dirs` | module libraries, relative to the file (more with `--module-library-dir`) |
+| `settings` | user_inputs settings for every step: `param_id_method`, `optimiser_options`, `solver`, `solver_info`, `dt`, `pre_time`, `sim_time`, `UQ_options`, `DEBUG`, ... (the model, obs_data, params_for_id and output paths are the workflow's, and cannot be set) |
+| step `id` | unique; also the step's output directory |
+| step `target` | the instance the step calibrates |
+| step `submodule` | where that module sits in the workflow's target (`i_M`, or `soma_i_M` when nested); inferred unless the module occurs twice |
+| step `depends_on` | steps that run first; steps run in dependency order |
+| step `fixed_from` | earlier steps whose calibrated values -- and the values they were themselves given -- are fixed in this step's model |
+| step `priors_from` | earlier steps whose stored posterior becomes this step's prior (below) |
+| step `store_distribution` | sample the posterior by MCMC after the fit and store it |
+| step `settings` | merged over the workflow's (one level deep, so `optimiser_options` add up) |
+
+The checks: each step has its own instance (two steps cannot calibrate the same instance, and
+each instance must have its obs_data and params_for_id); no parameter is calibrated by two steps;
+every step's module is the target or one of its submodules; values only pass into a model that
+contains the module they were calibrated on. `--dry-run` runs every check and prints the plan --
+which parameter of each step lands where -- without calibrating anything. The schema is
+`libcuflynx/schemas/calibration_workflow.schema.json`.
+
+### Naming
+
+Every step model is generated alone as a single vessel named `mod`, so a params_for_id row
+`mod, rho_M` names `rho_M_mod` in the step's model. In the target, where that module is the
+submodule `i_M`, supermodule expansion renames it `rho_M_mod_i_M` (and `rho_M_i_M` in the target
+instance's parameters CSV). A supermodule step's own params_for_id therefore names its
+submodules' parameters `mod_<submodule>, <param>`, and its obs_data their outputs
+`mod_<submodule>/<variable>`.
+
+### Outputs
+
+```
+<output_dir>/                         default ./workflow_output/<workflow_name>
+    calibration_workflow.json         the workflow as run
+    workflow_result.json              order, provenance (obs_data/params_for_id hashes, times), merged parameters
+    <step_id>/step_result.json        calibrated values, the fixed values and priors it was given, input hashes
+    <step_id>/model/                  the generated step model
+    <step_id>/param_id/               the usual param_id outputs
+    <step_id>/distribution/           with store_distribution
+    _target/model/                    the target generated with every calibrated value
+```
+
+`--from-step X` reruns X and everything after it, reusing the earlier results (and refusing if
+their obs_data, params_for_id or parameters changed since); `--only X` reruns one step.
+`--write-calibrated` writes the merged set as the target's `<instance>_calibrated_parameters.csv`.
+
+### Distributions and priors
+
+With `"store_distribution": true` (and `UQ_options` in the settings) a step runs MCMC after its
+fit and stores `distribution/`: the raw `chain.npy`, the post-burn-in `samples.npy`, `stats.json`
+(means, standard deviations, quantiles, covariance) and a manifest. In Python:
+
+```python
+from libcuflynx.calibration_workflow import StoredDistribution
+d = StoredDistribution.load('wf_out/i_M_g')
+d.sample(1000, rng=0)               # draws, shape (1000, n_params)
+d.logpdf(x)                         # log density at a parameter vector
+d.marginal('rho_M_mod')             # one parameter's samples
+d.mapped_into('i_M').names          # named as in the supermodule: ['rho_M_mod_i_M']
+```
+
+A later step lists it in `priors_from`, either by id or as
+`{"step": "i_M_g", "kind": "mvnormal", "inflate": 1.0, "parameters": [...]}`. Those parameters
+are then calibrated again in the later step, with the stored posterior as a prior over all of
+them jointly. `kind` is how the samples are represented, each on a scale on which the parameter's
+bounds are unbounded (logit for `[min, max]`, log for a lower bound only), so the density respects
+the bounds and can follow a skewed posterior:
+
+| `kind` | Representation | When |
+|---|---|---|
+| `mvnormal` (default) | multivariate normal: means and full covariance | keeps correlations; exact and cheap |
+| `normal` | independent normals | when correlations should be dropped |
+| `kde` | Gaussian kernel density estimate | non-Gaussian posteriors with few (≲5) parameters |
+
+`inflate` multiplies the variance, to temper an overconfident earlier posterior. A prior only
+shapes the log posterior, so a step with `priors_from` must either sample it
+(`store_distribution`) or optimise it (`optimiser_options.objective_function: likelihood`, the
+genetic algorithm). In the first case its reported values are the posterior medians, since the
+optimiser's best fit ignores the prior (`step_result.json` says which: `point_estimate`).
 
 ## Expected outcome
 

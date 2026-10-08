@@ -1,0 +1,205 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/physiomelinks/circulatory_autogen/schemas/calibration_workflow.schema.json",
+  "title": "libcuflynx calibration workflow (calibration_workflow.json)",
+  "description": "Ordered calibrations of module instances -- typically a supermodule's submodules, then the supermodule -- each against its own instance's obs_data and params_for_id, merged into the parameters of one supermodule instance (the target). Run with cuflynx-calibration-workflow or libcuflynx.calibration_workflow.run_calibration_workflow. The checks that need the module library (the instances exist, each step's module sits in the target, no parameter is calibrated by two steps) are in libcuflynx/calibration_workflow/resolve.py; the rest are in spec.py as well as here.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "workflow_name",
+    "steps"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "workflow_name": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "description": {
+      "type": "string"
+    },
+    "comment": {
+      "type": "string"
+    },
+    "target": {
+      "$ref": "#/$defs/target",
+      "description": "the supermodule instance the calibrated values are merged into. Defaults to the instance whose directory holds the file."
+    },
+    "module_library_dirs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "module libraries, relative to this file; more can be given on the command line"
+    },
+    "settings": {
+      "$ref": "#/$defs/settings"
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/step"
+      }
+    }
+  },
+  "$defs": {
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "module_type",
+        "version",
+        "instance"
+      ],
+      "properties": {
+        "module_type": {
+          "type": "string",
+          "pattern": "\\S",
+          "description": "the module type (a module config entry's module_type)"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "\\S",
+          "description": "the module version (the entry's module_subtype)"
+        },
+        "instance": {
+          "type": "string",
+          "pattern": "^[^/\\\\]+$",
+          "description": "a directory under <version>/instances/"
+        }
+      }
+    },
+    "settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "user_inputs settings for the calibrations (a step's are merged over the workflow's, one dict level deep). The model, obs_data, params_for_id and output directories are chosen by the workflow and cannot be set.",
+      "properties": {
+        "param_id_method": {},
+        "optimiser_options": {},
+        "debug_optimiser_options": {},
+        "model_type": {},
+        "solver": {},
+        "solver_info": {},
+        "dt": {},
+        "pre_time": {},
+        "sim_time": {},
+        "DEBUG": {},
+        "do_ad": {},
+        "UQ_options": {},
+        "debug_UQ_options": {},
+        "use_builtin_modules": {},
+        "external_modules_dir": {},
+        "operation_funcs_external_path": {},
+        "cost_funcs_external_path": {},
+        "modifier_funcs_external_path": {}
+      }
+    },
+    "prior": {
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "a step id; its stored distribution, as the default kind (mvnormal)"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "step"
+          ],
+          "properties": {
+            "step": {
+              "type": "string",
+              "description": "the step whose stored distribution is used (it must set store_distribution)"
+            },
+            "kind": {
+              "enum": [
+                "mvnormal",
+                "normal",
+                "kde"
+              ],
+              "default": "mvnormal",
+              "description": "how the stored samples are represented: a multivariate normal, independent normals, or a kernel density estimate, each on a scale on which the parameter bounds are unbounded"
+            },
+            "inflate": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "default": 1.0,
+              "description": "multiplies the distribution's variance, to temper an overconfident earlier posterior"
+            },
+            "parameters": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "only these parameters (model names in the source step), not all of them"
+            }
+          }
+        }
+      ]
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "target"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[^/\\\\]+$",
+          "description": "unique step id; also the step's output directory name"
+        },
+        "description": {
+          "type": "string"
+        },
+        "comment": {
+          "type": "string"
+        },
+        "target": {
+          "$ref": "#/$defs/target",
+          "description": "the instance this step calibrates, against its own <instance>_obs_data.json and <instance>_params_for_id.csv"
+        },
+        "submodule": {
+          "type": "string",
+          "description": "where the module sits in the workflow target (a submodule name, or nested names joined by _). Inferred when the module type and version occur once."
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true,
+          "description": "steps that run before this one"
+        },
+        "fixed_from": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true,
+          "description": "earlier steps (in depends_on, directly or not) whose calibrated values, and the values they were given as fixed, are fixed in this step's model"
+        },
+        "priors_from": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/prior"
+          },
+          "description": "earlier steps whose stored distributions become priors here: their parameters are calibrated again in this step, with that prior"
+        },
+        "store_distribution": {
+          "type": "boolean",
+          "default": false,
+          "description": "after the fit, sample the posterior by MCMC (needs UQ_options) and store it (chain, samples, stats) for later steps and tools"
+        },
+        "settings": {
+          "$ref": "#/$defs/settings"
+        }
+      }
+    }
+  }
+}

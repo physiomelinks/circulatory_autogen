@@ -110,6 +110,9 @@ Each pipeline stage also has a console command, all configured from
 | `cuflynx-plot` | plot calibration results |
 | `cuflynx-generate-pipeline` | write a self-contained, movable bundle that reruns the study |
 | `cuflynx-migrate-obs-data` | rewrite obs_data files into the current vocabulary (upgrade helper, takes paths) |
+| `cuflynx-calibration-workflow` | run a `calibration_workflow.json`: ordered calibrations of module-library instances merged into a supermodule (takes the workflow path) |
+| `cuflynx-variable-mapping` | write a model's `<prefix>_variable_mapping.csv`: the LaTeX symbol of every variable (takes the model or a workflow) |
+| `cuflynx-methods-latex` | write a methods section in LaTeX: equations per module, a flow chart of the calibration, and the methods of each step |
 
 ### `CUFLYNX_USER_DIR` — where an installed libcuflynx reads and writes
 

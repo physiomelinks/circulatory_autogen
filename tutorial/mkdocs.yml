@@ -40,6 +40,7 @@ nav:
   - Sensitivity Analysis: sensitivity-analysis.md
   - Identifiability Analysis: identifiability-analysis.md
   - Emulators (Surrogate Models): emulators.md
+  - Writing up a model and its calibration: methods-latex.md
   - "Example: 3Compartment Model": example-3compartment-model.md
   - Running on the HPC: running-on-hpc.md
   - Other Useful Features: other-features.md

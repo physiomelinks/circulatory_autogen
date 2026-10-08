@@ -187,7 +187,9 @@ With the project installed, the console commands are on your `PATH` and can be r
 directory: `cuflynx-generate`, `cuflynx-param-id`, `cuflynx-sensitivity`,
 `cuflynx-identifiability`, `cuflynx-train-emulator`, `cuflynx-plot` (and
 `cuflynx-sequential-param-id`, which is declared but not yet implemented). Every one of them
-reads `user_run_files/user_inputs.yaml` and takes `--help`.
+reads `user_run_files/user_inputs.yaml` and takes `--help`. `cuflynx-calibration-workflow`
+instead takes a `calibration_workflow.json` (see
+[Calibration workflows](parameter-identification.md#calibration-workflows)).
 
 The other scripts that ship in the package are run as modules, for example:
 

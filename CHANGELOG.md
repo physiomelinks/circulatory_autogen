@@ -39,6 +39,44 @@ the old name still works with a `FutureWarning`. The 0D/1D split writes `[file_p
 `libcuflynx/schemas/module_array.schema.json`. The record keys (`vessel_type`, `BC_type`,
 `inp_vessels`, `out_vessels`) and the `vessels_csv_abs_path` config key are unchanged.
 
+### Added — writing a model and its calibration up in LaTeX
+
+- **`cuflynx-variable-mapping`** writes a model's `<prefix>_variable_mapping.csv`.
+  - It lists every variable and parameter by its canonical `component/variable` name, with a LaTeX symbol from a default rule (Greek names, `_` subscripts, the module as a last subscript).
+  - Regenerating the file keeps edited symbols.
+- **`cuflynx-methods-latex`** writes a methods section in LaTeX, for a calibration workflow or for one calibration:
+  - the equations of each module in the mapped symbols, with their parameter tables;
+  - a TikZ flow chart of the calibration;
+  - the protocol, observables, parameters, method, cost function, fixed values, priors, MCMC settings and results of each step.
+- **`libcuflynx.reporting`** is the Python API for both.
+
+### Added — calibration workflows
+
+`cuflynx-calibration-workflow <calibration_workflow.json>` (and
+`libcuflynx.calibration_workflow.run_calibration_workflow`) runs ordered calibrations of module
+instances in a module library, typically a supermodule's submodules and then the supermodule,
+and merges the results into one supermodule instance. Each step is an ordinary param_id run
+against its instance's own obs_data and params_for_id.
+
+- **Fixed values.** A step can take earlier steps' calibrated values as fixed parameter values
+  (`fixed_from`). Names map from submodule to supermodule as supermodule expansion renames them.
+- **Distributions and priors.** A step can store its MCMC posterior (`store_distribution`:
+  chain, samples, stats; `StoredDistribution` samples and evaluates it). A later step can use it
+  as a joint prior (`priors_from`), represented as a multivariate normal, independent normals or
+  a KDE, each on a bounds-respecting scale.
+- **Reruns.** `--from-step` / `--only` rerun part of a workflow, refusing when an input it would
+  reuse has changed. `--dry-run` checks everything against the library and prints the plan.
+  `--write-calibrated` writes the merged set as the target's `<instance>_calibrated_parameters.csv`.
+- **Schema.** `libcuflynx/schemas/calibration_workflow.schema.json`.
+- **param_id.** `ParamID.set_joint_priors` / `CVS0DParamID.set_joint_priors` add log densities
+  over several parameters to the log prior. `run_param_id` passes `joint_priors` from its input
+  dict to both the calibration and the MCMC, and now returns
+  `{'output_dir', 'best_param_vals', 'param_id', 'mcmc'}` instead of None.
+- **Testing.** `libcuflynx.external_testing.workflow_library.build_workflow_library` writes a
+  small module library with two workflows, for tests here and in CUFLynx.
+- **Docs.** The params_for_id prior columns are now documented; the docs had said only uniform
+  priors existed.
+
 ### Added — prediction items as scalar features
 
 A `prediction_item` may carry an `operation` and `operation_kwargs`, with the same vocabulary and
@@ -424,7 +462,6 @@ Two bugs fell out. `posterior_predictive` captioned a series panel with the item
 where it meant the trace label, and `print_observable_errors` named one of its six branches by
 identity where the other five used the label.
 
-
 ## 0.6.0 — 2026-08-31
 
 ### Removed — the flat-import shims (#428)
@@ -469,7 +506,6 @@ They are the parameter-identification and MCMC engines, and they run against myo
 casadi and trained emulators as readily as against OpenCOR — the name came from the only backend
 that existed when they were written. **The old names still work**: `OpencorParamID` and
 `OpencorMCMC` remain as aliases, so nothing importing them has to change.
-
 
 ## 0.5.0 — 2026-08-24
 
@@ -537,7 +573,6 @@ README, CONTRIBUTING, CLAUDE.md and the tutorial say so.
 The tests that check those docs agree now read `REMOVAL_VERSION` rather than restating it: the
 literal `"0.5.0"` in three test files would have passed happily while every document said
 something else.
-
 
 ### Added — a whole study in one call, shipped for readers outside this repo (#478)
 

@@ -21,6 +21,16 @@ from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
 from libcuflynx.identifiabilty_analysis.identifiabilityAnalysis import IdentifiabilityAnalysis
 
 def run_param_id(inp_data_dict=None):
+    """Calibrate, then optionally run MCMC and identifiability analysis.
+
+    ``inp_data_dict`` is a user_inputs dict (None reads ``user_inputs.yaml``). Besides the
+    yaml keys it takes ``joint_priors``, a list of ``(names, logpdf)`` handed to
+    ``set_joint_priors`` of the calibration and of the MCMC (calibration workflows use it for
+    priors from an earlier step's stored posterior).
+
+    Returns ``{'output_dir', 'best_param_vals', 'param_id', 'mcmc'}``: ``output_dir`` is the
+    run directory on rank 0 (None on the others) and ``mcmc`` is None without do_uq.
+    """
 
     yaml_parser = YamlFileParser()
     inp_data_dict = yaml_parser.parse_user_inputs_file(inp_data_dict, obs_path_needed=True, do_generation_with_fit_parameters=False)
@@ -95,6 +105,9 @@ def run_param_id(inp_data_dict=None):
         param_id.set_ground_truth_data(inp_data_dict['obs_data_dict'])
     if inp_data_dict.get('params_for_id') is not None:
         param_id.set_params_for_id(inp_data_dict['params_for_id'])
+    joint_priors = inp_data_dict.get('joint_priors')
+    if joint_priors:
+        param_id.set_joint_priors(joint_priors)
 
     if rank == 0:
         if os.path.exists(os.path.join(param_id.output_dir, 'param_names_to_remove.csv')):
@@ -137,6 +150,7 @@ def run_param_id(inp_data_dict=None):
     else:
         UQ_options = inp_data_dict['UQ_options']
 
+    mcmc = None
     if do_uq:
 
         if rank == 0:
@@ -153,6 +167,8 @@ def run_param_id(inp_data_dict=None):
                                 use_emulator=use_emulator, emulator_dir=emulator_dir,
                                 emulator_settings=emulator_settings)
         mcmc.set_best_param_vals(best_param_vals)
+        if joint_priors:
+            mcmc.set_joint_priors(joint_priors)
         ensure_mle_cost_type_for_bayesian_inner(mcmc_object, inp_data_dict)
         # mcmc.set_mcmc_parameters() TODO
         mcmc.run_mcmc()
@@ -183,7 +199,9 @@ def run_param_id(inp_data_dict=None):
 
         if rank == 0:
             print('Identifiability analysis complete')
-        
+
+    return {'output_dir': param_id.output_dir, 'best_param_vals': best_param_vals,
+            'param_id': param_id, 'mcmc': mcmc}
 
 def main(argv=None):
     """Entry point for the ``cuflynx-param-id`` command."""
