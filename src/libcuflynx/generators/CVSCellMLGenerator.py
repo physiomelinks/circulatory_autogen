@@ -15,6 +15,7 @@ from libcuflynx.utilities.package_resources import package_data_dir
 from libcuflynx.utilities.paths import default_resources_dir
 from libcuflynx.utilities.module_library import ModuleSources, collect_units, CELLML_1_1_NS
 from libcuflynx.utilities.config_schemas import is_heart_vessel_type
+from libcuflynx.utilities.vessel_bc import is_vessel_module
 
 generators_dir = os.path.dirname(__file__)
 # Build/run scripts copied alongside each generated model so it can be compiled/run
@@ -80,6 +81,8 @@ class CVS0DCellMLGenerator(object):
         # this is a list of converter components that are used to convert units
         self.unit_converter_components = []
         self.unit_converter = UnitConverter()
+        # names of the unit converter components written so far, so each is unique in the model
+        self._unit_converter_names = set()
 
         # List-form multi_port "sum" entries and "Multiply" targets (see generators/multi_port.py),
         # filled while the module mappings are written:
@@ -302,6 +305,7 @@ class CVS0DCellMLGenerator(object):
 
     def __generate_CellML_file(self):
         self._reset_connections()
+        self._unit_converter_names = set()
         print("Generating CellML file {}.cellml".format(self.file_prefix))
         output_path = os.path.join(self.output_dir, f'{self.file_prefix}.cellml')
 
@@ -915,7 +919,7 @@ class CVS0DCellMLGenerator(object):
                             any(module_df.loc[module_df["name"] == temp_inp_vess, "vessel_type"].iloc[0].startswith(("Nout_", "MinNout_"))
                                 for temp_inp_vess in module_df.loc[module_df["name"] == temp_out_vess, "inp_vessels"].values[0])
                                     for temp_out_vess in module_row["out_vessels"]
-                                        if not module_df.loc[module_df["name"] == temp_out_vess, "BC_type"].iloc[0].startswith("nn"))):
+                                        if is_vessel_module(module_df.loc[module_df["name"] == temp_out_vess].squeeze()))):
                         # the generic junction connections are done through the generic_junction_connection
                         pass
 
@@ -1378,11 +1382,15 @@ class CVS0DCellMLGenerator(object):
             #         ]['vessel_type'].str.contains('terminal').any():
 
             # check if the vessel has a terminal as an input and has a flow input
-            # (a vessel whose entrance port has a list-form multi_port already sums its inflows,
-            # terminals included, through its multiport sum component)
+            # (a vessel whose vessel_port entrance has a list-form multi_port already sums its
+            # inflows, terminals included, through its multiport sum component. A list-form
+            # multi_port on any other entrance port, e.g. a separate uptake port, does not
+            # carry the terminal flow, so v_in still comes from the terminal_venous_connection)
             if vessel_df.loc[vessel_df['name'].isin(vessel_tup.inp_vessels)
-            ]['vessel_type'].str.contains('terminal').any() and vessel_tup.BC_type.startswith('v') and \
-                    not any(list_multi_port(port) is not None for port in vessel_tup.entrance_ports):
+            ]['vessel_type'].str.contains('terminal').any() and is_vessel_module(vessel_tup) and \
+                    vessel_tup.BC_type.startswith('v') and \
+                    not any(list_multi_port(port) is not None and port.get('port_type') == 'vessel_port'
+                            for port in vessel_tup.entrance_ports):
                 vessel_name = vessel_tup.name
                 first_venous_names.append(vessel_name)
                 v_1 = [f'v_{vessel_name}']
@@ -2162,11 +2170,13 @@ class CVS0DCellMLGenerator(object):
             print(f'"{main_vessel}" and "{out_vessel}" are incorrectly connected, '
                   f'check that they have eachother as output/input')
             exit()
-        if out_vessel_BC_type.startswith('nn'):
+        # The BC letters are only checked between two vessels. A module that is not a
+        # vessel (a cell, controller, heart part, an ``nn`` BC module, ...) may have any
+        # BC_type, e.g. ``lv_test`` or ``SN_soma``, without it being read as a BC pair.
+        main_row = vessel_df.loc[vessel_df["name"] == main_vessel].squeeze()
+        out_row = vessel_df.loc[vessel_df["name"] == out_vessel].squeeze()
+        if not (is_vessel_module(main_row) and is_vessel_module(out_row)):
             return
-        if main_vessel_BC_type.startswith('nn'):
-            return
-
 
         if len(main_vessel_BC_type) > 2:
             temp_main_vessel_BC_type = main_vessel_BC_type[:2]
@@ -2332,9 +2342,12 @@ class CVS0DCellMLGenerator(object):
                     if inp_unit != out_unit:  
                         try:  
                             scale = self.unit_converter.get_scale_factor(inp_unit, out_unit)  
-                            converter_key = (inp_unit, out_unit, scale)  
+                            # one converter per variable pair: the converter component
+                            # declares a single input and a single output variable
+                            converter_key = (inp_var, out_var)
                             if converter_key not in converter_mappings:  
-                                converter_name = f"unit_converter_{inp_unit}_to_{out_unit}"  
+                                converter_name = self._unit_converter_name(
+                                    inp_name, inp_var, out_name, out_var)
                                 converter_mappings[converter_key] = {  
                                     'inp_vars': [], 'out_vars': [],   
                                     'converter_name': converter_name,  
@@ -2374,6 +2387,30 @@ class CVS0DCellMLGenerator(object):
             self._add_connection(inp_name, out_name,
                                  list(zip(inp_vars_list, out_vars_list)))
         
+
+    def _unit_converter_name(self, inp_name, inp_var, out_name, out_var):
+        """A unique, valid CellML component name for the converter from ``inp_name.inp_var``
+        to ``out_name.out_var``.
+
+        The name is built from both ends of the connection, so a module variable that fans out
+        (e.g. through a multi_port "True" port) to several modules that each need the same unit
+        conversion gets one converter per connection rather than several components with the
+        same name, which libCellML and Myokit reject.
+        """
+        def _strip(component):
+            return component[:-len('_module')] if component.endswith('_module') else component
+
+        name = (f"unit_converter_{_strip(inp_name)}_{inp_var}"
+                f"_to_{_strip(out_name)}_{out_var}")
+        # a CellML 1.1 identifier: letters, digits and underscores, not starting with a digit
+        name = re.sub(r'[^A-Za-z0-9_]', '_', name)
+        unique_name = name
+        suffix = 2
+        while unique_name in self._unit_converter_names:
+            unique_name = f"{name}_{suffix}"
+            suffix += 1
+        self._unit_converter_names.add(unique_name)
+        return unique_name
 
     def __write_variable_declarations(self, wf, variables, units, in_outs):
         for variable, unit, in_out in zip(variables, units, in_outs):

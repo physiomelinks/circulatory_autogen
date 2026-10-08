@@ -725,6 +725,7 @@ def _generate_resource(work_dir, prefix):
 
 @pytest.mark.integration
 @pytest.mark.slow
+@pytest.mark.usefixtures('skip_generated_model_checks')
 @pytest.mark.parametrize('prefix', _resource_prefixes())
 def test_resources_models_generate_identically_without_the_instance_lookup(
         tmp_path, monkeypatch, prefix):
