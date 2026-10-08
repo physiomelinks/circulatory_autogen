@@ -3,43 +3,23 @@
     "CI shards: `pytest --ci-shard <suite>:<group>[,<group>...]` keeps only the tests of those groups.",
     "An entry is a test file (all its tests) or file::function (all its parametrizations).",
     "<suite>:rest is every test the command collected that no group of that suite names, so a new",
-    "test file runs in the rest shard without being listed here. A group should stay under ~7 minutes",
-    "on a slow runner (minutes noted from the 3.11 job of master's run 37709671308), leaving ~3 for",
-    "checkout and installs inside the ~10-minute target. Checked by tests/test_ci_shards.py."
+    "test file runs in the rest shard without being listed here. Each shard should stay under ~8",
+    "minutes of tests, leaving ~2 for checkout and installs inside the ~10-minute target.",
+    "Checked by tests/test_ci_shards.py."
   ],
   "main": {
-    "autogeneration": ["tests/test_autogeneration.py"],
-    "json-module-arrays": ["tests/test_json_module_arrays.py"],
-    "module-instances": ["tests/test_module_instances.py"],
-    "generation": [
-      "tests/test_solvers.py",
-      "tests/test_config_schemas.py",
-      "tests/test_multiport_per_variable.py",
-      "tests/test_vessel_bc_prefix.py",
-      "tests/test_generation_fixes.py"
-    ],
-    "analysis": [
-      "tests/test_console_entry_points.py",
-      "tests/test_sensitivity_analysis.py",
-      "tests/test_param_id.py",
-      "tests/test_import_races.py",
-      "tests/test_modifier_backend_equivalence.py",
-      "tests/test_fsa_analytic_accuracy.py",
-      "tests/test_aadc_vs_casadi_3compartment.py"
+    "autogeneration": [
+      "tests/test_autogeneration.py",
+      "tests/test_module_instances.py"
     ]
   },
   "param-id": {
     "heavy": [
       "tests/test_param_id.py::test_laplace_approximation_hessian_validation",
       "tests/test_param_id.py::test_param_id_3compartment_succeeds",
-      "tests/test_param_id.py::test_param_id_3compartment_extra_ops_succeeds"
-    ],
-    "sensitivity-and-python": [
-      "tests/test_sensitivity_analysis.py",
-      "tests/test_param_id.py::test_param_id_3compartment_python_succeeds",
-      "tests/test_param_id.py::test_param_id_3compartment_nonstiff_python_succeeds",
+      "tests/test_param_id.py::test_param_id_3compartment_extra_ops_succeeds",
       "tests/test_param_id.py::test_multi_start_escapes_fitzhugh_nagumo_local_minimum_that_traps_sp_minimize",
-      "tests/test_param_id.py::test_multi_start_scales_with_many_starts"
+      "tests/test_sensitivity_analysis.py"
     ]
   }
 }
