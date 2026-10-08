@@ -1,0 +1,1389 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- Explainer for the C++ generation templates in this folder: each template beside the C++ it
+     produced. Open it in a browser. The generated code is from the CVS-ANS 3D-heart model
+     (CVS_ANS_collab generated_models/3C_ANS_3Dheart) and the FV 1D test model aortic_bif_hybrid_V1,
+     copied on 2026-10-01; README.md in this folder is the reference text. -->
+<title>Model0d Code Templates</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+:root {
+  --bg: #F3F5F7; --surface: #FFFFFF; --sunk: #EAEEF2; --ink: #17212B; --muted: #566473; --rule: #D3DAE1;
+  --accent: #A3243B; --tpl: #3D4E9E; --gen: #1B7564; --cfg: #8A5A12; --raw: #6B7480;
+  --code-bg: #FAFBFC; --t-kw: #7A2A8C; --t-str: #1F6B2E; --t-com: #7B8794; --t-num: #9A4A00; --t-pre: #6A5A00;
+  --t-jj-bg: #E6E9F8; --t-jj: #2E3C8C; --t-nm: #A3243B; --t-key: #3D4E9E;
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --cond: "IBM Plex Sans Condensed", "IBM Plex Sans", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0F151B; --surface: #151D25; --sunk: #1B252F; --ink: #E3E9EF; --muted: #95A3B1; --rule: #2A3642;
+    --accent: #F0718A; --tpl: #9AA8F5; --gen: #5CCBB2; --cfg: #E0B060; --raw: #A0A9B4;
+    --code-bg: #111920; --t-kw: #D59BE6; --t-str: #8FD29C; --t-com: #6F7E8C; --t-num: #F1A866; --t-pre: #D8C46A;
+    --t-jj-bg: #232C55; --t-jj: #B7C1FF; --t-nm: #F0889C; --t-key: #9AA8F5;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0F151B; --surface: #151D25; --sunk: #1B252F; --ink: #E3E9EF; --muted: #95A3B1; --rule: #2A3642;
+  --accent: #F0718A; --tpl: #9AA8F5; --gen: #5CCBB2; --cfg: #E0B060; --raw: #A0A9B4;
+  --code-bg: #111920; --t-kw: #D59BE6; --t-str: #8FD29C; --t-com: #6F7E8C; --t-num: #F1A866; --t-pre: #D8C46A;
+  --t-jj-bg: #232C55; --t-jj: #B7C1FF; --t-nm: #F0889C; --t-key: #9AA8F5;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.6 var(--sans); padding-inline: 16px; }
+.layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 40px; max-width: 1500px; margin: 0 auto; padding-block: 32px 64px; }
+nav { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 20px); align-self: start; max-height: calc(100vh - 40px); overflow: auto; font-size: 13px; }
+nav p { font: 600 11px/1 var(--cond); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 10px; }
+nav ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+nav a { display: block; padding: 3px 8px; border-left: 2px solid transparent; color: var(--muted); text-decoration: none; }
+nav a:hover, nav a:focus-visible { color: var(--ink); border-left-color: var(--accent); outline: none; }
+main { min-width: 0; }
+header.hero { display: grid; gap: 10px; padding-bottom: 28px; border-bottom: 1px solid var(--rule); margin-bottom: 8px; }
+.eyebrow { font: 600 12px/1 var(--cond); letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+h1 { font: 600 clamp(28px, 4vw, 40px)/1.1 var(--cond); margin: 0; text-wrap: balance; }
+h2 { font: 600 24px/1.2 var(--cond); margin: 48px 0 12px; text-wrap: balance; }
+h3 { font: 600 18px/1.3 var(--cond); margin: 0 0 12px; text-wrap: balance; }
+p, li { max-width: 72ch; }
+.lede { font-size: 17px; color: var(--muted); margin: 0; }
+code { font: 0.88em/1.4 var(--mono); }
+p code, li code, td code { background: var(--sunk); padding: 1px 4px; border-radius: 3px; }
+a { color: var(--tpl); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+.tablewrap { overflow-x: auto; margin: 12px 0 20px; }
+th { text-align: left; font: 600 12px/1.3 var(--cond); letter-spacing: .05em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--rule); padding: 8px 12px 8px 0; }
+td { border-bottom: 1px solid var(--rule); padding: 8px 12px 8px 0; vertical-align: top; }
+td:first-child { white-space: nowrap; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 14px 0 0; font-size: 13px; color: var(--muted); }
+.legend span { display: inline-flex; gap: 6px; align-items: center; }
+.tag { font: 600 11px/1 var(--cond); letter-spacing: .06em; text-transform: uppercase; padding: 4px 7px; border-radius: 3px; color: var(--surface); white-space: nowrap; }
+.tag-tpl { background: var(--tpl); } .tag-gen, .tag-core { background: var(--gen); } .tag-cfg { background: var(--cfg); } .tag-raw { background: var(--raw); }
+.example { margin: 40px 0 0; padding-top: 28px; border-top: 1px solid var(--rule); scroll-margin-top: 16px; }
+.pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.pair.three { grid-template-columns: minmax(0, .8fr) repeat(2, minmax(0, 1fr)); }
+.pane { margin: 0; background: var(--code-bg); border: 1px solid var(--rule); border-radius: 6px; min-width: 0; display: flex; flex-direction: column; }
+.pane figcaption { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border-bottom: 1px solid var(--rule); background: var(--surface); border-radius: 6px 6px 0 0; min-width: 0; }
+.pane-tpl { border-top: 3px solid var(--tpl); } .pane-gen, .pane-core { border-top: 3px solid var(--gen); } .pane-cfg { border-top: 3px solid var(--cfg); } .pane-raw { border-top: 3px solid var(--raw); }
+.fname { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pane pre { margin: 0; padding: 12px 14px; overflow: auto; max-height: 560px; font: 12.5px/1.55 var(--mono); tab-size: 4; }
+.notes { margin: 14px 0 0; padding-left: 20px; display: grid; gap: 6px; }
+.t-kw { color: var(--t-kw); } .t-str { color: var(--t-str); } .t-com { color: var(--t-com); font-style: italic; }
+.t-num { color: var(--t-num); } .t-pre { color: var(--t-pre); } .t-key { color: var(--t-key); }
+.t-nm { color: var(--t-nm); font-weight: 500; }
+.t-jj { background: var(--t-jj-bg); color: var(--t-jj); border-radius: 3px; padding: 0 2px; }
+.t-jj b { font-weight: 600; }
+.mermaid { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 16px; overflow-x: auto; }
+.steps { counter-reset: s; list-style: none; padding: 0; display: grid; gap: 8px; }
+.steps li { counter-increment: s; display: grid; grid-template-columns: 28px 1fr; gap: 10px; }
+.steps li::before { content: counter(s); font: 600 13px/1.7 var(--cond); color: var(--accent); text-align: right; }
+.callout { background: var(--surface); border: 1px solid var(--rule); border-left: 3px solid var(--accent); padding: 12px 16px; border-radius: 4px; }
+@media (max-width: 1100px) { .pair.three { grid-template-columns: repeat(2, minmax(0, 1fr)); } .pair.three .pane-cfg { grid-column: 1 / -1; } }
+@media (max-width: 900px) {
+  .layout { grid-template-columns: minmax(0, 1fr); gap: 16px; padding-block: 20px 48px; }
+  nav { position: static; max-height: none; }
+  nav ol { display: flex; flex-wrap: wrap; gap: 4px; }
+  nav a { border: 1px solid var(--rule); border-radius: 3px; padding: 2px 8px; }
+  .pair, .pair.three { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script>document.addEventListener("DOMContentLoaded", function () {
+  var dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  if (window.mermaid) { mermaid.initialize({ startOnLoad: true, theme: dark ? "dark" : "neutral" }); }
+});</script>
+</head>
+<body>
+
+
+<div class="layout">
+<nav aria-label="Contents"><p>Contents</p><ol><li><a href="#overview">How it fits together</a></li><li><a href="#files">Files</a></li><li><a href="#runtime">What runs when</a></li><li><a href="#jinja">Reading a template</a></li><li><a href="#ex-core">Equations: before/after naming</a></li><li><a href="#ex-enum">Index names</a></li><li><a href="#ex-header">model0d.h</a></li><li><a href="#ex-ctor">Constructor</a></li><li><a href="#ex-rhs">Right-hand side</a></li><li><a href="#ex-cvode">CVODE callback</a></li><li><a href="#ex-step">One step</a></li><li><a href="#ex-hooks">Pipe hooks</a></li><li><a href="#ex-solver">solver_init.j2</a></li><li><a href="#ex-pipes">pipes.j2</a></li><li><a href="#ex-io">io.j2</a></li><li><a href="#ex-main">main0d</a></li><li><a href="#ex-cmake">CMake</a></li><li><a href="#ex-apih">api header</a></li><li><a href="#ex-apicpp">api methods</a></li><li><a href="#build">Build and run</a></li></ol></nav>
+<main>
+<header class="hero">
+  <span class="eyebrow">libcuflynx · model_type: cpp</span>
+  <h1>How the C++ for a model is generated</h1>
+  <p class="lede">The model equations come from libCellML. Everything around them (the solver, output, the driver, the build, and the code that exchanges values with other models) comes from ten Jinja2 templates. This page puts each template beside the C++ it produced for the 3D-heart CVS-ANS model (<code>3C_ANS_3Dheart</code>). The pipe-coupling examples come from the FV 1D test model (<code>aortic_bif_hybrid_V1</code>).</p>
+  <div class="legend">
+    <span><span class="tag tag-tpl">Template</span> a <code>.j2</code> file in <code>generators/cpp/templates/</code></span>
+    <span><span class="tag tag-gen">Generated C++</span> what the template produced</span>
+    <span><span class="tag tag-cfg">Module config</span> the api block the code was generated from</span>
+    <span><span class="t-jj">{{ … }}</span> template tag</span>
+    <span><span class="t-nm">V_heart_module_u_lv</span> named index</span>
+  </div>
+</header>
+
+<section id="overview">
+<h2>How it fits together</h2>
+<p>You run generation with <code>model_type: cpp</code>, e.g. <code>python scripts/model_generation.py --variant 3Dheart --model-type cpp</code>. The generator builds the CellML model from your module array and module configs as usual, then:</p>
+<pre class="mermaid">
+flowchart LR
+  subgraph IN[Your inputs]
+    VA[module array CSV]
+    PA[parameters CSV]
+    MC[module configs JSON\nincluding api blocks]
+    CM[CellML modules]
+  end
+  subgraph GEN[libcuflynx generators/cpp]
+    G1[CellML generator\nflat model]
+    G2[collect external variables\nexternals.py]
+    G3[libCellML analyser\nindex per state and variable]
+    G4[libCellML C generator\nthen named indices]
+    G5[render templates\ngenerator.py + Jinja2]
+  end
+  subgraph OUT[Generated files]
+    O1[model0d_core.c/.h]
+    O2[model0d.h/.cpp]
+    O3[main0d.cpp]
+    O4[CMakeLists.txt]
+    O5[circulation_api.h/.cpp\napi_test_driver.cpp]
+  end
+  VA --> G1
+  PA --> G1
+  MC --> G1
+  CM --> G1
+  MC --> G2
+  G1 --> G2 --> G3 --> G4 --> O1
+  G3 --> G5
+  G5 --> O2
+  G5 --> O3
+  G5 --> O4
+  G5 --> O5
+  O1 & O2 & O3 & O4 & O5 --> B[cmake build\nmain0d, libmodel0d,\nlibcirculation_api]
+</pre>
+<p><b>What an external variable is.</b> The key idea is that any value that comes from outside the CellML is made a libCellML <em>external variable</em>. Examples are a pressure set by lifex, a boundary condition received from the 1D solver, and a delayed value. libCellML's code then asks for it through a callback, the wrapper answers from a cache, and the generated hooks and api methods keep that cache up to date.</p>
+</section>
+
+<section id="files">
+<h2>Files</h2>
+<h3>Inputs you provide</h3>
+<div class="tablewrap"><table>
+<tr><th>File</th><th>Where (CVS-ANS)</th><th>What it contributes</th></tr>
+<tr><td>Module array</td><td><code>resources/3C_ANS_3Dheart/3C_ANS_3Dheart_module_array.csv</code></td><td>Which modules exist and how they connect. The <code>heart_3D</code> row connects the api module to the CellML heart.</td></tr>
+<tr><td>Parameters</td><td><code>resources/3C_ANS_3Dheart/3C_ANS_3Dheart_parameters.csv</code></td><td>Constant values, including the placeholder <code>u_x_ext_heart</code> pressures the C++ starts from.</td></tr>
+<tr><td>Module configs</td><td><code>module_config_user/*.json</code>, <code>resources/external_modules/*.json</code>, and the built-in ones</td><td>Ports and variables per module. An <code>api</code> block describes a coupling to another program: <code>lifex_heart_3D_config.json</code> for lifex, and the FV1D entries of <code>coupling_modules_config.json</code> for the 1D solver.</td></tr>
+<tr><td>CellML modules</td><td><code>module_config_user/heart_external_pressure_modules.cellml</code>, …</td><td>The equations. The C code is generated from these.</td></tr>
+<tr><td>Solver settings</td><td>the <code>inp_data_dict</code> in <code>scripts/model_generation.py</code></td><td><code>solver_info</code> (<code>solver</code>, <code>dt_solver</code>, <code>MaximumNumberOfSteps</code>, <code>rtol</code>, <code>atol</code>), <code>dt</code>, <code>pre_time</code> and <code>sim_time</code> become constants in the C++.</td></tr>
+</table></div>
+<h3>Generator code (circulatory_autogen)</h3>
+<div class="tablewrap"><table>
+<tr><th>File</th><th>Job</th></tr>
+<tr><td><code>generators/cpp/generator.py</code></td><td><code>CVS0DCppGenerator</code>. It flattens and analyses the model, writes and renames libCellML's C, builds the template context, and renders the templates.</td></tr>
+<tr><td><code>generators/cpp/externals.py</code></td><td>Finds the external variables and resolves them to indices. It follows an api module's ports to the CellML variables, and turns named-pipe <code>calls</code> into hook code.</td></tr>
+<tr><td><code>generators/cpp/api.py</code></td><td>Validates api blocks and holds the unit factors (mmHg→Pa, ml→m³, …).</td></tr>
+<tr><td><code>generators/naming.py</code></td><td>The <code>&lt;component&gt;_&lt;variable&gt;</code> names, shared with the Python generator.</td></tr>
+<tr><td><code>generators/cpp/templates/*.j2</code></td><td>The ten templates below. <code>README.md</code> in the same folder is the reference version of this page.</td></tr>
+</table></div>
+<h3>Templates and what they produce</h3>
+<div class="tablewrap"><table>
+<tr><th>Template</th><th>Produces</th><th>In one line</th></tr>
+<tr><td><code>model0d.h.j2</code></td><td><code>model0d.h</code></td><td>Declares <code>Model0d</code>: arrays, solver, output, pipes, cache.</td></tr>
+<tr><td><code>model0d.cpp.j2</code></td><td><code>model0d.cpp</code></td><td>Implements it. Includes the three templates below.</td></tr>
+<tr><td><code>solver_init.j2</code></td><td>inside <code>model0d.cpp</code></td><td><code>set_ode_solver()</code>: CVODE setup or the RK weights.</td></tr>
+<tr><td><code>pipes.j2</code></td><td>inside <code>model0d.cpp</code></td><td>Opening and closing named pipes, reading and writing messages.</td></tr>
+<tr><td><code>io.j2</code></td><td>inside <code>model0d.cpp</code></td><td>The <code>sol0D_*.txt</code> output files and loading initial values from a previous run.</td></tr>
+<tr><td><code>main0d.cpp.j2</code></td><td><code>main0d.cpp</code></td><td>The driver program, standalone or under the coupler.</td></tr>
+<tr><td><code>CMakeLists.txt.j2</code></td><td><code>CMakeLists.txt</code></td><td>The build, including finding SUNDIALS.</td></tr>
+<tr><td><code>api_provider.h.j2</code> / <code>.cpp.j2</code></td><td><code>circulation_api.h/.cpp</code></td><td>The class another program calls, e.g. <code>lifex::Circulation</code>.</td></tr>
+<tr><td><code>api_test_driver.cpp.j2</code></td><td><code>api_test_driver.cpp</code></td><td>A stand-in for the 3D heart, for testing the api.</td></tr>
+</table></div>
+<p><code>model0d_core.c/.h</code> come from libCellML, not from a template. The generator only adds the index names to them.</p>
+</section>
+
+<section id="runtime">
+<h2>What runs when</h2>
+<p>Every solver calls <code>Model0d::computeRates</code> for each right-hand-side evaluation. <code>main0d</code> or the lifex class calls <code>solveOneStep</code> once per step. The hooks are where values are exchanged with other models.</p>
+<pre class="mermaid">
+sequenceDiagram
+  participant D as main0d / lifex::Circulation
+  participant M as Model0d (model0d.cpp)
+  participant L as libCellML code (model0d_core.c)
+  participant X as coupled model (1D solver / lifex)
+  D->>M: initialiseVariablesAndComputeConstants()
+  M->>L: initialiseVariables, computeComputedConstants
+  M->>X: hookInit (e.g. read 1D volume)
+  loop every step
+    D->>M: solveOneStep(dt)
+    M->>X: hookStepStart (e.g. agree dt)
+    loop every solver stage / CVODE call
+      M->>M: hookRhsStart (delays into cache)
+      M->>L: computeVariables
+      M->>X: hookRhs (send port values, receive BCs into cache)
+      M->>L: computeRates (reads cache via externalVariable)
+    end
+    M->>X: hookStepEnd (e.g. step done, read volume)
+  end
+</pre>
+<p>For the 3D heart there are no hooks. lifex sets the pressures into the cache <em>between</em> steps through the api class, and <code>solve_time_step()</code> then calls <code>solveOneStep</code>.</p>
+</section>
+
+<section id="jinja">
+<h2>Reading a template</h2>
+<p>A template is ordinary C++ with Jinja2 tags. Rendering replaces the tags with values from the context dict built in <code>generator.py</code>. Most of the template is copied through unchanged.</p>
+<div class="tablewrap"><table>
+<tr><th>Tag</th><th>Meaning</th><th>Example</th></tr>
+<tr><td><code>{{ x }}</code></td><td>insert a value</td><td><code>{{ dt_solver }}</code> → <code>0.0001</code></td></tr>
+<tr><td><code>{% if c %} … {% endif %}</code></td><td>keep the block only when the condition holds</td><td><code>{% if solver == 'CVODE' %}</code> keeps the CVODE code</td></tr>
+<tr><td><code>{% for x in xs %} … {% endfor %}</code></td><td>repeat the block per item</td><td>one <code>ext_cache[…] = …;</code> line per external variable</td></tr>
+<tr><td><code>{% set x = … %}</code></td><td>a local name inside the template</td><td><code>{% set CB = ', externalVariableCallback' … %}</code></td></tr>
+<tr><td><code>{% include 'f.j2' %}</code></td><td>insert another template here</td><td><code>model0d.cpp.j2</code> includes <code>solver_init.j2</code>, <code>pipes.j2</code>, <code>io.j2</code></td></tr>
+<tr><td><code>loop.index0</code></td><td>the position inside a <code>for</code></td><td><code>delayHistories[{{ loop.index0 }}]</code></td></tr>
+</table></div>
+<div class="callout"><p style="margin:0">Lines starting with <code>#</code> (<code>#include</code>, <code>#if SUNDIALS_VERSION_MAJOR</code>) are C preprocessor lines, not template lines. They pass through rendering unchanged and are dealt with by the C compiler.</p></div>
+<p>The values used most often are listed below. The full list is in <code>templates/README.md</code>.</p>
+<div class="tablewrap"><table>
+<tr><th>Name</th><th>What it holds</th></tr>
+<tr><td><code>solver</code>, <code>dt_solver</code>, <code>n_max_steps</code>, <code>reltol</code>, <code>abstol</code>, <code>dt_sample</code></td><td>the solver settings</td></tr>
+<tr><td><code>externals</code></td><td>every external variable. <code>.ref.name</code> is its named index, <code>.ref.label</code> its <code>component/variable</code>, and <code>.initial</code> its starting value</td></tr>
+<tr><td><code>delays</code></td><td>delayed variables, with their source variable and delay amount</td></tr>
+<tr><td><code>hooks</code></td><td>generated C++ lines for <code>init</code>, <code>step_start</code>, <code>rhs_start</code>, <code>rhs</code> and <code>step_end</code></td></tr>
+<tr><td><code>pipes</code></td><td>the pipes to open, or nothing</td></tr>
+<tr><td><code>has_externals</code></td><td>whether libCellML's functions take the callback</td></tr>
+<tr><td><code>api</code>, <code>api_functions</code>, <code>chambers</code>, <code>class_name</code>, <code>namespace</code></td><td>for the api templates. Each function has a <code>kind</code>, a unit <code>factor</code> and a <code>ref</code></td></tr>
+</table></div>
+</section>
+
+<h2>Template beside generated code</h2>
+<p>Each example shows the relevant part of a template and the matching part of the generated file. Long excerpts are shortened where marked. Everything shown is copied from the real files.</p>
+<section class="example" id="ex-core"><h3>The equations: libCellML output, before and after naming</h3><div class="pair"><figure class="pane pane-raw"><figcaption><span class="tag tag-raw">libCellML as written</span><code class="fname">model0d_core.c  (libCellML output)</code></figcaption><pre><code><span class="t-kw">void</span> computeRates(<span class="t-kw">double</span> voi, <span class="t-kw">double</span> *states, <span class="t-kw">double</span> *rates, <span class="t-kw">double</span> *variables, ExternalVariable externalVariable)
+{
+    variables[<span class="t-num">122</span>] = states[<span class="t-num">2</span>]+variables[<span class="t-num">4</span>]-variables[<span class="t-num">121</span>];
+    variables[<span class="t-num">125</span>] = variables[<span class="t-num">122</span>]/variables[<span class="t-num">124</span>];
+    variables[<span class="t-num">120</span>] = variables[<span class="t-num">125</span>]+variables[<span class="t-num">6</span>]+variables[<span class="t-num">118</span>]*(states[<span class="t-num">1</span>]-states[<span class="t-num">0</span>]);
+    variables[<span class="t-num">16</span>] = externalVariable(voi, states, rates, variables, <span class="t-num">16</span>);
+    variables[<span class="t-num">119</span>] = variables[<span class="t-num">16</span>]+variables[<span class="t-num">18</span>];
+    rates[<span class="t-num">0</span>] = (variables[<span class="t-num">120</span>]-variables[<span class="t-num">119</span>]-variables[<span class="t-num">0</span>]*states[<span class="t-num">0</span>])/variables[<span class="t-num">2</span>];
+    rates[<span class="t-num">2</span>] = states[<span class="t-num">1</span>]-states[<span class="t-num">0</span>];
+    variables[<span class="t-num">129</span>] = states[<span class="t-num">3</span>]/variables[<span class="t-num">10</span>];
+    variables[<span class="t-num">128</span>] = variables[<span class="t-num">12</span>]+variables[<span class="t-num">129</span>]+variables[<span class="t-num">13</span>]+variables[<span class="t-num">127</span>]*(states[<span class="t-num">4</span>]-states[<span class="t-num">1</span>]);
+    rates[<span class="t-num">1</span>] = (variables[<span class="t-num">128</span>]-variables[<span class="t-num">120</span>]-variables[<span class="t-num">9</span>]*states[<span class="t-num">1</span>])/variables[<span class="t-num">11</span>];
+    rates[<span class="t-num">3</span>] = states[<span class="t-num">4</span>]-states[<span class="t-num">1</span>];
+    variables[<span class="t-num">130</span>] = states[<span class="t-num">5</span>]-floor(states[<span class="t-num">5</span>]);
+    <span class="t-com">/* … 90 more lines */</span>
+}</code></pre></figure><figure class="pane pane-core"><figcaption><span class="tag tag-core">After naming</span><code class="fname">model0d_core.c  (as written by libcuflynx)</code></figcaption><pre><code><span class="t-kw">void</span> computeRates(<span class="t-kw">double</span> voi, <span class="t-kw">double</span> *states, <span class="t-kw">double</span> *rates, <span class="t-kw">double</span> *variables, ExternalVariable externalVariable)
+{
+    variables[<span class="t-nm">V_pvn_module_q_c</span>] = states[<span class="t-nm">S_pvn_module_q_c_change</span>]+variables[<span class="t-nm">V_parameters_q_us_0_pvn</span>]-variables[<span class="t-nm">V_pvn_module_q_us_wcont</span>];
+    variables[<span class="t-nm">V_pvn_module_u_c</span>] = variables[<span class="t-nm">V_pvn_module_q_c</span>]/variables[<span class="t-nm">V_pvn_module_c_wcont</span>];
+    variables[<span class="t-nm">V_pvn_module_u</span>] = variables[<span class="t-nm">V_pvn_module_u_c</span>]+variables[<span class="t-nm">V_parameters_u_ext_pvn</span>]+variables[<span class="t-nm">V_pvn_module_r_v</span>]*(states[<span class="t-nm">S_par_module_v</span>]-states[<span class="t-nm">S_pvn_module_v</span>]);
+    variables[<span class="t-nm">V_parameters_u_la_ext_heart</span>] = externalVariable(voi, states, rates, variables, <span class="t-nm">V_parameters_u_la_ext_heart</span>);
+    variables[<span class="t-nm">V_heart_module_u_la</span>] = variables[<span class="t-nm">V_parameters_u_la_ext_heart</span>]+variables[<span class="t-nm">V_parameters_u_intrathor_heart</span>];
+    rates[<span class="t-nm">S_pvn_module_v</span>] = (variables[<span class="t-nm">V_pvn_module_u</span>]-variables[<span class="t-nm">V_heart_module_u_la</span>]-variables[<span class="t-nm">V_parameters_r_pvn</span>]*states[<span class="t-nm">S_pvn_module_v</span>])/variables[<span class="t-nm">V_parameters_i_pvn</span>];
+    rates[<span class="t-nm">S_pvn_module_q_c_change</span>] = states[<span class="t-nm">S_par_module_v</span>]-states[<span class="t-nm">S_pvn_module_v</span>];
+    variables[<span class="t-nm">V_par_module_u_c</span>] = states[<span class="t-nm">S_par_module_q_c</span>]/variables[<span class="t-nm">V_parameters_c_par</span>];
+    variables[<span class="t-nm">V_par_module_u</span>] = variables[<span class="t-nm">V_parameters_u_0_par</span>]+variables[<span class="t-nm">V_par_module_u_c</span>]+variables[<span class="t-nm">V_parameters_u_ext_par</span>]+variables[<span class="t-nm">V_par_module_r_v</span>]*(states[<span class="t-nm">S_heart_module_v_puv</span>]-states[<span class="t-nm">S_par_module_v</span>]);
+    rates[<span class="t-nm">S_par_module_v</span>] = (variables[<span class="t-nm">V_par_module_u</span>]-variables[<span class="t-nm">V_pvn_module_u</span>]-variables[<span class="t-nm">V_parameters_r_par</span>]*states[<span class="t-nm">S_par_module_v</span>])/variables[<span class="t-nm">V_parameters_i_par</span>];
+    rates[<span class="t-nm">S_par_module_q_c</span>] = states[<span class="t-nm">S_heart_module_v_puv</span>]-states[<span class="t-nm">S_par_module_v</span>];
+    variables[<span class="t-nm">V_heart_module_chi_afloor</span>] = states[<span class="t-nm">S_heart_module_chi_a</span>]-floor(states[<span class="t-nm">S_heart_module_chi_a</span>]);
+    <span class="t-com">/* … 90 more lines */</span>
+}</code></pre></figure></div><ul class="notes"><li>libCellML writes the model equations as C with array indices only. The generator then renames every <code>states[i]</code>, <code>rates[i]</code> and <code>variables[i]</code> in the four compute functions (<code>initialiseVariables</code>, <code>computeComputedConstants</code>, <code>computeRates</code>, <code>computeVariables</code>). It also renames the index argument of <code>externalVariable(…)</code>.</li><li>This file is not rendered from a template. It is libCellML's code with the numbers swapped for names, so the compiled program is identical.</li><li><code>S_…</code> indexes <code>states</code> and <code>rates</code> (a rate has the same index as its state); <code>V_…</code> indexes <code>variables</code>. The names are the generated Python's attribute names: <code>var.heart_module_u_lv</code> in Python is <code>variables[V_heart_module_u_lv]</code> here.</li><li>External variables (set from outside the CellML) appear as <code>variables[V_x] = externalVariable(…, V_x)</code>. The wrapper answers those calls from its cache.</li></ul></section><section class="example" id="ex-enum"><h3>The index names in the header</h3><div class="pair"><figure class="pane pane-gen"><figcaption><span class="tag tag-gen">Generated C++</span><code class="fname">model0d_core.h  (enum excerpt)</code></figcaption><pre><code><span class="t-com">/* Named indices into the states/rates and variables arrays (added by libcuflynx):
+   S_&lt;component&gt;_&lt;variable&gt; for states and rates, V_&lt;component&gt;_&lt;variable&gt; for variables. */</span>
+<span class="t-kw">typedef</span> <span class="t-kw">enum</span> {
+    <span class="t-nm">S_pvn_module_v</span> = <span class="t-num">0</span>, <span class="t-com">/* pvn_module.v [m3_per_s] state */</span>
+    <span class="t-nm">S_par_module_v</span> = <span class="t-num">1</span>, <span class="t-com">/* par_module.v [m3_per_s] state */</span>
+    <span class="t-nm">S_pvn_module_q_c_change</span> = <span class="t-num">2</span>, <span class="t-com">/* pvn_module.q_C_change [m3] state */</span>
+    <span class="t-nm">S_par_module_q_c</span> = <span class="t-num">3</span>, <span class="t-com">/* par_module.q_C [m3] state */</span>
+    <span class="t-nm">S_heart_module_v_puv</span> = <span class="t-num">4</span>, <span class="t-com">/* heart_module.v_puv [m3_per_s] state */</span>
+    <span class="t-nm">S_heart_module_chi_a</span> = <span class="t-num">5</span>, <span class="t-com">/* heart_module.chi_a [dimensionless] state */</span>
+    <span class="t-nm">S_heart_module_chi_v</span> = <span class="t-num">6</span>, <span class="t-com">/* heart_module.chi_v [dimensionless] state */</span>
+    <span class="t-com">/* … 30 more lines */</span>
+} StateIndex;</code></pre></figure><figure class="pane pane-gen"><figcaption><span class="tag tag-gen">Generated C++</span><code class="fname">model0d_core.h  (libCellML part)</code></figcaption><pre><code><span class="t-kw">typedef</span> <span class="t-kw">double</span> (* ExternalVariable)(<span class="t-kw">double</span> voi, <span class="t-kw">double</span> *states, <span class="t-kw">double</span> *rates, <span class="t-kw">double</span> *variables, <span class="t-kw">size_t</span> index);
+
+<span class="t-kw">void</span> initialiseVariables(<span class="t-kw">double</span> voi, <span class="t-kw">double</span> *states, <span class="t-kw">double</span> *rates, <span class="t-kw">double</span> *variables, ExternalVariable externalVariable);
+<span class="t-kw">void</span> computeComputedConstants(<span class="t-kw">double</span> *variables);
+<span class="t-kw">void</span> computeRates(<span class="t-kw">double</span> voi, <span class="t-kw">double</span> *states, <span class="t-kw">double</span> *rates, <span class="t-kw">double</span> *variables, ExternalVariable externalVariable);
+<span class="t-kw">void</span> computeVariables(<span class="t-kw">double</span> voi, <span class="t-kw">double</span> *states, <span class="t-kw">double</span> *rates, <span class="t-kw">double</span> *variables, ExternalVariable externalVariable);</code></pre></figure></div><ul class="notes"><li>The header lists every name once, with its component, variable, units and variable type in a comment. Look a name up here when reading the equations.</li><li>The enum sits just above libCellML's own declarations. <code>STATE_INFO</code>/<code>VARIABLE_INFO</code> (names and units as strings, used by the output code) are untouched.</li><li>The libCellML function signatures stay as generated. The <code>ExternalVariable</code> callback type exists only because this model has external variables; without them libCellML drops the callback argument, and the templates allow for that with <code>{% if has_externals %}</code>.</li></ul></section><section class="example" id="ex-header"><h3>model0d.h: the Model0d class</h3><div class="pair"><figure class="pane pane-tpl"><figcaption><span class="tag tag-tpl">Template</span><code class="fname">model0d.h.j2</code></figcaption><pre><code><span class="t-kw">class</span> Model0d
+{
+<span class="t-kw">public</span>:
+    <span class="t-kw">using</span> VariableInfo = ::VariableInfo;
+    <span class="t-kw">using</span> FunctionType = std::function&lt;<span class="t-kw">void</span>(<span class="t-kw">double</span>, <span class="t-kw">double</span>, <span class="t-kw">double</span> *, <span class="t-kw">double</span> *, <span class="t-kw">double</span> *)&gt;;
+
+    Model0d();
+    ~Model0d();
+
+    <span class="t-com">// Solver: &quot;explEul&quot; / &quot;Heun&quot; / &quot;midpoint&quot; / &quot;RK4&quot;{% if solver == &#x27;CVODE&#x27; %} / &quot;CVODE&quot;{% endif %}.</span>
+    std::string solver_0d;
+    <span class="t-kw">void</span> set_ode_solver(std::string ODEsolver);
+
+    <span class="t-kw">void</span> initialise(<span class="t-kw">double</span> voiLoc, <span class="t-kw">double</span> *statesLoc, <span class="t-kw">double</span> *ratesLoc, <span class="t-kw">double</span> *varLoc,
+                    <span class="t-kw">const</span> <span class="t-kw">char</span> *statesPath, <span class="t-kw">const</span> <span class="t-kw">char</span> *varsPath, <span class="t-kw">bool</span> useFirstRow = <span class="t-kw">false</span>);
+    <span class="t-kw">void</span> initialiseVariablesAndComputeConstants();
+
+    <span class="t-com">// Right-hand side used by every solver: computeVariables (cached externals), then the</span>
+    <span class="t-com">// per-evaluation external exchange, then computeRates.</span>
+    <span class="t-kw">void</span> computeRates(<span class="t-kw">double</span> voiLoc, <span class="t-kw">double</span> dtLoc, <span class="t-kw">double</span> *statesLoc, <span class="t-kw">double</span> *ratesLoc, <span class="t-kw">double</span> *varLoc);
+    <span class="t-com">// Recompute all algebraic variables from the states, without any external exchange.</span>
+    <span class="t-kw">void</span> computeVariables(<span class="t-kw">double</span> voiLoc, <span class="t-kw">double</span> *statesLoc, <span class="t-kw">double</span> *ratesLoc, <span class="t-kw">double</span> *varLoc);
+
+    <span class="t-kw">void</span> solveOneStep(<span class="t-kw">double</span> dtLoc);
+
+    <span class="t-com">// Output / input of model values.</span>
+    <span class="t-kw">void</span> openOutputFiles(std::string outDir);
+    <span class="t-kw">void</span> writeOutput(<span class="t-kw">double</span> voiLoc);
+    <span class="t-kw">void</span> closeOutputFiles();
+    <span class="t-kw">void</span> loadFromFile(<span class="t-kw">const</span> std::string &amp;filename, <span class="t-kw">double</span> *targetArray,
+                      <span class="t-kw">const</span> VariableInfo infoArray[], <span class="t-kw">size_t</span> infoSize, <span class="t-kw">bool</span> useFirstRow = <span class="t-kw">false</span>);
+
+    <span class="t-com">// External variables: the value the generated C code receives for variables[index].</span>
+    <span class="t-kw">double</span> externalValue(<span class="t-kw">size_t</span> index) <span class="t-kw">const</span> { <span class="t-kw">return</span> ext_cache[index]; }
+    <span class="t-kw">void</span> setExternal(<span class="t-kw">size_t</span> index, <span class="t-kw">double</span> value);
+
+    <span class="t-com">// Whole-model state, for trial steps (e.g. volume extrapolation for implicit 3D coupling).</span>
+    <span class="t-kw">struct</span> Snapshot
+    {
+        std::vector&lt;<span class="t-kw">double</span>&gt; states, rates, variables, ext;
+        <span class="t-kw">double</span> voi = <span class="t-num">0.0</span>;
+<span class="t-jj">{% <b>if</b> delays %}</span>
+        std::vector&lt;DelayHistory&gt; delays;
+<span class="t-jj">{% <b>endif</b> %}</span>
+    };
+    Snapshot snapshot() <span class="t-kw">const</span>;
+    <span class="t-kw">void</span> restore(<span class="t-kw">const</span> Snapshot &amp;snap);
+    <span class="t-com">// Call after changing states from outside the solver.</span>
+    <span class="t-kw">void</span> reinitialiseSolver();
+
+    <span class="t-com">// Coupling pipes (named-pipe apis). Return 1 on failure.</span>
+    <span class="t-kw">int</span> openPipes(std::string pipePath);
+    <span class="t-kw">void</span> closePipes();
+
+    <span class="t-kw">double</span> voi = <span class="t-num">0.0</span>;
+    <span class="t-kw">double</span> voiEnd = <span class="t-num">0.0</span>;
+    <span class="t-kw">double</span> dt = <span class="t-jj">{{ dt_solver }}</span>;
+    <span class="t-kw">double</span> eps = <span class="t-num">1e-12</span>;
+    <span class="t-kw">double</span> tolTime = <span class="t-num">1e-11</span>;
+    <span class="t-kw">double</span> *states = <span class="t-kw">nullptr</span>;
+    <span class="t-kw">double</span> *rates = <span class="t-kw">nullptr</span>;
+    <span class="t-kw">double</span> *variables = <span class="t-kw">nullptr</span>;
+    <span class="t-kw">const</span> <span class="t-kw">char</span> *initStatesPath = <span class="t-str">&quot;None&quot;</span>;
+    <span class="t-kw">const</span> <span class="t-kw">char</span> *initVarsPath = <span class="t-str">&quot;None&quot;</span>;
+
+    <span class="t-com">// Number of 1D-0D pipe connections (kept for drivers written for the old generator).</span>
+    <span class="t-kw">int</span> N1d0d = <span class="t-jj">{{ n_connections }}</span>;
+    <span class="t-kw">int</span> N1d0dTot = <span class="t-jj">{{ n_connections_total }}</span>;
+<span class="t-jj">{% <b>if</b> solver == &#x27;CVODE&#x27; %}</span>
+
+    <span class="t-com">/* … 34 more lines */</span>
+<span class="t-jj">{% <b>endif</b> %}</span>
+<span class="t-jj">{% <b>if</b> solver == &#x27;CVODE&#x27; %}</span>
+
+<span class="t-pre">#if SUNDIALS_VERSION_MAJOR &gt;= 6</span>
+    SUNContext context = <span class="t-kw">nullptr</span>;
+<span class="t-pre">#endif</span>
+    <span class="t-kw">void</span> *solver = <span class="t-kw">nullptr</span>;
+    N_Vector y = <span class="t-kw">nullptr</span>;
+    SUNMatrix matrix = <span class="t-kw">nullptr</span>;
+    SUNLinearSolver linearSolver = <span class="t-kw">nullptr</span>;
+<span class="t-jj">{% <b>endif</b> %}</span>
+};</code></pre></figure><figure class="pane pane-gen"><figcaption><span class="tag tag-gen">Generated C++</span><code class="fname">model0d.h</code></figcaption><pre><code><span class="t-kw">class</span> Model0d
+{
+<span class="t-kw">public</span>:
+    <span class="t-kw">using</span> VariableInfo = ::VariableInfo;
+    <span class="t-kw">using</span> FunctionType = std::function&lt;<span class="t-kw">void</span>(<span class="t-kw">double</span>, <span class="t-kw">double</span>, <span class="t-kw">double</span> *, <span class="t-kw">double</span> *, <span class="t-kw">double</span> *)&gt;;
+
+    Model0d();
+    ~Model0d();
+
+    <span class="t-com">// Solver: &quot;explEul&quot; / &quot;Heun&quot; / &quot;midpoint&quot; / &quot;RK4&quot; / &quot;CVODE&quot;.</span>
+    std::string solver_0d;
+    <span class="t-kw">void</span> set_ode_solver(std::string ODEsolver);
+
+    <span class="t-kw">void</span> initialise(<span class="t-kw">double</span> voiLoc, <span class="t-kw">double</span> *statesLoc, <span class="t-kw">double</span> *ratesLoc, <span class="t-kw">double</span> *varLoc,
+                    <span class="t-kw">const</span> <span class="t-kw">char</span> *statesPath, <span class="t-kw">const</span> <span class="t-kw">char</span> *varsPath, <span class="t-kw">bool</span> useFirstRow = <span class="t-kw">false</span>);
+    <span class="t-kw">void</span> initialiseVariablesAndComputeConstants();
+
+    <span class="t-com">// Right-hand side used by every solver: computeVariables (cached externals), then the</span>
+    <span class="t-com">// per-evaluation external exchange, then computeRates.</span>
+    <span class="t-kw">void</span> computeRates(<span class="t-kw">double</span> voiLoc, <span class="t-kw">double</span> dtLoc, <span class="t-kw">double</span> *statesLoc, <span class="t-kw">double</span> *ratesLoc, <span class="t-kw">double</span> *varLoc);
+    <span class="t-com">// Recompute all algebraic variables from the states, without any external exchange.</span>
+    <span class="t-kw">void</span> computeVariables(<span class="t-kw">double</span> voiLoc, <span class="t-kw">double</span> *statesLoc, <span class="t-kw">double</span> *ratesLoc, <span class="t-kw">double</span> *varLoc);
+
+    <span class="t-kw">void</span> solveOneStep(<span class="t-kw">double</span> dtLoc);
+
+    <span class="t-com">// Output / input of model values.</span>
+    <span class="t-kw">void</span> openOutputFiles(std::string outDir);
+    <span class="t-kw">void</span> writeOutput(<span class="t-kw">double</span> voiLoc);
+    <span class="t-kw">void</span> closeOutputFiles();
+    <span class="t-kw">void</span> loadFromFile(<span class="t-kw">const</span> std::string &amp;filename, <span class="t-kw">double</span> *targetArray,
+                      <span class="t-kw">const</span> VariableInfo infoArray[], <span class="t-kw">size_t</span> infoSize, <span class="t-kw">bool</span> useFirstRow = <span class="t-kw">false</span>);
+
+    <span class="t-com">// External variables: the value the generated C code receives for variables[index].</span>
+    <span class="t-kw">double</span> externalValue(<span class="t-kw">size_t</span> index) <span class="t-kw">const</span> { <span class="t-kw">return</span> ext_cache[index]; }
+    <span class="t-kw">void</span> setExternal(<span class="t-kw">size_t</span> index, <span class="t-kw">double</span> value);
+
+    <span class="t-com">// Whole-model state, for trial steps (e.g. volume extrapolation for implicit 3D coupling).</span>
+    <span class="t-kw">struct</span> Snapshot
+    {
+        std::vector&lt;<span class="t-kw">double</span>&gt; states, rates, variables, ext;
+        <span class="t-kw">double</span> voi = <span class="t-num">0.0</span>;
+    };
+    Snapshot snapshot() <span class="t-kw">const</span>;
+    <span class="t-kw">void</span> restore(<span class="t-kw">const</span> Snapshot &amp;snap);
+    <span class="t-com">// Call after changing states from outside the solver.</span>
+    <span class="t-kw">void</span> reinitialiseSolver();
+
+    <span class="t-com">// Coupling pipes (named-pipe apis). Return 1 on failure.</span>
+    <span class="t-kw">int</span> openPipes(std::string pipePath);
+    <span class="t-kw">void</span> closePipes();
+
+    <span class="t-kw">double</span> voi = <span class="t-num">0.0</span>;
+    <span class="t-kw">double</span> voiEnd = <span class="t-num">0.0</span>;
+    <span class="t-kw">double</span> dt = <span class="t-num">0.0001</span>;
+    <span class="t-kw">double</span> eps = <span class="t-num">1e-12</span>;
+    <span class="t-kw">double</span> tolTime = <span class="t-num">1e-11</span>;
+    <span class="t-kw">double</span> *states = <span class="t-kw">nullptr</span>;
+    <span class="t-kw">double</span> *rates = <span class="t-kw">nullptr</span>;
+    <span class="t-kw">double</span> *variables = <span class="t-kw">nullptr</span>;
+    <span class="t-kw">const</span> <span class="t-kw">char</span> *initStatesPath = <span class="t-str">&quot;None&quot;</span>;
+    <span class="t-kw">const</span> <span class="t-kw">char</span> *initVarsPath = <span class="t-str">&quot;None&quot;</span>;
+
+    <span class="t-com">// Number of 1D-0D pipe connections (kept for drivers written for the old generator).</span>
+    <span class="t-kw">int</span> N1d0d = <span class="t-num">0</span>;
+    <span class="t-kw">int</span> N1d0dTot = <span class="t-num">0</span>;
+
+    <span class="t-com">// CVODE bookkeeping used by the right-hand side callback.</span>
+    <span class="t-kw">void</span> *cvodeMem() <span class="t-kw">const</span> { <span class="t-kw">return</span> solver; }
+    <span class="t-kw">long</span> <span class="t-kw">int</span> nstOld = <span class="t-num">0</span>;
+    <span class="t-kw">double</span> tOld = <span class="t-num">0.0</span>;
+    <span class="t-com">/* … 10 more lines */</span>
+    std::vector&lt;<span class="t-kw">int</span>&gt; idx_states_to_output, idx_vars_to_output;
+    std::vector&lt;<span class="t-kw">double</span>&gt; states0, k1, k2, k3, k4;
+    <span class="t-kw">double</span> wRK4[<span class="t-num">4</span>] = {<span class="t-num">1</span>. / <span class="t-num">6</span>., <span class="t-num">1</span>. / <span class="t-num">3</span>., <span class="t-num">1</span>. / <span class="t-num">3</span>., <span class="t-num">1</span>. / <span class="t-num">6</span>.};
+
+<span class="t-pre">#if SUNDIALS_VERSION_MAJOR &gt;= 6</span>
+    SUNContext context = <span class="t-kw">nullptr</span>;
+<span class="t-pre">#endif</span>
+    <span class="t-kw">void</span> *solver = <span class="t-kw">nullptr</span>;
+    N_Vector y = <span class="t-kw">nullptr</span>;
+    SUNMatrix matrix = <span class="t-kw">nullptr</span>;
+    SUNLinearSolver linearSolver = <span class="t-kw">nullptr</span>;
+};</code></pre></figure></div><ul class="notes"><li>Declares <code>Model0d</code>, the C++ class around the libCellML functions. The public part is what <code>main0d</code>, the lifex api class and the coupler-driven runs use: the arrays, time, <code>set_ode_solver</code>, <code>initialiseVariablesAndComputeConstants</code>, <code>solveOneStep</code>, output and pipes.</li><li><code>{{ dt_solver }}</code> becomes the default step. <code>{{ n_connections }}</code> becomes the number of 1D-0D pipe connections (0 for the 3D-heart model).</li><li><code>{% if solver == 'CVODE' %}</code> keeps the CVODE members; an RK4 model would not have them. <code>{% if pipes %}</code> adds one <code>std::ofstream</code>/<code>std::ifstream</code> member per pipe. This model has no pipes, so that block is empty.</li><li><code>Snapshot</code>/<code>restore</code> save and reload the whole model state. The lifex <code>get_volume_chamber_extrapolated</code> uses them for trial steps.</li></ul></section><section class="example" id="ex-ctor"><h3>model0d.cpp: constructor and the external-variable cache</h3><div class="pair"><figure class="pane pane-tpl"><figcaption><span class="tag tag-tpl">Template</span><code class="fname">model0d.cpp.j2</code></figcaption><pre><code>Model0d::Model0d()
+{
+    states = createStatesArray();
+    rates = createStatesArray();
+    variables = createVariablesArray();
+    <span class="t-com">// libCellML fills new arrays with NaN; start from zero so nothing unset leaks into output.</span>
+    std::fill(states, states + STATE_COUNT, <span class="t-num">0.0</span>);
+    std::fill(rates, rates + STATE_COUNT, <span class="t-num">0.0</span>);
+    std::fill(variables, variables + VARIABLE_COUNT, <span class="t-num">0.0</span>);
+    ext_cache.assign(VARIABLE_COUNT, <span class="t-num">0.0</span>);
+<span class="t-jj">{% <b>for</b> e <b>in</b> externals <b>if</b> e.initial <b>is</b> <b>not</b> <b>none</b> %}</span>
+    ext_cache[<span class="t-jj">{{ e.ref.name }}</span>] = <span class="t-jj">{{ e.initial }}</span>; <span class="t-com">// {{ e.ref.label }}</span>
+<span class="t-jj">{% <b>endfor</b> %}</span>
+    states0.assign(STATE_COUNT, <span class="t-num">0.0</span>);
+    k1.assign(STATE_COUNT, <span class="t-num">0.0</span>);
+    k2.assign(STATE_COUNT, <span class="t-num">0.0</span>);
+    k3.assign(STATE_COUNT, <span class="t-num">0.0</span>);
+    k4.assign(STATE_COUNT, <span class="t-num">0.0</span>);
+}</code></pre></figure><figure class="pane pane-gen"><figcaption><span class="tag tag-gen">Generated C++</span><code class="fname">model0d.cpp</code></figcaption><pre><code>Model0d::Model0d()
+{
+    states = createStatesArray();
+    rates = createStatesArray();
+    variables = createVariablesArray();
+    <span class="t-com">// libCellML fills new arrays with NaN; start from zero so nothing unset leaks into output.</span>
+    std::fill(states, states + STATE_COUNT, <span class="t-num">0.0</span>);
+    std::fill(rates, rates + STATE_COUNT, <span class="t-num">0.0</span>);
+    std::fill(variables, variables + VARIABLE_COUNT, <span class="t-num">0.0</span>);
+    ext_cache.assign(VARIABLE_COUNT, <span class="t-num">0.0</span>);
+    ext_cache[<span class="t-nm">V_parameters_u_lv_ext_heart</span>] = <span class="t-num">1000.0</span>; <span class="t-com">// heart/u_lv_ext</span>
+    ext_cache[<span class="t-nm">V_parameters_u_rv_ext_heart</span>] = <span class="t-num">400.0</span>; <span class="t-com">// heart/u_rv_ext</span>
+    ext_cache[<span class="t-nm">V_parameters_u_la_ext_heart</span>] = <span class="t-num">1000.0</span>; <span class="t-com">// heart/u_la_ext</span>
+    ext_cache[<span class="t-nm">V_parameters_u_ra_ext_heart</span>] = <span class="t-num">400.0</span>; <span class="t-com">// heart/u_ra_ext</span>
+    states0.assign(STATE_COUNT, <span class="t-num">0.0</span>);
+    k1.assign(STATE_COUNT, <span class="t-num">0.0</span>);
+    k2.assign(STATE_COUNT, <span class="t-num">0.0</span>);
+    k3.assign(STATE_COUNT, <span class="t-num">0.0</span>);
+    k4.assign(STATE_COUNT, <span class="t-num">0.0</span>);
+}</code></pre></figure></div><ul class="notes"><li>The constructor allocates the libCellML arrays and zero-fills them (libCellML fills them with NaN).</li><li><code>{% for e in externals if e.initial is not none %}</code> writes one line per external variable, seeding the cache with its starting value. For the 3D heart these are the four chamber pressures, starting from the placeholder parameters (400 and 1000 Pa) until lifex sets them.</li><li><code>{{ e.ref.name }}</code> is the external's named index and <code>{{ e.ref.label }}</code> its <code>component/variable</code>. Every generated line that touches a model value carries such a comment.</li></ul></section><section class="example" id="ex-rhs"><h3>model0d.cpp: one right-hand-side evaluation</h3><div class="pair"><figure class="pane pane-tpl"><figcaption><span class="tag tag-tpl">Template</span><code class="fname">model0d.cpp.j2</code></figcaption><pre><code><span class="t-kw">void</span> Model0d::computeRates(<span class="t-kw">double</span> voiLoc, <span class="t-kw">double</span> dtLoc, <span class="t-kw">double</span> *statesLoc, <span class="t-kw">double</span> *ratesLoc, <span class="t-kw">double</span> *varLoc)
+{
+    gCurrentModel = <span class="t-kw">this</span>;
+    hookRhsStart(voiLoc, dtLoc, statesLoc, varLoc);
+    <span class="t-com">// Algebraic variables (and the values sent to coupled models) from the current states and</span>
+    <span class="t-com">// the externals received so far...</span>
+    ::computeVariables(voiLoc, statesLoc, ratesLoc, varLoc<span class="t-jj">{{ CB }}</span>);
+    <span class="t-com">// ...then this evaluation&#x27;s exchange with coupled models...</span>
+    hookRhs(voiLoc, dtLoc, statesLoc, varLoc);
+    <span class="t-com">// ...then the rates, which read the externals just received.</span>
+    ::computeRates(voiLoc, statesLoc, ratesLoc, varLoc<span class="t-jj">{{ CB }}</span>);
+}</code></pre></figure><figure class="pane pane-gen"><figcaption><span class="tag tag-gen">Generated C++</span><code class="fname">model0d.cpp</code></figcaption><pre><code><span class="t-kw">void</span> Model0d::computeRates(<span class="t-kw">double</span> voiLoc, <span class="t-kw">double</span> dtLoc, <span class="t-kw">double</span> *statesLoc, <span class="t-kw">double</span> *ratesLoc, <span class="t-kw">double</span> *varLoc)
+{
+    gCurrentModel = <span class="t-kw">this</span>;
+    hookRhsStart(voiLoc, dtLoc, statesLoc, varLoc);
+    <span class="t-com">// Algebraic variables (and the values sent to coupled models) from the current states and</span>
+    <span class="t-com">// the externals received so far...</span>
+    ::computeVariables(voiLoc, statesLoc, ratesLoc, varLoc, externalVariableCallback);
+    <span class="t-com">// ...then this evaluation&#x27;s exchange with coupled models...</span>
+    hookRhs(voiLoc, dtLoc, statesLoc, varLoc);
+    <span class="t-com">// ...then the rates, which read the externals just received.</span>
+    ::computeRates(voiLoc, statesLoc, ratesLoc, varLoc, externalVariableCallback);
+}</code></pre></figure></div><ul class="notes"><li>Every solver calls this for each right-hand-side evaluation (CVODE through <code>cvodeRhs</code>; RK4 four times a step). The order matters.</li><li><b>1.</b> <code>hookRhsStart</code>: delayed values and, for FV 1D, the time message. <b>2.</b> libCellML <code>computeVariables</code>: algebraic variables from the current states, including the values sent to coupled models. <b>3.</b> <code>hookRhs</code>: exchange with coupled models, which writes new external values into the cache. <b>4.</b> libCellML <code>computeRates</code>, which reads those new values.</li><li><code>{{ CB }}</code> is <code>, externalVariableCallback</code> when the model has external variables, and nothing otherwise, because libCellML's signatures differ.</li><li><code>::computeRates</code> (with <code>::</code>) is libCellML's C function; <code>Model0d::computeRates</code> is this wrapper.</li></ul></section><section class="example" id="ex-cvode"><h3>model0d.cpp: the CVODE right-hand side</h3><div class="pair"><figure class="pane pane-tpl"><figcaption><span class="tag tag-tpl">Template</span><code class="fname">model0d.cpp.j2</code></figcaption><pre><code><span class="t-kw">static</span> <span class="t-kw">int</span> cvodeRhs(sunrealtype voi_, N_Vector y, N_Vector yDot, <span class="t-kw">void</span> *userData)
+{
+    Model0d *model = <span class="t-kw">static_cast</span>&lt;Model0d *&gt;(userData);
+    sunrealtype hcur;
+    <span class="t-kw">long</span> <span class="t-kw">int</span> nst;
+    CVodeGetCurrentStep(model-&gt;cvodeMem(), &amp;hcur);
+    CVodeGetNumSteps(model-&gt;cvodeMem(), &amp;nst);
+    <span class="t-kw">double</span> dtLoc;
+    <span class="t-kw">if</span> (nst == model-&gt;nstOld) {
+        dtLoc = <span class="t-num">0.0</span>;
+    } <span class="t-kw">else</span> {
+        dtLoc = hcur;
+        model-&gt;nstOld = nst;
+    }
+    model-&gt;tOld = voi_;
+    model-&gt;computeRates(voi_, dtLoc, N_VGetArrayPointer_Serial(y), N_VGetArrayPointer_Serial(yDot),
+                        model-&gt;variables);
+    <span class="t-kw">return</span> <span class="t-num">0</span>;
+}</code></pre></figure><figure class="pane pane-gen"><figcaption><span class="tag tag-gen">Generated C++</span><code class="fname">model0d.cpp</code></figcaption><pre><code><span class="t-kw">static</span> <span class="t-kw">int</span> cvodeRhs(sunrealtype voi_, N_Vector y, N_Vector yDot, <span class="t-kw">void</span> *userData)
+{
+    Model0d *model = <span class="t-kw">static_cast</span>&lt;Model0d *&gt;(userData);
+    sunrealtype hcur;
+    <span class="t-kw">long</span> <span class="t-kw">int</span> nst;
+    CVodeGetCurrentStep(model-&gt;cvodeMem(), &amp;hcur);
+    CVodeGetNumSteps(model-&gt;cvodeMem(), &amp;nst);
+    <span class="t-kw">double</span> dtLoc;
+    <span class="t-kw">if</span> (nst == model-&gt;nstOld) {
+        dtLoc = <span class="t-num">0.0</span>;
+    } <span class="t-kw">else</span> {
+        dtLoc = hcur;
+        model-&gt;nstOld = nst;
+    }
+    model-&gt;tOld = voi_;
+    model-&gt;computeRates(voi_, dtLoc, N_VGetArrayPointer_Serial(y), N_VGetArrayPointer_Serial(yDot),
+                        model-&gt;variables);
+    <span class="t-kw">return</span> <span class="t-num">0</span>;
+}</code></pre></figure></div><ul class="notes"><li>CVODE calls this function. It computes <code>dtLoc</code>, the internal step CVODE is taking: <code>hcur</code> on the first call of a new step, and 0 on the extra calls CVODE makes for Newton iterations and its finite-difference Jacobian.</li><li>The FV 1D solver weights its own update by this value, so the rule copies the previous generator exactly.</li><li>Only rendered for <code>solver: CVODE</code> (<code>{% if solver == 'CVODE' %}</code>).</li></ul></section><section class="example" id="ex-step"><h3>model0d.cpp: one step (solveOneStep)</h3><div class="pair"><figure class="pane pane-tpl"><figcaption><span class="tag tag-tpl">Template</span><code class="fname">model0d.cpp.j2</code></figcaption><pre><code><span class="t-kw">void</span> Model0d::solveOneStep(<span class="t-kw">double</span> dtLoc)
+{
+    gCurrentModel = <span class="t-kw">this</span>;
+    <span class="t-kw">const</span> <span class="t-kw">double</span> dtRequested = dtLoc;
+    dt = dtLoc;
+    hookStepStart();
+<span class="t-jj">{% <b>if</b> solver == &#x27;CVODE&#x27; %}</span>
+    <span class="t-kw">if</span> (solver_0d == <span class="t-str">&quot;CVODE&quot;</span>) {
+        voiEnd = std::round((voi + dt) / tolTime) * tolTime;
+        CVodeSetStopTime(solver, voiEnd);
+        <span class="t-kw">int</span> flag = CVode(solver, voiEnd, y, &amp;voi, CV_NORMAL);
+        <span class="t-kw">if</span> (flag &lt; <span class="t-num">0</span>) {
+            std::cerr &lt;&lt; <span class="t-str">&quot;CVODE :: Error occurred with flag &quot;</span> &lt;&lt; flag &lt;&lt; <span class="t-str">&quot;. Exiting.&quot;</span> &lt;&lt; std::endl;
+            exit(<span class="t-num">1</span>);
+        } <span class="t-kw">else</span> <span class="t-kw">if</span> (flag == <span class="t-num">2</span>) {
+            std::cout &lt;&lt; <span class="t-str">&quot;CVODE :: Root found with flag &quot;</span> &lt;&lt; flag &lt;&lt; std::endl;
+        } <span class="t-kw">else</span> <span class="t-kw">if</span> (flag == <span class="t-num">99</span>) {
+            std::cout &lt;&lt; <span class="t-str">&quot;CVODE :: WARNING :: Unusual situation occurred with flag &quot;</span> &lt;&lt; flag
+                      &lt;&lt; <span class="t-str">&quot;. CHECK YOUR OUTPUTS.&quot;</span> &lt;&lt; std::endl;
+        }
+    } <span class="t-kw">else</span>
+<span class="t-jj">{% <b>endif</b> %}</span>
+    {
+        <span class="t-kw">double</span> *s0 = states0.data();
+        <span class="t-kw">double</span> *r1 = k1.data();
+        <span class="t-kw">double</span> *r2 = k2.data();
+        <span class="t-kw">double</span> *r3 = k3.data();
+        <span class="t-kw">double</span> *r4 = k4.data();
+        std::copy(states, states + STATE_COUNT, s0);
+        <span class="t-kw">if</span> (solver_0d == <span class="t-str">&quot;explEul&quot;</span>) {
+            computeRates(voi, <span class="t-num">0.0</span> * dt, s0, r1, variables);
+            <span class="t-kw">for</span> (<span class="t-kw">size_t</span> i = <span class="t-num">0</span>; i &lt; STATE_COUNT; ++i) {
+                rates[i] = r1[i];
+                states[i] = s0[i] + dt * rates[i];
+            }
+        } <span class="t-kw">else</span> <span class="t-kw">if</span> (solver_0d == <span class="t-str">&quot;Heun&quot;</span>) {
+            computeRates(voi, <span class="t-num">0.0</span> * dt, s0, r1, variables);
+            <span class="t-kw">for</span> (<span class="t-kw">size_t</span> i = <span class="t-num">0</span>; i &lt; STATE_COUNT; ++i) {
+                states[i] = s0[i] + dt * r1[i];
+            }
+    <span class="t-com">/* … 37 more lines */</span>
+        }
+        voi += dt;
+        voi = std::round(voi / tolTime) * tolTime;
+    }
+    hookStepEnd();
+    computeVariables(voi, states, rates, variables);
+<span class="t-jj">{% <b>if</b> delays %}</span>
+    storeDelays(voi, states, variables);
+<span class="t-jj">{% <b>endif</b> %}</span>
+<span class="t-jj">{% <b>if</b> solver == &#x27;CVODE&#x27; %}</span>
+    tOld = voi;
+<span class="t-jj">{% <b>endif</b> %}</span>
+    dt = dtRequested;
+}</code></pre></figure><figure class="pane pane-gen"><figcaption><span class="tag tag-gen">Generated C++</span><code class="fname">model0d.cpp</code></figcaption><pre><code><span class="t-kw">void</span> Model0d::solveOneStep(<span class="t-kw">double</span> dtLoc)
+{
+    gCurrentModel = <span class="t-kw">this</span>;
+    <span class="t-kw">const</span> <span class="t-kw">double</span> dtRequested = dtLoc;
+    dt = dtLoc;
+    hookStepStart();
+    <span class="t-kw">if</span> (solver_0d == <span class="t-str">&quot;CVODE&quot;</span>) {
+        voiEnd = std::round((voi + dt) / tolTime) * tolTime;
+        CVodeSetStopTime(solver, voiEnd);
+        <span class="t-kw">int</span> flag = CVode(solver, voiEnd, y, &amp;voi, CV_NORMAL);
+        <span class="t-kw">if</span> (flag &lt; <span class="t-num">0</span>) {
+            std::cerr &lt;&lt; <span class="t-str">&quot;CVODE :: Error occurred with flag &quot;</span> &lt;&lt; flag &lt;&lt; <span class="t-str">&quot;. Exiting.&quot;</span> &lt;&lt; std::endl;
+            exit(<span class="t-num">1</span>);
+        } <span class="t-kw">else</span> <span class="t-kw">if</span> (flag == <span class="t-num">2</span>) {
+            std::cout &lt;&lt; <span class="t-str">&quot;CVODE :: Root found with flag &quot;</span> &lt;&lt; flag &lt;&lt; std::endl;
+        } <span class="t-kw">else</span> <span class="t-kw">if</span> (flag == <span class="t-num">99</span>) {
+            std::cout &lt;&lt; <span class="t-str">&quot;CVODE :: WARNING :: Unusual situation occurred with flag &quot;</span> &lt;&lt; flag
+                      &lt;&lt; <span class="t-str">&quot;. CHECK YOUR OUTPUTS.&quot;</span> &lt;&lt; std::endl;
+        }
+    } <span class="t-kw">else</span>
+    {
+        <span class="t-kw">double</span> *s0 = states0.data();
+        <span class="t-kw">double</span> *r1 = k1.data();
+        <span class="t-kw">double</span> *r2 = k2.data();
+        <span class="t-kw">double</span> *r3 = k3.data();
+        <span class="t-kw">double</span> *r4 = k4.data();
+        std::copy(states, states + STATE_COUNT, s0);
+        <span class="t-kw">if</span> (solver_0d == <span class="t-str">&quot;explEul&quot;</span>) {
+            computeRates(voi, <span class="t-num">0.0</span> * dt, s0, r1, variables);
+            <span class="t-kw">for</span> (<span class="t-kw">size_t</span> i = <span class="t-num">0</span>; i &lt; STATE_COUNT; ++i) {
+                rates[i] = r1[i];
+                states[i] = s0[i] + dt * rates[i];
+            }
+        } <span class="t-kw">else</span> <span class="t-kw">if</span> (solver_0d == <span class="t-str">&quot;Heun&quot;</span>) {
+            computeRates(voi, <span class="t-num">0.0</span> * dt, s0, r1, variables);
+            <span class="t-kw">for</span> (<span class="t-kw">size_t</span> i = <span class="t-num">0</span>; i &lt; STATE_COUNT; ++i) {
+                states[i] = s0[i] + dt * r1[i];
+            }
+            computeRates(voi + dt, dt, states, r2, variables);
+            <span class="t-kw">for</span> (<span class="t-kw">size_t</span> i = <span class="t-num">0</span>; i &lt; STATE_COUNT; ++i) {
+    <span class="t-com">/* … 30 more lines */</span>
+            }
+        } <span class="t-kw">else</span> {
+            std::cerr &lt;&lt; <span class="t-str">&quot;Model0d::solveOneStep :: ODE solver not available in this generated model: &quot;</span>
+                      &lt;&lt; solver_0d &lt;&lt; std::endl;
+            exit(<span class="t-num">1</span>);
+        }
+        voi += dt;
+        voi = std::round(voi / tolTime) * tolTime;
+    }
+    hookStepEnd();
+    computeVariables(voi, states, rates, variables);
+    tOld = voi;
+    dt = dtRequested;
+}</code></pre></figure></div><ul class="notes"><li>One output step. <code>hookStepStart</code> runs first (FV 1D: agree the step with the coupler), then the integration, then <code>hookStepEnd</code> (FV 1D: the step-done message and the 1D volume).</li><li>A CVODE build integrates with CVODE when <code>ODEsolver</code> is <code>CVODE</code>, and falls through to the fixed-step schemes (explEul, Heun, midpoint, RK4) otherwise. <code>} else</code> followed by the explicit block is how the template joins the two.</li><li>The explicit schemes pass 0, dt/2 or dt as <code>dtLoc</code> for each stage. The coupled 1D solver relies on these values.</li><li>After the step: recompute the algebraic variables, store delay histories (when the model has delays), and restore the requested <code>dt</code>.</li></ul></section><section class="example" id="ex-hooks"><h3>Pipe hooks: api block → generated exchange</h3><div class="pair three"><figure class="pane pane-cfg"><figcaption><span class="tag tag-cfg">Module config</span><code class="fname">coupling_modules_config.json  (FV1D_vessel api)</code></figcaption><pre><code>{
+  <span class="t-key">&quot;role&quot;</span>: <span class="t-str">&quot;consumer&quot;</span>,
+  <span class="t-key">&quot;transport&quot;</span>: <span class="t-str">&quot;named_pipe&quot;</span>,
+  <span class="t-key">&quot;exchange&quot;</span>: <span class="t-str">&quot;per_rhs&quot;</span>,
+  <span class="t-key">&quot;message_length&quot;</span>: 2,
+  <span class="t-key">&quot;channels&quot;</span>: {
+    <span class="t-key">&quot;dt&quot;</span>: {
+      <span class="t-key">&quot;send&quot;</span>: <span class="t-str">&quot;zero_to_parent_dt&quot;</span>,
+      <span class="t-key">&quot;recv&quot;</span>: <span class="t-str">&quot;parent_to_zero_dt&quot;</span>
+    },
+    <span class="t-key">&quot;conn&quot;</span>: {
+      <span class="t-key">&quot;send&quot;</span>: <span class="t-str">&quot;zero_to_parent_{i}&quot;</span>,
+      <span class="t-key">&quot;recv&quot;</span>: <span class="t-str">&quot;parent_to_zero_{i}&quot;</span>,
+      <span class="t-key">&quot;indexed_by&quot;</span>: <span class="t-str">&quot;connection&quot;</span>
+    },
+    <span class="t-key">&quot;volume&quot;</span>: {
+      <span class="t-key">&quot;recv&quot;</span>: <span class="t-str">&quot;parent_to_zero_vol&quot;</span>
+    }
+  },
+  <span class="t-key">&quot;calls&quot;</span>: [
+    {
+      <span class="t-key">&quot;name&quot;</span>: <span class="t-str">&quot;sync_step&quot;</span>,
+      <span class="t-key">&quot;kind&quot;</span>: <span class="t-str">&quot;send_recv&quot;</span>,
+      <span class="t-key">&quot;when&quot;</span>: <span class="t-str">&quot;step_start&quot;</span>,
+      <span class="t-key">&quot;channel&quot;</span>: <span class="t-str">&quot;dt&quot;</span>,
+      <span class="t-key">&quot;send&quot;</span>: [
+        <span class="t-str">&quot;$voi&quot;</span>,
+        <span class="t-str">&quot;$dt&quot;</span>
+      ],
+      <span class="t-key">&quot;recv&quot;</span>: [
+        <span class="t-str">&quot;$ignore&quot;</span>,
+        <span class="t-str">&quot;$dt&quot;</span>
+      ]
+    },
+    {
+      <span class="t-key">&quot;name&quot;</span>: <span class="t-str">&quot;sync_time&quot;</span>,
+      <span class="t-key">&quot;kind&quot;</span>: <span class="t-str">&quot;send&quot;</span>,
+      <span class="t-key">&quot;when&quot;</span>: <span class="t-str">&quot;rhs_start&quot;</span>,
+      <span class="t-key">&quot;channel&quot;</span>: <span class="t-str">&quot;dt&quot;</span>,
+      <span class="t-key">&quot;send&quot;</span>: [
+        <span class="t-str">&quot;$voi&quot;</span>,
+        <span class="t-str">&quot;$dt_stage&quot;</span>
+      ]
+    },
+    {
+      <span class="t-key">&quot;name&quot;</span>: <span class="t-str">&quot;bc_exchange&quot;</span>,
+      <span class="t-key">&quot;kind&quot;</span>: <span class="t-str">&quot;send_recv&quot;</span>,
+      <span class="t-key">&quot;when&quot;</span>: <span class="t-str">&quot;rhs&quot;</span>,
+      <span class="t-key">&quot;channel&quot;</span>: <span class="t-str">&quot;conn&quot;</span>,
+      <span class="t-key">&quot;per&quot;</span>: <span class="t-str">&quot;connection&quot;</span>,
+      <span class="t-key">&quot;send_by_input&quot;</span>: {
+        <span class="t-key">&quot;flow&quot;</span>: [
+          <span class="t-str">&quot;port.pressure&quot;</span>,
+          <span class="t-str">&quot;control.FV_resistance_port|0&quot;</span>
+        ],
+        <span class="t-key">&quot;pressure&quot;</span>: [
+          <span class="t-str">&quot;port.flow&quot;</span>,
+          0.0
+        ]
+      },
+      <span class="t-key">&quot;recv&quot;</span>: [
+        <span class="t-str">&quot;port.input&quot;</span>
+      ]
+    },
+    {
+      <span class="t-key">&quot;name&quot;</span>: <span class="t-str">&quot;step_done&quot;</span>,
+      <span class="t-key">&quot;kind&quot;</span>: <span class="t-str">&quot;send_recv&quot;</span>,
+      <span class="t-key">&quot;when&quot;</span>: <span class="t-str">&quot;step_end&quot;</span>,
+      <span class="t-key">&quot;channel&quot;</span>: <span class="t-str">&quot;dt&quot;</span>,
+      <span class="t-key">&quot;send&quot;</span>: [
+        <span class="t-str">&quot;$voi&quot;</span>,
+        -999.0
+      ],
+      <span class="t-key">&quot;recv&quot;</span>: [
+        <span class="t-str">&quot;$ignore&quot;</span>,
+        <span class="t-str">&quot;$ignore&quot;</span>
+      ]
+    }
+  ]
+}</code></pre></figure><figure class="pane pane-tpl"><figcaption><span class="tag tag-tpl">Template</span><code class="fname">model0d.cpp.j2</code></figcaption><pre><code><span class="t-kw">void</span> Model0d::hookRhs(<span class="t-kw">double</span> voiLoc, <span class="t-kw">double</span> dtLoc, <span class="t-kw">double</span> *s, <span class="t-kw">double</span> *v)
+{
+    (<span class="t-kw">void</span>)voiLoc;
+    (<span class="t-kw">void</span>)dtLoc;
+    (<span class="t-kw">void</span>)s;
+    (<span class="t-kw">void</span>)v;
+<span class="t-jj">{% <b>if</b> hooks.rhs %}</span>
+<span class="t-jj">{% <b>if</b> pipes %}</span>
+    <span class="t-kw">if</span> (pipesOpen) { <span class="t-com">// no exchange when run on its own (without -coupled 1)</span>
+<span class="t-jj">{% <b>else</b> %}</span>
+    {
+<span class="t-jj">{% <b>endif</b> %}</span>
+<span class="t-jj">{% <b>for</b> line <b>in</b> hooks.rhs %}</span>
+        <span class="t-jj">{{ line }}</span>
+<span class="t-jj">{% <b>endfor</b> %}</span>
+    }
+<span class="t-jj">{% <b>endif</b> %}</span>
+}</code></pre></figure><figure class="pane pane-gen"><figcaption><span class="tag tag-gen">Generated C++</span><code class="fname">model0d.cpp  (FV 1D model aortic_bif_hybrid_V1)</code></figcaption><pre><code><span class="t-kw">void</span> Model0d::hookRhs(<span class="t-kw">double</span> voiLoc, <span class="t-kw">double</span> dtLoc, <span class="t-kw">double</span> *s, <span class="t-kw">double</span> *v)
+{
+    (<span class="t-kw">void</span>)voiLoc;
+    (<span class="t-kw">void</span>)dtLoc;
+    (<span class="t-kw">void</span>)s;
+    (<span class="t-kw">void</span>)v;
+    <span class="t-kw">if</span> (pipesOpen) { <span class="t-com">// no exchange when run on its own (without -coupled 1)</span>
+        { <span class="t-kw">double</span> msg[<span class="t-num">2</span>] = {s[<span class="t-nm">S_terminal_1_module_v</span>], <span class="t-num">0.0</span>}; pipeWrite(pipe_send_conn_1, msg); }
+        { <span class="t-kw">double</span> msg[<span class="t-num">2</span>] = {s[<span class="t-nm">S_terminal_2_module_v</span>], <span class="t-num">0.0</span>}; pipeWrite(pipe_send_conn_2, msg); }
+        { <span class="t-kw">double</span> msg[<span class="t-num">2</span>]; pipeRead(pipe_recv_conn_1, msg);
+          setExternal(<span class="t-nm">V_parameters_u_in_terminal_1</span>, msg[<span class="t-num">0</span>]);
+        }
+        { <span class="t-kw">double</span> msg[<span class="t-num">2</span>]; pipeRead(pipe_recv_conn_2, msg);
+          setExternal(<span class="t-nm">V_parameters_u_in_terminal_2</span>, msg[<span class="t-num">0</span>]);
+        }
+    }
+}</code></pre></figure></div><ul class="notes"><li>The hook bodies are not written in the template. They are C++ lines generated in Python (<code>externals.build_named_pipe_code</code>) from the <code>calls</code> of the model's api block, shown on the left, and passed in as <code>hooks.rhs</code>.</li><li>The <code>bc_exchange</code> call has <code>"per": "connection"</code>, so there is one write and one read per 1D-0D connection, all writes first. Each connection sends its 0D port value (<code>port.flow</code> here, since the terminal receives pressure) and receives <code>port.input</code>, which goes into the cache with <code>setExternal</code>.</li><li>The terminal's inflow is a state (<code>s[S_terminal_1_module_v]</code>); the pressure it receives is a parameter-component variable (<code>V_parameters_u_in_terminal_1</code>).</li><li><code>if (pipesOpen)</code> skips the exchange when <code>main0d</code> runs without <code>-coupled 1</code>. For the 3D-heart model all hooks are empty.</li></ul></section><section class="example" id="ex-solver"><h3>solver_init.j2: setting up CVODE</h3><div class="pair"><figure class="pane pane-tpl"><figcaption><span class="tag tag-tpl">Template</span><code class="fname">solver_init.j2</code></figcaption><pre><code><span class="t-kw">void</span> Model0d::set_ode_solver(std::string ODEsolver)
+{
+    solver_0d = ODEsolver;
+<span class="t-jj">{% <b>if</b> solver == &#x27;CVODE&#x27; %}</span>
+    <span class="t-kw">if</span> (solver_0d != <span class="t-str">&quot;CVODE&quot;</span>) {
+        <span class="t-com">// explicit schemes need no set-up beyond the work arrays allocated in the constructor</span>
+        <span class="t-kw">return</span>;
+    }
+    <span class="t-com">// Create our SUNDIALS context and CVODE solver (BDF, dense direct linear solver).</span>
+<span class="t-pre">#if SUNDIALS_VERSION_MAJOR &gt;= 7</span>
+    SUNContext_Create(SUN_COMM_NULL, &amp;context);
+<span class="t-pre">#elif SUNDIALS_VERSION_MAJOR == 6</span>
+    SUNContext_Create(NULL, &amp;context);
+<span class="t-pre">#endif</span>
+<span class="t-pre">#if SUNDIALS_VERSION_MAJOR &gt;= 6</span>
+    solver = CVodeCreate(CV_BDF, context);
+    y = N_VMake_Serial(STATE_COUNT, states, context);
+<span class="t-pre">#else</span>
+    solver = CVodeCreate(CV_BDF);
+    y = N_VMake_Serial(STATE_COUNT, states);
+<span class="t-pre">#endif</span>
+    CVodeInit(solver, cvodeRhs, voi, y);
+    CVodeSetUserData(solver, <span class="t-kw">this</span>);
+    <span class="t-com">// Set our maximum number of internal steps (solver_info MaximumNumberOfSteps).</span>
+    <span class="t-kw">long</span> <span class="t-kw">int</span> mxsteps = <span class="t-jj">{{ n_max_steps }}</span>;
+    CVodeSetMaxNumSteps(solver, mxsteps);
+    <span class="t-com">// Set our maximum absolute step size (solver_info dt_solver).</span>
+    sunrealtype hmax = <span class="t-jj">{{ dt_solver }}</span>;
+    CVodeSetMaxStep(solver, hmax);
+<span class="t-pre">#if SUNDIALS_VERSION_MAJOR &gt;= 6</span>
+    matrix = SUNDenseMatrix(STATE_COUNT, STATE_COUNT, context);
+    linearSolver = SUNLinSol_Dense(y, matrix, context);
+<span class="t-pre">#else</span>
+    matrix = SUNDenseMatrix(STATE_COUNT, STATE_COUNT);
+    linearSolver = SUNLinSol_Dense(y, matrix);
+<span class="t-pre">#endif</span>
+    CVodeSetLinearSolver(solver, linearSolver, matrix);
+    <span class="t-com">// Set our scalar relative and absolute tolerances (solver_info rtol/atol).</span>
+    sunrealtype reltol = <span class="t-jj">{{ reltol }}</span>;
+    sunrealtype abstol = <span class="t-jj">{{ abstol }}</span>;
+    CVodeSStolerances(solver, reltol, abstol);
+    nstOld = <span class="t-num">0</span>;
+    tOld = voi;
+<span class="t-jj">{% <b>elif</b> solver == &#x27;PETSC&#x27; %}</span>
+    <span class="t-com">/* … 15 more lines */</span></code></pre></figure><figure class="pane pane-gen"><figcaption><span class="tag tag-gen">Generated C++</span><code class="fname">model0d.cpp  (set_ode_solver)</code></figcaption><pre><code><span class="t-kw">void</span> Model0d::set_ode_solver(std::string ODEsolver)
+{
+    solver_0d = ODEsolver;
+    <span class="t-kw">if</span> (solver_0d != <span class="t-str">&quot;CVODE&quot;</span>) {
+        <span class="t-com">// explicit schemes need no set-up beyond the work arrays allocated in the constructor</span>
+        <span class="t-kw">return</span>;
+    }
+    <span class="t-com">// Create our SUNDIALS context and CVODE solver (BDF, dense direct linear solver).</span>
+<span class="t-pre">#if SUNDIALS_VERSION_MAJOR &gt;= 7</span>
+    SUNContext_Create(SUN_COMM_NULL, &amp;context);
+<span class="t-pre">#elif SUNDIALS_VERSION_MAJOR == 6</span>
+    SUNContext_Create(NULL, &amp;context);
+<span class="t-pre">#endif</span>
+<span class="t-pre">#if SUNDIALS_VERSION_MAJOR &gt;= 6</span>
+    solver = CVodeCreate(CV_BDF, context);
+    y = N_VMake_Serial(STATE_COUNT, states, context);
+<span class="t-pre">#else</span>
+    solver = CVodeCreate(CV_BDF);
+    y = N_VMake_Serial(STATE_COUNT, states);
+<span class="t-pre">#endif</span>
+    CVodeInit(solver, cvodeRhs, voi, y);
+    CVodeSetUserData(solver, <span class="t-kw">this</span>);
+    <span class="t-com">// Set our maximum number of internal steps (solver_info MaximumNumberOfSteps).</span>
+    <span class="t-kw">long</span> <span class="t-kw">int</span> mxsteps = <span class="t-num">5000</span>;
+    CVodeSetMaxNumSteps(solver, mxsteps);
+    <span class="t-com">// Set our maximum absolute step size (solver_info dt_solver).</span>
+    sunrealtype hmax = <span class="t-num">0.0001</span>;
+    CVodeSetMaxStep(solver, hmax);
+<span class="t-pre">#if SUNDIALS_VERSION_MAJOR &gt;= 6</span>
+    matrix = SUNDenseMatrix(STATE_COUNT, STATE_COUNT, context);
+    linearSolver = SUNLinSol_Dense(y, matrix, context);
+<span class="t-pre">#else</span>
+    matrix = SUNDenseMatrix(STATE_COUNT, STATE_COUNT);
+    linearSolver = SUNLinSol_Dense(y, matrix);
+<span class="t-pre">#endif</span>
+    CVodeSetLinearSolver(solver, linearSolver, matrix);
+    <span class="t-com">// Set our scalar relative and absolute tolerances (solver_info rtol/atol).</span>
+    sunrealtype reltol = <span class="t-num">1e-07</span>;
+    sunrealtype abstol = <span class="t-num">1e-09</span>;
+    CVodeSStolerances(solver, reltol, abstol);
+    nstOld = <span class="t-num">0</span>;
+    tOld = voi;
+}</code></pre></figure></div><ul class="notes"><li><code>set_ode_solver</code> sets up CVODE: a BDF solver with a dense direct linear solver. <code>{{ n_max_steps }}</code>, <code>{{ dt_solver }}</code>, <code>{{ reltol }}</code> and <code>{{ abstol }}</code> come from <code>solver_info</code> (<code>MaximumNumberOfSteps</code>, <code>dt_solver</code>, <code>rtol</code>, <code>atol</code>).</li><li>The <code>#if SUNDIALS_VERSION_MAJOR</code> lines are C preprocessor lines, not template lines, so they appear in the output unchanged. The C compiler picks the SUNDIALS 5, 6 or 7 calls for whichever version CMake found.</li><li>This template is included into <code>model0d.cpp.j2</code> with <code>{% include 'solver_init.j2' %}</code>, and the tests also render it on its own.</li></ul></section><section class="example" id="ex-pipes"><h3>pipes.j2: opening the named pipes</h3><div class="pair"><figure class="pane pane-tpl"><figcaption><span class="tag tag-tpl">Template</span><code class="fname">pipes.j2</code></figcaption><pre><code><span class="t-kw">int</span> Model0d::openPipes(std::string pipePath)
+{
+    <span class="t-com">// A FIFO open blocks until the other end opens it: writers first, then readers, in the same</span>
+    <span class="t-com">// order as the coupler.</span>
+<span class="t-jj">{% <b>for</b> p <b>in</b> pipes.send_pipes %}</span>
+    <span class="t-jj">{{ p.member }}</span>.open(pipePath + <span class="t-str">&quot;{{ p.name }}&quot;</span>);
+    <span class="t-kw">if</span> (!<span class="t-jj">{{ p.member }}</span>.is_open()) {
+        std::cerr &lt;&lt; <span class="t-str">&quot;0d solver :: failed to open write pipe {{ p.name }}&quot;</span> &lt;&lt; std::endl;
+        <span class="t-kw">return</span> <span class="t-num">1</span>;
+    }
+<span class="t-jj">{% <b>endfor</b> %}</span>
+<span class="t-jj">{% <b>for</b> p <b>in</b> pipes.recv_pipes %}</span>
+    <span class="t-jj">{{ p.member }}</span>.open(pipePath + <span class="t-str">&quot;{{ p.name }}&quot;</span>);
+    <span class="t-kw">if</span> (!<span class="t-jj">{{ p.member }}</span>.is_open()) {
+        std::cerr &lt;&lt; <span class="t-str">&quot;0d solver :: failed to open read pipe {{ p.name }}&quot;</span> &lt;&lt; std::endl;
+        <span class="t-kw">return</span> <span class="t-num">1</span>;
+    }
+<span class="t-jj">{% <b>endfor</b> %}</span>
+    pipesOpen = <span class="t-kw">true</span>;
+    <span class="t-kw">return</span> <span class="t-num">0</span>;
+}</code></pre></figure><figure class="pane pane-gen"><figcaption><span class="tag tag-gen">Generated C++</span><code class="fname">model0d.cpp  (FV 1D model)</code></figcaption><pre><code><span class="t-kw">int</span> Model0d::openPipes(std::string pipePath)
+{
+    <span class="t-com">// A FIFO open blocks until the other end opens it: writers first, then readers, in the same</span>
+    <span class="t-com">// order as the coupler.</span>
+    pipe_send_dt.open(pipePath + <span class="t-str">&quot;zero_to_parent_dt&quot;</span>);
+    <span class="t-kw">if</span> (!pipe_send_dt.is_open()) {
+        std::cerr &lt;&lt; <span class="t-str">&quot;0d solver :: failed to open write pipe zero_to_parent_dt&quot;</span> &lt;&lt; std::endl;
+        <span class="t-kw">return</span> <span class="t-num">1</span>;
+    }
+    pipe_send_conn_1.open(pipePath + <span class="t-str">&quot;zero_to_parent_1&quot;</span>);
+    <span class="t-kw">if</span> (!pipe_send_conn_1.is_open()) {
+        std::cerr &lt;&lt; <span class="t-str">&quot;0d solver :: failed to open write pipe zero_to_parent_1&quot;</span> &lt;&lt; std::endl;
+        <span class="t-kw">return</span> <span class="t-num">1</span>;
+    }
+    pipe_send_conn_2.open(pipePath + <span class="t-str">&quot;zero_to_parent_2&quot;</span>);
+    <span class="t-kw">if</span> (!pipe_send_conn_2.is_open()) {
+        std::cerr &lt;&lt; <span class="t-str">&quot;0d solver :: failed to open write pipe zero_to_parent_2&quot;</span> &lt;&lt; std::endl;
+        <span class="t-kw">return</span> <span class="t-num">1</span>;
+    }
+    pipe_recv_dt.open(pipePath + <span class="t-str">&quot;parent_to_zero_dt&quot;</span>);
+    <span class="t-kw">if</span> (!pipe_recv_dt.is_open()) {
+        std::cerr &lt;&lt; <span class="t-str">&quot;0d solver :: failed to open read pipe parent_to_zero_dt&quot;</span> &lt;&lt; std::endl;
+        <span class="t-kw">return</span> <span class="t-num">1</span>;
+    }
+    pipe_recv_conn_1.open(pipePath + <span class="t-str">&quot;parent_to_zero_1&quot;</span>);
+    <span class="t-kw">if</span> (!pipe_recv_conn_1.is_open()) {
+        std::cerr &lt;&lt; <span class="t-str">&quot;0d solver :: failed to open read pipe parent_to_zero_1&quot;</span> &lt;&lt; std::endl;
+        <span class="t-kw">return</span> <span class="t-num">1</span>;
+    }
+    pipe_recv_conn_2.open(pipePath + <span class="t-str">&quot;parent_to_zero_2&quot;</span>);
+    <span class="t-kw">if</span> (!pipe_recv_conn_2.is_open()) {
+        std::cerr &lt;&lt; <span class="t-str">&quot;0d solver :: failed to open read pipe parent_to_zero_2&quot;</span> &lt;&lt; std::endl;
+        <span class="t-kw">return</span> <span class="t-num">1</span>;
+    }
+    pipesOpen = <span class="t-kw">true</span>;
+    <span class="t-kw">return</span> <span class="t-num">0</span>;
+}</code></pre></figure></div><ul class="notes"><li><code>{% for p in pipes.send_pipes %}</code> writes one open-and-check block per pipe. The pipe names come from the api block's <code>channels</code>, with <code>{i}</code> replaced by the connection number.</li><li>Writers open before readers, in the channel order of the api block. Opening a named pipe blocks until the other end opens it, so this order has to match the coupler's.</li><li>Only channels that some call uses are opened. This model has no 1D volume sum, so <code>parent_to_zero_vol</code> is left out; the coupler does not create it either.</li></ul></section><section class="example" id="ex-io"><h3>io.j2: output files</h3><div class="pair"><figure class="pane pane-tpl"><figcaption><span class="tag tag-tpl">Template</span><code class="fname">io.j2</code></figcaption><pre><code><span class="t-kw">bool</span> isOutputVariable(<span class="t-kw">const</span> VariableInfo &amp;info)
+{
+    <span class="t-kw">bool</span> typeOk = (info.type == ALGEBRAIC)<span class="t-jj">{% <b>if</b> has_externals %}</span> || (info.type == EXTERNAL)<span class="t-jj">{% <b>endif</b> %}</span>;
+    <span class="t-kw">if</span> (!typeOk) {
+        <span class="t-kw">return</span> <span class="t-kw">false</span>;
+    }
+    <span class="t-com">// reported from their module (or the parameters component), not from the wrapper components</span>
+    std::string comp = std::string(info.component);
+    <span class="t-kw">return</span> comp == <span class="t-str">&quot;parameters&quot;</span> || stripSuffix(comp, <span class="t-str">&quot;_module&quot;</span>) != comp;
+}</code></pre></figure><figure class="pane pane-gen"><figcaption><span class="tag tag-gen">Generated C++</span><code class="fname">model0d.cpp</code></figcaption><pre><code><span class="t-kw">bool</span> isOutputVariable(<span class="t-kw">const</span> VariableInfo &amp;info)
+{
+    <span class="t-kw">bool</span> typeOk = (info.type == ALGEBRAIC) || (info.type == EXTERNAL);
+    <span class="t-kw">if</span> (!typeOk) {
+        <span class="t-kw">return</span> <span class="t-kw">false</span>;
+    }
+    <span class="t-com">// reported from their module (or the parameters component), not from the wrapper components</span>
+    std::string comp = std::string(info.component);
+    <span class="t-kw">return</span> comp == <span class="t-str">&quot;parameters&quot;</span> || stripSuffix(comp, <span class="t-str">&quot;_module&quot;</span>) != comp;
+}</code></pre></figure></div><ul class="notes"><li>Output files are <code>sol0D_states.txt</code> and <code>sol0D_variables.txt</code>, with a header line <code># 0: t[s]; 1: module/variable[units]; …</code>. The 1D solver, <code>loadFromFile</code> and plotting scripts read that header, so the format is fixed.</li><li>This function decides which variables are written: algebraic and external ones that belong to a <code>*_module</code> component or to <code>parameters</code>.</li><li><code>{% if has_externals %}</code> adds the <code>EXTERNAL</code> type, which only exists in libCellML's header when the model has external variables.</li></ul></section><section class="example" id="ex-main"><h3>main0d.cpp.j2: the driver program</h3><div class="pair"><figure class="pane pane-tpl"><figcaption><span class="tag tag-tpl">Template</span><code class="fname">main0d.cpp.j2</code></figcaption><pre><code><span class="t-kw">int</span> main(<span class="t-kw">int</span> argc, <span class="t-kw">char</span> *argv[])
+{
+    <span class="t-kw">bool</span> is_coupled = <span class="t-kw">false</span>;
+    std::string ODEsolver = <span class="t-str">&quot;{{ solver }}&quot;</span>;
+    <span class="t-kw">double</span> T0 = <span class="t-jj">{{ default_T0 }}</span>;
+    <span class="t-kw">int</span> nCC = <span class="t-jj">{{ default_nCC }}</span>;
+    std::string modelName = <span class="t-str">&quot;{{ model_name }}&quot;</span>;
+    std::string pipePath = <span class="t-str">&quot;NA&quot;</span>;
+    std::string initStatePath = <span class="t-str">&quot;None&quot;</span>;
+    std::string resFold = <span class="t-str">&quot;{{ output_dir }}&quot;</span>;
+    <span class="t-kw">double</span> tEndArg = -<span class="t-num">1.0</span>;
+    <span class="t-kw">double</span> tSaveArg = -<span class="t-num">1.0</span>;
+
+    <span class="t-kw">for</span> (<span class="t-kw">int</span> i = <span class="t-num">1</span>; i &lt; argc; i++) {
+        std::string a(argv[i]);
+        <span class="t-kw">if</span> (i + <span class="t-num">1</span> &gt;= argc) {
+            <span class="t-kw">break</span>;
+        }
+        <span class="t-kw">if</span> (a == <span class="t-str">&quot;-coupled&quot;</span>) is_coupled = (std::string(argv[++i]) == <span class="t-str">&quot;1&quot;</span>);
+        <span class="t-kw">else</span> <span class="t-kw">if</span> (a == <span class="t-str">&quot;-ODEsolver&quot;</span>) ODEsolver = std::string(argv[++i]);
+        <span class="t-kw">else</span> <span class="t-kw">if</span> (a == <span class="t-str">&quot;-T0&quot;</span>) T0 = std::stod(std::string(argv[++i]));
+        <span class="t-kw">else</span> <span class="t-kw">if</span> (a == <span class="t-str">&quot;-nCC&quot;</span>) nCC = std::stoi(std::string(argv[++i]));
+        <span class="t-kw">else</span> <span class="t-kw">if</span> (a == <span class="t-str">&quot;-networkName&quot;</span>) modelName = std::string(argv[++i]);
+        <span class="t-kw">else</span> <span class="t-kw">if</span> (a == <span class="t-str">&quot;-pipePath&quot;</span>) pipePath = std::string(argv[++i]);
+        <span class="t-kw">else</span> <span class="t-kw">if</span> (a == <span class="t-str">&quot;-initStatePath&quot;</span>) initStatePath = std::string(argv[++i]);
+        <span class="t-kw">else</span> <span class="t-kw">if</span> (a == <span class="t-str">&quot;-outDir&quot;</span>) resFold = std::string(argv[++i]);
+        <span class="t-kw">else</span> <span class="t-kw">if</span> (a == <span class="t-str">&quot;-tEnd&quot;</span>) tEndArg = std::stod(std::string(argv[++i]));
+        <span class="t-kw">else</span> <span class="t-kw">if</span> (a == <span class="t-str">&quot;-tSave&quot;</span>) tSaveArg = std::stod(std::string(argv[++i]));
+    }
+    std::cout &lt;&lt; <span class="t-str">&quot;0d solver :: is_coupled : &quot;</span> &lt;&lt; is_coupled &lt;&lt; std::endl;
+    std::cout &lt;&lt; <span class="t-str">&quot;0d solver :: input arguments&quot;</span> &lt;&lt; std::endl;
+    <span class="t-kw">for</span> (<span class="t-kw">int</span> i = <span class="t-num">0</span>; i &lt; argc; ++i) {
+        std::cout &lt;&lt; <span class="t-str">&quot;arg[&quot;</span> &lt;&lt; i &lt;&lt; <span class="t-str">&quot;]: &quot;</span> &lt;&lt; std::quoted(argv[i]) &lt;&lt; &#x27;\n&#x27;;
+    }
+    std::cout &lt;&lt; <span class="t-str">&quot;0d solver :: ODE solver : &quot;</span> &lt;&lt; ODEsolver &lt;&lt; std::endl;
+
+    Model0d *model0d = <span class="t-kw">new</span> Model0d();
+
+    std::string initStatesFile = <span class="t-str">&quot;None&quot;</span>;
+    std::string initVarsFile = <span class="t-str">&quot;None&quot;</span>;
+    <span class="t-kw">if</span> (initStatePath != <span class="t-str">&quot;None&quot;</span>) {
+        initStatesFile = initStatePath + <span class="t-str">&quot;sol0D_states.txt&quot;</span>;
+        initVarsFile = initStatePath + <span class="t-str">&quot;sol0D_variables.txt&quot;</span>;
+    }
+    <span class="t-com">/* … 76 more lines */</span></code></pre></figure><figure class="pane pane-gen"><figcaption><span class="tag tag-gen">Generated C++</span><code class="fname">main0d.cpp</code></figcaption><pre><code><span class="t-kw">int</span> main(<span class="t-kw">int</span> argc, <span class="t-kw">char</span> *argv[])
+{
+    <span class="t-kw">bool</span> is_coupled = <span class="t-kw">false</span>;
+    std::string ODEsolver = <span class="t-str">&quot;CVODE&quot;</span>;
+    <span class="t-kw">double</span> T0 = <span class="t-num">1.0</span>;
+    <span class="t-kw">int</span> nCC = <span class="t-num">5</span>;
+    std::string modelName = <span class="t-str">&quot;3C_ANS_3Dheart&quot;</span>;
+    std::string pipePath = <span class="t-str">&quot;NA&quot;</span>;
+    std::string initStatePath = <span class="t-str">&quot;None&quot;</span>;
+    std::string resFold = <span class="t-str">&quot;/home/farg967/Documents/git_projects/CVS_ANS_collab/outputs/cpp/3C_ANS_3Dheart/&quot;</span>;
+    <span class="t-kw">double</span> tEndArg = -<span class="t-num">1.0</span>;
+    <span class="t-kw">double</span> tSaveArg = -<span class="t-num">1.0</span>;
+
+    <span class="t-kw">for</span> (<span class="t-kw">int</span> i = <span class="t-num">1</span>; i &lt; argc; i++) {
+        std::string a(argv[i]);
+        <span class="t-kw">if</span> (i + <span class="t-num">1</span> &gt;= argc) {
+            <span class="t-kw">break</span>;
+        }
+        <span class="t-kw">if</span> (a == <span class="t-str">&quot;-coupled&quot;</span>) is_coupled = (std::string(argv[++i]) == <span class="t-str">&quot;1&quot;</span>);
+        <span class="t-kw">else</span> <span class="t-kw">if</span> (a == <span class="t-str">&quot;-ODEsolver&quot;</span>) ODEsolver = std::string(argv[++i]);
+        <span class="t-kw">else</span> <span class="t-kw">if</span> (a == <span class="t-str">&quot;-T0&quot;</span>) T0 = std::stod(std::string(argv[++i]));
+        <span class="t-kw">else</span> <span class="t-kw">if</span> (a == <span class="t-str">&quot;-nCC&quot;</span>) nCC = std::stoi(std::string(argv[++i]));
+        <span class="t-kw">else</span> <span class="t-kw">if</span> (a == <span class="t-str">&quot;-networkName&quot;</span>) modelName = std::string(argv[++i]);
+        <span class="t-kw">else</span> <span class="t-kw">if</span> (a == <span class="t-str">&quot;-pipePath&quot;</span>) pipePath = std::string(argv[++i]);
+        <span class="t-kw">else</span> <span class="t-kw">if</span> (a == <span class="t-str">&quot;-initStatePath&quot;</span>) initStatePath = std::string(argv[++i]);
+        <span class="t-kw">else</span> <span class="t-kw">if</span> (a == <span class="t-str">&quot;-outDir&quot;</span>) resFold = std::string(argv[++i]);
+        <span class="t-kw">else</span> <span class="t-kw">if</span> (a == <span class="t-str">&quot;-tEnd&quot;</span>) tEndArg = std::stod(std::string(argv[++i]));
+        <span class="t-kw">else</span> <span class="t-kw">if</span> (a == <span class="t-str">&quot;-tSave&quot;</span>) tSaveArg = std::stod(std::string(argv[++i]));
+    }
+    std::cout &lt;&lt; <span class="t-str">&quot;0d solver :: is_coupled : &quot;</span> &lt;&lt; is_coupled &lt;&lt; std::endl;
+    std::cout &lt;&lt; <span class="t-str">&quot;0d solver :: input arguments&quot;</span> &lt;&lt; std::endl;
+    <span class="t-kw">for</span> (<span class="t-kw">int</span> i = <span class="t-num">0</span>; i &lt; argc; ++i) {
+        std::cout &lt;&lt; <span class="t-str">&quot;arg[&quot;</span> &lt;&lt; i &lt;&lt; <span class="t-str">&quot;]: &quot;</span> &lt;&lt; std::quoted(argv[i]) &lt;&lt; &#x27;\n&#x27;;
+    }
+    std::cout &lt;&lt; <span class="t-str">&quot;0d solver :: ODE solver : &quot;</span> &lt;&lt; ODEsolver &lt;&lt; std::endl;
+
+    Model0d *model0d = <span class="t-kw">new</span> Model0d();
+
+    std::string initStatesFile = <span class="t-str">&quot;None&quot;</span>;
+    std::string initVarsFile = <span class="t-str">&quot;None&quot;</span>;
+    <span class="t-kw">if</span> (initStatePath != <span class="t-str">&quot;None&quot;</span>) {
+        initStatesFile = initStatePath + <span class="t-str">&quot;sol0D_states.txt&quot;</span>;
+        initVarsFile = initStatePath + <span class="t-str">&quot;sol0D_variables.txt&quot;</span>;
+    }
+    <span class="t-com">/* … 76 more lines */</span></code></pre></figure></div><ul class="notes"><li>The driver program. On its own it runs <code>./main0d [-tEnd t] [-tSave t] [-outDir d] [-ODEsolver S]</code>. Under the 1D-0D coupler it gets <code>-coupled 1 -T0 -nCC -pipePath …</code>, the command line the coupler has always used.</li><li><code>{{ output_dir }}</code>, <code>{{ default_T0 }}</code> and the end and save times become the defaults. The end time is <code>pre_time + sim_time</code> from the user inputs.</li><li>The time loop steps at <code>dt_solver</code> (<code>{{ dt_solver }}</code>) and writes a row every <code>dt</code> (<code>{{ dt_sample }}</code>).</li></ul></section><section class="example" id="ex-cmake"><h3>CMakeLists.txt.j2: the build</h3><div class="pair"><figure class="pane pane-tpl"><figcaption><span class="tag tag-tpl">Template</span><code class="fname">CMakeLists.txt.j2</code></figcaption><pre><code># Generated by libcuflynx (<span class="t-kw">template</span> generator) from <span class="t-jj">{{ file_prefix }}</span>.
+#
+#   cmake -S . -B build [-DSUNDIALS_DIR=/path/to/sundials/install]
+#   cmake --build build
+cmake_minimum_required(VERSION <span class="t-num">3.16</span>)
+project(<span class="t-jj">{{ cmake_project }}</span> LANGUAGES C CXX)
+
+set(CMAKE_CXX_STANDARD <span class="t-num">17</span>)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+<span class="t-kw">if</span>(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release)
+endif()
+
+# The libCellML-generated model equations, compiled as C.
+add_library(model0d_core STATIC <span class="t-jj">{{ core_source }}</span>)
+set_target_properties(model0d_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(model0d_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
+# The C++ wrapper (solver, output, external-variable handling).
+add_library(model0d STATIC model0d.cpp)
+set_target_properties(model0d PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(model0d PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(model0d PUBLIC model0d_core m)
+<span class="t-jj">{% <b>if</b> solver == &#x27;CVODE&#x27; %}</span>
+
+# SUNDIALS (CVODE). Versions <span class="t-num">5</span>, <span class="t-num">6</span> and <span class="t-num">7</span> are supported. Point SUNDIALS_DIR at an install prefix
+# (or its lib/cmake/sundials) <span class="t-kw">if</span> it is not found automatically.
+<span class="t-kw">if</span>(SUNDIALS_DIR)
+    list(APPEND CMAKE_PREFIX_PATH <span class="t-str">&quot;${SUNDIALS_DIR}&quot;</span>)
+endif()
+find_package(SUNDIALS CONFIG QUIET)
+<span class="t-kw">if</span>(SUNDIALS_FOUND AND TARGET SUNDIALS::cvode)
+    target_link_libraries(model0d PUBLIC SUNDIALS::cvode SUNDIALS::nvecserial
+                          SUNDIALS::sunmatrixdense SUNDIALS::sunlinsoldense)
+    <span class="t-kw">if</span>(TARGET SUNDIALS::core)
+        target_link_libraries(model0d PUBLIC SUNDIALS::core)
+    endif()
+    message(STATUS <span class="t-str">&quot;Using SUNDIALS ${SUNDIALS_VERSION} from CMake config&quot;</span>)
+<span class="t-kw">else</span>()
+    find_path(SUNDIALS_INCLUDE_DIR cvode/cvode.h HINTS ${SUNDIALS_DIR} PATH_SUFFIXES include REQUIRED)
+    target_include_directories(model0d PUBLIC ${SUNDIALS_INCLUDE_DIR})
+    foreach(lib sundials_cvode sundials_nvecserial sundials_sunmatrixdense sundials_sunlinsoldense)
+        find_library(${lib}_LIB ${lib} HINTS ${SUNDIALS_DIR} PATH_SUFFIXES lib lib64 REQUIRED)
+        target_link_libraries(model0d PUBLIC ${${lib}_LIB})
+    endforeach()
+    find_library(sundials_core_LIB sundials_core HINTS ${SUNDIALS_DIR} PATH_SUFFIXES lib lib64)
+    <span class="t-kw">if</span>(sundials_core_LIB)
+        target_link_libraries(model0d PUBLIC ${sundials_core_LIB})
+    endif()
+    message(STATUS <span class="t-str">&quot;Using SUNDIALS from ${SUNDIALS_INCLUDE_DIR}&quot;</span>)
+endif()
+<span class="t-jj">{% <b>endif</b> %}</span>
+
+add_executable(main0d main0d.cpp)
+target_link_libraries(main0d PRIVATE model0d)
+<span class="t-jj">{% <b>for</b> extra <b>in</b> extra_targets %}</span>
+
+<span class="t-jj">{{ extra }}</span>
+<span class="t-jj">{% <b>endfor</b> %}</span></code></pre></figure><figure class="pane pane-gen"><figcaption><span class="tag tag-gen">Generated C++</span><code class="fname">CMakeLists.txt</code></figcaption><pre><code># Generated by libcuflynx (<span class="t-kw">template</span> generator) from 3C_ANS_3Dheart.
+#
+#   cmake -S . -B build [-DSUNDIALS_DIR=/path/to/sundials/install]
+#   cmake --build build
+cmake_minimum_required(VERSION <span class="t-num">3.16</span>)
+project(3C_ANS_3Dheart LANGUAGES C CXX)
+
+set(CMAKE_CXX_STANDARD <span class="t-num">17</span>)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+<span class="t-kw">if</span>(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release)
+endif()
+
+# The libCellML-generated model equations, compiled as C.
+add_library(model0d_core STATIC model0d_core.c)
+set_target_properties(model0d_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(model0d_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+
+# The C++ wrapper (solver, output, external-variable handling).
+add_library(model0d STATIC model0d.cpp)
+set_target_properties(model0d PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_include_directories(model0d PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(model0d PUBLIC model0d_core m)
+
+# SUNDIALS (CVODE). Versions <span class="t-num">5</span>, <span class="t-num">6</span> and <span class="t-num">7</span> are supported. Point SUNDIALS_DIR at an install prefix
+# (or its lib/cmake/sundials) <span class="t-kw">if</span> it is not found automatically.
+<span class="t-kw">if</span>(SUNDIALS_DIR)
+    list(APPEND CMAKE_PREFIX_PATH <span class="t-str">&quot;${SUNDIALS_DIR}&quot;</span>)
+endif()
+find_package(SUNDIALS CONFIG QUIET)
+<span class="t-kw">if</span>(SUNDIALS_FOUND AND TARGET SUNDIALS::cvode)
+    target_link_libraries(model0d PUBLIC SUNDIALS::cvode SUNDIALS::nvecserial
+                          SUNDIALS::sunmatrixdense SUNDIALS::sunlinsoldense)
+    <span class="t-kw">if</span>(TARGET SUNDIALS::core)
+        target_link_libraries(model0d PUBLIC SUNDIALS::core)
+    endif()
+    message(STATUS <span class="t-str">&quot;Using SUNDIALS ${SUNDIALS_VERSION} from CMake config&quot;</span>)
+<span class="t-kw">else</span>()
+    find_path(SUNDIALS_INCLUDE_DIR cvode/cvode.h HINTS ${SUNDIALS_DIR} PATH_SUFFIXES include REQUIRED)
+    target_include_directories(model0d PUBLIC ${SUNDIALS_INCLUDE_DIR})
+    foreach(lib sundials_cvode sundials_nvecserial sundials_sunmatrixdense sundials_sunlinsoldense)
+        find_library(${lib}_LIB ${lib} HINTS ${SUNDIALS_DIR} PATH_SUFFIXES lib lib64 REQUIRED)
+        target_link_libraries(model0d PUBLIC ${${lib}_LIB})
+    endforeach()
+    find_library(sundials_core_LIB sundials_core HINTS ${SUNDIALS_DIR} PATH_SUFFIXES lib lib64)
+    <span class="t-kw">if</span>(sundials_core_LIB)
+        target_link_libraries(model0d PUBLIC ${sundials_core_LIB})
+    endif()
+    message(STATUS <span class="t-str">&quot;Using SUNDIALS from ${SUNDIALS_INCLUDE_DIR}&quot;</span>)
+endif()
+
+add_executable(main0d main0d.cpp)
+target_link_libraries(main0d PRIVATE model0d)
+
+add_library(circulation_api STATIC circulation_api.cpp)
+target_link_libraries(circulation_api PUBLIC model0d)
+add_executable(api_test_driver api_test_driver.cpp)
+target_link_libraries(api_test_driver PRIVATE circulation_api)</code></pre></figure></div><ul class="notes"><li>Three targets: <code>model0d_core</code> (libCellML's C), <code>model0d</code> (the C++ wrapper plus SUNDIALS) and <code>main0d</code>.</li><li>SUNDIALS is found as a CMake package first. Give <code>-DSUNDIALS_DIR=&lt;install prefix&gt;</code> if CMake doesn't find it (on this machine, <code>~/software/sundials-7.1.1</code>).</li><li><code>{% for extra in extra_targets %}</code> adds the api library (<code>circulation_api</code>) and the <code>api_test_driver</code> when a provider api is connected, as for the 3D heart.</li></ul></section><section class="example" id="ex-apih"><h3>api_provider.h.j2: the lifex Circulation class</h3><div class="pair three"><figure class="pane pane-cfg"><figcaption><span class="tag tag-cfg">Module config</span><code class="fname">lifex_heart_3D_config.json  (heart_3D_lifex, excerpt)</code></figcaption><pre><code>{
+  <span class="t-key">&quot;vessel_type&quot;</span>: <span class="t-str">&quot;heart_3D_lifex&quot;</span>,
+  <span class="t-key">&quot;module_format&quot;</span>: <span class="t-str">&quot;external_api&quot;</span>,
+  <span class="t-key">&quot;entrance_ports&quot;</span>: [
+    {
+      <span class="t-key">&quot;port_type&quot;</span>: <span class="t-str">&quot;chamber_volume_port&quot;</span>,
+      <span class="t-key">&quot;variables&quot;</span>: [
+        <span class="t-str">&quot;V_ra&quot;</span>,
+        <span class="t-str">&quot;V_rv&quot;</span>,
+        <span class="t-str">&quot;V_la&quot;</span>,
+        <span class="t-str">&quot;V_lv&quot;</span>
+      ]
+    },
+    {
+      <span class="t-key">&quot;port_type&quot;</span>: <span class="t-str">&quot;heart_state_port&quot;</span>,
+      <span class="t-key">&quot;variables&quot;</span>: [
+        <span class="t-str">&quot;p_ra&quot;</span>,
+        <span class="t-str">&quot;p_rv&quot;</span>,
+        <span class="t-str">&quot;p_la&quot;</span>,
+        <span class="t-str">&quot;p_lv&quot;</span>,
+        <span class="t-str">&quot;\u2026&quot;</span>
+      ]
+    }
+  ],
+  <span class="t-key">&quot;exit_ports&quot;</span>: [
+    {
+      <span class="t-key">&quot;port_type&quot;</span>: <span class="t-str">&quot;chamber_pressure_port&quot;</span>,
+      <span class="t-key">&quot;variables&quot;</span>: [
+        <span class="t-str">&quot;p_ra_3D&quot;</span>,
+        <span class="t-str">&quot;p_rv_3D&quot;</span>,
+        <span class="t-str">&quot;p_la_3D&quot;</span>,
+        <span class="t-str">&quot;p_lv_3D&quot;</span>
+      ]
+    }
+  ],
+  <span class="t-key">&quot;api&quot;</span>: {
+    <span class="t-key">&quot;role&quot;</span>: <span class="t-str">&quot;provider&quot;</span>,
+    <span class="t-key">&quot;transport&quot;</span>: <span class="t-str">&quot;cpp_class&quot;</span>,
+    <span class="t-key">&quot;namespace&quot;</span>: <span class="t-str">&quot;lifex&quot;</span>,
+    <span class="t-key">&quot;class_name&quot;</span>: <span class="t-str">&quot;Circulation&quot;</span>,
+    <span class="t-key">&quot;functions&quot;</span>: [
+      {
+        <span class="t-key">&quot;name&quot;</span>: <span class="t-str">&quot;set_pressure_left_ventricle&quot;</span>,
+        <span class="t-key">&quot;kind&quot;</span>: <span class="t-str">&quot;set&quot;</span>,
+        <span class="t-key">&quot;variable&quot;</span>: <span class="t-str">&quot;p_lv_3D&quot;</span>,
+        <span class="t-key">&quot;api_units&quot;</span>: <span class="t-str">&quot;mmHg&quot;</span>,
+        <span class="t-key">&quot;arg&quot;</span>: <span class="t-str">&quot;pressure_LV&quot;</span>
+      },
+      {
+        <span class="t-key">&quot;name&quot;</span>: <span class="t-str">&quot;get_volume_left_ventricle&quot;</span>,
+        <span class="t-key">&quot;kind&quot;</span>: <span class="t-str">&quot;get&quot;</span>,
+        <span class="t-key">&quot;variable&quot;</span>: <span class="t-str">&quot;V_lv&quot;</span>,
+        <span class="t-key">&quot;api_units&quot;</span>: <span class="t-str">&quot;ml&quot;</span>
+      },
+      {
+        <span class="t-key">&quot;name&quot;</span>: <span class="t-str">&quot;get_heartbeat_period&quot;</span>,
+        <span class="t-key">&quot;kind&quot;</span>: <span class="t-str">&quot;get&quot;</span>,
+        <span class="t-key">&quot;variable&quot;</span>: <span class="t-str">&quot;T_heart&quot;</span>,
+        <span class="t-key">&quot;api_units&quot;</span>: <span class="t-str">&quot;second&quot;</span>
+      },
+      {
+        <span class="t-key">&quot;name&quot;</span>: <span class="t-str">&quot;solve_time_step&quot;</span>,
+        <span class="t-key">&quot;kind&quot;</span>: <span class="t-str">&quot;step&quot;</span>
+      },
+      {
+        <span class="t-key">&quot;name&quot;</span>: <span class="t-str">&quot;get_volume_chamber_extrapolated&quot;</span>,
+        <span class="t-key">&quot;kind&quot;</span>: <span class="t-str">&quot;extrapolate&quot;</span>
+      }
+    ]
+  }
+}</code></pre></figure><figure class="pane pane-tpl"><figcaption><span class="tag tag-tpl">Template</span><code class="fname">api_provider.h.j2</code></figcaption><pre><code><span class="t-jj">{% <b>for</b> f <b>in</b> api_functions %}</span>
+<span class="t-jj">{% <b>if</b> f.get(&#x27;note&#x27;) %}</span>
+    <span class="t-com">// {{ f.note }}</span>
+<span class="t-jj">{% <b>endif</b> %}</span>
+<span class="t-jj">{% <b>if</b> f.kind == &#x27;<b>set</b>&#x27; %}</span>
+    <span class="t-com">// sets {{ f.ref.label }} [{{ f.get(&#x27;api_units&#x27;, &#x27;model units&#x27;) }}]</span>
+    <span class="t-kw">void</span> <span class="t-jj">{{ f.name }}</span>(<span class="t-kw">const</span> <span class="t-kw">double</span> &amp;<span class="t-jj">{{ f.get(&#x27;arg&#x27;, &#x27;value&#x27;) }}</span>);
+<span class="t-jj">{% <b>elif</b> f.kind == &#x27;set_state&#x27; %}</span>
+    <span class="t-com">// overwrites the state {{ f.ref.label }} [{{ f.get(&#x27;api_units&#x27;, &#x27;model units&#x27;) }}]</span>
+    <span class="t-kw">void</span> <span class="t-jj">{{ f.name }}</span>(<span class="t-kw">const</span> <span class="t-kw">double</span> &amp;<span class="t-jj">{{ f.get(&#x27;arg&#x27;, &#x27;value&#x27;) }}</span>);
+<span class="t-jj">{% <b>elif</b> f.kind == &#x27;get&#x27; %}</span>
+    <span class="t-com">// {{ f.ref.label }} [{{ f.get(&#x27;api_units&#x27;, &#x27;model units&#x27;) }}]</span>
+    <span class="t-kw">double</span> <span class="t-jj">{{ f.name }}</span>() <span class="t-kw">const</span>;
+<span class="t-jj">{% <b>elif</b> f.kind == &#x27;set_indexed&#x27; %}</span>
+    <span class="t-kw">void</span> <span class="t-jj">{{ f.name }}</span>(<span class="t-kw">const</span> <span class="t-jj">{{ chamber_type }}</span> &amp;chamber, <span class="t-kw">const</span> <span class="t-kw">double</span> &amp;value);
+<span class="t-jj">{% <b>elif</b> f.kind == &#x27;get_indexed&#x27; %}</span>
+    <span class="t-kw">double</span> <span class="t-jj">{{ f.name }}</span>(<span class="t-kw">const</span> <span class="t-jj">{{ chamber_type }}</span> &amp;chamber) <span class="t-kw">const</span>;
+<span class="t-jj">{% <b>elif</b> f.kind == &#x27;time&#x27; %}</span>
+    <span class="t-kw">void</span> <span class="t-jj">{{ f.name }}</span>(<span class="t-kw">const</span> <span class="t-kw">double</span> &amp;time_, <span class="t-kw">const</span> <span class="t-kw">unsigned</span> <span class="t-kw">int</span> &amp;timestep_number_);
+<span class="t-jj">{% <b>elif</b> f.kind == &#x27;time_discretization&#x27; %}</span>
+    <span class="t-kw">void</span> <span class="t-jj">{{ f.name }}</span>(<span class="t-kw">const</span> <span class="t-kw">double</span> &amp;time_init, <span class="t-kw">const</span> <span class="t-kw">double</span> &amp;time_final, <span class="t-kw">const</span> <span class="t-kw">double</span> &amp;time_step,
+                      <span class="t-kw">const</span> <span class="t-kw">double</span> &amp;time_, <span class="t-kw">const</span> <span class="t-kw">unsigned</span> <span class="t-kw">int</span> &amp;timestep_number_);
+<span class="t-jj">{% <b>elif</b> f.kind == &#x27;step&#x27; %}</span>
+    <span class="t-com">// advance the circulation to the time given by set_time (or by one time step)</span>
+    <span class="t-kw">void</span> <span class="t-jj">{{ f.name }}</span>();
+<span class="t-jj">{% <b>elif</b> f.kind == &#x27;noop&#x27; %}</span>
+    <span class="t-kw">template</span> &lt;<span class="t-kw">typename</span>... Args&gt;
+    <span class="t-kw">void</span> <span class="t-jj">{{ f.name }}</span>(<span class="t-kw">const</span> Args &amp;...)
+    {
+    }
+<span class="t-jj">{% <b>elif</b> f.kind == &#x27;extrapolate&#x27; %}</span>
+    <span class="t-com">// Volume of `chamber` after a trial step of `dt` with the given chamber pressures, and its</span>
+    <span class="t-com">// derivatives with respect to those pressures (finite differences). The model state is</span>
+    <span class="t-com">// restored afterwards. Units: mmHg/ml, or Pa/m^3 when si_units is true.</span>
+    std::pair&lt;<span class="t-kw">double</span>, std::map&lt;<span class="t-jj">{{ cp_type }}</span>, <span class="t-kw">double</span>&gt;&gt;
+    <span class="t-jj">{{ f.name }}</span>(<span class="t-kw">const</span> <span class="t-jj">{{ chamber_type }}</span> &amp;chamber,
+                 <span class="t-kw">const</span> std::map&lt;<span class="t-jj">{{ cp_type }}</span>, <span class="t-kw">double</span>&gt; &amp;pressures,
+                 <span class="t-kw">const</span> std::set&lt;<span class="t-jj">{{ chamber_type }}</span>&gt; &amp;volume_constrained_chambers,
+                 <span class="t-kw">const</span> <span class="t-kw">double</span> &amp;dt,
+                 <span class="t-kw">const</span> <span class="t-kw">bool</span> &amp;si_units,
+                 <span class="t-kw">const</span> <span class="t-kw">bool</span> &amp;extradiagonal_terms) <span class="t-kw">const</span>;
+<span class="t-jj">{% <b>endif</b> %}</span>
+
+<span class="t-jj">{% <b>endfor</b> %}</span></code></pre></figure><figure class="pane pane-gen"><figcaption><span class="tag tag-gen">Generated C++</span><code class="fname">circulation_api.h</code></figcaption><pre><code><span class="t-kw">class</span> Circulation
+{
+<span class="t-kw">public</span>:
+    <span class="t-kw">enum</span> <span class="t-kw">class</span> ParentModel
+    {
+        Standalone,
+        Mechanics,
+        FluidDynamics
+    };
+
+    <span class="t-kw">explicit</span> Circulation(<span class="t-kw">const</span> std::string &amp;subsection = <span class="t-str">&quot;&quot;</span>,
+                              <span class="t-kw">const</span> ParentModel &amp;parent_model = ParentModel::Mechanics,
+                              <span class="t-kw">const</span> std::string &amp;ode_solver = <span class="t-str">&quot;CVODE&quot;</span>);
+
+    <span class="t-com">// sets heart/u_lv_ext [mmHg]</span>
+    <span class="t-kw">void</span> set_pressure_left_ventricle(<span class="t-kw">const</span> <span class="t-kw">double</span> &amp;pressure_LV);
+
+    <span class="t-com">// sets heart/u_rv_ext [mmHg]</span>
+    <span class="t-kw">void</span> set_pressure_right_ventricle(<span class="t-kw">const</span> <span class="t-kw">double</span> &amp;pressure_RV);
+
+    <span class="t-com">// sets heart/u_la_ext [mmHg]</span>
+    <span class="t-kw">void</span> set_pressure_left_atrium(<span class="t-kw">const</span> <span class="t-kw">double</span> &amp;pressure_LA);
+
+    <span class="t-com">// sets heart/u_ra_ext [mmHg]</span>
+    <span class="t-kw">void</span> set_pressure_right_atrium(<span class="t-kw">const</span> <span class="t-kw">double</span> &amp;pressure_RA);
+
+    <span class="t-kw">void</span> set_pressure_chamber(<span class="t-kw">const</span> iheart::Chamber &amp;chamber, <span class="t-kw">const</span> <span class="t-kw">double</span> &amp;value);
+
+    <span class="t-com">// heart/u_lv [mmHg]</span>
+    <span class="t-kw">double</span> get_pressure_left_ventricle() <span class="t-kw">const</span>;
+
+    <span class="t-com">// heart/u_rv [mmHg]</span>
+    <span class="t-kw">double</span> get_pressure_right_ventricle() <span class="t-kw">const</span>;
+
+    <span class="t-com">// heart/u_la [mmHg]</span>
+    <span class="t-kw">double</span> get_pressure_left_atrium() <span class="t-kw">const</span>;
+
+    <span class="t-com">// heart/u_ra [mmHg]</span>
+    <span class="t-kw">double</span> get_pressure_right_atrium() <span class="t-kw">const</span>;
+
+    <span class="t-com">// aortic_root/u [mmHg]</span>
+    <span class="t-kw">double</span> get_pressure_downstream_AV() <span class="t-kw">const</span>;
+
+    <span class="t-com">// par/u [mmHg]</span>
+    <span class="t-kw">double</span> get_pressure_downstream_PV() <span class="t-kw">const</span>;
+
+    <span class="t-com">// heart/q_lv [ml]</span>
+    <span class="t-kw">double</span> get_volume_left_ventricle() <span class="t-kw">const</span>;
+    <span class="t-com">/* … 102 more lines */</span>
+    <span class="t-kw">double</span> time_step_ = <span class="t-num">0.0001</span>;
+    <span class="t-kw">double</span> time_init_ = <span class="t-num">0.0</span>;
+    <span class="t-kw">double</span> time_final_ = <span class="t-num">0.0</span>;
+    <span class="t-kw">bool</span> output_ = <span class="t-kw">false</span>;
+    <span class="t-com">// A value set from outside is a discontinuity for the ODE solver (CVODE&#x27;s BDF history is no</span>
+    <span class="t-com">// longer valid), so the solver is restarted before the next advance.</span>
+    <span class="t-kw">mutable</span> <span class="t-kw">bool</span> inputsChanged_ = <span class="t-kw">false</span>;
+};</code></pre></figure></div><ul class="notes"><li>The class another program calls. Here the api block says <code>namespace: lifex</code>, <code>class_name: Circulation</code>, so the result is a drop-in <code>lifex::Circulation</code>.</li><li>One declaration per entry in the api block's <code>functions</code>. The <code>kind</code> picks the signature: <code>set</code> → <code>void f(const double &amp;)</code>, <code>get</code> → <code>double f() const</code>, <code>set_indexed</code> → takes an <code>iheart::Chamber</code>, <code>extrapolate</code> → lifex's <code>get_volume_chamber_extrapolated</code> signature.</li><li>The comment above each declaration is the CellML variable the function reaches through the ports, and its api units.</li></ul></section><section class="example" id="ex-apicpp"><h3>api_provider.cpp.j2: what each method does</h3><div class="pair"><figure class="pane pane-tpl"><figcaption><span class="tag tag-tpl">Template</span><code class="fname">api_provider.cpp.j2</code></figcaption><pre><code><span class="t-jj">{% <b>if</b> f.kind == &#x27;<b>set</b>&#x27; %}</span>
+<span class="t-kw">void</span> <span class="t-jj">{{ class_name }}</span>::<span class="t-jj">{{ f.name }}</span>(<span class="t-kw">const</span> <span class="t-kw">double</span> &amp;<span class="t-jj">{{ f.get(&#x27;arg&#x27;, &#x27;value&#x27;) }}</span>)
+{
+    model_.setExternal(<span class="t-jj">{{ f.ref.name }}</span>, <span class="t-jj">{{ f.get(&#x27;arg&#x27;, &#x27;value&#x27;) }}</span> * <span class="t-jj">{{ f.factor }}</span>); <span class="t-com">// {{ f.ref.label }}</span>
+    inputsChanged_ = <span class="t-kw">true</span>;
+    refresh();
+}
+<span class="t-jj">{% <b>elif</b> f.kind == &#x27;set_state&#x27; %}</span>
+<span class="t-kw">void</span> <span class="t-jj">{{ class_name }}</span>::<span class="t-jj">{{ f.name }}</span>(<span class="t-kw">const</span> <span class="t-kw">double</span> &amp;<span class="t-jj">{{ f.get(&#x27;arg&#x27;, &#x27;value&#x27;) }}</span>)
+{
+    model_.states[<span class="t-jj">{{ f.ref.name }}</span>] = <span class="t-jj">{{ f.get(&#x27;arg&#x27;, &#x27;value&#x27;) }}</span> * <span class="t-jj">{{ f.factor }}</span>; <span class="t-com">// {{ f.ref.label }}</span>
+    model_.reinitialiseSolver();
+    refresh();
+}
+<span class="t-jj">{% <b>elif</b> f.kind == &#x27;get&#x27; %}</span>
+<span class="t-kw">double</span> <span class="t-jj">{{ class_name }}</span>::<span class="t-jj">{{ f.name }}</span>() <span class="t-kw">const</span>
+{
+    <span class="t-kw">return</span> <span class="t-jj">{{ f.ref.cpp(&#x27;model_.states&#x27;, &#x27;model_.variables&#x27;) }}</span> / <span class="t-jj">{{ f.factor }}</span>; <span class="t-com">// {{ f.ref.label }}</span>
+}
+<span class="t-jj">{% <b>elif</b> f.kind == &#x27;step&#x27; %}</span>
+<span class="t-kw">void</span> <span class="t-jj">{{ class_name }}</span>::<span class="t-jj">{{ f.name }}</span>()
+{
+    <span class="t-com">// lifex calls set_time(t_{n+1}) and then solve_time_step(); without a set_time, take one step.</span>
+    <span class="t-kw">double</span> dt = time_ - model_.voi;
+    <span class="t-kw">if</span> (dt &lt;= <span class="t-num">1e-12</span>) {
+        dt = time_step_;
+        time_ = model_.voi + dt;
+    }
+    advance(dt);
+    <span class="t-kw">if</span> (output_) {
+        model_.writeOutput(model_.voi);
+    }
+}</code></pre></figure><figure class="pane pane-gen"><figcaption><span class="tag tag-gen">Generated C++</span><code class="fname">circulation_api.cpp</code></figcaption><pre><code><span class="t-kw">void</span> Circulation::set_pressure_left_ventricle(<span class="t-kw">const</span> <span class="t-kw">double</span> &amp;pressure_LV)
+{
+    model_.setExternal(<span class="t-nm">V_parameters_u_lv_ext_heart</span>, pressure_LV * <span class="t-num">133.322387415</span>); <span class="t-com">// heart/u_lv_ext</span>
+    inputsChanged_ = <span class="t-kw">true</span>;
+    refresh();
+}
+
+<span class="t-kw">double</span> Circulation::get_volume_left_ventricle() <span class="t-kw">const</span>
+{
+    <span class="t-kw">return</span> model_.states[<span class="t-nm">S_heart_module_q_lv</span>] / <span class="t-num">1e-06</span>; <span class="t-com">// heart/q_lv</span>
+}
+
+<span class="t-kw">double</span> Circulation::get_heartbeat_period() <span class="t-kw">const</span>
+{
+    <span class="t-kw">return</span> model_.variables[<span class="t-nm">V_heart_module_t_wcont</span>] / <span class="t-num">1.0</span>; <span class="t-com">// heart/T_wCont</span>
+}
+
+<span class="t-kw">void</span> Circulation::solve_time_step()
+{
+    <span class="t-com">// lifex calls set_time(t_{n+1}) and then solve_time_step(); without a set_time, take one step.</span>
+    <span class="t-kw">double</span> dt = time_ - model_.voi;
+    <span class="t-kw">if</span> (dt &lt;= <span class="t-num">1e-12</span>) {
+        dt = time_step_;
+        time_ = model_.voi + dt;
+    }
+    advance(dt);
+    <span class="t-kw">if</span> (output_) {
+        model_.writeOutput(model_.voi);
+    }
+}</code></pre></figure></div><ul class="notes"><li><b>set:</b> the value arrives in api units (mmHg), is multiplied by <code>{{ f.factor }}</code> (133.32 Pa per mmHg) and written to the external variable's cache slot. The chamber pressure <code>p_lv_3D</code> on the 3D module's port resolves through <code>chamber_pressure_port</code> to the CellML heart's <code>u_lv_ext</code>.</li><li><b>get:</b> reads a state or variable and divides by the factor (1e-6 m³ per ml for volumes).</li><li><b>step:</b> advances the model to the time given by <code>set_time</code>. Setting a pressure marks the inputs as changed, and the next advance restarts CVODE, because a jump in an input is a discontinuity for its multistep method.</li><li><code>{{ f.ref.cpp('model_.states', 'model_.variables') }}</code> writes <code>model_.states[S_…]</code> or <code>model_.variables[V_…]</code>, depending on whether the variable is a state.</li></ul></section>
+
+<section id="build" class="example">
+<h2 style="margin-top:0">Build and run</h2>
+<ol class="steps">
+<li><span>Generate: <code>python scripts/model_generation.py --variant 3Dheart --model-type cpp</code> (CVS_ANS_collab).</span></li>
+<li><span>Configure: <code>cmake -S generated_models/3C_ANS_3Dheart -B generated_models/3C_ANS_3Dheart/build -DSUNDIALS_DIR=$HOME/software/sundials-7.1.1</code>.</span></li>
+<li><span>Build: <code>cmake --build generated_models/3C_ANS_3Dheart/build</code>. This gives <code>main0d</code>, <code>libmodel0d.a</code>, <code>libcirculation_api.a</code> and <code>api_test_driver</code>.</span></li>
+<li><span>Run standalone: <code>build/main0d -tEnd 10 -outDir out/</code>. The chamber pressures stay at their placeholder values.</span></li>
+<li><span>Test the api: <code>python scripts/check_3Dheart_api.py</code> replays the 0D heart's pressures through <code>lifex::Circulation</code> and compares the volumes.</span></li>
+<li><span>Use from lifex: build against <code>libcirculation_api</code> with <code>-DCVS_WITH_LIFEX</code>, so <code>iheart::Chamber</code> comes from lifex.</span></li>
+</ol>
+</section>
+</main>
+</div>
+
+</body>
+</html>

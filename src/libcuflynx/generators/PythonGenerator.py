@@ -7,6 +7,8 @@ and emits a ready-to-run Python module.
 import ast
 import os
 import re
+
+from libcuflynx.generators.naming import make_identifier, build_symbols
 from typing import Optional
 
 from libcuflynx.solver_wrappers.python_solver_helper import SimulationHelper as PythonSimulationHelper
@@ -185,32 +187,13 @@ class PythonGenerator:
 
     @staticmethod
     def _make_identifier(text: str) -> str:
-        identifier = re.sub(r"[^0-9A-Za-z]+", "_", text).strip("_")
-        identifier = re.sub(r"_+", "_", identifier)
-        if not identifier:
-            identifier = "unnamed"
-        if identifier[0].isdigit():
-            identifier = f"N_{identifier}"
-        return identifier
+        return make_identifier(text)
 
     def _build_qualified_symbols(self, info_list):
-        qualified_names = []
-        attr_names = {}
-        counts = {}
-
-        for idx, info in enumerate(info_list):
-            qualified_name = f"{info['component']}.{info['name']}"
-            qualified_names.append(qualified_name)
-
-            base_name = self._make_identifier(
-                f"{info['component']}_{info['name']}"
-            ).lower()
-            count = counts.get(base_name, 0)
-            attr_name = base_name if count == 0 else f"{base_name}_{count + 1}"
-            counts[base_name] = count + 1
-            attr_names[idx] = attr_name
-
-        return qualified_names, attr_names
+        # names shared with the C++ generator (libcuflynx/generators/naming.py)
+        qualified_names = [f"{info['component']}.{info['name']}" for info in info_list]
+        symbols = build_symbols((info['component'], info['name']) for info in info_list)
+        return qualified_names, dict(enumerate(symbols))
 
     @staticmethod
     def _extract_generated_metadata(code: str):

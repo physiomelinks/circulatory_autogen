@@ -611,6 +611,7 @@
         </math>
     </component>
     <component name="pulmonary_GE_5_lobe_type">
+        <variable name="saturation_cap" public_interface="in" units="dimensionless"/>
         <variable name="t" public_interface="in" units="second"/>
         <!-- Constitutive parameters-->
         <variable name="q_0" public_interface="in" units="m3"/>
@@ -1795,6 +1796,7 @@
         </math>
     </component>
     <component name="capillary_GE">
+        <variable name="saturation_cap" public_interface="in" units="dimensionless"/>
         <variable name="t" public_interface="in" units="second"/>
         <variable initial_value="C_O2_c_init" name="C_O2_c" public_interface="out" units="millimolar"/>
         <variable name="C_O2_c_init" public_interface="in" units="millimolar"/>

@@ -35,6 +35,7 @@ Runs are launched via shell scripts in `user_run_files/`. Each one invokes a **c
 | `run_emulator_training.sh` (arg: `num_processors`, uses `mpiexec`) | `cuflynx-train-emulator` → `train_emulator_run_script` | Train a surrogate of the obs features |
 | `plot_param_id.sh` | `cuflynx-plot` → `plot_param_id_script` | Plot calibration results |
 | _(no run script)_ | `cuflynx-generate-pipeline` → `generate_pipeline_script` | Write a self-contained bundle — model, resources, a `user_inputs_*.yaml` with every path relative, and a `run_pipeline.py` — that reruns the study elsewhere. Not driven by a `user_run_files/*.sh`: it takes `--user-inputs` and `--output-dir` directly. |
+| _(no run script)_ | `cuflynx-couple` → `libcuflynx.coupling.runner` | Run a generated C++ model (`model_type: cpp`) coupled to its external Python models (api `transport: python`, e.g. FEniCS): builds the model's shared library, then steps both. Takes the generated model folder (its `external_models.json`); `--check` lists the exchange. |
 
 One command has no launcher and is not a pipeline stage: **`cuflynx-migrate-obs-data`** (`libcuflynx.scripts.migrate_obs_data`) rewrites obs_data files into the #466 vocabulary (`variable` → `data_item_name` + `operands`, `name_for_plotting` → `trace_name_for_plotting` + `item_name_for_plotting`) and makes `data_item_name` unique. It takes paths, not the yaml, and is the documented upgrade path in `CHANGELOG.md`.
 
@@ -103,7 +104,7 @@ Each setting is a descriptor `{name, type, default, required, description, choic
 | Dir | Contents / purpose |
 |---|---|
 | `solver_wrappers/` | `SimulationHelper` backends + `get_simulation_helper()` factory (`__init__.py`). Backends: `myokit_helper.py`, `opencor_helper.py`, `python_solver_helper.py`, `casadi_python_solver_helper.py`, `emulator_solver_helper.py` (answers from a trained emulator; `emulates_features = True` tells the two reduction sites to skip the obs `operation`), `external_simulation_helper.py` (wraps a user-supplied solver class for `model_type: external_python`; the wrapper owns the timeline, the user owns the stepping). `name_resolver.py` maps variable names. |
-| `generators/` | `CVSCellMLGenerator.py`, `PythonGenerator.py` (libCellML Analyser, strict ODE), `CVSCppGenerator.py`, `Python1DModelFilesGenerator.py`. |
+| `generators/` | `CVSCellMLGenerator.py`, `PythonGenerator.py` (libCellML Analyser, strict ODE), `cpp/` (model_type cpp: `generator.py` renders libCellML's C output plus Jinja2 `templates/`; external variables come from `delay_info` and module-config `api` blocks, `api.py`/`externals.py`), `CVSCppGenerator.py` (compatibility re-export), `Python1DGenerator.py` + `Python1DModelFilesGenerator.py` (1D solver inputs). |
 | `param_id/` | `paramID.py` (calibration), `optimisers.py`, `differentiable.py` + `math_backend.py` + `operation_funcs.py` (AD), `plot_outputs.py`. |
 | `protocol_runners/` | `protocol_runner.py`, `protocol_executor.py` — the multi-experiment/sub-experiment simulation loop. |
 | `sensitivity_analysis/` | `sensitivityAnalysis.py`, `sobolSA.py`. |

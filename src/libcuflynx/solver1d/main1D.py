@@ -151,6 +151,7 @@ def run1DBFmod(AICstate=[], QICstate=[]):
     # [units conversion factors]
     convLen = 1.0e-2 # length units conversion from [cm] to [m]
     convQ = 1e-06 # flow units conversion from [cm3/s] to [m3/s]
+    convV = 1e-06 # volume units conversion from [cm3] to [m3]
     convP = 1e-01 # pressure units conversion from [dyne/cm2] to [J/m3]
     convR = convP/convQ # 1e+05 # resistance units conversion from [dyne s/cm5] to [J s/m6]
     convC = convQ/convP # 1.0e-05 # compliance units conversion from [cm5/dyne] to [m6/J] 
@@ -960,7 +961,7 @@ def run1DBFmod(AICstate=[], QICstate=[]):
             VsumTot += v[i].V
 
         one_data_vol = np.zeros(DATA_LENGTH, dtype=np.float64)
-        one_data_vol[0] = VsumTot
+        one_data_vol[0] = VsumTot*convV # the 0D model works in SI units
         write_pipe_vol.write(one_data_vol.tobytes())
         write_pipe_vol.flush()
 
@@ -1370,7 +1371,7 @@ def run1DBFmod(AICstate=[], QICstate=[]):
                         VsumTot += v[i].V
 
                     one_data_vol = np.zeros(DATA_LENGTH, dtype=np.float64)
-                    one_data_vol[0] = VsumTot
+                    one_data_vol[0] = VsumTot*convV # the 0D model works in SI units
                     write_pipe_vol.write(one_data_vol.tobytes())
                     write_pipe_vol.flush()
 

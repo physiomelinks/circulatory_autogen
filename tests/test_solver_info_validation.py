@@ -278,7 +278,7 @@ _EXTRA_CONSUMERS = {
 # helper module would be -- this is a different consumer, not an exemption.
 _GENERATED_CODE_CONSUMERS = {
     solver: ['libcuflynx/scripts/script_generate_with_new_architecture.py',
-             'libcuflynx/generators/CVSCppGenerator.py']
+             'libcuflynx/generators/cpp/generator.py']
     for solver in ('CVODE', 'RK4', 'PETSC')
 }
 

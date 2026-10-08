@@ -168,7 +168,7 @@ A module config entry can also use PhLynx's key names. The generator detects the
 
 - **vessel_type**: This will be the "vessel_type" entry in the module_array file
 - **BC_type**: This will be the "BC_type" entry in the module_array file
-- **module_format**: Currently only cellml is supported but in the future, cpp modules and others will be allowed.
+- **module_format**: `cellml` for a CellML module. `external_api` marks an entry that is not CellML but describes, in an `api` block, how the generated model talks to another model (see below).
 - **module_file**: The file within `[CA_dir]/src/libcuflynx/generators/resources/`, `[CA_dir]/module_config_user/`, or your `external_modules_dir` that contains the CellML module this config entry links to.
 - **module_type**: The name of the module/computational_environment within the module cellml file.
 - **entrance_ports**: Specification of the port types that this module can take if it is connected as an "out_vessel" to another module. If a port_type matches to the port_type of a exit_port in a module coupled as an input, then the port_types variables, e.g. [v_in, u] get mapped to the variables in the coupled modules exit port e.g. [v, u_out].
@@ -206,6 +206,23 @@ A module config entry can also use PhLynx's key names. The generator detects the
         All constants are required to be entered in the `[resources_dir]/[file_prefix]_parameters.csv` file with the following naming convention: **[variable_name]_[vessel_name]**.
 
         All global_constants are required to be entered in the `[resources_dir]/[file_prefix]_parameters.csv` file as just **[variable_name]**.
+
+
+### Coupling to other models: the `api` block
+
+A module config entry with `"module_format": "external_api"` and an `api` block is a module
+that is not CellML: another model the generated C++ (`model_type: cpp`) runs with. It is a row
+of the module array, connected to CellML modules through its ports like any module, and values
+it sets become libCellML external variables of the generated code. Three kinds exist:
+
+- a **Python model**, such as a FEniCS PDE (`role: provider`, `transport: python`), run with
+  `cuflynx-couple`;
+- the **FV 1D solver** (`FV1D_vessel` / `FV1D_solver`: `named_pipe` consumers and a `process`),
+  run through the coupler;
+- a **C++ program** driving a generated class (`role: provider`, `transport: cpp_class`).
+
+[Coupling to external models](external-coupling/index.md) describes all three. The blocks are
+validated when the module configs load (`libcuflynx/generators/cpp/api.py`).
 
 ### Supermodules
 

@@ -2426,7 +2426,11 @@ class YamlFileParser(object):
             dt_solver = solver_info.get('max_step')
         if dt_solver is not None:
             solver_info['dt_solver'] = dt_solver
-        if solver_info.get('solver', '').startswith('CVODE') and dt_solver is not None:
+        # The Python CVODE backends bound the step with MaximumStep. The generated C++ (cpp
+        # CVODE) reads dt_solver instead and rejects MaximumStep as unsupported, so copying it
+        # across made every cpp CVODE generation fail validation.
+        if (solver_info.get('solver', '').startswith('CVODE') and dt_solver is not None
+                and inp_data_dict.get('model_type') != 'cpp'):
             solver_info['MaximumStep'] = dt_solver
 
         inp_data_dict['solver_info'] = solver_info
@@ -2577,15 +2581,19 @@ class YamlFileParser(object):
         if 'external_modules_dir' not in inp_data_dict.keys() or inp_data_dict['external_modules_dir'] is None:
             inp_data_dict['external_modules_dir'] = None
         else:
-            # check if it is an absolute path
-            if not os.path.isabs(inp_data_dict['external_modules_dir']):
-                inp_data_dict['external_modules_dir'] = os.path.join(user_files_dir, inp_data_dict['external_modules_dir'])
+            # one directory or a list of them; relative paths are relative to the user files dir
+            resolved = []
+            for ext_dir in as_dir_list(inp_data_dict['external_modules_dir']):
+                if not os.path.isabs(ext_dir):
+                    ext_dir = os.path.join(user_files_dir, ext_dir)
+                if not os.path.exists(ext_dir):
+                    print(f'external_modules_dir={ext_dir} does not exist')
+                    exit()
+                resolved.append(ext_dir)
+            if isinstance(inp_data_dict['external_modules_dir'], (list, tuple)):
+                inp_data_dict['external_modules_dir'] = resolved
             else:
-                inp_data_dict['external_modules_dir'] = inp_data_dict['external_modules_dir']
-            # check if external_modules_dir is a valid directory
-            if not os.path.exists(inp_data_dict['external_modules_dir']):
-                print(f'external_modules_dir={inp_data_dict["external_modules_dir"]} does not exist')
-                exit()
+                inp_data_dict['external_modules_dir'] = resolved[0]
 
         # module_library_dirs: one path or a list, each searched recursively for modules;
         # relative paths are relative to the user_inputs.yaml directory, like external_modules_dir.
@@ -3175,8 +3183,16 @@ class JSONFileParser(object):
     def module_config_to_dataframe(self, json_path):
         """The component entries of one module config JSON file, in either the libcuflynx or
         the PhLynx schema, as a dataframe with libcuflynx column names (see
-        utilities/config_schemas.py). Supermodule entries are left out."""
-        return pd.DataFrame(load_module_config(json_path))
+        utilities/config_schemas.py). Supermodule entries are left out.
+
+        An entry's ``api`` block gets ``_config_dir``, the folder of this file, so files the api
+        names (e.g. an external model's Python file) are found relative to their config."""
+        entries = load_module_config(json_path)
+        config_dir = os.path.dirname(os.path.abspath(json_path))
+        for entry in entries:
+            if isinstance(entry, dict) and isinstance(entry.get('api'), dict):
+                entry['api'].setdefault('_config_dir', config_dir)
+        return pd.DataFrame(entries)
 
     def json_files_to_dataframe(self, json_files):
         """All module config entries from ``json_files``, in order, as one dataframe."""
@@ -3197,11 +3213,9 @@ class JSONFileParser(object):
         user_module_dfs = [self.module_config_to_dataframe(os.path.join(json_user_dir, file)) \
                 for file in (os.listdir(json_user_dir) if json_user_dir and os.path.isdir(json_user_dir) else []) \
                 if self._is_json_module_file(file)]
-        if external_modules_dir is not None:
-            external_module_dfs = [self.module_config_to_dataframe(os.path.join(external_modules_dir, file)) \
-                    for file in os.listdir(external_modules_dir) if self._is_json_module_file(file)]
-        else:
-            external_module_dfs = []
+        external_module_dfs = [self.module_config_to_dataframe(os.path.join(ext_dir, file))
+                               for ext_dir in as_dir_list(external_modules_dir)
+                               for file in sorted(os.listdir(ext_dir)) if self._is_json_module_file(file)]
             
         df = None
         for json_df in dfs:

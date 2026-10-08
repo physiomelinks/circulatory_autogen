@@ -6,8 +6,8 @@ Modules come from up to four places, in this order:
 
 1. the shipped (built-in) module library, which is package data;
 2. the checkout's ``module_config_user/`` directory;
-3. ``external_modules_dir``: one flat directory of ``*modules.cellml``, ``*.json`` and
-   ``*units.cellml`` files;
+3. ``external_modules_dir``: one flat directory (or a list of them) of ``*modules.cellml``,
+   ``*.json`` and ``*units.cellml`` files;
 4. ``module_library_dirs``: one or more directories searched recursively, laid out one module
    per subdirectory, e.g. ``modules/<name>/<name>_modules.cellml``,
    ``<name>_modules_config.json`` and ``<name>_units.cellml``. Only JSON files named
@@ -107,10 +107,10 @@ class ModuleSources(object):
             self.config_files += _list_flat(user_dir, _is_any_json)
             self.units_files += _list_flat(user_dir, _is_units_cellml)
 
-        if external_dir is not None:
-            self.cellml_files += _list_flat(external_dir, _is_module_cellml)
-            self.config_files += _list_flat(external_dir, _is_any_json)
-            self.units_files += _list_flat(external_dir, _is_units_cellml)
+        for ext_dir in as_dir_list(external_dir):
+            self.cellml_files += _list_flat(ext_dir, _is_module_cellml)
+            self.config_files += _list_flat(ext_dir, _is_any_json)
+            self.units_files += _list_flat(ext_dir, _is_units_cellml)
 
         for library_dir in library_dirs:
             if not os.path.isdir(library_dir):

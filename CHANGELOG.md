@@ -20,6 +20,99 @@ the old name still works with a `FutureWarning`. The 0D/1D split writes `[file_p
 `libcuflynx/schemas/module_array.schema.json`. The record keys (`vessel_type`, `BC_type`,
 `inp_vessels`, `out_vessels`) and the `vessels_csv_abs_path` config key are unchanged.
 
+### Changed! — `model_type: cpp` is generated from libCellML's C output and Jinja2 templates
+
+The C++ generator is rewritten (`libcuflynx/generators/cpp/`). The model equations are
+libCellML's C code, written unmodified (`model0d_core.c/.h`); the `Model0d` class, the solvers,
+`main0d` and a `CMakeLists.txt` are rendered from templates. Build with CMake (add
+`-DSUNDIALS_DIR=<prefix>` if SUNDIALS isn't found; versions 5-7 work). Solvers are CVODE and the
+fixed-step RK4/Heun/midpoint/explEul; **PETSC is no longer supported** and is refused with an
+error. Generated models no longer get the `solver1d/Make_files` copied next to them (they built
+the old C++), and the coupler builds with CMake. FV_1d coupled output is identical to before.
+
+### Added — `api` blocks: couplings to other models described in module configs
+
+A module config entry can carry an `api` block. `role: consumer` describes calls the generated
+C++ makes (the FV 1D named-pipe protocol is now described this way in
+`coupling_modules_config.json`); `role: provider` generates a C++ class another program calls,
+e.g. a drop-in `lifex::Circulation`. A provider is its own module-array row
+(`module_format: external_api`) coupled to CellML modules through ports; values it sets become
+libCellML external variables. `external_modules_dir` also accepts a list of directories.
+
+### Added — the FV 1D solver as a `process` module; `coupler_config.json` is generated
+
+A new `api` role, `process`, describes a program run alongside the generated model: what to
+launch (`program`), who launches it (`coordinator: coupler`) and the pipes it talks over
+(`channels`, `message_length`). `FV1D_solver` in `coupling_modules_config.json` is the FV 1D
+solver. The `FV1D_vessel` and `FV1D_volume_sum` entries name it (`"process": "FV1D_solver"`)
+instead of each repeating the pipe names. From it, C++ generation of a model coupled to 1D now
+writes `coupler_config.json`, which until now had to be written by hand:
+- `T0` is the global parameter `T`;
+- `nCC` is the number of whole periods covering `pre_time + sim_time`;
+- the pipe folder is the user input `coupler_pipe_dir` (default `cuflynx_pipes/<model>/` in the
+  system temp folder, which `TMPDIR` moves);
+- `python_path` is the generating Python, and the 1D solver is the installed one.
+
+`convert_0d_to_1d` adds an `FV1D_solver` row to the hybrid module array, and reads
+`<model>_module_array.csv` when there is no `<model>_0d_module_array.csv`. The coupler creates
+the pipe folder, and its default pipe folder and Python are no longer paths on one machine.
+`main0d`'s coupled defaults (`T0`, `nCC`) match the configuration. New example model
+`aortic_bif_0d` (all 0D); a test runs it against the same model with its vessels in 1D.
+
+### Added — coupling generated C++ to external Python models (e.g. FEniCS)
+
+A module config entry with `"module_format": "external_api"` and
+`"api": {"role": "provider", "transport": "python", "python": {"file": ..., "class": ...}}` is an
+external Python model: a row of the module array, connected to CellML modules through its ports.
+- **Generation.** Generating the model as C++ also writes a C interface (`model0d_capi.cpp`,
+  built as the shared library `model0d_capi`) and `external_models.json`.
+- **Running.** `cuflynx-couple <model folder>` (or `libcuflynx.coupling.run_coupled`) builds the
+  library, then steps the C++ model and the class together.
+- **Directions.** No function list is needed: each port variable connected to a boundary
+  condition of the 0D model is set by the class, and each connected to a computed variable is
+  read by it. A port connected to several modules exchanges arrays.
+- **Coupling scheme.** Explicit staggered coupling (first order), or `subiterations` for a
+  trapezoidal fixed point (second order).
+- **Also:** MPI (the 0D model runs on every rank), output on the model's `dt`, and timings.
+
+New tutorial section "Coupling to External Models": an overview, coupling your own Python
+model, FEniCS tissue O2 with capillaries, FEniCS NE around a sympathetic varicosity, 1D
+finite-volume coupling, and troubleshooting. The FEniCS modules and system models live in
+circulatory-autogen-modules.
+
+### Fixed — C++ generation
+
+- `Model0d::solveOneStep` returns a status (and `lastError()`) instead of calling `exit(1)`, and
+  `main0d` now exits non-zero when the solver fails (it returned 0).
+- CVODE restarts from the last good state after an error-test or convergence failure, so
+  models with time switches (a stimulus pulse train) run.
+- State initial values given by computed variables (e.g. a gate starting at its steady state)
+  are evaluated with Myokit; libCellML 0.6 accepts only constants there, so these models
+  could not be generated as C++ before.
+- CellML generation connects variables of equivalent units under different names (e.g.
+  `mol_per_m3` and `millimolar`) directly. It used to create an unconnected "converter".
+- `GE_capillary` listed `d_1` ... `s_2` twice in its config, and `capillary_GE` and
+  `pulmonary_GE_5_lobe_type` used `saturation_cap` without declaring it.
+
+### Added — readable generated C/C++
+
+Generated C code names every state and variable index: `rates[S_heart_module_q_lv] =
+(variables[V_parameters_r_pvn] ...)` instead of `rates[3] = (variables[12] ...)`.
+`model0d_core.h` declares the `StateIndex`/`VariableIndex` enums, with each name's component,
+variable, units and type, and the wrapper, pipe hooks and api classes use the same names. The
+names are the generated Python's attribute names (shared `generators/naming.py`). Results are
+unchanged.
+
+### Fixed — cpp generation and 1D coupling
+
+- `model_type: cpp` with CVODE always failed solver-settings validation.
+- Models with more than one delay variable did not compile; delays now use a time-stamped
+  history that works with variable CVODE steps.
+- 1D volume sum: the 1D solver opened its volume pipe in an order that deadlocked with the
+  coupler, and sent the volume in cm³ instead of m³.
+- 1D input generation wrote an unknown artery/vein type for vessels not named `A_*`/`V_*`;
+  an `art_ven_type_<vessel>` parameter now sets it.
+
 ### Added — held-out data in `prediction_items`, scored after calibration
 
 A `prediction_item` may carry data that calibration never fits: `value` (with `data_type`,

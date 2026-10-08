@@ -60,6 +60,8 @@ dependencies = [
     # up to cp313, while 0.7.0's coverage regressed to cp311. Relaxing this pin would therefore
     # narrow the supported interpreters as well as changing the generated-code API (#459).
     "libcellml>=0.6.3,<0.7.0",
+    # Renders the C++ for model_type: cpp (libcuflynx/generators/cpp/templates).
+    "jinja2>=3.0",
     "myokit>=1.39.1",
     "matplotlib>=3.3.0",
     "seaborn>=0.11.0",
@@ -117,6 +119,8 @@ cuflynx-plot = "libcuflynx.scripts.plot_param_id_script:main"
 # parameter bounds, the config, and a run_pipeline.py that drives every stage its do_*
 # flags enable. CUFLynx exports the same bundle from the GUI and calls this to write it.
 cuflynx-generate-pipeline = "libcuflynx.scripts.generate_pipeline_script:main"
+# Runs a generated C++ model coupled to external Python models (api transport "python").
+cuflynx-couple = "libcuflynx.coupling.runner:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -138,11 +142,10 @@ exclude = ["obsolete*", "libcuflynx.obsolete*"]
 # src/libcuflynx/param_id/aadc_native/bdf_loop.cpp (source for an optional AADC extension
 # the user compiles themselves; only ever named in a log message).
 [tool.setuptools.package-data]
-# The CellML module library and the built-in module configs (~3 MB, ~0.5 MB compressed),
-# plus the C++ templates CVSCppGenerator reads for model_type: cpp.
-"libcuflynx.generators" = ["resources/*.cellml", "resources/*.json", "*.cpp"]
-# Build/run scripts copied next to each generated model so it is self-contained (#157).
-"libcuflynx.solver1d" = ["Make_files/*"]
+# The CellML module library and the built-in module configs (~3 MB, ~0.5 MB compressed).
+"libcuflynx.generators" = ["resources/*.cellml", "resources/*.json"]
+# The Jinja2 templates the C++ generator (model_type: cpp) renders.
+"libcuflynx.generators.cpp" = ["templates/*.j2"]
 # Example input for example_format_obs_data_json_file(), which is itself shipped.
 "libcuflynx.scripts" = ["example_data/*.csv"]
 # JSON Schemas of the module array and module config files (for editors, PhLynx and tests;

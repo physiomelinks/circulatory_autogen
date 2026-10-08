@@ -12,6 +12,10 @@
       "tests/test_autogeneration.py",
       "tests/test_module_instances.py",
       "tests/test_json_module_arrays.py"
+    ],
+    "cpp": [
+      "tests/test_cpp_template_generator.py",
+      "tests/test_external_coupling.py"
     ]
   },
   "param-id": {
