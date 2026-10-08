@@ -40,6 +40,7 @@ EXPECTED_ENTRY_POINTS = {
     "cuflynx-plot",
     "cuflynx-generate-pipeline",
     "cuflynx-migrate-obs-data",
+    "cuflynx-migrate-parameter-names",
 }
 
 
@@ -352,6 +353,7 @@ def test_launcher_reports_a_missing_install_before_launching_mpi():
 #: before the PR adding it lands.
 NON_STAGE_COMMANDS = {
     "cuflynx-migrate-obs-data",
+    "cuflynx-migrate-parameter-names",
 }
 
 

@@ -99,7 +99,7 @@ This file has the structure as shown below.
 
 | Column Name    | Description                                       |
 |----------------|---------------------------------------------------|
-| variable_name  | Parameter name                                    |
+| variable_name  | Parameter name: `[vessel_name]/[variable_name]`, or `[variable_name]` for a global (see below) |
 | units          | Unit in the defined units in CellML's unit file   |
 | value          | Value of parameter                                |
 | data_reference | Reference of the parameter value. Typically in `[last_name][date][first_word_of_paper]` format for papers.  |
@@ -114,6 +114,20 @@ The following is an example of a parameter file.
     ![Error in parameter file](images/error-parameters.png)
 
     At this time, you should open the `[resources_dir]/[file_prefix]_parameters_unfinished.csv`, which will include the parameters which were not inserted in the file with *EMPTY_MUST_BE_FILLED* value and data_reference entries. You should add the parameter value and reference, then copy the line to the original [file_prefix].csv file. Or you can add the value in the _unfinished.csv file then remove the last part of the file's name (“_unfinished”) (overwriting the original) and rerun the code with the correctly set parameters.
+
+#### Naming parameters
+
+Write a module's parameter as `[vessel_name]/[variable_name]`, with a `/` between the module and the variable, as obs_data operands and params_for_id targets already do:
+
+| Written | Meaning | Name in the generated model |
+|---|---|---|
+| `aortic_root/C` | `C` of the vessel `aortic_root` | `C_aortic_root` |
+| `heart/lv/E` | `E` of the submodule `lv` of the supermodule instance `heart` | `E_heart_lv` |
+| `R` or `global/R` | the global constant `R` | `R` |
+
+The generated model still uses `[variable_name]_[vessel_name]`, because a CellML name cannot contain `/`. That older form is still read in a parameters file: `C_aortic_root` sets the same parameter as `aortic_root/C`, and setting it both ways is an error. The `/` form is never ambiguous and it is checked: a row naming a vessel that is not in the module array, a variable its module does not have, or a global constant through a vessel, is reported as unused instead of being ignored silently.
+
+`cuflynx-migrate-parameter-names --module-array [resources_dir]/[file_prefix]_module_array.csv` rewrites a parameters file's names into the `/` form (add `--module-library-dir` for modules from a library). It rewrites a name only when exactly one reading of it is a variable of that vessel's module, and reports the rest.
 
 ### Modules and definition of a new module
 
@@ -203,7 +217,7 @@ A module config entry can also use PhLynx's key names. The generator detects the
         corresponding port is not connected, the boundary_condition will be set to a constant, and required to be set in the `[resources_dir]/[file_prefix]_parameters.csv` file 
 
     !!! Note
-        All constants are required to be entered in the `[resources_dir]/[file_prefix]_parameters.csv` file with the following naming convention: **[variable_name]_[vessel_name]**.
+        All constants are required to be entered in the `[resources_dir]/[file_prefix]_parameters.csv` file, named **[vessel_name]/[variable_name]** (or, as before, **[variable_name]_[vessel_name]**; see [Naming parameters](#naming-parameters)).
 
         All global_constants are required to be entered in the `[resources_dir]/[file_prefix]_parameters.csv` file as just **[variable_name]**.
 
@@ -224,7 +238,7 @@ A supermodule is a named group of modules that a module array uses like one modu
 - **module_type / module_subtype** (or **vessel_type / BC_type**): the type that instances name in a module array.
 - **module_format**: `"supermodule"`. A supermodule has no `component_file`/`component_type`; it is never a component module, and its type may not also be a component module's type.
 - **submodules**: module-array records, in either key style. Their names are local to the supermodule, and their input and output lists name other submodules only.
-- **default_instance** (optional): the [instance](#module-versions-and-instances) used when a module-array record names none. A supermodule instance's parameters file has the usual `variable_name,units,value,data_reference` columns; a row named `[variable]_[submodule]` is a parameter of that submodule, and any other row is a global.
+- **default_instance** (optional): the [instance](#module-versions-and-instances) used when a module-array record names none. A supermodule instance's parameters file has the usual `variable_name,units,value,data_reference` columns. A row named `[submodule]/[variable]` is a parameter of that submodule, `[submodule]/[its submodule]/[variable]` one of a nested submodule, and any other row is a global.
 - **default_parameters** (optional, kept for backwards compatibility): a parameters CSV, relative to the config file's directory, with the same rows as an instance's parameters file. New supermodules should use an instance instead.
 - A submodule record may name its own `"instance"`.
 - **description** (optional).
@@ -245,7 +259,7 @@ Before anything else reads the module array, each instance is replaced, at its p
 - the hosts in `per_submodule_inputs["ra"]` come first in `heart_ra`'s inputs, and the hosts in `per_submodule_outputs["ra"]` last in its outputs;
 - in a host, the instance name is replaced, in place, by every `heart_[submodule]` that the instance links it to.
 
-So parameters and outputs are named after the expanded modules, e.g. `E_heart_lv`, `heart_lv/q`. The supermodule's instance parameters and default parameters are renamed in the same way (`[variable]_[submodule]` becomes `[variable]_[instance]_[submodule]`; the suffix is matched against the submodule names, longest first). They are used for every name that `[file_prefix]_parameters.csv` does not set, so values in your parameters file always win. A global used by several instances is added once. The supermodule's values win over those of its submodules' own instances.
+So parameters and outputs are named after the expanded modules, e.g. `E_heart_lv`, `heart_lv/q`. The supermodule's instance parameters and default parameters are renamed in the same way: `lv/E` becomes `E_heart_lv` for the instance `heart`. A path that is not a submodule is an error. Rows in the older `[variable]_[submodule]` form are still read, but such a name has to be split by guessing (at the longest submodule name it ends with), so `g_leak_Na` reads as `g` of a submodule `leak_Na` when one exists. They are warned about; `cuflynx-migrate-parameter-names --supermodule-config [config] --module-library-dir [library]` rewrites them, checking each against the submodules' variables. They are used for every name that `[file_prefix]_parameters.csv` does not set, so values in your parameters file always win. A global used by several instances is added once. The supermodule's values win over those of its submodules' own instances.
 
 A submodule can itself be a supermodule instance, with its own `per_submodule_inputs`/`per_submodule_outputs` naming its siblings; it is expanded in turn. A supermodule that contains itself, directly or through others, is an error.
 

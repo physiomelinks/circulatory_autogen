@@ -5,6 +5,18 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Added — parameter names written `<vessel>/<variable>`
+
+- **The `/` form.** A parameters file may name a module's parameter `aortic_root/C` (or `heart/lv/E`, for a supermodule's expanded submodule; `global/R` or `R` for a global). A supermodule's instance and `default_parameters` rows name a submodule's parameter `lv/E`, or `soma/i_M/rho_M` when nested.
+  - Generated models keep their names (`C_aortic_root`), because CellML names cannot contain `/`.
+- **Why.** The `_` form cannot be split reliably when names contain `_`, which supermodule rows had to do: `g_leak_Na` is `g` of `leak_Na` or `g_leak` of `Na`.
+- **The old form still works.** In host parameters files it is read as before; setting a parameter both ways is an error. In supermodule rows it is read with a `FutureWarning`.
+- **Checks on the new form.**
+  - A host `/` row naming a vessel or variable the model does not have is reported as unused.
+  - A supermodule row naming a path that is not a submodule is an error.
+  - A module instance's rows must stay bare variable names.
+- **`cuflynx-migrate-parameter-names`** rewrites old names, in a host file (`--module-array`) or in a supermodule's files (`--supermodule-config`). It rewrites a name only when exactly one reading of it names a real variable of that module, and reports the others.
+
 ### Changed — vessel arrays are now called module arrays
 
 The file is `[file_prefix]_module_array.json` or `.csv`, and every model in `resources/` has been

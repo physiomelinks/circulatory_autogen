@@ -111,6 +111,9 @@ cuflynx-identifiability = "libcuflynx.scripts.identifiability_run_script:main"
 # mechanical: data_item_name has to be made unique, and the tool derives a name from
 # whatever actually distinguishes the colliding items.
 cuflynx-migrate-obs-data = "libcuflynx.scripts.migrate_obs_data:main"
+# Rewrites parameter names written {variable}_{vessel} as <vessel>/<variable>, checking each
+# against the modules rather than guessing where the variable ends.
+cuflynx-migrate-parameter-names = "libcuflynx.scripts.migrate_parameter_names:main"
 cuflynx-train-emulator = "libcuflynx.scripts.train_emulator_run_script:main"
 cuflynx-plot = "libcuflynx.scripts.plot_param_id_script:main"
 # Writes a folder that reproduces a configuration: the model, the observations, the

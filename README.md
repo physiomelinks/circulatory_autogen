@@ -110,6 +110,7 @@ Each pipeline stage also has a console command, all configured from
 | `cuflynx-plot` | plot calibration results |
 | `cuflynx-generate-pipeline` | write a self-contained, movable bundle that reruns the study |
 | `cuflynx-migrate-obs-data` | rewrite obs_data files into the current vocabulary (upgrade helper, takes paths) |
+| `cuflynx-migrate-parameter-names` | rewrite parameter names `{variable}_{vessel}` as `<vessel>/<variable>`, in a parameters file or a supermodule's instance files (upgrade helper) |
 
 ### `CUFLYNX_USER_DIR` — where an installed libcuflynx reads and writes
 
