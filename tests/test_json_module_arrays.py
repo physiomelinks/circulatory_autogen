@@ -632,6 +632,7 @@ def _generate_resource(work_dir, prefix, fmt):
 
 @pytest.mark.integration
 @pytest.mark.slow
+@pytest.mark.usefixtures('skip_generated_model_checks')
 @pytest.mark.parametrize('prefix', RESOURCE_PREFIXES)
 def test_every_resources_module_array_generates_identically_as_json(tmp_path, prefix):
     if not os.path.exists(os.path.join(RESOURCES_DIR, f'{prefix}_parameters.csv')):
