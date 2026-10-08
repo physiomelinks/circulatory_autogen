@@ -1,0 +1,1606 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://finbarargus.github.io/circulatory_autogen/design-model/">
+      
+      
+        <link rel="prev" href="../model-generation-simulation/">
+      
+      
+        <link rel="next" href="../external-python-solvers/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Designing a model - Circulatory Autogen</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#designing-a-model" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Circulatory Autogen" class="md-header__button md-logo" aria-label="Circulatory Autogen" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Circulatory Autogen
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Designing a model
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Circulatory Autogen" class="md-nav__button md-logo" aria-label="Circulatory Autogen" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Circulatory Autogen
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Welcome to Circulatory Autogen
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../model-generation-simulation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Generation and Simulation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Designing a model
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Designing a model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#creating-a-new-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Creating a new model
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Creating a new model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#creating-module_array-and-parameter-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Creating module_array and parameter files
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Creating module_array and parameter files">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#json-module-arrays" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JSON module arrays
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#modules-and-definition-of-a-new-module" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Modules and definition of a new module
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-of-creating-a-new-module" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example of creating a new module
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#supermodules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supermodules
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#module-versions-and-instances" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Module versions and instances
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#converting-an-existing-cellml-model-to-run-in-circulatory-autogen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Converting an existing CellML model to run in Circulatory Autogen
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#expected-outcome" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Expected outcome
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../external-python-solvers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    External Python Solvers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../model-formats/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Importing other model formats
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../parameter-identification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parameter Identification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sensitivity-analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sensitivity Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../identifiability-analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Identifiability Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../emulators/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Emulators (Surrogate Models)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../example-3compartment-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Example: 3Compartment Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../running-on-hpc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Running on the HPC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../other-features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Other Useful Features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_14" >
+        
+          
+          <label class="md-nav__link" for="__nav_14" id="__nav_14_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_14_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_14">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/generation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model generation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/solver-wrappers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Simulation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/param-id/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parameter identification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sensitivity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sensitivity analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/identifiability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Identifiability analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/emulators/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Emulators
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/protocols/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protocols
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/utilities/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Observation data &amp; utilities
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/internals/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parsers &amp; generators (internal)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#prerequisites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prerequisites
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#creating-a-new-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Creating a new model
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Creating a new model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#creating-module_array-and-parameter-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Creating module_array and parameter files
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Creating module_array and parameter files">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#json-module-arrays" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        JSON module arrays
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#modules-and-definition-of-a-new-module" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Modules and definition of a new module
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#example-of-creating-a-new-module" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example of creating a new module
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#supermodules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Supermodules
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#module-versions-and-instances" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Module versions and instances
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#converting-an-existing-cellml-model-to-run-in-circulatory-autogen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Converting an existing CellML model to run in Circulatory Autogen
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#expected-outcome" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Expected outcome
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="designing-a-model">Designing a model</h1>
+<p>This section describes how to design a model to be run in Circulatory Autogen. There are two sub sections included in this guide as follows.</p>
+<ol>
+<li>
+<p><a href="#creating-a-new-model">Creating a new model</a></p>
+</li>
+<li>
+<p><a href="#converting-an-existing-cellml-model-to-run-in-circulatory-autogen">Converting an existing CellML model to run in Circulatory Autogen</a></p>
+</li>
+</ol>
+<h2 id="prerequisites">Prerequisites</h2>
+<ul>
+<li>Familiarity with your CellML module structure.</li>
+<li>A place to store user modules and configs (<code>module_config_user/</code> or an external modules directory).</li>
+</ul>
+<h2 id="creating-a-new-model">Creating a new model</h2>
+<p>This software is designed so the user can easily make their own modules and couple them with existing modules. The steps are as follows.</p>
+<ol>
+<li>
+<p>Either choose an existing <code>[module_category]_modules.cellml</code> file to write your module, or if it is a new category of module, create a <code>[module_category]_modules.cellml</code> file in <code>[project_dir]/module_config_user/</code>.</p>
+</li>
+<li>
+<p>Put your cellml model into the <code>[module_category]_modules.cellml</code> file.</p>
+</li>
+<li>
+<p>Create a corresponding module configuration entry in a JSON file within <code>[project_dir]/module_config_user/</code>. The code loads all <code>*.json</code> files in <code>module_config_user</code> (and in <code>src/libcuflynx/generators/resources</code>), so you can name it with your category (e.g. <code>[module_category]_modules_config.json</code>). These module declarations detail the variables that can be accessed, the constants that must be defined, and the available ports of the module.</p>
+</li>
+<li>
+<p>When possible, use units defined in <code>[project_dir]/src/libcuflynx/generators/resources/units.cellml</code>. If you need to define new units, define them in <code>[project_dir]/module_config_user/user_units.cellml</code> (or in an external modules directory; see below).</p>
+</li>
+<li>
+<p>Include your new module into a <code>[CA_user_dir]/[file_prefix]_module_array.csv</code> file.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Modules that are connected as each others inputs and outputs will be coupled together with any ports with corresponding name. </p>
+<p>For an example, if VesselOne has an exit_port 'vessel_port' and VesselTwo has an entrance_port 'vessel_port', they will be coupled with the variables declared in their corresponding 'vessel_port'. You must be careful when making a new module, that the modules it couples to only has matching port types for the ones that are necessary for coupling.</p>
+<p>Additionally, if a module has a general_port [port_name], it will couple to any entrance, exit, or general port in a connected vessel with the port name [port_name]. </p>
+<p>Standard usage: entrance and exit ports are used for spatial connections (e.g. exit to entrance of a parent and daughter vessel), whereas general ports are used for non-spatial connections (e.g a port for a material property of a whole vessel)</p>
+</div>
+</li>
+<li>
+<p>Define model constants in a <code>[CA_user_dir]/[file_prefix]_parameters.csv</code> file. OR run the autogeneration, which will call an error and create a <code>[CA_user_dir]/[file_prefix]_parameters_unfinished.csv</code>. See <a href="../model-generation-simulation/">model generation and simulation</a></p>
+</li>
+</ol>
+<p>The following sections include more details on creating the above required files.</p>
+<h3 id="creating-module_array-and-parameter-files">Creating module_array and parameter files</h3>
+<p>This section discusses creating a module_array and parameters files to build a new desired model.</p>
+<p>One standard module array file contains five important columns as elaborated in the table below. </p>
+<ul>
+<li><strong>vessel_name</strong> is the name of a common organ or part of the cardiovascular system.</li>
+<li><strong>BC_type</strong> is the type of the boundary condition for the vessel's input and output or more generally, the subtype of the module.</li>
+<li><strong>vessel_type</strong> can be defined as the desired module which exists in the <code>[project_dir]/src/libcuflynx/generators/resources/*_modules_config.json</code> files or one of the <code>[project_dir]/module_config_user/*_config.json</code> files. </li>
+<li><strong>inp_vessel</strong> is the input of each part.</li>
+<li><strong>out_vessel</strong> is the output of each part.</li>
+</ul>
+<p>Some examples of possible inputs</p>
+<table>
+<thead>
+<tr>
+<th>Column name</th>
+<th>Possible inputs</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>vessel_name</td>
+<td>User defined, but it is better to use common names like 'heart', 'pvn', 'par', etc.</td>
+</tr>
+<tr>
+<td>BC_type</td>
+<td>'vv', 'vp', 'pv', 'pp', 'pp_wCont', 'pp_wLocal', 'nn' (linked to BC_type in the modules config JSON files)</td>
+</tr>
+<tr>
+<td>vessel_type</td>
+<td>'heart', 'arterial', 'arterial_simple', 'venous', 'terminal', 'split_junction', 'merge_junction', '2in2out_junction', 'gas_transport_simple', 'pulomonary_GE', 'baroreceptor', 'chemoreceptor' (linked to vessel_type in the modules config JSON files)</td>
+</tr>
+<tr>
+<td>inp_vessels</td>
+<td>name of the input vessels, which is one (or more) of the vessel_name entries in the other rows</td>
+</tr>
+<tr>
+<td>out_vessel</td>
+<td>name of the output vessels, which is one (or more) of the vessel_name entries in other rows</td>
+</tr>
+</tbody>
+</table>
+<p>The module array can also be in the layout of PhLynx's "Circulatory Autogen" export, with the columns <code>name, module_type, module_subtype, inp_instances, out_instances</code>. There <code>module_type</code> is the vessel_type, <code>module_subtype</code> the BC_type, and <code>inp_instances</code>/<code>out_instances</code> the inp_vessels/out_vessels. The layout is detected from the header. A header that mixes the two layouts is an error.</p>
+<h4 id="json-module-arrays">JSON module arrays</h4>
+<p>The module array can also be a JSON file, <code>[file_prefix]_module_array.json</code>: a list of records, one per module instance.</p>
+<div class="highlight"><pre><span></span><code><span class="p">[</span>
+<span class="w"> </span><span class="p">{</span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"src"</span><span class="p">,</span><span class="w"> </span><span class="nt">"module_type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"flow_src"</span><span class="p">,</span><span class="w"> </span><span class="nt">"module_subtype"</span><span class="p">:</span><span class="w"> </span><span class="s2">"nn"</span><span class="p">,</span><span class="w"> </span><span class="nt">"inp_instances"</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span><span class="w"> </span><span class="nt">"out_instances"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"coll"</span><span class="p">]},</span>
+<span class="w"> </span><span class="p">{</span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"coll"</span><span class="p">,</span><span class="w"> </span><span class="nt">"module_type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"collector"</span><span class="p">,</span><span class="w"> </span><span class="nt">"module_subtype"</span><span class="p">:</span><span class="w"> </span><span class="s2">"nn"</span><span class="p">,</span><span class="w"> </span><span class="nt">"inp_instances"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"src"</span><span class="p">],</span><span class="w"> </span><span class="nt">"out_instances"</span><span class="p">:</span><span class="w"> </span><span class="p">[]}</span>
+<span class="p">]</span>
+</code></pre></div>
+<p>A record uses PhLynx's keys, as above, or the libcuflynx keys <code>name, vessel_type, BC_type, inp_vessels, out_vessels</code>. A record that mixes the two is an error. <code>name</code> and the type and subtype are required. The input and output lists are optional JSON lists; a space-separated string is accepted too. A record may also name the module instance whose parameters it uses, <code>"instance": "[instance]"</code> (see <a href="#module-versions-and-instances">Module versions and instances</a>). Other keys are allowed, and keys holding plain values become extra columns, as extra CSV columns do.</p>
+<p>A CSV module array is read by converting each row to this record first, so a CSV and its JSON conversion generate byte-identical models. The generator looks for the module array in this order: <code>[file_prefix]_module_array.json</code>, then <code>[file_prefix]_module_array.csv</code>. Module arrays used to be called vessel arrays: a <code>[file_prefix]_vessel_array.json</code> or <code>.csv</code> is still read, with a warning asking you to rename it.</p>
+<p>To convert CSV arrays, run</p>
+<div class="highlight"><pre><span></span><code>python<span class="w"> </span>-m<span class="w"> </span>libcuflynx.utilities.config_schemas<span class="w"> </span>to-json<span class="w"> </span>resources/my_model_module_array.csv<span class="w"> </span><span class="o">[</span>more.csv<span class="w"> </span>...<span class="o">]</span><span class="w"> </span><span class="o">[</span>--style<span class="w"> </span>phlynx<span class="p">|</span>libcuflynx<span class="o">]</span>
+</code></pre></div>
+<p>This writes <code>my_model_module_array.json</code> next to each CSV, one record per line. The default style is PhLynx's keys. From Python, use <code>libcuflynx.utilities.config_schemas.module_array_to_json(csv_path, json_path=None, style="phlynx")</code>, and <code>read_module_array_records(path)</code> to read either form as records.</p>
+<p>JSON Schemas for the module array, for module config files and for the top level of obs_data files ship with the package, in <code>libcuflynx/schemas/</code>: <code>module_array.schema.json</code>, <code>module_config.schema.json</code> and <code>obs_data.schema.json</code>. Editors and other tools can use them to validate the files. The generator checks the same rules itself, and its errors name the file, the record index and the key.</p>
+<p>Below figure is an example of a module_array file.</p>
+<p><img alt="Example of module_array file" src="../images/module-array.png" /></p>
+<p>Every row of the module array file represents a specific part or module in the defined system. Therefore, each module needs several parameters for modeling and generating a CellML file.</p>
+<p>These parameters should be inserted in the parameters file: <code>[resources_dir]/[file_prefix]_parameters.csv</code>.</p>
+<p>This file has the structure as shown below.</p>
+<table>
+<thead>
+<tr>
+<th>Column Name</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>variable_name</td>
+<td>Parameter name</td>
+</tr>
+<tr>
+<td>units</td>
+<td>Unit in the defined units in CellML's unit file</td>
+</tr>
+<tr>
+<td>value</td>
+<td>Value of parameter</td>
+</tr>
+<tr>
+<td>data_reference</td>
+<td>Reference of the parameter value. Typically in <code>[last_name][date][first_word_of_paper]</code> format for papers.</td>
+</tr>
+</tbody>
+</table>
+<p>The following is an example of a parameter file.</p>
+<p><img alt="Example of parameter file" src="../images/parameter-file.png" /></p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>If you forget to add or insert any needed parameter in the file when you run the code, it shows you this message at the end:</p>
+<p><img alt="Error in parameter file" src="../images/error-parameters.png" /></p>
+<p>At this time, you should open the <code>[resources_dir]/[file_prefix]_parameters_unfinished.csv</code>, which will include the parameters which were not inserted in the file with <em>EMPTY_MUST_BE_FILLED</em> value and data_reference entries. You should add the parameter value and reference, then copy the line to the original [file_prefix].csv file. Or you can add the value in the _unfinished.csv file then remove the last part of the file's name (“_unfinished”) (overwriting the original) and rerun the code with the correctly set parameters.</p>
+</div>
+<h3 id="modules-and-definition-of-a-new-module">Modules and definition of a new module</h3>
+<p>In the <code>[CA_dir]/src/libcuflynx/generators/resources</code> directory, there are several CellML files which contain the modules that can be coupled together in your model. Each module file has a corresponding <code>*_modules_config.json</code> file that defines connection ports and variables. Additionally, CellML and JSON files in <code>module_config_user</code> contain extra modules you define locally.</p>
+<p><img alt="Modules" src="../images/module-folder.png" /></p>
+<!-- The `base_script.cellml` is the template of the main cellml file that gets generated (shown below). It uses the `units.cellml` in the main generated code to add all types of units. Also, the modules config JSON files are used in autogeneration to know how to couple the cellml files in the arrangement defined by the module_array file. -->
+<!--  -->
+<!-- ![base_script.cellml](images/base-script.png) -->
+
+<p>If you want to create a new module, create or add to a <code>module_config_user/[module_category]_modules.cellml</code> file and a matching JSON config file (e.g. <code>module_config_user/[module_category]_modules_config.json</code>). You can also keep these files outside the repo by setting <code>external_modules_dir</code> in your <code>user_inputs.yaml</code> to a directory containing <code>*_modules.cellml</code>, <code>*_modules_config.json</code>, and optionally any <code>*units.cellml</code> files (e.g. <code>user_units.cellml</code>).</p>
+<p>To use a module library laid out one module per directory (for example <a href="https://github.com/physiomelinks/circulatory-autogen-modules">circulatory-autogen-modules</a>), set <code>module_library_dirs</code> to one or more directories. Each one is searched recursively for <code>*_modules.cellml</code>, <code>*_modules_config.json</code> (or <code>*_module_config.json</code>) and <code>*units.cellml</code> files; other JSON files, such as parameter or obs_data files kept next to a module, are ignored. Set <code>use_builtin_modules: false</code> to use only external modules. The built-in and <code>module_config_user</code> modules are then not loaded, so a library can define its own version of a built-in <code>(vessel_type, BC_type)</code>. Units defined identically in several files are written once; a unit defined differently in two files is an error.</p>
+<div class="highlight"><pre><span></span><code><span class="nt">module_library_dirs</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/path/to/circulatory-autogen-modules/modules</span>
+<span class="nt">use_builtin_modules</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</code></pre></div>
+<p>As shown in the below figure, there are three different parts for each module: the primary specification (vessel_type, boundary condition type, module_file), then the ports and their types, and finally, variables and constants.</p>
+<p><img alt="module_config.json" src="../images/module-config.png" /></p>
+<p>Following is one of the modules in the <code>BG_modules</code> file. The main body of a specific module contains variables declaration, constitutive parameters, and state variables. Then, the constitutive relations and eventually, ODE equations.</p>
+<p><img alt="Module" src="../images/module.png" /></p>
+<h3 id="example-of-creating-a-new-module">Example of creating a new module</h3>
+<p>This section shows a simple example to create a new module</p>
+<p>We want to define a new vessel type with the name of <strong>"arterial"</strong> with boundary condition type <strong>"vp"</strong>. Additionally, we want to use the <strong>"vp_type"</strong> module, whose cellml code is shown in the above figure. Also, the module is located in the <code>BG_modules.cellml</code> file.</p>
+<p>Vessel_type, BC_type, module_format, module_file location, module_type and other related information are added to the modules config JSON file, as shown below. We can now use this vessel_type in the module_array file in <code>[resources_dir]</code> to add the module with specified inputs, outputs and parameters. In the ports, you should add the <strong>"vessel_port"</strong> type for connecting to the other parts. Additionally, each module can be used in many vessel_types.</p>
+<p><img alt="vp_type module" src="../images/vp_type-module.png" /></p>
+<p>The entries in the module config JSON file are detailed as follows.</p>
+<p>A module config entry can also use PhLynx's key names. The generator detects the schema of each entry separately, so one library can use both, even within one file:</p>
+<table>
+<thead>
+<tr>
+<th>libcuflynx</th>
+<th>PhLynx</th>
+<th>meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>vessel_type</code></td>
+<td><code>module_type</code></td>
+<td>the name used in the module array's type column</td>
+</tr>
+<tr>
+<td><code>BC_type</code></td>
+<td><code>module_subtype</code></td>
+<td>the boundary-condition variant</td>
+</tr>
+<tr>
+<td><code>module_file</code></td>
+<td><code>component_file</code></td>
+<td>the CellML file that holds the module</td>
+</tr>
+<tr>
+<td><code>module_type</code></td>
+<td><code>component_type</code></td>
+<td>the name of the CellML component</td>
+</tr>
+</tbody>
+</table>
+<p><code>module_type</code> means different things in the two schemas. So an entry is read as PhLynx's schema when it has <code>module_subtype</code>, <code>component_file</code> or <code>component_type</code>, never because of <code>module_type</code>. An entry that mixes keys from both schemas, or a PhLynx entry that is missing one of its four keys, stops the generation with an error. The remaining keys (<code>module_format</code>, the ports and <code>variables_and_units</code>) are the same in both schemas.</p>
+<ul>
+<li><strong>vessel_type</strong>: This will be the "vessel_type" entry in the module_array file</li>
+<li><strong>BC_type</strong>: This will be the "BC_type" entry in the module_array file</li>
+<li><strong>module_format</strong>: Currently only cellml is supported but in the future, cpp modules and others will be allowed.</li>
+<li><strong>module_file</strong>: The file within <code>[CA_dir]/src/libcuflynx/generators/resources/</code>, <code>[CA_dir]/module_config_user/</code>, or your <code>external_modules_dir</code> that contains the CellML module this config entry links to.</li>
+<li><strong>module_type</strong>: The name of the module/computational_environment within the module cellml file.</li>
+<li><strong>entrance_ports</strong>: Specification of the port types that this module can take if it is connected as an "out_vessel" to another module. If a port_type matches to the port_type of a exit_port in a module coupled as an input, then the port_types variables, e.g. [v_in, u] get mapped to the variables in the coupled modules exit port e.g. [v, u_out].</li>
+<li><strong>exit_ports</strong>: Specification of the port types that this module can take if it is connected as an "inp_vessel" to another module.</li>
+<li>
+<p><strong>general_ports</strong>: Specification of the port types that this module can take if it is connected as any type of connection to another module. Port entries are:</p>
+<ul>
+<li><strong>port_types</strong>: The name of the type of port. If two vessels are connected vessel_a to vessel_b, and vessel_a has an exit_port with the same port_type as an entrance_port of vessel_b, then a connection will be made. </li>
+<li><strong>variables</strong>: These are the variables within the module that will be connected to the variables in the corresponding port of the connected vessel/module.</li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>If you want a port variable to be able to couple to multiple other modules, set <code>"multi_port": "True"</code> in the entrance, exit, or general port. <code>"multi_port": "sum"</code> is used for variables that take in multiple port variables and sum them to equal this variable.</p>
+</div>
+<ul>
+<li><strong>multi_port</strong> (optional): lets one port connect to several modules. Its values are case-insensitive: <code>"sum"</code>, <code>"Sum"</code> and <code>"SUM"</code> are the same. It is either a string that applies to the whole port, or a list with one entry per port variable (below). The string forms are:<ul>
+<li><code>"True"</code>: this module's port variables are mapped to the corresponding variables of every connected module.</li>
+<li><code>"sum"</code> on a port whose <code>port_type</code> is <code>volume_port</code>: the port's variable is the total of the connected modules' volumes, computed in the <code>sum_blood_volume</code> component.</li>
+<li><code>"sum"</code> on any other port: the port must have exactly one variable. That variable is the sum, over every module connected through the port, of the neighbour's corresponding variable. This is the same as the list form <code>["sum"]</code>, described below. It is what PhLynx's <code>"Sum"</code> means. For example, the module library's <code>microvasculature_network</code> Nout modules have an exit <code>flow_port</code> <code>[v_out_sum]</code> with <code>"Sum"</code>, so <code>v_out_sum</code> is the sum of the downstream modules' inflows. As in the list form, the sum is positive on both entrance and exit ports, and only one side of a connection may sum.</li>
+<li><code>"Multiply"</code>: the port must have exactly one variable. On the upstream side of a connection (an exit or general port of the module that lists the neighbour in its <code>out_vessels</code>), each connected module's corresponding variable is set to <code>multiply_factor</code> times this module's variable. The generated component that does this is <code>multiport_multiply_[neighbour_name]_[neighbour_variable]</code>. If the neighbour's port is a <code>"sum"</code>, the scaled value is added as one term of its sum instead. On the downstream side of a connection, a <code>"Multiply"</code> port is mapped like <code>"True"</code>. This matches PhLynx.</li>
+</ul>
+</li>
+<li><strong>multiply_factor</strong> (optional, number, default 1): the factor of a <code>"Multiply"</code> port, e.g. <code>{"port_type": "gain_port", "variables": ["x"], "multi_port": "Multiply", "multiply_factor": 2.5}</code>. PhLynx keeps this factor in its user interface, not in the config file, so add it to a PhLynx-exported config by hand. It is an error on a port that is not <code>"Multiply"</code>.</li>
+<li>
+<p><strong>multi_port</strong> as a <strong>list with one entry per port variable</strong>, aligned with <code>variables</code>, when some variables must be summed over the connected modules and others shared with them:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">"port_type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"vessel_port"</span><span class="p">,</span><span class="w"> </span><span class="nt">"variables"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"v_in"</span><span class="p">,</span><span class="w"> </span><span class="s2">"u"</span><span class="p">],</span><span class="w"> </span><span class="nt">"multi_port"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"sum"</span><span class="p">,</span><span class="w"> </span><span class="s2">"True"</span><span class="p">]}</span>
+</code></pre></div>
+<ul>
+<li><code>"sum"</code>: this module's variable (an input of the module) equals the sum, over every module connected through this port, of that module's corresponding port variable, i.e. the variable at the same position in its matching port, which a plain one-to-one mapping would have paired it with. The sum is computed in a generated algebraic component, <code>multiport_sum_[vessel_name]_[variable_name]</code>, declared in the units of this module's variable. A neighbour variable in different but compatible units (e.g. <code>mm3_per_s</code> summed into <code>m3_per_s</code>) is scaled; incompatible units stop the generation with an error. If no module is connected through the port, the variable is set to 0 and a warning is printed, and no <code>[variable_name]_[vessel_name]</code> parameter is needed for it.</li>
+<li><code>"True"</code>: this module's variable is mapped to the corresponding variable of <strong>every</strong> connected module. It is normally an output of this module (one source, many sinks).</li>
+</ul>
+<p>A list-form port works as an entrance port (many upstream modules), an exit port (many downstream modules) or a general port. With one connected module it behaves exactly like a plain port. For example, a <code>flow_merge</code> node (many inflows, one outflow) has the entrance port above, <code>[v_in, u]</code> with <code>["sum", "True"]</code>, and a plain exit port <code>[v_out, u_d]</code>, with <code>v_out = v_in</code> and <code>u = u_d</code>: the node's inflow is the sum of the upstream flows, and every upstream module reads the node pressure. A <code>flow_split</code> node (one inflow, many outflows) puts the list on its exit port instead, <code>[v_out, u_d]</code> with <code>["sum", "True"]</code>. Only one side of a connection may mark a variable <code>"sum"</code>. List-form ports are not supported when coupling a C++ model to a 1D model (<code>couple_to_1d</code>); generation raises <code>NotImplementedError</code> there.
+- <strong>variables_and_units</strong>: This specifies all of the constants and the accesible variables of the cellml module. The entries are:
+    - [0] <strong>variable name</strong>: corresponding to the name in the cellml file
+    - [1] <strong>variable unit</strong>: corresponsing to the unit specification in <code>units.cellml</code>
+    - [2] <strong>access or no_access</strong>: whether the variable can be accessed within the cellml simulation. This should always be "access" for accessibility, unless you want to decrease memory usage.
+    - [3] <strong>parameter type</strong>: can be constant, global_constant, variable, or boundary_condition.
+      - If parameter_type is boundary_condition it will be set to a variable accesses from another module if the corresponding port is connected. However, if the 
+corresponding port is not connected, the boundary_condition will be set to a constant, and required to be set in the <code>[resources_dir]/[file_prefix]_parameters.csv</code> file </p>
+</li>
+</ul>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>All constants are required to be entered in the <code>[resources_dir]/[file_prefix]_parameters.csv</code> file with the following naming convention: <strong>[variable_name]_[vessel_name]</strong>.</p>
+<p>All global_constants are required to be entered in the <code>[resources_dir]/[file_prefix]_parameters.csv</code> file as just <strong>[variable_name]</strong>.</p>
+</div>
+</li>
+</ul>
+<h3 id="supermodules">Supermodules</h3>
+<p>A supermodule is a named group of modules that a module array uses like one module. It is an entry in a <code>*_modules_config.json</code> file, in a directory listed in <code>module_library_dirs</code> (or in <code>external_modules_dir</code>):</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">"module_type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"heart"</span><span class="p">,</span><span class="w"> </span><span class="nt">"module_subtype"</span><span class="p">:</span><span class="w"> </span><span class="s2">"supermodule"</span><span class="p">,</span><span class="w"> </span><span class="nt">"module_format"</span><span class="p">:</span><span class="w"> </span><span class="s2">"supermodule"</span><span class="p">,</span>
+<span class="w"> </span><span class="nt">"description"</span><span class="p">:</span><span class="w"> </span><span class="s2">"four chambers, four valves and a cardiac clock"</span><span class="p">,</span>
+<span class="w"> </span><span class="nt">"submodules"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">   </span><span class="p">{</span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"clock"</span><span class="p">,</span><span class="w"> </span><span class="nt">"module_type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"cardiac_clock"</span><span class="p">,</span><span class="w"> </span><span class="nt">"module_subtype"</span><span class="p">:</span><span class="w"> </span><span class="s2">"nn"</span><span class="p">,</span><span class="w"> </span><span class="nt">"inp_instances"</span><span class="p">:</span><span class="w"> </span><span class="p">[],</span><span class="w"> </span><span class="nt">"out_instances"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"ra"</span><span class="p">,</span><span class="w"> </span><span class="s2">"rv"</span><span class="p">,</span><span class="w"> </span><span class="s2">"la"</span><span class="p">,</span><span class="w"> </span><span class="s2">"lv"</span><span class="p">]},</span>
+<span class="w">   </span><span class="p">{</span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"ra"</span><span class="p">,</span><span class="w"> </span><span class="nt">"module_type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"chamber"</span><span class="p">,</span><span class="w"> </span><span class="nt">"module_subtype"</span><span class="p">:</span><span class="w"> </span><span class="s2">"vv"</span><span class="p">,</span><span class="w"> </span><span class="nt">"inp_instances"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"clock"</span><span class="p">],</span><span class="w"> </span><span class="nt">"out_instances"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"trv"</span><span class="p">]}</span>
+<span class="w"> </span><span class="p">],</span>
+<span class="w"> </span><span class="nt">"default_instance"</span><span class="p">:</span><span class="w"> </span><span class="s2">"adult"</span><span class="p">}</span>
+</code></pre></div>
+<ul>
+<li><strong>module_type / module_subtype</strong> (or <strong>vessel_type / BC_type</strong>): the type that instances name in a module array.</li>
+<li><strong>module_format</strong>: <code>"supermodule"</code>. A supermodule has no <code>component_file</code>/<code>component_type</code>; it is never a component module, and its type may not also be a component module's type.</li>
+<li><strong>submodules</strong>: module-array records, in either key style. Their names are local to the supermodule, and their input and output lists name other submodules only.</li>
+<li><strong>default_instance</strong> (optional): the <a href="#module-versions-and-instances">instance</a> used when a module-array record names none. A supermodule instance's parameters file has the usual <code>variable_name,units,value,data_reference</code> columns; a row named <code>[variable]_[submodule]</code> is a parameter of that submodule, and any other row is a global.</li>
+<li><strong>default_parameters</strong> (optional, kept for backwards compatibility): a parameters CSV, relative to the config file's directory, with the same rows as an instance's parameters file. New supermodules should use an instance instead.</li>
+<li>A submodule record may name its own <code>"instance"</code>.</li>
+<li><strong>description</strong> (optional).</li>
+</ul>
+<p>An instance in a module array names the supermodule's type and links its hosts, the modules outside it, to individual submodules:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"heart"</span><span class="p">,</span><span class="w"> </span><span class="nt">"module_type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"heart"</span><span class="p">,</span><span class="w"> </span><span class="nt">"module_subtype"</span><span class="p">:</span><span class="w"> </span><span class="s2">"supermodule"</span><span class="p">,</span>
+<span class="w"> </span><span class="nt">"per_submodule_inputs"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"ra"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"venous_svc"</span><span class="p">],</span><span class="w"> </span><span class="nt">"la"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"pvn"</span><span class="p">]},</span>
+<span class="w"> </span><span class="nt">"per_submodule_outputs"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"aov"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"aortic_root"</span><span class="p">],</span><span class="w"> </span><span class="nt">"puv"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"par"</span><span class="p">]}}</span>
+</code></pre></div>
+<p><code>per_submodule_inputs</code> lists, for a submodule, the hosts that feed it; each of those hosts lists the instance (<code>heart</code>) in its outputs. <code>per_submodule_outputs</code> lists the hosts a submodule feeds; each of those lists the instance in its inputs. Either may also be written as a list of one-key objects, <code>[{"ra": ["venous_svc"]}, {"la": ["pvn"]}]</code>.</p>
+<p>Before anything else reads the module array, each instance is replaced, at its position, by one record per submodule:</p>
+<ul>
+<li>submodule <code>ra</code> becomes <code>heart_ra</code>, and its links to other submodules are prefixed the same way;</li>
+<li>the hosts in <code>per_submodule_inputs["ra"]</code> come first in <code>heart_ra</code>'s inputs, and the hosts in <code>per_submodule_outputs["ra"]</code> last in its outputs;</li>
+<li>in a host, the instance name is replaced, in place, by every <code>heart_[submodule]</code> that the instance links it to.</li>
+</ul>
+<p>So parameters and outputs are named after the expanded modules, e.g. <code>E_heart_lv</code>, <code>heart_lv/q</code>. The supermodule's instance parameters and default parameters are renamed in the same way (<code>[variable]_[submodule]</code> becomes <code>[variable]_[instance]_[submodule]</code>; the suffix is matched against the submodule names, longest first). They are used for every name that <code>[file_prefix]_parameters.csv</code> does not set, so values in your parameters file always win. A global used by several instances is added once. The supermodule's values win over those of its submodules' own instances.</p>
+<p>A submodule can itself be a supermodule instance, with its own <code>per_submodule_inputs</code>/<code>per_submodule_outputs</code> naming its siblings; it is expanded in turn. A supermodule that contains itself, directly or through others, is an error.</p>
+<p>Expansion stops with an error that names the file, the instance and the key when a <code>per_submodule_*</code> names a submodule that does not exist, or a host that does not exist or does not list the instance back; when a module lists the instance but no <code>per_submodule_*</code> entry links them; when an expanded name is already in the array; or when no supermodule of the instance's type was found. An instance named <code>heart</code> is not treated as the legacy <code>heart</code> module: after expansion there is no module called <code>heart</code>.</p>
+<h3 id="module-versions-and-instances">Module versions and instances</h3>
+<p>A module library (such as <a href="https://github.com/physiomelinks/circulatory-autogen-modules">circulatory-autogen-modules</a>) lays out each version of a module with its <em>instances</em>, named parameter sets:</p>
+<div class="highlight"><pre><span></span><code>modules/&lt;category&gt;/&lt;module_type&gt;/versions/&lt;version&gt;/
+    &lt;module_type&gt;_&lt;version&gt;_modules.cellml
+    &lt;module_type&gt;_&lt;version&gt;_modules_config.json      one entry; module_subtype is &lt;version&gt;
+    &lt;module_type&gt;_&lt;version&gt;_units.cellml
+    instances/&lt;instance&gt;/
+        &lt;instance&gt;_parameters.csv                   variable_name,units,value,data_reference[,sourced]
+        &lt;instance&gt;_obs_data.json                    optional; "obs_data_name": "&lt;instance&gt;"
+        &lt;instance&gt;_params_for_id.csv                optional
+</code></pre></div>
+<p>An instance changes only parameters, never the equations. Its parameter names carry no vessel suffix: <code>C</code>, not <code>C_[vessel]</code>.</p>
+<p>The config entry names the instance used by default:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">"module_type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"chamber"</span><span class="p">,</span><span class="w"> </span><span class="nt">"module_subtype"</span><span class="p">:</span><span class="w"> </span><span class="s2">"v1"</span><span class="p">,</span><span class="w"> </span><span class="nt">"component_file"</span><span class="p">:</span><span class="w"> </span><span class="s2">"chamber_v1_modules.cellml"</span><span class="p">,</span>
+<span class="w"> </span><span class="nt">"component_type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"chamber_type"</span><span class="p">,</span><span class="w"> </span><span class="nt">"default_instance"</span><span class="p">:</span><span class="w"> </span><span class="s2">"adult"</span><span class="p">,</span><span class="w"> </span><span class="err">...</span><span class="p">}</span>
+</code></pre></div>
+<p>A module-array record chooses an instance with <code>"instance"</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"lv"</span><span class="p">,</span><span class="w"> </span><span class="nt">"module_type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"chamber"</span><span class="p">,</span><span class="w"> </span><span class="nt">"module_subtype"</span><span class="p">:</span><span class="w"> </span><span class="s2">"v1"</span><span class="p">,</span><span class="w"> </span><span class="nt">"instance"</span><span class="p">:</span><span class="w"> </span><span class="s2">"neonate"</span><span class="p">,</span>
+<span class="w"> </span><span class="nt">"inp_instances"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"mv"</span><span class="p">],</span><span class="w"> </span><span class="nt">"out_instances"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"aov"</span><span class="p">]}</span>
+</code></pre></div>
+<p>When the model is generated, the instance's parameters file is looked for next to the config file the record's <code>(module_type, module_subtype)</code> came from: <code>[config directory]/instances/[instance]/[instance]_parameters.csv</code>. Each row <code>[variable]</code> becomes <code>[variable]_[record name]</code> (<code>C_lv</code>). A row for one of the module's <code>global_constant</code> variables keeps its plain name. A record without <code>"instance"</code> uses the entry's <code>default_instance</code>, if the entry has one and that file exists. Otherwise no instance parameters are loaded, as before.</p>
+<p>Instance parameters are defaults. A name that <code>[file_prefix]_parameters.csv</code> sets keeps the value from that file. The order of precedence is:</p>
+<ol>
+<li>your <code>[file_prefix]_parameters.csv</code>;</li>
+<li>a supermodule's instance;</li>
+<li>a supermodule's <code>default_parameters</code>;</li>
+<li>the instance of a submodule, or of an ordinary module.</li>
+</ol>
+<p>Within one level, the first record in the (expanded) module array wins, so a global set by several instances is added once. A global is one value for the whole model, so if instances set it to different values you get a <code>ConflictingGlobalWarning</code> naming each value, its units and the record that set it: the modules after the first run at a value their instance did not choose. Set the global in <code>[file_prefix]_parameters.csv</code> to choose it, which also silences the warning. A supermodule instance overriding the instances inside it is not warned about. If the units differ too, the modules most likely mean different quantities by one name, and one of them needs renaming.</p>
+<p>An instance that does not exist is an error. The error names the version directory and lists the instances it has. Naming an instance of a module whose config has no <code>instances/</code> directory next to it is an error too.</p>
+<p>An obs_data file may carry a top-level <code>"obs_data_name"</code>, a string naming the data set. An instance's <code>[instance]_obs_data.json</code> sets it to the instance's name. If a file in <code>instances/[name]/</code> has a different or missing <code>obs_data_name</code>, a warning is raised when the file is read. Files without the key are read as before. The parsed obs_data carries the name as <code>obs_data_name</code>, or <code>None</code> when the file has none.</p>
+<h2 id="converting-an-existing-cellml-model-to-run-in-circulatory-autogen">Converting an existing CellML model to run in Circulatory Autogen</h2>
+<p>Circulatory Autogen provides a script to convert an existing CellML model (with parameters hardcoded in the modules) to a format that can be used with Circulatory_Autogen. This format defines parameters in a separate file so they can be used for calibration and specifies modules in a config file with ports for easy coupling.
+You can find the script <strong>"generate_modules_files.py"</strong> at <code>[CA_dir]/src/libcuflynx/scripts</code>.</p>
+<p>Update the script to change the <code>input_model</code> variable to the path of your CellML model and <code>output_dir</code> variable to the directory where you need to create the resources files and the new <code>[file_prefix]_user_inputs.yaml</code> file.</p>
+<p>This script generates <code>[file_prefix]_modules.cellml</code> and <code>[file_prefix]_module_config.json</code> in the <code>module_config_user</code> directory. <code>[file_prefix]_parameters.csv</code> and <code>[file_prefix]_module_array.csv</code> files are created in <code>[output_dir]/resources</code> and <code>[file_prefix]_user_inputs.yaml</code> is created in <code>[output_dir]</code>.</p>
+<p>You only need to update the <code>user_inputs.yaml</code> file at the <code>user_run_files</code> directory to set <strong><code>user_inputs_path_override:</code></strong> to <code>[output_dir]/[file_prefix]_user_inputs.yaml</code> to run model autogeneration.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>You can update the <strong>file_prefix</strong>, <strong>vessel_name</strong> and the <strong>data_reference</strong> variables in the <code>generate_modules_files.py</code> at the <code>src/libcuflynx/scripts</code> directory before running the script, so it will generate files with the defined variables.</p>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>You need to specify the variable name of time as the <strong>time_variable</strong>.</p>
+<p>Variable <strong>component_name</strong> should be the name of the component for which you want to generate files.</p>
+</div>
+<h2 id="expected-outcome">Expected outcome</h2>
+<p>You should have:</p>
+<ul>
+<li>A <code>*_modules.cellml</code> file and a matching modules config JSON.</li>
+<li>Updated <code>*_module_array.csv</code> and <code>*_parameters.csv</code> files referencing your modules.</li>
+<li>A <code>user_inputs.yaml</code> file that points to your resources directory.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["instant", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
