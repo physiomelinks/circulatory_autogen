@@ -513,6 +513,9 @@ class CVS0DCellMLGenerator(object):
             self.__write_section_break(wf, 'module_units')
             self.__write_units(wf)
 
+            # A set, built once: this is tested on every line of every module file, and with
+            # pandas 3 a test against `.values` (a StringArray) costs ~2 s per generation.
+            used_module_types = set(self.model.vessels_df.module_type) | {'zero_flow'}
             for II, module_file_path in enumerate(self.module_scripts):
                 with open(module_file_path, 'r') as rf:
                     # skip first lines that are either intro lines written above or comments.
@@ -538,7 +541,7 @@ class CVS0DCellMLGenerator(object):
                         if "<component name" in line:
                             # check the name of the module we are in
                             module_type = re.search('name="(.*?)"', line).group(1)
-                        if module_type in self.model.vessels_df.module_type.values or module_type == 'zero_flow':
+                        if module_type in used_module_types:
                             wf.write(line)
             wf.write('</model>\n')
 
