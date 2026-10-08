@@ -137,3 +137,39 @@ def test_the_use_time_check_agrees_with_the_trainer():
             trainer_refused = True
 
         assert trainer_refused == bool(shared), (types, weights)
+
+
+def _sobol_with(info):
+    """A SobolSA with only what _configure_emulator reads, and a helper whose bundle accepts."""
+    from libcuflynx.sensitivity_analysis.sobolSA import sobol_SA as SobolSA
+
+    calls = []
+    bundle = type('B', (), {'check_matches': lambda self, fp: calls.append('matches'),
+                            'check_quality': lambda self, r2: calls.append('quality')})()
+    helper = type('H', (), {'bundle': bundle,
+                            'set_obs_map': lambda self, *a, **k: calls.append('map')})()
+    info = dict(info, const_idx_to_obs_idx=[0], operations=[None] * len(info['data_types']))
+    # A real instance without __init__, so every method _configure_emulator calls exists.
+    sa = SobolSA.__new__(SobolSA)
+    sa.__dict__.update({'obs_info': info, 'param_id_info': None, 'protocol_info': None,
+                        'model_path': None, 'emulator_settings': {},
+                        'include_prediction_items': False})
+    return SobolSA, sa, helper, calls
+
+
+def test_sobol_on_an_emulator_accepts_a_zero_weighted_series(monkeypatch):
+    """Sobol had its own copy of the scalar-only rule, without the weight exemption, so an
+    obs_data that trained an emulator could not then be analysed on it."""
+    import libcuflynx.emulators.emulator_bundle as eb
+    monkeypatch.setattr(eb, 'fingerprint', lambda *a: None)
+    SobolSA, sa, helper, calls = _sobol_with(_obs_info(['constant', 'series'], [0.0], [1]))
+    SobolSA._configure_emulator(sa, helper)
+    assert calls == ['matches', 'quality', 'map']
+
+
+def test_sobol_on_an_emulator_still_refuses_a_weighted_series(monkeypatch):
+    import libcuflynx.emulators.emulator_bundle as eb
+    monkeypatch.setattr(eb, 'fingerprint', lambda *a: None)
+    SobolSA, sa, helper, _ = _sobol_with(_obs_info(['constant', 'series'], [1.0], [1]))
+    with pytest.raises(ValueError, match=r'\[1\]'):
+        SobolSA._configure_emulator(sa, helper)

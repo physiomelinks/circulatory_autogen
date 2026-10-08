@@ -328,9 +328,10 @@ class sobol_SA():
         so an emulator trained against different bounds, observables or protocol would produce
         a complete, plausible set of indices for a different problem (#333).
         """
-        from libcuflynx.emulators.emulator_bundle import fingerprint
-        bad = {jj: dtype for jj, dtype in enumerate(self.obs_info['data_types'])
-               if dtype != 'constant'}
+        # Zero-weighted non-scalars (a recorded trace carried only to be plotted) are not in the
+        # cost, so the emulator is never asked for them. Same rule as the trainer and paramID.
+        from libcuflynx.emulators.emulator_bundle import fingerprint, weighted_non_scalar_obs
+        bad = weighted_non_scalar_obs(self.obs_info)
         if bad:
             raise ValueError(
                 f'use_emulator is set, but obs_data.json has data_type(s) '
