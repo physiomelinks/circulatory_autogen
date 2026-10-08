@@ -27,9 +27,14 @@ is an error. Links between a host and a nested supermodule go through that neste
 supermodule's own ``per_submodule_*``, so an instance's ``per_submodule_*`` may not name a
 submodule that is itself a supermodule instance.
 
-The supermodule's ``default_parameters`` rows are renamed from ``{var}_{sub}`` to
-``{var}_{instance}_{sub}`` (the suffix is matched against the submodule names, longest
-first); any other row is a global and keeps its name, and is added only once.
+The supermodule's parameters -- those of its *instance* (the record's ``"instance"``, or the
+entry's ``default_instance``; see ``utilities/module_instances.py``), then its legacy
+``default_parameters`` file -- are renamed from ``{var}_{sub}`` to ``{var}_{instance}_{sub}``
+(the suffix is matched against the submodule names, longest first); any other row is a
+global and keeps its name, and is added only once. A submodule record may carry its own
+``"instance"``; it stays on the expanded record, whose instance parameters are read with the
+components' (``module_instances.component_instance_rows``), after the supermodule's, so the
+supermodule's values win.
 
 After expansion no record is a supermodule instance.
 '''
@@ -37,10 +42,10 @@ After expansion no record is a supermodule instance.
 import copy
 import os
 
-import pandas as pd
-
-from libcuflynx.utilities.config_schemas import (PARAMETER_COLUMNS, PER_SUBMODULE_KEYS,
-                                                 SUPERMODULE_FORMAT)
+from libcuflynx.utilities.config_schemas import PER_SUBMODULE_KEYS, SUPERMODULE_FORMAT
+from libcuflynx.utilities.module_instances import (first_rows_win, instance_parameter_rows,
+                                                   warn_conflicting_globals,
+                                                   read_parameter_rows)
 
 # a supermodule nested deeper than this is taken to be a cycle the ancestry check missed
 _MAX_DEPTH = 64
@@ -86,6 +91,12 @@ def rename_default_parameter(variable_name, instance, submodule_names):
     return variable_name
 
 
+def _rename_rows(rows, instance, submodule_names):
+    return [dict(row, variable_name=rename_default_parameter(row['variable_name'], instance,
+                                                              submodule_names))
+            for row in rows]
+
+
 def submodule_paths(supermodule, registry=None, _depth=0):
     '''Every submodule of ``supermodule`` as the path its expanded name carries after the
     instance: ``sub``, and for a submodule that is itself a supermodule ``sub_subsub`` ...
@@ -112,22 +123,20 @@ def read_default_parameters(supermodule, instance, where, registry=None):
         raise ValueError(f'{where}: default_parameters file {path} of supermodule '
                          f'({supermodule["vessel_type"]}, {supermodule["BC_type"]}) not found '
                          f'(it is resolved against {supermodule.get("config_path")}).')
-    df = pd.read_csv(path, dtype=str, na_filter=False)
-    df = df.rename(columns=lambda c: str(c).strip())
-    missing = [c for c in PARAMETER_COLUMNS if c not in df.columns]
-    if missing:
-        raise ValueError(f'{where}: default_parameters file {path} is missing the columns '
-                         f'{missing}; it needs {list(PARAMETER_COLUMNS)}.')
-    submodule_names = submodule_paths(supermodule, registry)
-    rows = []
-    for row in df.itertuples(index=False):
-        values = {c: str(getattr(row, c)).strip() for c in PARAMETER_COLUMNS}
-        if not values['variable_name']:
-            continue
-        values['variable_name'] = rename_default_parameter(values['variable_name'], instance,
-                                                           submodule_names)
-        rows.append(values)
-    return rows
+    rows = read_parameter_rows(path, where, 'default_parameters file')
+    return _rename_rows(rows, instance, submodule_paths(supermodule, registry))
+
+
+def read_supermodule_parameters(supermodule, record, where, registry=None):
+    '''
+    The parameters of the supermodule instance ``record`` (its name is the prefix), renamed:
+    those of its module instance (``record["instance"]`` or the entry's default_instance)
+    first, then its default_parameters, each name once.
+    '''
+    name = record['name']
+    _, instance_rows = instance_parameter_rows(supermodule, record.get('instance'), where)
+    instance_rows = _rename_rows(instance_rows, name, submodule_paths(supermodule, registry))
+    return first_rows_win(instance_rows + read_default_parameters(supermodule, name, where, registry))
 
 
 def _expand_one(records, index, registry, source, ancestry):
@@ -249,17 +258,31 @@ def _expand_one(records, index, registry, source, ancestry):
 
     for record in new_records:
         ancestry[record['name']] = chain + (key,)
-    param_rows = read_default_parameters(supermodule, name, where, registry)
-    return records[:index] + new_records + records[index + 1:], param_rows
+    param_rows = read_supermodule_parameters(supermodule, instance, where, registry)
+    return records[:index] + new_records + records[index + 1:], param_rows, \
+        _global_settings(param_rows, instance, supermodule, registry)
 
 
-def expand_supermodules(records, registry, source=None):
+def _global_settings(rows, instance, supermodule, registry):
+    '''The rows of ``instance``'s parameters that set a global (those the renaming left
+    alone), as ``warn_conflicting_globals`` settings.'''
+    name = instance['name']
+    local = tuple(f'_{name}_{path}' for path in submodule_paths(supermodule, registry))
+    used = instance.get('instance') or supermodule.get('default_instance')
+    who = f'supermodule "{name}"' + (f' (instance "{used}")' if used else '')
+    return [(row['variable_name'], row['value'], row['units'], who, name) for row in rows
+            if not row['variable_name'].endswith(local)]
+
+
+
+def expand_supermodules(records, registry, source=None, settings=None):
     '''
     ``(records, extra_param_rows)``: ``records`` (normalised vessel records, see
     ``config_schemas.normalise_vessel_record``) with every supermodule instance -- a record
     whose (vessel_type, BC_type) is in ``registry`` -- replaced by its prefixed submodules,
-    recursively, and the instances' renamed default parameters (each name once, the first
-    occurrence kept). ``records`` is not modified.
+    recursively, and the instances' renamed parameters -- module instance, then
+    default_parameters -- each name once, the first occurrence kept (so an outer supermodule's
+    values win over a nested one's). ``records`` is not modified.
 
     Raises ValueError, naming ``source`` and the instance, for an unknown supermodule type,
     an unknown submodule in per_submodule_*, a host that does not exist or does not name the
@@ -270,14 +293,15 @@ def expand_supermodules(records, registry, source=None):
     records = copy.deepcopy(list(records))
     ancestry = {}
     extra_param_rows = []
-    seen = set()
+    check_here = settings is None
+    settings = [] if check_here else settings
     while True:
         index = next((i for i, r in enumerate(records) if _is_instance(r, registry, source)), None)
         if index is None:
             break
-        records, rows = _expand_one(records, index, registry, source, ancestry)
-        for row in rows:
-            if row['variable_name'] not in seen:
-                seen.add(row['variable_name'])
-                extra_param_rows.append(row)
-    return records, extra_param_rows
+        records, rows, sets = _expand_one(records, index, registry, source, ancestry)
+        extra_param_rows += rows
+        settings += sets
+    if check_here:
+        warn_conflicting_globals(settings, source)
+    return records, first_rows_win(extra_param_rows)

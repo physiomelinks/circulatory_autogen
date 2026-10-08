@@ -110,6 +110,10 @@ PREDICTION_INFO_CONTRACT = {
     "trace_names_for_plotting": "the axis label.",
     "item_names_for_plotting": "the item's own label.",
     "experiment_idxs": "which experiment each prediction belongs to.",
+    "data_types": "'constant' or 'series' when the prediction carries measured data, else None.",
+    "values": "the prediction's measured data (held out, not scored), else None.",
+    "stds": "the measured data's standard deviation, else None.",
+    "obs_dts": "a measured series' sample spacing, else None.",
 }
 
 
@@ -319,3 +323,37 @@ def test_an_obs_data_with_only_protocol_info_still_parses(tmp_path):
 def test_plot_colors_never_gets_its_default(mixed):
     obs_info, _ = mixed
     assert any(c is not None for c in obs_info["plot_colors"])
+
+
+@pytest.mark.unit
+def test_a_prediction_can_carry_held_out_data():
+    """Validation data lives in the obs_data it validates: a prediction_item with a value is
+    held-out data, parsed and carried through, and never scored."""
+    parser = ObsAndParamDataParser()
+    doc = {"data_items": [_const("c0")],
+           "prediction_items": [
+               {"data_item_name": "y_validation", "operands": ["main/y"], "unit": "mV",
+                "data_type": "series", "value": [1.0, 2.0, 3.0], "std": [0.1, 0.1, 0.1],
+                "obs_dt": 0.5},
+               {"data_item_name": "z", "operands": ["main/z"], "unit": "mV"}],
+           "protocol_info": {"pre_times": [0.0], "sim_times": [[1.0]]}}
+    parsed = parser.parse_obs_data_json(obs_data_dict=doc, pre_time=0.0, sim_time=1.0)
+    pred = parsed["prediction_info"]
+    assert pred["values"] == [[1.0, 2.0, 3.0], None]
+    assert pred["obs_dts"] == [0.5, None]
+    assert pred["data_types"] == ["series", None]
+    assert len({len(v) for v in pred.values()}) == 1
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("item, message", [
+    ({"value": [1.0, 2.0]}, "needs data_type"),
+    ({"value": [1.0, 2.0], "data_type": "series"}, "needs obs_dt"),
+])
+def test_held_out_data_on_a_prediction_must_say_what_it_is(item, message):
+    parser = ObsAndParamDataParser()
+    doc = {"data_items": [_const("c0")],
+           "prediction_items": [{"data_item_name": "y_v", "operands": ["main/y"], "unit": "mV", **item}],
+           "protocol_info": {"pre_times": [0.0], "sim_times": [[1.0]]}}
+    with pytest.raises(ValueError, match=message):
+        parser.parse_obs_data_json(obs_data_dict=doc, pre_time=0.0, sim_time=1.0)

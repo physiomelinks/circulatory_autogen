@@ -577,6 +577,24 @@ def aadc_licensed():
         )
 
 
+@pytest.fixture
+def skip_generated_model_checks(monkeypatch):
+    """Generate CellML without the checks that run after the files are written.
+
+    ``CVSCellMLGenerator.generate_files`` writes the model, then flattens and analyses it
+    with libCellML (writing ``<prefix>_flat.cellml``) and compiles and runs it with Myokit.
+    None of that changes the written files, and it is about three quarters of a
+    generation: generic_junction_test_closed_loop takes 22 s locally and 88 s on CI, of
+    which the analysis is 10 s and the Myokit build and run 6 s. For a test that
+    compares the files two generations write, use this; generation then succeeds
+    whenever the files are written.
+    """
+    import libcuflynx.generators.CVSCellMLGenerator as generator
+    monkeypatch.setattr(generator, 'LIBCELLML_available', False)
+    monkeypatch.setattr(generator.CVS0DCellMLGenerator, '_validate_with_myokit',
+                        lambda self, cellml_path: (True, None))
+
+
 @pytest.fixture(scope="function")
 def base_user_inputs(user_inputs_dir):
     """

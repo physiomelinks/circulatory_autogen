@@ -113,6 +113,47 @@ unchanged.
 - 1D input generation wrote an unknown artery/vein type for vessels not named `A_*`/`V_*`;
   an `art_ven_type_<vessel>` parameter now sets it.
 
+### Added — held-out data in `prediction_items`, scored after calibration
+
+A `prediction_item` may carry data that calibration never fits: `value` (with `data_type`,
+`std`, and `obs_dt` for a series). `prediction_info` gains parallel `data_types`, `values`,
+`stds` and `obs_dts` columns. After a calibration, `libcuflynx.param_id.validation` compares the
+calibrated model's prediction with the held-out data (a series at `k*obs_dt` within the run, a
+constant at the end of its experiment), and `save_prediction_data` writes
+`validation_results.json` with rmse, nrmse, mean |z|, the fraction within 2 std, and the model
+and data at the observation times. Prediction items without a `value` behave as before. See
+`tutorial/docs/parameter-identification.md`.
+
+The `std` is optional; without it there are no z-scores. When given, it is checked like a data
+item's: one finite positive number for a constant, and for a series one such number or one per
+point. A zero, negative or wrong-length `std` is a parse error naming the item.
+
+### Added — module versions and instances
+
+A module library can lay a module version out as `<module_type>/versions/<version>/` with named
+parameter sets in `instances/<instance>/<instance>_parameters.csv` (names without a vessel
+suffix). A module-array record, or a supermodule's submodule, picks one with
+`"instance": "<name>"`; without it, the config entry's `"default_instance"` is used if that file
+exists. The instance directory is found next to the config file the record's type came from.
+Rows become `{var}_{vessel}`, except the module's `global_constant`s, and are merged as default
+parameters: the host parameters file wins, then a supermodule's instance, then its
+`default_parameters`, then submodule/component instances. A supermodule entry can have instances
+too, named like `default_parameters` (`{var}_{submodule}` or global); `default_parameters` still
+works. An unknown instance is an error that lists the version's instances. Models without
+instances generate byte-identical CellML.
+
+A global constant is one value for the whole model, so when instances set one to different values
+the first is used and a `ConflictingGlobalWarning` names each value, its units and the record that
+set it. The warning is skipped when the host parameters file sets the global, and when a
+supermodule's instance overrides the instances inside it. It also says when the units differ: two
+modules then most likely mean different quantities by one name (in the module library, `T` is a
+temperature in the ion channels and a period in the cardiac clock).
+
+obs_data files accept a top-level `"obs_data_name"` (returned as `obs_data_name` by
+`parse_obs_data_json`); a file in `instances/<name>/` whose `obs_data_name` is not `<name>` is
+warned about. The JSON Schemas gain `instance` and `default_instance`, and a new
+`obs_data.schema.json` describes the top level of an obs_data file.
+
 ### Added — JSON module arrays and supermodules
 
 A module array can be a JSON list of records, `[file_prefix]_module_array.json`, with PhLynx's

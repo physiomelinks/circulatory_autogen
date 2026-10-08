@@ -444,6 +444,32 @@ You can include a `prediction_items` list in `obs_data.json` to request addition
 Together the last two replace the old **name_for_plotting**. A file still using `variable` or
 `name_for_plotting` loads with a deprecation warning; `cuflynx-migrate-obs-data` rewrites it.
 
+#### Validation data in prediction items
+
+A prediction item can also carry **held-out data**: measurements the calibration does not fit,
+which the calibrated model is then checked against. Give the item:
+
+- **value**: the data, a number (`data_type: constant`) or a list (`data_type: series`)
+- **data_type**: `constant` or `series`
+- **std** (optional): its standard deviation. For a constant this is one number. For a series it is one number for every point, or a list with one per point. Every entry must be greater than 0. Without it, the item is scored by RMSE alone.
+- **obs_dt**: the spacing of a series' samples, which start at the start of the experiment
+
+For example, fit the first 15 years of a series and validate the prediction to year 20, in one
+file with one experiment that runs to 20:
+
+```json
+"prediction_items": [
+  {"data_item_name": "x_validation", "operands": ["mod/x"], "unit": "dimensionless",
+   "data_type": "series", "value": [30.0, 47.2, "..."], "std": [7.5, 11.8, "..."], "obs_dt": 1.0}
+]
+```
+
+After a calibration, saving the prediction data (`plot_param_id`) also writes
+`validation_results.json` in the output directory: for each item with data, the RMSE, the RMSE
+over the data's range, the mean |model - data|/std and the fraction within 2 std, with the
+model and data at the observation times. A series is compared at the times the simulation
+reaches; a constant with the model's value at the end of the experiment.
+
 ## Running external cellml models
 
 Running cellml models that weren't generated with Circulatory_Autogen is also just as straightforward:

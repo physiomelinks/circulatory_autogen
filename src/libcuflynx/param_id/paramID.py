@@ -30,6 +30,7 @@ paperPlotSetup.Setup_Plot(3)
 from libcuflynx.solver_wrappers import get_simulation_helper
 from libcuflynx.protocol_runners.protocol_executor import ProtocolExecutor
 from libcuflynx.parsers.PrimitiveParsers import scriptFunctionParser
+from libcuflynx.param_id import validation
 # Not `from mpi4py import MPI`: that import initialises MPI and registers an
 # atexit MPI_Finalize, and with no launcher present that finalise is what aborts
 # on macOS when a NIC goes away (#396). get_MPI hands back the real
@@ -1588,6 +1589,21 @@ class CVS0DParamID():
                     wf.write(str(ops[0]) + '\n')
             
             print('prediction data saved')
+
+            # held-out data carried by prediction items (a value): validate the best fit
+            # against it. Entry k of time_and_pred_per_exp_list is item k's experiment, rows
+            # [time, the predictions of that experiment's items in item order].
+            exp_idxs = list(self.prediction_info['experiment_idxs'])
+            time_per_exp, pred_per_item = {}, []
+            for k, exp_idx in enumerate(exp_idxs):
+                rows = time_and_pred_per_exp_list[k]
+                time_per_exp[exp_idx] = rows[0]
+                same_exp = [j for j, e in enumerate(exp_idxs) if e == exp_idx]
+                pred_per_item.append(rows[1 + same_exp.index(k)])
+            results = validation.validation_results(self.prediction_info, time_per_exp, pred_per_item)
+            path = validation.write_validation_results(results, self.output_dir)
+            if path:
+                print(f'validation of {len(results["items"])} held-out prediction item(s) saved in {path}')
 
         else:
             print(f'prediction variables have not been defined, if you want to save predicition variables,',

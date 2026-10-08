@@ -394,6 +394,7 @@ def test_non_vessel_neighbour_of_nout_junction_keeps_its_connections(tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.slow
+@pytest.mark.usefixtures('skip_generated_model_checks')
 def test_renaming_junction_non_vessel_neighbours_changes_nothing(tmp_path):
     """generic_junction_test_open_loop has a K_tube (material_prop_visco_const, BC_type nn)
     next to every Nout_junction. Giving those K_tubes the version name ``lv_test`` instead

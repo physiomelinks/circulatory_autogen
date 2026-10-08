@@ -285,10 +285,10 @@ def test_bad_json_records_are_reported_with_file_index_and_key(tmp_path, record,
 @pytest.mark.unit
 def test_split_0d_1d_vessel_array_is_the_old_name_of_split_0d_1d_module_array(monkeypatch):
     from libcuflynx.parsers.ModelParsers import CSV0DModelParser
-    monkeypatch.setattr(CSV0DModelParser, 'split_0d_1d_module_array', lambda self, registry=None: ('split', registry))
+    monkeypatch.setattr(CSV0DModelParser, 'split_0d_1d_module_array', lambda self, registry=None, components=None: ('split', registry, components))
     parser = CSV0DModelParser.__new__(CSV0DModelParser)
     with pytest.warns(FutureWarning, match='now split_0d_1d_module_array'):
-        assert parser.split_0d_1d_vessel_array('reg') == ('split', 'reg')
+        assert parser.split_0d_1d_vessel_array('reg', 'comp') == ('split', 'reg', 'comp')
 
 
 @pytest.mark.unit
@@ -632,6 +632,7 @@ def _generate_resource(work_dir, prefix, fmt):
 
 @pytest.mark.integration
 @pytest.mark.slow
+@pytest.mark.usefixtures('skip_generated_model_checks')
 @pytest.mark.parametrize('prefix', RESOURCE_PREFIXES)
 def test_every_resources_module_array_generates_identically_as_json(tmp_path, prefix):
     if not os.path.exists(os.path.join(RESOURCES_DIR, f'{prefix}_parameters.csv')):
