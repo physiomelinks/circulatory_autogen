@@ -2,9 +2,11 @@
 
 * ``module_array.schema.json`` -- ``<prefix>_module_array.json``: a list of instance records,
   in PhLynx or libcuflynx keys, with the optional ``per_submodule_inputs`` /
-  ``per_submodule_outputs`` of a supermodule instance and the optional module ``instance``.
+  ``per_submodule_outputs`` of a supermodule instance and the optional ``parameterisation``
+  (older name ``instance``).
 * ``module_config.schema.json`` -- ``*_modules_config.json``: component entries in either key
-  style (with an optional ``default_instance``), and supermodule entries.
+  style (with an optional ``default_parameterisation``, older name ``default_instance``), and
+  supermodule entries.
 * ``obs_data.schema.json`` -- ``<name>_obs_data.json``: the top level of an obs_data file,
   including the optional ``obs_data_name``.
 
