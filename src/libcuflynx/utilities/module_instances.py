@@ -7,10 +7,10 @@ A module library (e.g. circulatory-autogen-modules) lays a module out as::
         <module_type>_<version>_modules.cellml
         <module_type>_<version>_modules_config.json   one entry, module_subtype == <version>
         <module_type>_<version>_units.cellml
-        parameterisations/<parameterisation>/
-            <parameterisation>_parameters.csv     variable_name,units,value,data_reference[,sourced]
-            <parameterisation>_obs_data.json      optional; "obs_data_name": "<parameterisation>"
-            <parameterisation>_params_for_id.csv  optional
+        parameterisations/<name>/
+            <name>_parameters.csv     variable_name,units,value,data_reference[,sourced]
+            <name>_obs_data.json      optional; "obs_data_name": "<name>"
+            <name>_params_for_id.csv  optional
 
 Parameterisations used to be called *instances* (the word now means one use of a version in
 a module array), and the old names are still read: an ``instances/`` directory is used when
@@ -59,7 +59,8 @@ PARAMETERISATIONS_DIR = 'parameterisations'
 INSTANCES_DIR = 'instances'
 # the record / config entry keys naming a parameterisation: (new, older) -> internal (older)
 PARAMETERISATION_KEY, INSTANCE_KEY = 'parameterisation', 'instance'
-DEFAULT_PARAMETERISATION_KEY, DEFAULT_INSTANCE_KEY = 'default_parameterisation', 'default_instance'
+DEFAULT_PARAMETERISATION_KEY = 'default_parameterisation'
+DEFAULT_INSTANCE_KEY = 'default_instance'
 GLOBAL_CONSTANT = 'global_constant'
 
 # the columns a parameters CSV (an instance's, or a supermodule's default_parameters) must
@@ -209,8 +210,8 @@ def instance_parameter_rows(entry, instance, where):
 
 
 class ConflictingGlobalWarning(UserWarning):
-    '''Module parameterisations set the global constant ``name`` to different values; ``values`` is
-    ``[(value, units, who)]`` in precedence order, the first used.
+    '''Module parameterisations set the global constant ``name`` to different values;
+    ``values`` is ``[(value, units, who)]`` in precedence order, the first used.
     ``ModelParsers.load_model`` drops it when the host parameters file sets ``name``.'''
 
     def __init__(self, message, name=None, values=()):
@@ -234,8 +235,8 @@ def inside(record, supermodule):
 
 def warn_conflicting_globals(settings, source):
     '''One ConflictingGlobalWarning per global in ``settings`` -- ``[(name, value, units, who,
-    record)]`` in precedence order, the first one used -- that a record's parameterisation set to a
-    different value than the one used, unless that record is inside the supermodule whose
+    record)]`` in precedence order, the first one used -- that a record's parameterisation set
+    to a different value than the one used, unless that record is inside the supermodule whose
     value is used. Different units are called out: two modules then most likely mean
     different quantities by one name (``T``, a temperature in one and a period in another).'''
     by_name = {}
@@ -264,7 +265,8 @@ def warn_conflicting_globals(settings, source):
 def reissue_warnings(held, settled=()):
     '''Re-issues the warnings in ``held`` (a ``catch_warnings(record=True)`` list), except a
     ``ConflictingGlobalWarning`` for a global in ``settled``: one a higher level of precedence
-    (a supermodule parameterisation, or the host parameters file) sets, which ends the conflict.'''
+    (a supermodule parameterisation, or the host parameters file) sets, which ends the
+    conflict.'''
     for w in held:
         if isinstance(w.message, ConflictingGlobalWarning) and w.message.name in settled:
             continue
@@ -291,9 +293,9 @@ def component_instance_rows(records, component_registry, source=None, settings=N
     A record naming a parameterisation of a type with no config entry is an error; one naming
     none of such a type is left to the module-config join to report.
 
-    The globals the parameterisations set are added to ``settings`` (see ``warn_conflicting_globals``)
-    when it is given, for the caller to check with the supermodules'; otherwise they are
-    checked here.
+    The globals the parameterisations set are added to ``settings`` (see
+    ``warn_conflicting_globals``) when it is given, for the caller to check with the
+    supermodules'; otherwise they are checked here.
     '''
     source = source or 'module array'
     rows = []
@@ -317,8 +319,9 @@ def component_instance_rows(records, component_registry, source=None, settings=N
             if row['variable_name'] not in globals_:
                 row['variable_name'] = f'{row["variable_name"]}_{record["name"]}'
             else:
-                settings.append((row['variable_name'], row['value'], row['units'],
-                                 f'"{record["name"]}" (parameterisation "{used}")', record['name']))
+                who = f'"{record["name"]}" (parameterisation "{used}")'
+                settings.append((row['variable_name'], row['value'], row['units'], who,
+                                 record['name']))
             rows.append(row)
     if check_here:
         warn_conflicting_globals(settings, source)

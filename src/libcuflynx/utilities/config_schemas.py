@@ -46,9 +46,9 @@ libcuflynx              PhLynx              meaning
 ======================  ==================  ===============================================
 
 A submodule's inp/out lists name sibling submodules only, and it may name its own
-``parameterisation`` (older name ``instance``). A submodule may itself be a supermodule instance, with its own
-``per_submodule_inputs``/``per_submodule_outputs`` naming siblings. ``default_parameters``
-rows (and those of the supermodule's own parameterisations) are
+``parameterisation`` (older name ``instance``). A submodule may itself be a supermodule
+instance, with its own ``per_submodule_inputs``/``per_submodule_outputs`` naming siblings.
+``default_parameters`` rows (and those of the supermodule's own parameterisations) are
 ``variable_name,units,value,data_reference``; a row named ``{var}_{submodule}`` is a local
 parameter of that submodule, any other row a global. ``default_parameters`` is kept for
 backwards compatibility; new supermodules should put their parameters in a parameterisation.
@@ -118,8 +118,8 @@ import pandas as pd
 
 from libcuflynx.generators.multi_port import normalise_port_multi_port
 from libcuflynx.utilities.module_instances import (
-    PARAMETER_COLUMNS, check_instance_name, merge_renamed_key, PARAMETERISATION_KEY, INSTANCE_KEY,
-    DEFAULT_PARAMETERISATION_KEY, DEFAULT_INSTANCE_KEY)
+    PARAMETER_COLUMNS, check_instance_name, merge_renamed_key, PARAMETERISATION_KEY,
+    INSTANCE_KEY, DEFAULT_PARAMETERISATION_KEY, DEFAULT_INSTANCE_KEY)
 
 # PhLynx key -> libcuflynx key, for module config entries
 PHLYNX_MODULE_KEYS = {
@@ -342,8 +342,9 @@ def load_component_registry(config_files):
     '''
     ``{(vessel_type, BC_type): component entry}`` for every component entry in
     ``config_files``, each a normalised copy with ``config_path`` (the file it came from), in
-    whose directory its ``parameterisations/`` are looked for (``utilities/module_instances.py``). A
-    type defined twice keeps its first entry; the module-config join reports the duplicate.
+    whose directory its ``parameterisations/`` are looked for
+    (``utilities/module_instances.py``). A type defined twice keeps its first entry; the
+    module-config join reports the duplicate.
     '''
     registry = {}
     for path in config_files:
@@ -358,7 +359,8 @@ def load_supermodule_registry(config_files):
     '''
     ``{(vessel_type, BC_type): supermodule entry}`` for every supermodule entry in
     ``config_files``. Each entry also gets ``config_path`` (the file it came from), against
-    whose directory its ``default_parameters`` and ``parameterisations/`` are resolved. Raises ValueError if the same
+    whose directory its ``default_parameters`` and ``parameterisations/`` are resolved.
+    Raises ValueError if the same
     (vessel_type, BC_type) supermodule is defined twice.
     '''
     registry = {}

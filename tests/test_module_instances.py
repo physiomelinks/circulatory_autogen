@@ -388,7 +388,8 @@ def test_an_instance_of_a_config_without_instances_is_an_error(tmp_path, library
     # synthetic: every real module version has an instances/ directory
     records = [_rec('s', 'pulse_src', 'v2', out=['coll'], instance='default'),
                _rec('coll', 'collector', inp=['s'])]
-    with pytest.raises(ValueError, match=r'has no parameterisations/ \(or older instances/\) directory'):
+    with pytest.raises(ValueError,
+                       match=r'has no parameterisations/ \(or older instances/\) directory'):
         _load(tmp_path, library, records)
 
 
@@ -754,8 +755,9 @@ def test_the_new_layout_loads_the_same_parameters_as_the_old_one(tmp_path, libra
                                                                   new_layout_library):
     found = {}
     for layout, lib in (('old', library), ('new', new_layout_library)):
+        directory = 'parameterisations' if layout == 'new' else 'instances'
         assert os.path.isdir(os.path.join(lib[0], 'sources', 'pulse_src', 'versions', 'v1',
-                                          'parameterisations' if layout == 'new' else 'instances'))
+                                          directory))
         for spelling, records in _records_both_spellings().items():
             work = tmp_path / f'{layout}_{spelling}'
             work.mkdir()
