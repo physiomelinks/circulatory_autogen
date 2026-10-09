@@ -71,7 +71,8 @@ simulated during calibration: not in any cost path, the best-fit check, or the
 all-outputs npz. It is simulated for the prediction data and validation, and for SA/emulator
 training only when a prediction feature needs it. A one-line message names such experiments.
 `libcuflynx.parsers.PrimitiveParsers.cost_experiment_idxs(protocol_info)` lists the ones the
-cost uses.
+cost uses. An obs_data with no data_items at all has nothing to fit: calibration and UQ refuse it
+with a ValueError before simulating anything (it used to crash with an IndexError).
 
 **Scalar or series.** Every data_item and prediction_item is a scalar (`constant`: value and
 std are numbers) or a series (`series`: value is a list, std is a number or a list of the same

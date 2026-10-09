@@ -873,6 +873,30 @@ def test_a_validation_only_experiment_is_not_calibrated_but_is_validated(
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.mpi
+def test_calibration_without_data_items_is_refused(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm,
+        tmp_path, monkeypatch):
+    """An obs_data with prediction items but no data_items has nothing to fit: calibration
+    and UQ refuse it, naming the reason, before anything is simulated."""
+    _, doc = _validation_obs(tmp_path, resources_dir)
+    doc['data_items'] = []
+    obs_path = tmp_path / 'no_data_items_obs_data.json'
+    obs_path.write_text(json.dumps(doc))
+    config = _benchmark_config(base_user_inputs, resources_dir, temp_output_dir,
+                               temp_generated_models_dir, str(obs_path))
+    _generate(config, mpi_comm)
+    pid = CVS0DParamID.init_from_dict(config)
+    spy = _RunSpy(monkeypatch)
+    with pytest.raises(ValueError, match='no data_items, so there is nothing for calibration'):
+        pid.run()
+    with pytest.raises(ValueError, match='nothing for uncertainty quantification'):
+        pid.run_UQ()
+    assert spy.calls == []
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.mpi
 def test_sa_computes_a_feature_from_a_validation_only_experiment(
         base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm,
         tmp_path, monkeypatch):

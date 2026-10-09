@@ -4520,7 +4520,8 @@ class ObsAndParamDataParser(object):
         # --- Experiments the cost uses ---
         # One no data_item belongs to only serves prediction items (validation), so the
         # calibration does not simulate it (cost_experiment_idxs). With no data_items at all
-        # there is nothing to calibrate, and every experiment is kept, as before.
+        # every experiment is kept, as before, for the analyses that need no data_item; a
+        # calibration refuses such a file (CVS0DParamID._require_data_items).
         referenced = sorted({int(e) for e in df["experiment_idx"]}) if len(df) else []
         if referenced:
             protocol["cost_experiment_idxs"] = [e for e in range(N_exp) if e in referenced]
