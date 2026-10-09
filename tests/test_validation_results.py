@@ -68,8 +68,8 @@ def test_a_held_out_series_std_is_one_number_or_one_per_point(std, expected):
 @pytest.mark.unit
 @pytest.mark.parametrize('item, match', [
     # a list shorter than the series used to raise an IndexError while scoring
-    (_series([0.1, 0.2]), 'has 2 entries but the series has 3 points'),
-    (_series([0.1, 0.2, 0.3, 0.4]), 'has 4 entries but the series has 3 points'),
+    (_series([0.1, 0.2]), 'series of 3 values but has 2 stds'),
+    (_series([0.1, 0.2, 0.3, 0.4]), 'series of 3 values but has 4 stds'),
     # a zero std used to drop the z-scores of the whole item, silently
     (_series([0.1, 0.0, 0.3]), 'finite and > 0'),
     (_series(0.0), 'finite and > 0'),
@@ -77,7 +77,7 @@ def test_a_held_out_series_std_is_one_number_or_one_per_point(std, expected):
     ({"data_item_name": "c", "operands": ["main/c"], "unit": "m3", "data_type": "constant",
       "value": 4.0, "std": 0.0}, 'finite and > 0'),
     ({"data_item_name": "c", "operands": ["main/c"], "unit": "m3", "data_type": "constant",
-      "value": 4.0, "std": [1.0]}, "a constant's 'std' is one number"),
+      "value": 4.0, "std": [1.0]}, 'its std must be a single number'),
 ])
 def test_a_bad_held_out_std_is_a_parse_error_naming_the_item(item, match):
     with pytest.raises(ValueError, match=match):

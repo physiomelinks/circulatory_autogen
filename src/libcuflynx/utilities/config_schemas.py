@@ -327,28 +327,33 @@ def load_module_config(path, include_supermodules=False):
     return [e for e in entries if not is_supermodule_entry(e)]
 
 
-def load_component_registry(config_files):
+def load_component_registry(config_files, exclude=()):
     '''
     ``{(vessel_type, BC_type): component entry}`` for every component entry in
     ``config_files``, each a normalised copy with ``config_path`` (the file it came from), in
-    whose directory its ``instances/`` are looked for (``utilities/module_instances.py``). A
-    type defined twice keeps its first entry; the module-config join reports the duplicate.
+    whose directory its ``instances/`` are looked for (``utilities/module_instances.py``).
+    ``exclude`` holds ``(config file, key)`` pairs to leave out: the definitions a more specific
+    module source shadows (``ModuleSources.excluded_entries``; ``ModuleSources.
+    component_registry()`` passes them). Otherwise a type defined twice keeps its first entry.
     '''
     registry = {}
     for path in config_files:
         for entry in load_module_config(path):
             key = (entry['vessel_type'], entry['BC_type'])
+            if (str(path), key) in exclude:
+                continue
             if key not in registry:
                 registry[key] = dict(entry, config_path=str(path))
     return registry
 
 
-def load_supermodule_registry(config_files):
+def load_supermodule_registry(config_files, exclude=()):
     '''
     ``{(vessel_type, BC_type): supermodule entry}`` for every supermodule entry in
     ``config_files``. Each entry also gets ``config_path`` (the file it came from), against
     whose directory its ``default_parameters`` and ``instances/`` are resolved. Raises ValueError if the same
-    (vessel_type, BC_type) supermodule is defined twice.
+    (vessel_type, BC_type) supermodule is defined twice. ``exclude`` is as in
+    ``load_component_registry``.
     '''
     registry = {}
     for path in config_files:
@@ -360,6 +365,8 @@ def load_supermodule_registry(config_files):
             if not is_supermodule_entry(entry):
                 continue
             key = (entry['vessel_type'], entry['BC_type'])
+            if (str(path), key) in exclude:
+                continue
             if key in registry:
                 raise ValueError(f'supermodule {key} is defined twice: in '
                                  f'{registry[key]["config_path"]} and in {path}.')

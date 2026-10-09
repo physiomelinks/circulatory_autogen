@@ -11,7 +11,7 @@ import pytest
 
 from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
 from libcuflynx.solver_wrappers import get_simulation_helper
-from libcuflynx.utilities.module_library import ModuleSources, collect_units
+from libcuflynx.utilities.module_library import ModuleShadowWarning, ModuleSources, collect_units
 from libcuflynx.utilities.package_resources import builtin_modules_dir
 
 DECAY_CELLML = """\
@@ -151,15 +151,21 @@ def test_module_library_redefines_builtin_when_builtins_off(tmp_path):
 
 
 @pytest.mark.integration
-def test_module_library_duplicate_of_builtin_rejected_when_builtins_on(tmp_path):
-    """Default behaviour is kept: redefining a built-in pair is still a duplicate."""
+def test_module_library_redefines_builtin_with_a_warning_when_builtins_on(tmp_path):
+    """With built-ins on, a library's redefinition of a built-in pair wins over it (the more
+    specific source), with a ModuleShadowWarning: it used to stop generation as a duplicate.
+    See also tests/test_module_source_precedence.py."""
     library_dir = str(tmp_path / 'library')
     _write_module(library_dir, 'Lotka_Volterra', 'Lotka_Volterra', 'Lotka_Volterra_lib')
     _write_resources(str(tmp_path / 'resources'), 'lib_lv_dup', 'Lotka_Volterra')
 
     config = _config(tmp_path, 'lib_lv_dup', library_dir, use_builtin_modules=None)
-    with pytest.raises(SystemExit):
-        generate_with_new_architecture(False, config)
+    with pytest.warns(ModuleShadowWarning, match='Lotka_Volterra/nn'):
+        assert generate_with_new_architecture(False, config)
+    modules_text = (tmp_path / 'generated_models' / 'lib_lv_dup'
+                    / 'lib_lv_dup_modules.cellml').read_text()
+    assert '<component name="Lotka_Volterra_lib"' in modules_text
+    assert '<component name="Lotka_Volterra">' not in modules_text
 
 
 def test_module_sources_default_is_builtin_library():

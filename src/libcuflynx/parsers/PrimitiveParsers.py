@@ -676,7 +676,127 @@ def _empty_prediction_info():
     """
     return {'operands': [], 'units': [], 'data_item_names': [],
             'trace_names_for_plotting': [], 'item_names_for_plotting': [],
-            'experiment_idxs': [], 'data_types': [], 'values': [], 'stds': [], 'obs_dts': []}
+            'experiment_idxs': [], 'data_types': [], 'values': [], 'stds': [], 'obs_dts': [],
+            'operations': [], 'operation_kwargs': [], 'subexperiment_idxs': []}
+
+
+def cost_experiment_idxs(protocol_info):
+    """The experiments a calibration simulates: those a data_item belongs to.
+
+    An experiment no data_item references (one only prediction items use -- a validation or
+    prediction experiment) contributes nothing to the cost, so the cost paths never run it; it
+    is simulated after calibration for the predictions and their validation, and for SA or
+    emulator training only when a prediction feature is measured in it. Set by
+    ``process_protocol_and_weights``; every experiment when absent (a hand-built protocol).
+    """
+    protocol_info = protocol_info or {}
+    idxs = protocol_info.get('cost_experiment_idxs')
+    if idxs is None:
+        num = protocol_info.get('num_experiments', len(protocol_info.get('sim_times') or []))
+        return list(range(int(num)))
+    return list(idxs)
+
+
+def check_value_shape(where, data_type, value, std, obs_dt):
+    """An item is a scalar or a series, never both: the shape of its data must say which.
+
+    ``constant``: ``value`` and ``std`` are single numbers. ``series``: ``value`` is a list,
+    ``std`` a number or a list of the same length, and ``obs_dt`` is set. Missing data (a
+    distribution-costed item, a prediction without held-out data) is not checked; neither is
+    ``frequency``, which has its own rules. Shared by data_items and prediction_items.
+    """
+    def is_list(x):
+        return isinstance(x, (list, tuple, np.ndarray)) and np.ndim(x) >= 1
+
+    def missing(x):
+        if x is None:
+            return True
+        if is_list(x):
+            return False
+        try:
+            return bool(pd.isna(x))
+        except (TypeError, ValueError):
+            return False
+
+    if data_type == 'constant':
+        if not missing(value) and is_list(value):
+            raise ValueError(
+                f"{where} is data_type 'constant', so its value must be a single number, not a "
+                f"list of {len(value)}. A list of values over time is data_type 'series' (with "
+                f"obs_dt).")
+        if not missing(std) and is_list(std):
+            raise ValueError(
+                f"{where} is data_type 'constant', so its std must be a single number, not a "
+                f"list.")
+    elif data_type == 'series':
+        if missing(value):
+            return
+        if not is_list(value):
+            raise ValueError(
+                f"{where} is data_type 'series', so its value must be a list of samples (k * "
+                f"obs_dt apart), not the single number {value!r}. A single number is data_type "
+                f"'constant'.")
+        if not missing(std) and is_list(std) and len(std) not in (1, len(value)):
+            raise ValueError(
+                f"{where} is a series of {len(value)} values but has {len(std)} stds; give one "
+                f"std per value, or a single number.")
+        if missing(obs_dt):
+            raise ValueError(
+                f"{where} is data_type 'series', so it needs obs_dt: the spacing of its samples "
+                f"in seconds.")
+
+
+#: How an obs_data file may spell "no operation". The same set process_obs_info treats as None.
+_NO_OPERATION_SPELLINGS = ('', 'None', 'none', 'Null', 'null', 'nan')
+
+
+def check_prediction_operation_references(gt_df, prediction_info):
+    """A prediction item's ``operation_kwargs`` may name an *earlier prediction item* only,
+    and only one that has an operation and is not a series.
+
+    A string kwarg value equal to an item's ``data_item_name`` is a reference to that item's
+    value (#466). For a prediction feature only the prediction items are evaluated together
+    -- the validation after calibration has no data_item features -- so a reference to a
+    data_item, or to a later prediction item, could not be resolved the same way everywhere.
+    Sensitivity analysis and emulator training evaluate only the scalar prediction items, so a
+    reference to an item without an operation, or to a series, has no value there either: it
+    used to reach the operation as the item's name, a string (``TypeError``, or a plausible
+    wrong number). Refused here, at parse time, rather than as a confusing error after a
+    simulation.
+    """
+    if not prediction_info:
+        return
+    data_names = set()
+    if gt_df is not None and len(gt_df) and "data_item_name" in gt_df.columns:
+        data_names = {str(name) for name in gt_df["data_item_name"]}
+    pred_names = [str(name) for name in (prediction_info.get("data_item_names") or [])]
+    operations = list(prediction_info.get("operations") or [None] * len(pred_names))
+    data_types = list(prediction_info.get("data_types") or [None] * len(pred_names))
+    for idx, kwargs in enumerate(prediction_info.get("operation_kwargs") or []):
+        for key, value in (kwargs or {}).items():
+            if not isinstance(value, str):
+                continue
+            if value in data_names:
+                raise ValueError(
+                    f"prediction_items[{idx}] ('{pred_names[idx]}'): operation_kwargs {key!r} "
+                    f"references data_item {value!r}. A prediction item's operation_kwargs may "
+                    f"reference earlier prediction_items only.")
+            if value in pred_names[idx:]:
+                raise ValueError(
+                    f"prediction_items[{idx}] ('{pred_names[idx]}'): operation_kwargs {key!r} "
+                    f"references prediction item {value!r}, which is not earlier in "
+                    f"prediction_items. References are resolved in order; move {value!r} "
+                    f"before '{pred_names[idx]}'.")
+            if value in pred_names[:idx]:
+                ref = pred_names.index(value)
+                if operations[ref] is None or data_types[ref] == 'series':
+                    what = 'has no operation' if operations[ref] is None else "is a series"
+                    raise ValueError(
+                        f"prediction_items[{idx}] ('{pred_names[idx]}'): operation_kwargs {key!r} "
+                        f"references prediction item {value!r}, which {what}. A reference must "
+                        f"name an earlier prediction item with an operation that gives one "
+                        f"number (data_type 'constant', or no data_type and an operation such "
+                        f"as 'max' or 'mean'): only those have a value in every analysis.")
 
 
 def migrate_legacy_obs_columns(gt_df):
@@ -1717,6 +1837,19 @@ ANALYSIS_OPTIONS = {
             {'name': 'num_samples', 'type': 'int', 'default': 32, 'required': False,
              'description': ('Base sample count; the actual number of runs is num_samples*(2M+2) '
                              'for Sobol, where M is the number of parameters.')},
+            # Read by sobol_SA (both methods go through it for their options) and by
+            # run_local_sensitivity. Off, the outputs are exactly the data_item features, as
+            # they always were.
+            {'name': 'include_prediction_items', 'type': 'bool', 'default': False,
+             'required': False,
+             'description': ('Also report the sensitivity of the obs_data prediction_items that '
+                             'are scalar features, as extra outputs labelled by their '
+                             'data_item_name: an item with an operation and data_type '
+                             'constant, or no data and a reducing operation such as max. The '
+                             'others (no operation, or a series) are skipped with a warning '
+                             'naming them. A feature measured in an experiment with no '
+                             'data_items makes the SA simulate that experiment too. With use_emulator, the emulator must have been trained with '
+                             'emulator_settings.include_prediction_items.')},
         ],
     },
     # Named 'uq' rather than 'mcmc' because MCMC is one method of uncertainty quantification, not
@@ -1953,6 +2086,17 @@ ANALYSIS_OPTIONS = {
             {'name': 'fd_rel_step', 'type': 'float', 'default': 1e-3, 'required': False,
              'description': ('Relative step for the finite-difference gradient over the '
                              'emulator, which is the only gradient source an emulator has.')},
+            # Read by EmulatorTrainer. The prediction features are appended after the data_item
+            # features and fingerprinted separately, so a calibration using the emulator still
+            # reads (and checks) only the data_item features.
+            {'name': 'include_prediction_items', 'type': 'bool', 'default': False,
+             'required': False,
+             'description': ('Also train the emulator on the obs_data prediction_items that are '
+                             'scalar features (an operation, and data_type constant or no data), '
+                             'so a sensitivity analysis with '
+                             'sa_options.include_prediction_items can use it. The others (no '
+                             'operation, or a series) are skipped with a warning naming them. Calibration with the emulator '
+                             'still fits the data_item features only.')},
         ],
     },
 }
@@ -2674,6 +2818,7 @@ class YamlFileParser(object):
         emulator_settings.setdefault('min_r2', 0.9)
         emulator_settings.setdefault('out_of_bounds', 'error')
         emulator_settings.setdefault('fd_rel_step', 1e-3)
+        emulator_settings.setdefault('include_prediction_items', False)
 
         # Parse optimiser_options - this is the new unified way to specify options
         # Handle backwards compatibility: if ga_options or debug_ga_options is specified, merge into optimiser_options
@@ -3172,17 +3317,20 @@ class JSONFileParser(object):
         # match '.json' but are binary and blow up json.load, so skip them here (issue #83).
         return file.endswith('.json') and not file.startswith('._')
 
-    def module_config_to_dataframe(self, json_path):
+    def module_config_to_dataframe(self, json_path, exclude=()):
         """The component entries of one module config JSON file, in either the libcuflynx or
         the PhLynx schema, as a dataframe with libcuflynx column names (see
-        utilities/config_schemas.py). Supermodule entries are left out."""
-        return pd.DataFrame(load_module_config(json_path))
+        utilities/config_schemas.py). Supermodule entries are left out, and so are the
+        ``(file, (vessel_type, BC_type))`` pairs in ``exclude``."""
+        return pd.DataFrame([e for e in load_module_config(json_path)
+                             if (str(json_path), (e['vessel_type'], e['BC_type'])) not in exclude])
 
-    def json_files_to_dataframe(self, json_files):
-        """All module config entries from ``json_files``, in order, as one dataframe."""
+    def json_files_to_dataframe(self, json_files, exclude=()):
+        """All module config entries from ``json_files``, in order, as one dataframe, without
+        those in ``exclude`` (``ModuleSources.excluded_entries``: shadowed definitions)."""
         # a file of supermodule entries only gives an empty frame: those entries are read by
         # config_schemas.load_supermodule_registry, never joined as components
-        dfs = [self.module_config_to_dataframe(path) for path in json_files]
+        dfs = [self.module_config_to_dataframe(path, exclude) for path in json_files]
         dfs = [df for df in dfs if not df.empty]
         if not dfs:
             raise ValueError('No module config JSON files were found: check use_builtin_modules, '
@@ -3498,6 +3646,11 @@ class ObsAndParamDataParser(object):
                 if dtype != "series":
                     hydrated.append(item)
                     continue
+                # A single number is not a series: say so before the series helpers try to
+                # take its length (obs_dt is checked after hydration, which may supply it).
+                check_value_shape(f"data_items[{len(hydrated)}] "
+                                  f"('{item.get('data_item_name', '<unknown>')}')",
+                                  'series', item.get("value"), None, 1.0)
 
                 t_path = item.get("t_path")
                 value_path = item.get("value_path")
@@ -3693,8 +3846,19 @@ class ObsAndParamDataParser(object):
                     "std": {"types": (int, float, np.integer, np.floating, list, tuple, np.ndarray),
                             "default": None},
                     "obs_dt": {"types": (int, float, np.integer, np.floating), "default": None},
+                    # Optional reduction of the operands to one number, with the same vocabulary
+                    # as a data_item's. An item with an operation is a scalar *feature*: held-out
+                    # data is compared with operation(operands), and sensitivity analysis and
+                    # emulator training can include it (include_prediction_items).
+                    "operation": {"types": (str,), "default": None},
+                    "operation_kwargs": {"types": (dict,), "default": None},
+                    # The sub-experiment of experiment_idx the item's operands are recorded over;
+                    # defaults to that experiment's last one.
+                    "subexperiment_idx": {"types": (int, np.integer), "default": None},
                 }
-                optional_ground_truth = ("data_type", "value", "std", "obs_dt")
+                optional_ground_truth = ("data_type", "value", "std", "obs_dt",
+                                         "operation", "operation_kwargs", "subexperiment_idx")
+                pred_sim_times = (protocol_info or {}).get('sim_times') or [[None]]
 
                 prediction_info = _empty_prediction_info()
                 for entry_idx, raw_entry in enumerate(prediction_items):
@@ -3745,21 +3909,50 @@ class ObsAndParamDataParser(object):
                         entry['trace_name_for_plotting'])
                     prediction_info['item_names_for_plotting'].append(
                         entry['item_name_for_plotting'])
+                    where = f"prediction_items[{entry_idx}] ('{entry['data_item_name']}')"
+                    exp_idx = int(entry['experiment_idx'])
+                    if not 0 <= exp_idx < len(pred_sim_times):
+                        raise ValueError(
+                            f"{where}: experiment_idx {exp_idx} is not an experiment of "
+                            f"protocol_info, which has {len(pred_sim_times)}.")
+                    num_sub = len(pred_sim_times[exp_idx])
+                    sub_idx = entry['subexperiment_idx']
+                    sub_idx = num_sub - 1 if sub_idx is None else int(sub_idx)
+                    if not 0 <= sub_idx < num_sub:
+                        raise ValueError(
+                            f"{where}: subexperiment_idx {sub_idx} is not a sub-experiment of "
+                            f"experiment {exp_idx}, which has {num_sub}.")
                     prediction_info['experiment_idxs'].append(entry['experiment_idx'])
-                    if entry['value'] is not None:
-                        if entry['data_type'] not in ('constant', 'series'):
-                            raise ValueError(
-                                f"prediction_items[{entry_idx}] has a value, so it needs data_type "
-                                f"'constant' or 'series', got {entry['data_type']!r}")
-                        if entry['data_type'] == 'series' and entry['obs_dt'] is None:
-                            raise ValueError(
-                                f"prediction_items[{entry_idx}] is a series with a value, so it needs obs_dt")
-                        if entry['std'] is not None:
-                            entry['std'] = _held_out_std(entry, entry_idx)
+                    prediction_info['subexperiment_idxs'].append(sub_idx)
+                    if entry['value'] is not None and entry['data_type'] is None:
+                        raise ValueError(
+                            f"{where} has a value, so it needs data_type 'constant' or "
+                            f"'series'.")
+                    if entry['data_type'] is not None and entry['data_type'] not in (
+                            'constant', 'series'):
+                        raise ValueError(
+                            f"{where}: data_type must be 'constant' or 'series', got "
+                            f"{entry['data_type']!r}.")
+                    check_value_shape(where, entry['data_type'], entry['value'], entry['std'],
+                                      entry['obs_dt'])
+                    if entry['value'] is not None and entry['std'] is not None:
+                        entry['std'] = _held_out_std(entry, entry_idx)
+                    operation = entry['operation']
+                    if operation is not None and str(operation).strip() in _NO_OPERATION_SPELLINGS:
+                        operation = None
+                    operation_kwargs = entry['operation_kwargs'] or {}
+                    if operation_kwargs and operation is None:
+                        raise ValueError(
+                            f"prediction_items[{entry_idx}] ('{entry['data_item_name']}') has "
+                            f"operation_kwargs but no operation. operation_kwargs are the "
+                            f"keyword arguments of the operation func; name the operation, or "
+                            f"drop operation_kwargs.")
                     prediction_info['data_types'].append(entry['data_type'])
                     prediction_info['values'].append(entry['value'])
                     prediction_info['stds'].append(entry['std'])
                     prediction_info['obs_dts'].append(entry['obs_dt'])
+                    prediction_info['operations'].append(operation)
+                    prediction_info['operation_kwargs'].append(dict(operation_kwargs))
             else:
                 prediction_info = _empty_prediction_info()
             
@@ -3933,6 +4126,13 @@ class ObsAndParamDataParser(object):
                     "Invalid data_item value types:\n" + "\n".join(type_errors)
                 )
 
+            # A scalar item carries a number, a series a list -- never the other.
+            for row_idx in range(len(gt_df)):
+                row = gt_df.iloc[row_idx]
+                check_value_shape(
+                    f"data_items[{row_idx}] ('{row['data_item_name']}')", row["data_type"],
+                    row["value"], row["std"], row["obs_dt"])
+
         warn_if_casadi_nonzero_pre_time(
             model_type,
             pre_time=pre_time,
@@ -3942,6 +4142,7 @@ class ObsAndParamDataParser(object):
         )
 
         check_data_item_names_unique(gt_df, prediction_info)
+        check_prediction_operation_references(gt_df, prediction_info)
 
         return {
             "gt_df": gt_df, 
@@ -4315,6 +4516,23 @@ class ObsAndParamDataParser(object):
                     0.0,
                 )
                 phase_map[exp_idx][this_sub_idx] = phase_weights
+
+        # --- Experiments the cost uses ---
+        # One no data_item belongs to only serves prediction items (validation), so the
+        # calibration does not simulate it (cost_experiment_idxs). With no data_items at all
+        # every experiment is kept, as before, for the analyses that need no data_item; a
+        # calibration refuses such a file (CVS0DParamID._require_data_items).
+        referenced = sorted({int(e) for e in df["experiment_idx"]}) if len(df) else []
+        if referenced:
+            protocol["cost_experiment_idxs"] = [e for e in range(N_exp) if e in referenced]
+        else:
+            protocol["cost_experiment_idxs"] = list(range(N_exp))
+        not_fitted = [e for e in range(N_exp) if e not in protocol["cost_experiment_idxs"]]
+        if not_fitted:
+            from libcuflynx.utilities.mpi_utils import get_MPI
+            if get_MPI().COMM_WORLD.Get_rank() == 0:
+                print(f"experiment(s) {not_fitted} have no data_items: prediction/validation "
+                      f"only, not simulated during calibration.")
 
         # --- Store Final Maps in protocol_info ---
         protocol["scaled_weight_const_from_exp_sub"] = const_map
