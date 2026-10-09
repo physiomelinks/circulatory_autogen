@@ -73,7 +73,7 @@ The module array can also be a JSON file, `[file_prefix]_module_array.json`: a l
 ]
 ```
 
-A record uses PhLynx's keys, as above, or the libcuflynx keys `name, vessel_type, BC_type, inp_vessels, out_vessels`. A record that mixes the two is an error. `name` and the type and subtype are required. The input and output lists are optional JSON lists; a space-separated string is accepted too. A record may also name the module instance whose parameters it uses, `"instance": "[instance]"` (see [Module versions and instances](#module-versions-and-instances)). Other keys are allowed, and keys holding plain values become extra columns, as extra CSV columns do.
+A record uses PhLynx's keys, as above, or the libcuflynx keys `name, vessel_type, BC_type, inp_vessels, out_vessels`. A record that mixes the two is an error. `name` and the type and subtype are required. The input and output lists are optional JSON lists; a space-separated string is accepted too. A record may also name the parameterisation whose parameters it uses, `"parameterisation": "[name]"` (older name `"instance"`; see [Module versions and parameterisations](#module-versions-and-parameterisations)). Other keys are allowed, and keys holding plain values become extra columns, as extra CSV columns do.
 
 A CSV module array is read by converting each row to this record first, so a CSV and its JSON conversion generate byte-identical models. The generator looks for the module array in this order: `[file_prefix]_module_array.json`, then `[file_prefix]_module_array.csv`. Module arrays used to be called vessel arrays: a `[file_prefix]_vessel_array.json` or `.csv` is still read, with a warning asking you to rename it.
 
@@ -218,15 +218,15 @@ A supermodule is a named group of modules that a module array uses like one modu
    {"name": "clock", "module_type": "cardiac_clock", "module_subtype": "nn", "inp_instances": [], "out_instances": ["ra", "rv", "la", "lv"]},
    {"name": "ra", "module_type": "chamber", "module_subtype": "vv", "inp_instances": ["clock"], "out_instances": ["trv"]}
  ],
- "default_instance": "adult"}
+ "default_parameterisation": "adult"}
 ```
 
 - **module_type / module_subtype** (or **vessel_type / BC_type**): the type that instances name in a module array.
 - **module_format**: `"supermodule"`. A supermodule has no `component_file`/`component_type`; it is never a component module, and its type may not also be a component module's type.
 - **submodules**: module-array records, in either key style. Their names are local to the supermodule, and their input and output lists name other submodules only.
-- **default_instance** (optional): the [instance](#module-versions-and-instances) used when a module-array record names none. A supermodule instance's parameters file has the usual `variable_name,units,value,data_reference` columns; a row named `[variable]_[submodule]` is a parameter of that submodule, and any other row is a global.
-- **default_parameters** (optional, kept for backwards compatibility): a parameters CSV, relative to the config file's directory, with the same rows as an instance's parameters file. New supermodules should use an instance instead.
-- A submodule record may name its own `"instance"`.
+- **default_parameterisation** (optional; older name `default_instance`): the [parameterisation](#module-versions-and-parameterisations) used when a module-array record names none. A supermodule parameterisation's parameters file has the usual `variable_name,units,value,data_reference` columns; a row named `[variable]_[submodule]` is a parameter of that submodule, and any other row is a global.
+- **default_parameters** (optional, kept for backwards compatibility): a parameters CSV, relative to the config file's directory, with the same rows as a parameterisation's parameters file. New supermodules should use a parameterisation instead.
+- A submodule record may name its own `"parameterisation"`.
 - **description** (optional).
 
 An instance in a module array names the supermodule's type and links its hosts, the modules outside it, to individual submodules:
@@ -245,57 +245,60 @@ Before anything else reads the module array, each instance is replaced, at its p
 - the hosts in `per_submodule_inputs["ra"]` come first in `heart_ra`'s inputs, and the hosts in `per_submodule_outputs["ra"]` last in its outputs;
 - in a host, the instance name is replaced, in place, by every `heart_[submodule]` that the instance links it to.
 
-So parameters and outputs are named after the expanded modules, e.g. `E_heart_lv`, `heart_lv/q`. The supermodule's instance parameters and default parameters are renamed in the same way (`[variable]_[submodule]` becomes `[variable]_[instance]_[submodule]`; the suffix is matched against the submodule names, longest first). They are used for every name that `[file_prefix]_parameters.csv` does not set, so values in your parameters file always win. A global used by several instances is added once. The supermodule's values win over those of its submodules' own instances.
+So parameters and outputs are named after the expanded modules, e.g. `E_heart_lv`, `heart_lv/q`. The supermodule's parameterisation and default parameters are renamed in the same way (`[variable]_[submodule]` becomes `[variable]_[instance]_[submodule]`; the suffix is matched against the submodule names, longest first). They are used for every name that `[file_prefix]_parameters.csv` does not set, so values in your parameters file always win. A global used by several parameterisations is added once. The supermodule's values win over those of its submodules' own parameterisations.
 
 A submodule can itself be a supermodule instance, with its own `per_submodule_inputs`/`per_submodule_outputs` naming its siblings; it is expanded in turn. A supermodule that contains itself, directly or through others, is an error.
 
 Expansion stops with an error that names the file, the instance and the key when a `per_submodule_*` names a submodule that does not exist, or a host that does not exist or does not list the instance back; when a module lists the instance but no `per_submodule_*` entry links them; when an expanded name is already in the array; or when no supermodule of the instance's type was found. An instance named `heart` is not treated as the legacy `heart` module: after expansion there is no module called `heart`.
 
-### Module versions and instances
+### Module versions and parameterisations
 
-A module library (such as [circulatory-autogen-modules](https://github.com/physiomelinks/circulatory-autogen-modules)) lays out each version of a module with its *instances*, named parameter sets:
+A module library (such as [circulatory-autogen-modules](https://github.com/physiomelinks/circulatory-autogen-modules)) lays out each version of a module with its *parameterisations*, named parameter sets:
 
 ```
 modules/<category>/<module_type>/versions/<version>/
     <module_type>_<version>_modules.cellml
     <module_type>_<version>_modules_config.json      one entry; module_subtype is <version>
     <module_type>_<version>_units.cellml
-    instances/<instance>/
-        <instance>_parameters.csv                   variable_name,units,value,data_reference[,sourced]
-        <instance>_obs_data.json                    optional; "obs_data_name": "<instance>"
-        <instance>_params_for_id.csv                optional
+    parameterisations/<name>/
+        <name>_parameters.csv                       variable_name,units,value,data_reference[,sourced]
+        <name>_obs_data.json                        optional; "obs_data_name": "<name>"
+        <name>_params_for_id.csv                    optional
 ```
 
-An instance changes only parameters, never the equations. Its parameter names carry no vessel suffix: `C`, not `C_[vessel]`.
+!!! Note
+    Parameterisations used to be called *instances*. The older names are still read: an `instances/` directory is used when a version has no `parameterisations/` directory, `"instance"` is read as `"parameterisation"`, and `"default_instance"` as `"default_parameterisation"`. Giving both spellings with different values is an error.
 
-The config entry names the instance used by default:
+A parameterisation changes only parameters, never the equations. Its parameter names carry no vessel suffix: `C`, not `C_[vessel]`.
+
+The config entry names the parameterisation used by default:
 
 ```json
 {"module_type": "chamber", "module_subtype": "v1", "component_file": "chamber_v1_modules.cellml",
- "component_type": "chamber_type", "default_instance": "adult", ...}
+ "component_type": "chamber_type", "default_parameterisation": "adult", ...}
 ```
 
-A module-array record chooses an instance with `"instance"`:
+A module-array record chooses a parameterisation with `"parameterisation"`:
 
 ```json
-{"name": "lv", "module_type": "chamber", "module_subtype": "v1", "instance": "neonate",
+{"name": "lv", "module_type": "chamber", "module_subtype": "v1", "parameterisation": "neonate",
  "inp_instances": ["mv"], "out_instances": ["aov"]}
 ```
 
-When the model is generated, the instance's parameters file is looked for next to the config file the record's `(module_type, module_subtype)` came from: `[config directory]/instances/[instance]/[instance]_parameters.csv`. Each row `[variable]` becomes `[variable]_[record name]` (`C_lv`). A row for one of the module's `global_constant` variables keeps its plain name. A record without `"instance"` uses the entry's `default_instance`, if the entry has one and that file exists. Otherwise no instance parameters are loaded, as before.
+When the model is generated, the parameterisation's parameters file is looked for next to the config file the record's `(module_type, module_subtype)` came from: `[config directory]/parameterisations/[name]/[name]_parameters.csv`. Each row `[variable]` becomes `[variable]_[record name]` (`C_lv`). A row for one of the module's `global_constant` variables keeps its plain name. A record without `"parameterisation"` uses the entry's `default_parameterisation`, if the entry has one and that file exists. Otherwise no parameterisation parameters are loaded, as before.
 
-Instance parameters are defaults. A name that `[file_prefix]_parameters.csv` sets keeps the value from that file. The order of precedence is:
+Parameterisation parameters are defaults. A name that `[file_prefix]_parameters.csv` sets keeps the value from that file. The order of precedence is:
 
 1. your `[file_prefix]_parameters.csv`;
-2. a supermodule's instance;
+2. a supermodule's parameterisation;
 3. a supermodule's `default_parameters`;
-4. the instance of a submodule, or of an ordinary module.
+4. the parameterisation of a submodule, or of an ordinary module.
 
-Within one level, the first record in the (expanded) module array wins, so a global set by several instances is added once. A global is one value for the whole model, so if instances set it to different values you get a `ConflictingGlobalWarning` naming each value, its units and the record that set it: the modules after the first run at a value their instance did not choose. Set the global in `[file_prefix]_parameters.csv` to choose it, which also silences the warning. A supermodule instance overriding the instances inside it is not warned about. If the units differ too, the modules most likely mean different quantities by one name, and one of them needs renaming.
+Within one level, the first record in the (expanded) module array wins, so a global set by several parameterisations is added once. A global is one value for the whole model, so if parameterisations set it to different values you get a `ConflictingGlobalWarning` naming each value, its units and the record that set it: the modules after the first run at a value their parameterisation did not choose. Set the global in `[file_prefix]_parameters.csv` to choose it, which also silences the warning. A supermodule parameterisation overriding the parameterisations inside it is not warned about. If the units differ too, the modules most likely mean different quantities by one name, and one of them needs renaming.
 
-An instance that does not exist is an error. The error names the version directory and lists the instances it has. Naming an instance of a module whose config has no `instances/` directory next to it is an error too.
+A parameterisation that does not exist is an error. The error names the version directory and lists the parameterisations it has. Naming a parameterisation of a module whose config has no `parameterisations/` (or `instances/`) directory next to it is an error too.
 
-An obs_data file may carry a top-level `"obs_data_name"`, a string naming the data set. An instance's `[instance]_obs_data.json` sets it to the instance's name. If a file in `instances/[name]/` has a different or missing `obs_data_name`, a warning is raised when the file is read. Files without the key are read as before. The parsed obs_data carries the name as `obs_data_name`, or `None` when the file has none.
+An obs_data file may carry a top-level `"obs_data_name"`, a string naming the data set. A parameterisation's `[name]_obs_data.json` sets it to the parameterisation's name. If a file in `parameterisations/[name]/` (or `instances/[name]/`) has a different or missing `obs_data_name`, a warning is raised when the file is read. Files without the key are read as before. The parsed obs_data carries the name as `obs_data_name`, or `None` when the file has none.
 
 ## Converting an existing CellML model to run in Circulatory Autogen
 

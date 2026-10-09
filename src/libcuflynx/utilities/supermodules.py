@@ -27,13 +27,15 @@ is an error. Links between a host and a nested supermodule go through that neste
 supermodule's own ``per_submodule_*``, so an instance's ``per_submodule_*`` may not name a
 submodule that is itself a supermodule instance.
 
-The supermodule's parameters -- those of its *instance* (the record's ``"instance"``, or the
-entry's ``default_instance``; see ``utilities/module_instances.py``), then its legacy
-``default_parameters`` file -- are renamed from ``{var}_{sub}`` to ``{var}_{instance}_{sub}``
-(the suffix is matched against the submodule names, longest first); any other row is a
-global and keeps its name, and is added only once. A submodule record may carry its own
-``"instance"``; it stays on the expanded record, whose instance parameters are read with the
-components' (``module_instances.component_instance_rows``), after the supermodule's, so the
+The supermodule's parameters -- those of its *parameterisation* (the record's
+``"parameterisation"``, or the entry's ``default_parameterisation``; the older names
+``"instance"`` and ``default_instance`` still work; see ``utilities/module_instances.py``),
+then its legacy ``default_parameters`` file -- are renamed from ``{var}_{sub}`` to
+``{var}_{instance}_{sub}``, ``instance`` being the supermodule record's name (the suffix is
+matched against the submodule names, longest first); any other row is a global and keeps its
+name, and is added only once. A submodule record may name its own parameterisation; it stays
+on the expanded record, whose parameterisation is read with the components'
+(``module_instances.component_instance_rows``), after the supermodule's, so the
 supermodule's values win.
 
 After expansion no record is a supermodule instance.
@@ -45,7 +47,7 @@ import os
 from libcuflynx.utilities.config_schemas import PER_SUBMODULE_KEYS, SUPERMODULE_FORMAT
 from libcuflynx.utilities.module_instances import (first_rows_win, instance_parameter_rows,
                                                    warn_conflicting_globals,
-                                                   read_parameter_rows)
+                                                   read_parameter_rows, record_instance)
 
 # a supermodule nested deeper than this is taken to be a cycle the ancestry check missed
 _MAX_DEPTH = 64
@@ -130,11 +132,12 @@ def read_default_parameters(supermodule, instance, where, registry=None):
 def read_supermodule_parameters(supermodule, record, where, registry=None):
     '''
     The parameters of the supermodule instance ``record`` (its name is the prefix), renamed:
-    those of its module instance (``record["instance"]`` or the entry's default_instance)
-    first, then its default_parameters, each name once.
+    those of its parameterisation (the record's, or the entry's default) first, then its
+    default_parameters, each name once.
     '''
     name = record['name']
-    _, instance_rows = instance_parameter_rows(supermodule, record.get('instance'), where)
+    _, instance_rows = instance_parameter_rows(supermodule, record_instance(record, where),
+                                               where)
     instance_rows = _rename_rows(instance_rows, name, submodule_paths(supermodule, registry))
     return first_rows_win(instance_rows + read_default_parameters(supermodule, name, where, registry))
 
@@ -268,8 +271,8 @@ def _global_settings(rows, instance, supermodule, registry):
     alone), as ``warn_conflicting_globals`` settings.'''
     name = instance['name']
     local = tuple(f'_{name}_{path}' for path in submodule_paths(supermodule, registry))
-    used = instance.get('instance') or supermodule.get('default_instance')
-    who = f'supermodule "{name}"' + (f' (instance "{used}")' if used else '')
+    used = record_instance(instance, name) or supermodule.get('default_instance')
+    who = f'supermodule "{name}"' + (f' (parameterisation "{used}")' if used else '')
     return [(row['variable_name'], row['value'], row['units'], who, name) for row in rows
             if not row['variable_name'].endswith(local)]
 

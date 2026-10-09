@@ -35,27 +35,29 @@ libcuflynx              PhLynx              meaning
 ``module_format``       ``module_format``   ``"supermodule"``
 ``submodules``          ``submodules``      a module array (list of records, below) whose
                                             names are local to the supermodule
-``default_instance``    same                optional: the instance used when a record
-                                            names none (see *Module versions and instances*)
+``default_instance``    same                optional: the parameterisation used when a
+                                            record names none; ``default_parameterisation``
+                                            is the newer name (see
+                                            ``utilities/module_instances.py``)
 ``default_parameters``  same                optional parameters CSV, relative to the
-                                            config file's directory (legacy; prefer an
-                                            instance)
+                                            config file's directory (legacy; prefer a
+                                            parameterisation)
 ``description``         same                optional free text
 ======================  ==================  ===============================================
 
 A submodule's inp/out lists name sibling submodules only, and it may name its own
-``instance``. A submodule may itself be a supermodule instance, with its own
+``parameterisation`` (older name ``instance``). A submodule may itself be a supermodule instance, with its own
 ``per_submodule_inputs``/``per_submodule_outputs`` naming siblings. ``default_parameters``
-rows (and those of the supermodule's own instances) are
+rows (and those of the supermodule's own parameterisations) are
 ``variable_name,units,value,data_reference``; a row named ``{var}_{submodule}`` is a local
 parameter of that submodule, any other row a global. ``default_parameters`` is kept for
-backwards compatibility; new supermodules should put their parameters in an instance.
+backwards compatibility; new supermodules should put their parameters in a parameterisation.
 Supermodule entries never reach the module dataframe or the (vessel_type, BC_type) join:
 they are collected by ``load_supermodule_registry`` and expanded out of the module array
 (``utilities/supermodules.py``) before anything else reads it.
 
-Module versions and instances
-===================================
+Module arrays
+=============
 
 ``<prefix>_module_array.json`` (preferred) or ``<prefix>_module_array.csv``, looked for in
 that order (``module_array_path``). Module arrays used to be called vessel arrays, and
@@ -71,8 +73,9 @@ libcuflynx          PhLynx              meaning
 ``BC_type``         ``module_subtype``  its boundary-condition variant (required)
 ``inp_vessels``     ``inp_instances``   list of upstream instance names (optional)
 ``out_vessels``     ``out_instances``   list of downstream instance names (optional)
-``instance``        ``instance``        the module instance whose parameters it uses
-                                        (optional; default: the entry's default_instance)
+``instance``        ``instance``        the parameterisation whose parameters it uses
+                                        (optional; default: the entry's default_instance);
+                                        ``parameterisation`` is the newer name
 ==================  ==================  ==================================================
 
 A record uses one key style; mixing the two in one record is an error. A list may also be
@@ -114,7 +117,9 @@ import sys
 import pandas as pd
 
 from libcuflynx.generators.multi_port import normalise_port_multi_port
-from libcuflynx.utilities.module_instances import PARAMETER_COLUMNS, check_instance_name
+from libcuflynx.utilities.module_instances import (
+    PARAMETER_COLUMNS, check_instance_name, merge_renamed_key, PARAMETERISATION_KEY, INSTANCE_KEY,
+    DEFAULT_PARAMETERISATION_KEY, DEFAULT_INSTANCE_KEY)
 
 # PhLynx key -> libcuflynx key, for module config entries
 PHLYNX_MODULE_KEYS = {
@@ -207,8 +212,11 @@ def normalise_supermodule_entry(entry, source=None):
     if default_parameters is not None and not isinstance(default_parameters, str):
         raise ValueError(f'{description}: "default_parameters" must be a file name (string), '
                          f'not {default_parameters!r}.')
-    if 'default_instance' in entry:
-        check_instance_name(entry['default_instance'], description, 'default_instance')
+    for key in (DEFAULT_PARAMETERISATION_KEY, DEFAULT_INSTANCE_KEY):
+        if key in entry:
+            check_instance_name(entry[key], description, key)
+    entry = merge_renamed_key(entry, DEFAULT_PARAMETERISATION_KEY, DEFAULT_INSTANCE_KEY,
+                              description)
 
     records = [normalise_vessel_record(sub, source=f'{description}, submodules', index=i, what=None)
                for i, sub in enumerate(submodules)]
@@ -296,9 +304,12 @@ def normalise_module_config_entry(entry, source=None):
             f'module_subtype/component_file/component_type (PhLynx). Keys: {list(entry)}')
 
     description = _describe(normalised, source)
-    if 'default_instance' in normalised:
-        normalised['default_instance'] = check_instance_name(normalised['default_instance'],
-                                                             description, 'default_instance')
+    for key in (DEFAULT_PARAMETERISATION_KEY, DEFAULT_INSTANCE_KEY):
+        if key in normalised:
+            normalised[key] = check_instance_name(normalised[key], description, key)
+    # default_parameterisation is the newer name of default_instance, which the code reads
+    normalised = merge_renamed_key(normalised, DEFAULT_PARAMETERISATION_KEY,
+                                   DEFAULT_INSTANCE_KEY, description)
     for port_key in _PORT_KEYS:
         ports = normalised.get(port_key)
         if isinstance(ports, list):
@@ -331,7 +342,7 @@ def load_component_registry(config_files):
     '''
     ``{(vessel_type, BC_type): component entry}`` for every component entry in
     ``config_files``, each a normalised copy with ``config_path`` (the file it came from), in
-    whose directory its ``instances/`` are looked for (``utilities/module_instances.py``). A
+    whose directory its ``parameterisations/`` are looked for (``utilities/module_instances.py``). A
     type defined twice keeps its first entry; the module-config join reports the duplicate.
     '''
     registry = {}
@@ -347,7 +358,7 @@ def load_supermodule_registry(config_files):
     '''
     ``{(vessel_type, BC_type): supermodule entry}`` for every supermodule entry in
     ``config_files``. Each entry also gets ``config_path`` (the file it came from), against
-    whose directory its ``default_parameters`` and ``instances/`` are resolved. Raises ValueError if the same
+    whose directory its ``default_parameters`` and ``parameterisations/`` are resolved. Raises ValueError if the same
     (vessel_type, BC_type) supermodule is defined twice.
     '''
     registry = {}
@@ -539,6 +550,11 @@ def normalise_vessel_record(record, source=None, index=None, what='module array'
     out = {'name': record['name'].strip(),
            'BC_type': record[subtype_key].strip(),
            'vessel_type': record[type_key].strip()}
+    # "parameterisation" is the newer name of "instance", which the code reads
+    record = merge_renamed_key(
+        {k: (check_instance_name(v, where, k) if k in (PARAMETERISATION_KEY, INSTANCE_KEY)
+             else v) for k, v in record.items()},
+        PARAMETERISATION_KEY, INSTANCE_KEY, where)
     for key, value in record.items():
         new_key = rename.get(key, key)
         if new_key in ('name', 'BC_type', 'vessel_type'):
@@ -547,8 +563,6 @@ def normalise_vessel_record(record, source=None, index=None, what='module array'
             out[new_key] = _name_list(value, where, key)
         elif new_key in PER_SUBMODULE_KEYS:
             out[new_key] = normalise_per_submodule(value, where, key)
-        elif new_key == 'instance':
-            out[new_key] = check_instance_name(value, where)
         else:
             out[new_key] = value
     for key in _LIST_COLUMNS:

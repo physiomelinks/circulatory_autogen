@@ -10,7 +10,7 @@
         "obs_data_name": {
           "type": "string",
           "pattern": "\\S",
-          "description": "the name of this obs_data set. In a module library, instances/<name>/<name>_obs_data.json must set it to <name> (a different or missing name is warned about)."
+          "description": "the name of this obs_data set. In a module library, parameterisations/<name>/<name>_obs_data.json (instances/<name>/ in older libraries) must set it to <name> (a different or missing name is warned about)."
         },
         "data_items": {
           "type": "array",

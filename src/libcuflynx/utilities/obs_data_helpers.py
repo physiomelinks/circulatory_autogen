@@ -193,9 +193,10 @@ def migrate_legacy_obs_item_keys(items, where='data_items', variable_was_the_ope
         warnings.warn(f"{where}: {LEGACY_OBS_KEY_ADVICE[old]}", DeprecationWarning, stacklevel=3)
     return migrated
 
-#: Top-level key naming an obs_data file: the module instance (or data set) it belongs to. In a
-#: module library an instance's ``instances/<name>/<name>_obs_data.json`` carries
-#: ``"obs_data_name": "<name>"``. Optional; see ``schemas/obs_data.schema.json``.
+#: Top-level key naming an obs_data file: the module parameterisation (or data set) it belongs
+#: to. In a module library a parameterisation's ``parameterisations/<name>/<name>_obs_data.json``
+#: (``instances/<name>/`` in older libraries) carries ``"obs_data_name": "<name>"``. Optional;
+#: see ``schemas/obs_data.schema.json``.
 OBS_DATA_NAME_KEY = 'obs_data_name'
 
 
@@ -203,10 +204,10 @@ def check_obs_data_name(json_obj, path=None):
     """The ``obs_data_name`` of an obs_data document, or None when it has none.
 
     ``json_obj`` is the loaded file (a dict, or the legacy bare list of data items, which has
-    no name). A name that is not a non-empty string is a ValueError. When ``path`` lies in an
-    ``instances/<name>/`` directory of a module library, a missing or different
-    ``obs_data_name`` is warned about (UserWarning), since the file then describes another
-    instance than the one it is filed under.
+    no name). A name that is not a non-empty string is a ValueError. When ``path`` lies in a
+    ``parameterisations/<name>/`` (or older ``instances/<name>/``) directory of a module
+    library, a missing or different ``obs_data_name`` is warned about (UserWarning), since the
+    file then describes another parameterisation than the one it is filed under.
     """
     name = json_obj.get(OBS_DATA_NAME_KEY) if isinstance(json_obj, dict) else None
     if name is not None and (not isinstance(name, str) or not name.strip()):
@@ -216,15 +217,15 @@ def check_obs_data_name(json_obj, path=None):
         name = name.strip()
     if path is not None:
         directory = os.path.dirname(os.path.abspath(str(path)))
-        if os.path.basename(os.path.dirname(directory)) == 'instances':
+        if os.path.basename(os.path.dirname(directory)) in ('parameterisations', 'instances'):
             instance = os.path.basename(directory)
             if name != instance:
                 found = f"'{OBS_DATA_NAME_KEY}' is {name!r}" if name is not None else \
                     f"it has no '{OBS_DATA_NAME_KEY}'"
                 warnings.warn(
-                    f"obs_data {path} is in the directory of instance '{instance}', but "
-                    f"{found}. Set \"{OBS_DATA_NAME_KEY}\": \"{instance}\" if it is that "
-                    f"instance's data, or move it.", UserWarning, stacklevel=2)
+                    f"obs_data {path} is in the directory of parameterisation '{instance}', "
+                    f"but {found}. Set \"{OBS_DATA_NAME_KEY}\": \"{instance}\" if it is that "
+                    f"parameterisation's data, or move it.", UserWarning, stacklevel=2)
     return name
 
 

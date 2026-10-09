@@ -3375,8 +3375,9 @@ class ObsAndParamDataParser(object):
             print("No obs data path or obs data dict provided, exiting")
             return None
 
-        # Optional top-level "obs_data_name" (the instance/data set the file belongs to);
-        # warns when a file filed under instances/<name>/ names another instance.
+        # Optional top-level "obs_data_name" (the parameterisation/data set the file belongs
+        # to); warns when a file filed under parameterisations/<name>/ (or the older
+        # instances/<name>/) names another parameterisation.
         obs_data_name = check_obs_data_name(json_obj, param_id_obs_path)
 
         gt_df, protocol_info, prediction_info = None, None, None
