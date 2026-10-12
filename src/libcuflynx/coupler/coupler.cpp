@@ -20,6 +20,7 @@
 #include <sys/stat.h>
 #include <poll.h>
 #include <map>
+#include <filesystem>
 // #include <omp.h> //to use OpenMP API for parallel programming
 #include <nlohmann/json.hpp>
 using json = nlohmann::json;
@@ -136,14 +137,26 @@ public:
             T0 = config.value("T0", 1.1);
             nCC = config.value("nCC", 5);
             
-            user_pipePath = config.value("tmp_pipe_path", "/home/bghi639/Software/tmp/");
+            // coupler_config.json is written by the C++ generator (generators/cpp) from the api
+            // block of the process the 0D model is coupled to; these defaults are only fallbacks.
+            user_pipePath = config.value("tmp_pipe_path", "/tmp/pipes/");
+            if (!user_pipePath.empty() && user_pipePath.back() != '/') user_pipePath += '/';
+            {
+                // the FIFOs are created below with mkfifo, which needs the folder to exist
+                std::error_code ec;
+                std::filesystem::create_directories(user_pipePath, ec);
+                if (ec) {
+                    std::cerr << "Coupler :: cannot create the pipe folder " << user_pipePath << ": " << ec.message() << std::endl;
+                    exit(1);
+                }
+            }
             char_user_pipePath = user_pipePath.c_str();
 
             initStatePath = config.value("initStatePath", "None");
             char_initStatePath = initStatePath.c_str();
 
             // path to python executable
-            python_path = config.value("python_path", "/home/bghi639/anaconda3/bin/python"); // or "/hpc/bghi639/anaconda3/bin/python" or "/usr/bin/python3"
+            python_path = config.value("python_path", "/usr/bin/python3");
             char_python_path = python_path.c_str();
             // path to python script
             path1d = config.value("solver1d_path", "./solver1D/main1D.py"); 

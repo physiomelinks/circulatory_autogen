@@ -483,8 +483,9 @@ jobs:
         # minutes on one commit (most of the spread was pandas 3 on 3.11/3.12, fixed in #566).
         # tests/ci_shards.json defines the groups, `rest` is every test no group names (so a new
         # test file needs no entry there), and tests/test_ci_shards.py checks that this list
-        # covers every group of the suite. Faster shard first.
-        shard: [rest, autogeneration]
+        # covers every group of the suite. Faster shard first. `cpp` holds the C++ generator and
+        # external-coupling tests (~4 min on CI), which would otherwise push `rest` past 10 min.
+        shard: [cpp, rest, autogeneration]
         # 3.9 is gone: numpy, scipy, matplotlib, scikit-learn and numdifftools all declare
         # requires-python >=3.10, so a 3.9 job either resolved older pins than any real user
         # gets or failed to resolve at all -- testing a configuration the dependency tree no

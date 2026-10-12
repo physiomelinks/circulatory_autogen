@@ -6,8 +6,8 @@ Modules come from up to four places, in this order:
 
 1. the shipped (built-in) module library, which is package data;
 2. the checkout's ``module_config_user/`` directory;
-3. ``external_modules_dir``: one flat directory of ``*modules.cellml``, ``*.json`` and
-   ``*units.cellml`` files;
+3. ``external_modules_dir``: one flat directory (or a list of them) of ``*modules.cellml``,
+   ``*.json`` and ``*units.cellml`` files;
 4. ``module_library_dirs``: one or more directories searched recursively, laid out one module
    per subdirectory, e.g. ``modules/<name>/<name>_modules.cellml``,
    ``<name>_modules_config.json`` and ``<name>_units.cellml``. Only JSON files named
@@ -208,10 +208,17 @@ class ModuleSources(object):
             add('module_config_user', _list_flat(user_dir, _is_any_json))
             self.units_files += _list_flat(user_dir, _is_units_cellml)
 
-        if external_dir is not None:
-            self.cellml_files += _list_flat(external_dir, _is_module_cellml)
-            add('external_modules_dir', _list_flat(external_dir, _is_any_json))
-            self.units_files += _list_flat(external_dir, _is_units_cellml)
+        external_dirs = as_dir_list(external_dir)
+        externals = []
+        for i, ext_dir in enumerate(external_dirs):
+            # one directory keeps the plain label; several rank in the order listed, like
+            # module_library_dirs, so a type in two of them is a choice, not a broken source
+            label = ('external_modules_dir' if len(external_dirs) == 1
+                     else f'external_modules_dir[{i}] ({ext_dir})')
+            externals.append(label)
+            self.cellml_files += _list_flat(ext_dir, _is_module_cellml)
+            add(label, _list_flat(ext_dir, _is_any_json))
+            self.units_files += _list_flat(ext_dir, _is_units_cellml)
 
         libraries = []
         for i, library_dir in enumerate(library_dirs):
@@ -224,7 +231,7 @@ class ModuleSources(object):
             self.units_files += _list_recursive(library_dir, _is_units_cellml)
 
         # the most specific source first
-        precedence = (['external_modules_dir'] + libraries
+        precedence = (externals + libraries
                       + ['module_config_user', 'the built-in modules'])
         self.excluded_entries, self.excluded_components = resolve_duplicate_types(
             self.config_files, source_of, precedence)

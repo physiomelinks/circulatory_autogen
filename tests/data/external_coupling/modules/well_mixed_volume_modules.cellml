@@ -1,0 +1,60 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<model name="well_mixed_volume_modules" xmlns="http://www.cellml.org/cellml/1.1#" xmlns:cellml="http://www.cellml.org/cellml/1.1#">
+    <!-- The tests' reference tissue: one well-mixed volume per capillary, with the same equations as the numpy
+         external model well_mixed_tissue.py, so a coupled run can be checked against the all-CellML model. It is
+         kept with the tests (not taken from the built-in or a module library) so the tests mean the same with either. -->
+    <component name="well_mixed_volume">
+        <variable name="t" public_interface="in" units="second"/>
+        <variable name="C_P_init" public_interface="in" units="millimolar"/>
+        <variable initial_value="C_P_init" name="C_P" public_interface="out" units="millimolar"/>
+        <variable name="flux_c" public_interface="in" units="mol_per_s"/>
+        <variable name="V_P" public_interface="in" units="m3"/>
+        <variable name="M" public_interface="in" units="millimolar_per_s"/>
+        <variable name="M_reduced" public_interface="out" units="millimolar_per_s"/>
+        <variable name="k_reduce" public_interface="in" units="per_millimolar"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML" xmlns:cellml="http://www.cellml.org/cellml/1.1#">
+            <apply>
+                <eq/>
+                <ci>M_reduced</ci>
+                <apply>
+                    <times/>
+                    <ci>M</ci>
+                    <apply>
+                        <minus/>
+                        <cn cellml:units="dimensionless">1</cn>
+                        <apply>
+                            <exp/>
+                            <apply>
+                                <minus/>
+                                <apply>
+                                    <times/>
+                                    <ci>k_reduce</ci>
+                                    <ci>C_P</ci>
+                                </apply>
+                            </apply>
+                        </apply>
+                    </apply>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <apply>
+                    <diff/>
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>C_P</ci>
+                </apply>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <divide/>
+                        <ci>flux_c</ci>
+                        <ci>V_P</ci>
+                    </apply>
+                    <ci>M_reduced</ci>
+                </apply>
+            </apply>
+        </math>
+    </component>
+</model>

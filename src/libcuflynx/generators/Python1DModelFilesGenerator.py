@@ -80,15 +80,26 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
     for i in range(nV):
         nameV = vess[i]['name']
 
-        #XXX TODO improve this code below to differentiate between arterial and venous vessels, 
-        # assuming that we do not have a 'vessel_type' in the CA module array file that can tell us this information
-        if nameV.startswith(("A_","a_")) or any(sub in nameV for sub in ("art", "Art", "aort", "Aort")):
+        # The module array has no artery/vein column, so an explicit parameter
+        # art_ven_type_<vessel> (1 = artery, 0 = vein) takes precedence over guessing from the name.
+        nameP = "art_ven_type_"+nameV
+        idxParam = df_params.index[df_params["variable_name"] == nameP].tolist()
+        if len(idxParam)==1:
+            vess[i]['type'] = int(float(df_params.at[idxParam[0],"value"]))
+            if vess[i]['type'] not in (0, 1):
+                sys.exit(f"Parameter {nameP} must be 1 (artery) or 0 (vein), got {vess[i]['type']}.")
+        elif len(idxParam)>1:
+            sys.exit(f"Multiple matches for parameter {nameP} found in parameters dataframe.")
+        elif nameV.startswith(("A_","a_")) or any(sub in nameV for sub in ("art", "Art", "aort", "Aort")):
             vess[i]['type'] = 1 # artery
         elif nameV.startswith(("V_","v_")) or any(sub in nameV for sub in ("ven", "Ven", "vein", "Vein")):
             vess[i]['type'] = 0 # vein
         else:
-            print(f"WARNING: art/ven type couldn't be determined for vessel {nameV}. Add it manually.")
-            
+            # An undetermined type (-1) used to be written to the vessel file, and the 1D solver
+            # then stopped with "undetermined art/ven type" at run time.
+            sys.exit(f"Artery/vein type couldn't be determined for 1D vessel {nameV}: add parameter "
+                     f"{nameP} (1 = artery, 0 = vein, units dimensionless) to the parameters file.")
+
 
         nameP = "l_"+nameV
         idxParam = df_params.index[df_params["variable_name"] == nameP].tolist()

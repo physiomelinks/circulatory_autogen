@@ -76,23 +76,25 @@ def test_builtin_modules_dir_is_a_real_directory():
 @pytest.mark.unit
 def test_generator_uses_the_packaged_library():
     """The generator's own lookup must land in the package, not in a sibling checkout."""
-    from libcuflynx.generators import CVSCellMLGenerator
+    from libcuflynx.utilities.module_library import ModuleSources
 
-    assert os.path.isdir(CVSCellMLGenerator.solver_make_files_dir)
-    assert os.path.isfile(os.path.join(CVSCellMLGenerator.solver_make_files_dir, 'Makefile'))
+    sources = ModuleSources({})
+    assert os.path.isfile(sources.base_script)
+    assert os.path.isfile(sources.units_files[0])
+    assert os.path.samefile(os.path.dirname(sources.units_files[0]), builtin_modules_dir())
 
 
 @pytest.mark.unit
 def test_other_shipped_data_is_readable():
     """The rest of the non-Python payload the wheel now carries."""
-    assert generator_template('main0dTemplate.cpp').read_text(encoding='utf-8')
-    assert generator_template('cppGeneratorTemplateFunctions.cpp').read_text(encoding='utf-8')
+    for template in ('model0d.h.j2', 'model0d.cpp.j2', 'main0d.cpp.j2', 'CMakeLists.txt.j2',
+                     'solver_init.j2', 'pipes.j2', 'io.j2',
+                     'api_provider.h.j2', 'api_provider.cpp.j2', 'api_test_driver.cpp.j2'):
+        assert generator_template(template).read_text(encoding='utf-8'), template
     example = package_data_file('libcuflynx.scripts', 'example_data',
                                 'example_data_for_conversion.csv')
     assert example.is_file()
     assert example.read_text(encoding='utf-8').splitlines()[0]
-    make_files = package_data_dir('libcuflynx.solver1d', 'Make_files')
-    assert {'Makefile', 'runCVODE.bash'} <= set(os.listdir(make_files))
 
 
 # ---------------------------------------------------------------------------
@@ -158,10 +160,9 @@ def test_the_built_wheel_carries_the_data_files_and_not_the_dead_code(tmp_path):
     assert 'libcuflynx/generators/resources/units.cellml' in names
     assert 'libcuflynx/generators/resources/BG_modules.cellml' in names
     assert 'libcuflynx/generators/resources/BG_modules_config.json' in names
-    # The C++ templates CVSCppGenerator reads for model_type: cpp.
-    assert 'libcuflynx/generators/main0dTemplate.cpp' in names
-    # The build/run scripts copied next to each generated 1D model (#157).
-    assert 'libcuflynx/solver1d/Make_files/Makefile' in names
+    # The C++ templates the generator renders for model_type: cpp.
+    assert 'libcuflynx/generators/cpp/templates/model0d.cpp.j2' in names
+    assert 'libcuflynx/generators/cpp/templates/main0d.cpp.j2' in names
     # Example input for example_format_obs_data_json_file(), which is itself shipped.
     assert any(n.startswith('libcuflynx/scripts/example_data/') and n.endswith('.csv')
                for n in names), sorted(n for n in names if 'example_data' in n)

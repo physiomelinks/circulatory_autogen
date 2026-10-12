@@ -8,11 +8,9 @@ import numpy as np
 import re
 import pandas as pd
 import os
-import shutil
 import tempfile
 import warnings
 from sys import exit
-from libcuflynx.utilities.package_resources import package_data_dir
 from libcuflynx.utilities.paths import default_resources_dir
 from libcuflynx.utilities.module_library import (ModuleSources, ModuleShadowWarning, collect_units,
                                                  CELLML_1_1_NS)
@@ -20,10 +18,6 @@ from libcuflynx.utilities.config_schemas import is_heart_vessel_type
 from libcuflynx.utilities.vessel_bc import is_vessel_module
 
 generators_dir = os.path.dirname(__file__)
-# Build/run scripts copied alongside each generated model so it can be compiled/run
-# standalone. They are package data of libcuflynx.solver1d, so they are located through
-# importlib.resources (#431/#432); a real directory is needed because they are listed and copied.
-solver_make_files_dir = package_data_dir('libcuflynx.solver1d', 'Make_files')
 LIBCELLML_available = True
 try:
     from libcellml import Annotator, Analyser, AnalyserModel, AnalyserExternalVariable, Generator, GeneratorProfile        
@@ -112,7 +106,6 @@ class CVS0DCellMLGenerator(object):
         self.__generate_parameters_csv()
         self.__generate_parameters_file()
         self.__generate_modules_file()
-        self.__copy_solver_make_files()
 
         # TODO check that model generation is successful, possibly by calling to opencor
         print('Model generation complete.')
@@ -148,22 +141,17 @@ class CVS0DCellMLGenerator(object):
                 # Always dump for init-states reproducer, otherwise don't, even in DEBUG.
                 print_consts_etc = False
                 if print_consts_etc or self.file_prefix == "test_init_states":
-                    from libcellml import AnalyserVariable
-
-                    type_names = {
-                        AnalyserVariable.Type.STATE: "STATE",
-                        AnalyserVariable.Type.CONSTANT: "CONSTANT",
-                        AnalyserVariable.Type.COMPUTED_CONSTANT: "COMPUTED_CONSTANT",
-                        AnalyserVariable.Type.ALGEBRAIC: "ALGEBRAIC",
-                        AnalyserVariable.Type.EXTERNAL: "EXTERNAL",
-                    }
+                    groups = {
+                        "STATE": analysed_model.states(),
+                        "CONSTANT": analysed_model.constants(),
+                        "COMPUTED_CONSTANT": analysed_model.computedConstants(),
+                        "ALGEBRAIC": analysed_model.algebraicVariables(),
+                        "EXTERNAL": analysed_model.externalVariables(),
+                    } if analysed_model else {}
 
                     buckets = {}
-                    vcount = analysed_model.variableCount() if analysed_model else 0
-                    for i in range(vcount):
-                        av = analysed_model.variable(i)
-                        if av is None:
-                            continue
+                    vcount = sum(len(g) for k, g in groups.items() if k != "STATE")
+                    for key, av in ((k, av) for k, g in groups.items() for av in g):
                         v = av.variable()
                         if v is None:
                             continue
@@ -171,11 +159,10 @@ class CVS0DCellMLGenerator(object):
                             comp = v.parent().name()
                         except Exception:
                             comp = ""
-                        key = type_names.get(av.type(), str(av.type()))
                         buckets.setdefault(key, []).append(f"{comp}.{v.name()}" if comp else v.name())
 
                     print("libCellML variable type summary:")
-                    print(f"  analysed_model.variableCount(): {vcount}")
+                    print(f"  variables other than states: {vcount}")
                     for key in sorted(buckets.keys()):
                         items = sorted(buckets[key])
                         print(f"  {key}: {len(items)}")
@@ -483,16 +470,6 @@ class CVS0DCellMLGenerator(object):
             lambda wf: df.to_csv(wf, index=None, header=True),
         )
 
-    def __copy_solver_make_files(self):
-        # Copy the solver build/run scripts (src/solver1d/Make_files) into the generated model
-        # directory so each model is self-contained and can be built/run in place (issue #157).
-        if not os.path.isdir(solver_make_files_dir):
-            return
-        for filename in os.listdir(solver_make_files_dir):
-            src_path = os.path.join(solver_make_files_dir, filename)
-            if os.path.isfile(src_path) and not filename.startswith('._'):
-                shutil.copy2(src_path, os.path.join(self.output_dir, filename))
-
     def __generate_units_file(self):
         # TODO allow a specific units file to be generated
         #  This function simply copies the units file
@@ -767,6 +744,13 @@ class CVS0DCellMLGenerator(object):
                                               main_module_type, out_module_type)
             self.__check_input_output_ports(module_row["exit_ports"], module_row["general_ports"], out_module_row["entrance_ports"],
                                             out_module_row["general_ports"], main_module, out_module)
+
+            if out_module_row["module_format"] != 'cellml' and out_module_row["vessel_type"] != 'FV1D_vessel':
+                # An external module (e.g. an api that another program provides) has no CellML
+                # component to map to: the C++ generator couples it through these ports. The
+                # CellML side's boundary conditions on them stay constants, so the CellML model is
+                # complete on its own. (FV1D vessels keep their own handling below.)
+                continue
 
             # create a list of dicts that stores info for the entrance ports of this output module
             entrance_port_types = []
@@ -2353,6 +2337,11 @@ class CVS0DCellMLGenerator(object):
                     if inp_unit != out_unit:  
                         try:  
                             scale = self.unit_converter.get_scale_factor(inp_unit, out_unit)  
+                            if abs(float(scale) - 1.0) < 1e-12:
+                                # equivalent units under different names (e.g. mol_per_m3 and
+                                # millimolar): a plain connection, no converter
+                                direct_mappings.append((inp_var, out_var))
+                                continue
                             # one converter per variable pair: the converter component
                             # declares a single input and a single output variable
                             converter_key = (inp_var, out_var)

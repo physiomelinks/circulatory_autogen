@@ -1,0 +1,62 @@
+variable_name,units,value,data_reference
+q_C_init_cap_0,m3,0.0,capillary_network q_C_init_capillary_6
+E_cap_0,J_per_m3,400000.0,capillary_network E_capillary_6
+l_cap_0,metre,0.0002,capillary_network l_capillary_6
+r_cap_0,metre,2e-06,capillary_network r_capillary_6
+u_ext_cap_0,J_per_m3,0.0,capillary_network u_ext_capillary_6
+u_in_cap_0,J_per_m3,2000,capillary inlet ~15 mmHg (chosen for this test)
+u_out_cap_0,J_per_m3,666.6,capillary_network u_out_capillary_18
+rho,Js2_per_m5,1050,capillary_network rho
+mu,Js_per_m3,0.004,capillary_network mu
+a_vessel,dimensionless,0.2802,capillary_network a_vessel
+b_vessel,per_m,-505.3,capillary_network b_vessel
+c_vessel,dimensionless,0.1324,capillary_network c_vessel
+d_vessel,per_m,-11.14,capillary_network d_vessel
+q_C_init_cap_1,m3,0.0,capillary_network q_C_init_capillary_6
+E_cap_1,J_per_m3,400000.0,capillary_network E_capillary_6
+l_cap_1,metre,0.0002,capillary_network l_capillary_6
+r_cap_1,metre,2e-06,capillary_network r_capillary_6
+u_ext_cap_1,J_per_m3,0.0,capillary_network u_ext_capillary_6
+u_in_cap_1,J_per_m3,2000,capillary inlet ~15 mmHg (chosen for this test)
+u_out_cap_1,J_per_m3,666.6,capillary_network u_out_capillary_18
+C_O2_c_init_capillary_GE_0,mol_per_m3,3.0,capillary_network C_O2_c_init_capillary_GE_6
+perm_O2_capillary_GE_0,m_per_s,4e-06,capillary_network perm_O2_capillary_GE_6
+exp_threshold_capillary_GE_0,millimolar,0.5,capillary_network exp_threshold_capillary_GE_6
+S_O2_capillary_GE_0,mol_per_m3_per_Pa,9.75975975975976e-06,capillary_network S_O2_capillary_GE_6
+S_CO2_capillary_GE_0,mol_per_m3_per_Pa,0.00022522522522522523,capillary_network S_CO2_capillary_GE_6
+k_1_capillary_GE_0,mmHg,14.99,capillary_network k_1_capillary_GE_6
+k_2_capillary_GE_0,mmHg,194.4,capillary_network k_2_capillary_GE_6
+a_1_capillary_GE_0,dimensionless,0.3836,capillary_network a_1_capillary_GE_6
+a_2_capillary_GE_0,dimensionless,1.819,capillary_network a_2_capillary_GE_6
+alpha_1_capillary_GE_0,per_mmHg,0.03198,capillary_network alpha_1_capillary_GE_6
+alpha_2_capillary_GE_0,per_mmHg,0.05591,capillary_network alpha_2_capillary_GE_6
+beta_1_capillary_GE_0,per_mmHg,0.008275,capillary_network beta_1_capillary_GE_6
+beta_2_capillary_GE_0,per_mmHg,0.03255,capillary_network beta_2_capillary_GE_6
+C_O2_sat_capillary_GE_0,mol_per_m3,9.0,capillary_network C_O2_sat_capillary_GE_6
+C_CO2_sat_capillary_GE_0,mol_per_m3,86.11,capillary_network C_CO2_sat_capillary_GE_6
+C_CO2_a_capillary_GE_0,mol_per_m3,21.43,capillary_network C_CO2_a_capillary_GE_0
+C_O2_a_capillary_GE_0,mol_per_m3,8.75,capillary_network C_O2_a_capillary_GE_0
+C_O2_c_init_capillary_GE_1,mol_per_m3,3.0,capillary_network C_O2_c_init_capillary_GE_6
+perm_O2_capillary_GE_1,m_per_s,4e-06,capillary_network perm_O2_capillary_GE_6
+exp_threshold_capillary_GE_1,millimolar,0.5,capillary_network exp_threshold_capillary_GE_6
+S_O2_capillary_GE_1,mol_per_m3_per_Pa,9.75975975975976e-06,capillary_network S_O2_capillary_GE_6
+S_CO2_capillary_GE_1,mol_per_m3_per_Pa,0.00022522522522522523,capillary_network S_CO2_capillary_GE_6
+k_1_capillary_GE_1,mmHg,14.99,capillary_network k_1_capillary_GE_6
+k_2_capillary_GE_1,mmHg,194.4,capillary_network k_2_capillary_GE_6
+a_1_capillary_GE_1,dimensionless,0.3836,capillary_network a_1_capillary_GE_6
+a_2_capillary_GE_1,dimensionless,1.819,capillary_network a_2_capillary_GE_6
+alpha_1_capillary_GE_1,per_mmHg,0.03198,capillary_network alpha_1_capillary_GE_6
+alpha_2_capillary_GE_1,per_mmHg,0.05591,capillary_network alpha_2_capillary_GE_6
+beta_1_capillary_GE_1,per_mmHg,0.008275,capillary_network beta_1_capillary_GE_6
+beta_2_capillary_GE_1,per_mmHg,0.03255,capillary_network beta_2_capillary_GE_6
+C_O2_sat_capillary_GE_1,mol_per_m3,9.0,capillary_network C_O2_sat_capillary_GE_6
+C_CO2_sat_capillary_GE_1,mol_per_m3,86.11,capillary_network C_CO2_sat_capillary_GE_6
+C_CO2_a_capillary_GE_1,mol_per_m3,21.43,capillary_network C_CO2_a_capillary_GE_0
+C_O2_a_capillary_GE_1,mol_per_m3,8.75,capillary_network C_O2_a_capillary_GE_0
+saturation_cap,dimensionless,0.9999,circulatory-autogen-modules pulmonary_GE default (numerical stability)
+ub_O2_t_capillary_GE_0,mol_per_m3,0.02,initial tissue O2 (= C_P_init of the 0D model)
+ub_O2_t_capillary_GE_1,mol_per_m3,0.02,initial tissue O2 (= C_P_init of the 0D model)
+V_tissue,m3,8.000000000000001e-14,x_P*y_P*z_P of the 0D volumes
+M_tissue,millimolar_per_s,-0.0011830357142857144,M of the 0D volumes
+k_reduce_tissue,per_millimolar,50,k_reduce of the 0D volumes
+C_init_tissue,millimolar,0.02,C_P_init of the 0D volumes

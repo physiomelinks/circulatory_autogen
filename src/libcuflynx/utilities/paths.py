@@ -143,3 +143,4 @@ def default_funcs_user_dir():
     tolerate it not existing.
     """
     return os.path.join(user_data_root(), 'funcs_user')
+

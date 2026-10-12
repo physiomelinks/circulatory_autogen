@@ -1,0 +1,7 @@
+name,BC_type,vessel_type,inp_vessels,out_vessels
+cap_0,pp,capillary,,capillary_GE_0
+cap_1,pp,capillary,,capillary_GE_1
+capillary_GE_0,nn,GE_capillary,cap_0,volume_0
+capillary_GE_1,nn,GE_capillary,cap_1,volume_1
+volume_0,nn,well_mixed_volume,capillary_GE_0,
+volume_1,nn,well_mixed_volume,capillary_GE_1,

@@ -1,0 +1,64 @@
+{% if pipes %}
+// ---------------------------------------------------------------------------------------------
+// Named pipes for the '{{ pipes.api_name }}' api ({{ pipes.message_length }} doubles per message)
+// ---------------------------------------------------------------------------------------------
+
+void Model0d::pipeWrite(std::ofstream &pipe, const double *msg)
+{
+    pipe.write(reinterpret_cast<const char *>(msg), {{ pipes.message_length }} * sizeof(double));
+    pipe.flush();
+}
+
+void Model0d::pipeRead(std::ifstream &pipe, double *msg)
+{
+    pipe.read(reinterpret_cast<char *>(msg), {{ pipes.message_length }} * sizeof(double));
+    if (!pipe) {
+        std::cerr << "0d solver :: pipe read failed (the coupled model stopped?). Exiting." << std::endl;
+        exit(1);
+    }
+}
+
+int Model0d::openPipes(std::string pipePath)
+{
+    // A FIFO open blocks until the other end opens it: writers first, then readers, in the same
+    // order as the coupler.
+{% for p in pipes.send_pipes %}
+    {{ p.member }}.open(pipePath + "{{ p.name }}");
+    if (!{{ p.member }}.is_open()) {
+        std::cerr << "0d solver :: failed to open write pipe {{ p.name }}" << std::endl;
+        return 1;
+    }
+{% endfor %}
+{% for p in pipes.recv_pipes %}
+    {{ p.member }}.open(pipePath + "{{ p.name }}");
+    if (!{{ p.member }}.is_open()) {
+        std::cerr << "0d solver :: failed to open read pipe {{ p.name }}" << std::endl;
+        return 1;
+    }
+{% endfor %}
+    pipesOpen = true;
+    return 0;
+}
+
+void Model0d::closePipes()
+{
+{% for p in pipes.send_pipes %}
+    {{ p.member }}.close();
+{% endfor %}
+{% for p in pipes.recv_pipes %}
+    {{ p.member }}.close();
+{% endfor %}
+    pipesOpen = false;
+    std::cout << "### 0d solver :: All pipes closed. ###" << std::endl;
+}
+{% else %}
+int Model0d::openPipes(std::string /*pipePath*/)
+{
+    // This model has no named-pipe apis.
+    return 0;
+}
+
+void Model0d::closePipes()
+{
+}
+{% endif %}

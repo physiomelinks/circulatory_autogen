@@ -1,4 +1,5 @@
 import os
+import re
 
 try:
     from libcellml import Analyser, AnalyserModel, AnalyserExternalVariable, Component, Generator, GeneratorProfile, \
@@ -58,37 +59,112 @@ def flatten_model(model, importer):
     return flat_model
 
 def get_analysed_model(analyser):
-    """The AnalyserModel produced by analyser.analyseModel(...).
-
-    libCellML renamed this accessor from Analyser.model() to Analyser.analyserModel() in
-    0.7.0, so support both rather than pinning users to one side of that release.
-    """
-    if hasattr(analyser, 'analyserModel'):
-        return analyser.analyserModel()
-    return analyser.model()
-
-
-def _generator_is_pre_0_7(generator):
-    """libCellML 0.6.x configured the Generator with setModel()/setProfile() and then called
-    implementationCode() with no arguments. 0.7.0 dropped those setters and takes the analysed
-    model and profile as arguments instead."""
-    return hasattr(generator, 'setProfile')
+    """The AnalyserModel produced by analyser.analyseModel(...)."""
+    return analyser.analyserModel()
 
 
 def generate_implementation_code(generator, analysed_model, profile):
-    if _generator_is_pre_0_7(generator):
-        generator.setProfile(profile)
-        generator.setModel(analysed_model)
-        return generator.implementationCode()
     return generator.implementationCode(analysed_model, profile)
 
 
 def generate_interface_code(generator, analysed_model, profile):
-    if _generator_is_pre_0_7(generator):
-        generator.setProfile(profile)
-        generator.setModel(analysed_model)
-        return generator.interfaceCode()
     return generator.interfaceCode(analysed_model, profile)
+
+
+def analyser_variables(analysed_model):
+    """Each non-state analyser variable with its index in one ``variables`` array: constants, computed constants,
+    algebraic variables, then external variables (the layout of ``c_code_with_one_variables_array``)."""
+    variables = []
+    for group in (analysed_model.constants(), analysed_model.computedConstants(),
+                  analysed_model.algebraicVariables(), analysed_model.externalVariables()):
+        variables.extend(group)
+    return list(zip(variables, range(len(variables))))
+
+
+# libCellML 0.7's C: one array per kind of variable, each function taking all of them
+_C_KINDS = (("CONSTANT", "constants", "CONSTANT"), ("COMPUTED_CONSTANT", "computedConstants", "COMPUTED_CONSTANT"),
+            ("ALGEBRAIC_VARIABLE", "algebraicVariables", "ALGEBRAIC"), ("EXTERNAL_VARIABLE", "externalVariables", "EXTERNAL"))
+_C_ALL_ARRAYS = "double *constants, double *computedConstants, double *algebraicVariables"
+
+
+def c_code_with_one_variables_array(code, header):
+    """libCellML's C (implementation, or the header if ``header``) with its constants, computed constants, algebraic
+    and external variables in one ``variables`` array, in that order, and each variable's type in ``VARIABLE_INFO``:
+    the layout CVSCppGenerator rewrites into its C++ model."""
+    if "RootFindingInfo" in code:
+        raise ValueError("C++ generation does not support models with non-linear algebraic equations")
+    externals = "EXTERNAL_VARIABLE_COUNT" in code
+    if header:
+        counts = None
+    else:
+        counts = {kind: int(re.search(rf"const size_t {kind}_COUNT = (\d+);", code).group(1)) if f"{kind}_COUNT" in code
+                  else 0 for kind, _, _ in _C_KINDS}
+    ext = ", ExternalVariable externalVariable" if externals else ""
+    signatures = {
+        "initialiseArrays": (f"void initialiseVariables(double voi, double *states, double *rates, double *variables{ext})"
+                             if externals else "void initialiseVariables(double *states, double *rates, double *variables)"),
+        # libCellML 0.7 also sets the states whose initial value is a computed constant here
+        "computeComputedConstants": "void computeComputedConstants(double voi, double *states, double *rates, double *variables)",
+        "computeRates": f"void computeRates(double voi, double *states, double *rates, double *variables{ext})",
+        "computeVariables": f"void computeVariables(double voi, double *states, double *rates, double *variables{ext})",
+    }
+    for name, signature in signatures.items():
+        code = re.sub(rf"void {name}\([^)]*\)", signature, code)
+    code = re.sub(r"typedef double \(\* ExternalVariable\)\([^)]*\);",
+                  "typedef double (* ExternalVariable)(double voi, double *states, double *rates, double *variables, size_t index);",
+                  code)
+
+    if header:
+        code = re.sub(r"(extern const size_t \w+_COUNT;\n)+", "extern const size_t STATE_COUNT;\nextern const size_t VARIABLE_COUNT;\n",
+                      code, count=1)
+        types = ["VARIABLE_OF_INTEGRATION", "STATE", "CONSTANT", "COMPUTED_CONSTANT", "ALGEBRAIC"] + (["EXTERNAL"] if externals else [])
+        enum = "typedef enum {\n" + ",\n".join(f"    {t}" for t in types) + "\n} VariableType;\n\n"
+        code = code.replace("typedef struct {", enum + "typedef struct {", 1)
+        code = code.replace("} VariableInfo;", "    VariableType type;\n} VariableInfo;", 1)
+        code = re.sub(r"(extern const VariableInfo (CONSTANT|COMPUTED_CONSTANT|ALGEBRAIC_VARIABLE|EXTERNAL_VARIABLE)_INFO\[\];\n)+",
+                      "extern const VariableInfo VARIABLE_INFO[];\n", code)
+        code = re.sub(r"(double \* create(Constants|ComputedConstants|AlgebraicVariables|ExternalVariables)Array\(\);\n)+",
+                      "double * createVariablesArray();\n", code)
+        return code
+
+    offsets, total = {}, 0
+    for kind, array, _ in _C_KINDS:
+        offsets[array] = total
+        total += counts[kind]
+    code = re.sub(r"(const size_t (CONSTANT|COMPUTED_CONSTANT|ALGEBRAIC_VARIABLE|EXTERNAL_VARIABLE)_COUNT = \d+;\n)+",
+                  f"const size_t VARIABLE_COUNT = {total};\n", code)
+    code = re.sub(r'(const VariableInfo VOI_INFO = \{[^}]*)\}', r"\1, VARIABLE_OF_INTEGRATION}", code)
+
+    def tagged(block, variable_type):
+        return [entry[:-1] + f", {variable_type}}}" for entry in re.findall(r"\{[^}]*\}", block)]
+
+    states = re.search(r"const VariableInfo STATE_INFO\[\] = \{\n(.*?)\n\};", code, re.S)
+    code = code.replace(states.group(1), ",\n".join(f"    {e}" for e in tagged(states.group(1), "STATE")))
+    entries = []
+    for kind, _, variable_type in _C_KINDS:
+        # an empty kind (a model with no algebraic variables, say) is an array with no entries: "= {\n};"
+        info = re.search(rf"const VariableInfo {kind}_INFO\[\] = \{{\n(.*?)\}};\n\n", code, re.S)
+        if info:
+            entries += tagged(info.group(1), variable_type)
+            code = code.replace(info.group(0), "@VARIABLE_INFO@" if "@VARIABLE_INFO@" not in code else "")
+    code = code.replace("@VARIABLE_INFO@", "const VariableInfo VARIABLE_INFO[] = {\n"
+                        + ",\n".join(f"    {e}" for e in entries) + "\n};\n\n")
+    create = re.search(r"double \* createStatesArray\(\)\n\{.*?\n\}\n\n", code, re.S).group(0)
+    code = re.sub(r"(double \* create(Constants|ComputedConstants|AlgebraicVariables|ExternalVariables)Array\(\)\n\{.*?\n\}\n\n)+",
+                  create.replace("States", "Variables").replace("STATE", "VARIABLE"), code, count=1, flags=re.S)
+
+    code = re.sub(rf"externalVariable\(voi, states, rates, {_C_ALL_ARRAYS.replace('double *', '')}, externalVariables, (\d+)\)",
+                  lambda m: f"externalVariable(voi, states, rates, variables, {offsets['externalVariables'] + int(m.group(1))})",
+                  code)
+    code = re.sub(r"\b(constants|computedConstants|algebraicVariables|externalVariables)\[(\d+)\]",
+                  lambda m: f"variables[{offsets[m.group(1)] + int(m.group(2))}]", code)
+    if externals:   # initialisation ends by fetching every external variable
+        fetch = "".join(f"    variables[{k}] = externalVariable(voi, states, rates, variables, {k});\n"
+                        for k in range(offsets["externalVariables"], total))
+        start = code.index(signatures["initialiseArrays"])
+        end = code.index("\n}\n", start) + 1
+        code = code[:end] + fetch + code[end:]
+    return code
 
 
 def analyse_model(model):

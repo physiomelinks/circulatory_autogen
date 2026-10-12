@@ -89,6 +89,22 @@ def test_the_first_listed_library_wins_and_external_modules_beat_libraries(tmp_p
 
 
 @pytest.mark.unit
+def test_several_external_modules_dirs_rank_in_the_order_listed(tmp_path):
+    """external_modules_dir may list several directories (#520): a type in two of them is a
+    choice, taken from the first listed, not a duplicate within one source; and any external
+    directory beats the libraries."""
+    first, second, library = (str(tmp_path / n) for n in ('first', 'second', 'library'))
+    first_config = _copy(first, 'first')
+    second_config = _copy(second, 'second')
+    library_config = _copy(os.path.join(library, 'lv'), 'library')
+    sources, (shadow,) = _sources(external_modules_dir=[first, second],
+                                  module_library_dirs=[library], use_builtin_modules=False)
+    assert shadow.shadowed[KEY] == (first_config, [second_config, library_config])
+    assert 'external_modules_dir[0]' in str(shadow)
+    assert sources.component_registry()[KEY]['config_path'] == first_config
+
+
+@pytest.mark.unit
 def test_a_type_defined_twice_within_one_source_is_an_error(tmp_path):
     library = str(tmp_path / 'library')
     _copy(os.path.join(library, 'a'), 'a')

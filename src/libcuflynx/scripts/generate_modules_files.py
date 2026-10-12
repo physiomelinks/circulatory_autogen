@@ -124,15 +124,11 @@ def _extract_variables_constants_states_from_model(analysed_model):
     states = []
 
     # Get variables and constants
-    for i in range(analysed_model.variableCount()):
-        analysed_model_variable = analysed_model.variable(i)
+    for analysed_model_variable in analysed_model.algebraicVariables():
+        variables.append(analysed_model_variable.variable().name())
+    for analysed_model_variable in analysed_model.constants():
         variable = analysed_model_variable.variable()
-        type_as_string = analysed_model_variable.typeAsString(analysed_model_variable.type())
-
-        if type_as_string == "algebraic":
-            variables.append(variable.name())
-        elif type_as_string == "constant":
-            constants[variable.name()] = variable.initialValue()
+        constants[variable.name()] = variable.initialValue()
 
     # Get state variables and set initial values
     for i in range(analysed_model.stateCount()):

@@ -39,6 +39,7 @@ EXPECTED_ENTRY_POINTS = {
     "cuflynx-train-emulator",
     "cuflynx-plot",
     "cuflynx-generate-pipeline",
+    "cuflynx-couple",
     "cuflynx-migrate-obs-data",
 }
 
@@ -352,6 +353,9 @@ def test_launcher_reports_a_missing_install_before_launching_mpi():
 #: before the PR adding it lands.
 NON_STAGE_COMMANDS = {
     "cuflynx-migrate-obs-data",
+    # runs a generated model folder; its configuration (external_models.json) was written from
+    # user_inputs.yaml by cuflynx-generate
+    "cuflynx-couple",
 }
 
 

@@ -89,12 +89,10 @@ def builtin_modules_dir():
 
 
 def generator_template(filename):
-    """A C++ template shipped next to the generators, as a ``Traversable``.
-
-    ``cppGeneratorTemplateFunctions.cpp`` / ``main0dTemplate.cpp`` are read whole and never
-    handed to anything that wants a path, so no real file is materialised for them.
-    """
-    return package_data_file(BUILTIN_MODULES_ANCHOR, filename)
+    """A Jinja2 template of the C++ generator (libcuflynx/generators/cpp/templates), as a
+    ``Traversable``. The generator itself loads them with a Jinja2 loader; this is for reading one
+    directly (e.g. to check it ships)."""
+    return package_data_file('libcuflynx.generators.cpp', 'templates', filename)
 
 
 def _materialise(traversable):

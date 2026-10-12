@@ -93,24 +93,15 @@ def test_finished_parameters_csv_written_to_output_dir(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# #157 -- solver Make files are copied into the generated model directory
+# #157 -- generated models build without copied Make files
 # ---------------------------------------------------------------------------
-def test_solver_make_files_copied_into_model_dir(tmp_path):
-    from libcuflynx.generators.CVSCellMLGenerator import solver_make_files_dir
-    if not os.path.isdir(solver_make_files_dir):
-        pytest.skip('solver Make_files directory not present in this checkout')
-    expected = [f for f in os.listdir(solver_make_files_dir)
-                if os.path.isfile(os.path.join(solver_make_files_dir, f))
-                and not f.startswith('._')]
-    assert expected, 'expected some Make files to copy'
-
-    output = tmp_path / 'generated'
-    output.mkdir()
-    gen = _bare_generator(output_dir=str(output))
-    gen._CVS0DCellMLGenerator__copy_solver_make_files()
-
-    for f in expected:
-        assert (output / f).is_file(), f'{f} should have been copied into the model dir (#157)'
+def test_cellml_generator_no_longer_copies_make_files():
+    """The Makefiles #157 copied into every generated model built the old hand-written C++ and no
+    longer matched anything; generated C++ now ships its own CMakeLists.txt."""
+    from libcuflynx.generators import CVSCellMLGenerator
+    assert not hasattr(CVSCellMLGenerator, 'solver_make_files_dir')
+    assert not hasattr(CVSCellMLGenerator.CVS0DCellMLGenerator,
+                       '_CVS0DCellMLGenerator__copy_solver_make_files')
 
 
 # ---------------------------------------------------------------------------

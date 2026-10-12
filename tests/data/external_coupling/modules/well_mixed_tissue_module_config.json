@@ -1,0 +1,28 @@
+[
+  {
+    "vessel_type": "well_mixed_tissue",
+    "BC_type": "nn",
+    "module_format": "external_api",
+    "module_file": "",
+    "module_type": "well_mixed_tissue",
+    "entrance_ports": [{"port_type": "capillary_to_flux_port", "variables": ["C_t", "J_c"]}],
+    "exit_ports": [],
+    "general_ports": [],
+    "variables_and_units": [
+      ["C_t", "mol_per_m3", "access", "variable"],
+      ["J_c", "mol_per_s", "access", "variable"],
+      ["V", "m3", "access", "constant"],
+      ["M", "millimolar_per_s", "access", "constant"],
+      ["k_reduce", "per_millimolar", "access", "constant"],
+      ["C_init", "millimolar", "access", "constant"]
+    ],
+    "api": {
+      "name": "well_mixed_tissue",
+      "description": "One well-mixed tissue volume per connected capillary, with saturating consumption: the same equations as the CellML module well_mixed_volume.",
+      "role": "provider",
+      "transport": "python",
+      "python": {"file": "well_mixed_tissue.py", "class": "WellMixedTissue"},
+      "coupling_dt": 0.01
+    }
+  }
+]
