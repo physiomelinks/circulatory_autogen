@@ -74,9 +74,11 @@ def test_builtin_modules_dir_is_a_real_directory():
 
 
 @pytest.mark.unit
-def test_generator_uses_the_packaged_library():
+def test_generator_uses_the_packaged_library(monkeypatch):
     """The generator's own lookup must land in the package, not in a sibling checkout."""
     from libcuflynx.utilities.module_library import ModuleSources
+
+    monkeypatch.delenv('CUFLYNX_MODULE_LIBRARY', raising=False)  # the built-in default, unswitched
 
     sources = ModuleSources({})
     assert os.path.isfile(sources.base_script)

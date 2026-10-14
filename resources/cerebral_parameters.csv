@@ -1030,7 +1030,7 @@ R_T_prefrontal_T130_R64 ,Js_per_m6,39879400495.4306,elic
 R_T_prefrontal_T65_L126 ,Js_per_m6,41210804332.1586,elic
 u_ext_ven,J_per_m3,0,small_chosen
 u_ext,J_per_m3,0,small_chosen
-v_1_input_flow_basilar,m3_per_s,3.1e-06,user_defined
-v_2_input_flow_basilar,m3_per_s,3.1e-06,user_defined
+v_input_flow_basilar_1,m3_per_s,3.1e-06,user_defined
+v_input_flow_basilar_2,m3_per_s,3.1e-06,user_defined
 v_input_flow_internalcarotid_L,m3_per_s,3.1e-06,user_defined
 v_input_flow_internalcarotid_R,m3_per_s,3.1e-06,user_defined

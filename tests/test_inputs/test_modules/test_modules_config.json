@@ -1,0 +1,115 @@
+[
+    {
+        "vessel_type":"test_units",
+        "BC_type":"nn",
+        "module_format":"cellml",
+        "module_file":"test_modules.cellml",
+        "module_type":"test_units",
+        "entrance_ports":
+        [
+        ],
+        "exit_ports":
+        [
+        ],
+        "general_ports":[],
+        "variables_and_units":
+        [
+        ]
+    },
+    {
+        "vessel_type":"vessel_type_test1",
+        "BC_type":"nn",
+        "module_format":"cellml",
+        "module_file":"test_modules.cellml",
+        "module_type":"vessel_type1_type",
+        "entrance_ports": [],
+        "exit_ports":
+        [
+          {
+            "port_type":"test_port1",
+            "variables":["a", "d"]
+          },
+          {
+            "port_type":"test_port2",
+            "variables":["b"]
+          }
+        ],
+        "general_ports":
+        [
+          {
+            "port_type":"test_port3",
+            "variables":["c"]
+          },
+          {
+            "port_type":"test_port4",
+            "variables":["y"]
+          }
+        ],
+        "variables_and_units":
+        [
+          ["a", "dimensionless", "access", "constant"],
+          ["b", "dimensionless", "access", "constant"],
+          ["c", "dimensionless", "access", "constant"],
+          ["d", "dimensionless", "access", "boundary_condition"],
+          ["y", "dimensionless", "access", "variable"],
+          ["y_init", "dimensionless", "access", "constant"]
+        ]
+    },
+    {
+        "vessel_type":"vessel_type_test2",
+        "BC_type":"nn",
+        "module_format":"cellml",
+        "module_file":"test_modules.cellml",
+        "module_type":"vessel_type2_type",
+        "entrance_ports": 
+        [
+          {
+            "port_type":"test_port1",
+            "variables":["p", "x"]
+          },
+          {
+            "port_type":"test_port3",
+            "variables":["q"]
+          }
+        ],
+        "exit_ports": [],
+        "general_ports":
+        [
+          {
+            "port_type":"test_port2",
+            "variables":["r"]
+          },
+          {
+            "port_type":"test_port4",
+            "variables":["s"]
+          }
+        ],
+        "variables_and_units":
+        [
+          ["p", "dimensionless", "access", "boundary_condition"],
+          ["q", "dimensionless", "access", "boundary_condition"],
+          ["r", "dimensionless", "access", "boundary_condition"],
+          ["s", "dimensionless", "access", "boundary_condition"],
+          ["z", "dimensionless", "access", "constant"],
+          ["x", "dimensionless", "access", "variable"],
+          ["x_init", "dimensionless", "access", "constant"]
+        ]
+    },
+    {
+        "vessel_type":"init_states_test",
+        "BC_type":"nn",
+        "module_format":"cellml",
+        "module_file":"test_modules.cellml",
+        "module_type":"init_states_test_type",
+        "entrance_ports": [],
+        "exit_ports": [],
+        "general_ports": [],
+        "variables_and_units":
+        [
+          ["a", "dimensionless", "access", "constant"],
+          ["x0", "dimensionless", "no_access", "variable"],
+          ["x", "dimensionless", "access", "variable"],
+          ["y", "dimensionless", "access", "variable"]
+        ]
+    }
+]

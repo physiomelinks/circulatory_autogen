@@ -218,8 +218,28 @@ def normalise_supermodule_entry(entry, source=None):
     entry = merge_renamed_key(entry, DEFAULT_PARAMETERISATION_KEY, DEFAULT_INSTANCE_KEY,
                               description)
 
-    records = [normalise_vessel_record(sub, source=f'{description}, submodules', index=i, what=None)
-               for i, sub in enumerate(submodules)]
+    template = bool(entry.get('template'))
+    if not template:
+        for i, sub in enumerate(submodules):
+            if isinstance(sub, dict) and not (sub.get('module_subtype') or sub.get('BC_type')):
+                raise ValueError(f'{description}, submodules[{i}]: a submodule without a version '
+                                 f'(module_subtype) is only allowed in a template ("template": true).')
+    records = []
+    for i, sub in enumerate(submodules):
+        open_slot = template and isinstance(sub, dict) and not (sub.get('module_subtype') or sub.get('BC_type'))
+        if open_slot:
+            # a template's slot names its module_type and the versions that fit, not a version
+            choices = sub.get('choices')
+            if choices is not None and not (isinstance(choices, list) and all(isinstance(c, str) for c in choices)):
+                raise ValueError(f'{description}, submodules[{i}]: "choices" must be a list of version names.')
+            sub = dict(sub, **({'module_subtype': '?'} if 'module_type' in sub else {'BC_type': '?'}))
+        record = normalise_vessel_record(sub, source=f'{description}, submodules', index=i, what=None)
+        if open_slot:
+            record['BC_type'] = None
+        records.append(record)
+    if not template and any(r['BC_type'] is None for r in records):
+        raise ValueError(f'{description}: a submodule without a version is only allowed in a template '
+                         f'("template": true).')
     names = [r['name'] for r in records]
     duplicated = sorted({n for n in names if names.count(n) > 1})
     if duplicated:
@@ -240,6 +260,39 @@ def normalise_supermodule_entry(entry, source=None):
                     raise ValueError(
                         f'{description}, submodules[{i}] ("{record["name"]}"): "{key}" names '
                         f'{unknown} for "{sub}", which are not submodules of this supermodule.')
+
+    routes = entry.get('routes')
+    if routes is not None:
+        if not isinstance(routes, dict) or set(routes) - {'inputs', 'outputs'}:
+            raise ValueError(f'{description}: "routes" must be {{"inputs": {{port_type: submodule(s)}}, '
+                             f'"outputs": {{...}}}}, not {routes!r}.')
+        for side, table in routes.items():
+            for port_type, targets in (table or {}).items():
+                for target in ([targets] if isinstance(targets, str) else targets):
+                    if target not in names:
+                        raise ValueError(f'{description}: routes["{side}"]["{port_type}"] names '
+                                         f'"{target}", which is not one of its submodules {names}.')
+    outputs = entry.get('outputs')
+    if outputs is not None:
+        names = {r['name'] for r in records}
+        if not isinstance(outputs, dict) or not all(
+                isinstance(t, str) and t.count('/') == 1 and t.split('/')[0] in names for t in outputs.values()):
+            raise ValueError(f'{description}: "outputs" must map each output name to "<submodule>/<variable>" '
+                             f'of one of its submodules {sorted(names)}.')
+    shared = entry.get('shared_parameters')
+    if shared is not None:
+        names = {r['name'] for r in records}
+        ok = isinstance(shared, list)
+        for item in shared if ok else []:
+            if isinstance(item, str):
+                continue
+            if not (isinstance(item, dict) and isinstance(item.get('name'), str)
+                    and isinstance(item.get('variable', ''), str)
+                    and set(item.get('submodules') or []) <= names):
+                ok = False
+        if not ok:
+            raise ValueError(f'{description}: "shared_parameters" must be a list of variable names, or of '
+                             '{"name", "variable", "submodules"} objects whose submodules are its own.')
 
     normalised = {'vessel_type': entry[type_key], 'BC_type': entry[subtype_key]}
     for key, value in entry.items():
@@ -643,6 +696,9 @@ def _frame_cell(value, is_list):
     return tokens[0].strip() if tokens else []
 
 
+_DICT_COLUMNS = ('parameter_names', 'output_aliases')
+
+
 def vessel_records_to_frame(records):
     '''
     Normalised vessel records as the list-form dataframe the generator uses: the libcuflynx
@@ -656,11 +712,28 @@ def vessel_records_to_frame(records):
         for key, value in record.items():
             if key not in columns and not isinstance(value, (dict, list)):
                 columns.append(key)
+    # a supermodule's submodules name the shared parameters they take (see parameter_name) and
+    # the instance outputs they stand for: dict columns the generator reads
+    for column in _DICT_COLUMNS:
+        if any(record.get(column) for record in records):
+            columns.append(column)
     df = pd.DataFrame(index=range(len(records)), columns=columns, dtype=object)
     for i, record in enumerate(records):
         for j, column in enumerate(columns):
-            df.iat[i, j] = _frame_cell(record.get(column), column in _LIST_COLUMNS)
+            if column in _DICT_COLUMNS:
+                df.iat[i, j] = dict(record.get(column) or {})
+            else:
+                df.iat[i, j] = _frame_cell(record.get(column), column in _LIST_COLUMNS)
     return df
+
+
+def parameter_name(module, variable, parameter_names=None):
+    '''The model parameter of ``module``'s constant ``variable``: ``<variable>_<module>``, or the
+    shared supermodule parameter its record names (``parameter_names``, set when a supermodule
+    is expanded: e.g. ``C_aortic_root`` for both halves of a lumped vessel's compliance).'''
+    if isinstance(parameter_names, dict) and variable in parameter_names:
+        return parameter_names[variable]
+    return f'{variable}_{module}'
 
 
 def vessel_records_to_string_frame(records):
@@ -670,6 +743,8 @@ def vessel_records_to_string_frame(records):
     '''
     frame = vessel_records_to_frame(records)
     for column in frame.columns:
+        if column in _DICT_COLUMNS:
+            continue        # stays a dict: it is not written to a CSV, the generator reads it
         frame[column] = [' '.join(v) if column in _LIST_COLUMNS else (v if isinstance(v, str) else '')
                          for v in frame[column]]
     return frame
@@ -691,6 +766,7 @@ def load_expanded_vessel_records(path, supermodule_registry=None, component_regi
     settings = []
     records, extra_param_rows = expand_supermodules(read_module_array_records(path),
                                                     supermodule_registry or {}, source=str(path),
+                                                    component_registry=component_registry,
                                                     settings=settings)
     if component_registry is not None:
         extra_param_rows = first_rows_win(extra_param_rows + component_instance_rows(

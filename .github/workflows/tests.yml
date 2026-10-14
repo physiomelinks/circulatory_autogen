@@ -132,6 +132,20 @@ jobs:
         shell: bash -el {0}
     steps:
     - uses: actions/checkout@v4
+    # tests/conftest.py runs every test on circulatory-autogen-modules, at the commit pinned in
+    # tests/MODULE_LIBRARY_REF
+    - name: Read the pinned module library commit
+      id: module-library
+      run: |
+        echo "ref=$(grep -v '^#' tests/MODULE_LIBRARY_REF | grep -m1 .)" >> "$GITHUB_OUTPUT"
+        echo "CUFLYNX_MODULE_LIBRARY=$GITHUB_WORKSPACE/_module_library/modules" >> "$GITHUB_ENV"
+    - name: Check out the module library
+      uses: actions/checkout@v4
+      with:
+        repository: physiomelinks/circulatory-autogen-modules
+        ref: ${{ steps.module-library.outputs.ref }}
+        path: _module_library
+        sparse-checkout: modules
 
     - name: Set up a FEniCSx environment
       uses: mamba-org/setup-micromamba@v1
@@ -179,6 +193,20 @@ jobs:
     name: test-param-id-mpi (${{ matrix.shard }})
     steps:
     - uses: actions/checkout@v4
+    # tests/conftest.py runs every test on circulatory-autogen-modules, at the commit pinned in
+    # tests/MODULE_LIBRARY_REF
+    - name: Read the pinned module library commit
+      id: module-library
+      run: |
+        echo "ref=$(grep -v '^#' tests/MODULE_LIBRARY_REF | grep -m1 .)" >> "$GITHUB_OUTPUT"
+        echo "CUFLYNX_MODULE_LIBRARY=$GITHUB_WORKSPACE/_module_library/modules" >> "$GITHUB_ENV"
+    - name: Check out the module library
+      uses: actions/checkout@v4
+      with:
+        repository: physiomelinks/circulatory-autogen-modules
+        ref: ${{ steps.module-library.outputs.ref }}
+        path: _module_library
+        sparse-checkout: modules
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -218,6 +246,20 @@ jobs:
     timeout-minutes: 45
     steps:
     - uses: actions/checkout@v4
+    # tests/conftest.py runs every test on circulatory-autogen-modules, at the commit pinned in
+    # tests/MODULE_LIBRARY_REF
+    - name: Read the pinned module library commit
+      id: module-library
+      run: |
+        echo "ref=$(grep -v '^#' tests/MODULE_LIBRARY_REF | grep -m1 .)" >> "$GITHUB_OUTPUT"
+        echo "CUFLYNX_MODULE_LIBRARY=$GITHUB_WORKSPACE/_module_library/modules" >> "$GITHUB_ENV"
+    - name: Check out the module library
+      uses: actions/checkout@v4
+      with:
+        repository: physiomelinks/circulatory-autogen-modules
+        ref: ${{ steps.module-library.outputs.ref }}
+        path: _module_library
+        sparse-checkout: modules
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -294,6 +336,20 @@ jobs:
     timeout-minutes: 25
     steps:
     - uses: actions/checkout@v4
+    # tests/conftest.py runs every test on circulatory-autogen-modules, at the commit pinned in
+    # tests/MODULE_LIBRARY_REF
+    - name: Read the pinned module library commit
+      id: module-library
+      run: |
+        echo "ref=$(grep -v '^#' tests/MODULE_LIBRARY_REF | grep -m1 .)" >> "$GITHUB_OUTPUT"
+        echo "CUFLYNX_MODULE_LIBRARY=$GITHUB_WORKSPACE/_module_library/modules" >> "$GITHUB_ENV"
+    - name: Check out the module library
+      uses: actions/checkout@v4
+      with:
+        repository: physiomelinks/circulatory-autogen-modules
+        ref: ${{ steps.module-library.outputs.ref }}
+        path: _module_library
+        sparse-checkout: modules
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -390,6 +446,20 @@ jobs:
     timeout-minutes: 45
     steps:
     - uses: actions/checkout@v4
+    # tests/conftest.py runs every test on circulatory-autogen-modules, at the commit pinned in
+    # tests/MODULE_LIBRARY_REF
+    - name: Read the pinned module library commit
+      id: module-library
+      run: |
+        echo "ref=$(grep -v '^#' tests/MODULE_LIBRARY_REF | grep -m1 .)" >> "$GITHUB_OUTPUT"
+        echo "CUFLYNX_MODULE_LIBRARY=$GITHUB_WORKSPACE/_module_library/modules" >> "$GITHUB_ENV"
+    - name: Check out the module library
+      uses: actions/checkout@v4
+      with:
+        repository: physiomelinks/circulatory-autogen-modules
+        ref: ${{ steps.module-library.outputs.ref }}
+        path: _module_library
+        sparse-checkout: modules
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -422,6 +492,20 @@ jobs:
     name: test-param-id-serial (${{ matrix.shard }})
     steps:
     - uses: actions/checkout@v4
+    # tests/conftest.py runs every test on circulatory-autogen-modules, at the commit pinned in
+    # tests/MODULE_LIBRARY_REF
+    - name: Read the pinned module library commit
+      id: module-library
+      run: |
+        echo "ref=$(grep -v '^#' tests/MODULE_LIBRARY_REF | grep -m1 .)" >> "$GITHUB_OUTPUT"
+        echo "CUFLYNX_MODULE_LIBRARY=$GITHUB_WORKSPACE/_module_library/modules" >> "$GITHUB_ENV"
+    - name: Check out the module library
+      uses: actions/checkout@v4
+      with:
+        repository: physiomelinks/circulatory-autogen-modules
+        ref: ${{ steps.module-library.outputs.ref }}
+        path: _module_library
+        sparse-checkout: modules
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -450,6 +534,20 @@ jobs:
     timeout-minutes: 45
     steps:
     - uses: actions/checkout@v4
+    # tests/conftest.py runs every test on circulatory-autogen-modules, at the commit pinned in
+    # tests/MODULE_LIBRARY_REF
+    - name: Read the pinned module library commit
+      id: module-library
+      run: |
+        echo "ref=$(grep -v '^#' tests/MODULE_LIBRARY_REF | grep -m1 .)" >> "$GITHUB_OUTPUT"
+        echo "CUFLYNX_MODULE_LIBRARY=$GITHUB_WORKSPACE/_module_library/modules" >> "$GITHUB_ENV"
+    - name: Check out the module library
+      uses: actions/checkout@v4
+      with:
+        repository: physiomelinks/circulatory-autogen-modules
+        ref: ${{ steps.module-library.outputs.ref }}
+        path: _module_library
+        sparse-checkout: modules
 
     - name: Set up Python
       uses: actions/setup-python@v5

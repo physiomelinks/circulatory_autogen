@@ -2750,9 +2750,8 @@ class YamlFileParser(object):
                 exit()
             module_library_dirs.append(library_dir)
         inp_data_dict['module_library_dirs'] = module_library_dirs or None
-
-        if inp_data_dict.get('use_builtin_modules') is None:
-            inp_data_dict['use_builtin_modules'] = True
+        # use_builtin_modules stays None when unset: ModuleSources then defaults it to True, or
+        # to the CUFLYNX_MODULE_LIBRARY library when that is set (utilities/module_library.py)
 
         # for sensitivity analysis and parameter identification
         if not 'sa_options' in inp_data_dict.keys():

@@ -128,6 +128,11 @@
             ]
           },
           "description": "the older name of \"default_parameterisation\" (still read; give one of the two, or both with the same value)"
+        },
+        "available_to_phlynx": {
+          "type": "boolean",
+          "default": true,
+          "description": "false: the module library keeps this version but does not offer it in PhLynx"
         }
       },
       "not": {
@@ -236,6 +241,11 @@
             ]
           },
           "description": "the older name of \"default_parameterisation\" (still read; give one of the two, or both with the same value)"
+        },
+        "available_to_phlynx": {
+          "type": "boolean",
+          "default": true,
+          "description": "false: the module library keeps this version but does not offer it in PhLynx"
         }
       },
       "not": {
@@ -280,9 +290,16 @@
           "type": "array",
           "minItems": 1,
           "items": {
-            "$ref": "#/$defs/record"
+            "oneOf": [
+              {
+                "$ref": "#/$defs/record"
+              },
+              {
+                "$ref": "#/$defs/slot"
+              }
+            ]
           },
-          "description": "instance records whose names are local to the supermodule; each may name its own \"parameterisation\" (older name \"instance\")"
+          "description": "instance records whose names are local to the supermodule; each may name its own \"parameterisation\" (older name \"instance\"). In a template, a submodule may instead be an open slot (a record without a version; see $defs/slot)"
         },
         "default_parameters": {
           "type": "string",
@@ -309,6 +326,102 @@
             ]
           },
           "description": "the older name of \"default_parameterisation\" (still read; give one of the two, or both with the same value)"
+        },
+        "template": {
+          "type": "boolean",
+          "description": "an empty supermodule: its slots name the module_type of each submodule but not the version, for a user (e.g. in PhLynx) to choose. A template cannot be generated; libcuflynx says which slots need a version. Default: false.",
+          "default": false
+        },
+        "routes": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "inputs": {
+              "type": "object",
+              "additionalProperties": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1
+                  }
+                ]
+              },
+              "description": "{port_type: submodule or [submodules]}: where a host upstream of the supermodule (it is in their out list) connects, through that port type."
+            },
+            "outputs": {
+              "type": "object",
+              "additionalProperties": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1
+                  }
+                ]
+              },
+              "description": "{port_type: submodule or [submodules]}: where a host downstream of the supermodule (it is in their inp list) connects, through that port type."
+            }
+          },
+          "description": "port_type -> the submodule(s) a host connected to the supermodule is linked to through that port type: \"inputs\" for hosts upstream (the supermodule is in their out list), \"outputs\" for hosts downstream. Lets a model connect to the supermodule as one vessel, e.g. {\"inputs\": {\"vessel_port\": \"C\"}, \"outputs\": {\"vessel_port\": \"I\", \"volume_port\": \"C\"}}."
+        },
+        "shared_parameters": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "the supermodule-level name (an instance row <name>, a host row <name>_<instance>)"
+                  },
+                  "variable": {
+                    "type": "string",
+                    "description": "the submodule variable it sets (default: name)"
+                  },
+                  "submodules": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "the submodules it sets (default: all)"
+                  }
+                }
+              }
+            ]
+          },
+          "description": "parameters set once for the whole supermodule: a variable name (shared under its own name by every submodule), or {name, variable, submodules}, e.g. {\"name\": \"C_T\", \"variable\": \"C\", \"submodules\": [\"C\"]} to keep a monolithic version's parameter name. An instance row <name>, or a host parameters-file row <name>_<instance>, sets <variable> in each listed submodule."
+        },
+        "available_to_phlynx": {
+          "type": "boolean",
+          "default": true,
+          "description": "false: the module library keeps this version but does not offer it in PhLynx"
+        },
+        "outputs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[^/]+/[^/]+$"
+          },
+          "description": "outputs the instance exposes under its own name: {\"u\": \"C_p/u\"} gives a model the output <instance>/u, the submodule C_p's u (e.g. a lumped vessel keeps its monolithic version's output names)"
         }
       },
       "oneOf": [
@@ -371,7 +484,33 @@
             ]
           }
         ]
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "not": {
+              "properties": {
+                "template": {
+                  "const": true
+                }
+              },
+              "required": [
+                "template"
+              ]
+            }
+          },
+          "then": {
+            "properties": {
+              "submodules": {
+                "items": {
+                  "$ref": "#/$defs/record"
+                }
+              }
+            }
+          },
+          "description": "Only a template (\"template\": true) may have open slots (submodules without a version)."
+        }
+      ]
     },
     "entry": {
       "oneOf": [
@@ -597,6 +736,59 @@
           "$ref": "#/$defs/libcuflynxRecord"
         }
       ]
+    },
+    "slot": {
+      "title": "open slot of a template supermodule",
+      "type": "object",
+      "required": [
+        "name",
+        "module_type"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "module_type": {
+          "$ref": "#/$defs/name",
+          "description": "the module type that fits this slot"
+        },
+        "choices": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "the versions (module_subtype) of module_type that fit; default: any"
+        },
+        "description": {
+          "type": "string",
+          "description": "Free text: what the slot is for. Not read."
+        },
+        "inp_instances": {
+          "$ref": "#/$defs/nameList"
+        },
+        "out_instances": {
+          "$ref": "#/$defs/nameList"
+        }
+      },
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "module_subtype"
+            ]
+          },
+          {
+            "required": [
+              "BC_type"
+            ]
+          },
+          {
+            "required": [
+              "vessel_type"
+            ]
+          }
+        ]
+      }
     }
   }
 }

@@ -164,7 +164,8 @@ def test_generation_uses_the_winning_source_s_module_once(tmp_path):
         with open(out / prefix / f'{prefix}_modules.cellml') as f:
             return f.read(), [w for w in caught if isinstance(w.message, ModuleShadowWarning)]
 
-    builtin_only, shadows = generate('builtin')
+    # use_builtin_modules: true, so not the CUFLYNX_MODULE_LIBRARY default the tests set
+    builtin_only, shadows = generate('builtin', use_builtin_modules=True)
     assert not shadows
     with_library, shadows = generate('library', module_library_dirs=[library])
     # one warning (load_model's; the generator does not repeat it), the library's component,

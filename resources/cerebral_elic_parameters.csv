@@ -1,6 +1,6 @@
 variable_name,units,value,data_reference
-v_1_input_flow_basilar,m3_per_s,3.1e-06,user_defined
-v_2_input_flow_basilar,m3_per_s,3.1e-06,user_defined
+v_input_flow_basilar_1,m3_per_s,3.1e-06,user_defined
+v_input_flow_basilar_2,m3_per_s,3.1e-06,user_defined
 v_input_flow_internalcarotid_L,m3_per_s,3.1e-06,user_defined
 v_input_flow_internalcarotid_R,m3_per_s,3.1e-06,user_defined
 E_ascending_aorta_A,J_per_m3,400000,ADAN_86

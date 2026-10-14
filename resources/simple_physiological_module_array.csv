@@ -4,10 +4,10 @@ ascending_aorta_A,       vv, arterial,           heart                 ,ascendin
 ascending_aorta_B,       pv, arterial,           ascending_aorta_A     ,ascending_aorta_C    
 ascending_aorta_C,       pv, arterial,           ascending_aorta_B     ,ascending_aorta_D    
 ascending_aorta_D,       pv, arterial,           ascending_aorta_C     ,aortic_arch_C2       
-aortic_arch_C2,          pv, split_junction,     ascending_aorta_D     ,aortic_arch_C46      brachiocephalic_trunk_C4
-aortic_arch_C46,         pv, split_junction,     aortic_arch_C2        ,aortic_arch_C64      common_carotid_L48_A
-aortic_arch_C64,         pv, split_junction,     aortic_arch_C46       ,aortic_arch_C94      subclavian_L66
-brachiocephalic_trunk_C4,pv, split_junction,     aortic_arch_C2        ,common_carotid_R6_A  subclavian_R28
+aortic_arch_C2,          pv, arterial,     ascending_aorta_D     ,aortic_arch_C46      brachiocephalic_trunk_C4
+aortic_arch_C46,         pv, arterial,     aortic_arch_C2        ,aortic_arch_C64      common_carotid_L48_A
+aortic_arch_C64,         pv, arterial,     aortic_arch_C46       ,aortic_arch_C94      subclavian_L66
+brachiocephalic_trunk_C4,pv, arterial,     aortic_arch_C2        ,common_carotid_R6_A  subclavian_R28
 common_carotid_L48_A,    pv, arterial,           aortic_arch_C46       ,head_L_T             
 common_carotid_R6_A,     pv, arterial,           brachiocephalic_trunk_C4  ,head_R_T         
 subclavian_L66,          pv, arterial,           aortic_arch_C64       ,arm_L_T              
@@ -22,13 +22,13 @@ thoracic_aorta_C100,     pv, arterial,           thoracic_aorta_C96    ,thoracic
 thoracic_aorta_C104,     pv, arterial,           thoracic_aorta_C100   ,thoracic_aorta_C108  
 thoracic_aorta_C108,     pv, arterial,           thoracic_aorta_C104   ,thoracic_aorta_C112  
 thoracic_aorta_C112,     pv, arterial,           thoracic_aorta_C108   ,abdominal_aorta_C114 
-abdominal_aorta_C114,    pv, split_junction,     thoracic_aorta_C112   ,abdominal_aorta_C136 trunk_C_T
+abdominal_aorta_C114,    pv, arterial,     thoracic_aorta_C112   ,abdominal_aorta_C136 trunk_C_T
 trunk_C_T,               pp, terminal,           abdominal_aorta_C114  ,venous_lb            
 abdominal_aorta_C136,    pv, arterial,           abdominal_aorta_C114  ,abdominal_aorta_C164 
 abdominal_aorta_C164,    pv, arterial,           abdominal_aorta_C136  ,abdominal_aorta_C176 
 abdominal_aorta_C176,    pv, arterial,           abdominal_aorta_C164  ,abdominal_aorta_C188 
 abdominal_aorta_C188,    pv, arterial,           abdominal_aorta_C176  ,abdominal_aorta_C192 
-abdominal_aorta_C192,    pv, split_junction,     abdominal_aorta_C188  ,common_iliac_L194    common_iliac_R216
+abdominal_aorta_C192,    pv, arterial,     abdominal_aorta_C188  ,common_iliac_L194    common_iliac_R216
 common_iliac_L194,       pv, arterial,           abdominal_aorta_C192  ,external_iliac_L198  
 external_iliac_L198,     pv, arterial,           common_iliac_L194     ,femoral_L200         
 common_iliac_R216,       pv, arterial,           abdominal_aorta_C192  ,external_iliac_R220  

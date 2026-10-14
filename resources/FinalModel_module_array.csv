@@ -1,162 +1,162 @@
 name,BC_type,vessel_type,inp_vessels,out_vessels
 heart,vp, heart,venous_ivc                                        venous_svc,   ascending_aorta_C0 
 ascending_aorta_C0,vv,arterial,heart,aortic_arch_C2
-aortic_arch_C2,pv,split_junction,ascending_aorta_C0,brachiocephalic_trunk_C4        aortic_arch_C46
-brachiocephalic_trunk_C4,pv,split_junction,aortic_arch_C2,common_carotid_R6        subclavian_R28
-aortic_arch_C46,pv,split_junction,aortic_arch_C2,aortic_arch_C64        common_carotid_L48
-aortic_arch_C64,pv,split_junction,aortic_arch_C46,aortic_arch_C94         subclavian_L66
+aortic_arch_C2,pv,arterial,ascending_aorta_C0,brachiocephalic_trunk_C4        aortic_arch_C46
+brachiocephalic_trunk_C4,pv,arterial,aortic_arch_C2,common_carotid_R6        subclavian_R28
+aortic_arch_C46,pv,arterial,aortic_arch_C2,aortic_arch_C64        common_carotid_L48
+aortic_arch_C64,pv,arterial,aortic_arch_C46,aortic_arch_C94         subclavian_L66
 aortic_arch_C94,pv,arterial,aortic_arch_C64,thoracic_aorta_C96
-thoracic_aorta_C96,pv,split_junction,aortic_arch_C94,thoracic_aorta_C100          posterior_intercostal_T1_R98_T
-thoracic_aorta_C100,pv,split_junction,thoracic_aorta_C96,thoracic_aorta_C104          posterior_intercostal_T1_L102_T
-thoracic_aorta_C104,pv,split_junction,thoracic_aorta_C100,thoracic_aorta_C108          posterior_intercostal_T2_R106_T
-thoracic_aorta_C108,pv,split_junction,thoracic_aorta_C104,thoracic_aorta_C112          posterior_intercostal_T2_L110_T
+thoracic_aorta_C96,pv,arterial,aortic_arch_C94,thoracic_aorta_C100          posterior_intercostal_T1_R98_T
+thoracic_aorta_C100,pv,arterial,thoracic_aorta_C96,thoracic_aorta_C104          posterior_intercostal_T1_L102_T
+thoracic_aorta_C104,pv,arterial,thoracic_aorta_C100,thoracic_aorta_C108          posterior_intercostal_T2_R106_T
+thoracic_aorta_C108,pv,arterial,thoracic_aorta_C104,thoracic_aorta_C112          posterior_intercostal_T2_L110_T
 thoracic_aorta_C112,pv,arterial,thoracic_aorta_C108,abdominal_aorta_C114
-abdominal_aorta_C114,pv,split_junction,thoracic_aorta_C112,abdominal_aorta_C136           celiac_trunk_C116
-abdominal_aorta_C136,pv,split_junction,abdominal_aorta_C114,abdominal_aorta_C164          superior_mesenteric_T4_C138
-abdominal_aorta_C164,pv,split_junction,abdominal_aorta_C136,abdominal_aorta_C176          renal_L166
-abdominal_aorta_C176,pv,split_junction,abdominal_aorta_C164,abdominal_aorta_C188          renal_R178
-abdominal_aorta_C188,pv,split_junction,abdominal_aorta_C176,abdominal_aorta_C192          inferior_mesenteric_T5_C190_T
-abdominal_aorta_C192,pv,split_junction,abdominal_aorta_C188,common_iliac_R216          common_iliac_L194
+abdominal_aorta_C114,pv,arterial,thoracic_aorta_C112,abdominal_aorta_C136           celiac_trunk_C116
+abdominal_aorta_C136,pv,arterial,abdominal_aorta_C114,abdominal_aorta_C164          superior_mesenteric_T4_C138
+abdominal_aorta_C164,pv,arterial,abdominal_aorta_C136,abdominal_aorta_C176          renal_L166
+abdominal_aorta_C176,pv,arterial,abdominal_aorta_C164,abdominal_aorta_C188          renal_R178
+abdominal_aorta_C188,pv,arterial,abdominal_aorta_C176,abdominal_aorta_C192          inferior_mesenteric_T5_C190_T
+abdominal_aorta_C192,pv,arterial,abdominal_aorta_C188,common_iliac_R216          common_iliac_L194
 posterior_intercostal_T1_R98_T,pp,terminal,thoracic_aorta_C96,venous_lb
     posterior_intercostal_T1_L102_T,pp,terminal,thoracic_aorta_C100,venous_lb
     posterior_intercostal_T2_R106_T,pp,terminal,thoracic_aorta_C104,venous_lb
     posterior_intercostal_T2_L110_T,pp,terminal,thoracic_aorta_C108,venous_lb
-celiac_trunk_C116,pv,split_junction,abdominal_aorta_C114,splenic_T2_C118          left_gastric_T3_C120_T
-splenic_T2_C118,pv,split_junction,celiac_trunk_C116,splenic_T2_C122          dorsal_pancreatic_T1_C124_T
+celiac_trunk_C116,pv,arterial,abdominal_aorta_C114,splenic_T2_C118          left_gastric_T3_C120_T
+splenic_T2_C118,pv,arterial,celiac_trunk_C116,splenic_T2_C122          dorsal_pancreatic_T1_C124_T
    left_gastric_T3_C120_T,pp,terminal,celiac_trunk_C116,venous_lb
-splenic_T2_C122,pv,split_junction,splenic_T2_C118,splenic_T2_C126_T           common_hepatic_C128
+splenic_T2_C122,pv,arterial,splenic_T2_C118,splenic_T2_C126_T           common_hepatic_C128
     dorsal_pancreatic_T1_C124_T,pp,terminal,splenic_T2_C118, venous_lb
      splenic_T2_C126_T,pp,terminal,splenic_T2_C122,venous_lb
 common_hepatic_C128,pv,arterial,splenic_T2_C122,hepatic_artery_proper_C130
-hepatic_artery_proper_C130,pv,split_junction,common_hepatic_C128,hepatic_artery_proper_left_branch_C132_T          hepatic_artery_proper_right_branch_C134_T
+hepatic_artery_proper_C130,pv,arterial,common_hepatic_C128,hepatic_artery_proper_left_branch_C132_T          hepatic_artery_proper_right_branch_C134_T
    hepatic_artery_proper_left_branch_C132_T,pp,terminal,hepatic_artery_proper_C130,venous_lb
   hepatic_artery_proper_right_branch_C134_T,pp,terminal,hepatic_artery_proper_C130,venous_lb
-superior_mesenteric_T4_C138,pv,split_junction,abdominal_aorta_C136,middle_colic_T8_C140_T          superior_mesenteric_T4_C142
+superior_mesenteric_T4_C138,pv,arterial,abdominal_aorta_C136,middle_colic_T8_C140_T          superior_mesenteric_T4_C142
    middle_colic_T8_C140_T,pp,terminal,superior_mesenteric_T4_C138,venous_lb
-superior_mesenteric_T4_C142,pv,split_junction,superior_mesenteric_T4_C138,jejunal_3_T10_C144_T         superior_mesenteric_T4_C146
+superior_mesenteric_T4_C142,pv,arterial,superior_mesenteric_T4_C138,jejunal_3_T10_C144_T         superior_mesenteric_T4_C146
    jejunal_3_T10_C144_T,pp,terminal,superior_mesenteric_T4_C142,venous_lb
-superior_mesenteric_T4_C146,pv,split_junction,superior_mesenteric_T4_C142,jejunal_6_T11_C148_T           superior_mesenteric_T4_C150
+superior_mesenteric_T4_C146,pv,arterial,superior_mesenteric_T4_C142,jejunal_6_T11_C148_T           superior_mesenteric_T4_C150
     jejunal_6_T11_C148_T,pp,terminal,superior_mesenteric_T4_C146,venous_lb
-superior_mesenteric_T4_C150,pv,split_junction,superior_mesenteric_T4_C146,ileocolic_T9_C152_T           superior_mesenteric_T4_C154
+superior_mesenteric_T4_C150,pv,arterial,superior_mesenteric_T4_C146,ileocolic_T9_C152_T           superior_mesenteric_T4_C154
     ileocolic_T9_C152_T,pp,terminal,superior_mesenteric_T4_C150,venous_lb
-superior_mesenteric_T4_C154,pv,split_junction,superior_mesenteric_T4_C150,ileal_4_T12_C156_T           superior_mesenteric_T4_C158
+superior_mesenteric_T4_C154,pv,arterial,superior_mesenteric_T4_C150,ileal_4_T12_C156_T           superior_mesenteric_T4_C158
     ileal_4_T12_C156_T  ,pp,terminal,superior_mesenteric_T4_C154,venous_lb
-superior_mesenteric_T4_C158,pv,split_junction,superior_mesenteric_T4_C154,ileal_6_T13_C160_T           superior_mesenteric_T4_C162_T
+superior_mesenteric_T4_C158,pv,arterial,superior_mesenteric_T4_C154,ileal_6_T13_C160_T           superior_mesenteric_T4_C162_T
    ileal_6_T13_C160_T,pp,terminal,superior_mesenteric_T4_C158,venous_lb
    superior_mesenteric_T4_C162_T,pp,terminal,superior_mesenteric_T4_C158,venous_lb
-renal_L166,pv,split_junction,abdominal_aorta_C164,renal_anterior_branch_L168           renal_posterior_branch_T3_L174_T
-renal_anterior_branch_L168,pv,split_junction,renal_L166,inferior_segmental_T5_L170_T           superior_segmental_T4_L172_T
+renal_L166,pv,arterial,abdominal_aorta_C164,renal_anterior_branch_L168           renal_posterior_branch_T3_L174_T
+renal_anterior_branch_L168,pv,arterial,renal_L166,inferior_segmental_T5_L170_T           superior_segmental_T4_L172_T
   inferior_segmental_T5_L170_T,pp,terminal,renal_anterior_branch_L168,venous_lb
   superior_segmental_T4_L172_T,pp,terminal,renal_anterior_branch_L168,venous_lb
    renal_posterior_branch_T3_L174_T,pp,terminal,renal_L166, venous_lb
-renal_R178,pv,split_junction,abdominal_aorta_C176,renal_anterior_branch_R180           renal_posterior_branch_T3_R186_T
-renal_anterior_branch_R180,pv,split_junction,renal_R178,superior_segmental_T4_R182_T           inferior_segmental_T5_R184_T
+renal_R178,pv,arterial,abdominal_aorta_C176,renal_anterior_branch_R180           renal_posterior_branch_T3_R186_T
+renal_anterior_branch_R180,pv,arterial,renal_R178,superior_segmental_T4_R182_T           inferior_segmental_T5_R184_T
    superior_segmental_T4_R182_T,pp,terminal,renal_anterior_branch_R180,venous_lb
    inferior_segmental_T5_R184_T,pp,terminal,renal_anterior_branch_R180,venous_lb
    renal_posterior_branch_T3_R186_T,pp,terminal,renal_R178,venous_lb
     inferior_mesenteric_T5_C190_T,pp,terminal,abdominal_aorta_C188,venous_lb
-subclavian_R28,pv,split_junction,brachiocephalic_trunk_C4,subclavian_R30             vertebral_R272
+subclavian_R28,pv,arterial,brachiocephalic_trunk_C4,subclavian_R30             vertebral_R272
 subclavian_R30,pv,arterial,subclavian_R28,axillary_R32
 axillary_R32,pv,arterial,subclavian_R30,brachial_R34
-brachial_R34,pv,split_junction,axillary_R32,ulnar_T2_R36             radial_T1_R44_T
-ulnar_T2_R36,pv,split_junction,brachial_R34,common_interosseous_R38             ulnar_T2_R42_T
+brachial_R34,pv,arterial,axillary_R32,ulnar_T2_R36             radial_T1_R44_T
+ulnar_T2_R36,pv,arterial,brachial_R34,common_interosseous_R38             ulnar_T2_R42_T
 common_interosseous_R38,pv,arterial,ulnar_T2_R36,posterior_interosseous_T3_R40_T
     posterior_interosseous_T3_R40_T,pp,terminal,common_interosseous_R38,venous_ub
   ulnar_T2_R42_T,pp,terminal,ulnar_T2_R36,venous_ub
   radial_T1_R44_T,pp,terminal,brachial_R34,venous_ub
-subclavian_L66,pv,split_junction,aortic_arch_C64,subclavian_L78               vertebral_L2
+subclavian_L66,pv,arterial,aortic_arch_C64,subclavian_L78               vertebral_L2
 subclavian_L78,pv,arterial,subclavian_L66,axillary_L80
 axillary_L80,pv,arterial,subclavian_L78,brachial_L82
-brachial_L82,pv,split_junction,axillary_L80,ulnar_T2_L84             radial_T1_L92_T
-ulnar_T2_L84,pv,split_junction,brachial_L82,common_interosseous_L86            ulnar_T2_L90_T
+brachial_L82,pv,arterial,axillary_L80,ulnar_T2_L84             radial_T1_L92_T
+ulnar_T2_L84,pv,arterial,brachial_L82,common_interosseous_L86            ulnar_T2_L90_T
 common_interosseous_L86,pv,arterial,ulnar_T2_L84,posterior_interosseous_T3_L88_T
    posterior_interosseous_T3_L88_T,pp,terminal,common_interosseous_L86,venous_ub
    ulnar_T2_L90_T,pp,terminal,ulnar_T2_L84,venous_ub
    radial_T1_L92_T,pp,terminal,brachial_L82,venous_ub
-common_carotid_R6,pv,split_junction,brachiocephalic_trunk_C4,internal_carotid_R8             external_carotid_T2_R26_T
-internal_carotid_R8,pv,split_junction,common_carotid_R6,posterior_communicating_R206             internal_carotid_R48
+common_carotid_R6,pv,arterial,brachiocephalic_trunk_C4,internal_carotid_R8             external_carotid_T2_R26_T
+internal_carotid_R8,pv,arterial,common_carotid_R6,posterior_communicating_R206             internal_carotid_R48
     external_carotid_T2_R26_T,pp,terminal,common_carotid_R6,venous_ub
-common_carotid_L48,pv,split_junction,aortic_arch_C46,internal_carotid_L50             external_carotid_T2_L62_T
-internal_carotid_L50,pv,split_junction,common_carotid_L48,posterior_communicating_L8             internal_carotid_L112
+common_carotid_L48,pv,arterial,aortic_arch_C46,internal_carotid_L50             external_carotid_T2_L62_T
+internal_carotid_L50,pv,arterial,common_carotid_L48,posterior_communicating_L8             internal_carotid_L112
    external_carotid_T2_L62_T,pp,terminal,common_carotid_L48,venous_ub
 anterior_cerebral_L110,pp,arterial,internal_carotid_L112,anterior_cerebral_L42
-anterior_cerebral_L38,pv,split_junction,anterior_cerebral_L42,pericallosal_L36              callosomarginal_L172
-anterior_cerebral_L42,vv,2in2out_junction,anterior_cerebral_L110                            anterior_communicating_C44,distal_medial_striate_T44_L40_T               anterior_cerebral_L38
-anterior_cerebral_R234,pv,split_junction,anterior_cerebral_R238,callosomarginal_R240               pericallosal_R232
-anterior_cerebral_R238,pv,split_junction,anterior_cerebral_R46,distal_medial_striate_T109_R236_T               anterior_cerebral_R234
-anterior_cerebral_R46,pv,split_junction,internal_carotid_R48,anterior_communicating_C44               anterior_cerebral_R238
+anterior_cerebral_L38,pv,arterial,anterior_cerebral_L42,pericallosal_L36              callosomarginal_L172
+anterior_cerebral_L42,vv,arterial,anterior_cerebral_L110                            anterior_communicating_C44,distal_medial_striate_T44_L40_T               anterior_cerebral_L38
+anterior_cerebral_R234,pv,arterial,anterior_cerebral_R238,callosomarginal_R240               pericallosal_R232
+anterior_cerebral_R238,pv,arterial,anterior_cerebral_R46,distal_medial_striate_T109_R236_T               anterior_cerebral_R234
+anterior_cerebral_R46,pv,arterial,internal_carotid_R48,anterior_communicating_C44               anterior_cerebral_R238
 anterior_communicating_C44,pp,arterial,anterior_cerebral_R46,anterior_cerebral_L42
-basilar_C4,vv,2in2out_junction,vertebral_L2                            vertebral_R272,posterior_cerebral_precommunicating_part_L6             posterior_cerebral_precommunicating_part_R204
-callosomarginal_L172,pv,split_junction,anterior_cerebral_L38,callosomarginal_intermediomedial_frontal_branch_T41_L174_T            callosomarginal_L176
-callosomarginal_L176,pv,split_junction,callosomarginal_L172,callosomarginal_posteromedial_frontal_branch_T43_L178_T            callosomarginal_L180
-callosomarginal_L180,pv,split_junction,callosomarginal_L176,callosomarginal_cingular_branch_T40_L182_T             callosomarginal_L184
+basilar_C4,vv,arterial,vertebral_L2                            vertebral_R272,posterior_cerebral_precommunicating_part_L6             posterior_cerebral_precommunicating_part_R204
+callosomarginal_L172,pv,arterial,anterior_cerebral_L38,callosomarginal_intermediomedial_frontal_branch_T41_L174_T            callosomarginal_L176
+callosomarginal_L176,pv,arterial,callosomarginal_L172,callosomarginal_posteromedial_frontal_branch_T43_L178_T            callosomarginal_L180
+callosomarginal_L180,pv,arterial,callosomarginal_L176,callosomarginal_cingular_branch_T40_L182_T             callosomarginal_L184
 callosomarginal_L184,pv,arterial,callosomarginal_L180,callosomarginal_paracentral_branch_T42_L186_T
-callosomarginal_R240,pv,split_junction,anterior_cerebral_R234,callosomarginal_intermediomedial_frontal_branch_T106_R242_T             callosomarginal_R244
-callosomarginal_R244,pv,split_junction,callosomarginal_R240,callosomarginal_posteromedial_frontal_branch_T108_R246_T             callosomarginal_R248
-callosomarginal_R248,pv,split_junction,callosomarginal_R244,callosomarginal_cingular_branch_T105_R250_T            callosomarginal_R252
+callosomarginal_R240,pv,arterial,anterior_cerebral_R234,callosomarginal_intermediomedial_frontal_branch_T106_R242_T             callosomarginal_R244
+callosomarginal_R244,pv,arterial,callosomarginal_R240,callosomarginal_posteromedial_frontal_branch_T108_R246_T             callosomarginal_R248
+callosomarginal_R248,pv,arterial,callosomarginal_R244,callosomarginal_cingular_branch_T105_R250_T            callosomarginal_R252
 callosomarginal_R252,pv,arterial,callosomarginal_R248,callosomarginal_paracentral_branch_T107_R254_T
-internal_carotid_L112,pv,split_junction,internal_carotid_L50,middle_cerebral_L114             anterior_cerebral_L110
-internal_carotid_R48,pv,split_junction,internal_carotid_R8,middle_cerebral_R52             anterior_cerebral_R46
+internal_carotid_L112,pv,arterial,internal_carotid_L50,middle_cerebral_L114             anterior_cerebral_L110
+internal_carotid_R48,pv,arterial,internal_carotid_R8,middle_cerebral_R52             anterior_cerebral_R46
 medial_occipital_dorsal_branch_to_corpus_callosum_L28,pp,arterial,pericallosal_L32,medial_occipital_L188
 medial_occipital_dorsal_branch_to_corpus_callosum_R224,pp,arterial,pericallosal_R228,medial_occipital_R256
-medial_occipital_L188,vv,2in2out_junction,medial_occipital_dorsal_branch_to_corpus_callosum_L28                          medial_occipital_L26,medial_occipital_L192               medial_occipital_occipitotemporal_branch_T52_L190_T
-medial_occipital_L192,pv,split_junction,medial_occipital_L188,medial_occipital_parieto_occipital_branch_T54_L194               medial_occipital_L200
+medial_occipital_L188,vv,arterial,medial_occipital_dorsal_branch_to_corpus_callosum_L28                          medial_occipital_L26,medial_occipital_L192               medial_occipital_occipitotemporal_branch_T52_L190_T
+medial_occipital_L192,pv,arterial,medial_occipital_L188,medial_occipital_parieto_occipital_branch_T54_L194               medial_occipital_L200
 medial_occipital_L200,pv,arterial, medial_occipital_L192,medial_occipital_calcarine_branch_T51_L202_T
 medial_occipital_L26,pp,arterial,posterior_cerebral_postcommunicating_part_L12,medial_occipital_L188
 medial_occipital_R222,pp,arterial,posterior_cerebral_postcommunicating_part_R208,medial_occipital_R256
-medial_occipital_R256,vv,2in2out_junction,medial_occipital_R222                             medial_occipital_dorsal_branch_to_corpus_callosum_R224,medial_occipital_occipitotemporal_branch_T80_R258_T                 medial_occipital_R260
-medial_occipital_R260,pv,split_junction,medial_occipital_R256,medial_occipital_parieto_occipital_branch_T118_R262                medial_occipital_R268
+medial_occipital_R256,vv,arterial,medial_occipital_R222                             medial_occipital_dorsal_branch_to_corpus_callosum_R224,medial_occipital_occipitotemporal_branch_T80_R258_T                 medial_occipital_R260
+medial_occipital_R260,pv,arterial,medial_occipital_R256,medial_occipital_parieto_occipital_branch_T118_R262                medial_occipital_R268
 medial_occipital_R268,pv,arterial,medial_occipital_R260,medial_occipital_calcarine_branch_T79_R270_T
-middle_cerebral_inferior_terminal_branch_L136,pv,split_junction,middle_cerebral_L118,polar_temporal_T63_L138_T                middle_cerebral_inferior_terminal_branch_L140
-middle_cerebral_inferior_terminal_branch_L140,pv,split_junction,middle_cerebral_inferior_terminal_branch_L136,middle_cerebral_anterior_temporal_branch_T55_L142_T               middle_cerebral_inferior_terminal_branch_L144
-middle_cerebral_inferior_terminal_branch_L144,pv,split_junction,middle_cerebral_inferior_terminal_branch_L140,middle_cerebral_middle_temporal_branch_T57_L146_T               middle_cerebral_inferior_terminal_branch_L148
-middle_cerebral_inferior_terminal_branch_L148,pv,split_junction,middle_cerebral_inferior_terminal_branch_L144,artery_of_postcentral_sulcus_T37_L150_T               middle_cerebral_inferior_terminal_branch_L152
-middle_cerebral_inferior_terminal_branch_L152,pv,split_junction,middle_cerebral_inferior_terminal_branch_L148,middle_cerebral_inferior_terminal_branch_L160               middle_cerebral_posterior_temporal_branch_T58_L154
-middle_cerebral_inferior_terminal_branch_L160,pv,split_junction,middle_cerebral_inferior_terminal_branch_L152,anterior_parietal_T35_L162_T               middle_cerebral_inferior_terminal_branch_L164
+middle_cerebral_inferior_terminal_branch_L136,pv,arterial,middle_cerebral_L118,polar_temporal_T63_L138_T                middle_cerebral_inferior_terminal_branch_L140
+middle_cerebral_inferior_terminal_branch_L140,pv,arterial,middle_cerebral_inferior_terminal_branch_L136,middle_cerebral_anterior_temporal_branch_T55_L142_T               middle_cerebral_inferior_terminal_branch_L144
+middle_cerebral_inferior_terminal_branch_L144,pv,arterial,middle_cerebral_inferior_terminal_branch_L140,middle_cerebral_middle_temporal_branch_T57_L146_T               middle_cerebral_inferior_terminal_branch_L148
+middle_cerebral_inferior_terminal_branch_L148,pv,arterial,middle_cerebral_inferior_terminal_branch_L144,artery_of_postcentral_sulcus_T37_L150_T               middle_cerebral_inferior_terminal_branch_L152
+middle_cerebral_inferior_terminal_branch_L152,pv,arterial,middle_cerebral_inferior_terminal_branch_L148,middle_cerebral_inferior_terminal_branch_L160               middle_cerebral_posterior_temporal_branch_T58_L154
+middle_cerebral_inferior_terminal_branch_L160,pv,arterial,middle_cerebral_inferior_terminal_branch_L152,anterior_parietal_T35_L162_T               middle_cerebral_inferior_terminal_branch_L164
 middle_cerebral_inferior_terminal_branch_L164,pv,arterial,middle_cerebral_inferior_terminal_branch_L160,middle_cerebral_branch_to_angular_gyrus_T56_L166
 middle_cerebral_inferior_terminal_branch_R102,pv,arterial,middle_cerebral_inferior_terminal_branch_R98,middle_cerebral_branch_to_angular_gyrus_T120_R104
-middle_cerebral_inferior_terminal_branch_R74,pv,split_junction,middle_cerebral_R56,polar_temporal_T127_R76_T              middle_cerebral_inferior_terminal_branch_R78
-middle_cerebral_inferior_terminal_branch_R78,pv,split_junction,middle_cerebral_inferior_terminal_branch_R74,middle_cerebral_anterior_temporal_branch_T119_R80_T               middle_cerebral_inferior_terminal_branch_R82
-middle_cerebral_inferior_terminal_branch_R82,pv,split_junction,middle_cerebral_inferior_terminal_branch_R78,middle_cerebral_middle_temporal_branch_T121_R84_T              middle_cerebral_inferior_terminal_branch_R86
-middle_cerebral_inferior_terminal_branch_R86,pv,split_junction,middle_cerebral_inferior_terminal_branch_R82,artery_of_postcentral_sulcus_T102_R88_T             middle_cerebral_inferior_terminal_branch_R90
-middle_cerebral_inferior_terminal_branch_R90,pv,split_junction,middle_cerebral_inferior_terminal_branch_R86,middle_cerebral_posterior_temporal_branch_T122_R92            middle_cerebral_inferior_terminal_branch_R98
-middle_cerebral_inferior_terminal_branch_R98,pv,split_junction,middle_cerebral_inferior_terminal_branch_R90,anterior_parietal_T100_R100_T           middle_cerebral_inferior_terminal_branch_R102
-middle_cerebral_L114,pv,split_junction,internal_carotid_L112,anterior_choroidal_T34_L116_T             middle_cerebral_L118
-middle_cerebral_L118,pv,split_junction,middle_cerebral_L114,middle_cerebral_superior_terminal_branch_L120              middle_cerebral_inferior_terminal_branch_L136
-middle_cerebral_R52,pv,split_junction,internal_carotid_R48,anterior_choroidal_T98_R54_T              middle_cerebral_R56
-middle_cerebral_R56,pv,split_junction,middle_cerebral_R52,middle_cerebral_superior_terminal_branch_R58               middle_cerebral_inferior_terminal_branch_R74
-middle_cerebral_superior_terminal_branch_L120,pv,split_junction,middle_cerebral_L118,lateral_frontobasal_T45_L122_T               middle_cerebral_superior_terminal_branch_L124
-middle_cerebral_superior_terminal_branch_L124,pv,split_junction,middle_cerebral_superior_terminal_branch_L120,prefrontal_T65_L126_T                middle_cerebral_superior_terminal_branch_L128
+middle_cerebral_inferior_terminal_branch_R74,pv,arterial,middle_cerebral_R56,polar_temporal_T127_R76_T              middle_cerebral_inferior_terminal_branch_R78
+middle_cerebral_inferior_terminal_branch_R78,pv,arterial,middle_cerebral_inferior_terminal_branch_R74,middle_cerebral_anterior_temporal_branch_T119_R80_T               middle_cerebral_inferior_terminal_branch_R82
+middle_cerebral_inferior_terminal_branch_R82,pv,arterial,middle_cerebral_inferior_terminal_branch_R78,middle_cerebral_middle_temporal_branch_T121_R84_T              middle_cerebral_inferior_terminal_branch_R86
+middle_cerebral_inferior_terminal_branch_R86,pv,arterial,middle_cerebral_inferior_terminal_branch_R82,artery_of_postcentral_sulcus_T102_R88_T             middle_cerebral_inferior_terminal_branch_R90
+middle_cerebral_inferior_terminal_branch_R90,pv,arterial,middle_cerebral_inferior_terminal_branch_R86,middle_cerebral_posterior_temporal_branch_T122_R92            middle_cerebral_inferior_terminal_branch_R98
+middle_cerebral_inferior_terminal_branch_R98,pv,arterial,middle_cerebral_inferior_terminal_branch_R90,anterior_parietal_T100_R100_T           middle_cerebral_inferior_terminal_branch_R102
+middle_cerebral_L114,pv,arterial,internal_carotid_L112,anterior_choroidal_T34_L116_T             middle_cerebral_L118
+middle_cerebral_L118,pv,arterial,middle_cerebral_L114,middle_cerebral_superior_terminal_branch_L120              middle_cerebral_inferior_terminal_branch_L136
+middle_cerebral_R52,pv,arterial,internal_carotid_R48,anterior_choroidal_T98_R54_T              middle_cerebral_R56
+middle_cerebral_R56,pv,arterial,middle_cerebral_R52,middle_cerebral_superior_terminal_branch_R58               middle_cerebral_inferior_terminal_branch_R74
+middle_cerebral_superior_terminal_branch_L120,pv,arterial,middle_cerebral_L118,lateral_frontobasal_T45_L122_T               middle_cerebral_superior_terminal_branch_L124
+middle_cerebral_superior_terminal_branch_L124,pv,arterial,middle_cerebral_superior_terminal_branch_L120,prefrontal_T65_L126_T                middle_cerebral_superior_terminal_branch_L128
 middle_cerebral_superior_terminal_branch_L128,pv,arterial,middle_cerebral_superior_terminal_branch_L124,artery_of_precentral_sulcus_T38_L130
-middle_cerebral_superior_terminal_branch_R58,pv,split_junction,middle_cerebral_R56,middle_cerebral_superior_terminal_branch_R62                lateral_frontobasal_T110_R60_T
-middle_cerebral_superior_terminal_branch_R62,pv,split_junction,middle_cerebral_superior_terminal_branch_R58,prefrontal_T130_R64_T               middle_cerebral_superior_terminal_branch_R66
+middle_cerebral_superior_terminal_branch_R58,pv,arterial,middle_cerebral_R56,middle_cerebral_superior_terminal_branch_R62                lateral_frontobasal_T110_R60_T
+middle_cerebral_superior_terminal_branch_R62,pv,arterial,middle_cerebral_superior_terminal_branch_R58,prefrontal_T130_R64_T               middle_cerebral_superior_terminal_branch_R66
 middle_cerebral_superior_terminal_branch_R66,pv,arterial,middle_cerebral_superior_terminal_branch_R62,artery_of_precentral_sulcus_T103_R68
-occipital_lateral_L14,pv,split_junction,posterior_cerebral_postcommunicating_part_L12,lateral_occipital_anterior_temporal_branch_T46_L16_T               occipital_lateral_L18
-occipital_lateral_L18,pv,split_junction,occipital_lateral_L14,lateral_occipital_intermediate_temporal_branch_T47_L20_T               occipital_lateral_L22
+occipital_lateral_L14,pv,arterial,posterior_cerebral_postcommunicating_part_L12,lateral_occipital_anterior_temporal_branch_T46_L16_T               occipital_lateral_L18
+occipital_lateral_L18,pv,arterial,occipital_lateral_L14,lateral_occipital_intermediate_temporal_branch_T47_L20_T               occipital_lateral_L22
 occipital_lateral_L22,pv,arterial,occipital_lateral_L18,lateral_occipital_posterior_temporal_branch_T48_L24_T
-occipital_lateral_R210,pv,split_junction,posterior_cerebral_postcommunicating_part_R208,lateral_occipital_anterior_temporal_branch_T111_R212_T                occipital_lateral_R214
-occipital_lateral_R214,pv,split_junction,occipital_lateral_R210,lateral_occipital_intermediate_temporal_branch_T76_R216_T              occipital_lateral_R218
+occipital_lateral_R210,pv,arterial,posterior_cerebral_postcommunicating_part_R208,lateral_occipital_anterior_temporal_branch_T111_R212_T                occipital_lateral_R214
+occipital_lateral_R214,pv,arterial,occipital_lateral_R210,lateral_occipital_intermediate_temporal_branch_T76_R216_T              occipital_lateral_R218
 occipital_lateral_R218,pv,arterial,occipital_lateral_R214,lateral_occipital_posterior_temporal_branch_T112_R220_T
-pericallosal_L32,pv,split_junction,pericallosal_L36,medial_occipital_dorsal_branch_to_corpus_callosum_L28                pericallosal_parieto_occipital_branch_T60_L30_T
-pericallosal_L36,pv,split_junction,anterior_cerebral_L38,pericallosal_L32                pericallosal_precuneal_branch_T61_L34_T
-pericallosal_R228,pv,split_junction,pericallosal_R232,pericallosal_parieto_occipital_branch_T124_R226_T               medial_occipital_dorsal_branch_to_corpus_callosum_R224
-pericallosal_R232,pv,split_junction,anterior_cerebral_R234,pericallosal_R228                pericallosal_precuneal_branch_T125_R230_T
-posterior_cerebral_postcommunicating_part_L12,vv,2in2out_junction,posterior_cerebral_precommunicating_part_L6                            posterior_communicating_L8,medial_occipital_L26               occipital_lateral_L14
-posterior_cerebral_postcommunicating_part_R208,vv,2in2out_junction,posterior_cerebral_precommunicating_part_R204                             posterior_communicating_R206,occipital_lateral_R210                medial_occipital_R222
+pericallosal_L32,pv,arterial,pericallosal_L36,medial_occipital_dorsal_branch_to_corpus_callosum_L28                pericallosal_parieto_occipital_branch_T60_L30_T
+pericallosal_L36,pv,arterial,anterior_cerebral_L38,pericallosal_L32                pericallosal_precuneal_branch_T61_L34_T
+pericallosal_R228,pv,arterial,pericallosal_R232,pericallosal_parieto_occipital_branch_T124_R226_T               medial_occipital_dorsal_branch_to_corpus_callosum_R224
+pericallosal_R232,pv,arterial,anterior_cerebral_R234,pericallosal_R228                pericallosal_precuneal_branch_T125_R230_T
+posterior_cerebral_postcommunicating_part_L12,vv,arterial,posterior_cerebral_precommunicating_part_L6                            posterior_communicating_L8,medial_occipital_L26               occipital_lateral_L14
+posterior_cerebral_postcommunicating_part_R208,vv,arterial,posterior_cerebral_precommunicating_part_R204                             posterior_communicating_R206,occipital_lateral_R210                medial_occipital_R222
 posterior_cerebral_precommunicating_part_L6,pp,arterial,basilar_C4,posterior_cerebral_postcommunicating_part_L12
 posterior_cerebral_precommunicating_part_R204,pp,arterial,basilar_C4,posterior_cerebral_postcommunicating_part_R208
 posterior_communicating_L8,pp,arterial,internal_carotid_L50,posterior_cerebral_postcommunicating_part_L12
 posterior_communicating_R206,pp,arterial,internal_carotid_R8,posterior_cerebral_postcommunicating_part_R208
 vertebral_L2,pp,arterial,subclavian_L66,basilar_C4
 vertebral_R272,pp,arterial,subclavian_R28,basilar_C4
-artery_of_precentral_sulcus_T103_R68,pv,split_junction,middle_cerebral_superior_terminal_branch_R66,artery_of_central_sulcus_T101_R70_T                artery_of_precentral_sulcus_T103_R72_T
-artery_of_precentral_sulcus_T38_L130,pv,split_junction,middle_cerebral_superior_terminal_branch_L128,artery_of_central_sulcus_T36_L132_T                artery_of_precentral_sulcus_T38_L134_T
-medial_occipital_parieto_occipital_branch_T118_R262,pv,split_junction,medial_occipital_R260,medial_occipital_parieto_occipital_branch_T118_R266_T                medial_occipital_parietal_branch_T81_R264_T
-medial_occipital_parieto_occipital_branch_T54_L194,pv,split_junction, medial_occipital_L192,medial_occipital_parietal_branch_T53_L196_T                medial_occipital_parieto_occipital_branch_T54_L198_T
-middle_cerebral_branch_to_angular_gyrus_T120_R104,pv,split_junction,middle_cerebral_inferior_terminal_branch_R102,posterior_parietal_T129_R106_T               middle_cerebral_branch_to_angular_gyrus_T120_R108_T
-middle_cerebral_branch_to_angular_gyrus_T56_L166,pv,split_junction,middle_cerebral_inferior_terminal_branch_L164,posterior_parietal_T64_L168_T               middle_cerebral_branch_to_angular_gyrus_T56_L170_T
-middle_cerebral_posterior_temporal_branch_T122_R92,pv,split_junction,middle_cerebral_inferior_terminal_branch_R90,middle_cerebral_posterior_temp_occipital_branch_T123_R94_T               middle_cerebral_posterior_temporal_branch_T122_R96_T
-middle_cerebral_posterior_temporal_branch_T58_L154,pv,split_junction,middle_cerebral_inferior_terminal_branch_L152,middle_cerebral_posterior_temp_occipital_branch_T59_L156_T               middle_cerebral_posterior_temporal_branch_T58_L158_T
+artery_of_precentral_sulcus_T103_R68,pv,arterial,middle_cerebral_superior_terminal_branch_R66,artery_of_central_sulcus_T101_R70_T                artery_of_precentral_sulcus_T103_R72_T
+artery_of_precentral_sulcus_T38_L130,pv,arterial,middle_cerebral_superior_terminal_branch_L128,artery_of_central_sulcus_T36_L132_T                artery_of_precentral_sulcus_T38_L134_T
+medial_occipital_parieto_occipital_branch_T118_R262,pv,arterial,medial_occipital_R260,medial_occipital_parieto_occipital_branch_T118_R266_T                medial_occipital_parietal_branch_T81_R264_T
+medial_occipital_parieto_occipital_branch_T54_L194,pv,arterial, medial_occipital_L192,medial_occipital_parietal_branch_T53_L196_T                medial_occipital_parieto_occipital_branch_T54_L198_T
+middle_cerebral_branch_to_angular_gyrus_T120_R104,pv,arterial,middle_cerebral_inferior_terminal_branch_R102,posterior_parietal_T129_R106_T               middle_cerebral_branch_to_angular_gyrus_T120_R108_T
+middle_cerebral_branch_to_angular_gyrus_T56_L166,pv,arterial,middle_cerebral_inferior_terminal_branch_L164,posterior_parietal_T64_L168_T               middle_cerebral_branch_to_angular_gyrus_T56_L170_T
+middle_cerebral_posterior_temporal_branch_T122_R92,pv,arterial,middle_cerebral_inferior_terminal_branch_R90,middle_cerebral_posterior_temp_occipital_branch_T123_R94_T               middle_cerebral_posterior_temporal_branch_T122_R96_T
+middle_cerebral_posterior_temporal_branch_T58_L154,pv,arterial,middle_cerebral_inferior_terminal_branch_L152,middle_cerebral_posterior_temp_occipital_branch_T59_L156_T               middle_cerebral_posterior_temporal_branch_T58_L158_T
    lateral_occipital_intermediate_temporal_branch_T47_L20_T,pp,terminal,occipital_lateral_L18,venous_ub
    lateral_occipital_intermediate_temporal_branch_T76_R216_T,pp,terminal,occipital_lateral_R214,venous_ub
   medial_occipital_calcarine_branch_T51_L202_T,pp,terminal,medial_occipital_L200,venous_ub
@@ -213,24 +213,24 @@ middle_cerebral_posterior_temporal_branch_T58_L154,pv,split_junction,middle_cere
    posterior_parietal_T64_L168_T,pp,terminal,middle_cerebral_branch_to_angular_gyrus_T56_L166,venous_ub
    prefrontal_T130_R64_T,pp,terminal,middle_cerebral_superior_terminal_branch_R62,venous_ub
    prefrontal_T65_L126_T,pp,terminal,middle_cerebral_superior_terminal_branch_L124,venous_ub
-common_iliac_R216,pv,split_junction,abdominal_aorta_C192,internal_iliac_T1_R218_T                    external_iliac_R220
+common_iliac_R216,pv,arterial,abdominal_aorta_C192,internal_iliac_T1_R218_T                    external_iliac_R220
    internal_iliac_T1_R218_T,pp,terminal,common_iliac_R216,venous_lb
 external_iliac_R220,pv,arterial,common_iliac_R216,femoral_R222
-femoral_R222,pv,split_junction,external_iliac_R220,profundus_T2_R224_T                     femoral_R226
+femoral_R222,pv,arterial,external_iliac_R220,profundus_T2_R224_T                     femoral_R226
    profundus_T2_R224_T,pp,terminal,femoral_R222,venous_lb
 femoral_R226,pv,arterial,femoral_R222,popliteal_R228
-popliteal_R228,pv,split_junction,femoral_R226,anterior_tibial_T3_R230_T                      popliteal_R232
+popliteal_R228,pv,arterial,femoral_R226,anterior_tibial_T3_R230_T                      popliteal_R232
    anterior_tibial_T3_R230_T,pp,terminal,popliteal_R228,venous_lb
 popliteal_R232,pv,arterial,popliteal_R228,tibiofibular_trunk_R234
 tibiofibular_trunk_R234,pv,arterial,popliteal_R232,posterior_tibial_T4_R236_T
     posterior_tibial_T4_R236_T,pp,terminal,tibiofibular_trunk_R234,venous_lb
-common_iliac_L194,pv,split_junction,abdominal_aorta_C192,internal_iliac_T1_L196_T                     external_iliac_L198
+common_iliac_L194,pv,arterial,abdominal_aorta_C192,internal_iliac_T1_L196_T                     external_iliac_L198
    internal_iliac_T1_L196_T,pp,terminal,common_iliac_L194,venous_lb
 external_iliac_L198,pv,arterial,common_iliac_L194,femoral_L200
-femoral_L200,pv,split_junction,external_iliac_L198,profundus_T2_L202_T                      femoral_L204
+femoral_L200,pv,arterial,external_iliac_L198,profundus_T2_L202_T                      femoral_L204
    profundus_T2_L202_T,pp,terminal,femoral_L200,venous_lb
 femoral_L204,pv,arterial,femoral_L200,popliteal_L206
-popliteal_L206,pv,split_junction,femoral_L204,anterior_tibial_T3_L208_T                     popliteal_L210
+popliteal_L206,pv,arterial,femoral_L204,anterior_tibial_T3_L208_T                     popliteal_L210
     anterior_tibial_T3_L208_T,pp,terminal,popliteal_L206,venous_lb
 popliteal_L210,pv,arterial,popliteal_L206,tibiofibular_trunk_L212
 tibiofibular_trunk_L212,pv,arterial,popliteal_L210,posterior_tibial_T4_L214_T

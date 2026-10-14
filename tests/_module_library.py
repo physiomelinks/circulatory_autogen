@@ -3,14 +3,14 @@
 Tests about module libraries use the real one (physiomelinks/circulatory-autogen-modules)
 rather than one written into a temporary directory, so they check libcuflynx against the
 layouts, instances and supermodules a library actually has. CI checks the library out at the
-commit pinned in ``tests/MODULE_LIBRARY_REF`` (a commit of its ``devel_module_tests`` branch
+commit pinned in ``tests/MODULE_LIBRARY_REF`` (a commit of the branch it names
 until that branch reaches ``main``). Move the pin deliberately, when libcuflynx should be
 tested against a newer library.
 
 The library's ``modules/`` directory is found from, in order:
 
-* ``CUFLYNX_MODULE_LIBRARY`` -- the checkout, or its ``modules/`` directory; when it is set,
-  nowhere else is looked;
+* ``CUFLYNX_MODULE_LIBRARY`` -- the checkout, or its ``modules/`` directory (its first entry
+  when it lists several, separated by ``os.pathsep``); when it is set, nowhere else is looked;
 * otherwise a ``circulatory-autogen-modules`` checkout beside this repository, or beside the
   main checkout when this is a git worktree.
 
@@ -71,7 +71,8 @@ def candidates():
     testing against some other checkout (at some other commit) would hide that.
     """
     if os.environ.get(ENV_DIR):
-        return [(f'${ENV_DIR}', pathlib.Path(os.environ[ENV_DIR]))]
+        # the library is the first entry; tests/conftest.py appends the tests' own modules
+        return [(f'${ENV_DIR}', pathlib.Path(os.environ[ENV_DIR].split(os.pathsep)[0]))]
     found = []
     found.append(('beside this repository', REPO_ROOT.parent / LIBRARY_REPO))
     main = _main_checkout()

@@ -1,0 +1,33 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<model name="Units" xmlns="http://www.cellml.org/cellml/1.1#" xmlns:cellml="http://www.cellml.org/cellml/1.1#">
+    <units name="m3">
+        <unit exponent="3" units="metre"/>
+    </units>
+    <units name="m3_per_s">
+        <unit exponent="3" units="metre"/>
+        <unit exponent="-1" units="second"/>
+    </units>
+    <units name="J_per_m3">
+        <unit units="joule"/>
+        <unit exponent="-3" units="metre"/>
+    </units>
+    <units name="J_per_m3s">
+        <unit units="joule"/>
+        <unit exponent="-3" units="metre"/>
+        <unit exponent="-1" units="second"/>
+    </units>
+    <units name="m6_per_J">
+        <unit exponent="6" units="metre"/>
+        <unit exponent="-1" units="joule"/>
+    </units>
+    <units name="Js_per_m6">
+        <unit units="joule"/>
+        <unit units="second"/>
+        <unit exponent="-6" units="metre"/>
+    </units>
+    <units name="Js2_per_m6">
+        <unit units="joule"/>
+        <unit exponent="2" units="second"/>
+        <unit exponent="-6" units="metre"/>
+    </units>
+</model>

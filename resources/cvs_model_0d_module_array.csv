@@ -4,10 +4,10 @@ A_aorta_ascending_1,vv_nonlinear_visco,arterial,heart,A_aorta_ascending_2 K_tube
 A_aorta_ascending_2,pv_nonlinear_visco,arterial,A_aorta_ascending_1,A_aorta_ascending_3 K_tube_A_aorta_ascending_2
 A_aorta_ascending_3,pv_nonlinear_visco,arterial,A_aorta_ascending_2     ,A_aorta_ascending_4 K_tube_A_aorta_ascending_3
 A_aorta_ascending_4,pv_nonlinear_visco,arterial,A_aorta_ascending_3     ,A_aortic_arch_1 K_tube_A_aorta_ascending_4
-A_aortic_arch_1,pv_nonlinear_visco,split_junction,A_aorta_ascending_4     ,A_aortic_arch_2 A_brachiocephalic_trunk K_tube_A_aortic_arch_1
-A_aortic_arch_2,pv_nonlinear_visco,split_junction,A_aortic_arch_1        ,A_aortic_arch_3 A_common_carotid_L K_tube_A_aortic_arch_2
-A_aortic_arch_3,pv_nonlinear_visco,split_junction,A_aortic_arch_2       ,A_aortic_arch_4 A_subclavian_L K_tube_A_aortic_arch_3
-A_brachiocephalic_trunk,pv_nonlinear_visco,split_junction,A_aortic_arch_1        ,A_common_carotid_R A_subclavian_R K_tube_A_brachiocephalic_trunk
+A_aortic_arch_1,pv_nonlinear_visco,arterial,A_aorta_ascending_4     ,A_aortic_arch_2 A_brachiocephalic_trunk K_tube_A_aortic_arch_1
+A_aortic_arch_2,pv_nonlinear_visco,arterial,A_aortic_arch_1        ,A_aortic_arch_3 A_common_carotid_L K_tube_A_aortic_arch_2
+A_aortic_arch_3,pv_nonlinear_visco,arterial,A_aortic_arch_2       ,A_aortic_arch_4 A_subclavian_L K_tube_A_aortic_arch_3
+A_brachiocephalic_trunk,pv_nonlinear_visco,arterial,A_aortic_arch_1        ,A_common_carotid_R A_subclavian_R K_tube_A_brachiocephalic_trunk
 A_common_carotid_L,pp_nonlinear_visco,arterial,A_aortic_arch_2       ,head_L_T K_tube_A_common_carotid_L
 A_common_carotid_R,pp_nonlinear_visco,arterial,A_brachiocephalic_trunk  ,head_R_T K_tube_A_common_carotid_R
 A_subclavian_L,pp_nonlinear_visco,arterial,A_aortic_arch_3       ,arm_L_T K_tube_A_subclavian_L
@@ -22,14 +22,14 @@ A_aorta_thoracic_2,pv_nonlinear_visco,arterial,A_aorta_thoracic_1    ,A_aorta_th
 A_aorta_thoracic_3,pv_nonlinear_visco,arterial,A_aorta_thoracic_2   ,A_aorta_thoracic_4 K_tube_A_aorta_thoracic_3
 A_aorta_thoracic_4,pv_nonlinear_visco,arterial,A_aorta_thoracic_3   ,A_aorta_thoracic_5 K_tube_A_aorta_thoracic_4
 A_aorta_thoracic_5,pv_nonlinear_visco,arterial,A_aorta_thoracic_4   ,A_aorta_abdominal_1 K_tube_A_aorta_thoracic_5
-A_aorta_abdominal_1,pv_nonlinear_visco,split_junction,A_aorta_thoracic_5   ,A_aorta_abdominal_2 A_celiac_trunk K_tube_A_aorta_abdominal_1
+A_aorta_abdominal_1,pv_nonlinear_visco,arterial,A_aorta_thoracic_5   ,A_aorta_abdominal_2 A_celiac_trunk K_tube_A_aorta_abdominal_1
 A_celiac_trunk,pp_nonlinear_visco,arterial,A_aorta_abdominal_1,trunk_C_T K_tube_A_celiac_trunk
 trunk_C_T,vp_ZCIR_wCont,single_terminal,A_celiac_trunk,venous_trunk_C_T
 A_aorta_abdominal_2,pv_nonlinear_visco,arterial,A_aorta_abdominal_1  ,A_aorta_abdominal_3 K_tube_A_aorta_abdominal_2
 A_aorta_abdominal_3,pv_nonlinear_visco,arterial,A_aorta_abdominal_2  ,A_aorta_abdominal_4 K_tube_A_aorta_abdominal_3
 A_aorta_abdominal_4,pv_nonlinear_visco,arterial,A_aorta_abdominal_3  ,A_aorta_abdominal_5 K_tube_A_aorta_abdominal_4
 A_aorta_abdominal_5,pv_nonlinear_visco,arterial,A_aorta_abdominal_4  ,A_aorta_abdominal_6 K_tube_A_aorta_abdominal_5
-A_aorta_abdominal_6,pv_nonlinear_visco,split_junction,A_aorta_abdominal_5  ,A_common_iliac_L A_common_iliac_R K_tube_A_aorta_abdominal_6
+A_aorta_abdominal_6,pv_nonlinear_visco,arterial,A_aorta_abdominal_5  ,A_common_iliac_L A_common_iliac_R K_tube_A_aorta_abdominal_6
 A_common_iliac_L,pp_nonlinear_visco,arterial,A_aorta_abdominal_6  ,leg_L_T K_tube_A_common_iliac_L
 A_common_iliac_R,pp_nonlinear_visco,arterial,A_aorta_abdominal_6  ,leg_R_T K_tube_A_common_iliac_R
 leg_L_T,vp_ZCIR_wCont,single_terminal,A_common_iliac_L     ,venous_leg_L_T
@@ -41,8 +41,8 @@ venous_arm_R_T,vp,venous_novisco,arm_R_T,venous_svc
 venous_trunk_C_T,vp,venous_novisco,trunk_C_T,venous_ivc           
 venous_leg_L_T,vp,venous_novisco,leg_L_T,venous_ivc           
 venous_leg_R_T,vp,venous_novisco,leg_R_T,venous_ivc           
-venous_ivc,vp_simple_novisco,Min_junction,venous_trunk_C_T venous_leg_L_T venous_leg_R_T,heart                
-venous_svc,vp_simple_novisco,Min_junction,venous_head_L_T venous_head_R_T venous_arm_L_T venous_arm_R_T,heart                
+venous_ivc,vp_woCont,venous_novisco,venous_trunk_C_T venous_leg_L_T venous_leg_R_T,heart                
+venous_svc,vp_woCont,venous_novisco,venous_head_L_T venous_head_R_T venous_arm_L_T venous_arm_R_T,heart                
 K_tube_A_aorta_ascending_1,nn,material_prop_visco_const,A_aorta_ascending_1,
 K_tube_A_aorta_ascending_2,nn,material_prop_visco_const,A_aorta_ascending_2,
 K_tube_A_aorta_ascending_3,nn,material_prop_visco_const,A_aorta_ascending_3,

@@ -387,7 +387,11 @@ def test_expansion_prefixes_and_links_hosts(registry):
     assert [r['name'] for r in expanded] == ['src_a', 'src_b', 'pair_coll', 'pair_g', 'rd']
     flattened = read_records(_flowpair_flattened())
     assert _links(expanded) == _links(flattened)
-    assert vessel_records_to_frame(expanded).equals(vessel_records_to_frame(flattened))
+    # the submodules also say which instance they came from (the model's name for the vessel)
+    assert {r['name']: r.get('supermodule_instance') for r in expanded} == {
+        'src_a': None, 'src_b': None, 'pair_coll': 'pair', 'pair_g': 'pair', 'rd': None}
+    bare = [{k: v for k, v in r.items() if k != 'supermodule_instance'} for r in expanded]
+    assert vessel_records_to_frame(bare).equals(vessel_records_to_frame(flattened))
 
 
 @pytest.mark.unit
@@ -769,7 +773,7 @@ def test_a_bad_submodule_record_is_reported_in_its_module_config():
     with pytest.raises(ValueError) as error:
         normalise_module_config_entry({
             'module_type': 'x', 'module_subtype': 's', 'module_format': 'supermodule',
-            'submodules': [{'name': 'I_p', 'module_type': 'inertance'}]},
+            'submodules': [{'name': 'I_p', 'module_subtype': 'nn'}]},
             source='lib/x_modules_config.json')
     message = str(error.value)
     assert message.startswith('supermodule entry (x, s) in lib/x_modules_config.json, submodules, '

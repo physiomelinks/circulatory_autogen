@@ -155,7 +155,22 @@ vessel2,test,test_type2,vessel1,
         f.write("""variable_name,units,value,data_reference  
                 flux_local_vessel2,L_per_mol,0.5,test  
     """)
-      
+
+    # the units the two components use, which no module library is guaranteed to define
+    with open(os.path.join(module_config_dir, 'unit_test_units.cellml'), 'w') as f:
+        f.write("""<?xml version='1.0' encoding='UTF-8'?>
+<model name="unit_test_units" xmlns="http://www.cellml.org/cellml/1.1#">
+    <units name="m3_per_mol">
+        <unit exponent="3" units="metre"/>
+        <unit exponent="-1" units="mole"/>
+    </units>
+    <units name="L_per_mol">
+        <unit units="litre"/>
+        <unit exponent="-1" units="mole"/>
+    </units>
+</model>
+""")
+
     return resources_dir, module_config_dir
   
 @pytest.mark.integration  

@@ -211,7 +211,8 @@ def _write_source_and_sink(library_dir, source_bc, sink_bc):
          ['y', 'dimensionless', 'access', 'variable']]))
 
 
-def _generate(tmp_path, prefix, module_array, parameters, library_dir, use_builtin_modules):
+def _generate(tmp_path, prefix, module_array, parameters, library_dir, use_builtin_modules,
+              extra_library_dirs=()):
     resources_dir = tmp_path / 'resources'
     resources_dir.mkdir(parents=True, exist_ok=True)
     (resources_dir / f'{prefix}_module_array.csv').write_text(textwrap.dedent(module_array))
@@ -223,7 +224,7 @@ def _generate(tmp_path, prefix, module_array, parameters, library_dir, use_built
         'solver': 'CVODE_myokit',
         'resources_dir': str(resources_dir),
         'generated_models_dir': str(tmp_path / 'generated_models'),
-        'module_library_dirs': [str(library_dir)],
+        'module_library_dirs': [str(library_dir)] + list(extra_library_dirs),
         'use_builtin_modules': use_builtin_modules,
         'DEBUG': False,
     }
@@ -430,10 +431,14 @@ def test_renaming_junction_non_vessel_neighbours_changes_nothing(tmp_path):
                      module_array, flags=re.M)
     assert renamed.count(',lv_test,') > 50
 
+    # resources/ arrays name the module library's vessels (tests/conftest.py)
+    library_dirs = os.environ['CUFLYNX_MODULE_LIBRARY'].split(os.pathsep)
     original_dir = _generate(tmp_path / 'original', 'gj', module_array, parameters,
-                             library_dir, use_builtin_modules=True)
+                             library_dir, use_builtin_modules=True,
+                             extra_library_dirs=library_dirs)
     renamed_dir = _generate(tmp_path / 'renamed', 'gj', renamed, parameters,
-                            library_dir, use_builtin_modules=True)
+                            library_dir, use_builtin_modules=True,
+                            extra_library_dirs=library_dirs)
     original = (original_dir / 'gj.cellml').read_text()
     renamed_model = (renamed_dir / 'gj.cellml').read_text()
     assert original == renamed_model.replace('K_tube_lv_test_type', 'material_prop_visco_const_type')

@@ -329,11 +329,17 @@ def component_instance_rows(records, component_registry, source=None, settings=N
 
 
 def first_rows_win(rows):
-    '''``rows`` with each variable_name kept once, the first occurrence winning.'''
-    seen = set()
+    '''``rows`` with each variable_name kept once, the first occurrence winning. A row without a
+    value (a supermodule's shared-parameter alias that its instance does not set) is filled by the
+    first later row of that name that has one, keeping its ``shared_from``.'''
+    index = {}
     out = []
     for row in rows:
-        if row['variable_name'] not in seen:
-            seen.add(row['variable_name'])
+        name = row['variable_name']
+        if name not in index:
+            index[name] = len(out)
             out.append(row)
+        elif out[index[name]].get('value') is None and row.get('value') is not None:
+            kept = out[index[name]]
+            out[index[name]] = dict(row, **({'shared_from': kept['shared_from']} if 'shared_from' in kept else {}))
     return out

@@ -47,6 +47,26 @@ the old name still works with a `FutureWarning`. The 0D/1D split writes `[file_p
 `libcuflynx/schemas/module_array.schema.json`. The record keys (`vessel_type`, `BC_type`,
 `inp_vessels`, `out_vessels`) and the `vessels_csv_abs_path` config key are unchanged.
 
+### Added — supermodules that stand in for a module under the same names
+
+For circulatory-autogen-modules' lumped vessels (a vessel as a supermodule of compliance,
+resistance and inertance submodules), a supermodule config entry can now say how a model sees it:
+
+- `routes`: the submodule a neighbour connects to, by port type, so a model keeps one record per
+  vessel with its usual `inp_vessels`/`out_vessels`.
+- `shared_parameters`: parameters set once for the whole supermodule. Each is one parameter of the
+  generated model, `<name>_<instance>`, mapped to every submodule that takes it, and may keep
+  another name (`{"name": "C_T", "variable": "C", "submodules": ["C"]}`), so a model's parameter
+  names (`C_T_systemic_T`) do not change.
+- `outputs`: outputs the instance exposes under its own name (`{"u": "C_p/u"}` gives
+  `aortic_root/u`), so obs_data and plots do not change.
+- `template`: an empty supermodule whose submodules name only a module_type (and `choices`), for a
+  GUI to fill; generating one is an error that lists its slots.
+
+`python -m libcuflynx.utilities.lumped_migration --library <modules> <module_array> --parameters
+<file>` moves a model onto a library's lumped twins (configs with `replaces`): only the records'
+BC_type and the parameters the twins compute (e.g. a terminal's `q_C_init` from `q_init`) change.
+
 ### Changed! — `model_type: cpp` is generated from libCellML's C output and Jinja2 templates
 
 The C++ generator is rewritten (`libcuflynx/generators/cpp/`). The model equations are
@@ -536,7 +556,6 @@ Two bugs fell out. `posterior_predictive` captioned a series panel with the item
 where it meant the trace label, and `print_observable_errors` named one of its six branches by
 identity where the other five used the label.
 
-
 ## 0.6.0 — 2026-08-31
 
 ### Removed — the flat-import shims (#428)
@@ -581,7 +600,6 @@ They are the parameter-identification and MCMC engines, and they run against myo
 casadi and trained emulators as readily as against OpenCOR — the name came from the only backend
 that existed when they were written. **The old names still work**: `OpencorParamID` and
 `OpencorMCMC` remain as aliases, so nothing importing them has to change.
-
 
 ## 0.5.0 — 2026-08-24
 
@@ -649,7 +667,6 @@ README, CONTRIBUTING, CLAUDE.md and the tutorial say so.
 The tests that check those docs agree now read `REMOVAL_VERSION` rather than restating it: the
 literal `"0.5.0"` in three test files would have passed happily while every document said
 something else.
-
 
 ### Added — a whole study in one call, shipped for readers outside this repo (#478)
 

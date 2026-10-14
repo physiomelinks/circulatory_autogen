@@ -1,0 +1,58 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<model name="Benchmark" xmlns="http://www.cellml.org/cellml/1.1#" xmlns:cellml="http://www.cellml.org/cellml/1.1#">
+    <component name="Simple_ODE_Benchmark_main_type">
+        <variable name="t" public_interface="in" units="second"/>
+        <variable name="x_init" public_interface="in" units="dimensionless"/>
+        <variable name="y_init" public_interface="in" units="dimensionless"/>
+        <variable name="p" public_interface="in" units="dimensionless"/>
+        <variable name="q" public_interface="in" units="dimensionless"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+                <eq/>
+                <apply>
+                    <diff/>
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>x</ci>
+                </apply>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <minus/>
+                            <cn cellml:units="dimensionless">1</cn>
+                        </apply>
+                        <ci>x</ci>
+                    </apply>
+                    <ci>p</ci>
+                </apply>
+            </apply>
+            <apply>
+                <eq/>
+                <apply>
+                    <diff/>
+                    <bvar>
+                        <ci>t</ci>
+                    </bvar>
+                    <ci>y</ci>
+                </apply>
+                <apply>
+                    <plus/>
+                    <apply>
+                        <times/>
+                        <apply>
+                            <minus/>
+                            <cn cellml:units="dimensionless">3</cn>
+                        </apply>
+                        <ci>y</ci>
+                    </apply>
+                    <ci>q</ci>
+                </apply>
+            </apply>
+        </math>
+        <variable initial_value="x_init" name="x" public_interface="out" units="dimensionless"/>
+        <variable initial_value="y_init" name="y" public_interface="out" units="dimensionless"/>
+    </component>
+</model>

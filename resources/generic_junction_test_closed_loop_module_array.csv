@@ -4,10 +4,10 @@ ascending_aorta_A,       vv_nonlinear_visco, arterial,           heart          
 ascending_aorta_B,       pv_nonlinear_visco, arterial,           ascending_aorta_A,ascending_aorta_C      K_tube_ascending_aorta_B
 ascending_aorta_C,       pv_nonlinear_visco, arterial,           ascending_aorta_B     ,ascending_aorta_D      K_tube_ascending_aorta_C  
 ascending_aorta_D,       pv_nonlinear_visco, arterial,           ascending_aorta_C     ,aortic_arch_C2      K_tube_ascending_aorta_D    
-aortic_arch_C2,          pv_nonlinear_visco, Nout_junction,     ascending_aorta_D     ,aortic_arch_C46      brachiocephalic_trunk_C4      K_tube_aortic_arch_C2
-aortic_arch_C46,         pv_nonlinear_visco, Nout_junction,     aortic_arch_C2        ,aortic_arch_C64      common_carotid_L48_A      K_tube_aortic_arch_C46
-aortic_arch_C64,         pv_nonlinear_visco, Nout_junction,     aortic_arch_C46       ,aortic_arch_C94      subclavian_L66      K_tube_aortic_arch_C64
-brachiocephalic_trunk_C4,pv_nonlinear_visco, Nout_junction,     aortic_arch_C2        ,common_carotid_R6_A  subclavian_R28      K_tube_brachiocephalic_trunk_C4
+aortic_arch_C2,          pv_nonlinear_visco, arterial,     ascending_aorta_D     ,aortic_arch_C46      brachiocephalic_trunk_C4      K_tube_aortic_arch_C2
+aortic_arch_C46,         pv_nonlinear_visco, arterial,     aortic_arch_C2        ,aortic_arch_C64      common_carotid_L48_A      K_tube_aortic_arch_C46
+aortic_arch_C64,         pv_nonlinear_visco, arterial,     aortic_arch_C46       ,aortic_arch_C94      subclavian_L66      K_tube_aortic_arch_C64
+brachiocephalic_trunk_C4,pv_nonlinear_visco, arterial,     aortic_arch_C2        ,common_carotid_R6_A  subclavian_R28      K_tube_brachiocephalic_trunk_C4
 common_carotid_L48_A,    pv_nonlinear_visco, arterial,           aortic_arch_C46       ,head_L_T      K_tube_common_carotid_L48_A            
 common_carotid_R6_A,     pv_nonlinear_visco, arterial,           brachiocephalic_trunk_C4  ,head_R_T      K_tube_common_carotid_R6_A     
 subclavian_L66,          pv_nonlinear_visco, arterial,           aortic_arch_C64       ,arm_L_T      K_tube_subclavian_L66          
@@ -22,13 +22,13 @@ thoracic_aorta_C100,     pv_nonlinear_visco, arterial,           thoracic_aorta_
 thoracic_aorta_C104,     pv_nonlinear_visco, arterial,           thoracic_aorta_C100   ,thoracic_aorta_C108      K_tube_thoracic_aorta_C104  
 thoracic_aorta_C108,     pv_nonlinear_visco, arterial,           thoracic_aorta_C104   ,thoracic_aorta_C112      K_tube_thoracic_aorta_C108
 thoracic_aorta_C112,     pv_nonlinear_visco, arterial,           thoracic_aorta_C108   ,abdominal_aorta_C114      K_tube_thoracic_aorta_C112 
-abdominal_aorta_C114,    pv_nonlinear_visco, Nout_junction,     thoracic_aorta_C112   ,abdominal_aorta_C136 trunk_C_T      K_tube_abdominal_aorta_C114
+abdominal_aorta_C114,    pv_nonlinear_visco, arterial,     thoracic_aorta_C112   ,abdominal_aorta_C136 trunk_C_T      K_tube_abdominal_aorta_C114
 trunk_C_T,               pp, terminal,           abdominal_aorta_C114  ,venous_lb            
 abdominal_aorta_C136,    pv_nonlinear_visco, arterial,           abdominal_aorta_C114  ,abdominal_aorta_C164      K_tube_abdominal_aorta_C136
 abdominal_aorta_C164,    pv_nonlinear_visco, arterial,           abdominal_aorta_C136  ,abdominal_aorta_C176      K_tube_abdominal_aorta_C164
 abdominal_aorta_C176,    pv_nonlinear_visco, arterial,           abdominal_aorta_C164  ,abdominal_aorta_C188      K_tube_abdominal_aorta_C176 
 abdominal_aorta_C188,    pv_nonlinear_visco, arterial,           abdominal_aorta_C176  ,abdominal_aorta_C192      K_tube_abdominal_aorta_C188 
-abdominal_aorta_C192,    pv_nonlinear_visco, Nout_junction,     abdominal_aorta_C188  ,common_iliac_L194    common_iliac_R216      K_tube_abdominal_aorta_C192
+abdominal_aorta_C192,    pv_nonlinear_visco, arterial,     abdominal_aorta_C188  ,common_iliac_L194    common_iliac_R216      K_tube_abdominal_aorta_C192
 common_iliac_L194,       pv_nonlinear_visco, arterial,           abdominal_aorta_C192  ,external_iliac_L198      K_tube_common_iliac_L194  
 external_iliac_L198,     pv_nonlinear_visco, arterial,           common_iliac_L194     ,femoral_L200      K_tube_external_iliac_L198         
 common_iliac_R216,       pv_nonlinear_visco, arterial,           abdominal_aorta_C192  ,external_iliac_R220      K_tube_common_iliac_R216  
