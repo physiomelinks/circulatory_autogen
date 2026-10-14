@@ -2,4 +2,4 @@
 # tests/_module_library.py and tests/conftest.py). It is on fix/consistent-junctions (modules
 # PR #4, vessels connected through node multiports) until that branch reaches main.
 # CI checks this commit out; move it deliberately.
-7006ff81b36fbdea23a3982b30e89483b2feeaa9
+76d48a3adce5f5d464012b1b8c00c7f7643ce32b
