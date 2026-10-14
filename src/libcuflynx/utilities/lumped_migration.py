@@ -166,10 +166,17 @@ def _read_records(path):
     return module_array_csv_to_records(path) if path.endswith('.csv') else read_module_array_records(path)
 
 
+def _written(record):
+    '''A record as the module array file has it: PhLynx keys, and the parameter set under
+    "parameterisation" (records are read with it under the older "instance").'''
+    out = record_to_style(record)
+    return {('parameterisation' if k == 'instance' else k): v for k, v in out.items()}
+
+
 def _write_records(path, records, template_path):
     if path.endswith('.json'):
         with open(path, 'w') as f:
-            f.write('[\n' + ',\n'.join(' ' + json.dumps(record_to_style(r)) for r in records) + '\n]\n')
+            f.write('[\n' + ',\n'.join(' ' + json.dumps(_written(r)) for r in records) + '\n]\n')
         return
     # a CSV module array keeps its layout: only BC_type cells change
     with open(template_path, newline='') as f:

@@ -54,11 +54,12 @@ JUNCTION_TWINS.update({
     ('Nout_junction', 'pv_nonlinear_visco'): ('arterial', 'pv_nonlinear_visco'),
     ('Nout_junction', 'pv_simple'): ('arterial_simple', 'pv'),
     ('Nout_junction', 'pv_noI'): ('simple', 'pv_noI'),
-    ('Min_junction_2', 'vp_noI'): ('simple_2', 'vp_noI'),
-    ('Min_junction_2', 'vv_noI'): ('simple_2', 'vv_noI'),
-    ('Nout_junction_2', 'pv_noI'): ('simple_2', 'pv_noI'),
-    ('Nout_junction_2', 'vv_noI'): ('simple_2', 'vv_noI'),
-    ('MinNout_junction_2', 'vv_noI'): ('simple_2', 'vv_noI'),
+    # the _2 junctions are in SI units: the library's simple *_SI versions
+    ('Min_junction_2', 'vp_noI'): ('simple', 'vp_noI_SI'),
+    ('Min_junction_2', 'vv_noI'): ('simple', 'vv_noI_SI'),
+    ('Nout_junction_2', 'pv_noI'): ('simple', 'pv_noI_SI'),
+    ('Nout_junction_2', 'vv_noI'): ('simple', 'vv_noI_SI'),
+    ('MinNout_junction_2', 'vv_noI'): ('simple', 'vv_noI_SI'),
     ('2in2out_junction', 'vv'): ('arterial', 'vv'),
     ('split_junction_simple', 'pv'): ('arterial_simple', 'pv'),
     ('split_junction_simple', 'vv'): ('arterial_simple', 'vv'),
@@ -92,6 +93,10 @@ for _variant, _versions in (('Min', ('vp_micro', 'vv_micro')), ('Noutlet', ('vp_
     for _version in _versions:
         JUNCTION_TWINS[(f'artery_{_variant}', _version)] = ('artery', _version)
 
+# a source of two constant inflows on one port (version -> the one-inflow version it splits
+# into): the library's constant_2, or CA's built-in nn_constant_2
+TWO_INFLOW_SOURCES = {'constant_2': 'constant', 'nn_constant_2': 'nn_constant'}
+
 # the junctions' port flows, and what each becomes on the ordinary vessel
 RENAMED_VARIABLES = {'v_in_sum': 'v_in', 'v_out_sum': 'v_out',
                      'v_in_1': 'v_in', 'v_in_2': 'v_in', 'v_out_1': 'v_out', 'v_out_2': 'v_out'}
@@ -109,9 +114,10 @@ def _key(record):
 def migrate_records(records):
     '''``records`` with every junction module replaced by its ordinary twin.
 
-    An ``inlet_flow``/``nn_constant_2`` source (two constant inflows on one port, which only a
-    junction's two inlets could take) feeding a converted junction becomes two ``nn_constant``
-    sources, ``<name>_1`` and ``<name>_2``, which the ordinary vessel's inlet sums.
+    An ``inlet_flow`` source of two constant inflows on one port (``constant_2``, or
+    ``nn_constant_2``), which only a junction's two inlets could take, feeding a converted
+    junction becomes two one-inflow sources (``constant``, or ``nn_constant``), ``<name>_1`` and
+    ``<name>_2``, which the ordinary vessel's inlet sums.
 
     Returns (records, renamed, parameters): ``renamed`` maps each converted module's name to its
     (old type, new type), ``parameters`` maps old parameter names to new ones. Raises KeyError for
@@ -138,11 +144,13 @@ def migrate_records(records):
     split = []
     for record in out:
         type_key, version_key = _key(record)
-        if type_key and (record[type_key], record[version_key]) == ('inlet_flow', 'nn_constant_2') and \
+        if type_key and record[type_key] == 'inlet_flow' and \
+                record[version_key] in TWO_INFLOW_SOURCES and \
                 any(o in renamed for o in record.get(out_key, [])):
-            name = record['name']
+            name, version = record['name'], record[version_key]
             for i in (1, 2):
-                split.append(dict(record, name=f'{name}_{i}', **{version_key: 'nn_constant'}))
+                split.append(dict(record, name=f'{name}_{i}',
+                                  **{version_key: TWO_INFLOW_SOURCES[version]}))
                 parameters[f'v_{i}_{name}'] = f'v_{name}_{i}'
             for other in out:
                 for list_key in (inp_key, out_key):
@@ -150,7 +158,8 @@ def migrate_records(records):
                         lst = list(other[list_key])
                         i = lst.index(name)
                         other[list_key] = lst[:i] + [f'{name}_1', f'{name}_2'] + lst[i + 1:]
-            renamed.setdefault(name, ((record[type_key], 'nn_constant_2'), ('inlet_flow', 'nn_constant x2')))
+            renamed.setdefault(name, ((record[type_key], version),
+                                      ('inlet_flow', f'{TWO_INFLOW_SOURCES[version]} x2')))
         else:
             split.append(record)
     return split, renamed, parameters
