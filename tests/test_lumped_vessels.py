@@ -3,15 +3,14 @@ The test models on circulatory-autogen-modules' lumped vessels.
 
 Every vessel version that splits into a compliance, a resistance and an inertance has a lumped
 twin in the library (``<version>_lumped``, a supermodule of those submodules), and
-``libcuflynx.utilities.lumped_migration`` moves a model onto them. Here each test model in
-``resources/`` that has such vessels is generated both ways and simulated, and every output of
-the original must be reproduced, under the same name, by the migrated model: the vessels'
-outputs through their twins' ``outputs`` (``aortic_root/u`` is the lumped vessel's compliance
-pressure), everything else unchanged.
-
-These are the models the tests will run on once the lumped vessels replace the monolithic ones
-(the follow-up that moves resources/ onto them and drops these comparisons).
+``libcuflynx.utilities.lumped_migration`` moves a model onto them. Here each of the library's own
+system models (``system_models/<group>/<model>/``, in the library's module names) that has such
+vessels is generated both ways and simulated, and every output of the original must be
+reproduced, under the same name, by the migrated model: the vessels' outputs through their twins'
+``outputs`` (``aortic_root/u`` is the lumped vessel's compliance pressure), everything else
+unchanged.
 '''
+import glob
 import contextlib
 import io
 import os
@@ -27,13 +26,16 @@ from libcuflynx.utilities.lumped_migration import Library, migrate_files
 
 pytestmark = pytest.mark.integration
 
-RESOURCES = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'resources')
 LIBRARY = os.environ['CUFLYNX_MODULE_LIBRARY'].split(os.pathsep)[0]
+# the library checkout: CUFLYNX_MODULE_LIBRARY may name it or its modules/ directory
+LIBRARY_ROOT = os.path.dirname(LIBRARY) if os.path.basename(os.path.normpath(LIBRARY)) == 'modules' \
+    else LIBRARY
+SYSTEM_MODELS = os.path.join(LIBRARY_ROOT, 'system_models')
 SIM_TIME, DT = 1.0, 0.01
 SOLVER_INFO = {'rtol': 1e-10, 'atol': 1e-14}
 TOL = 1e-6
 
-# Every resources/ model with a vessel that has a lumped twin: None runs by default, 'slow' is a
+# Every system model with a vessel that has a lumped twin: None runs by default, 'slow' is a
 # large model (over a minute), any other value is why it is skipped.
 _NO_REFERENCE = 'the monolithic model does not generate on this library either ({}), so there is nothing to compare'
 MODELS = {
@@ -43,11 +45,12 @@ MODELS = {
     'neonatal': None,
     'test_fft': None,
     'behdad_test1': None,
-    'FTU_wCVS': None,
+    'FTU_wCVS': _NO_REFERENCE.format('q_init_ra has no value (nan) in its parameters file'),
     'aortic_bif_1d': None,
     'simple_physiological': 'slow',
     'physiological': 'slow',
-    'control_parasymp': 'slow',
+    'control_parasymp': _NO_REFERENCE.format("resp_effector's alpha_P_mus_min/max and Delta_P_mus_* "
+                                             'have no values, so it does not simulate'),
     'cvs_model_0d': 'slow',
     'cvs_model_with_arm_0d': 'slow',
     'generic_junction_test_closed_loop': 'slow',
@@ -64,6 +67,18 @@ MODELS = {
     'aortic_bif_hybrid_V2': _NO_REFERENCE.format('a node of three with no summing end'),
     'cvs_model_with_arm_hybrid': _NO_REFERENCE.format('a node of three with no summing end'),
 }
+
+
+def _system_model(model):
+    '''The module array and parameters file of the library's system model ``model``; skips the
+    test when the library has none.'''
+    found = sorted(glob.glob(os.path.join(SYSTEM_MODELS, '*', model)))
+    if not found:
+        pytest.skip(f'{model} is not one of the library\'s system models ({SYSTEM_MODELS})')
+    directory = found[0]
+    arrays = [os.path.join(directory, f'{model}_module_array{ext}') for ext in ('.json', '.csv')]
+    module_array = next((a for a in arrays if os.path.isfile(a)), arrays[0])
+    return module_array, os.path.join(directory, f'{model}_parameters.csv')
 
 
 def _params():
@@ -121,8 +136,10 @@ def compare(ref, ref_states, new, replaced, outputs):
             missing.append(name)
             continue
         n = new[target]
-        if name.startswith('heart') and re.fullmatch(r'[LB]_\w+', var):
-            r, n = 1.0 / r, 1.0 / n     # a valve's inertance spikes near closure: compared as 1/x
+        if re.fullmatch(r'[LB](_\w+)?', var):
+            # a valve's inertance (L_aov in a heart module, L of a valve module) spikes near
+            # closure: compared as 1/x, which a vessel's constant inertance leaves unchanged
+            r, n = 1.0 / r, 1.0 / n
         scale = max(float(np.max(np.abs(r))), float(np.ptp(r)), 1e-300)
         if name in ref_states and np.max(np.abs(r)) > 0 and SOLVER_INFO['atol'] > 1e-2 * scale \
                 and r.shape == n.shape and np.max(np.abs(r - n)) > 10 * SOLVER_INFO['atol']:
@@ -143,8 +160,7 @@ def compare(ref, ref_states, new, replaced, outputs):
 def test_lumped_vessels_reproduce_the_model(tmp_path, library, model):
     mono = tmp_path / 'monolithic'
     mono.mkdir()
-    module_array = os.path.join(RESOURCES, f'{model}_module_array.csv')
-    parameters = os.path.join(RESOURCES, f'{model}_parameters.csv')
+    module_array, parameters = _system_model(model)
     shutil.copy(module_array, mono)
     shutil.copy(parameters, mono)
     result = migrate_files(library, module_array, parameters, out_dir=str(tmp_path / 'lumped'),
@@ -163,8 +179,7 @@ def test_shared_parameters_keep_their_names(library):
     '''Migrating 3compartment changes only what the lumped vessels compute: the terminal's
     q_init becomes its compliance's q_C_init (q_init - q_us); every other parameter, and every
     output obs_data names, keeps its name.'''
-    module_array = os.path.join(RESOURCES, '3compartment_module_array.csv')
-    parameters = os.path.join(RESOURCES, '3compartment_parameters.csv')
+    module_array, parameters = _system_model('3compartment')
     records, rows = None, None
     from libcuflynx.utilities.lumped_migration import _read_parameters, _read_records, migrate
     records = _read_records(module_array)
@@ -174,7 +189,7 @@ def test_shared_parameters_keep_their_names(library):
     after = {r['variable_name'] for r in new_rows}
     assert before - after == {'q_init_systemic_T'}
     assert after - before == {'q_C_init_systemic_T_C'}
-    with open(os.path.join(RESOURCES, '3compartment_obs_data.json')) as f:
+    with open(os.path.join(os.path.dirname(module_array), '3compartment_obs_data.json')) as f:
         from libcuflynx.utilities.lumped_migration import unexposed_outputs
         assert unexposed_outputs(f.read(), records, library, outputs) == []
     assert not notes
