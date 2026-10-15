@@ -48,6 +48,7 @@ import math
 # from scipy.optimize import curve_fit
 import warnings
 warnings.filterwarnings( "ignore", module = "matplotlib/..*" )
+from .ProfileLikelihood import ProfileLikelihood  
 
 class IdentifiabilityAnalysis():
     """Identifiability analysis for a 0D model.
@@ -140,12 +141,39 @@ class IdentifiabilityAnalysis():
                 self.run_laplace_approximation(ia_options)
         return
 
-    def run_profile_likelihood(self, ia_options):
-        """Profile-likelihood identifiability analysis (not yet implemented)."""
-        # TODO
-        print("Profile Likelihood method not yet implemented")
-        exit()
-        pass
+    def run_profile_likelihood(self, ia_options):  
+            """  
+            Run profile likelihood analysis.  
+            
+            Args:  
+                ia_options: Dictionary containing profile likelihood options:  
+                    - num_points: Number of points in parameter sweep (default: 50)  
+                    - range_factor: Fraction of parameter range to sweep (default: 0.2)  
+                    - optimiser_options: Options for the optimizer  
+            """  
+            if self.rank == 0:  
+                print("Running Profile Likelihood Analysis")  
+                
+            # Extract options  
+            num_points = ia_options.get('num_points', 50)  
+            range_factor = ia_options.get('range_factor', 0.2)  
+            optimiser_options = ia_options.get('optimiser_options', {})  
+            
+            # Create and run profile likelihood analysis  
+            profile_likelihood = ProfileLikelihood(  
+                param_id=self.param_id,  
+                param_id_info=self.param_id.param_id_info,  
+                output_dir=self.param_id_output_dir,  
+                num_points=num_points,  
+                range_factor=range_factor,  
+                optimiser_options=optimiser_options  
+            )  
+            
+            profile_likelihood.set_best_param_vals(self.best_param_vals)  
+            profile_likelihood._run()  
+            
+            if self.rank == 0:  
+                print("Profile likelihood analysis complete")
 
     # Above this condition number the precision (Hessian) matrix cannot be inverted to a
     # trustworthy covariance -- the result would be massively inflated, meaningless uncertainties
