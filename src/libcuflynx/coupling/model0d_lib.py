@@ -35,8 +35,8 @@ def load_info(model_dir):
         return json.load(f)
 
 
-def _library_path(build_dir):
-    for pattern in ('lib' + LIB_TARGET + '.so', 'lib' + LIB_TARGET + '.dylib', LIB_TARGET + '.dll'):
+def _library_path(build_dir, target=LIB_TARGET):
+    for pattern in ('lib' + target + '.so', 'lib' + target + '.dylib', target + '.dll'):
         found = glob.glob(os.path.join(build_dir, '**', pattern), recursive=True)
         if found:
             return found[0]
@@ -52,8 +52,8 @@ def _sources_newer_than(model_dir, path):
     return False
 
 
-def build_library(model_dir, build_dir=None, cmake_args=(), verbose=False):
-    '''Configure and build the model's shared library with CMake; return its path.
+def build_library(model_dir, build_dir=None, cmake_args=(), verbose=False, target=LIB_TARGET):
+    '''Configure and build the model's shared library ``target`` with CMake; return its path.
 
     SUNDIALS (for CVODE models) is found from ``SUNDIALS_DIR``. Inside a conda environment
     the environment's prefix is searched first, so the library uses the same C++ runtime and
@@ -68,15 +68,15 @@ def build_library(model_dir, build_dir=None, cmake_args=(), verbose=False):
         args.append(f"-DSUNDIALS_DIR={os.environ['SUNDIALS_DIR']}")
     if os.environ.get('CONDA_PREFIX'):
         args.append(f"-DCMAKE_PREFIX_PATH={os.environ['CONDA_PREFIX']}")
-    for cmd in (args, ['cmake', '--build', build_dir, '--target', LIB_TARGET, '-j']):
+    for cmd in (args, ['cmake', '--build', build_dir, '--target', target, '-j']):
         proc = subprocess.run(cmd, capture_output=True, text=True)
         if verbose or proc.returncode != 0:
             sys.stdout.write(proc.stdout[-6000:])
         if proc.returncode != 0:
             raise Model0dError(f"{' '.join(cmd)} failed:\n{proc.stderr[-4000:]}")
-    path = _library_path(build_dir)
+    path = _library_path(build_dir, target)
     if path is None:
-        raise Model0dError(f'built, but no {LIB_TARGET} library in {build_dir}')
+        raise Model0dError(f'built, but no {target} library in {build_dir}')
     return path
 
 

@@ -5,6 +5,85 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Added — `BE_batched_c`: generated C, one block of states at a time, on several threads
+
+A CellML solver for models made of many weakly connected parts, such as a module array of cells
+(#573). `get_simulation_helper(..., solver='BE_batched_c')` takes the same CellML file and protocols
+as `CVODE_myokit`.
+
+- **Blocks.** `generators/kernel_ir.py` reads libCellML's analysis into a language-neutral form and
+  splits the states into blocks that do not depend on one another. Blocks with the same equations
+  share one kernel, so 64 identical cells compile one kernel.
+- **Exact Jacobians.** Each kernel's Jacobian is made by forward-mode differentiation of the
+  equations. Only its structurally non-zero entries are written.
+- **C.** `generators/cpp/batched.py` writes the kernels as C next to libCellML's own C (as
+  `model_type: cpp` writes it, which gives initial values and outputs), renders the runtime from
+  `templates/batched_*.j2` and builds it with CMake. A built model is cached under a digest of its
+  CellML files, so later helpers load it in milliseconds.
+- **Integrators.** Each block gets its own adaptive, L-stable one-step method, chosen by
+  `solver_info` `method`:
+  - `backward_euler`, the default;
+  - `trbdf2`, second order, which is far more accurate at the same tolerance and usually faster.
+
+  Both use modified Newton, with the Jacobian and LU factors kept across steps. The step size changes only
+  when the error control allows more than 20% growth (or asks for any shrink), so the factors serve several
+  steps: 1.10-1.14x faster on AdaptOrDeity's colonies at the same error.
+- **Inputs that change at every call.** `bk_set_stop_at_outputs` (`BatchedSimulation.set_stop_at_outputs`, off
+  by default) ends steps on each run's last output time; a block whose inputs changed there restarts softly,
+  keeping its step size, Jacobian and LU factors (never from an interpolated state). With an input changed every
+  0.1 s, as a game's macro step does, that is 4.3-4.6x faster; with inputs that rarely change, 0.93-1.02x, hence
+  off. `CVODES_batched_c` accepts the call and ignores it.
+- **Threads and restarts.** OpenMP runs over the blocks, and results are the same for any number
+  of threads. A block whose inputs did not change between sub-experiments keeps its steps.
+- **Protocol traces.** A `params_to_change` entry naming a trace drives that constant along it, as on
+  `CVODE_myokit`: piecewise linear on the model's clock, held at its ends. Steps end on the trace's
+  breakpoints, and the kernels compute their computed constants, so everything that depends on the
+  traced constant follows it. SN_simple's protocol agrees with `CVODE_myokit` within 5e-4 of each
+  variable's range, 20x faster.
+- **Instances and outputs.** `bk_instance_*` steps copies of the model from the caller's own threads
+  (AdaptOrDeity's cells); `outputs` computes a few algebraic variables alone after each step.
+- **Limits.**
+  - It is meant for moderate tolerances (default `rtol` 1e-4).
+  - Its LU is dense, so a single block of hundreds of states is slow.
+  - It does not take models with algebraic loops or external variables.
+  - Excitable models want a `MaximumStep` or a tighter `rtol`: at `rtol` 1e-6 and no step cap, an action
+    potential in SN_simple lands 0.25 ms late (1.3 mV on its upstroke); with `MaximumStep` 1e-3, 0.09 mV.
+  - It has no sensitivities.
+- **user_inputs.** `solver: BE_batched_c` takes `method` `backward_euler` (the default) or `trbdf2`; each CellML
+  solver's methods are checked against its own list, not `CVODE_myokit`'s.
+- **First step after a restart.** Hairer, Norsett and Wanner's starting step, from weighted RMS norms over the
+  block's states and a second-derivative estimate, at least 64 ulps of t, so a state restarting at zero (weight
+  1/atol) no longer forces a step too small for t + h to differ from t (late restarts failed as "step too small").
+
+### Added — `CVODES_batched_c`: one CVODES per block, on the same generated C
+
+`get_simulation_helper(..., solver='CVODES_batched_c')` builds `BE_batched_c`'s kernels, blocks, traces and
+outputs with a different runtime (`templates/batched_cvodes_runtime.c.j2`, which extends `batched_runtime.c.j2`).
+Each block gets its own CVODES: BDF with Newton, a dense LU and the exact Jacobian (CVODES's difference
+quotients with `jacobian: finite_difference`).
+
+- **Threads.** Blocks share nothing, so OpenMP runs over them with results that are the same for any number
+  of threads.
+- **Restarts.** A block is reinitialised (`CVodeReInit`) only when its inputs, its states, a trace or its time
+  origin change. A trace's breakpoints are CVODES stop times.
+- **Swapping solvers.** The library exports every `bk_*` function of `BE_batched_c`, plus
+  `bk_block_cvodes_flag`, so a program that steps `bk_instance_*` copies can swap one library for the other.
+  The one difference is `bk_instance_copy`: a copy starts CVODES afresh from the copied states, so it
+  follows its original to the tolerance rather than bit for bit.
+- **Settings.** The defaults are `CVODE_myokit`'s tolerances (`rtol` 1e-6, `atol` 1e-8).
+  `MaximumNumberOfSteps` counts the steps of one block in one run, as on `BE_batched_c`.
+- **Needs SUNDIALS 6 or later.** It is found from `SUNDIALS_DIR` or CMake's search path. Without SUNDIALS the
+  build fails with a message that says so, and its tests skip.
+- Both batched libraries also get `bk_solver_name`, and `bk_instances_advance`, which advances many
+  instances on OpenMP threads.
+
+### Fixed — libCellML 0.7's C for models with a state set by a computed constant, or with no algebraic variables
+
+The one-`variables`-array rewrite of libCellML 0.7's C now keeps `voi`, `states` and `rates` in
+`computeComputedConstants`. libCellML sets the states initialised by a computed constant there, so
+`SN_simple` did not compile. The rewrite also no longer leaves a stray `{` in `VARIABLE_INFO` when
+a kind of variable is empty.
+
 ### Changed — libCellML 0.7.1 or later
 
 libCellML 0.7 generates Python and C with constants, computed constants, algebraic and external variables in separate

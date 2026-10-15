@@ -271,3 +271,23 @@ def test_every_benchmark_reports_relative_parameter_error():
         "a benchmark is still computing param_err by hand; use max_relative_param_err")
     assert src.count("param_err=max_relative_param_err(") == 4, (
         "all four benchmarks should report error through the shared helper")
+
+
+@pytest.mark.solver
+@pytest.mark.skipif(__import__('shutil').which('cmake') is None, reason='needs CMake and a C compiler')
+def test_the_fermenter_colony_is_one_kernel_and_its_cells_run_alike(tmp_path):
+    """The batched-solver scaling benchmark's colony: N fermenter cells from the benchmark's module library, one
+    block per cell sharing one kernel; under the glucose protocol every cell follows the same trajectory."""
+    from benchmarks import batched_solver_scaling as bench
+    from libcuflynx.generators import kernel_ir
+    model = bench.generate_colony(2, str(tmp_path))
+    flat, am = kernel_ir.analyse_cellml(model)
+    km = kernel_ir.build_kernel_model(am)
+    assert len(km.blocks) == 2 and len({b.kernel for b in km.blocks}) == 1
+    setup, names = bench.build(model, 'BE_batched_c', str(tmp_path / 'build'))
+    assert len(names) == len(km.blocks[0].states)
+    observed = names + [n.replace('cell_0_module/', 'cell_1_module/') for n in names]
+    series = bench.run(model, 'BE_batched_c', {'method': 'trbdf2'}, 2, 1, str(tmp_path / 'build'), observed)['series']
+    assert series.shape == (sum(bench.SIM_TIMES) + 1, 2 * len(names))
+    assert np.array_equal(series[:, :len(names)], series[:, len(names):])
+    assert np.ptp(series, axis=0).max() > 0     # the glucose steps move the cells

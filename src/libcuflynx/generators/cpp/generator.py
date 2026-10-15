@@ -53,6 +53,19 @@ class CppGenerationError(RuntimeError):
     pass
 
 
+def core_code(am):
+    """libCellML's C for an analysed model, as (``model0d_core.h``, ``model0d_core.c``), with its variables in
+    one ``variables`` array (#271)."""
+    profile = GeneratorProfile(GeneratorProfile.Profile.C)
+    profile.setInterfaceFileNameString(CORE_NAME + '.h')
+    gen = Generator()
+    interface = cellml.c_code_with_one_variables_array(
+        cellml.generate_interface_code(gen, am, profile), header=True)
+    implementation = cellml.c_code_with_one_variables_array(
+        cellml.generate_implementation_code(gen, am, profile), header=False)
+    return interface, implementation
+
+
 class CVS0DCppGenerator(object):
     '''
     Generates the C++ for a 0D model (model_type: cpp), optionally coupled to other models.
@@ -463,13 +476,7 @@ class CVS0DCppGenerator(object):
         self.variable_symbols = ['V_' + n for n in build_symbols(variable_pairs)]
 
     def _write_core(self, am):
-        profile = GeneratorProfile(GeneratorProfile.Profile.C)
-        profile.setInterfaceFileNameString(CORE_NAME + '.h')
-        gen = Generator()
-        interface = cellml.c_code_with_one_variables_array(
-            cellml.generate_interface_code(gen, am, profile), header=True)
-        implementation = cellml.c_code_with_one_variables_array(
-            cellml.generate_implementation_code(gen, am, profile), header=False)
+        interface, implementation = core_code(am)
         if self.human_readable:
             interface = self._add_index_enums(interface)
             implementation = self._name_indices(implementation)
