@@ -946,25 +946,20 @@ def _cost_and_grad_bdf_tape(pid, param_vals):
 
 
 def _cost_and_grad_bdf_kernel(pid, param_vals):
-    """Cost and gradient via C++ kernel replay (fastest method for stiff ODE).
+    """Cost and gradient via aadc-ode kernel replay (fastest method for stiff ODE).
 
-    Records compute_rates ONCE as AADC kernel, then replays it from C++
-    in a semi-implicit BDF loop with ConstStateExtFunc (forward + reverse AD).
-    First call: ~6s (kernel recording + tape creation). Subsequent: ~0.3s (cached).
+    Records compute_rates ONCE as aadc_ode.Kernel, then:
+      - bdf_solve for pre-steps (C++ loop, no trajectory)
+      - call_kernel loop for sim-steps (trajectory accumulation on tape)
+      - cost assembled on tape, gradient via one reverse pass
 
-    Requires AADC Python module built from source with bdf_loop.cpp.
-    Falls back to bdf_tape (Python tape) if C++ function not available.
-
-    Verified: AD/FD = 1.0000 on 3compartment (27 states, 4 params, 22000 steps).
+    Dependencies: pip install aadc aadc-ode
+    Verified (q_lv_us, mean(q_lv) cost, 3compartment 27 states): AD/FD = 0.991 at 1000 sub-steps,
+    0.995 at 2000, 0.998 at 5000 (the <~1% gap is the frozen-Jacobian-diagonal preconditioner, whose
+    param-dependence is intentionally dropped from the gradient; it shrinks as the step grid refines).
     """
     import aadc
-
-    if not hasattr(aadc._aadc_core, 'bdf_record_and_evaluate'):
-        import warnings
-        warnings.warn("bdf_kernel: C++ bdf_record_and_evaluate not available, "
-                      "falling back to bdf_tape (Python tape). Build AADC from "
-                      "source with bdf_loop.cpp for 10x speedup.")
-        return _cost_and_grad_bdf_tape(pid, param_vals)
+    import aadc_ode
 
     sim_helper = pid.sim_helper
     n = sim_helper.STATE_COUNT
@@ -976,23 +971,31 @@ def _cost_and_grad_bdf_kernel(pid, param_vals):
     n_sub = max(1, int(np.ceil(dt / max_step)))
     idt = dt / n_sub
     jac_lag = int(sim_helper.solver_info.get('jac_lag', 10))
-    newton_iters = int(sim_helper.solver_info.get('newton_iters', 0))
 
-    param_names_raw = pid.param_id_info["param_names"]
-    param_names = [pn[0] if isinstance(pn, (list, tuple)) else pn for pn in param_names_raw]
+    ad_indices = sim_helper._ad_param_var_indices
+    n_p = len(ad_indices)
 
     variables_all = list(sim_helper._numeric_variables_all)
     for ci, idx in enumerate(sim_helper.constant_indices):
         variables_all[idx] = sim_helper.variables[ci]
-
-    ad_indices = sim_helper._ad_param_var_indices
-    n_p = len(ad_indices)
     for i, idx in enumerate(ad_indices):
         variables_all[idx] = float(param_vals[i])
 
-    # Build observable list for C++ function
-    # Format: (kind, state_idx, var_raw_idx, op_code, gt, std, weight, scale)
-    # op_code: 0=mean, 1=max, 2=min, 3=max_minus_min
+    # ---- Record compute_rates as Kernel (once, cached) ----
+    if not hasattr(pid, '_aadc_ode_kernel'):
+        kernel = aadc_ode.Kernel()
+        k_states, k_params = kernel.begin(n_states=n, n_params=n_p)
+        # Set up variables with kernel params at ad_indices
+        vars_k = list(variables_all)
+        for i, idx in enumerate(ad_indices):
+            vars_k[idx] = k_params[i]
+        rates_k = [aadc.idouble(0.0)] * n
+        sim_helper.model.compute_rates(0.0, list(k_states), rates_k, vars_k)
+        kernel.end(rates_k)
+        pid._aadc_ode_kernel = kernel
+    kernel = pid._aadc_ode_kernel
+
+    # ---- Build observable info ----
     obs_info = pid.obs_info
     if obs_info is None:
         return 0.0, np.zeros(n_p)
@@ -1026,19 +1029,87 @@ def _cost_and_grad_bdf_kernel(pid, param_vals):
         scale = 0.5 if (const_idx < len(cost_types) and cost_types[const_idx] == 'gaussian_MLE') else 1.0
         op_code = op_map.get(operation, -1)
         if kind == 'state' and si is not None and op_code >= 0:
-            obs_list.append((0, si, 0, op_code, gt, std, w * scale / weighted_obs_denom, 1.0))
+            obs_list.append((kind, si, op_code, gt, std, w * scale / weighted_obs_denom))
         const_idx += 1
 
-    states = list(sim_helper.states[:n])
+    # ---- Record tape: bdf_solve pre-steps + call_kernel sim-steps ----
     param_values = [float(param_vals[i]) for i in range(n_p)]
 
-    cost, grad_list = aadc._aadc_core.bdf_record_and_evaluate(
-        sim_helper.model.compute_rates,
-        states, variables_all,
-        list(ad_indices), param_values,
-        total_steps, pre_steps, n_sub, idt,
-        obs_list, None, jac_lag, newton_iters
-    )
+    f = aadc.Functions()
+    f.start_recording()
+    y0 = [aadc.idouble(float(sim_helper.states[i])) for i in range(n)]
+    y0_args = [v.mark_as_input() for v in y0]
+    p_tape = [aadc.idouble(param_values[i]) for i in range(n_p)]
+    p_args = [v.mark_as_input() for v in p_tape]
 
-    grad = np.array([float(g) for g in grad_list])
+    # Phase 1: bdf_solve for pre-steps (C++ loop, fast)
+    sim_steps = total_steps - pre_steps
+    total_sub = total_steps * n_sub
+    pre_sub = pre_steps * n_sub
+    if pre_sub > 0:
+        x = aadc_ode.bdf_solve(kernel, y0, params=p_tape, dt=idt,
+                               n_steps=pre_sub, jac_lag=jac_lag)
+    else:
+        x = list(y0)
+
+    # Phase 2: call_kernel loop for sim-steps (trajectory on tape)
+    sim_sub = sim_steps * n_sub
+    # Initialize accumulators for observables
+    accum = {}
+    for obs in obs_list:
+        _, si, op_code, _, _, _ = obs
+        key = (si, op_code)
+        if op_code == 0:  # mean
+            accum[key] = aadc.idouble(0.0) + x[si]
+        elif op_code == 1:  # max
+            accum[key] = aadc.idouble(0.0) + x[si]
+        elif op_code == 2:  # min
+            accum[key] = aadc.idouble(0.0) + x[si]
+
+    for step in range(sim_sub):
+        rates = aadc_ode.call_kernel(kernel, x, p_tape)
+        if step % jac_lag == 0:
+            jd = kernel.jacobian_diagonal([float(xi) for xi in x], param_values)
+        for i in range(n):
+            x[i] = x[i] + aadc.idouble(idt) * rates[i] / (
+                aadc.idouble(1.0) - aadc.idouble(idt * jd[i]))
+
+        for obs in obs_list:
+            _, si, op_code, _, _, _ = obs
+            key = (si, op_code)
+            if op_code == 0:  # mean
+                accum[key] = accum[key] + x[si]
+            elif op_code == 1:  # max
+                accum[key] = aadc.iif(x[si] > accum[key], x[si], accum[key])
+            elif op_code == 2:  # min
+                accum[key] = aadc.iif(x[si] < accum[key], x[si], accum[key])
+
+    # Assemble cost on tape
+    count = float(sim_sub + 1)
+    cost_tape = aadc.idouble(0.0)
+    for obs in obs_list:
+        _, si, op_code, gt, std, w = obs
+        key = (si, op_code)
+        if op_code == 0:
+            val = accum[key] / aadc.idouble(count)
+        else:
+            val = accum[key]
+        diff = val - aadc.idouble(gt)
+        cost_tape = cost_tape + aadc.idouble(w) * diff * diff / (
+            aadc.idouble(std * std) if std > 0 else aadc.idouble(1.0))
+
+    out = cost_tape.mark_as_output()
+    f.stop_recording()
+
+    # ---- Evaluate: forward + reverse ----
+    ws = f.create_workspace()
+    for i, a in enumerate(y0_args):
+        ws.set_val(a, float(sim_helper.states[i]))
+    for i, a in enumerate(p_args):
+        ws.set_val(a, param_values[i])
+    ws.forward()
+    cost = ws.val(out)
+    ws.set_diff(out, 1.0)
+    ws.reverse()
+    grad = np.array([ws.diff(a) for a in p_args])
     return float(cost), grad
