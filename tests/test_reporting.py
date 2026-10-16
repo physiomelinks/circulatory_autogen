@@ -256,8 +256,8 @@ def test_methods_of_a_workflow_with_analyses_describe_each_kind(tmp_path):
 
     run_calibration_workflow(library['chain_analysed'], output_dir=run_dir)
     text = workflow_methods_latex(library['chain_analysed'], run_dir=run_dir)
-    assert 'It kept \\texttt{mod\\_C/q} (' in text
-    assert 'The standard deviations of the Laplace approximation: mod\\_C/q: ' in text
+    assert 'It kept \\texttt{mod\\_\\_C/q} (' in text
+    assert 'The standard deviations of the Laplace approximation: mod\\_\\_C/q: ' in text
     # only the calibrations' values are the target's; q is fit's
     assert r'Calibrated in step \texttt{fit} (Section~\ref{sec:step:fit})' in text
     if shutil.which('pdflatex'):
@@ -333,8 +333,8 @@ def test_methods_of_a_workflow_report_each_step_and_its_results(tmp_path):
     path, rows = update_workflow_variable_mapping(library['chain_rest'], run_dir=run_dir)
     assert path == os.path.join(library['chain/rest'], 'rest_variable_mapping.csv')
     mapping = read_variable_mapping(path)
-    assert mapping['parameters/p_mod_A']['latex'] == r'p_{\mathrm{A}}'
-    mapping['parameters/p_mod_A']['latex'] = r'\pi_{A}'
+    assert mapping['parameters/p_mod__A']['latex'] == r'p_{\mathrm{A}}'
+    mapping['parameters/p_mod__A']['latex'] = r'\pi_{A}'
     write_variable_mapping(list(mapping.values()), path)
 
     text = workflow_methods_latex(library['chain_rest'], run_dir=run_dir)

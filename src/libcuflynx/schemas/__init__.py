@@ -1,7 +1,7 @@
 """Machine-readable JSON Schemas of libcuflynx's input files, shipped as package data.
 
 * ``module_array.schema.json`` -- ``<prefix>_module_array.json``: a list of instance records,
-  in PhLynx or libcuflynx keys, with the optional ``per_submodule_inputs`` /
+  in the current (PhLynx) or the older libcuflynx keys, with the optional ``per_submodule_inputs`` /
   ``per_submodule_outputs`` of a supermodule instance and the optional ``parameterisation``
   (an ``instance`` key is refused).
 * ``module_config.schema.json`` -- ``*_modules_config.json``: component entries in either key

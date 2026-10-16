@@ -29,7 +29,7 @@ def _write_json_records(source_path, source_records, df_vess, out_path):
         record = dict(by_name.get(row['name'], {}))
         for column in df_vess.columns:
             value = row[column]
-            if column in ('inp_vessels', 'out_vessels'):
+            if column in ('inp_instances', 'out_instances'):
                 record[column] = str(value).split()
             elif column in record or value not in ('', None):
                 record[column] = value
@@ -71,10 +71,10 @@ def convert_0d_to_1d(model, folder_0d, param_file_0d, folder_hyb=None, vess_1d_l
             sys.exit(f"Error :: Vessel {vess} not found in 0D module array for model {model}.")
 
         idxV = idxs[0]
-        df_vess.at[idxV, 'BC_type'] = 'nn'
-        df_vess.at[idxV, 'vessel_type'] = 'FV1D_vessel'
+        df_vess.at[idxV, 'module_subtype'] = 'nn'
+        df_vess.at[idxV, 'module_type'] = 'FV1D_vessel'
 
-        out_vess = df_vess.at[idxV, 'out_vessels'].split()
+        out_vess = df_vess.at[idxV, 'out_instances'].split()
         if 'K_tube_'+vess in out_vess:
             out_vess.remove('K_tube_'+vess)
 
@@ -82,17 +82,17 @@ def convert_0d_to_1d(model, folder_0d, param_file_0d, folder_hyb=None, vess_1d_l
                 if df_vess.at[j, 'name'] == 'K_tube_'+vess:
                     idx_to_drop.append(j)
                     break
-        df_vess.at[idxV, 'out_vessels'] = ' '.join(out_vess)
+        df_vess.at[idxV, 'out_instances'] = ' '.join(out_vess)
 
     df_vess = df_vess.drop(index=idx_to_drop)
     df_vess.reset_index(drop=True, inplace=True)
 
     nV = df_vess.shape[0]
     for j in range(nV):
-        if df_vess.at[j, 'vessel_type']=='FV1D_vessel':
+        if df_vess.at[j, 'module_type']=='FV1D_vessel':
             vess1d = df_vess.at[j, 'name']
-            inp_vess = df_vess.at[j, 'inp_vessels'].split()
-            out_vess = df_vess.at[j, 'out_vessels'].split()
+            inp_vess = df_vess.at[j, 'inp_instances'].split()
+            out_vess = df_vess.at[j, 'out_instances'].split()
             
             for vess in inp_vess:
                 idxs = df_vess.index[df_vess['name'] == vess].tolist()
@@ -100,8 +100,8 @@ def convert_0d_to_1d(model, folder_0d, param_file_0d, folder_hyb=None, vess_1d_l
                     sys.exit(f"Error :: Input vessel {vess} not found for 1D vessel {vess1d}.")
 
                 idxV = idxs[0]
-                if df_vess.at[idxV, 'vessel_type'] != 'FV1D_vessel':
-                    if df_vess.at[idxV, 'BC_type'].startswith(('vp', 'pp')):
+                if df_vess.at[idxV, 'module_type'] != 'FV1D_vessel':
+                    if df_vess.at[idxV, 'module_subtype'].startswith(('vp', 'pp')):
                         if vess=='heart':
                             if vess1d=='par':
                                 df_params.loc[df_params.shape[0]] = ['u_par_'+vess, 'J_per_m3', 0.0, 'WONT_BE_USED']
@@ -109,7 +109,7 @@ def convert_0d_to_1d(model, folder_0d, param_file_0d, folder_hyb=None, vess_1d_l
                                 df_params.loc[df_params.shape[0]] = ['u_root_'+vess, 'J_per_m3', 0.0, 'WONT_BE_USED']
                         else:
                             df_params.loc[df_params.shape[0]] = ['u_out_'+vess, 'J_per_m3', 0.0, 'WONT_BE_USED']
-                    elif df_vess.at[idxV, 'BC_type'].startswith(('pv', 'vv')):
+                    elif df_vess.at[idxV, 'module_subtype'].startswith(('pv', 'vv')):
                         df_params.loc[df_params.shape[0]] = ['v_out_'+vess, 'm3_per_s', 0.0, 'WONT_BE_USED']
 
             for vess in out_vess:
@@ -118,10 +118,10 @@ def convert_0d_to_1d(model, folder_0d, param_file_0d, folder_hyb=None, vess_1d_l
                     sys.exit(f"Error :: Output vessel {vess} not found for 1D vessel {vess1d}.")
 
                 idxV = idxs[0]
-                if df_vess.at[idxV, 'vessel_type'] != 'FV1D_vessel':
-                    if df_vess.at[idxV, 'BC_type'].startswith(('pv', 'pp')):
+                if df_vess.at[idxV, 'module_type'] != 'FV1D_vessel':
+                    if df_vess.at[idxV, 'module_subtype'].startswith(('pv', 'pp')):
                         df_params.loc[df_params.shape[0]] = ['u_in_'+vess, 'J_per_m3', 0.0, 'WONT_BE_USED']
-                    elif df_vess.at[idxV, 'BC_type'].startswith(('vp', 'vv')):
+                    elif df_vess.at[idxV, 'module_subtype'].startswith(('vp', 'vv')):
                         if vess=='heart':
                             if vess1d=='pvn':
                                 df_params.loc[df_params.shape[0]] = ['v_pvn_'+vess, 'm3_per_s', 0.0, 'WONT_BE_USED']

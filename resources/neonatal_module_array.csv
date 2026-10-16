@@ -1,4 +1,4 @@
-name,BC_type,vessel_type,inp_vessels,out_vessels
+name,module_subtype,module_type,inp_instances,out_instances
 heart,                   vp, heart_LVprop,venous_ivc venous_svc, aortic_root    
 aortic_root,             vv, arterial, heart,ascending_aorta       
 ascending_aorta,         pv, split_junction,     aortic_root,aortic_arch_I        brachiocephalic      

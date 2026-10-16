@@ -16,7 +16,7 @@ from libcuflynx.utilities.package_resources import package_data_dir
 from libcuflynx.utilities.paths import default_resources_dir
 from libcuflynx.utilities.module_library import (ModuleSources, ModuleShadowWarning, collect_units,
                                                  CELLML_1_1_NS)
-from libcuflynx.utilities.config_schemas import is_heart_vessel_type
+from libcuflynx.utilities.config_schemas import is_heart_module_type
 from libcuflynx.utilities.vessel_bc import is_vessel_module
 
 generators_dir = os.path.dirname(__file__)
@@ -536,7 +536,7 @@ class CVS0DCellMLGenerator(object):
 
             # A set, built once: this is tested on every line of every module file, and with
             # pandas 3 a test against `.values` (a StringArray) costs ~2 s per generation.
-            used_module_types = set(self.model.vessels_df.module_type) | {'zero_flow'}
+            used_component_types = set(self.model.vessels_df.component_type) | {'zero_flow'}
             for II, module_file_path in enumerate(self.module_scripts):
                 with open(module_file_path, 'r') as rf:
                     # skip first lines that are either intro lines written above or comments.
@@ -561,9 +561,9 @@ class CVS0DCellMLGenerator(object):
                     for line in lines:
                         if "<component name" in line:
                             # check the name of the module we are in
-                            module_type = re.search('name="(.*?)"', line).group(1)
-                        if module_type in used_module_types \
-                                and self.module_sources.uses_component(module_file_path, module_type):
+                            component_type = re.search('name="(.*?)"', line).group(1)
+                        if component_type in used_component_types \
+                                and self.module_sources.uses_component(module_file_path, component_type):
                             # (a type a more specific module source defines is written from there)
                             wf.write(line)
             wf.write('</model>\n')
@@ -602,11 +602,11 @@ class CVS0DCellMLGenerator(object):
                 continue
             self.__write_import(wf, vessel_tup)
 
-        # the heart is found by its vessel_type, so it can have any name (a heart inside a
+        # the heart is found by its module_type, so it can have any name (a heart inside a
         # supermodule is <instance>_<submodule>)
-        hearts = [n for n, vt in zip(vessel_df["name"], vessel_df["vessel_type"]) if is_heart_vessel_type(vt)]
+        hearts = [n for n, vt in zip(vessel_df["name"], vessel_df["module_type"]) if is_heart_module_type(vt)]
         if len(hearts) == 1:
-            heart_inputs = vessel_df.loc[vessel_df["name"] == hearts[0]].inp_vessels.values[0]
+            heart_inputs = vessel_df.loc[vessel_df["name"] == hearts[0]].inp_instances.values[0]
             # add a zero mapping to heart ivc or svc flow input if only one input is specified
             if "venous_ivc" not in heart_inputs or "venous_svc" not in heart_inputs:
                 wf.writelines([f'<import xlink:href="{self.file_prefix}_modules.cellml">\n',
@@ -706,8 +706,8 @@ class CVS0DCellMLGenerator(object):
 
         # input and output modules
         main_module = module_row["name"]
-        main_module_BC_type = module_row["BC_type"]
-        main_module_type = module_row["module_type"]
+        main_module_subtype = module_row["module_subtype"]
+        main_component_type = module_row["component_type"]
 
         # create a list of dicts that stores info for the exit ports of this main module
         # entrance_port_types is the corresponding connection check for entrance ports and is stored in 
@@ -744,31 +744,31 @@ class CVS0DCellMLGenerator(object):
                                    "connected": [False]})
                 
         # check inp vessels are all connected # TODO this should be done in the model parsing stage
-        for inp_module_idx, inp_module in enumerate(module_row["inp_vessels"]):
+        for inp_module_idx, inp_module in enumerate(module_row["inp_instances"]):
             if not (module_df["name"] == inp_module).any():
                 print(f'the input module of {inp_module} is not defined')
                 exit()
             inp_module_row = module_df.loc[module_df["name"] == inp_module].squeeze()
-            inp_module_BC_type = inp_module_row["BC_type"]
-            inp_module_type = inp_module_row["module_type"]
+            inp_module_subtype = inp_module_row["module_subtype"]
+            inp_component_type = inp_module_row["component_type"]
 
             self.__check_input_output_modules(module_df, inp_module, main_module,
-                                              inp_module_BC_type, main_module_BC_type,
-                                              inp_module_type, main_module_type)
+                                              inp_module_subtype, main_module_subtype,
+                                              inp_component_type, main_component_type)
 
-        for out_module_idx, out_module in enumerate(module_row["out_vessels"]):
+        for out_module_idx, out_module in enumerate(module_row["out_instances"]):
             if not (module_df["name"] == out_module).any():
                 print(f'the output module of {out_module} is not defined')
                 exit()
             out_module_row = module_df.loc[module_df["name"] == out_module].squeeze()
-            out_module_BC_type = out_module_row["BC_type"]
-            out_module_type = out_module_row["module_type"]
+            out_module_subtype = out_module_row["module_subtype"]
+            out_component_type = out_module_row["component_type"]
 
             # check that input and output modules are defined as connection variables
             # for that module and they have corresponding BCs # TODO this should be done in the model parsing stage
             self.__check_input_output_modules(module_df, main_module, out_module,
-                                              main_module_BC_type, out_module_BC_type,
-                                              main_module_type, out_module_type)
+                                              main_module_subtype, out_module_subtype,
+                                              main_component_type, out_component_type)
             self.__check_input_output_ports(module_row["exit_ports"], module_row["general_ports"], out_module_row["entrance_ports"],
                                             out_module_row["general_ports"], main_module, out_module)
 
@@ -810,8 +810,8 @@ class CVS0DCellMLGenerator(object):
                                     entrance_port_idx = JJ
                                     break
                             else:
-                                # if (out_module_BC_type=='nn' and out_module_type=='Muller_1d'):
-                                if out_module_row["vessel_type"]=='FV1D_vessel': #XXX TODO Bea add comment here to explain
+                                # if (out_module_subtype=='nn' and out_component_type=='Muller_1d'):
+                                if out_module_row["module_type"]=='FV1D_vessel': #XXX TODO Bea add comment here to explain
                                     entrance_port_idx = -2
                                     break
                         break
@@ -844,16 +844,16 @@ class CVS0DCellMLGenerator(object):
                     #     entrance_port_idx = 0
                     # else:
                     #     entrance_port_idx = -1
-                    #     for II in range(len(out_module_row["inp_vessels"])):
+                    #     for II in range(len(out_module_row["inp_instances"])):
                     #         # check that the entrance port corresponds to the main_vessel
-                    #         if out_module_row["inp_vessels"][II] == main_module:
+                    #         if out_module_row["inp_instances"][II] == main_module:
                     #             entrance_port_idx = entrance_port_types[entrance_port_type_idx]["entrance_port_idxs"][II]
                     #             break
 
                     # TODO this part is kind of hacky, but it works, there is definitely a better way to do the mapping with the
                     #  heart module!
-                    if is_heart_vessel_type(out_module_row["vessel_type"]):
-                        if len(out_module_row["inp_vessels"]) == 2 and self.ivc_connection_done == 0:
+                    if is_heart_module_type(out_module_row["module_type"]):
+                        if len(out_module_row["inp_instances"]) == 2 and self.ivc_connection_done == 0:
                             # this is the case if there is only one vc and one pulmonary
                             # We map the ivc to a zero flow mapping
                             self.__write_mapping(wf, 'zero_flow_module', out_module + '_module', ['v_zero'], ['v_ivc'])
@@ -864,7 +864,7 @@ class CVS0DCellMLGenerator(object):
                         for heart_inp_idx in range(3):
                             # there are three vessel_port entrances to the heart, ivc, svc, and pulmonary
                             # in the module_array file, they must be ordered ivc, svc, pulmonary
-                            if main_module == out_module_row["inp_vessels"][heart_inp_idx]:
+                            if main_module == out_module_row["inp_instances"][heart_inp_idx]:
                                 # if the ivc connection was done artificially, then we need to skip it
                                 entrance_port_idx = heart_inp_idx + self.ivc_connection_done
                                 break
@@ -885,12 +885,12 @@ class CVS0DCellMLGenerator(object):
 
                     variables_1 = module_exit_general_ports[out_port_idx]['variables']
                     if entrance_port_idx == -2: #XXX TODO Bea add comment here to explain
-                        if main_module_BC_type.startswith(('vp','pp')):
+                        if main_module_subtype.startswith(('vp','pp')):
                             variables_2 = ['v_in_1D', 'u_1D']
-                        elif main_module_BC_type.startswith(('pv','vv')):
+                        elif main_module_subtype.startswith(('pv','vv')):
                             variables_2 = ['v_1D', 'u_in_1D']
                         print(main_module, out_module)
-                        print(main_module_BC_type, out_module_BC_type)
+                        print(main_module_subtype, out_module_subtype)
                         print(variables_1, variables_2)
                     else:
                         variables_2 = out_module_entrance_general_ports[entrance_port_idx]['variables']
@@ -915,29 +915,29 @@ class CVS0DCellMLGenerator(object):
                                 out_module_entrance_general_ports[entrance_port_idx],
                                 variables_1, variables_2, pending_mappings)
 
-                    elif module_row["vessel_type"].endswith('terminal'):
+                    elif module_row["module_type"].endswith('terminal'):
                         # the terminal connections are done through the terminal_venous_connection
                         # TODO after this if loop I set that this connection is done. It is actually done later on
                         # when doing the venous_terminal_connection. Fine for now.
                         pass
 
-                    elif module_row["vessel_type"].startswith(('Nout_', 'MinNout_')):
+                    elif module_row["module_type"].startswith(('Nout_', 'MinNout_')):
                         # the generic junction connections are done through the generic_junction_connection
                         pass
 
-                    elif out_module_row["vessel_type"].startswith(('Min_', 'MinNout_')):
+                    elif out_module_row["module_type"].startswith(('Min_', 'MinNout_')):
                         # the generic junction connections are done through the generic_junction_connection
                         pass
 
-                    elif (any(module_df.loc[module_df["name"] == vess, "vessel_type"].iloc[0].startswith(("Min_", "MinNout_"))
-                            for vess in module_row["out_vessels"])):
+                    elif (any(module_df.loc[module_df["name"] == vess, "module_type"].iloc[0].startswith(("Min_", "MinNout_"))
+                            for vess in module_row["out_instances"])):
                         # the generic junction connections are done through the generic_junction_connection
                         pass
 
                     elif (any(
-                            any(module_df.loc[module_df["name"] == temp_inp_vess, "vessel_type"].iloc[0].startswith(("Nout_", "MinNout_"))
-                                for temp_inp_vess in module_df.loc[module_df["name"] == temp_out_vess, "inp_vessels"].values[0])
-                                    for temp_out_vess in module_row["out_vessels"]
+                            any(module_df.loc[module_df["name"] == temp_inp_vess, "module_type"].iloc[0].startswith(("Nout_", "MinNout_"))
+                                for temp_inp_vess in module_df.loc[module_df["name"] == temp_out_vess, "inp_instances"].values[0])
+                                    for temp_out_vess in module_row["out_instances"]
                                         if is_vessel_module(module_df.loc[module_df["name"] == temp_out_vess].squeeze()))):
                         # the generic junction connections are done through the generic_junction_connection
                         pass
@@ -962,9 +962,9 @@ class CVS0DCellMLGenerator(object):
                         pass_port = False
 
                         #XXX THIS IS NEEDED!!!
-                        for iV, temp_out_vess in enumerate(module_row["out_vessels"]):
-                            temp_out_vess_BC_type = module_df.loc[module_df["name"] == temp_out_vess, "vessel_type"].iloc[0]
-                            if temp_out_vess_BC_type.startswith("Min_") or temp_out_vess_BC_type.startswith("MinNout_"):
+                        for iV, temp_out_vess in enumerate(module_row["out_instances"]):
+                            temp_out_vess_module_subtype = module_df.loc[module_df["name"] == temp_out_vess, "module_type"].iloc[0]
+                            if temp_out_vess_module_subtype.startswith("Min_") or temp_out_vess_module_subtype.startswith("MinNout_"):
                                 temp_out_module_row = module_df.loc[module_df["name"] == temp_out_vess].squeeze()
                                 multi_port_found = False
                                 for iP in range(len(temp_out_module_row["entrance_ports"])):
@@ -978,9 +978,9 @@ class CVS0DCellMLGenerator(object):
                                     break
                         
                         #XXX TECHNICALLY, NOT NEEDED
-                        # for iV, temp_inp_vess in enumerate(out_module_row["inp_vessels"]):
-                        #     temp_inp_vess_BC_type = module_df.loc[module_df["name"] == temp_inp_vess, "vessel_type"].iloc[0]
-                        #     if temp_inp_vess_BC_type.startswith("Nout_") or temp_inp_vess_BC_type.startswith("MinNout_"):
+                        # for iV, temp_inp_vess in enumerate(out_module_row["inp_instances"]):
+                        #     temp_inp_vess_module_subtype = module_df.loc[module_df["name"] == temp_inp_vess, "module_type"].iloc[0]
+                        #     if temp_inp_vess_module_subtype.startswith("Nout_") or temp_inp_vess_module_subtype.startswith("MinNout_"):
                         #         temp_inp_module_row = module_df.loc[module_df["name"] == temp_inp_vess].squeeze()
                         #         multi_port_found = False
                         #         for iP in range(len(temp_inp_module_row["exit_ports"])):
@@ -1011,9 +1011,9 @@ class CVS0DCellMLGenerator(object):
                             pass_port = False
 
                             #XXX TECHNICALLY, NOT NEEDED
-                            # for iV, temp_out_vess in enumerate(module_row["out_vessels"]):
-                            #     temp_out_vess_BC_type = module_df.loc[module_df["name"] == temp_out_vess, "vessel_type"].iloc[0]
-                            #     if temp_out_vess_BC_type.startswith("Min_") or temp_out_vess_BC_type.startswith("MinNout_"):
+                            # for iV, temp_out_vess in enumerate(module_row["out_instances"]):
+                            #     temp_out_vess_module_subtype = module_df.loc[module_df["name"] == temp_out_vess, "module_type"].iloc[0]
+                            #     if temp_out_vess_module_subtype.startswith("Min_") or temp_out_vess_module_subtype.startswith("MinNout_"):
                             #         temp_out_module_row = module_df.loc[module_df["name"] == temp_out_vess].squeeze()
                             #         multi_port_found = False
                             #         for iP in range(len(temp_out_module_row["entrance_ports"])):
@@ -1027,9 +1027,9 @@ class CVS0DCellMLGenerator(object):
                             #             break
 
                             #XXX THIS IS NEEDED!!!
-                            for iV, temp_inp_vess in enumerate(out_module_row["inp_vessels"]):
-                                temp_inp_vess_BC_type = module_df.loc[module_df["name"] == temp_inp_vess, "vessel_type"].iloc[0]
-                                if temp_inp_vess_BC_type.startswith("Nout_") or temp_inp_vess_BC_type.startswith("MinNout_"):
+                            for iV, temp_inp_vess in enumerate(out_module_row["inp_instances"]):
+                                temp_inp_vess_module_subtype = module_df.loc[module_df["name"] == temp_inp_vess, "module_type"].iloc[0]
+                                if temp_inp_vess_module_subtype.startswith("Nout_") or temp_inp_vess_module_subtype.startswith("MinNout_"):
                                     temp_inp_module_row = module_df.loc[module_df["name"] == temp_inp_vess].squeeze()
                                     multi_port_found = False
                                     for iP in range(len(temp_inp_module_row["exit_ports"])):
@@ -1059,10 +1059,10 @@ class CVS0DCellMLGenerator(object):
                             # get the entrance port idx for the output module
 
                             # TODO the below if isnt general. Figure out how to generalise this.
-                            # if out_module_type == 'flow_sum_2_type':
-                            #     for II in range(len(out_module_row["inp_vessels"])):
+                            # if out_component_type == 'flow_sum_2_type':
+                            #     for II in range(len(out_module_row["inp_instances"])):
                             #         # check that the entrance port corresponds to the main_vessel
-                            #         if out_module_row["inp_vessels"][II] == main_module:
+                            #         if out_module_row["inp_instances"][II] == main_module:
                             #             entrance_port_idx = \
                             #                 entrance_port_types[entrance_port_type_idx]["entrance_port_idxs"][II]
                             #             break
@@ -1091,7 +1091,7 @@ class CVS0DCellMLGenerator(object):
 
                             # TODO make this more general. Have a entry in module_config.json entrance and exit 
                             # types that specify a certain operation, like averaging wrt flow, like this gas port.
-                            elif main_module_type == 'tissue_GE_simple_type' and out_module_type == "gas_transport_simple_type":
+                            elif main_component_type == 'tissue_GE_simple_type' and out_component_type == "gas_transport_simple_type":
                                 # this connection is done through the terminal_venous_connection
                                 # TODO after this if loop I set that this connection is done. It is actually done later on
                                 # when doing the venous_terminal_connection. Fine for now.
@@ -1440,12 +1440,12 @@ class CVS0DCellMLGenerator(object):
             if vessel_tup.module_format != 'cellml':
                 # if not cellml then don't do anything for this vessel/module
                 continue
-            if vessel_tup.vessel_type.endswith('terminal'):
+            if vessel_tup.module_type.endswith('terminal'):
                 vessel_name = vessel_tup.name
 
                 out_vessel_names = []
-                for out_vessel_name in vessel_tup.out_vessels:
-                    if vessel_df.loc[vessel_df["name"] == out_vessel_name].squeeze()["vessel_type"].startswith('venous'):
+                for out_vessel_name in vessel_tup.out_instances:
+                    if vessel_df.loc[vessel_df["name"] == out_vessel_name].squeeze()["module_type"].startswith('venous'):
                         # This finds the venous module connection
                         out_vessel_names.append(out_vessel_name)
                 if len(out_vessel_names) == 0:
@@ -1468,18 +1468,18 @@ class CVS0DCellMLGenerator(object):
 
             # This only allowed venous types to be called venous.
             # # check that vessel type is venous but and that it is the first venous thats connected to a terminal
-            # if vessel_tup.vessel_type == 'venous' and \
-            #         vessel_df.loc[vessel_df['name'].isin(vessel_tup.inp_vessels)
-            #         ]['vessel_type'].str.contains('terminal').any():
+            # if vessel_tup.module_type == 'venous' and \
+            #         vessel_df.loc[vessel_df['name'].isin(vessel_tup.inp_instances)
+            #         ]['module_type'].str.contains('terminal').any():
 
             # check if the vessel has a terminal as an input and has a flow input
             # (a vessel whose vessel_port entrance has a list-form multi_port already sums its
             # inflows, terminals included, through its multiport sum component. A list-form
             # multi_port on any other entrance port, e.g. a separate uptake port, does not
             # carry the terminal flow, so v_in still comes from the terminal_venous_connection)
-            if vessel_df.loc[vessel_df['name'].isin(vessel_tup.inp_vessels)
-            ]['vessel_type'].str.contains('terminal').any() and is_vessel_module(vessel_tup) and \
-                    vessel_tup.BC_type.startswith('v') and \
+            if vessel_df.loc[vessel_df['name'].isin(vessel_tup.inp_instances)
+            ]['module_type'].str.contains('terminal').any() and is_vessel_module(vessel_tup) and \
+                    vessel_tup.module_subtype.startswith('v') and \
                     not any(list_multi_port(port) is not None and port.get('port_type') == 'vessel_port'
                             for port in vessel_tup.entrance_ports):
                 vessel_name = vessel_tup.name
@@ -1490,9 +1490,9 @@ class CVS0DCellMLGenerator(object):
                 self.__write_mapping(wf, 'terminal_venous_connection', vessel_name + '_module',
                                      v_1, v_2)
 
-            if vessel_tup.vessel_type == 'gas_transport_simple' and \
-                    vessel_df.loc[vessel_df['name'].isin(vessel_tup.inp_vessels)
-                    ]['vessel_type'].str.contains('tissue_GE_simple').any():
+            if vessel_tup.module_type == 'gas_transport_simple' and \
+                    vessel_df.loc[vessel_df['name'].isin(vessel_tup.inp_instances)
+                    ]['module_type'].str.contains('tissue_GE_simple').any():
                 vessel_name = vessel_tup.name
 
                 vars_1 = ['v_venous_total', f'C_O2_p_venous_ave', f'C_CO2_p_venous_ave']
@@ -1500,7 +1500,7 @@ class CVS0DCellMLGenerator(object):
                 self.__write_mapping(wf, 'terminal_venous_connection', vessel_name + '_module',
                                      vars_1, vars_2)
 
-            if vessel_tup.vessel_type == 'tissue_GE_simple':
+            if vessel_tup.module_type == 'tissue_GE_simple':
                 vessel_name = vessel_tup.name
                 tissue_GE_names.append(vessel_name)
 
@@ -1515,20 +1515,20 @@ class CVS0DCellMLGenerator(object):
         terminal_names_with_GE = []
         terminal_names = []
         for vessel_tup in vessel_df.itertuples():
-            if vessel_tup.vessel_type.endswith('terminal'):
+            if vessel_tup.module_type.endswith('terminal'):
                 vessel_name = vessel_tup.name
                 for idx, venous_name in enumerate(first_venous_names):
-                    for II in range(len(vessel_tup.out_vessels)):
-                        if vessel_tup.out_vessels[II] == venous_name:
-                            if vessel_name not in vessel_df.loc[vessel_df["name"] == venous_name].squeeze()["inp_vessels"]:
+                    for II in range(len(vessel_tup.out_instances)):
+                        if vessel_tup.out_instances[II] == venous_name:
+                            if vessel_name not in vessel_df.loc[vessel_df["name"] == venous_name].squeeze()["inp_instances"]:
                                 print(f'venous input of {venous_name} does not include the terminal vessel '
                                       f'{vessel_name} as an inp_vessel in {self.file_prefix}_module_array. '
                                       f'not including terminal names as input has been deprecated')
                                 exit()
                             terminal_names_for_first_venous[idx].append(vessel_name)
                 for idx, tissue_GE_name in enumerate(tissue_GE_names):
-                    for II in range(len(vessel_tup.out_vessels)):
-                        if vessel_tup.out_vessels[II] == tissue_GE_name:
+                    for II in range(len(vessel_tup.out_instances)):
+                        if vessel_tup.out_instances[II] == tissue_GE_name:
                             terminal_names_with_GE.append(vessel_name)
                 terminal_names.append(vessel_name)
 
@@ -1609,13 +1609,13 @@ class CVS0DCellMLGenerator(object):
         flowing out of it (``sign`` -1) with an entrance port. Non-vessel modules such as
         K_tube have no vessel_port there, so they are not part of the node. If the
         neighbour has several vessel_ports on that side, the one at the position of
-        ``via_name`` in its inp_vessels / out_vessels is used.
+        ``via_name`` in its inp_instances / out_instances is used.
         """
         row = vessel_df.loc[vessel_df["name"] == neighbour_name].squeeze()
         if sign > 0:
-            ports, connected = row["exit_ports"], list(row["out_vessels"])
+            ports, connected = row["exit_ports"], list(row["out_instances"])
         else:
-            ports, connected = row["entrance_ports"], list(row["inp_vessels"])
+            ports, connected = row["entrance_ports"], list(row["inp_instances"])
         vessel_ports = [port for port in ports
                         if port["port_type"] == "vessel_port" and len(port["variables"]) >= 2
                         and port["variables"][0] and port["variables"][1]]
@@ -1637,10 +1637,10 @@ class CVS0DCellMLGenerator(object):
         """
         vess_name = vessel_tup.name
         if side == 'Min':
-            direct_neighbours = vessel_tup.inp_vessels
+            direct_neighbours = vessel_tup.inp_instances
             indirect_sign = -1.
         else:
-            direct_neighbours = vessel_tup.out_vessels
+            direct_neighbours = vessel_tup.out_instances
             indirect_sign = 1.
 
         neighbours = []
@@ -1655,19 +1655,19 @@ class CVS0DCellMLGenerator(object):
         # the vessels listed at this node of the junction itself
         for name in direct_neighbours:
             row = vessel_df.loc[vessel_df["name"] == name].squeeze()
-            if vess_name in row["inp_vessels"]:
+            if vess_name in row["inp_instances"]:
                 add(name, -1., vess_name)
-            elif vess_name in row["out_vessels"]:
+            elif vess_name in row["out_instances"]:
                 add(name, 1., vess_name)
 
         # vessels at the same node that only a neighbour lists
         for vessel_tup2 in vessel_df.itertuples():
             if vessel_tup2.name not in names:
                 continue
-            if vess_name in vessel_tup2.inp_vessels:
-                node_vessels = vessel_tup2.inp_vessels
-            elif vess_name in vessel_tup2.out_vessels:
-                node_vessels = vessel_tup2.out_vessels
+            if vess_name in vessel_tup2.inp_instances:
+                node_vessels = vessel_tup2.inp_instances
+            elif vess_name in vessel_tup2.out_instances:
+                node_vessels = vessel_tup2.out_instances
             else:
                 continue
             for name in node_vessels:
@@ -1723,18 +1723,18 @@ class CVS0DCellMLGenerator(object):
                 # if not cellml then don't do anything for this vessel/module
                 continue
 
-            if 'Min_junction' in vessel_tup.vessel_type:
-                if not vessel_tup.BC_type.startswith(('vv', 'vp')):
-                    print(f'ERROR :: Min_junction {vessel_tup.name} has wrong BC_type {vessel_tup.BC_type}. '
+            if 'Min_junction' in vessel_tup.module_type:
+                if not vessel_tup.module_subtype.startswith(('vv', 'vp')):
+                    print(f'ERROR :: Min_junction {vessel_tup.name} has wrong module_subtype {vessel_tup.module_subtype}. '
                           f'Exiting')
                     exit()
                 self.__write_junction_node_mappings(wf, vessel_df, vessel_tup, 'Min_junction', 'Min', 'u',
                                                     vess_names_per_junc, vess_signs_per_junc)
 
-            elif 'Nout_junction' in vessel_tup.vessel_type:
-                if 'MinNout_junction' in vessel_tup.vessel_type:
-                    if not vessel_tup.BC_type.startswith('vv'):
-                        print(f'ERROR :: MinNout_junction {vessel_tup.name} has wrong BC_type {vessel_tup.BC_type}. '
+            elif 'Nout_junction' in vessel_tup.module_type:
+                if 'MinNout_junction' in vessel_tup.module_type:
+                    if not vessel_tup.module_subtype.startswith('vv'):
+                        print(f'ERROR :: MinNout_junction {vessel_tup.name} has wrong module_subtype {vessel_tup.module_subtype}. '
                               f'Exiting')
                         exit()
                     self.__write_junction_node_mappings(wf, vessel_df, vessel_tup, 'MinNout_junction', 'Min', 'u',
@@ -1742,19 +1742,19 @@ class CVS0DCellMLGenerator(object):
                     self.__write_junction_node_mappings(wf, vessel_df, vessel_tup, 'MinNout_junction', 'Nout', 'u_d',
                                                         vess_names_per_junc, vess_signs_per_junc)
                 else:
-                    if vessel_tup.BC_type.startswith('vv'):
+                    if vessel_tup.module_subtype.startswith('vv'):
                         u_1 = 'u_d'
-                    elif vessel_tup.BC_type.startswith('pv'):
+                    elif vessel_tup.module_subtype.startswith('pv'):
                         u_1 = 'u'
                     else:
-                        print(f'ERROR :: Nout_junction {vessel_tup.name} has wrong BC_type {vessel_tup.BC_type}. '
+                        print(f'ERROR :: Nout_junction {vessel_tup.name} has wrong module_subtype {vessel_tup.module_subtype}. '
                               f'Exiting')
                         exit()
                     self.__write_junction_node_mappings(wf, vessel_df, vessel_tup, 'Nout_junction', 'Nout', u_1,
                                                         vess_names_per_junc, vess_signs_per_junc)
 
-            # if vessel_tup.vessel_type.endswith('Min_junction'):
-            if 'Min_junction' in vessel_tup.vessel_type:
+            # if vessel_tup.module_type.endswith('Min_junction'):
+            if 'Min_junction' in vessel_tup.module_type:
                 # print("Min_junction vessel found AGAIN")
                 vess_name = vessel_tup.name
                 flow_vess_names.append(vess_name)
@@ -1764,11 +1764,11 @@ class CVS0DCellMLGenerator(object):
                 v_2 = 'v_in_sum'
                 self.__write_mapping(wf, 'generic_junction_connection', vess_name+'_module', [v_1], [v_2])
             
-            # elif vessel_tup.vessel_type.endswith('Nout_junction'):
-            elif 'Nout_junction' in vessel_tup.vessel_type:
+            # elif vessel_tup.module_type.endswith('Nout_junction'):
+            elif 'Nout_junction' in vessel_tup.module_type:
                 
-                # if vessel_tup.vessel_type.endswith('MinNout_junction'):
-                if 'MinNout_junction' in vessel_tup.vessel_type:
+                # if vessel_tup.module_type.endswith('MinNout_junction'):
+                if 'MinNout_junction' in vessel_tup.module_type:
                     # print("MinNout_junction vessel found AGAIN")
                     vess_name = vessel_tup.name
                     flow_vess_names.append(vess_name)
@@ -1947,7 +1947,7 @@ class CVS0DCellMLGenerator(object):
             # Get the module row from the dataframe to check ports
             module_row = vessel_df.loc[vessel_df['name'] == vessel_tup.name].iloc[0]
             
-            # Check if any port has multi_port='sum' or if using legacy vessel_type
+            # Check if any port has multi_port='sum' or if using legacy module_type
             # TODO same thing for general and exit ports
             for idx, port in enumerate(module_row['entrance_ports'] + module_row['general_ports'] + \
                     module_row['exit_ports']):
@@ -1965,7 +1965,7 @@ class CVS0DCellMLGenerator(object):
                     
                         inp_vessel_names = []
                         inp_variable_names = []
-                        for inp_vessel_name in vessel_tup.inp_vessels:
+                        for inp_vessel_name in vessel_tup.inp_instances:
                             if is_exit_port:
                                 coupling_ports = vessel_df.loc[vessel_df["name"] == inp_vessel_name].squeeze()["entrance_ports"] + \
                                     vessel_df.loc[vessel_df["name"] == inp_vessel_name].squeeze()["general_ports"]
@@ -1982,7 +1982,7 @@ class CVS0DCellMLGenerator(object):
                                             # print(inp_vessel_names[-1])
                                             # print(inp_variable_names[-1])
                                     elif len(couple_port['variables'])==0:
-                                        if vessel_df.loc[vessel_df['name'] == inp_vessel_name].squeeze()["vessel_type"] == 'FV1D_volume_sum':
+                                        if vessel_df.loc[vessel_df['name'] == inp_vessel_name].squeeze()["module_type"] == 'FV1D_volume_sum':
                                             inp_vessel_names.append(inp_vessel_name)
                                             inp_variable_names.append('q_sum')
                                             # print(inp_vessel_names[-1])
@@ -2184,7 +2184,7 @@ class CVS0DCellMLGenerator(object):
 
         global_variable_addon = f'_{vessel_name}'
         # TODO check this doesnt break anything
-        # if vessel_row["vessel_type"] == 'terminal' or vessel_row["vessel_type"] == 'terminal2':
+        # if vessel_row["module_type"] == 'terminal' or vessel_row["module_type"] == 'terminal2':
         #     global_variable_addon = re.sub('_T$', '', global_variable_addon)
         params_with_addon_heading = 'parameters'
         params_without_addon_heading = 'parameters_global'
@@ -2237,65 +2237,65 @@ class CVS0DCellMLGenerator(object):
                                  ['time'], ['t'])
 
     def __write_import(self, wf, vessel_tup):
-        module_type = vessel_tup.module_type
+        component_type = vessel_tup.component_type
 
         str_addon = '_module'
 
         wf.writelines([f'<import xlink:href="{self.file_prefix}_modules.cellml">\n',
-                       f'    <component component_ref="{module_type}" name="{vessel_tup.name + str_addon}"/>\n',
+                       f'    <component component_ref="{component_type}" name="{vessel_tup.name + str_addon}"/>\n',
                        '</import>\n'])
 
     def __check_input_output_modules(self, vessel_df, main_vessel, out_vessel,
-                                     main_vessel_BC_type, out_vessel_BC_type,
-                                     main_vessel_type, out_vessel_type):
+                                     main_vessel_module_subtype, out_vessel_module_subtype,
+                                     main_module_type, out_module_type):
         if not out_vessel:
             print(f'connection modules incorrectly defined for {main_vessel}')
             exit()
-        if main_vessel_type.endswith('terminal'):
+        if main_module_type.endswith('terminal'):
             pass
-        elif main_vessel not in vessel_df.loc[vessel_df["name"] == out_vessel].inp_vessels.values[0]:
+        elif main_vessel not in vessel_df.loc[vessel_df["name"] == out_vessel].inp_instances.values[0]:
             print(f'"{main_vessel}" and "{out_vessel}" are incorrectly connected, '
                   f'check that they have eachother as output/input')
             exit()
-        elif out_vessel not in vessel_df.loc[vessel_df["name"] == main_vessel].out_vessels.values[0]:
+        elif out_vessel not in vessel_df.loc[vessel_df["name"] == main_vessel].out_instances.values[0]:
             print(f'"{main_vessel}" and "{out_vessel}" are incorrectly connected, '
                   f'check that they have eachother as output/input')
             exit()
         # The BC letters are only checked between two vessels. A module that is not a
         # vessel (a cell, controller, heart part, an ``nn`` BC module, ...) may have any
-        # BC_type, e.g. ``lv_test`` or ``SN_soma``, without it being read as a BC pair.
+        # module_subtype, e.g. ``lv_test`` or ``SN_soma``, without it being read as a BC pair.
         main_row = vessel_df.loc[vessel_df["name"] == main_vessel].squeeze()
         out_row = vessel_df.loc[vessel_df["name"] == out_vessel].squeeze()
         if not (is_vessel_module(main_row) and is_vessel_module(out_row)):
             return
 
-        if len(main_vessel_BC_type) > 2:
-            temp_main_vessel_BC_type = main_vessel_BC_type[:2]
+        if len(main_vessel_module_subtype) > 2:
+            temp_main_vessel_module_subtype = main_vessel_module_subtype[:2]
         else:
-            temp_main_vessel_BC_type = main_vessel_BC_type
+            temp_main_vessel_module_subtype = main_vessel_module_subtype
 
-        if temp_main_vessel_BC_type.endswith('v'):
-            if not out_vessel_BC_type.startswith('p'):
+        if temp_main_vessel_module_subtype.endswith('v'):
+            if not out_vessel_module_subtype.startswith('p'):
                 print(f'"{main_vessel}" output BC is v, the input BC of "{out_vessel}"',
                     ' should be p')
                 exit()
-        if temp_main_vessel_BC_type.endswith('p'):
-            main_out_vessels = vessel_df.loc[vessel_df["name"] == main_vessel].out_vessels.values[0]
-            if not out_vessel_BC_type.startswith('v'):
+        if temp_main_vessel_module_subtype.endswith('p'):
+            main_out_instances = vessel_df.loc[vessel_df["name"] == main_vessel].out_instances.values[0]
+            if not out_vessel_module_subtype.startswith('v'):
 
                 pass_inp_out_check = False
 
-                if (any(vessel_df.loc[vessel_df["name"] == vess, "vessel_type"].iloc[0].startswith("Min_")
-                            for vess in main_out_vessels)
-                    or any(vessel_df.loc[vessel_df["name"] == vess, "vessel_type"].iloc[0].startswith("MinNout_")
-                            for vess in main_out_vessels)): 
+                if (any(vessel_df.loc[vessel_df["name"] == vess, "module_type"].iloc[0].startswith("Min_")
+                            for vess in main_out_instances)
+                    or any(vessel_df.loc[vessel_df["name"] == vess, "module_type"].iloc[0].startswith("MinNout_")
+                            for vess in main_out_instances)): 
                     pass_inp_out_check = True
                 
-                for temp_out_vess in main_out_vessels:
-                    inp_vessels = vessel_df.loc[vessel_df["name"] == temp_out_vess].inp_vessels.values[0]
-                    for temp_inp_vess in inp_vessels:
-                        temp_inp_vess_BC_type = vessel_df.loc[vessel_df["name"] == temp_inp_vess, "vessel_type"].iloc[0]
-                        if temp_inp_vess_BC_type.startswith("Nout_") or temp_inp_vess_BC_type.startswith("MinNout_"):
+                for temp_out_vess in main_out_instances:
+                    inp_instances = vessel_df.loc[vessel_df["name"] == temp_out_vess].inp_instances.values[0]
+                    for temp_inp_vess in inp_instances:
+                        temp_inp_vess_module_subtype = vessel_df.loc[vessel_df["name"] == temp_inp_vess, "module_type"].iloc[0]
+                        if temp_inp_vess_module_subtype.startswith("Nout_") or temp_inp_vess_module_subtype.startswith("MinNout_"):
                             pass_inp_out_check = True
                             break
 

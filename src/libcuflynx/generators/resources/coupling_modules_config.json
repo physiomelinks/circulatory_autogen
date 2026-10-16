@@ -1,10 +1,10 @@
 [
     {
-        "vessel_type":"coupler",
-        "BC_type":"pv_0D_1D",
+        "module_type":"coupler",
+        "module_subtype":"pv_0D_1D",
         "module_format":"cellml",
-        "module_file":"coupling_modules.cellml",
-        "module_type":"pv_0D_1D_coupler_type",
+        "component_file":"coupling_modules.cellml",
+        "component_type":"pv_0D_1D_coupler_type",
     
         "entrance_ports":
         [
@@ -37,11 +37,11 @@
         ]
     },
     {
-        "vessel_type":"imposter_1D",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"coupling_modules.cellml",
         "module_type":"imposter_1D",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"coupling_modules.cellml",
+        "component_type":"imposter_1D",
         "entrance_ports":
         [
           {
@@ -61,11 +61,11 @@
         ]
     },
     {
-      "vessel_type":"FV1D_vessel",
-      "BC_type":"vp",
+      "module_type":"FV1D_vessel",
+      "module_subtype":"vp",
       "module_format":"cpp",
-      "module_file":"",
-      "module_type":"Muller_1d",
+      "component_file":"",
+      "component_type":"Muller_1d",
       "entrance_ports":
       [
         {
@@ -86,11 +86,11 @@
       ]
     },
     {
-      "vessel_type":"FV1D_vessel",
-      "BC_type":"pv",
+      "module_type":"FV1D_vessel",
+      "module_subtype":"pv",
       "module_format":"cpp",
-      "module_file":"",
-      "module_type":"Muller_1d",
+      "component_file":"",
+      "component_type":"Muller_1d",
       "entrance_ports":
       [
         {
@@ -111,11 +111,11 @@
       ]
     },
     {
-      "vessel_type":"FV1D_vessel",
-      "BC_type":"vv",
+      "module_type":"FV1D_vessel",
+      "module_subtype":"vv",
       "module_format":"cpp",
-      "module_file":"",
-      "module_type":"Muller_1d",
+      "component_file":"",
+      "component_type":"Muller_1d",
       "entrance_ports":
       [
         {
@@ -136,11 +136,11 @@
       ]
     },
     {
-      "vessel_type":"FV1D_vessel",
-      "BC_type":"nn",
+      "module_type":"FV1D_vessel",
+      "module_subtype":"nn",
       "module_format":"cpp",
-      "module_file":"",
-      "module_type":"Muller_1d",
+      "component_file":"",
+      "component_type":"Muller_1d",
       "entrance_ports":
       [
         {
@@ -162,11 +162,11 @@
     },
 
     {
-      "vessel_type":"volume_sum",
-      "BC_type":"nn",
-      "module_format":"cellml",
-      "module_file":"coupling_modules.cellml",
       "module_type":"volume_sum",
+      "module_subtype":"nn",
+      "module_format":"cellml",
+      "component_file":"coupling_modules.cellml",
+      "component_type":"volume_sum",
       "entrance_ports":
       [
         {
@@ -184,11 +184,11 @@
       ]
     },
     {
-      "vessel_type":"volume_sum_2",
-      "BC_type":"nn",
-      "module_format":"cellml",
-      "module_file":"coupling_modules.cellml",
       "module_type":"volume_sum_2",
+      "module_subtype":"nn",
+      "module_format":"cellml",
+      "component_file":"coupling_modules.cellml",
+      "component_type":"volume_sum_2",
       "entrance_ports":
       [
         {
@@ -213,11 +213,11 @@
     },
 
     {
-      "vessel_type":"FV1D_volume_sum",
-      "BC_type":"nn",
+      "module_type":"FV1D_volume_sum",
+      "module_subtype":"nn",
       "module_format":"cellml",
-      "module_file":"coupling_modules.cellml",
-      "module_type":"volume_sum_1D",
+      "component_file":"coupling_modules.cellml",
+      "component_type":"volume_sum_1D",
       "entrance_ports":
       [
         {

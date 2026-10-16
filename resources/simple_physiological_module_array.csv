@@ -1,4 +1,4 @@
-name,BC_type,vessel_type,inp_vessels,out_vessels
+name,module_subtype,module_type,inp_instances,out_instances
 heart,                   vp, heart,              venous_ivc venous_svc ,ascending_aorta_A    
 ascending_aorta_A,       vv, arterial,           heart                 ,ascending_aorta_B
 ascending_aorta_B,       pv, arterial,           ascending_aorta_A     ,ascending_aorta_C    

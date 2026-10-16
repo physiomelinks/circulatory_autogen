@@ -32,7 +32,7 @@ RESOURCES_DIR = os.path.join(REPO_ROOT, 'resources')
 @pytest.mark.unit
 @pytest.mark.parametrize('written, expected', [
     ('aortic_root/C', 'C_aortic_root'),
-    ('heart/lv/E', 'E_heart_lv'),
+    ('heart/lv/E', 'E_heart__lv'),
     ('global/R', 'R'),
     ('R', 'R'),
     ('C_aortic_root', 'C_aortic_root'),      # the model's own name, read as before
@@ -54,17 +54,17 @@ PATHS = [('lv',), ('rv',), ('soma',), ('soma', 'i_M'), ('i_M',), ('leak_Na',), (
 
 @pytest.mark.unit
 @pytest.mark.parametrize('written, expected, old', [
-    ('lv/E', 'E_heart_lv', False),
-    ('soma/i_M/rho_M', 'rho_M_heart_soma_i_M', False),
-    ('i_M/rho_M', 'rho_M_heart_i_M', False),
+    ('lv/E', 'E_heart__lv', False),
+    ('soma/i_M/rho_M', 'rho_M_heart__soma__i_M', False),
+    ('i_M/rho_M', 'rho_M_heart__i_M', False),
     ('global/T', 'T', False),
     ('T', 'T', False),
     # the older form, split at the longest submodule suffix and flagged
-    ('E_lv', 'E_heart_lv', True),
-    ('rho_M_soma_i_M', 'rho_M_heart_soma_i_M', True),
+    ('E_lv', 'E_heart__lv', True),
+    ('rho_M_soma_i_M', 'rho_M_heart__soma__i_M', True),
     # ...which is a guess: g_leak_Na reads as g of leak_Na; g_leak of Na needs "Na/g_leak"
-    ('g_leak_Na', 'g_heart_leak_Na', True),
-    ('Na/g_leak', 'g_leak_heart_Na', False),
+    ('g_leak_Na', 'g_heart__leak_Na', True),
+    ('Na/g_leak', 'g_leak_heart__Na', False),
 ])
 def test_supermodule_rows(written, expected, old):
     assert supermodule_row_name(written, 'heart', PATHS) == (expected, old)
@@ -80,13 +80,13 @@ def test_a_supermodule_row_naming_no_submodule_is_an_error():
 
 
 VESSELS = {'aortic_root': {'C': 'constant', 'T': 'global_constant'},
-           'heart_lv': {'E': 'constant'}}
+           'heart__lv': {'E': 'constant'}}
 
 
 @pytest.mark.unit
 def test_host_names_are_checked_against_the_model():
     names = host_model_names(['aortic_root/C', 'heart/lv/E', 'global/R', 'C_x'], VESSELS, 'p.csv')
-    assert names == ['C_aortic_root', 'E_heart_lv', 'R', 'C_x']
+    assert names == ['C_aortic_root', 'E_heart__lv', 'R', 'C_x']
 
     with pytest.raises(ValueError) as raised:
         host_model_names(['aortc_root/C', 'aortic_root/Cx', 'aortic_root/T'], VESSELS, 'p.csv')
@@ -229,8 +229,8 @@ def test_a_parameterisation_names_its_variables_without_a_vessel(tmp_path):
     os.makedirs(directory / 'parameterisations' / 'x')
     (directory / 'parameterisations' / 'x' / 'x_parameters.csv').write_text(
         'variable_name,units,value,data_reference\ns1/mean,m3_per_s,1,r\n')
-    entry = {'vessel_type': 'pulse_src', 'BC_type': 'v1', 'variables_and_units': [],
+    entry = {'module_type': 'pulse_src', 'module_subtype': 'v1', 'variables_and_units': [],
              'config_path': str(directory / 'pulse_v1_modules_config.json')}
-    record = {'name': 's1', 'vessel_type': 'pulse_src', 'BC_type': 'v1', 'parameterisation': 'x'}
+    record = {'name': 's1', 'module_type': 'pulse_src', 'module_subtype': 'v1', 'parameterisation': 'x'}
     with pytest.raises(ValueError, match='named without a vessel'):
         component_parameterisation_rows([record], {('pulse_src', 'v1'): entry})

@@ -21,6 +21,7 @@ import numpy as np
 
 from libcuflynx.emulators.emulator_bundle import EmulatorBundle
 from libcuflynx.solver_wrappers.param_grouping import pair_names_with_values
+from libcuflynx.solver_wrappers.experiment_time import ExperimentTimeMixin
 
 TRACE_REFUSAL = (
     'needs the full simulated trace, which a feature emulator cannot produce -- it predicts '
@@ -28,7 +29,7 @@ TRACE_REFUSAL = (
     'simulated outputs.')
 
 
-class SimulationHelper:
+class SimulationHelper(ExperimentTimeMixin):
     """Emulator-backed drop-in for the solver helpers.
 
     Args:
@@ -68,6 +69,7 @@ class SimulationHelper:
         self.pre_steps = 0
         self.stop_time = (pre_time or 0.0) + (sim_time or 0.0)
         self.tSim = np.linspace(pre_time or 0.0, self.stop_time, 2)
+        self._track_experiment_start(0.0, pre_time)
 
         self.param_names = self.bundle.meta.get('param_names') or []
         self.param_defaults = self.bundle.meta.get('param_defaults') or {}
@@ -211,14 +213,12 @@ class SimulationHelper:
         """
         self.dt = dt
         self.pre_time = pre_time
+        self._track_experiment_start(start_time, pre_time)
         self.sim_time = sim_time
         self.pre_steps = int(pre_time / dt) if dt else 0
         self.n_steps = max(int(sim_time / dt) if dt else 1, 1)
         self.stop_time = start_time + pre_time + self.n_steps * dt
         self.tSim = np.linspace(start_time + pre_time, self.stop_time, self.n_steps + 1)
-
-    def get_time(self, include_pre_time=False):
-        return self.tSim if include_pre_time else self.tSim - self.pre_time
 
     # ------------------------------------------------------------------ outputs
 

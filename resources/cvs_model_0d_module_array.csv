@@ -1,4 +1,4 @@
-name,BC_type,vessel_type,inp_vessels,out_vessels
+name,module_subtype,module_type,inp_instances,out_instances
 heart,vp,heart,venous_ivc venous_svc,A_aorta_ascending_1    
 A_aorta_ascending_1,vv_nonlinear_visco,arterial,heart,A_aorta_ascending_2 K_tube_A_aorta_ascending_1
 A_aorta_ascending_2,pv_nonlinear_visco,arterial,A_aorta_ascending_1,A_aorta_ascending_3 K_tube_A_aorta_ascending_2

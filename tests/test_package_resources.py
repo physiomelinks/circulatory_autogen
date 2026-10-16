@@ -46,7 +46,7 @@ def test_builtin_module_config_parses():
     """The built-in module *config* ships too -- the vessel/BC lookup is built from it."""
     entries = json.loads(builtin_module_file('BG_modules_config.json').read_text(encoding='utf-8'))
     assert entries, 'BG_modules_config.json is empty'
-    assert {'vessel_type', 'BC_type'} <= set(entries[0])
+    assert {'module_type', 'module_subtype'} <= set(entries[0])
 
 
 @pytest.mark.unit

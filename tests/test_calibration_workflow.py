@@ -171,19 +171,19 @@ def test_a_step_with_priors_may_instead_optimise_the_log_posterior(library):
 
 @pytest.mark.unit
 def test_names_move_into_the_supermodule_as_supermodule_expansion_renames_them():
-    assert naming.map_vessel('mod', 'i_M') == 'mod_i_M'
-    assert naming.map_vessel('mod_A', 'soma') == 'mod_soma_A'
+    assert naming.map_vessel('mod', 'i_M') == 'mod__i_M'
+    assert naming.map_vessel('mod__A', 'soma') == 'mod__soma__A'
     assert naming.map_vessel('mod', '') == 'mod'
     assert naming.map_vessel('global', 'soma') == 'global'
-    assert naming.model_name(naming.map_vessel('mod', 'i_M'), 'rho_M') == 'rho_M_mod_i_M'
+    assert naming.model_name(naming.map_vessel('mod', 'i_M'), 'rho_M') == 'rho_M_mod__i_M'
     assert naming.model_name('global', 'R') == 'R'
     paths = [('soma',), ('soma', 'i_M'), ('soma_i',)]
-    assert naming.parameterisation_name('mod_soma_i_M', 'rho_M', paths) == 'soma/i_M/rho_M'
-    assert naming.parameterisation_name('mod_soma', 'rho_M', paths) == 'soma/rho_M'
+    assert naming.parameterisation_name('mod__soma__i_M', 'rho_M', paths) == 'soma/i_M/rho_M'
+    assert naming.parameterisation_name('mod__soma', 'rho_M', paths) == 'soma/rho_M'
     with pytest.raises(ValueError, match='not a submodule'):
-        naming.parameterisation_name('mod_heart', 'E', paths)
+        naming.parameterisation_name('mod__heart', 'E', paths)
     assert naming.parameterisation_name('mod', 'p') == 'p'
-    assert naming.relative_path('soma_i_M', 'soma') == 'i_M'
+    assert naming.relative_path('soma__i_M', 'soma') == 'i_M'
     assert naming.relative_path('i_M', '') == 'i_M'
     assert naming.relative_path('B', 'A') is None
     with pytest.raises(ValueError, match='not part of the step model'):
@@ -199,11 +199,11 @@ def test_plan_names_every_parameter_in_the_target(library):
     plan = plan_workflow(library['chain_rest'])
     steps = {s['id']: s for s in plan['steps']}
     assert steps['fit_a']['place'] == 'A'
-    assert steps['fit_a']['calibrates'] == [{'model_name': 'p_mod', 'target_model_name': 'p_mod_A',
+    assert steps['fit_a']['calibrates'] == [{'model_name': 'p_mod', 'target_model_name': 'p_mod__A',
                                              'target_parameterisation_name': 'A/p'}]
     assert steps['rest']['place'] == ''
     assert steps['rest']['fixed_from'] == [{'from_step': 'fit_a', 'model_name': 'p_mod',
-                                            'in_step': 'p_mod_A'}]
+                                            'in_step': 'p_mod__A'}]
     assert run_calibration_workflow(library['chain_rest'], dry_run=True) == plan
 
 
@@ -237,7 +237,7 @@ def test_a_parameter_calibrated_twice_warns_and_points_to_priors(library):
         resolve_workflow(load_workflow(_with_joint_step(library)))
     message = str(caught[0].message)
     assert '2 parameter(s)' in message
-    assert '"p_mod_A" by \'fit_a\', then \'joint\' (the value of \'joint\' is used)' in message
+    assert '"p_mod__A" by \'fit_a\', then \'joint\' (the value of \'joint\' is used)' in message
     assert '"priors_from"' in message
 
 
@@ -256,7 +256,7 @@ def test_a_step_calibrates_a_parameter_it_would_be_given_fixed(library, tmp_path
     # rest takes fit_a's values as fixed but also calibrates p of A itself: its own wins
     params = os.path.join(library['chain/rest'], 'rest_params_for_id.csv')
     with open(params, 'a') as f:
-        f.write('mod_A,p,0.1,5.0,p_mod_A\n')
+        f.write('mod__A,p,0.1,5.0,p_mod__A\n')
     with pytest.warns(UserWarning, match='more than one step'):
         result = run_calibration_workflow(library['chain_rest'],
                                           output_dir=str(tmp_path / 'run'))
@@ -375,9 +375,9 @@ def test_a_stored_distribution_round_trips_and_renames(tmp_path):
     assert loaded.names == ['a_mod', 'b_mod']
     assert set(_read_json(str(tmp_path / 'distribution' / 'stats.json'))['parameters']) == \
         {'a_mod', 'b_mod'}
-    mapped = loaded.mapped_into('soma_i_M')
-    assert mapped.names == ['a_mod_soma_i_M', 'b_mod_soma_i_M']
-    assert mapped.subset(['b_mod_soma_i_M']).names == ['b_mod_soma_i_M']
+    mapped = loaded.mapped_into('soma__i_M')
+    assert mapped.names == ['a_mod__soma__i_M', 'b_mod__soma__i_M']
+    assert mapped.subset(['b_mod__soma__i_M']).names == ['b_mod__soma__i_M']
     from_chain = StoredDistribution.from_chain(chain, distribution.parameters, burn_in_index=5)
     assert from_chain.samples.shape == (40, 2)
 
@@ -463,13 +463,13 @@ def test_calibrating_independent_parts_apart_matches_calibrating_them_together(l
           'value': repr(joint[f'{sub}/p']), 'data_reference': 'joint calibration'}
          for sub in ('A', 'B')],
         library_inputs={'module_library_dirs': [library['modules']]})
-    names = ['mod_A/y', 'mod_B/y']
+    names = ['mod__A/y', 'mod__B/y']
     merged_outputs = _simulate(result['target_model']['model_path'], names)
     joint_outputs = _simulate(calibrated_joint['model_path'], names)
     for name in names:
         assert merged_outputs[name] == pytest.approx(joint_outputs[name], rel=1e-4)
-    assert merged_outputs['mod_A/y'] == pytest.approx(Y_A, abs=STD_A * 1e-3)
-    assert merged_outputs['mod_B/y'] == pytest.approx(Y_B, abs=STD_B * 1e-3)
+    assert merged_outputs['mod__A/y'] == pytest.approx(Y_A, abs=STD_A * 1e-3)
+    assert merged_outputs['mod__B/y'] == pytest.approx(Y_B, abs=STD_B * 1e-3)
 
     # each step was calibrated with its own params_for_id, and only its own parameter
     for step_id, param_vessel in (('fit_a', 'mod'), ('fit_b', 'mod')):
@@ -499,10 +499,10 @@ def test_fixed_values_flow_into_the_supermodule_and_editing_obs_data_redoes_it(l
         ('step_started', 'rest'), ('step_finished', 'rest'), ('workflow_finished', None)]
 
     rest = _read_json(os.path.join(out, 'rest', 'step_result.json'))
-    assert [(f['model_name'], f['from_step']) for f in rest['fixed']] == [('p_mod_A', 'fit_a')]
+    assert [(f['model_name'], f['from_step']) for f in rest['fixed']] == [('p_mod__A', 'fit_a')]
     with open(os.path.join(os.path.dirname(rest['model_path']), 'rest_parameters.csv')) as f:
         generated = {r['variable_name']: float(r['value']) for r in csv.DictReader(f)}
-    assert generated['p_mod_A'] == pytest.approx(merged['A/p'], rel=1e-12)
+    assert generated['p_mod__A'] == pytest.approx(merged['A/p'], rel=1e-12)
 
     # change fit_a's data: everything downstream changes with it
     obs_path = os.path.join(library['lin_a/fit_a'], 'fit_a_obs_data.json')
@@ -586,14 +586,14 @@ def test_a_stored_posterior_becomes_the_prior_of_a_later_step(library, tmp_path)
     assert np.std(fit_a.samples) == pytest.approx(0.01, rel=0.5)
 
     rest = _read_json(os.path.join(out, 'rest', 'step_result.json'))
-    assert rest['priors'][0]['parameters'] == ['p_mod_A']
+    assert rest['priors'][0]['parameters'] == ['p_mod__A']
     # with priors and a cost-minimising optimiser, the values are the posterior's medians
     assert rest['point_estimate'] == 'posterior_median'
     with open(os.path.join(out, 'rest', 'rest_params_for_id.csv')) as f:
         rows = [(r['vessel_name'], r['param_name']) for r in csv.DictReader(f)]
-    assert rows == [('mod_C', 'q'), ('mod_A', 'p')]
+    assert rows == [('mod__C', 'q'), ('mod__A', 'p')]
     posterior = StoredDistribution.load(os.path.join(out, 'rest'))
-    p_a = posterior.marginal('p_mod_A')
+    p_a = posterior.marginal('p_mod__A')
     # z = 2 p_A^2 + q^2 alone is a ridge; the prior from fit_a is what pins p_A
     assert np.median(p_a) == pytest.approx(2.0, abs=0.03)
     assert np.std(p_a) < 0.03
@@ -616,13 +616,13 @@ def test_a_tab_shows_each_model_with_the_values_available_so_far(library, tmp_pa
     assert rest['kind'] == 'step' and rest['waiting_for'] == ['fit_a'] and rest['fixed'] == []
     assert rest['obs_data_path'].endswith('rest_obs_data.json')
     assert os.path.isfile(rest['flat_model_path'])
-    assert parameters(rest)['p_mod_A'] == 1.0     # the parameterisation default, nothing fixed yet
+    assert parameters(rest)['p_mod__A'] == 1.0     # the parameterisation default, nothing fixed yet
 
     run_calibration_workflow(library['chain_rest'], output_dir=out, only='fit_a')
     rest = workflow_model(library['chain_rest'], 'rest', output_dir=out, work_dir=work)
     assert rest['waiting_for'] == [] and rest['calibrated'] == []
-    assert [(f['model_name'], f['from_step']) for f in rest['fixed']] == [('p_mod_A', 'fit_a')]
-    assert parameters(rest)['p_mod_A'] == pytest.approx(np.sqrt(Y_A / 2), rel=1e-4)
+    assert [(f['model_name'], f['from_step']) for f in rest['fixed']] == [('p_mod__A', 'fit_a')]
+    assert parameters(rest)['p_mod__A'] == pytest.approx(np.sqrt(Y_A / 2), rel=1e-4)
 
     fit_a = workflow_model(library['chain_rest'], 'fit_a', output_dir=out, work_dir=work)
     assert fit_a['place'] == 'A' and fit_a['param_id_output_dir']
@@ -631,8 +631,8 @@ def test_a_tab_shows_each_model_with_the_values_available_so_far(library, tmp_pa
     target = workflow_model(library['chain_rest'], 'target', output_dir=out, work_dir=work)
     assert target['kind'] == 'target' and target['step_id'] == 'rest'
     assert target['waiting_for'] == ['rest']
-    assert [c['model_name'] for c in target['calibrated']] == ['p_mod_A']
-    assert parameters(target)['p_mod_A'] == pytest.approx(np.sqrt(Y_A / 2), rel=1e-4)
+    assert [c['model_name'] for c in target['calibrated']] == ['p_mod__A']
+    assert parameters(target)['p_mod__A'] == pytest.approx(np.sqrt(Y_A / 2), rel=1e-4)
 
     # an edited input marks the result it fed as stale
     obs_path = os.path.join(library['lin_a/fit_a'], 'fit_a_obs_data.json')
@@ -658,11 +658,11 @@ def test_calibrated_values_replace_rows_written_in_either_name_form(tmp_path):
     with open(_Target.parameters_path, 'w') as f:
         f.write('variable_name,units,value,data_reference\n'
                 'p_A,dimensionless,1.0,old form\nC/q,dimensionless,1.0,slash form\n')
-    merged = [{'model_name': 'p_mod_A', 'parameterisation_name': 'A/p', 'value': 2.0,
+    merged = [{'model_name': 'p_mod__A', 'parameterisation_name': 'A/p', 'value': 2.0,
                'units': 'dimensionless', 'from_step': 'fit_a'},
-              {'model_name': 'q_mod_C', 'parameterisation_name': 'C/q', 'value': 3.0,
+              {'model_name': 'q_mod__C', 'parameterisation_name': 'C/q', 'value': 3.0,
                'units': 'dimensionless', 'from_step': 'rest'},
-              {'model_name': 'r_mod_A', 'parameterisation_name': 'A/r', 'value': 4.0,
+              {'model_name': 'r_mod__A', 'parameterisation_name': 'A/r', 'value': 4.0,
                'units': 'dimensionless', 'from_step': 'fit_a'}]
     path = write_calibrated_parameters(_Target(), merged, 'wf')
     with open(path, newline='') as f:
@@ -674,19 +674,19 @@ def test_calibrated_values_replace_rows_written_in_either_name_form(tmp_path):
 def test_a_nested_submodule_is_named_as_a_path():
     from types import SimpleNamespace
     from libcuflynx.calibration_workflow.resolve import _submodule_path
-    target = {'submodules': [{'name': 'soma', 'vessel_type': 'S', 'BC_type': 'v'},
-                             {'name': 'x', 'vessel_type': 'M', 'BC_type': 'v'}],
+    target = {'submodules': [{'name': 'soma', 'module_type': 'S', 'module_subtype': 'v'},
+                             {'name': 'x', 'module_type': 'M', 'module_subtype': 'v'}],
               'module_format': 'supermodule'}
-    supermodules = {('S', 'v'): {'submodules': [{'name': 'i_M', 'vessel_type': 'M',
-                                                 'BC_type': 'v'}]}}
+    supermodules = {('S', 'v'): {'submodules': [{'name': 'i_M', 'module_type': 'M',
+                                                 'module_subtype': 'v'}]}}
 
     def step(submodule):
         return SimpleNamespace(id='s', submodule=submodule,
                                model=Target('M', 'v', 'p'))
 
     workflow_target = Target('T', 'v', 'p')
-    for name in ('soma/i_M', 'soma_i_M'):
-        assert _submodule_path(step(name), workflow_target, target, supermodules) == 'soma_i_M'
+    for name in ('soma/i_M', 'soma__i_M', 'soma_i_M'):
+        assert _submodule_path(step(name), workflow_target, target, supermodules) == 'soma__i_M'
     assert _submodule_path(step('x'), workflow_target, target, supermodules) == 'x'
     with pytest.raises(WorkflowError, match=r"is at \['soma/i_M', 'x'\]"):
         _submodule_path(step('i_M'), workflow_target, target, supermodules)
@@ -957,10 +957,10 @@ def test_a_workflow_screens_reduces_calibrates_and_analyses_the_fit(library, tmp
     # q drives z over its range and p_A barely does: the reduction keeps q alone
     assert os.path.isfile(step('screen')['sobol_indices'])
     reduce = step('reduce')
-    assert [s['parameter'] for s in reduce['selected']] == ['mod_C/q']
+    assert [s['parameter'] for s in reduce['selected']] == ['mod__C/q']
     with open(reduce['params_for_id'], newline='') as f:
         assert [(r['vessel_name'], r['param_name']) for r in csv.DictReader(f)] == [
-            ('mod_C', 'q')]
+            ('mod__C', 'q')]
 
     # fit calibrates what was kept, with p_A fixed from fit_a, as chain/rest does
     fit = step('fit')
@@ -1128,15 +1128,15 @@ def test_a_whole_study_runs_from_submodule_calibration_to_mcmc_on_an_emulator(li
     step = lambda sid: _read_json(os.path.join(out, sid, 'step_result.json'))  # noqa: E731
 
     # the submodule's value is fixed in the chain for the screen and the emulator
-    assert step('screen')['fixed'][0]['model_name'] == 'p_mod_A'
+    assert step('screen')['fixed'][0]['model_name'] == 'p_mod__A'
     assert step('screen')['fixed'][0]['value'] == pytest.approx(np.sqrt(Y_A / 2), rel=1e-5)
 
     # q drives z over its range and the gain k barely does: the reduction keeps q
     reduce = step('reduce')
-    assert [s['parameter'] for s in reduce['selected']] == ['mod_C/q']
+    assert [s['parameter'] for s in reduce['selected']] == ['mod__C/q']
     with open(reduce['params_for_id'], newline='') as f:
         assert [(r['vessel_name'], r['param_name']) for r in csv.DictReader(f)] == [
-            ('mod_C', 'q')]
+            ('mod__C', 'q')]
 
     # the emulator is trained over the kept parameter alone, and the posterior is sampled on it
     emulate, posterior = step('emulate'), step('posterior')
@@ -1150,7 +1150,7 @@ def test_a_whole_study_runs_from_submodule_calibration_to_mcmc_on_an_emulator(li
 
     # dz/dq = 2 q at q = 3, so sd(q) = STD_C / 6; the emulator is good to about 1 %
     distribution = StoredDistribution.load(posterior['distribution_dir'])
-    assert distribution.names == ['q_mod_C']
+    assert distribution.names == ['q_mod__C']
     q = np.sqrt(Z_C - Y_A)
     assert np.median(distribution.samples) == pytest.approx(q, rel=0.03)
     assert np.std(distribution.samples) == pytest.approx(STD_C / (2 * q), rel=0.5)

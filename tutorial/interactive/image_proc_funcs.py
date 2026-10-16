@@ -210,10 +210,10 @@ class VesselNetwork():
         n_vessel_idx = np.arange(0, n_vessel)
 
         vessel_dict = {'name': self.vessel_names,
-                       'BC_type': np.repeat(None, n_vessel),
-                       'vessel_type': self.vessel_mods,
-                       'inp_vessels': np.repeat(None, n_vessel),
-                       'out_vessels': np.repeat(None, n_vessel),
+                       'module_subtype': np.repeat(None, n_vessel),
+                       'module_type': self.vessel_mods,
+                       'inp_instances': np.repeat(None, n_vessel),
+                       'out_instances': np.repeat(None, n_vessel),
                        'x': self.vessel_centroids[:, 0] if self.vessel_centroids is not None else np.nan, # [NEW]
                        'y': self.vessel_centroids[:, 1] if self.vessel_centroids is not None else np.nan, # [NEW]
                        'z': self.vessel_centroids[:, 2] if self.vessel_centroids is not None else np.nan, # [NEW]
@@ -231,7 +231,7 @@ class VesselNetwork():
         N_ITER = 0
         MAX_ITER = 100
 
-        ### // BC_type initial assignment // ###
+        ### // module_subtype initial assignment // ###
 
         for i in n_vessel_idx:
 
@@ -242,17 +242,17 @@ class VesselNetwork():
             out_vessel_locs = np.where(out_vessel_i == 1)[0]
 
             if (len(inp_vessel_locs) == 0) & (len(out_vessel_locs) >= 1):
-                self.vessel_df.at[i, 'BC_type'] = 'pv'
+                self.vessel_df.at[i, 'module_subtype'] = 'pv'
             elif (len(inp_vessel_locs) >= 1) & (len(out_vessel_locs) == 0):
-                self.vessel_df.at[i, 'BC_type'] = 'vp'
+                self.vessel_df.at[i, 'module_subtype'] = 'vp'
             elif (len(inp_vessel_locs) == 1) and (len(out_vessel_locs) > 1):
-                self.vessel_df.at[i, 'BC_type'] = 'pv'
+                self.vessel_df.at[i, 'module_subtype'] = 'pv'
             elif (len(inp_vessel_locs) > 1) and (len(out_vessel_locs) == 1):
-                self.vessel_df.at[i, 'BC_type'] = 'vp'
+                self.vessel_df.at[i, 'module_subtype'] = 'vp'
             elif (len(inp_vessel_locs) == 1) and (len(out_vessel_locs) == 1):                    
-                self.vessel_df.at[i, 'BC_type'] = 'vv'
+                self.vessel_df.at[i, 'module_subtype'] = 'vv'
             else:
-                self.vessel_df.at[i, 'BC_type'] = 'vv'
+                self.vessel_df.at[i, 'module_subtype'] = 'vv'
 
         ### // BC-type re-assignment and correction // ###
 
@@ -308,10 +308,10 @@ class VesselNetwork():
                     inp_vessel_names = list(self.vessel_df.loc[inp_vessel_locs, 'name'])
                     out_vessel_names = list(self.vessel_df.loc[out_vessel_locs, 'name'])
 
-                    self.vessel_df.at[idx, 'inp_vessels'] = ' '.join(inp_vessel_names) if len(inp_vessel_names) > 0 else None
-                    self.vessel_df.at[idx, 'out_vessels'] = ' '.join(out_vessel_names) if len(out_vessel_names) > 0 else None
+                    self.vessel_df.at[idx, 'inp_instances'] = ' '.join(inp_vessel_names) if len(inp_vessel_names) > 0 else None
+                    self.vessel_df.at[idx, 'out_instances'] = ' '.join(out_vessel_names) if len(out_vessel_names) > 0 else None
 
-            ### // BC_type correction for in-out vessels // ###
+            ### // module_subtype correction for in-out vessels // ###
 
             if len(n_vessel_in_out_idx) != 0:
 
@@ -323,20 +323,20 @@ class VesselNetwork():
                     inp_vessel_locs = np.where(inp_vessel_i == 1)[0] ### Get all idx's of all input vessels to the current vessel
                     out_vessel_locs = np.where(out_vessel_i == 1)[0] ### Get all idx's of all output vessels to the current vessel
 
-                    n_vessel_BC_type = copy(self.vessel_df.at[idx, 'BC_type']) ### Get current vessel BC_type
-                    n_vessel_BC_type_nn = list(n_vessel_BC_type) ### Split current vessel BC_type into left and right part
+                    n_vessel_BC_type = copy(self.vessel_df.at[idx, 'module_subtype']) ### Get current vessel module_subtype
+                    n_vessel_BC_type_nn = list(n_vessel_BC_type) ### Split current vessel module_subtype into left and right part
 
                     if len(inp_vessel_locs) == 0:
                         inp_vessel_BC_type = 'nn'
                     else:
-                        inp_vessel_BC_type = copy(self.vessel_df.at[inp_vessel_locs[0], 'BC_type']) ### Get the current input vessel's BC_type
+                        inp_vessel_BC_type = copy(self.vessel_df.at[inp_vessel_locs[0], 'module_subtype']) ### Get the current input vessel's module_subtype
                     
                     if len(out_vessel_locs) == 0:
                         out_vessel_BC_type = 'nn'
                     else:
-                        out_vessel_BC_type = copy(self.vessel_df.at[out_vessel_locs[0], 'BC_type']) ### Get the current output vessel's BC_type
+                        out_vessel_BC_type = copy(self.vessel_df.at[out_vessel_locs[0], 'module_subtype']) ### Get the current output vessel's module_subtype
 
-                    ### // BC_type correction comparing to input vessel // ###
+                    ### // module_subtype correction comparing to input vessel // ###
                     
                     if list(inp_vessel_BC_type)[1] == 'p' and n_vessel_BC_type_nn[0] == 'v':
                         pass
@@ -349,7 +349,7 @@ class VesselNetwork():
                         n_vessel_BC_type_nn[0] = 'p'
                         n_vessel_BC_type = ''.join(n_vessel_BC_type_nn)
 
-                    ### // BC_type correction comparing to output vessel // ###
+                    ### // module_subtype correction comparing to output vessel // ###
 
                     if n_vessel_BC_type_nn[1] == 'p' and list(out_vessel_BC_type)[0] == 'v':
                         pass
@@ -362,11 +362,11 @@ class VesselNetwork():
                         n_vessel_BC_type_nn[1] = 'p'
                         n_vessel_BC_type = ''.join(n_vessel_BC_type_nn)
 
-                    ### // Assign corrected BC_type to vessel_df // ###
+                    ### // Assign corrected module_subtype to vessel_df // ###
 
-                    self.vessel_df.at[idx, 'BC_type'] = n_vessel_BC_type
+                    self.vessel_df.at[idx, 'module_subtype'] = n_vessel_BC_type
 
-            ### // BC_type correction for Nout vessels // ###
+            ### // module_subtype correction for Nout vessels // ###
 
             if len(n_vessel_Nout_idx) != 0:
 
@@ -378,12 +378,12 @@ class VesselNetwork():
                     inp_vessel_locs = np.where(inp_vessel_i == 1)[0] ### Get all idx's of all input vessels to the current vessel
                     out_vessel_locs = np.where(out_vessel_i == 1)[0] ### Get all idx's of all output vessels to the current vessel
 
-                    n_vessel_BC_type = copy(self.vessel_df.at[idx, 'BC_type']) ### Get current vessel BC_type
+                    n_vessel_BC_type = copy(self.vessel_df.at[idx, 'module_subtype']) ### Get current vessel module_subtype
 
                     if len(inp_vessel_locs) == 0:
                         inp_vessel_BC_type = 'nn'
                     else:
-                        inp_vessel_BC_type = copy(self.vessel_df.at[inp_vessel_locs[0], 'BC_type']) ### Get the current input vessel's BC_type
+                        inp_vessel_BC_type = copy(self.vessel_df.at[inp_vessel_locs[0], 'module_subtype']) ### Get the current input vessel's module_subtype
 
                     for i in range(len(out_vessel_locs)): ### For every output vessel of the current vessel...
 
@@ -392,17 +392,17 @@ class VesselNetwork():
                         if n_vessel_out == 1: ### If the current vessel now has 1 output 
                             break
 
-                        out_vessel_BC_type = copy(self.vessel_df.at[out_vessel_locs[i], 'BC_type']) ### Get the current output vessel's BC_type
+                        out_vessel_BC_type = copy(self.vessel_df.at[out_vessel_locs[i], 'module_subtype']) ### Get the current output vessel's module_subtype
                         
                         if is_compatible(n_vessel_BC_type, inp_vessel_BC_type, out_vessel_BC_type) == False: ### If surrounding BCs of the curret vessel are not compatible...
                             
                             if is_compatible('pv', inp_vessel_BC_type, out_vessel_BC_type): ### Then if 'vv' is a compatible BC given the surrounding BCs...
                                 n_vessel_BC_type = 'pv'
-                                self.vessel_df.at[idx, 'BC_type'] = 'pv' ### Force the current vessel BC to be 'pv'
+                                self.vessel_df.at[idx, 'module_subtype'] = 'pv' ### Force the current vessel BC to be 'pv'
 
                             elif is_compatible('vv', inp_vessel_BC_type, out_vessel_BC_type): ### Then if 'vv' is a compatible BC given the surrounding BCs...
                                 n_vessel_BC_type = 'vv'
-                                self.vessel_df.at[idx, 'BC_type'] = 'vv' ### Force the current vessel BC to be 'vv'
+                                self.vessel_df.at[idx, 'module_subtype'] = 'vv' ### Force the current vessel BC to be 'vv'
 
                             else: ### Otherwise...
 
@@ -421,7 +421,7 @@ class VesselNetwork():
                                     if n_vessel_out == 1: ### If the current vessel now has 1 output 
                                         break
 
-            ### // BC_type correction for Min vessels // ###
+            ### // module_subtype correction for Min vessels // ###
 
             if len(n_vessel_Min_idx) != 0:
 
@@ -433,12 +433,12 @@ class VesselNetwork():
                     inp_vessel_locs = np.where(inp_vessel_i == 1)[0]
                     out_vessel_locs = np.where(out_vessel_i == 1)[0]
 
-                    n_vessel_BC_type = copy(self.vessel_df.at[idx, 'BC_type'])
+                    n_vessel_BC_type = copy(self.vessel_df.at[idx, 'module_subtype'])
                     
                     if len(out_vessel_locs) == 0:
                         out_vessel_BC_type = 'nn'
                     else:
-                        out_vessel_BC_type = copy(self.vessel_df.at[out_vessel_locs[0], 'BC_type']) ### Get the current output vessel's BC_type
+                        out_vessel_BC_type = copy(self.vessel_df.at[out_vessel_locs[0], 'module_subtype']) ### Get the current output vessel's module_subtype
 
                     for i in range(len(inp_vessel_locs)):
 
@@ -447,17 +447,17 @@ class VesselNetwork():
                         if n_vessel_inp == 1:
                             break
 
-                        inp_vessel_BC_type = copy(self.vessel_df.at[inp_vessel_locs[i], 'BC_type'])
+                        inp_vessel_BC_type = copy(self.vessel_df.at[inp_vessel_locs[i], 'module_subtype'])
                         
                         if is_compatible(n_vessel_BC_type, inp_vessel_BC_type, out_vessel_BC_type) == False:
 
                             if is_compatible('vp', inp_vessel_BC_type, out_vessel_BC_type): ### Then if 'vv' is a compatible BC given the surrounding BCs...
                                 n_vessel_BC_type = 'vp'
-                                self.vessel_df.at[idx, 'BC_type'] = 'vp' ### Force the current vessel BC to be 'vv'
+                                self.vessel_df.at[idx, 'module_subtype'] = 'vp' ### Force the current vessel BC to be 'vv'
                             
                             elif is_compatible('vv', inp_vessel_BC_type, out_vessel_BC_type):
                                 n_vessel_BC_type = 'vv'
-                                self.vessel_df.at[idx, 'BC_type'] = 'vv'
+                                self.vessel_df.at[idx, 'module_subtype'] = 'vv'
 
                             else:
                                 
@@ -476,7 +476,7 @@ class VesselNetwork():
                                     if n_vessel_inp == 1:
                                         break
 
-            ### // BC_type correction for MinNout vessels // ###
+            ### // module_subtype correction for MinNout vessels // ###
 
             if len(n_vessel_MinNout_idx) != 0:
 
@@ -488,7 +488,7 @@ class VesselNetwork():
                     inp_vessel_locs = np.where(inp_vessel_i == 1)[0]
                     out_vessel_locs = np.where(out_vessel_i == 1)[0]
 
-                    n_vessel_BC_type = copy(self.vessel_df.at[idx, 'BC_type'])
+                    n_vessel_BC_type = copy(self.vessel_df.at[idx, 'module_subtype'])
                     
                     if len(inp_vessel_locs) == 0:
                         inp_vessel_BC_type = 'nn'
@@ -498,7 +498,7 @@ class VesselNetwork():
 
                     for i in range(len(inp_vessel_locs)):
 
-                        inp_vessel_BC_type = copy(self.vessel_df.at[inp_vessel_locs[i], 'BC_type'])
+                        inp_vessel_BC_type = copy(self.vessel_df.at[inp_vessel_locs[i], 'module_subtype'])
 
                         for j in range(len(out_vessel_locs)): ### For every output vessel of the current vessel...
 
@@ -507,13 +507,13 @@ class VesselNetwork():
                             if n_vessel_out == 1: ### If the current vessel now has 1 output 
                                 break
 
-                            out_vessel_BC_type = copy(self.vessel_df.at[out_vessel_locs[j], 'BC_type']) ### Get the current output vessel's BC_type
+                            out_vessel_BC_type = copy(self.vessel_df.at[out_vessel_locs[j], 'module_subtype']) ### Get the current output vessel's module_subtype
                             
                             if is_compatible(n_vessel_BC_type, inp_vessel_BC_type, out_vessel_BC_type) == False: ### If surrounding BCs of the curret vessel are not compatible...
 
                                 if is_compatible('vv', inp_vessel_BC_type, out_vessel_BC_type): ### Then if 'vv' is a compatible BC given the surrounding BCs...
                                     n_vessel_BC_type = 'vv'
-                                    self.vessel_df.at[idx, 'BC_type'] = 'vv' ### Force the current vessel BC to be 'vv'
+                                    self.vessel_df.at[idx, 'module_subtype'] = 'vv' ### Force the current vessel BC to be 'vv'
 
                                 else: ### Otherwise...
 
@@ -532,7 +532,7 @@ class VesselNetwork():
                                         if n_vessel_out == 1: ### If the current vessel now has 1 output 
                                             break
             
-            ### // BC_type compatibility verfication across entire network // ###
+            ### // module_subtype compatibility verfication across entire network // ###
 
             n_vessel_incompatible_idx = np.array([])
             n_vessel_incompatible_dict = {"idx": [],
@@ -549,7 +549,7 @@ class VesselNetwork():
                 inp_vessel_locs = np.where(inp_vessel_i == 1)[0] ### Get all idx's of all input vessels to the current vessel
                 out_vessel_locs = np.where(out_vessel_i == 1)[0] ### Get all idx's of all output vessels to the current vessel
 
-                n_vessel_BC_type = copy(self.vessel_df.at[idx, 'BC_type']) ### Get current vessel BC_type
+                n_vessel_BC_type = copy(self.vessel_df.at[idx, 'module_subtype']) ### Get current vessel module_subtype
 
                 if (len(inp_vessel_locs) == 0) and (len(out_vessel_locs) >= 1):
 
@@ -557,7 +557,7 @@ class VesselNetwork():
 
                     for out_vessel_idx in out_vessel_locs:
 
-                        out_vessel_BC_type = self.vessel_df.at[out_vessel_idx, 'BC_type']
+                        out_vessel_BC_type = self.vessel_df.at[out_vessel_idx, 'module_subtype']
 
                         if is_compatible(n_vessel_BC_type, inp_vessel_BC_type, out_vessel_BC_type) == False:
                             
@@ -583,7 +583,7 @@ class VesselNetwork():
 
                     for inp_vessel_idx in inp_vessel_locs:
 
-                        inp_vessel_BC_type = self.vessel_df.at[inp_vessel_idx, 'BC_type']
+                        inp_vessel_BC_type = self.vessel_df.at[inp_vessel_idx, 'module_subtype']
 
                         if is_compatible(n_vessel_BC_type, inp_vessel_BC_type, out_vessel_BC_type) == False:
                             
@@ -607,11 +607,11 @@ class VesselNetwork():
                 
                     for inp_vessel_idx in inp_vessel_locs:
                         
-                        inp_vessel_BC_type = self.vessel_df.at[inp_vessel_idx, 'BC_type']
+                        inp_vessel_BC_type = self.vessel_df.at[inp_vessel_idx, 'module_subtype']
 
                         for out_vessel_idx in out_vessel_locs:
 
-                            out_vessel_BC_type = self.vessel_df.at[out_vessel_idx, 'BC_type']
+                            out_vessel_BC_type = self.vessel_df.at[out_vessel_idx, 'module_subtype']
 
                             if is_compatible(n_vessel_BC_type, inp_vessel_BC_type, out_vessel_BC_type) == False:
                                 
@@ -689,11 +689,11 @@ class VesselNetwork():
                     inp_vessel_names = list(self.vessel_df.loc[inp_vessel_locs, 'name'])
                     out_vessel_names = list(self.vessel_df.loc[out_vessel_locs, 'name'])
 
-                    self.vessel_df.at[i, 'inp_vessels'] = ' '.join(inp_vessel_names) if len(inp_vessel_names) > 0 else None
-                    self.vessel_df.at[i, 'out_vessels'] = ' '.join(out_vessel_names) if len(out_vessel_names) > 0 else None
+                    self.vessel_df.at[i, 'inp_instances'] = ' '.join(inp_vessel_names) if len(inp_vessel_names) > 0 else None
+                    self.vessel_df.at[i, 'out_instances'] = ' '.join(out_vessel_names) if len(out_vessel_names) > 0 else None
 
                     if self.vessel_df.at[i, 'junc_type'] != None:
-                        self.vessel_df.loc[i, 'vessel_type'] += ('_' + self.vessel_df.at[i, 'junc_type'])
+                        self.vessel_df.loc[i, 'module_type'] += ('_' + self.vessel_df.at[i, 'junc_type'])
 
                     N_ITER = np.inf
 
@@ -702,8 +702,8 @@ class VesselNetwork():
 
         ### // Add inlet and outlet modules to vessel_df // ###
 
-        inlet_vessels_all = np.array(self.vessel_df['inp_vessels'])
-        outlet_vessels_all = np.array(self.vessel_df['out_vessels'])
+        inlet_vessels_all = np.array(self.vessel_df['inp_instances'])
+        outlet_vessels_all = np.array(self.vessel_df['out_instances'])
 
         inlet_vessels_locs = np.where(inlet_vessels_all == None)[0]
         outlet_vessels_locs = np.where(outlet_vessels_all == None)[0]
@@ -711,15 +711,15 @@ class VesselNetwork():
         inlet_vessels_names = np.array(self.vessel_df.loc[inlet_vessels_locs, 'name'])
         outlet_vessels_names = np.array(self.vessel_df.loc[outlet_vessels_locs, 'name'])
 
-        self.vessel_df.loc[inlet_vessels_locs, 'inp_vessels'] = inlet_vessels_names + '_PI'
-        self.vessel_df.loc[outlet_vessels_locs, 'out_vessels'] = outlet_vessels_names + '_PO'
+        self.vessel_df.loc[inlet_vessels_locs, 'inp_instances'] = inlet_vessels_names + '_PI'
+        self.vessel_df.loc[outlet_vessels_locs, 'out_instances'] = outlet_vessels_names + '_PO'
 
         # [MODIFIED] Added x, y, z extraction for Inlets
         inlet_vessels_dict = {'name': inlet_vessels_names + '_PI',
-                              'BC_type': np.repeat('nn', len(inlet_vessels_names)),
-                              'vessel_type': 'P_inlet',
-                              'inp_vessels': np.repeat(None, len(inlet_vessels_names)),
-                              'out_vessels': np.array(self.vessel_df.loc[inlet_vessels_locs, 'name']),
+                              'module_subtype': np.repeat('nn', len(inlet_vessels_names)),
+                              'module_type': 'P_inlet',
+                              'inp_instances': np.repeat(None, len(inlet_vessels_names)),
+                              'out_instances': np.array(self.vessel_df.loc[inlet_vessels_locs, 'name']),
                               'x': np.array(self.vessel_df.loc[inlet_vessels_locs, 'x']), # Copy parent x
                               'y': np.array(self.vessel_df.loc[inlet_vessels_locs, 'y']), # Copy parent y
                               'z': np.array(self.vessel_df.loc[inlet_vessels_locs, 'z'])  # Copy parent z
@@ -727,10 +727,10 @@ class VesselNetwork():
 
         # [MODIFIED] Added x, y, z extraction for Outlets
         outlet_vessels_dict = {'name': outlet_vessels_names + '_PO',
-                              'BC_type': np.repeat('nn', len(outlet_vessels_names)),
-                              'vessel_type': 'P_outlet',
-                              'inp_vessels': np.array(self.vessel_df.loc[outlet_vessels_locs, 'name']), 
-                              'out_vessels': np.repeat(None, len(outlet_vessels_names)),
+                              'module_subtype': np.repeat('nn', len(outlet_vessels_names)),
+                              'module_type': 'P_outlet',
+                              'inp_instances': np.array(self.vessel_df.loc[outlet_vessels_locs, 'name']), 
+                              'out_instances': np.repeat(None, len(outlet_vessels_names)),
                               'x': np.array(self.vessel_df.loc[outlet_vessels_locs, 'x']), # Copy parent x
                               'y': np.array(self.vessel_df.loc[outlet_vessels_locs, 'y']), # Copy parent y
                               'z': np.array(self.vessel_df.loc[outlet_vessels_locs, 'z'])  # Copy parent z
@@ -741,7 +741,7 @@ class VesselNetwork():
         
         inlet_outlet_vessels_df = pd.concat([inlet_vessels_df, outlet_vessels_df], ignore_index=True)
         self.vessel_df = pd.concat([self.vessel_df, inlet_outlet_vessels_df], ignore_index=True)
-        self.vessel_df['BC_type'] = self.vessel_df['BC_type'].astype(str) + '_micro'
+        self.vessel_df['module_subtype'] = self.vessel_df['module_subtype'].astype(str) + '_micro'
 
         print('Network Solved!')
 
@@ -878,15 +878,15 @@ class VesselNetwork():
         for i in range(nVess):
 
             nameV = vessels_df.at[i,'name']
-            typeBC = vessels_df.at[i,'BC_type']
-            typeV = vessels_df.at[i,'vessel_type']
+            typeBC = vessels_df.at[i,'module_subtype']
+            typeV = vessels_df.at[i,'module_type']
 
-            matches = [entry for entry in modules if entry.get('BC_type')==typeBC and entry.get('vessel_type')==typeV]
+            matches = [entry for entry in modules if entry.get('module_subtype')==typeBC and entry.get('module_type')==typeV]
             if len(matches)>1:
-                sys.exit('ERROR :: multiple modules found for this vessel_type and BC_type combination : '+typeV+' '+typeBC+' :: Check your module_config.json file.')
+                sys.exit('ERROR :: multiple modules found for this vessel_type and module_subtype combination : '+typeV+' '+typeBC+' :: Check your module_config.json file.')
 
             if len(matches)==0:
-                sys.exit('ERROR :: no modules found for this vessel_type and BC_type combination : '+typeV+' '+typeBC+' :: Check your module_config.json file.')
+                sys.exit('ERROR :: no modules found for this vessel_type and module_subtype combination : '+typeV+' '+typeBC+' :: Check your module_config.json file.')
 
             mod = matches[0]
             modType = mod['module_type']
@@ -1003,7 +1003,7 @@ class VesselNetwork():
 
             This function performs the following steps:
             1.  Samples radius (r_0) and length (l) for each vessel from a normal distribution
-                based on its 'vessel_type'.
+                based on its 'module_type'.
             2.  Calculates the hydraulic resistance of each vessel using the Hagen-Poiseuille equation.
             3.  Constructs a graph of the vascular network.
             4.  Identifies pressure boundary conditions: vessels with 'PI' (pressure inlet) in their
@@ -1013,8 +1013,8 @@ class VesselNetwork():
             7.  Returns a DataFrame with vessel name, calculated pressure, radius, and length.
 
             Args:
-                vessel_df (pd.DataFrame): A DataFrame with columns: 'name', 'vessel_type',
-                                        'inp_vessels', and 'out_vessels'.
+                vessel_df (pd.DataFrame): A DataFrame with columns: 'name', 'module_type',
+                                        'inp_instances', and 'out_instances'.
 
             Returns:
                 pd.DataFrame: A DataFrame with columns: 'name', 'u_0' (pressure),
@@ -1024,12 +1024,12 @@ class VesselNetwork():
             # Clean up whitespace from vessel names, which can cause matching issues
             vessel_df['name'] = vessel_df['name'].str.strip()
 
-            if 'out_vessels' in vessel_df.columns and vessel_df['out_vessels'].dtype == 'O':
-                vessel_df['out_vessels'] = vessel_df['out_vessels'].apply(
+            if 'out_instances' in vessel_df.columns and vessel_df['out_instances'].dtype == 'O':
+                vessel_df['out_instances'] = vessel_df['out_instances'].apply(
                     lambda s: [v.strip() for v in s.split()] if isinstance(s, str) else []
                 )
-            if 'inp_vessels' in vessel_df.columns and vessel_df['inp_vessels'].dtype == 'O':
-                vessel_df['inp_vessels'] = vessel_df['inp_vessels'].apply(
+            if 'inp_instances' in vessel_df.columns and vessel_df['inp_instances'].dtype == 'O':
+                vessel_df['inp_instances'] = vessel_df['inp_instances'].apply(
                     lambda s: [v.strip() for v in s.split()] if isinstance(s, str) else []
                 )
 
@@ -1074,7 +1074,7 @@ class VesselNetwork():
                 vessel_props_dict: The global dictionary of base type stats.
                 ref_data_dict: The dictionary created from the reference CSV.
                 """
-                vessel_type = row['vessel_type'] # Adjust column name if different
+                vessel_type = row['module_type'] # Adjust column name if different
                 vessel_name = row['name'] # Adjust column name if different
                 
                 # --- Stiffness Sampling ---
@@ -1107,7 +1107,7 @@ class VesselNetwork():
                                 index=['radius', 'length', 'stiffness', 'volume'])
 
             # Apply the function to create r_0 and l columns
-            # geometries = network_vessels_df['vessel_type'].apply(get_vessel_info)
+            # geometries = network_vessels_df['module_type'].apply(get_vessel_info)
             # network_vessels_df[['r_0', 'l', 'E', 'q_C_init']] = pd.DataFrame(geometries.tolist(), index=network_vessels_df.index)
 
             geometries = network_vessels_df.apply(get_vessel_info_row,
@@ -1142,7 +1142,7 @@ class VesselNetwork():
                 source_vessel = row['name']
                 G.add_node(source_vessel)
                 # Add edges from both input and output vessel lists for robustness
-                for target_vessel in row['out_vessels'] + row['inp_vessels']:
+                for target_vessel in row['out_instances'] + row['inp_instances']:
                     if target_vessel in valid_vessel_names:
                         G.add_edge(source_vessel, target_vessel)
 
@@ -2507,8 +2507,8 @@ def run_image_to_model(target_image_path, resources_path, ilastik_path, model_pa
                                         # [MODIFIED] Append x, y, z to the dictionary
                                         list_for_segment_connectivity_df.append({
                                             'name': current_segment_name, 
-                                            'inp_vessels': inp_vessels_names, 
-                                            'out_vessels': out_vessels_names,
+                                            'inp_instances': inp_vessels_names, 
+                                            'out_instances': out_vessels_names,
                                             'x': centroid[0], 
                                             'y': centroid[1], 
                                             'z': centroid[2]
@@ -2516,8 +2516,8 @@ def run_image_to_model(target_image_path, resources_path, ilastik_path, model_pa
                                     
                                     if list_for_segment_connectivity_df:
                                         connectivity_df = pd.DataFrame(list_for_segment_connectivity_df)
-                                        connectivity_df['inp_vessels'] = connectivity_df['inp_vessels'].apply(lambda x: ' '.join(map(str, x)))
-                                        connectivity_df['out_vessels'] = connectivity_df['out_vessels'].apply(lambda x: ' '.join(map(str, x)))
+                                        connectivity_df['inp_instances'] = connectivity_df['inp_instances'].apply(lambda x: ' '.join(map(str, x)))
+                                        connectivity_df['out_instances'] = connectivity_df['out_instances'].apply(lambda x: ' '.join(map(str, x)))
                                         connectivity_df.to_csv(output_dir / f"label_{label_id}_{output_segment_connectivity_filename}", index=False)
                                         print(f"          Segment connectivity data saved.")
         

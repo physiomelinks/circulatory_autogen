@@ -1,0 +1,132 @@
+{
+ "items": [
+  {
+   "data_item_name": "x_sub0",
+   "operand": "benchmark/x",
+   "operation": null,
+   "unit": "dimensionless",
+   "data_type": "series",
+   "n_points": 5,
+   "rmse": 0.3086718604965222,
+   "nrmse": 0.35698445248459154,
+   "mean_abs_z": 5.334248919685747,
+   "within_2std": 0.2,
+   "t": [
+    0.0,
+    0.5,
+    1.0,
+    1.5,
+    2.0
+   ],
+   "data": [
+    2.0,
+    1.6065306597126334,
+    1.3678794411714423,
+    1.22313016014843,
+    1.1353352832366128
+   ],
+   "std": [
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05
+   ],
+   "model": [
+    2.0,
+    1.4097959894802188,
+    1.0518191611422438,
+    0.8346952395093519,
+    0.7030029242158671
+   ]
+  },
+  {
+   "data_item_name": "x_sub1",
+   "operand": "benchmark/x",
+   "operation": null,
+   "unit": "dimensionless",
+   "data_type": "series",
+   "n_points": 5,
+   "rmse": 0.46890110838389026,
+   "nrmse": 4.007028999250165,
+   "mean_abs_z": 9.368586453902335,
+   "within_2std": 0.0,
+   "t": [
+    0.0,
+    0.5,
+    1.0,
+    1.5,
+    2.0
+   ],
+   "data": [
+    1.1353352832366128,
+    1.0820849986238987,
+    1.0497870683678638,
+    1.0301973834223186,
+    1.0183156388887342
+   ],
+   "std": [
+    0.05,
+    0.05,
+    0.05,
+    0.05,
+    0.05
+   ],
+   "model": [
+    0.7030029242158671,
+    0.6231262968328681,
+    0.5746786198865905,
+    0.5452941119128756,
+    0.5274718062156432
+   ]
+  },
+  {
+   "data_item_name": "x_max_sub0",
+   "operand": "benchmark/x",
+   "operation": "max",
+   "unit": "dimensionless",
+   "data_type": "constant",
+   "n_points": 1,
+   "rmse": 0.0,
+   "nrmse": 0.0,
+   "mean_abs_z": 0.0,
+   "within_2std": 1.0,
+   "t": [
+    2.0
+   ],
+   "data": [
+    2.0
+   ],
+   "std": [
+    0.1
+   ],
+   "model": [
+    2.0
+   ]
+  },
+  {
+   "data_item_name": "x_max_sub1",
+   "operand": "benchmark/x",
+   "operation": "max",
+   "unit": "dimensionless",
+   "data_type": "constant",
+   "n_points": 1,
+   "rmse": 0.396997075784133,
+   "nrmse": 0.36090643253103,
+   "mean_abs_z": 3.96997075784133,
+   "within_2std": 0.0,
+   "t": [
+    3.0
+   ],
+   "data": [
+    1.1
+   ],
+   "std": [
+    0.1
+   ],
+   "model": [
+    0.7030029242158671
+   ]
+  }
+ ]
+}

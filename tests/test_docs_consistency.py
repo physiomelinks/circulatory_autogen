@@ -199,3 +199,54 @@ def test_docs_do_not_promise_the_flat_imports_still_work():
             assert claim not in text, (
                 "%s still offers the flat imports as something that %ss" % (_rel(path), claim)
             )
+
+
+#: How the tutorial names each backend, by solver_wrappers module.
+_BACKEND_DOC_NAMES = {
+    "myokit_helper": "CVODE_myokit",
+    "opencor_helper": "CVODE_opencor",
+    "casadi_python_solver_helper": "casadi_python",
+    "python_solver_helper": "solve_ivp",
+    "aadc_python_solver_helper": "aadc_python",
+    "external_simulation_helper": "external_python",
+    "emulator_solver_helper": "emulator",
+}
+
+
+def _offline_pre_time_support():
+    """{doc name: 'implements' | 'raises' | 'ignores'}, read from each helper's source."""
+    support = {}
+    for module, doc_name in _BACKEND_DOC_NAMES.items():
+        source = (REPO_ROOT / "src" / "libcuflynx" / "solver_wrappers" / f"{module}.py").read_text()
+        match = re.search(r"\n    def run_offline_pre_and_set_default_state\(.*?(?=\n    def )",
+                          source, re.S)
+        assert match, f"{module} has no run_offline_pre_and_set_default_state"
+        body = re.sub(r'"""(.*?)"""', "", match.group(0), flags=re.S)
+        code = [line.strip() for line in body.strip().splitlines()[1:]
+                if line.strip() and not line.strip().startswith("#")]
+        if code and code[0].startswith("raise NotImplementedError"):
+            support[doc_name] = "raises"
+        elif code in (["return None"], ["return"], ["pass"]):
+            support[doc_name] = "ignores"
+        else:
+            support[doc_name] = "implements"
+    return support
+
+
+@pytest.mark.unit
+def test_offline_pre_time_backends_documented():
+    """The tutorial's offline_pre_time entry names every backend that implements it, says what
+    the others do, and names the restriction param_id enforces (#560)."""
+    text = (TUTORIAL / "docs" / "parameter-identification.md").read_text()
+    entry = next(line for line in text.splitlines() if line.startswith("- **offline_pre_time**"))
+    support = _offline_pre_time_support()
+    assert set(support.values()) == {"implements", "raises", "ignores"}, support
+    for name, how in support.items():
+        assert f"`{name}`" in entry or (how == "ignores" and name in entry), (name, how)
+    assert "not available for" not in entry
+    assert "OFFLINE_PRE_TIME_INIT_STATE_ERROR" in entry
+    for stale in (REPO_ROOT / "benchmarks" / "OPTIMISATION_OPPORTUNITIES.md",
+                  REPO_ROOT / "src" / "libcuflynx" / "solver_wrappers" / "myokit_helper.py"):
+        text = stale.read_text()
+        assert "folds it into" not in " ".join(text.split()), stale
+        assert "Currently UNUSED" not in text, stale

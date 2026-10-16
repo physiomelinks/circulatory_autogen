@@ -1,10 +1,10 @@
 [
     {
-        "vessel_type":"terminal",
-        "BC_type":"pp_controller",
+        "module_type":"terminal",
+        "module_subtype":"pp_controller",
         "module_format":"cellml",
-        "module_file":"elic_modules.cellml",
-        "module_type":"controller_type",
+        "component_file":"elic_modules.cellml",
+        "component_type":"controller_type",
         "entrance_ports":
         [
           {
@@ -43,11 +43,11 @@
         ]
       },
       {
-        "vessel_type":"pressure_observer",
-        "BC_type":"nn",
+        "module_type":"pressure_observer",
+        "module_subtype":"nn",
         "module_format":"cellml",
-        "module_file":"elic_modules.cellml",
-        "module_type":"p_observer_type",
+        "component_file":"elic_modules.cellml",
+        "component_type":"p_observer_type",
         "entrance_ports":
         [
          
@@ -72,11 +72,11 @@
         ]
       },
       {
-        "vessel_type":"flow_observer",
-        "BC_type":"nn",
+        "module_type":"flow_observer",
+        "module_subtype":"nn",
         "module_format":"cellml",
-        "module_file":"elic_modules.cellml",
-        "module_type":"f_observer_type",
+        "component_file":"elic_modules.cellml",
+        "component_type":"f_observer_type",
         "entrance_ports":
         [
          
@@ -101,11 +101,11 @@
         ]
       },
       {
-        "vessel_type":"terminal2",
-        "BC_type":"pp_controller",
+        "module_type":"terminal2",
+        "module_subtype":"pp_controller",
         "module_format":"cellml",
-        "module_file":"elic_modules.cellml",
-        "module_type":"controller2_type",
+        "component_file":"elic_modules.cellml",
+        "component_type":"controller2_type",
         "entrance_ports":
         [
           {

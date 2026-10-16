@@ -20,9 +20,12 @@ resolve to a valid variable", the valid list being 500 names none of which the
 user had ever typed.
 """
 
+import libcellml
+import myokit
 import numpy as np
 import pytest
 
+from libcuflynx.parsers.PrimitiveParsers import model_qname_candidates
 from libcuflynx.solver_wrappers.myokit_helper import SimulationHelper
 from libcuflynx.solver_wrappers.name_resolver import VariableNameResolver
 
@@ -199,3 +202,130 @@ def test_the_model_runs_and_the_hoisted_parameters_reach_the_solver(hoisted_help
     # and g=5 decays it towards zero. Anything else means the write did not land.
     assert abs(frozen - (-70.0)) < 1e-6
     assert fast > frozen + 1.0
+
+
+# ---------------------------------------------------------------------------------------------
+# PhLynx v0.3.0 on: instance_parameters / global_parameters (issue #558). Every reader of
+# hoisted names takes them from parameter_names.HOISTED_PARAMETER_CONVENTIONS.
+# ---------------------------------------------------------------------------------------------
+
+# Flattened as PhLynx exports: soma_SN and other share g_M; only soma_SN has tau.
+_MMT = """
+[[model]]
+soma_SN.V = -65
+other.V = -65
+[environment]
+time = 0 [ms] bind time
+[instance_parameters]
+soma_SN_g_M = 0.1
+other_g_M = 0.2
+tau = 5
+[global_parameters]
+I_in = 0
+[soma_SN]
+dot(V) = (-instance_parameters.soma_SN_g_M * V + global_parameters.I_in) / instance_parameters.tau
+[other]
+dot(V) = -instance_parameters.other_g_M * V
+"""
+
+_EXPECTED = {
+    "soma_SN/g_M": "instance_parameters.soma_SN_g_M",
+    "soma_SN/tau": "instance_parameters.tau",
+    "soma_SN/I_in": "global_parameters.I_in",
+    "other/g_M": "instance_parameters.other_g_M",
+}
+
+# The same model as CellML, before flattening: soma_SN's inputs are connected to the
+# components that define them.
+_CELLML = """<?xml version="1.0" encoding="UTF-8"?>
+<model xmlns="http://www.cellml.org/cellml/2.0#" name="phlynx_export">
+  <component name="environment">
+    <variable name="time" units="second" interface="public_and_private"/>
+  </component>
+  <component name="instance_parameters">
+    <variable name="soma_SN_g_M" units="dimensionless" initial_value="0.1" interface="public"/>
+    <variable name="tau" units="second" initial_value="5" interface="public"/>
+  </component>
+  <component name="global_parameters">
+    <variable name="I_in" units="dimensionless" initial_value="0" interface="public"/>
+  </component>
+  <component name="soma_SN">
+    <variable name="time" units="second" interface="public_and_private"/>
+    <variable name="g_M" units="dimensionless" interface="public_and_private"/>
+    <variable name="tau" units="second" interface="public_and_private"/>
+    <variable name="I_in" units="dimensionless" interface="public_and_private"/>
+    <variable name="V" units="dimensionless" initial_value="-65"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply><eq/><apply><diff/><bvar><ci>time</ci></bvar><ci>V</ci></apply>
+        <apply><divide/>
+          <apply><plus/><apply><times/><apply><minus/><ci>g_M</ci></apply><ci>V</ci></apply>
+            <ci>I_in</ci></apply>
+          <ci>tau</ci></apply></apply>
+    </math>
+  </component>
+  <connection component_1="environment" component_2="soma_SN">
+    <map_variables variable_1="time" variable_2="time"/>
+  </connection>
+  <connection component_1="instance_parameters" component_2="soma_SN">
+    <map_variables variable_1="soma_SN_g_M" variable_2="g_M"/>
+    <map_variables variable_1="tau" variable_2="tau"/>
+  </connection>
+  <connection component_1="global_parameters" component_2="soma_SN">
+    <map_variables variable_1="I_in" variable_2="I_in"/>
+  </connection>
+</model>
+"""
+
+
+def _keyed():
+    m = myokit.parse_model(_MMT)
+    return [("state", {v.qname(): i for i, v in enumerate(m.states())}),
+            ("var", {v.qname(): v for v in m.variables(deep=True)})]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("name", sorted(_EXPECTED))
+def test_phlynx_instance_and_global_parameters_resolve(name):
+    assert VariableNameResolver.resolve_key(name, _keyed(), separator=".") == (
+        "var", _EXPECTED[name])
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("name", sorted(_EXPECTED))
+def test_model_qname_candidates_agree_with_resolver(name):
+    """CUFLynx picks the first candidate the model has; that must be what the solvers use."""
+    present = {qname.replace(".", "/") for _, d in _keyed() for qname in d}
+    first = next(c for c in model_qname_candidates(name) if c in present)
+    assert first == _EXPECTED[name].replace(".", "/")
+
+
+@pytest.mark.unit
+def test_calibrated_values_written_into_instance_parameters(tmp_path):
+    from libcuflynx.utilities.utility_funcs import change_parameter_values_and_save
+
+    src, out = tmp_path / "phlynx_export.cellml", tmp_path / "calibrated.cellml"
+    src.write_text(_CELLML)
+    change_parameter_values_and_save(str(src), ["soma_SN/g_M", "soma_SN/tau", "soma_SN/I_in"],
+                                     [0.7, 9.0, 2.0], str(out))
+
+    model = libcellml.Parser(False).parseModel(out.read_text())
+    value = lambda comp, var: model.component(comp).variable(var).initialValue()
+    assert float(value("instance_parameters", "soma_SN_g_M")) == 0.7
+    assert float(value("instance_parameters", "tau")) == 9.0
+    assert float(value("global_parameters", "I_in")) == 2.0
+
+
+@pytest.mark.unit
+def test_variable_mapping_reads_instance_parameters(tmp_path):
+    from libcuflynx.reporting.variable_mapping import default_variable_mapping
+
+    path = tmp_path / "phlynx_export.cellml"
+    path.write_text(_CELLML)
+    rows = {r["variable_name"]: r for r in default_variable_mapping(str(path))}
+
+    for name in ("instance_parameters/soma_SN_g_M", "instance_parameters/tau",
+                 "global_parameters/I_in"):
+        assert rows[name]["kind"] == "parameter", name
+    assert rows["soma_SN/V"]["kind"] == "state"
+    # a hoisted name with the instance first is shown as the variable of that instance
+    assert rows["instance_parameters/soma_SN_g_M"]["latex"] == r"g_{M,\mathrm{soma\_SN}}"

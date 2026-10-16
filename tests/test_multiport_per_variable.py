@@ -182,13 +182,13 @@ def _port(port_type, variables, multi_port=None):
     return port
 
 
-def _module(vessel_type, BC_type, module_type, entrance_ports, exit_ports, variables_and_units):
+def _module(module_type, module_subtype, component_type, entrance_ports, exit_ports, variables_and_units):
     return {
-        "vessel_type": vessel_type,
-        "BC_type": BC_type,
-        "module_format": "cellml",
-        "module_file": "multiport_test_modules.cellml",
         "module_type": module_type,
+        "module_subtype": module_subtype,
+        "module_format": "cellml",
+        "component_file": "multiport_test_modules.cellml",
+        "component_type": component_type,
         "entrance_ports": entrance_ports,
         "exit_ports": exit_ports,
         "general_ports": [],
@@ -196,8 +196,8 @@ def _module(vessel_type, BC_type, module_type, entrance_ports, exit_ports, varia
     }
 
 
-def _source_config(vessel_type, module_type, flow_units):
-    return _module(vessel_type, "nn", module_type, [], [_port("vessel_port", ["v", "u_out"])], [
+def _source_config(module_type, component_type, flow_units):
+    return _module(module_type, "nn", component_type, [], [_port("vessel_port", ["v", "u_out"])], [
         ["v", flow_units, "access", "variable"],
         ["u_out", "J_per_m3", "access", "boundary_condition"],
         ["v_mean", flow_units, "access", "constant"],
@@ -372,9 +372,9 @@ def _generate(tmp_path, external_modules_dir, prefix, vessel_rows, params, model
     """Write the module array and parameters for ``vessel_rows`` and generate the model."""
     resources_dir = tmp_path / "resources"
     resources_dir.mkdir(parents=True, exist_ok=True)
-    lines = ["name,BC_type,vessel_type,inp_vessels,out_vessels"]
-    for name, BC_type, vessel_type, inp, out in vessel_rows:
-        lines.append(f"{name},{BC_type},{vessel_type},{' '.join(inp)},{' '.join(out)}")
+    lines = ["name,module_subtype,module_type,inp_instances,out_instances"]
+    for name, module_subtype, module_type, inp, out in vessel_rows:
+        lines.append(f"{name},{module_subtype},{module_type},{' '.join(inp)},{' '.join(out)}")
     (resources_dir / f"{prefix}_module_array.csv").write_text("\n".join(lines) + "\n")
     param_lines = ["variable_name,units,value,data_reference"]
     for variable_name, units, value in params:
@@ -724,13 +724,13 @@ def test_flow_merge_one_neighbour_matches_one_to_one(tmp_path, external_modules_
     params = _source_params("src_a", *MERGE_SOURCES["src_a"]) + _windkessel_params("wk")
     names = ["src_a/v", "merge/v_out", "merge/u", "wk/u", "wk/q", "src_a/u_seen"]
     results = {}
-    for vessel_type in ["flow_merge", "flow_merge_plain"]:
+    for module_type in ["flow_merge", "flow_merge_plain"]:
         rows = [("src_a", "nn", "flow_source", [], ["merge"]),
-                ("merge", "vp", vessel_type, ["src_a"], ["wk"]),
+                ("merge", "vp", module_type, ["src_a"], ["wk"]),
                 ("wk", "nn", "windkessel", ["merge"], [])]
-        cellml_path = _generate(tmp_path / vessel_type, external_modules_dir,
-                                f"mp_one_{vessel_type}", rows, params)
-        results[vessel_type] = _simulate(cellml_path, names)
+        cellml_path = _generate(tmp_path / module_type, external_modules_dir,
+                                f"mp_one_{module_type}", rows, params)
+        results[module_type] = _simulate(cellml_path, names)
     for name in names:
         np.testing.assert_allclose(results["flow_merge"][name], results["flow_merge_plain"][name],
                                    rtol=1e-12, atol=1e-30, err_msg=name)

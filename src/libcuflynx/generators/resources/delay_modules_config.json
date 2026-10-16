@@ -1,10 +1,10 @@
 [
     {
-        "vessel_type":"delay_test",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"delay_modules.cellml",
         "module_type":"delay_test",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"delay_modules.cellml",
+        "component_type":"delay_test",
         "entrance_ports":
         [
         ],

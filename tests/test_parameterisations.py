@@ -331,9 +331,9 @@ def test_a_supermodule_s_global_used_for_modules_outside_it_warns(tmp_path, libr
     assert len(conflicts) == 1
     assert [v for v, _, _ in conflicts[0].values] == ['5.0', '4.0', '6.0']
     message = str(conflicts[0])
-    assert 'supermodule "pr1" (parameterisation "base")' in message and '"pr2_a"' in message
+    assert 'supermodule "pr1" (parameterisation "base")' in message and '"pr2__a"' in message
     # pr1's own submodules (pr1_a: 4.0, pr1_b: 6.0) are overridden on purpose: not listed
-    assert '"pr1_a"' not in message and '"pr1_b"' not in message
+    assert '"pr1__a"' not in message and '"pr1__b"' not in message
 
 
 @pytest.mark.unit
@@ -437,7 +437,7 @@ def test_a_supermodule_s_parameterisation_beats_its_submodules(tmp_path, real_li
     soma = lib.supermodules[SOMA]
     subs = [s['name'] for s in soma['submodules']]
     records, rows = _real_load(tmp_path, lib, [_rec('soma', *SOMA)])
-    assert [r['name'] for r in records] == [f'soma_{s}' for s in subs]
+    assert [r['name'] for r in records] == [f'soma__{s}' for s in subs]
     values = _values(rows)
 
     own = {rename_default_parameter(name, 'soma', subs): value for name, value in
@@ -447,13 +447,13 @@ def test_a_supermodule_s_parameterisation_beats_its_submodules(tmp_path, real_li
 
     overridden = 0
     for sub in soma['submodules']:
-        key = (sub['vessel_type'], sub['BC_type'])
+        key = (sub['module_type'], sub['module_subtype'])
         globals_ = global_constants(_entry(lib, key))
         instance = sub.get('parameterisation') or _entry(lib, key).get('default_parameterisation')
         for name, value in _parameterisation_values(lib, key, instance).items():
             if name in globals_:
                 continue
-            model_name = f'{name}_soma_{sub["name"]}'
+            model_name = f'{name}_soma__{sub["name"]}'
             if model_name in own:
                 overridden += 1          # the supermodule's instance wins
                 assert values[model_name] == own[model_name]
@@ -469,10 +469,10 @@ def test_a_nested_supermodule_s_parameterisation_is_renamed_through_the_nesting(
     subs = [s['name'] for s in soma['submodules']]
     neuron = lib.supermodules[NEURON]
     soma_path = next(s['name'] for s in neuron['submodules']
-                     if (s['vessel_type'], s['BC_type']) == SOMA)
+                     if (s['module_type'], s['module_subtype']) == SOMA)
     records, rows = _real_load(tmp_path, lib, [_rec('neuron', *NEURON)])
     names = [r['name'] for r in records]
-    assert f'neuron_{soma_path}_{subs[0]}' in names
+    assert f'neuron__{soma_path}__{subs[0]}' in names
     values = _values(rows)
     neuron_own = {rename_default_parameter(n, 'neuron', [s['name'] for s in neuron['submodules']])
                   for n in _parameterisation_values(lib, NEURON, neuron['default_parameterisation'])}
@@ -481,7 +481,7 @@ def test_a_nested_supermodule_s_parameterisation_is_renamed_through_the_nesting(
         renamed = rename_default_parameter(name, 'soma', subs)
         if renamed == name:
             continue                     # a global
-        nested = rename_default_parameter(name, f'neuron_{soma_path}', subs)
+        nested = rename_default_parameter(name, f'neuron__{soma_path}', subs)
         if nested in neuron_own:
             continue                     # the outer supermodule sets it
         assert values[nested] == value, nested
@@ -494,15 +494,15 @@ def test_supermodule_parameterisation_beats_its_default_parameters_which_beat_su
         tmp_path, library):
     # synthetic: no real supermodule has legacy default_parameters
     records, rows = _load(tmp_path, library, _pair_host())
-    assert [r['name'] for r in records] == ['pr_a', 'pr_b', 'coll']
+    assert [r['name'] for r in records] == ['pr__a', 'pr__b', 'coll']
     assert _values(rows) == {
         # the supermodule's default instance "base"
-        'amp_pr_a': ('0.9', 'base_ref'), 'omega': ('5.0', 'base_ref'),
+        'amp_pr__a': ('0.9', 'base_ref'), 'omega': ('5.0', 'base_ref'),
         # its default_parameters, where base does not set the name
-        'mean_pr_b': ('3e-05', 'pair_defaults'),
+        'mean_pr__b': ('3e-05', 'pair_defaults'),
         # submodule a's own instance "other", then b's default instance
-        'mean_pr_a': ('2e-05', 'other_ref'),
-        'amp_pr_b': ('0.5', 'default_ref'),
+        'mean_pr__a': ('2e-05', 'other_ref'),
+        'amp_pr__b': ('0.5', 'default_ref'),
     }
 
 
@@ -512,9 +512,9 @@ def test_a_named_supermodule_parameterisation_replaces_its_default(tmp_path, lib
     # default_parameters too
     _, rows = _load(tmp_path, library, _pair_host(parameterisation='alt'))
     assert _values(rows) == {
-        'amp_pr_b': ('0.1', 'alt_ref'),
-        'amp_pr_a': ('0.77', 'pair_defaults'), 'mean_pr_b': ('3e-05', 'pair_defaults'),
-        'mean_pr_a': ('2e-05', 'other_ref'), 'omega': ('4.0', 'other_ref'),
+        'amp_pr__b': ('0.1', 'alt_ref'),
+        'amp_pr__a': ('0.77', 'pair_defaults'), 'mean_pr__b': ('3e-05', 'pair_defaults'),
+        'mean_pr__a': ('2e-05', 'other_ref'), 'omega': ('4.0', 'other_ref'),
     }
 
 
@@ -541,7 +541,7 @@ def test_an_unknown_submodule_parameterisation_is_an_error(tmp_path, real_librar
     files = lib.files + [str(config)]
     path = str(tmp_path / 'm_module_array.json')
     _write_json(path, [_rec('pr', 'probe', 'v1')])
-    with pytest.raises(ValueError, match=r'"pr_m".*unknown parameterisation "nope"'):
+    with pytest.raises(ValueError, match=r'"pr__m".*unknown parameterisation "nope"'):
         load_expanded_vessel_records(path, load_supermodule_registry(files),
                                      load_component_registry(files))
 
@@ -771,7 +771,7 @@ def test_the_new_layout_loads_the_same_parameters_as_the_old_one(tmp_path, libra
     # a named parameterisation (s1: other), the default (s2), and a supermodule's named one
     assert reference[1]['mean_s1'] == ('2e-05', 'other_ref')
     assert reference[1]['mean_s2'] == ('1e-05', 'default_ref')
-    assert reference[1]['amp_pr_b'] == ('0.1', 'alt_ref')
+    assert reference[1]['amp_pr__b'] == ('0.1', 'alt_ref')
     assert reference[0][:2] == ['other', None] and reference[0][2:4] == ['other', None]
     for key, value in found.items():
         assert value == reference, key
@@ -923,11 +923,11 @@ def test_resources_models_generate_identically_without_the_parameterisation_look
 def test_appended_vessel_rows_fill_extra_columns():
     import pandas as pd
     from libcuflynx.parsers.ModelParsers import _append_vessel_row
-    df = pd.DataFrame(columns=['name', 'BC_type', 'vessel_type', 'inp_vessels', 'out_vessels', 'instance'])
+    df = pd.DataFrame(columns=['name', 'module_subtype', 'module_type', 'inp_instances', 'out_instances', 'instance'])
     _append_vessel_row(df, 'par', 'vp', 'arterial_simple', ['heart'], ['pvn'])
     assert list(df.loc[0]) == ['par', 'vp', 'arterial_simple', ['heart'], ['pvn'], '']
     # a frame with the columns in another order still gets each value in its column
-    df2 = pd.DataFrame(columns=['instance', 'name', 'BC_type', 'vessel_type', 'inp_vessels', 'out_vessels'])
+    df2 = pd.DataFrame(columns=['instance', 'name', 'module_subtype', 'module_type', 'inp_instances', 'out_instances'])
     _append_vessel_row(df2, 'volume_sum_1D', 'nn', 'FV1D_volume_sum', '', 'total')
     assert df2.loc[0, 'name'] == 'volume_sum_1D' and df2.loc[0, 'instance'] == ''
 
@@ -970,7 +970,7 @@ def test_an_empty_optional_csv_cell_is_not_set(tmp_path):
     than giving an invalid empty name.'''
     from libcuflynx.utilities.config_schemas import read_module_array_records
     p = tmp_path / 'm_module_array.csv'
-    p.write_text('name,BC_type,vessel_type,inp_vessels,out_vessels,parameterisation\n'
+    p.write_text('name,module_subtype,module_type,inp_instances,out_instances,parameterisation\n'
                  'a,nn,pulse_src,,b,other\n'
                  'b,nn,volume_sum,a,,\n')
     recs = read_module_array_records(str(p))

@@ -1,10 +1,10 @@
 [
       {
-        "vessel_type":"P_inlet",
-        "BC_type":"nn",
+        "module_type":"P_inlet",
+        "module_subtype":"nn",
         "module_format":"cellml",
-        "module_file":"phlynx_test_modules.cellml",
-        "module_type":"constant_pressure_BC_type_dale",
+        "component_file":"phlynx_test_modules.cellml",
+        "component_type":"constant_pressure_BC_type_dale",
         "entrance_ports":
         [
         ],
@@ -24,11 +24,11 @@
       },
 
       {
-        "vessel_type":"Q_inlet",
-        "BC_type":"nn",
+        "module_type":"Q_inlet",
+        "module_subtype":"nn",
         "module_format":"cellml",
-        "module_file":"phlynx_test_modules.cellml",
-        "module_type":"constant_flow_BC_type_dale",
+        "component_file":"phlynx_test_modules.cellml",
+        "component_type":"constant_flow_BC_type_dale",
         "entrance_ports":
         [
         ],
@@ -47,11 +47,11 @@
       },
   
       {
-        "vessel_type":"artery_Minlet",
-        "BC_type":"pv",
+        "module_type":"artery_Minlet",
+        "module_subtype":"pv",
         "module_format":"cellml",
-        "module_file":"phlynx_test_modules.cellml",
-        "module_type":"pv_Minlet_type_dale",
+        "component_file":"phlynx_test_modules.cellml",
+        "component_type":"pv_Minlet_type_dale",
         "entrance_ports":
         [
           {
@@ -100,11 +100,11 @@
       },
 
       {
-        "vessel_type":"arteriole_Nout",
-        "BC_type":"pv",
+        "module_type":"arteriole_Nout",
+        "module_subtype":"pv",
         "module_format":"cellml",
-        "module_file":"phlynx_test_modules.cellml",
-        "module_type":"pv_Nout_type_dale",
+        "component_file":"phlynx_test_modules.cellml",
+        "component_type":"pv_Nout_type_dale",
         "entrance_ports":
         [
           {
@@ -153,11 +153,11 @@
       },
 
       {
-        "vessel_type":"capillary",
-        "BC_type":"pp_test",
+        "module_type":"capillary",
+        "module_subtype":"pp_test",
         "module_format":"cellml",
-        "module_file":"phlynx_test_modules.cellml",
-        "module_type":"pp_capillary_type_dale",
+        "component_file":"phlynx_test_modules.cellml",
+        "component_type":"pp_capillary_type_dale",
         "entrance_ports":
         [
           {
@@ -214,11 +214,11 @@
       },
 
       {
-        "vessel_type":"capillary",
-        "BC_type":"vp_test",
+        "module_type":"capillary",
+        "module_subtype":"vp_test",
         "module_format":"cellml",
-        "module_file":"phlynx_test_modules.cellml",
-        "module_type":"vp_capillary_type_dale",
+        "component_file":"phlynx_test_modules.cellml",
+        "component_type":"vp_capillary_type_dale",
         "entrance_ports":
         [
           {
@@ -274,11 +274,11 @@
       },
 
       {
-        "vessel_type":"venule_Min",
-        "BC_type":"vp",
+        "module_type":"venule_Min",
+        "module_subtype":"vp",
         "module_format":"cellml",
-        "module_file":"phlynx_test_modules.cellml",
-        "module_type":"vp_Min_type_dale",
+        "component_file":"phlynx_test_modules.cellml",
+        "component_type":"vp_Min_type_dale",
         "entrance_ports":
         [
           {
@@ -322,11 +322,11 @@
       },
       
       {
-        "vessel_type":"vein_Noutlet",
-        "BC_type":"vp",
+        "module_type":"vein_Noutlet",
+        "module_subtype":"vp",
         "module_format":"cellml",
-        "module_file":"phlynx_test_modules.cellml",
-        "module_type":"vp_Noutlet_type_dale",
+        "component_file":"phlynx_test_modules.cellml",
+        "component_type":"vp_Noutlet_type_dale",
         "entrance_ports":
         [
           {
@@ -370,11 +370,11 @@
       },
 
       {
-        "vessel_type":"P_outlet",
-        "BC_type":"nn",
+        "module_type":"P_outlet",
+        "module_subtype":"nn",
         "module_format":"cellml",
-        "module_file":"phlynx_test_modules.cellml",
-        "module_type":"constant_pressure_BC_type_dale",
+        "component_file":"phlynx_test_modules.cellml",
+        "component_type":"constant_pressure_BC_type_dale",
         "entrance_ports":
         [
           {
@@ -394,11 +394,11 @@
       },
 
       {
-        "vessel_type":"Q_outlet",
-        "BC_type":"nn",
+        "module_type":"Q_outlet",
+        "module_subtype":"nn",
         "module_format":"cellml",
-        "module_file":"boundary_condition_modules.cellml",
-        "module_type":"constant_flow_BC_type_dale",
+        "component_file":"boundary_condition_modules.cellml",
+        "component_type":"constant_flow_BC_type_dale",
         "entrance_ports":
         [
           {

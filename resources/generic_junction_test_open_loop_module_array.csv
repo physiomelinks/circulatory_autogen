@@ -1,4 +1,4 @@
-name,BC_type,vessel_type,inp_vessels,out_vessels
+name,module_subtype,module_type,inp_instances,out_instances
 input_flow_aorticroot,nn_adan_2,inlet_flow, ,aortic_arch_I
 aortic_arch_I,vv_nonlinear_visco,Nout_junction,input_flow_aorticroot,brachiocephalic_trunk aortic_arch_II K_tube_aortic_arch_I
 brachiocephalic_trunk,pv_nonlinear_visco,Nout_junction,aortic_arch_I,subclavian_R_I common_carotid_R K_tube_brachiocephalic_trunk

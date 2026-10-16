@@ -97,11 +97,11 @@ def create_unit_conversion_test_files(temp_model_dir):
     with open(modules_config, 'w') as f:  
         json.dump([  
                     {  
-                        "vessel_type": "test_type1",  
-                        "BC_type": "test",  
+                        "module_type": "test_type1",  
+                        "module_subtype": "test",  
                         "module_format": "cellml",  
-                        "module_file": "test_modules.cellml",  
-                        "module_type": "test_type1_type",  
+                        "component_file": "test_modules.cellml",  
+                        "component_type": "test_type1_type",  
                         "entrance_ports": [],  
                         "exit_ports": [  
                         {  
@@ -116,11 +116,11 @@ def create_unit_conversion_test_files(temp_model_dir):
                         ]  
                     },  
                     {  
-                        "vessel_type": "test_type2",  
-                        "BC_type": "test",  
+                        "module_type": "test_type2",  
+                        "module_subtype": "test",  
                         "module_format": "cellml",  
-                        "module_file": "test_modules.cellml",  
-                        "module_type": "test_type2_type",  
+                        "component_file": "test_modules.cellml",  
+                        "component_type": "test_type2_type",  
                         "entrance_ports": [  
                         {  
                             "port_type": "vessel_port",  
@@ -145,7 +145,7 @@ def create_unit_conversion_test_files(temp_model_dir):
     # Create module_array.csv  
     module_array_file = os.path.join(resources_dir, 'unit_test_module_array.csv')  
     with open(module_array_file, 'w') as f:  
-        f.write("""name,BC_type,vessel_type,inp_vessels,out_vessels  
+        f.write("""name,module_subtype,module_type,inp_instances,out_instances  
 vessel1,test,test_type1,,vessel2  
 vessel2,test,test_type2,vessel1,  
 """)  

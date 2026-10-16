@@ -1,7 +1,7 @@
 """JSON module arrays, CSV read through the same records, and supermodules.
 
-A module array may be ``<prefix>_module_array.json`` -- a list of records in PhLynx keys
-(``name, module_type, module_subtype, inp_instances, out_instances``) or libcuflynx keys
+A module array may be ``<prefix>_module_array.json`` -- a list of records in the current keys
+(``name, module_type, module_subtype, inp_instances, out_instances``) or the older libcuflynx keys
 (``name, vessel_type, BC_type, inp_vessels, out_vessels``) -- and a CSV array is read by
 converting each row to the same record (utilities/config_schemas.py).
 
@@ -54,6 +54,7 @@ def _rec(name, module_type, inp=(), out=(), subtype='nn', **extra):
 
 
 def _to_libcuflynx(record):
+    """The record in the older libcuflynx keys."""
     keys = {'module_type': 'vessel_type', 'module_subtype': 'BC_type',
             'inp_instances': 'inp_vessels', 'out_instances': 'out_vessels'}
     return {keys.get(k, k): v for k, v in record.items()}
@@ -72,7 +73,7 @@ FLOWPAIR_DEFAULTS = [  # (variable_name, units, value)
 ]
 # "inner": a gain feeding a reader, internally; "outer" nests an "inner" next to a collector
 INNER = {
-    'vessel_type': 'inner', 'BC_type': 'supermodule', 'module_format': 'supermodule',
+    'module_type': 'inner', 'module_subtype': 'supermodule', 'module_format': 'supermodule',
     'submodules': [_rec('g', 'gain', out=['rd']), _rec('rd', 'reader', inp=['g'])],
 }
 OUTER = {
@@ -116,7 +117,7 @@ def registry(super_library_dir):
 
 def _write_csv(path, records):
     with open(path, 'w') as f:
-        f.write('name,BC_type,vessel_type,inp_vessels,out_vessels\n')
+        f.write('name,module_subtype,module_type,inp_instances,out_instances\n')
         for r in records:
             f.write(f"{r['name']},{r['module_subtype']},{r['module_type']},"
                     f"{' '.join(r['inp_instances'])},{' '.join(r['out_instances'])}\n")
@@ -164,7 +165,7 @@ def _generate(work_dir, modules_dir, prefix, records, params, fmt='json', data_r
 
 
 def _full_records():
-    return [_rec(name, vessel_type, inp, out) for name, vessel_type, inp, out in FULL_ROWS]
+    return [_rec(name, module_type, inp, out) for name, module_type, inp, out in FULL_ROWS]
 
 
 def _generated_parameters(cellml_path):
@@ -184,7 +185,7 @@ def read_records(records):
 
 
 def _links(records):
-    return {r['name']: (r['inp_vessels'], r['out_vessels']) for r in records}
+    return {r['name']: (r['inp_instances'], r['out_instances']) for r in records}
 
 
 # the host model the flowpair instance sits in: two sources feed its collector, its gain
@@ -200,23 +201,37 @@ def _flowpair_host(instance='pair', per_inputs=None, per_outputs=None):
     ]
 
 
-def _flowpair_flattened(instance='pair'):
+def _flowpair_flattened(instance='pair', join='__'):
+    """The flowpair host expanded by hand. With join='_' it is an array that can be generated
+    (a name may not contain '__'); compare it with _assert_same_up_to_level_joins."""
+    coll, g = f'{instance}{join}coll', f'{instance}{join}g'
     return [
-        _rec('src_a', 'flow_src', out=[f'{instance}_coll']),
-        _rec('src_b', 'flow_src', out=[f'{instance}_coll']),
-        _rec(f'{instance}_coll', 'collector', inp=['src_a', 'src_b']),
-        _rec(f'{instance}_g', 'gain', out=['rd']),
-        _rec('rd', 'reader', inp=[f'{instance}_g']),
+        _rec('src_a', 'flow_src', out=[coll]),
+        _rec('src_b', 'flow_src', out=[coll]),
+        _rec(coll, 'collector', inp=['src_a', 'src_b']),
+        _rec(g, 'gain', out=['rd']),
+        _rec('rd', 'reader', inp=[g]),
     ]
+
+
+def _assert_same_up_to_level_joins(flattened, expanded):
+    """The expanded model's files, with its '__' level joins written '_', are the files of
+    the model generated from the same array flattened by hand with '_' joins."""
+    dir_a, dir_b = os.path.dirname(flattened), os.path.dirname(expanded)
+    names = sorted(f for f in os.listdir(dir_a) if os.path.isfile(os.path.join(dir_a, f)))
+    assert names == sorted(f for f in os.listdir(dir_b) if os.path.isfile(os.path.join(dir_b, f)))
+    for name in names:
+        with open(os.path.join(dir_a, name), 'rb') as fa, open(os.path.join(dir_b, name), 'rb') as fb:
+            assert fa.read() == fb.read().replace(b'__', b'_'), name
 
 
 HOST_PARAMS = (_prescribed_params('src_a', 1.0e-5, 0.5, 6.0) +
                _prescribed_params('src_b', 2.0e-5, 0.3, 4.0))
 
 
-def _flowpair_defaults(instance):
-    return [(name.replace('_g', f'_{instance}_g') if name.endswith('_g') else name, units, value,
-             'flowpair_default') for name, units, value in FLOWPAIR_DEFAULTS]
+def _flowpair_defaults(instance, join='_'):
+    return [(name.replace('_g', f'_{instance}{join}g') if name.endswith('_g') else name, units,
+             value, 'flowpair_default') for name, units, value in FLOWPAIR_DEFAULTS]
 
 
 # --------------------------------------------------------------------------------------------
@@ -244,28 +259,28 @@ def test_json_and_csv_give_the_same_frame(tmp_path):
         frames[fmt] = load_module_array(_write_array(str(directory), 'm', records, fmt))[0]
     for fmt in ('json', 'json_libcuflynx'):
         assert frames[fmt].equals(frames['csv'])
-    assert list(frames['csv'].columns) == ['name', 'BC_type', 'vessel_type', 'inp_vessels',
-                                           'out_vessels']
-    assert frames['csv'].iloc[2].tolist() == ['coll', 'nn', 'collector', ['src_a', 'src_b'], []]
+    assert list(frames['csv'].columns) == ['name', 'module_type', 'module_subtype', 'inp_instances',
+                                           'out_instances']
+    assert frames['csv'].iloc[2].tolist() == ['coll', 'collector', 'nn', ['src_a', 'src_b'], []]
 
 
 @pytest.mark.unit
 def test_space_separated_lists_are_accepted_in_json(tmp_path):
     path = tmp_path / 'm_module_array.json'
     path.write_text(json.dumps([_rec('a', 'flow_src', out=['b c'])]))
-    assert read_module_array_records(str(path))[0]['out_vessels'] == ['b', 'c']
+    assert read_module_array_records(str(path))[0]['out_instances'] == ['b', 'c']
     path.write_text(json.dumps([{'name': 'a', 'module_type': 'x', 'module_subtype': 'nn',
                                  'out_instances': 'b  c'}]))
     record = read_module_array_records(str(path))[0]
-    assert record['out_vessels'] == ['b', 'c'] and record['inp_vessels'] == []
+    assert record['out_instances'] == ['b', 'c'] and record['inp_instances'] == []
 
 
 @pytest.mark.unit
 @pytest.mark.parametrize('record, message', [
     ({'name': 'a', 'module_type': 'x', 'module_subtype': 'nn', 'out_vessels': []},
-     r'record 1 \("a"\) mixes libcuflynx keys \[\'out_vessels\'\] and PhLynx keys'),
+     r'record 1 \("a"\) mixes the older keys \[\'out_vessels\'\] and the current keys'),
     ({'name': 'a', 'vessel_type': 'x', 'BC_type': 'nn', 'module_subtype': 'nn'},
-     'mixes libcuflynx keys'),
+     'mixes the older keys'),
     ({'name': 'a', 'module_type': 'x'}, r'record 1 \("a"\): "module_subtype" is required'),
     ({'module_type': 'x', 'module_subtype': 'nn'}, r'record 1: "name" is required'),
     ({'name': 'a', 'module_type': 'x', 'module_subtype': 'nn', 'inp_instances': [1]},
@@ -355,23 +370,23 @@ def test_supermodule_entries_are_normalised_and_kept_out_of_the_module_dataframe
         super_library_dir, registry):
     from libcuflynx.parsers.PrimitiveParsers import JSONFileParser
     entry = normalise_module_config_entry(FLOWPAIR)
-    assert (entry['vessel_type'], entry['BC_type']) == ('flowpair', 'supermodule')
-    assert entry['submodules'][0]['vessel_type'] == 'collector'
-    assert normalise_module_config_entry(INNER)['vessel_type'] == 'inner'
+    assert (entry['module_type'], entry['module_subtype']) == ('flowpair', 'supermodule')
+    assert entry['submodules'][0]['module_type'] == 'collector'
+    assert normalise_module_config_entry(INNER)['module_type'] == 'inner'
     assert set(registry) == {('flowpair', 'supermodule'), ('inner', 'supermodule'),
                              ('outer', 'supermodule'), ('loop_a', 'supermodule'),
                              ('loop_b', 'supermodule')}
     frame = JSONFileParser().json_files_to_dataframe(
         [os.path.join(super_library_dir, f) for f in ('super_modules_config.json',
                                                       'schema_test_modules_config.json')])
-    assert 'flowpair' not in set(frame['vessel_type'])
+    assert 'flowpair' not in set(frame['module_type'])
     assert 'submodules' not in frame.columns
 
 
 @pytest.mark.unit
 @pytest.mark.parametrize('entry, message', [
     (dict(FLOWPAIR, component_file='x.cellml'), 'has "component_file"'),
-    (dict(FLOWPAIR, BC_type='supermodule'), 'mixes the libcuflynx keys'),
+    (dict(FLOWPAIR, BC_type='supermodule'), 'mixes the older keys'),
     (dict(FLOWPAIR, submodules=[]), 'needs "submodules"'),
     (dict(FLOWPAIR, submodules=[_rec('a', 'gain', out=['nowhere'])]), 'not submodules of this'),
     (dict(FLOWPAIR, submodules=[_rec('a', 'gain'), _rec('a', 'reader')]), 'repeated'),
@@ -384,8 +399,8 @@ def test_bad_supermodule_entries(entry, message):
 @pytest.mark.unit
 def test_expansion_prefixes_and_links_hosts(registry):
     expanded, _ = _expand(_flowpair_host(), registry)
-    assert [r['name'] for r in expanded] == ['src_a', 'src_b', 'pair_coll', 'pair_g', 'rd']
-    flattened = read_records(_flowpair_flattened())
+    assert [r['name'] for r in expanded] == ['src_a', 'src_b', 'pair__coll', 'pair__g', 'rd']
+    flattened = _flowpair_flattened()
     assert _links(expanded) == _links(flattened)
     assert vessel_records_to_frame(expanded).equals(vessel_records_to_frame(flattened))
 
@@ -406,11 +421,11 @@ def test_host_order_is_kept_and_hosts_are_prepended_and_appended(registry):
     ]
     links = _links(_expand(host, config)[0])
     # the instance name is replaced in place, in per_submodule_inputs order
-    assert links['h1'][1] == ['x', 'pair_g', 'pair_coll', 'y']
-    assert links['h2'][0] == ['a', 'pair_g', 'b']
+    assert links['h1'][1] == ['x', 'pair__g', 'pair__coll', 'y']
+    assert links['h2'][0] == ['a', 'pair__g', 'b']
     # hosts come before the internal inputs, and after the internal outputs
-    assert links['pair_coll'] == (['h1', 'pair_g'], [])
-    assert links['pair_g'] == (['h1'], ['pair_coll', 'h2'])
+    assert links['pair__coll'] == (['h1', 'pair__g'], [])
+    assert links['pair__g'] == (['h1'], ['pair__coll', 'h2'])
 
 
 @pytest.mark.unit
@@ -426,26 +441,26 @@ def test_per_submodule_as_a_dict_equals_a_list_of_dicts(registry):
 def test_supermodule_generates_the_same_model_as_the_flattened_array_and_runs(
         tmp_path, super_library_dir):
     params = HOST_PARAMS + _flowpair_defaults('pair')
-    flattened = _generate(tmp_path / 'flat', super_library_dir, 'jv_pair', _flowpair_flattened(),
-                          params)
+    flattened = _generate(tmp_path / 'flat', super_library_dir, 'jv_pair',
+                          _flowpair_flattened(join='_'), params)
     # the supermodule's default parameters stand in for the flattened model's gain parameters
     expanded = _generate(tmp_path / 'super', super_library_dir, 'jv_pair', _flowpair_host(),
                          HOST_PARAMS)
-    _assert_same_generated_models(flattened, expanded)
-    results = _simulate(expanded, ['pair_coll/v_seen', 'rd/v_seen'])
-    assert results['pair_coll/v_seen'].size > 0 and results['rd/v_seen'].size > 0
+    _assert_same_up_to_level_joins(flattened, expanded)
+    results = _simulate(expanded, ['pair__coll/v_seen', 'rd/v_seen'])
+    assert results['pair__coll/v_seen'].size > 0 and results['rd/v_seen'].size > 0
 
 
 @pytest.mark.integration
 def test_default_parameters_apply_and_host_values_override_them(tmp_path, super_library_dir):
-    host = HOST_PARAMS + [('mean_pair_g', 'm3_per_s', '9e-06', 'host_value')]
+    host = HOST_PARAMS + [('mean_pair__g', 'm3_per_s', '9e-06', 'host_value')]
     params = _generated_parameters(_generate(tmp_path, super_library_dir, 'jv_defaults',
                                              _flowpair_host(), host))
-    assert (params['mean_pair_g']['value'], params['mean_pair_g']['data_reference']) == \
+    assert (params['mean_pair__g']['value'], params['mean_pair__g']['data_reference']) == \
         ('9e-06', 'host_value')
-    assert (params['amp_pair_g']['value'], params['amp_pair_g']['data_reference']) == \
+    assert (params['amp_pair__g']['value'], params['amp_pair__g']['data_reference']) == \
         ('0.25', 'flowpair_default')
-    assert params['omega_pair_g']['value'] == '3.0'
+    assert params['omega_pair__g']['value'] == '3.0'
 
 
 @pytest.mark.unit
@@ -456,9 +471,9 @@ def test_default_parameters_are_renamed_and_globals_added_once(registry):
     ]
     _, rows = _expand(host, registry)
     names = [row['variable_name'] for row in rows]
-    assert names == ['mean_p1_g', 'amp_p1_g', 'omega_p1_g', 'some_global',
-                     'mean_p2_g', 'amp_p2_g', 'omega_p2_g']
-    assert rows[0] == {'variable_name': 'mean_p1_g', 'units': 'm3_per_s', 'value': '1.5e-05',
+    assert names == ['mean_p1__g', 'amp_p1__g', 'omega_p1__g', 'some_global',
+                     'mean_p2__g', 'amp_p2__g', 'omega_p2__g']
+    assert rows[0] == {'variable_name': 'mean_p1__g', 'units': 'm3_per_s', 'value': '1.5e-05',
                        'data_reference': 'flowpair_default'}
 
 
@@ -466,8 +481,8 @@ def test_default_parameters_are_renamed_and_globals_added_once(registry):
 def test_default_parameter_suffixes_match_the_longest_submodule_name():
     from libcuflynx.utilities.supermodules import rename_default_parameter
     subs = ['v', 'lv', 'a_lv']
-    assert rename_default_parameter('E_lv', 'heart', subs) == 'E_heart_lv'
-    assert rename_default_parameter('E_a_lv', 'heart', subs) == 'E_heart_a_lv'
+    assert rename_default_parameter('E_lv', 'heart', subs) == 'E_heart__lv'
+    assert rename_default_parameter('E_a_lv', 'heart', subs) == 'E_heart__a_lv'
     assert rename_default_parameter('T', 'heart', subs) == 'T'
     assert rename_default_parameter('lv', 'heart', subs) == 'lv'
 
@@ -502,8 +517,6 @@ def test_merge_default_parameters_keeps_host_rows():
     # a host that does not exist
     (lambda h: h[2]['per_submodule_outputs'].update(coll=['ghost']),
      r'names host "ghost", which is not in the module array'),
-    # an expanded name that clashes with an existing record
-    (lambda h: h.append(_rec('pair_g', 'reader')), r"gives the names \['pair_g'\], which are"),
     # an unknown supermodule type
     (lambda h: h[2].update(module_type='nosuch'),
      r'"pair" is a supermodule instance of type \(nosuch, supermodule\), but no supermodule'),
@@ -523,10 +536,10 @@ def test_nested_supermodules_expand_recursively(registry):
     host = [_rec('o', 'outer', subtype='supermodule')]
     expanded, _ = _expand(host, registry)
     assert _links(expanded) == {
-        'o_src': ([], ['o_coll']),
-        'o_coll': (['o_src'], []),
-        'o_in_g': ([], ['o_in_rd']),
-        'o_in_rd': (['o_in_g'], []),
+        'o__src': ([], ['o__coll']),
+        'o__coll': (['o__src'], []),
+        'o__in__g': ([], ['o__in__rd']),
+        'o__in__rd': (['o__in__g'], []),
     }
 
 
@@ -538,8 +551,8 @@ def test_nested_supermodule_links_through_its_own_per_submodule(registry):
         _rec('in', 'inner', subtype='supermodule', per_submodule_inputs={'rd': ['src']}),
     ])
     links = _links(_expand([_rec('o', 'outer', subtype='supermodule')], config)[0])
-    assert links['o_src'] == ([], ['o_in_rd'])
-    assert links['o_in_rd'] == (['o_src', 'o_in_g'], [])
+    assert links['o__src'] == ([], ['o__in__rd'])
+    assert links['o__in__rd'] == (['o__src', 'o__in__g'], [])
 
 
 @pytest.mark.integration
@@ -555,7 +568,7 @@ def test_nested_supermodule_generates_the_same_model_as_the_flattened_array(
     ], gain + src)
     nested = _generate(tmp_path / 'nested', super_library_dir, 'jv_nested',
                        [_rec('o', 'outer', subtype='supermodule')], gain + src)
-    _assert_same_generated_models(flattened, nested)
+    _assert_same_up_to_level_joins(flattened, nested)
 
 
 @pytest.mark.unit
@@ -573,10 +586,10 @@ def test_an_instance_named_heart_does_not_trigger_the_heart_special_cases(
     fire for a supermodule instance named 'heart', which is gone after expansion."""
     params = HOST_PARAMS + _flowpair_defaults('heart')
     flattened = _generate(tmp_path / 'flat', super_library_dir, 'jv_heart',
-                          _flowpair_flattened('heart'), params)
+                          _flowpair_flattened('heart', join='_'), params)
     expanded = _generate(tmp_path / 'super', super_library_dir, 'jv_heart',
                          _flowpair_host('heart'), HOST_PARAMS)
-    _assert_same_generated_models(flattened, expanded)
+    _assert_same_up_to_level_joins(flattened, expanded)
     with open(expanded) as f:
         text = f.read()
     assert 'name="par"' not in text and 'name="pvn"' not in text
@@ -596,7 +609,7 @@ def test_load_model_expands_before_the_heart_block(tmp_path, super_library_dir):
         'parameters_csv_abs_path': str(resources / 'm_parameters.csv'),
         'model_type': 'cellml', 'external_modules_dir': super_library_dir})
     model = parser.load_model()
-    assert list(model.vessels_df['name']) == ['src_a', 'src_b', 'heart_coll', 'heart_g', 'rd']
+    assert list(model.vessels_df['name']) == ['src_a', 'src_b', 'heart__coll', 'heart__g', 'rd']
 
 
 # --------------------------------------------------------------------------------------------
@@ -648,9 +661,9 @@ def test_every_resources_module_array_generates_identically_as_json(tmp_path, pr
 @pytest.mark.integration
 def test_a_heart_inside_a_supermodule_is_still_the_heart(tmp_path):
     """The generators found the monolithic heart by its name, "heart", which a heart inside a
-    supermodule (here "H_heart") cannot have: its ivc input was mapped to zero flow in a
+    supermodule (here "H__heart") cannot have: its ivc input was mapped to zero flow in a
     component "heart_module" that did not exist, and generation still reported success. It is
-    now found by its vessel_type, and simulates exactly as the plain model."""
+    now found by its module_type, and simulates exactly as the plain model."""
     library = tmp_path / 'lib'
     library.mkdir()
     with open(library / 'cardio_modules_config.json', 'w') as f:
@@ -669,23 +682,23 @@ def test_a_heart_inside_a_supermodule_is_still_the_heart(tmp_path):
     for record in plain:
         record = dict(record)
         if record['name'] == 'heart':
-            record.update(name='H', vessel_type='cardio', BC_type='supermodule',
-                          per_submodule_inputs={'heart': record['inp_vessels']},
-                          per_submodule_outputs={'heart': record['out_vessels']})
+            record.update(name='H', module_type='cardio', module_subtype='supermodule',
+                          per_submodule_inputs={'heart': record['inp_instances']},
+                          per_submodule_outputs={'heart': record['out_instances']})
         else:
-            record['inp_vessels'] = ['H' if n == 'heart' else n for n in record['inp_vessels']]
-            record['out_vessels'] = ['H' if n == 'heart' else n for n in record['out_vessels']]
+            record['inp_instances'] = ['H' if n == 'heart' else n for n in record['inp_instances']]
+            record['out_instances'] = ['H' if n == 'heart' else n for n in record['out_instances']]
         wrapped.append(record)
-    renamed = [(n[:-len('_heart')] + '_H_heart' if n.endswith('_heart') else n, u, v) for n, u, v in params]
+    renamed = [(n[:-len('_heart')] + '_H__heart' if n.endswith('_heart') else n, u, v) for n, u, v in params]
     model = _generate(tmp_path / 'wrapped', str(library), '3compartment', wrapped, renamed)
     with open(model) as f:
         text = f.read()
-    assert 'component_2="H_heart_module"' in text or 'component_1="H_heart_module"' in text
+    assert 'component_2="H__heart_module"' in text or 'component_1="H__heart_module"' in text
     assert '"heart_module"' not in text
     ref = _simulate(reference, ['aortic_root/u', 'heart/u_lv'], sim_time=1.0)
-    new = _simulate(model, ['aortic_root/u', 'H_heart/u_lv'], sim_time=1.0)
+    new = _simulate(model, ['aortic_root/u', 'H__heart/u_lv'], sim_time=1.0)
     assert np.allclose(ref['aortic_root/u'], new['aortic_root/u'], rtol=1e-6)
-    assert np.allclose(ref['heart/u_lv'], new['H_heart/u_lv'], rtol=1e-6)
+    assert np.allclose(ref['heart/u_lv'], new['H__heart/u_lv'], rtol=1e-6)
 
 
 @pytest.mark.unit
@@ -704,11 +717,11 @@ def test_convert_0d_to_1d_keeps_a_json_arrays_supermodule_links(tmp_path, regist
     raw = json.loads(hybrid.read_text())
     assert ('module_type' in raw[0]) == (style == 'phlynx')
     converted = {r['name']: r for r in read_module_array_records(str(hybrid))}
-    assert (converted['A']['vessel_type'], converted['A']['BC_type']) == ('FV1D_vessel', 'nn')
+    assert (converted['A']['module_type'], converted['A']['module_subtype']) == ('FV1D_vessel', 'nn')
     assert converted['pair']['per_submodule_inputs'] == {'coll': ['src_a', 'src_b']}
     assert converted['pair']['per_submodule_outputs'] == {'g': ['rd']}
     expanded, _ = expand_supermodules(list(converted.values()), registry, 'test')
-    assert 'pair_coll' in {r['name'] for r in expanded}
+    assert 'pair__coll' in {r['name'] for r in expanded}
 
 
 @pytest.mark.unit
@@ -723,7 +736,7 @@ def test_the_1d_generator_reads_the_merged_parameters(tmp_path):
     params = tmp_path / 'm_parameters.csv'
     params.write_text('variable_name,units,value,data_reference\nr_FV1D_0,metre,0.01,file\n')
     vessels = tmp_path / 'm_1d_module_array.csv'
-    vessels.write_text('name,BC_type,vessel_type,inp_vessels,out_vessels\nFV1D_0,nn,FV1D_vessel,,\n')
+    vessels.write_text('name,module_subtype,module_type,inp_instances,out_instances\nFV1D_0,nn,FV1D_vessel,,\n')
     merged = merge_default_parameters(
         CSVFileParser().get_data_as_nparray(str(params), True),
         [{'variable_name': 'l_FV1D_0', 'units': 'metre', 'value': '0.2', 'data_reference': 'default'}])
@@ -747,7 +760,7 @@ def test_default_parameters_reach_a_nested_supermodules_submodules(tmp_path, reg
     _, rows = _expand([_rec('o', 'outer', subtype='supermodule')],
                       {**registry, ('outer', 'supermodule'): outer})
     names = {r['variable_name'] for r in rows}
-    assert {'mean_o_in_g', 'mean_o_coll', 'some_global'} <= names
+    assert {'mean_o__in__g', 'mean_o__coll', 'some_global'} <= names
     assert 'mean_in_g' not in names
 
 
@@ -778,7 +791,8 @@ def test_a_bad_submodule_record_is_reported_in_its_module_config():
 
 
 def _component_entry(**port):
-    return {'vessel_type': 'v', 'BC_type': 'nn', 'module_file': 'v.cellml', 'module_type': 'v_type',
+    return {'module_type': 'v', 'module_subtype': 'nn', 'component_file': 'v.cellml',
+            'component_type': 'v_type',
             'entrance_ports': [dict({'port_type': 'p', 'variables': ['x']}, **port)],
             'exit_ports': [], 'variables_and_units': [['x', 'm', 'access', 'variable']]}
 
@@ -807,10 +821,10 @@ def test_multi_port_true_and_false_in_any_form(value, expected):
 
 
 @pytest.mark.unit
-def test_a_libcuflynx_component_entry_needs_its_cellml_file():
+def test_a_component_entry_needs_its_cellml_file():
     entry = _component_entry()
-    del entry['module_file']
-    with pytest.raises(ValueError, match=r"is missing \['module_file'\]"):
+    del entry['component_file']
+    with pytest.raises(ValueError, match=r"is missing \['component_file'\]"):
         normalise_module_config_entry(entry)
 
 
@@ -818,12 +832,12 @@ def test_a_libcuflynx_component_entry_needs_its_cellml_file():
 def test_a_null_connection_list_is_empty_in_the_code_and_the_schema(tmp_path):
     jsonschema = pytest.importorskip('jsonschema')
     from libcuflynx.schemas import MODULE_ARRAY_SCHEMA, load_schema
-    records = [{'name': 'a', 'vessel_type': 'x', 'BC_type': 'nn', 'inp_vessels': None, 'out_vessels': None}]
+    records = [{'name': 'a', 'module_type': 'x', 'module_subtype': 'nn', 'inp_instances': None, 'out_instances': None}]
     assert jsonschema.Draft202012Validator(load_schema(MODULE_ARRAY_SCHEMA)).is_valid(records)
     path = tmp_path / 'm_module_array.json'
     path.write_text(json.dumps(records))
     record = read_module_array_records(str(path))[0]
-    assert record['inp_vessels'] == [] and record['out_vessels'] == []
+    assert record['inp_instances'] == [] and record['out_instances'] == []
 
 
 def _two_flowpairs_in_a_row():
@@ -846,12 +860,12 @@ def test_two_supermodule_instances_link_to_each_other_in_either_order(registry, 
     records = _two_flowpairs_in_a_row()
     expanded, _ = _expand([records[i] for i in order], registry)
     links = _links(expanded)
-    assert links['src'][1] == ['S1_coll']
-    assert links['S1_coll'][0] == ['src']
-    assert links['S1_g'][1] == ['S2_coll']
-    assert links['S2_coll'][0] == ['S1_g']
-    assert links['S2_g'][1] == ['rd']
-    assert links['rd'][0] == ['S2_g']
+    assert links['src'][1] == ['S1__coll']
+    assert links['S1__coll'][0] == ['src']
+    assert links['S1__g'][1] == ['S2__coll']
+    assert links['S2__coll'][0] == ['S1__g']
+    assert links['S2__g'][1] == ['rd']
+    assert links['rd'][0] == ['S2__g']
 
 
 @pytest.mark.unit
@@ -870,15 +884,15 @@ def test_two_sibling_supermodule_instances_inside_a_supermodule_link(registry):
     expanded, _ = _expand([_rec('c', 'chain', subtype='supermodule')],
                           {**registry, ('chain', 'supermodule'): chain})
     links = _links(expanded)
-    assert links['c_p_g'][1] == ['c_q_coll']
-    assert links['c_q_coll'][0] == ['c_p_g']
-    assert links['c_q_g'][1] == ['c_rd']
+    assert links['c__p__g'][1] == ['c__q__coll']
+    assert links['c__q__coll'][0] == ['c__p__g']
+    assert links['c__q__g'][1] == ['c__rd']
 
 
 @pytest.mark.unit
 @pytest.mark.parametrize('record, message', [
-    ({"name": "a b", "vessel_type": "heart", "BC_type": "vp"}, '"name" \'a b\' contains whitespace'),
-    ({"name": "a", "vessel_type": "he art", "BC_type": "vp"}, '"vessel_type" \'he art\' contains whitespace'),
+    ({"name": "a b", "module_type": "heart", "module_subtype": "vp"}, '"name" \'a b\' contains whitespace'),
+    ({"name": "a", "module_type": "he art", "module_subtype": "vp"}, '"module_type" \'he art\' contains whitespace'),
     ({"name": "a", "module_type": "heart", "module_subtype": "v p"},
      '"module_subtype" \'v p\' contains whitespace'),
 ])
@@ -893,9 +907,9 @@ def test_a_name_with_whitespace_is_an_error(record, message):
 @pytest.mark.unit
 def test_a_space_separated_string_is_still_a_list_of_names():
     from libcuflynx.utilities.config_schemas import normalise_vessel_record
-    record = normalise_vessel_record({"name": "a", "vessel_type": "heart", "BC_type": "vp",
-                                      "inp_vessels": "b  c"})
-    assert record['inp_vessels'] == ['b', 'c']
+    record = normalise_vessel_record({"name": "a", "module_type": "heart", "module_subtype": "vp",
+                                      "inp_instances": "b  c"})
+    assert record['inp_instances'] == ['b', 'c']
 
 
 @pytest.mark.unit
@@ -903,9 +917,9 @@ def test_the_schema_rejects_a_name_with_whitespace():
     jsonschema = pytest.importorskip('jsonschema')
     from libcuflynx.schemas import MODULE_ARRAY_SCHEMA, load_schema
     validator = jsonschema.Draft202012Validator(load_schema(MODULE_ARRAY_SCHEMA))
-    assert not validator.is_valid([{"name": "a b", "vessel_type": "heart", "BC_type": "vp"}])
-    assert validator.is_valid([{"name": "a", "vessel_type": "heart", "BC_type": "vp",
-                                "inp_vessels": "b c"}])
+    assert not validator.is_valid([{"name": "a b", "module_type": "heart", "module_subtype": "vp"}])
+    assert validator.is_valid([{"name": "a", "module_type": "heart", "module_subtype": "vp",
+                                "inp_instances": "b c"}])
 
 
 @pytest.mark.integration

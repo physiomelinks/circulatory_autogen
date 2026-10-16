@@ -33,13 +33,13 @@ def test_json_reader_ignores_appledouble_sidecar(tmp_path):
     empty = tmp_path / 'empty'
     good.mkdir()
     empty.mkdir()
-    (good / 'module.json').write_text(json.dumps([{'vessel_type': 'x', 'BC_type': 'y',
-                                                   'module_file': 'x.cellml', 'module_type': 'x_type'}]))
+    (good / 'module.json').write_text(json.dumps([{'module_type': 'x', 'module_subtype': 'y',
+                                                   'component_file': 'x.cellml', 'component_type': 'x_type'}]))
     # An AppleDouble sidecar is binary; if it were read as JSON it would raise.
     (good / '._module.json').write_bytes(b'\x00\x05\x16\x07Mac OS X\x00binary junk')
 
     df = JSONFileParser().json_to_dataframe_with_user_dir(str(good), str(empty), None)
-    assert list(df['vessel_type']) == ['x']
+    assert list(df['module_type']) == ['x']
 
 
 # ---------------------------------------------------------------------------
@@ -122,18 +122,18 @@ def test_microvasculature_config_has_no_duplicate_input_flow_modules():
                          'microvasculature_network_module_config.json')
     with open(micro) as rf:
         entries = json.load(rf)
-    vessel_types = {e.get('vessel_type') for e in entries}
+    module_types = {e.get('module_type') for e in entries}
     # the duplicated input BC modules are gone (use the boundary_condition modules instead, #155)
-    assert 'P_inlet' not in vessel_types
-    assert 'Q_inlet' not in vessel_types
+    assert 'P_inlet' not in module_types
+    assert 'Q_inlet' not in module_types
 
     bc = os.path.join(root, 'src', 'libcuflynx', 'generators', 'resources',
                       'boundary_condition_modules_config.json')
     with open(bc) as rf:
         bc_entries = json.load(rf)
-    bc_module_types = {e.get('module_type') for e in bc_entries}
+    bc_component_types = {e.get('component_type') for e in bc_entries}
     # the canonical replacements still exist
-    assert {'constant_flow_BC_type', 'constant_pressure_BC_type'} <= bc_module_types
+    assert {'constant_flow_BC_type', 'constant_pressure_BC_type'} <= bc_component_types
 
 
 # ---------------------------------------------------------------------------

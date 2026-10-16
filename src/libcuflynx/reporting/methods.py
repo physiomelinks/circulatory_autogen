@@ -23,6 +23,7 @@ import tempfile
 from libcuflynx.reporting import flowchart
 from libcuflynx.reporting.bibliography import cite, cited_keys, module_bib_files, read_bib, write_bib
 from libcuflynx.reporting.latex_names import escape
+from libcuflynx.utilities.parameter_names import LEVEL_SEPARATOR, PARAMETER_COMPONENTS
 from libcuflynx.reporting.model_latex import (format_number, format_units, module_sections,
                                               parameter_sources_section)
 from libcuflynx.reporting.variable_mapping import (default_mapping_path, load_model,
@@ -113,24 +114,23 @@ class Symbols:
         vessel, sep, variable = str(name).partition('/')
         if not sep:
             return _tt(name)
-        canonical = f'{strip_module(self._vessel(vessel))}/{variable}'
-        latex = self.latex.get(canonical) or self.latex.get(f'parameters/{variable}_{vessel}')
+        from libcuflynx.parsers.PrimitiveParsers import model_qname_candidates
+        latex = self._first([f'{strip_module(self._vessel(vessel))}/{variable}']
+                            + model_qname_candidates(f'{vessel}/{variable}'))
         return _math(latex) if latex else _tt(name)
 
     def parameter(self, vessel, param):
-        from libcuflynx.parsers.PrimitiveParsers import param_name_for_gen
-        model_name = param_name_for_gen(self._vessel(vessel), param)
-        for key in (f'parameters/{model_name}', f'parameters_global/{model_name}'):
-            if key in self.latex:
-                return _math(self.latex[key])
-        return _tt(f'{vessel}/{param}')
+        from libcuflynx.parsers.PrimitiveParsers import model_qname_candidates
+        latex = self._first(model_qname_candidates(f'{self._vessel(vessel)}/{param}'))
+        return _math(latex) if latex else _tt(f'{vessel}/{param}')
 
     def model_name(self, name):
         '''A generated-model parameter name (``p_mod_A``).'''
-        for key in (f'parameters/{name}', f'parameters_global/{name}'):
-            if key in self.latex:
-                return _math(self.latex[key])
-        return _tt(name)
+        latex = self._first([f'{component}/{name}' for component in PARAMETER_COMPONENTS])
+        return _math(latex) if latex else _tt(name)
+
+    def _first(self, keys):
+        return next((self.latex[key] for key in keys if key in self.latex), None)
 
 
 # --------------------------------------------------------------------------------------------
@@ -726,23 +726,23 @@ def target_module_info(resolved):
     def walk(container, prefix):
         for sub in container.get('submodules', []):
             path = prefix + sub['name']
-            info[path] = {'module_type': sub['vessel_type'], 'version': sub['BC_type'],
+            info[path] = {'module_type': sub['module_type'], 'version': sub['module_subtype'],
                           'parameterisation': sub.get('parameterisation')}
-            nested = supermodules.get((sub['vessel_type'], sub['BC_type']))
+            nested = supermodules.get((sub['module_type'], sub['module_subtype']))
             if nested is not None:
-                walk(nested, path + '_')
+                walk(nested, path + LEVEL_SEPARATOR)
 
     target = resolved.target
     if target.kind == 'array':
         for record in target.records:
-            info[record['name']] = {'module_type': record['vessel_type'],
-                                    'version': record['BC_type'],
+            info[record['name']] = {'module_type': record['module_type'],
+                                    'version': record['module_subtype'],
                                     'parameterisation': record.get('parameterisation')}
-            nested = supermodules.get((record['vessel_type'], record['BC_type']))
+            nested = supermodules.get((record['module_type'], record['module_subtype']))
             if nested is not None:
-                walk(nested, record['name'] + '_')
+                walk(nested, record['name'] + LEVEL_SEPARATOR)
     elif target.entry.get('submodules'):
-        walk(target.entry, STEP_VESSEL + '_')
+        walk(target.entry, STEP_VESSEL + LEVEL_SEPARATOR)
     else:
         t = resolved.workflow.target
         info[STEP_VESSEL] = {'module_type': t.module_type, 'version': t.version,

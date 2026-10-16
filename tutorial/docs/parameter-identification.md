@@ -92,7 +92,7 @@ calibration have a change in value (e.g. change in drug concentration, change in
 
 - **pre_times**: The amount of simulation that is done before you want to compare to observables or plot (this part of the simulation is thrown away. This
 is mainly used to simulate for an amout of time to reach steady state or periodic state. shape = (number of experiments)
-- **offline_pre_time** (optional): A single scalar, in seconds. Before any experiment runs, the solver performs one **unlogged** warmup integration for this duration, then stores the end state as the default state used when `reset_states()` is called at the start of each experiment. Use this to separate a long steady-state or periodic warmup from the logged **pre_times** phase. Supported for `CVODE_myokit`, `casadi_python`, and `python` (`solve_ivp`) backends; not available for OpenCOR. Example: `offline_pre_time: 19.0` with `pre_times: [1.0]` gives 20 s of total warmup before the first logged segment, equivalent to `pre_times: [20.0]` without `offline_pre_time`.
+- **offline_pre_time** (optional): A single scalar, in seconds. Before any experiment runs, the solver performs one **unlogged** warmup integration for this duration, then stores the end state as the default state used when `reset_states()` is called at the start of each experiment. Use this to separate a long steady-state or periodic warmup from the logged **pre_times** phase. Calibration runs it once, before the first evaluation, and every evaluation starts from its end state. Supported by the `CVODE_myokit`, `CVODE_opencor`, `casadi_python`, `python` (`solve_ivp`) and `aadc_python` backends; an emulator ignores it (its training already covered the warmup) and an `external_python` model raises, because its `run()` always starts from the initial condition. A traced input (`protocol_traces` / `protocol_shapes`) is held at its value at the start of experiment 0 during this warmup. It cannot be combined with a calibration parameter that sets a state's initial value: the frozen state would not move with that parameter, so the run stops with `OFFLINE_PRE_TIME_INIT_STATE_ERROR` (reformulate in terms of a constant parameter, e.g. total volume rather than initial LV volume). Example: `offline_pre_time: 19.0` with `pre_times: [1.0]` gives 20 s of total warmup before the first logged segment, equivalent to `pre_times: [20.0]` without `offline_pre_time`.
 - **sim_times**: The length in time of each subexperiment. shape=(number of experiments, number of subexperiments) -- Note: the shape isn't completely correct here, the number of subexperiments can be different for each experiment
 - **params_to_change**: A dictionary where the key is a parameter name and the entry is the assigned value of that parameter in each (experiment_idx, subexperiment_idx).
 - **experiment_colors**: The line color for the plots of each experiment. 
@@ -576,6 +576,36 @@ prediction item* by its `data_item_name`, but not to a data_item. The operation 
 over the item's `(experiment_idx, subexperiment_idx)` segment, which by default is the
 experiment's last sub-experiment. That is the same segment the prediction data records and
 the validation uses.
+
+#### Plots across experiments (`prediction_plots`)
+
+A family of experiments, each summarised by one feature, is read as a curve: peak current
+against step potential (I–V), a feature against a dose. The optional top-level
+`prediction_plots` list draws one figure per entry:
+
+```json
+"prediction_plots": [
+  {"name": "Peak I_Na vs step potential", "kind": "feature_vs_input",
+   "x": {"params_to_change": "clamp/V_cmd", "subexperiment_idx": 1}, "y": "I_peak",
+   "series": null},
+  {"name": "Peak I_Na vs mean step", "kind": "feature_vs_feature", "x": "V_step", "y": "I_peak"}
+]
+```
+
+- A **group** is the data_items and prediction_items that share an `item_name_for_plotting`
+  (written, or its default). A group has at most one item per experiment, and each item is a
+  scalar feature.
+- A **point** is one experiment: y is the `y` group's item for it; x is the `x` group's item
+  for the same experiment (`feature_vs_feature`) or the number `params_to_change[key]` is set to
+  in that sub-experiment (`feature_vs_input`, which must be a number, not a trace).
+- `series` (an input reference, optional) draws one line per value of that input. Points are
+  sorted by x; an item's `value`/`std` is drawn as error bars.
+
+The structure is checked when the obs_data is read; a group that misses an experiment the
+other group has is an error, not a gap. `save_prediction_data` draws `<name>.png` in the output
+directory after a calibration, with a data_item's model value from the cost path; and
+`cuflynx-run-predictions` draws them without a calibration (a data_item there shows its data
+only).
 
 ## Running external cellml models
 

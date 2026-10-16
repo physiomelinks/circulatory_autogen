@@ -49,6 +49,82 @@ core dependency.
 - PhLynx main's CA-format files and value lists are tested against the readers and schemas
   (`tests/test_phlynx_consistency.py`, `PHLYNX_DIR`; CI checks PhLynx out).
 
+### Changed — `time` means the same on every backend (#557)
+
+- `get_results(['time'])` and `get_time()` are the cumulative time after the experiment's
+  warm-up, the axis of the executor's `t_by_exp`, in every sub-experiment. **With
+  `pre_time > 0` this changes what the `python`, `casadi_python`, `aadc_python`,
+  `external_python` and OpenCOR backends return**: they gave the raw solver clock
+  (warm-up included); OpenCOR's `get_time` restarted at 0 in each sub-experiment; Myokit was
+  `pre_time` too large after the first sub-experiment. A time-based operation (e.g.
+  `first_peak_time`) on those backends now reads the same times Myokit gives.
+
+### Fixed — traced inputs on Myokit (#556, #559)
+
+- A trace or shape of an experiment's first sub-experiment starts at that sub-experiment, not
+  at the start of the warm-up, and holds its first value through the warm-up.
+- Several inputs can follow traces in one sub-experiment: each is bound to its own Myokit label
+  (`pace`, `pace_1`, ...; a variable that already has a binding keeps it).
+- The offline warm-up (`offline_pre_time`) holds each traced input at its first value of
+  experiment 0, instead of 0.
+
+### Fixed — PhLynx's `instance_parameters` / `global_parameters` (#558)
+
+- Parameters PhLynx (v0.3.0 on) hoists into `instance_parameters` and `global_parameters` resolve,
+  in the solvers, in `model_qname_candidates`, the variable mapping, methods and the
+  calibrated-value writer. One list, `parameter_names.HOISTED_PARAMETER_CONVENTIONS`, holds the
+  conventions they all read.
+
+### Added — predictions without a calibration (#569)
+
+- `libcuflynx.protocol_runners.run_prediction_items(model, obs, dt, solver_info, ...)` runs an
+  obs_data's protocol and returns its prediction items as traces, scalar features, per-segment
+  results and validation; `predict_on` does the same on an executor you have.
+- `cuflynx-run-predictions MODEL OBS_DATA --dt ...` writes `traces.npz`, `features.csv`,
+  `validation_results.json` and the `prediction_plots` figures.
+- `ProtocolRunner.run_protocols` takes `result_variables` and `return_segments`; `model_path` is
+  optional. **Its join of sub-experiments pads a scalar result to its own segment**
+  (`int(sim_time/dt)+1` samples, as the solvers step); it used to pad sub-experiment 0 to the
+  whole experiment and use `round`, so the result could be longer than `t`.
+- `save_prediction_data` is built on `predict_on`; its files are unchanged.
+
+### Added — `prediction_plots` in obs_data (#568)
+
+- An optional top-level list of figures: a scalar feature against another feature or against
+  the number an input is set to, across experiments, optionally one line per value of a series
+  input. A group is the data_items and prediction_items sharing an `item_name_for_plotting`.
+  Drawn by `save_prediction_data` and `cuflynx-run-predictions`; see the tutorial.
+
+### Changed — PhLynx's key names (#163)
+
+- Module configs and module arrays use PhLynx's keys: `module_type`, `module_subtype`,
+  `component_file`, `component_type`, `inp_instances`, `out_instances`. **Files CA writes use
+  them**, and so do `resources/`, `module_config_user/` and the built-in module configs. The
+  older `vessel_type`, `BC_type`, `module_file`, `module_type` (= the component, beside the other
+  older keys), `inp_vessels` and `out_vessels` are still read, with no warning; mixing the two in
+  one entry or record is an error. Code reading a module dataframe's columns, or a normalised
+  record's keys, sees the new names. `python -m libcuflynx.utilities.config_schemas to-json
+  --style libcuflynx` still writes the older keys.
+
+### Changed — nested names, path references and interfaces (#582)
+
+- **Nested levels are joined with `__`**: the submodule `lv` of the supermodule instance `heart`
+  is `heart__lv`, its parameter `E_heart__lv`. A module-array or submodule name may not contain
+  `__` nor begin or end with `_`. Names joined with a single `_` (`heart_lv/q`, `E_heart_lv`)
+  are still read in parameters files, params_for_id and obs operands, with a `FutureWarning`,
+  when they name one vessel; an ambiguous one is an error.
+- A host may name a submodule by its path (`heart/ra`, `neuron/soma/membrane`) in its own
+  inp/out list, keeping its own order; a `per_submodule_*` key may be a path into a nested
+  instance.
+- A supermodule entry may declare an `interface` that hosts bind to by port type.
+- `phlynx_*` keys on records and config entries are read and ignored.
+
+### Fixed — docs of `offline_pre_time` (#560)
+
+- The tutorial lists every backend that runs it (now also OpenCOR and `aadc_python`) and the
+  calibration-parameter restriction; the benchmarks note and the Myokit docstring describe the
+  run-once behaviour.
+
 ### Added — packing a calibration workflow
 
 `pack_workflow(workflow, dest_dir)` and `cuflynx-calibration-workflow <workflow> --pack DIR`

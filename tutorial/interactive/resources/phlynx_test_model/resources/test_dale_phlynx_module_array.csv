@@ -1,4 +1,4 @@
-name,BC_type,vessel_type,inp_vessels,out_vessels,x,y,z
+name,module_subtype,module_type,inp_instances,out_instances,x,y,z
 A_0,pv,artery_Minlet,A_0_PI,a_0 a_1,1,0,0
 a_0,pv,arteriole_Nout,A_0,c_0 c_1,2,1,0
 a_1,pv,arteriole_Nout,A_0,c_2 c_3,2,-1,0

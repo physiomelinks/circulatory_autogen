@@ -1,4 +1,4 @@
-name,BC_type,vessel_type,inp_vessels,out_vessels
+name,module_subtype,module_type,inp_instances,out_instances
 heart,vp, heart,venous_ivc                                        venous_svc,   ascending_aorta_C0 
 ascending_aorta_C0,vv,arterial,heart,aortic_arch_C2
 aortic_arch_C2,pv,split_junction,ascending_aorta_C0,brachiocephalic_trunk_C4        aortic_arch_C46

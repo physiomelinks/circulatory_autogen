@@ -1,10 +1,10 @@
 [
     {
-        "vessel_type":"outlet_pressure",
-        "BC_type":"nn_constant",
+        "module_type":"outlet_pressure",
+        "module_subtype":"nn_constant",
         "module_format":"cellml",
-        "module_file":"boundary_condition_modules.cellml",
-        "module_type":"constant_pressure_BC_type",
+        "component_file":"boundary_condition_modules.cellml",
+        "component_type":"constant_pressure_BC_type",
         "entrance_ports":
         [
           {
@@ -23,11 +23,11 @@
         ]
       },
       {
-        "vessel_type":"inlet_pressure",
-        "BC_type":"nn_constant",
+        "module_type":"inlet_pressure",
+        "module_subtype":"nn_constant",
         "module_format":"cellml",
-        "module_file":"boundary_condition_modules.cellml",
-        "module_type":"constant_pressure_BC_type",
+        "component_file":"boundary_condition_modules.cellml",
+        "component_type":"constant_pressure_BC_type",
         "entrance_ports":
         [
         ],
@@ -46,11 +46,11 @@
         ]
       },
       {
-        "vessel_type":"outlet_flow",
-        "BC_type":"nn_constant",
+        "module_type":"outlet_flow",
+        "module_subtype":"nn_constant",
         "module_format":"cellml",
-        "module_file":"boundary_condition_modules.cellml",
-        "module_type":"constant_flow_BC_type",
+        "component_file":"boundary_condition_modules.cellml",
+        "component_type":"constant_flow_BC_type",
         "entrance_ports":
         [
           {
@@ -69,11 +69,11 @@
         ]
       },
       {
-        "vessel_type":"inlet_flow",
-        "BC_type":"nn_constant",
+        "module_type":"inlet_flow",
+        "module_subtype":"nn_constant",
         "module_format":"cellml",
-        "module_file":"boundary_condition_modules.cellml",
-        "module_type":"constant_flow_BC_type",
+        "component_file":"boundary_condition_modules.cellml",
+        "component_type":"constant_flow_BC_type",
         "entrance_ports":
         [
         ],
@@ -92,11 +92,11 @@
         ]
       },
       {
-        "vessel_type":"inlet_flow",
-        "BC_type":"nn_fourier_8",
+        "module_type":"inlet_flow",
+        "module_subtype":"nn_fourier_8",
         "module_format":"cellml",
-        "module_file":"boundary_condition_modules.cellml",
-        "module_type":"fourier_flow_8_BC_type",
+        "component_file":"boundary_condition_modules.cellml",
+        "component_type":"fourier_flow_8_BC_type",
         "entrance_ports":
         [
         ],
@@ -134,11 +134,11 @@
         ]
       },
       {
-        "vessel_type":"inlet_flow",
-        "BC_type":"nn_constant_2",
+        "module_type":"inlet_flow",
+        "module_subtype":"nn_constant_2",
         "module_format":"cellml",
-        "module_file":"boundary_condition_modules.cellml",
-        "module_type":"constant_flow_2_BC_type",
+        "component_file":"boundary_condition_modules.cellml",
+        "component_type":"constant_flow_2_BC_type",
         "entrance_ports":
         [
         ],
@@ -157,11 +157,11 @@
         ]
       },
       {
-        "vessel_type": "lung_vol_generator",
-        "BC_type": "nn",
+        "module_type": "lung_vol_generator",
+        "module_subtype": "nn",
         "module_format": "cellml",
-        "module_file": "boundary_condition_modules.cellml",
-        "module_type": "lung_Vol_generator_type",
+        "component_file": "boundary_condition_modules.cellml",
+        "component_type": "lung_Vol_generator_type",
         "entrance_ports": [],
         "exit_ports": [
           {
@@ -186,11 +186,11 @@
         ]
       },
       {
-        "vessel_type": "CO2_O2_generator",
-        "BC_type": "nn",
+        "module_type": "CO2_O2_generator",
+        "module_subtype": "nn",
         "module_format": "cellml",
-        "module_file": "boundary_condition_modules.cellml",
-        "module_type": "CO2_O2_generator_type",
+        "component_file": "boundary_condition_modules.cellml",
+        "component_type": "CO2_O2_generator_type",
         "entrance_ports": [],
         "exit_ports": [
           {
@@ -214,11 +214,11 @@
         ]
       },
       {
-        "vessel_type":"muscle_pressure",
-        "BC_type":"nn_constant",
+        "module_type":"muscle_pressure",
+        "module_subtype":"nn_constant",
         "module_format":"cellml",
-        "module_file":"boundary_condition_modules.cellml",
-        "module_type":"constant_pressure_generator_type",
+        "component_file":"boundary_condition_modules.cellml",
+        "component_type":"constant_pressure_generator_type",
         "entrance_ports":
         [
         ],

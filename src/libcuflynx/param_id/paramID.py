@@ -392,6 +392,7 @@ class CVS0DParamID():
         self.protocol_info = None
         self.obs_info = None
         self.prediction_info = None
+        self.prediction_plots = []
         self.params_for_id_path = params_for_id_path
         self.optimiser_options = optimiser_options
         self.obs_and_param_parser = ObsAndParamDataParser(
@@ -408,6 +409,7 @@ class CVS0DParamID():
             self.gt_df = parsed_data["gt_df"]
             self.protocol_info = parsed_data["protocol_info"]
             self.prediction_info = parsed_data["prediction_info"]
+            self.prediction_plots = parsed_data["prediction_plots"]
 
             self.obs_info = self.obs_and_param_parser.process_obs_info(gt_df=self.gt_df, output_dir=self.output_dir, dt=self.dt)
             self.protocol_info = self.obs_and_param_parser.process_protocol_and_weights(
@@ -846,6 +848,7 @@ class CVS0DParamID():
         self.gt_df = parsed_data["gt_df"]
         self.protocol_info = parsed_data["protocol_info"]
         self.prediction_info = parsed_data["prediction_info"]
+        self.prediction_plots = parsed_data["prediction_plots"]
 
         self.obs_info = self.obs_and_param_parser.process_obs_info(gt_df=self.gt_df, output_dir=self.output_dir, dt=self.dt)
         self.protocol_info = self.obs_and_param_parser.process_protocol_and_weights(
@@ -1617,78 +1620,50 @@ class CVS0DParamID():
     def run_single_sensitivity(self, do_triples_and_quads):
         self.param_id.run_single_sensitivity(self.output_dir, do_triples_and_quads)
 
-    def _prediction_segments(self):
-        """``(experiment, sub-experiment)`` per prediction item, and whether it is the
-        experiment's last sub-experiment (the segment recorded before subexperiment_idx)."""
-        from libcuflynx.param_id import prediction_features
-        n = len(self.prediction_info['experiment_idxs'])
-        segments = prediction_features.feature_segments(
-            self.prediction_info, list(range(n)), self.protocol_info)
-        last = [sub == prediction_features.feature_subexperiment(self.protocol_info, exp)
-                for exp, sub in segments]
-        return segments, last
+    def _best_fit(self):
+        """The best-fit parameter values, read from best_param_vals.npy if not in memory."""
+        if self.param_id.best_param_vals is None:
+            self.param_id.best_param_vals = np.load(
+                os.path.join(self.output_dir, 'best_param_vals.npy'))
+        return self.param_id.best_param_vals
 
-    def __get_prediction_data(self, items):
-        """Traces of the prediction ``items`` recorded over their experiment's last
-        sub-experiment, one entry per item (rows ``[time, the predictions of that experiment's
-        items]``) -- the ``prediction_variable_data_exp_<k>`` files. Also keeps every operand of
-        each item, by item index, in ``_prediction_operands_per_item``."""
-        if self.rank !=0:
-            return
+    def _prediction_result(self):
+        """The prediction items at the best fit (``protocol_runners.predict_on``)."""
+        from libcuflynx.protocol_runners.predictions import predict_on
+        best = self._best_fit()
+        info = self.param_id.param_id_info
+        return predict_on(self.param_id._protocol_executor, self.protocol_info,
+                          self.prediction_info, self.param_id.operation_funcs_dict,
+                          id_param_names=info['param_names'],
+                          id_param_vals=expand_modifier_param_vals(info, best))
 
-        time_and_pred_per_exp_list = []
-        # Every operand of every item, by item index: an item with an operation may reduce
-        # more than one (e.g. subtraction), and the saved arrays below hold the first only.
-        operands_per_item = {}
-        operand_lists = obs_operand_lists(self.prediction_info)
-        exps = self.prediction_info['experiment_idxs']
-        for k in items:
-            exp_idx = exps[k]
-            self.param_id.simulate_once(reset=False, only_one_exp=exp_idx)
-            tSim = self.param_id.sim_helper.tSim - self.param_id.pre_time
-            same_exp = [II for II in items if exps[II] == exp_idx]
-            pred_names = [str(operand_lists[II][0]) for II in same_exp]
-            pred_output = np.array(self.param_id.sim_helper.get_results(pred_names))
-                    
-            time_and_pred_per_exp_list.append(np.concatenate((tSim.reshape(1, -1), 
-                                                         pred_output[:, 0, :])))
-            new = [II for II in same_exp if II not in operands_per_item]
-            if new:
-                all_operands = self.param_id.sim_helper.get_results(
-                    [[str(op) for op in operand_lists[II]] for II in new])
-                for II, operand_series in zip(new, all_operands):
-                    operands_per_item[II] = [np.asarray(x, dtype=float).ravel()
-                                             for x in operand_series]
-        self._prediction_operands_per_item = operands_per_item
-        return time_and_pred_per_exp_list
-
-    def _segment_prediction_data(self, items, segments):
-        """Traces of prediction ``items`` that name a sub-experiment other than their
-        experiment's last: ``{(exp, sub): (t, {item: [operand series]})}``, ``t`` from the
-        start of the sub-experiment (sample k at k * dt, the data_item series convention)."""
-        best = self.param_id.best_param_vals
-        if best is None:
-            best = np.load(os.path.join(self.output_dir, 'best_param_vals.npy'))
-            self.param_id.best_param_vals = best
-        operand_lists = obs_operand_lists(self.prediction_info)
+    def _data_item_feature_values(self, plots):
+        """``{data_item_name: value}`` at the best fit for the data_items in ``plots``' groups,
+        through the cost path (each item evaluated over its own segment)."""
+        from libcuflynx.param_id import prediction_plots
+        groups = prediction_plots.item_groups(self.gt_df, self.prediction_info)
+        labels = {plot[key] for plot in plots for key in ('x', 'y')
+                  if isinstance(plot.get(key), str)}
+        rows = self.gt_df.to_dict('records') if self.gt_df is not None else []
+        wanted = sorted({item['index'] for label in labels for item in groups.get(label, [])
+                         if item['source'] == 'data_items'})
+        if not wanted:
+            return {}
+        segments = {i: (int(rows[i]['experiment_idx']), int(rows[i]['subexperiment_idx']))
+                    for i in wanted}
+        _, operands, _ = self.param_id.get_cost_obs_and_pred_from_params(
+            self._best_fit(), exp_idxs=sorted({e for e, _ in segments.values()}))
         num_sub = self.protocol_info['num_sub_per_exp']
-        out = {}
-        for exp_idx in sorted({segments[k][0] for k in items}):
-            in_exp = [k for k in items if segments[k][0] == exp_idx]
-            _, _, pred_list = self.param_id.get_cost_obs_and_pred_from_params(
-                best, reset=True, only_one_exp=exp_idx,
-                pred_names=[[str(op) for op in operand_lists[k]] for k in in_exp])
-            for sub_idx in sorted({segments[k][1] for k in in_exp}):
-                flat = int(np.sum(num_sub[:exp_idx])) + sub_idx
-                outputs = pred_list[flat] if flat < len(pred_list) else None
-                if outputs is None:
-                    raise RuntimeError(f'the simulation of experiment {exp_idx}, '
-                                       f'sub-experiment {sub_idx} at the best fit failed')
-                series = {k: [np.asarray(x, dtype=float).ravel() for x in outputs[j]]
-                          for j, k in enumerate(in_exp) if segments[k][1] == sub_idx}
-                n = len(next(iter(series.values()))[0])
-                out[(exp_idx, sub_idx)] = (np.arange(n) * self.param_id.dt, series)
-        return out
+        const_idxs = self.obs_info['const_idx_to_obs_idx']
+        values = {}
+        for i, (exp_idx, sub_idx) in segments.items():
+            if i not in const_idxs:
+                continue  # not a scalar; plot_prediction_plots says so
+            with self.param_id.evaluating_segment(exp_idx, sub_idx):
+                obs_dict = self.param_id.get_obs_output_dict(
+                    operands[int(np.sum(num_sub[:exp_idx])) + sub_idx])
+            values[str(rows[i]['data_item_name'])] = float(obs_dict['const'][const_idxs.index(i)])
+        return values
 
     def save_prediction_data(self):
         if self.rank !=0:
@@ -1697,65 +1672,73 @@ class CVS0DParamID():
             print('Prediction variables are not saved when use_emulator is set: they are '
                   'traces, and the emulator predicts the scalar observable features only.')
             return
-        if obs_operand_lists(self.prediction_info):
+        operand_lists = obs_operand_lists(self.prediction_info)
+        features = {}
+        if operand_lists:
+            from libcuflynx.param_id import prediction_features
             print('Saving prediction data')
-            num_items = len(self.prediction_info['experiment_idxs'])
-            segments, last = self._prediction_segments()
-            # Items recorded over their experiment's last sub-experiment keep the files they
-            # always had; one that names another sub-experiment gets a file per segment.
+            result = self._prediction_result()
+            features = result.features
+            num_items = len(operand_lists)
+            segments = prediction_features.feature_segments(
+                self.prediction_info, list(range(num_items)), self.protocol_info)
+            last = [sub == prediction_features.feature_subexperiment(self.protocol_info, exp)
+                    for exp, sub in segments]
+
+            def first_operand(k):
+                return result.segments[segments[k]][str(operand_lists[k][0])]
+
+            # An item recorded over its experiment's last sub-experiment gets a file, numbered
+            # in item order: rows [time, the first operand of each such item of that
+            # experiment], time from the end of the experiment's warm-up.
             legacy = [k for k in range(num_items) if last[k]]
-            other = [k for k in range(num_items) if not last[k]]
-            time_and_pred_per_exp_list = self.__get_prediction_data(legacy) if legacy else []
+            for file_idx, k in enumerate(legacy):
+                same = [j for j in legacy if segments[j] == segments[k]]
+                time = result.segments[segments[k]]['time']
+                np.save(os.path.join(self.output_dir, f'prediction_variable_data_exp_{file_idx}'),
+                        np.concatenate((time.reshape(1, -1),
+                                        np.array([first_operand(j) for j in same]))))
 
-            #save the prediction output
-            for exp_idx in range(len(time_and_pred_per_exp_list)):
-                time_and_pred = time_and_pred_per_exp_list[exp_idx]
-                np.save(os.path.join(self.output_dir, f'prediction_variable_data_exp_{exp_idx}'), 
-                        time_and_pred)
-
-            by_segment = self._segment_prediction_data(other, segments) if other else {}
-            for (exp_idx, sub_idx), (t, series) in by_segment.items():
-                rows = [t] + [series[k][0] for k in sorted(series)]
+            # Items that name another sub-experiment: a file per segment, time from its start.
+            for exp_idx, sub_idx in sorted({segments[k] for k in range(num_items)
+                                            if not last[k]}):
+                in_segment = [k for k in range(num_items)
+                              if not last[k] and segments[k] == (exp_idx, sub_idx)]
+                n = len(first_operand(in_segment[0]))
+                rows = [np.arange(n) * self.param_id.dt] + [first_operand(k) for k in in_segment]
                 np.save(os.path.join(self.output_dir,
                                      f'prediction_variable_data_exp_{exp_idx}_sub_{sub_idx}'),
                         np.vstack(rows))
-                
+
             # also save the prediction variable names to csv
             with open(os.path.join(self.output_dir, 'prediction_variable_names.csv'), 'w') as wf:
-                # One qname per line -- the operand list holds one entry per prediction
-                # item, so this writes exactly what it always did.
-                for ops in obs_operand_lists(self.prediction_info):
+                # One qname per line: each prediction item's first operand.
+                for ops in operand_lists:
                     wf.write(str(ops[0]) + '\n')
-            
+
             print('prediction data saved')
 
-            # held-out data carried by prediction items (a value): validate the best fit
-            # against it, over each item's own segment, with every one of its operands (so a
-            # two-operand operation can be evaluated). Time runs from the segment's start.
-            all_operands = getattr(self, '_prediction_operands_per_item', {})
-            time_per_item, pred_per_item = [], []
-            for k in range(num_items):
-                if last[k]:
-                    rows = time_and_pred_per_exp_list[legacy.index(k)]
-                    time_per_item.append(rows[0])
-                    pred_per_item.append(all_operands[k])
-                else:
-                    t, series = by_segment[segments[k]]
-                    time_per_item.append(t)
-                    pred_per_item.append(series[k])
-            results = validation.validation_results(
-                self.prediction_info, None, pred_per_item,
-                operation_funcs_dict=self.param_id.operation_funcs_dict,
-                time_per_item=time_per_item)
-            path = validation.write_validation_results(results, self.output_dir)
+            # held-out data carried by prediction items (a value): the best fit against it,
+            # over each item's own segment, with every one of its operands.
+            path = validation.write_validation_results(result.validation, self.output_dir)
             if path:
-                print(f'validation of {len(results["items"])} held-out prediction item(s) saved in {path}')
+                print(f'validation of {len(result.validation["items"])} held-out prediction '
+                      f'item(s) saved in {path}')
+
 
         else:
             print(f'prediction variables have not been defined, if you want to save predicition variables,',
                   f'create a prediction_items entry in the obs_data.json file')
 
-        return
+        if self.prediction_plots:
+            from libcuflynx.param_id import prediction_plots
+            model_values = dict(features)
+            model_values.update(self._data_item_feature_values(self.prediction_plots))
+            for path in prediction_plots.plot_prediction_plots(
+                    self.prediction_plots, self.gt_df, self.prediction_info, self.protocol_info,
+                    model_values, self.output_dir, funcs=self.param_id.operation_funcs_dict,
+                    units=prediction_plots.group_units(self.gt_df, self.prediction_info)):
+                print(f'prediction plot saved in {path}')
 
     def set_bayesian_parameters(self, n_calls, n_initial_points, acq_func, random_state, acq_func_kwargs={}):
         """Configure the Bayesian optimiser.
@@ -2126,6 +2109,11 @@ class ParamID():
         else:
             self.n_steps = None
 
+        # Before the offline warm-up: it binds the traced inputs, which the warm-up holds at
+        # their first value, and the rebuild it does would discard the warm-up's state.
+        if self.protocol_info is not None:
+            self.sim_helper.set_protocol_info(self.protocol_info)
+
         offline_pre_time = None
         if self.protocol_info is not None:
             offline_pre_time = self.protocol_info.get('offline_pre_time')
@@ -2152,9 +2140,6 @@ class ParamID():
             # what issue #328 is about.
             offline_pre_time = float(offline_pre_time)
             self.sim_helper.run_offline_pre_and_set_default_state(offline_pre_time)
-
-        if self.protocol_info is not None:
-            self.sim_helper.set_protocol_info(self.protocol_info)
 
         # initialise
         self.param_init = None

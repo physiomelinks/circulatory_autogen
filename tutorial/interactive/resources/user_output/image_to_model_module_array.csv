@@ -1,4 +1,4 @@
-name,BC_type,vessel_type,inp_vessels,out_vessels,x,y,z
+name,module_subtype,module_type,inp_instances,out_instances,x,y,z
 L2_E0,pp_micro,artery_inlet,L2_E0_PI,L2_E2,56.05691,9.169160000000002,33.111771000000005
 L2_E1,pp_micro,artery,L2_E2,L2_E17,56.950010043160574,9.794329939575196,33.17627434401389
 L2_E2,vv_micro,artery,L2_E0,L2_E1,56.05691,9.169160000000002,33.111771000000005

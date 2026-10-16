@@ -29,6 +29,7 @@ from libcuflynx.schemas.validation import validate as validate_schema
 from libcuflynx.utilities.obs_data_helpers import (check_obs_data_name,
                                         DEFAULT_COST_TYPE, PREVIOUS_DEFAULT_COST_TYPE,
                                         VALID_DATA_TYPES)
+from libcuflynx.param_id.prediction_plots import check_prediction_plots
 from libcuflynx.param_id.modifier_funcs import (BUILTIN_MODIFIER_FUNCS, get_modifier_funcs,
                                      probe_affine)
 
@@ -38,6 +39,7 @@ from libcuflynx.param_id.modifier_funcs import (BUILTIN_MODIFIER_FUNCS, get_modi
 # answers without opening MPI when nothing launched this process.
 from libcuflynx.utilities import mpi_utils as _mpi_utils
 from libcuflynx.utilities.module_library import as_dir_list
+from libcuflynx.utilities.parameter_names import hoisted_names
 from libcuflynx.utilities.config_schemas import (load_module_config, load_module_array,
                                                  module_array_path)
 from libcuflynx.utilities.paths import (default_generated_models_dir, default_funcs_user_dir,
@@ -1070,9 +1072,9 @@ def model_qname_candidates(qname):
     uploaded model's variable set. Ordering is meaningful: the first hit wins, so the
     component-qualified name is offered before any flattened alias and the bare name last.
 
-    Mirrors the alias list in ``solver_wrappers.name_resolver.VariableNameResolver``, which is
-    equivalent but cannot be imported without pulling in ``solver_wrappers/__init__`` (and thus
-    scipy) -- see the module note there.
+    Mirrors the alias list in ``solver_wrappers.name_resolver.VariableNameResolver``, which
+    cannot be imported without pulling in ``solver_wrappers/__init__`` (and thus scipy); both
+    take the hoisted names from ``utilities.parameter_names.hoisted_names``.
     """
     text = str(qname).strip()
     if '/' not in text:
@@ -1087,7 +1089,8 @@ def model_qname_candidates(qname):
     else:
         candidates.append(f'{vessel}_module/{param}')
     candidates += [f'parameters/{gen}', f'parameters_{vessel}/{param}',
-                   f'parameters_global/{gen}', gen]
+                   f'parameters_global/{gen}']
+    candidates += hoisted_names(vessel, param) + [gen]
     # order-preserving de-duplication: 'global/x' makes several candidates coincide
     seen, ordered = set(), []
     for candidate in candidates:
@@ -3205,7 +3208,8 @@ class CSVFileParser(object):
                 else:
                     sub_entries = entry.split()
 
-                if column_name in ['vessel_name', 'inp_vessels', 'out_vessels']:
+                if column_name in ['vessel_name', 'inp_instances', 'out_instances',
+                                   'inp_vessels', 'out_vessels']:
                     if sub_entries == []:
                         new_entry = []
                         pass
@@ -3332,9 +3336,9 @@ class JSONFileParser(object):
         """The component entries of one module config JSON file, in either the libcuflynx or
         the PhLynx schema, as a dataframe with libcuflynx column names (see
         utilities/config_schemas.py). Supermodule entries are left out, and so are the
-        ``(file, (vessel_type, BC_type))`` pairs in ``exclude``."""
+        ``(file, (module_type, module_subtype))`` pairs in ``exclude``."""
         return pd.DataFrame([e for e in load_module_config(json_path)
-                             if (str(json_path), (e['vessel_type'], e['BC_type'])) not in exclude])
+                             if (str(json_path), (e['module_type'], e['module_subtype'])) not in exclude])
 
     def json_files_to_dataframe(self, json_files, exclude=()):
         """All module config entries from ``json_files``, in order, as one dataframe, without
@@ -3393,15 +3397,15 @@ class JSONFileParser(object):
 
         add_on_lists = {column:[] for column in module_df.columns[2:]}
         for vessel_tup in vessel_df.itertuples():
-            vessel_type = vessel_tup.vessel_type
-            BC_type = vessel_tup.BC_type
-            if len(BC_type) <1 or len(vessel_type) <1:
+            module_type = vessel_tup.module_type
+            module_subtype = vessel_tup.module_subtype
+            if len(module_subtype) <1 or len(module_type) <1:
                 print('You have an empty entry in your module array, exiting')
                 exit()
-            this_vessel_module_df = module_df.loc[((module_df["vessel_type"] == vessel_type)
-                                                   & (module_df["BC_type"] == BC_type))].squeeze()
+            this_vessel_module_df = module_df.loc[((module_df["module_type"] == module_type)
+                                                   & (module_df["module_subtype"] == module_subtype))].squeeze()
             if this_vessel_module_df.empty:
-                print(f'combination of vessel_type = {vessel_type} and BC_type = {BC_type} doesn\'t exist, check module_config.json',
+                print(f'combination of module_type = {module_type} and module_subtype = {module_subtype} doesn\'t exist, check module_config.json',
                         'for this combination')
                 exit()
             for column in add_on_lists:
@@ -4012,12 +4016,18 @@ class ObsAndParamDataParser(object):
 
         check_data_item_names_unique(gt_df, prediction_info)
         check_prediction_operation_references(gt_df, prediction_info)
+        # Figures across experiments (#568): checked structurally here; that each item is a
+        # scalar feature needs the operation funcs, so plot_prediction_plots checks it.
+        prediction_plots = check_prediction_plots(
+            json_obj.get('prediction_plots') if isinstance(json_obj, dict) else None,
+            gt_df, prediction_info, protocol_info)
 
         return {
             "gt_df": gt_df, 
             "protocol_info": protocol_info, 
             "prediction_info": prediction_info,
             "obs_data_name": obs_data_name,
+            "prediction_plots": prediction_plots,
         }
 
     def process_obs_info(self, gt_df, output_dir, dt):

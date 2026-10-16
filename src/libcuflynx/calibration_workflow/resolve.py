@@ -11,11 +11,13 @@ A step's values reach the target, and other steps, through a vessel map (``namin
 * a module array keeps its vessel names, unless its ``vessel_map`` renames them (``Renamed``).
 '''
 
+import dataclasses
 import os
 import warnings
 from dataclasses import dataclass, field
 
 from libcuflynx.calibration_workflow import naming
+from libcuflynx.utilities.parameter_names import flat_name, legacy_flat_name
 from libcuflynx.calibration_workflow.spec import WorkflowError
 from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser
 from libcuflynx.utilities.config_schemas import is_supermodule_entry, read_module_array_records
@@ -53,7 +55,8 @@ class ResolvedParameterisation:
     @property
     def vessels(self):
         '''Its vessels when generated alone as ``mod``.'''
-        return {naming.STEP_VESSEL} | {f'{naming.STEP_VESSEL}_{"_".join(p)}' for p in self.paths}
+        return {naming.STEP_VESSEL} | {flat_name((naming.STEP_VESSEL,) + tuple(p))
+                                       for p in self.paths}
 
     def config_paths(self, components, supermodules):
         return [self.entry.get('config_path')] + _submodule_configs(self.entry, components,
@@ -82,30 +85,30 @@ class ResolvedArray:
         names = set()
         for record in self.records:
             names.add(record['name'])
-            nested = self.supermodules.get((record['vessel_type'], record['BC_type']))
+            nested = self.supermodules.get((record['module_type'], record['module_subtype']))
             if nested is not None:
-                names |= {f'{record["name"]}_{"_".join(p)}'
+                names |= {flat_name((record['name'],) + tuple(p))
                           for p in submodule_path_parts(nested, self.supermodules)}
         return names
 
     def places(self, key):
         '''The vessels at which a module of ``key`` = (type, version) sits: a record of that
-        type, or a submodule of a supermodule record (``<record>_<path>``).'''
+        type, or a submodule of a supermodule record (``<record>__<path>``).'''
         found = []
         for record in self.records:
-            record_key = (record['vessel_type'], record['BC_type'])
+            record_key = (record['module_type'], record['module_subtype'])
             if record_key == key:
                 found.append(record['name'])
             nested = self.supermodules.get(record_key)
             if nested is not None:
-                found += [f'{record["name"]}_{"_".join(p)}'
+                found += [flat_name((record['name'],) + tuple(p))
                           for p in submodule_paths(nested, key, self.supermodules)]
         return found
 
     def config_paths(self, components, supermodules):
         paths = []
         for record in self.records:
-            key = (record['vessel_type'], record['BC_type'])
+            key = (record['module_type'], record['module_subtype'])
             entry = components.get(key) or supermodules.get(key) or {}
             paths.append(entry.get('config_path'))
             paths += _submodule_configs(entry, components, supermodules)
@@ -115,7 +118,7 @@ class ResolvedArray:
 def _submodule_configs(entry, components, supermodules):
     paths = []
     for sub in entry.get('submodules', []):
-        key = (sub['vessel_type'], sub['BC_type'])
+        key = (sub['module_type'], sub['module_subtype'])
         nested = components.get(key) or supermodules.get(key) or {}
         paths.append(nested.get('config_path'))
         paths += _submodule_configs(nested, components, supermodules)
@@ -248,7 +251,12 @@ def resolve_workflow(workflow):
         parameters = read_calibrated_parameters(params_for_id, where)
         resolved_step = ResolvedStep(step=step, model=model, vessel_map=vessel_map,
                                      parameters=parameters, target=target)
-        for parameter in parameters:
+        for i, parameter in enumerate(parameters):
+            if not naming.is_global(parameter.vessel):
+                # a nested vessel joined with "_" as before #582 is read, with a FutureWarning
+                vessel = legacy_flat_name(parameter.vessel, model.vessels,
+                                          f'{where}: {step.params_for_id}')
+                parameter = parameters[i] = dataclasses.replace(parameter, vessel=vessel)
             if parameter.vessel not in model.vessels and not naming.is_global(parameter.vessel):
                 raise WorkflowError(
                     f'{where}: {params_for_id} names vessel "{parameter.vessel}", which '
@@ -344,8 +352,8 @@ def _library_vessel(path, target, step):
     ``soma/i_M``) as the target names it when generated as ``mod``.'''
     parts = tuple(path.split('/')) if '/' in path else None
     for p in target.paths:
-        if p == parts or '_'.join(p) == path:
-            return f'{naming.STEP_VESSEL}_{"_".join(p)}'
+        if p == parts or flat_name(p) == path:
+            return flat_name((naming.STEP_VESSEL,) + tuple(p))
     raise WorkflowError(f'step "{step.id}": vessel_map maps to "{path}", which is not a '
                         f'submodule of the target (its submodules: '
                         f'{sorted("/".join(p) for p in target.paths)}).')
@@ -414,7 +422,7 @@ def submodule_paths(container_entry, key, supermodules, prefix=()):
     sits in the supermodule ``container_entry``, nested supermodules included.'''
     found = []
     for sub in container_entry.get('submodules', []):
-        sub_key = (sub['vessel_type'], sub['BC_type'])
+        sub_key = (sub['module_type'], sub['module_subtype'])
         path = prefix + (sub['name'],)
         if sub_key == key:
             found.append(path)
@@ -424,15 +432,16 @@ def submodule_paths(container_entry, key, supermodules, prefix=()):
 
 
 def _matches(submodule, path):
-    '''Whether a step's ``submodule`` (``soma/i_M``, or ``soma_i_M``) names ``path``.'''
+    '''Whether a step's ``submodule`` (``soma/i_M``, or ``soma__i_M``; the older ``soma_i_M``
+    too) names ``path``.'''
     if '/' in submodule:
         return tuple(submodule.split('/')) == path
-    return submodule == '_'.join(path)
+    return submodule in (flat_name(path), '_'.join(path))
 
 
 def _submodule_path(step, workflow_target, target_entry, supermodules):
     '''Where the step's module sits in the target, as the joined name its expanded vessel
-    carries (``i_M``, ``soma_i_M``); '' for the target itself.'''
+    carries (``i_M``, ``soma__i_M``); '' for the target itself.'''
     if (step.model.module_type, step.model.version) == \
             (workflow_target.module_type, workflow_target.version):
         if step.submodule:
@@ -450,7 +459,7 @@ def _submodule_path(step, workflow_target, target_entry, supermodules):
                 f'step "{step.id}": "submodule" is "{step.submodule}", but '
                 f'{step.model.module_type} {step.model.version} is at {shown} '
                 f'in {workflow_target.label()}.')
-        return '_'.join(chosen[0])
+        return flat_name(chosen[0])
     if not paths:
         raise WorkflowError(
             f'step "{step.id}": {step.model.module_type} {step.model.version} is not a '
@@ -460,4 +469,4 @@ def _submodule_path(step, workflow_target, target_entry, supermodules):
         raise WorkflowError(
             f'step "{step.id}": {step.model.module_type} {step.model.version} is at '
             f'{shown} in {workflow_target.label()}; say which with "submodule".')
-    return '_'.join(paths[0])
+    return flat_name(paths[0])

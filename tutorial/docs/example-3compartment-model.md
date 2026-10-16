@@ -13,31 +13,31 @@ A schematic view of this model is shown above with details of boundary condition
 
 ![Module array file of 3compartment model](images/3compartment-parameters.png)
 
-In the `module_array` file, there are five columns: **name**, **BC_type**, **vessel_type**, **inp_vessels**, and **out_vessels**. 
+In the `module_array` file, there are five columns: **name**, **module_subtype**, **module_type**, **inp_instances**, and **out_instances** (older names: BC_type, vessel_type, inp_vessels, out_vessels). 
 
 **name** is the user-chosen module's name, for example *"heart"* or *"aortic_root"*. 
 
-**BC_type** is the boundary condition type for circulatory system vessels. The BC of vessel modules should be one of the *"vv"*, *"vp"*, *"pv"*, and *"pp"* types. The first letter defines input pressure (p) or flow (v) boundary condition, the second letter defines output pressure (p) or flow (v) boundary condition. For example the pulmonary vein (pvn) in the above example has a vp BC type, meaning it has input flow and output pressure boundary conditions.
+**module_subtype** is the boundary condition type for circulatory system vessels. The BC of vessel modules should be one of the *"vv"*, *"vp"*, *"pv"*, and *"pp"* types. The first letter defines input pressure (p) or flow (v) boundary condition, the second letter defines output pressure (p) or flow (v) boundary condition. For example the pulmonary vein (pvn) in the above example has a vp BC type, meaning it has input flow and output pressure boundary conditions.
 
 !!! info
     A vessel with "output flow" BC must be connected to a vessel with "input pressure" BC and vice versa. E.g. a "vp" can only have either a "vv" or "vp" vessel as ouputs. This is checked in the software, and will throw an error if there are incorrect BC connections.
 
-The **vessel_type** and **BC_type** must match a module with the same vessel_type and BC_type in the modules config JSON files defined at `[CA_dir]/src/libcuflynx/generators/resources/`. 
+The **module_type** and **module_subtype** must match a module with the same module_type and module_subtype in the modules config JSON files defined at `[CA_dir]/src/libcuflynx/generators/resources/`. 
 
 These files define the variables of each module and the connection ports that allow linking between modules; each module links to a CellML module. For more information, refer to [Designing a model](design-model.md#creating-a-new-model).
 
-**inp_vessels** and **out_vessels** are the inputs and outputs of each module, respectively. Some modules have multiple inputs and outputs, like split_type vessels that split from one to two vessels.
+**inp_instances** and **out_instances** are the inputs and outputs of each module, respectively. Some modules have multiple inputs and outputs, like split_type vessels that split from one to two vessels.
 
 !!! Note
     The order of input and output vessels is important for the **heart** module. The order must be:
 
-    **inp_vessels**:
+    **inp_instances**:
 
     1. inferior vena cava
     2. superior vena cava
     3. pulmonary vein
 
-    **out_vessels**: 
+    **out_instances**: 
 
     1. aorta
     2. pulmonary artery
@@ -45,7 +45,7 @@ These files define the variables of each module and the connection ports that al
     A simple two-vessel pulmonary system will be used if the pulmonary vessels are not included.
 
 !!! Tip
-    Currently, the terminal vessels should only have a BC_type starting with *"pp"*.
+    Currently, the terminal vessels should only have a module_subtype starting with *"pp"*.
 
 **Results:**
 

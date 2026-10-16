@@ -1,10 +1,10 @@
 [
     {
-        "vessel_type":"lung_stretch_receptor_Gee2023",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"parasympathetic_modules.cellml",
         "module_type":"lung_stretch_receptor_Gee2023",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"parasympathetic_modules.cellml",
+        "component_type":"lung_stretch_receptor_Gee2023",
         "entrance_ports":
         [
           {
@@ -30,11 +30,11 @@
         ]
       },
       {
-        "vessel_type":"lung_stretch_receptor_with_threshold_OLD",
-        "BC_type":"nn",
+        "module_type":"lung_stretch_receptor_with_threshold_OLD",
+        "module_subtype":"nn",
         "module_format":"cellml",
-        "module_file":"parasympathetic_modules.cellml",
-        "module_type":"lung_stretch_receptor_with_threshold",
+        "component_file":"parasympathetic_modules.cellml",
+        "component_type":"lung_stretch_receptor_with_threshold",
         "entrance_ports":
         [
           {
@@ -63,11 +63,11 @@
         ]
       },
       {
-        "vessel_type":"cardiopulmonary_receptor_Gee2023",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"parasympathetic_modules.cellml",
         "module_type":"cardiopulmonary_receptor_Gee2023",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"parasympathetic_modules.cellml",
+        "component_type":"cardiopulmonary_receptor_Gee2023",
         "entrance_ports":
         [
           {
@@ -103,11 +103,11 @@
         ]
       },
       {
-        "vessel_type":"sympathetic_afferent_Gee2023",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"parasympathetic_modules.cellml",
         "module_type":"sympathetic_afferent_Gee2023",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"parasympathetic_modules.cellml",
+        "component_type":"sympathetic_afferent_Gee2023",
         "entrance_ports":
         [
           {
@@ -162,11 +162,11 @@
         ]
       },
       {
-        "vessel_type":"sympathetic_efferent_Gee2023",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"parasympathetic_modules.cellml",
         "module_type":"sympathetic_efferent_Gee2023",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"parasympathetic_modules.cellml",
+        "component_type":"sympathetic_efferent_Gee2023",
         "entrance_ports":
         [
           {
@@ -215,11 +215,11 @@
         ]
       },
       {
-        "vessel_type":"peripheral_resistance_effector_Gee2023",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"parasympathetic_modules.cellml",
         "module_type":"peripheral_resistance_effector_Gee2023",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"parasympathetic_modules.cellml",
+        "component_type":"peripheral_resistance_effector_Gee2023",
         "entrance_ports":
         [
           {
@@ -247,11 +247,11 @@
         ]
       },
       {
-        "vessel_type":"unstressed_volume_effector_Gee2023",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"parasympathetic_modules.cellml",
         "module_type":"unstressed_volume_effector_Gee2023",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"parasympathetic_modules.cellml",
+        "component_type":"unstressed_volume_effector_Gee2023",
         "entrance_ports":
         [
           {
@@ -279,11 +279,11 @@
         ]
       },
       {
-        "vessel_type":"NTS_Gee2023",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"parasympathetic_modules.cellml",
         "module_type":"NTS_Gee2023",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"parasympathetic_modules.cellml",
+        "component_type":"NTS_Gee2023",
         "entrance_ports":
         [
           {
@@ -356,11 +356,11 @@
         ]
       },
       {
-        "vessel_type":"DMV_Gee2023",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"parasympathetic_modules.cellml",
         "module_type":"DMV_Gee2023",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"parasympathetic_modules.cellml",
+        "component_type":"DMV_Gee2023",
         "entrance_ports":
         [
           {
@@ -393,11 +393,11 @@
         ]
       },
       {
-        "vessel_type":"NA_Gee2023",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"parasympathetic_modules.cellml",
         "module_type":"NA_Gee2023",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"parasympathetic_modules.cellml",
+        "component_type":"NA_Gee2023",
         "entrance_ports":
         [
           {
@@ -448,11 +448,11 @@
         ]
       },
       {
-        "vessel_type":"NActr_Gee2023",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"parasympathetic_modules.cellml",
         "module_type":"NActr_Gee2023",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"parasympathetic_modules.cellml",
+        "component_type":"NActr_Gee2023",
         "entrance_ports":
         [
           {
@@ -480,11 +480,11 @@
         ]
       },
       {
-        "vessel_type":"LCN_Gee2023",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"parasympathetic_modules.cellml",
         "module_type":"LCN_Gee2023",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"parasympathetic_modules.cellml",
+        "component_type":"LCN_Gee2023",
         "entrance_ports":
         [
           {
@@ -538,11 +538,11 @@
         ]
       },
       {
-        "vessel_type":"PNNA_Gee2023",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"parasympathetic_modules.cellml",
         "module_type":"PNNA_Gee2023",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"parasympathetic_modules.cellml",
+        "component_type":"PNNA_Gee2023",
         "entrance_ports":
         [
           {
@@ -577,11 +577,11 @@
         ]
       },
       {
-        "vessel_type":"PNDMV_Gee2023",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"parasympathetic_modules.cellml",
         "module_type":"PNDMV_Gee2023",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"parasympathetic_modules.cellml",
+        "component_type":"PNDMV_Gee2023",
         "entrance_ports":
         [
           {

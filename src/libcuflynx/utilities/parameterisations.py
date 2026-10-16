@@ -26,7 +26,7 @@ A module-array record (or a supermodule's submodule) picks a parameterisation wi
 ``"parameterisation": "<name>"``; without one, the config entry's
 ``"default_parameterisation"`` is used if that parameterisation's parameters file exists, and
 otherwise nothing is loaded. The directory is looked for next to the config file the
-(vessel_type, BC_type) entry came from:
+(module_type, module_subtype) entry came from:
 ``<config dir>/parameterisations/<name>/<name>_parameters.csv``.
 
 Parameterisation parameters are *default* parameters: the host model's parameters file wins
@@ -165,7 +165,7 @@ def read_parameter_rows(path, where, what='parameters file'):
 
 
 def _entry_label(entry):
-    return f'({entry.get("vessel_type")}, {entry.get("BC_type")})'
+    return f'({entry.get("module_type")}, {entry.get("module_subtype")})'
 
 
 def parameterisation_rows(entry, parameterisation, where):
@@ -294,7 +294,7 @@ def component_parameterisation_rows(records, component_registry, source=None, se
     '''
     The parameterisation rows of every record in ``records`` (the normalised records of an
     expanded module array, whose parameterisation is in ``record["parameterisation"]``) whose
-    (vessel_type, BC_type) is in ``component_registry`` (see
+    (module_type, module_subtype) is in ``component_registry`` (see
     ``config_schemas.load_component_registry``), in record order: each row ``{var}`` renamed
     to ``{var}_{record name}``, or kept if ``var`` is a global constant of the module.
 
@@ -310,7 +310,7 @@ def component_parameterisation_rows(records, component_registry, source=None, se
     check_here = settings is None
     settings = [] if check_here else settings
     for record in records:
-        key = (record['vessel_type'], record['BC_type'])
+        key = (record['module_type'], record['module_subtype'])
         where = f'{source}: "{record["name"]}" {key}'
         parameterisation = record_parameterisation(record, where)
         entry = component_registry.get(key)

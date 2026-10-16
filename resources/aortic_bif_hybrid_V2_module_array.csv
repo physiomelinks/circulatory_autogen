@@ -1,4 +1,4 @@
-name,BC_type,vessel_type,inp_vessels,out_vessels
+name,module_subtype,module_type,inp_instances,out_instances
 input_flow_aorticroot,nn_aorticbif,inlet_flow, ,parent
 parent,nn,FV1D_vessel,input_flow_aorticroot,daughter_1 daughter_2
 daughter_1,nn,FV1D_vessel,parent,terminal_1

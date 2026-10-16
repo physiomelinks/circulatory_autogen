@@ -19,6 +19,7 @@ else:
     OPENCOR_IMPORT_ERROR = None
 
 from libcuflynx.solver_wrappers.name_resolver import VariableNameResolver
+from libcuflynx.solver_wrappers.experiment_time import ExperimentTimeMixin
 
 #: Where the docs describe the (deprecated) OpenCOR route.
 OPENCOR_DOCS_URL = ('https://physiomelinks.github.io/circulatory_autogen/'
@@ -83,7 +84,7 @@ from importlib import import_module  # Only used for debugging
 # from func_timeout import func_timeout, FunctionTimedOut
 
 
-class SimulationHelper():
+class SimulationHelper(ExperimentTimeMixin):
     def __init__(self, cellml_path, dt,
                  sim_time, solver_info=None,
                  pre_time=0.0):
@@ -132,18 +133,13 @@ class SimulationHelper():
         self.data.set_starting_point(0)
         if pre_time is not None and sim_time is not None:
             self.data.set_ending_point(self.stop_time)
+            self._track_experiment_start(0.0, pre_time)
             self.tSim = np.linspace(pre_time, self.stop_time, self.n_steps + 1)  # time values for stored part of simulation
         else:
             self.tSim = None
         self._has_run = False
         self._last_results_dict = None
         
-    def get_time(self, include_pre_time=False):
-        if include_pre_time:
-            return self.tSim
-        else:
-            return self.tSim - self.tSim[0]
-
     def set_protocol_info(self, protocol_info):
         """Store protocol metadata for a common helper API."""
         self.protocol_info = protocol_info
@@ -237,7 +233,7 @@ class SimulationHelper():
             results.append([])
             for variable_name in variables_list:
                 if variable_name == 'time':
-                    results[JJ].append(self.tSim)
+                    results[JJ].append(self.get_time())
                 elif variable_name in self.simulation.results().states():
                     results[JJ].append(self.simulation.results().states()[variable_name].values()[-self.n_steps - 1:].copy())
                 elif variable_name in self.simulation.results().algebraic():
@@ -380,6 +376,7 @@ class SimulationHelper():
         self.n_steps = int(sim_time/self.dt)  # number of steps for storing data
         self.data.set_starting_point(start_time)
         self.data.set_ending_point(self.stop_time)
+        self._track_experiment_start(start_time, pre_time)
         self.tSim = np.linspace(start_time + pre_time, self.stop_time, self.n_steps + 1)  # time values for stored part of simulation
 
     def close_simulation(self):

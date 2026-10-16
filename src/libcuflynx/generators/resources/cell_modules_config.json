@@ -1,10 +1,10 @@
 [
     {
-        "vessel_type":"myocyte_membrane_voltage",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"cell_modules.cellml",
         "module_type":"myocyte_membrane_voltage",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"cell_modules.cellml",
+        "component_type":"myocyte_membrane_voltage",
         "entrance_ports":
         [
           {
@@ -93,11 +93,11 @@
         ]
       },
       {
-        "vessel_type":"sympathetic_neuron_membrane_voltage",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"cell_modules.cellml",
         "module_type":"sympathetic_neuron_membrane_voltage",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"cell_modules.cellml",
+        "component_type":"sympathetic_neuron_membrane_voltage",
         "entrance_ports":
         [
           {
@@ -153,11 +153,11 @@
         ]
       },
       {
-        "vessel_type":"Ca_dynamics_Paci_2013",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"cell_modules.cellml",
         "module_type":"Ca_dynamics_Paci_2013",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"cell_modules.cellml",
+        "component_type":"Ca_dynamics_Paci_2013",
         "entrance_ports":
         [
           {
@@ -237,11 +237,11 @@
         ]
       },
       {
-        "vessel_type":"electric_potentials_Paci_2013",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"cell_modules.cellml",
         "module_type":"electric_potentials_Paci_2013",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"cell_modules.cellml",
+        "component_type":"electric_potentials_Paci_2013",
         "entrance_ports":
         [
           {
@@ -296,11 +296,11 @@
         ]
       },
       {
-        "vessel_type":"Na_dynamics_Paci_2013",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"cell_modules.cellml",
         "module_type":"Na_dynamics_Paci_2013",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"cell_modules.cellml",
+        "component_type":"Na_dynamics_Paci_2013",
         "entrance_ports":
         [
           {
@@ -348,11 +348,11 @@
         ]
       },
       {
-        "vessel_type":"NE_release_Tao_2011",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"cell_modules.cellml",
         "module_type":"NE_release_Tao_2011",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"cell_modules.cellml",
+        "component_type":"NE_release_Tao_2011",
         "entrance_ports":
         [
           {
@@ -399,11 +399,11 @@
         ]
       },
       {
-        "vessel_type":"SN_soma",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"cell_modules.cellml",
         "module_type":"SN_soma",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"cell_modules.cellml",
+        "component_type":"SN_soma",
         "entrance_ports":
         [
           {
@@ -671,11 +671,11 @@
         ]
       },
       {
-        "vessel_type":"SN_varicosity",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"cell_modules.cellml",
         "module_type":"SN_varicosity",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"cell_modules.cellml",
+        "component_type":"SN_varicosity",
         "entrance_ports":
         [
           {
@@ -799,11 +799,11 @@
         ]
       },
       {
-        "vessel_type":"SN_axon",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"cell_modules.cellml",
         "module_type":"SN_axon",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"cell_modules.cellml",
+        "component_type":"SN_axon",
         "entrance_ports":
         [
           {

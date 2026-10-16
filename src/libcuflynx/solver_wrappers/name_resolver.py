@@ -22,22 +22,31 @@ Canonical alias patterns tried (in order):
   'parameters/Var_bare'   same, _module stripped
   'parameters_Comp/Var'   global-prefix convention     (global/x → parameters_global/x)
   'Comp_module/Var'       add _module to component
-  'parameters/Comp_Var'   hoisted parameter, component first (soma_SN/c_ER → parameters/soma_SN_c_ER)
-  'parameters/Var'        hoisted parameter, name kept as-is (soma_SN/g_Na → parameters/g_Na)
-  'parameters_global/Var' hoisted global constant       (soma_SN/R → parameters_global/R)
+  hoisted names           HOISTED_PARAMETER_CONVENTIONS (utilities/parameter_names.py):
+    'parameters/Comp_Var'          component first (soma_SN/c_ER -> parameters/soma_SN_c_ER)
+    'parameters/Var'               name kept as-is (soma_SN/g_Na -> parameters/g_Na)
+    'parameters_global/Var'        global constant (soma_SN/R -> parameters_global/R)
+    'instance_parameters/Comp_Var' the same three in the components PhLynx uses from
+    'instance_parameters/Var'      v0.3.0 on
+    'global_parameters/Var'
   'Var'                   bare variable name (unambiguous only in index mode)
 
-The last three exist because a CellML model does not have to name its hoisted
+The hoisted names exist because a CellML model does not have to name its hoisted
 parameters the way circulatory_autogen names them. PhLynx writes 'soma_SN_c_ER'
 where CA writes 'c_ER_soma_SN', and drops the prefix entirely for a name that is
 already unique in the model -- and Myokit's importer *merges* connected variables,
-so after import only the defining copy in 'parameters' survives and 'soma_SN.c_ER'
-is not a qname any more. Without these aliases a study built in PhLynx resolves
-none of its own parameters (CUFLynx #300).
+so after import only the defining copy in the parameters component survives and
+'soma_SN.c_ER' is not a qname any more. Without these aliases a study built in PhLynx
+resolves none of its own parameters (CUFLynx #300, issue #558). The same list is read
+by model_qname_candidates, the variable mapping, methods and the calibrated-value writer.
 
 For key mode with separator='.', every '/'-candidate is also tried with '/' → '.'
 (so Myokit qnames like 'Lotka_Volterra_module.x' are matched automatically).
 """
+
+import warnings
+
+from libcuflynx.utilities.parameter_names import LEVEL_SEPARATOR, hoisted_names
 
 
 class VariableNameResolver:
@@ -101,7 +110,8 @@ class VariableNameResolver:
                 if canon:
                     return self._map[canon]
 
-        return (None, None)
+        legacy = self._legacy_match(name, [name] + self._aliases(name, "/"), [self._map])
+        return self._map[legacy] if legacy else (None, None)
 
     def all_state_names(self) -> list:
         return [self.canonical(info) for info in self._state_info]
@@ -158,7 +168,28 @@ class VariableNameResolver:
             if kind:
                 return (kind, key)
 
-        return (None, None)
+        candidates = [name] + [a.replace("/", separator) for a in cls._aliases(name, "/")]
+        legacy = cls._legacy_match(name, candidates, [d for _, d in keyed_dicts])
+        return _check(legacy) if legacy else (None, None)
+
+    @staticmethod
+    def _legacy_match(name, candidates, keyed):
+        """The one key whose nested levels, joined with "__", the candidates write with a single
+        "_" as before #582 (``heart_lv/E`` for ``heart__lv``), with a FutureWarning; None when
+        there is none. ValueError when there are several."""
+        wanted = set(candidates)
+        matches = sorted({key for d in keyed for key in d
+                          if LEVEL_SEPARATOR in str(key)
+                          and str(key).replace(LEVEL_SEPARATOR, "_") in wanted})
+        if len(matches) > 1:
+            raise ValueError(f'"{name}" could be any of {matches}; nested levels are joined '
+                             f'with "{LEVEL_SEPARATOR}" now, so name one of those.')
+        if matches:
+            warnings.warn(f'"{name}" joins nested levels with "_"; it is read as '
+                          f'"{matches[0]}" (levels are joined with "{LEVEL_SEPARATOR}").',
+                          FutureWarning, stacklevel=3)
+            return matches[0]
+        return None
 
     # ------------------------------------------------------------------
     # Shared alias generation
@@ -195,9 +226,6 @@ class VariableNameResolver:
             # CA-shaped ones above so a model that follows both is read the CA way,
             # and before the bare name so 'soma_SN/g_Na' cannot be answered by an
             # unrelated 'g_Na' in some other component.
-            f"parameters{sep}{comp}_{var}", # component first (PhLynx)
-            f"parameters{sep}{comp_bare}_{var}",
-            f"parameters{sep}{var}",        # hoisted without a prefix
-            f"parameters_global{sep}{var}", # hoisted global constant
+            *hoisted_names(comp, var, sep),
             var,                            # bare variable name
         ]

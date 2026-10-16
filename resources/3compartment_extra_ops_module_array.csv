@@ -1,4 +1,4 @@
-name,                    BC_type,     vessel_type,        inp_vessels,          out_vessels
+name,                    module_subtype,     module_type,        inp_instances,          out_instances
 pvn,                     vp,          venous,             par,                  heart volume_sum
 par,                     vp,          arterial_simple,    heart,                pvn volume_sum
 heart,                   vp_Ca,       heart,              venous_svc pvn,       aortic_root par volume_sum  

@@ -1,20 +1,22 @@
-"""Module configs and module arrays in either schema, and PhLynx's multi_port semantics.
+"""Module configs and module arrays in the current and the older keys, and PhLynx's
+multi_port semantics.
 
-The module library (circulatory-autogen-modules) and PhLynx write module configs with
-PhLynx's key names; libcuflynx reads both (utilities/config_schemas.py):
+libcuflynx uses PhLynx's key names (#163) and still reads the ones it used before, with no
+warning (utilities/config_schemas.py):
 
 ==================  ==================
-libcuflynx          PhLynx
+key                 older key
 ==================  ==================
-``vessel_type``     ``module_type``
-``BC_type``         ``module_subtype``
-``module_file``     ``component_file``
-``module_type``     ``component_type``
+``module_type``     ``vessel_type``
+``module_subtype``  ``BC_type``
+``component_file``  ``module_file``
+``component_type``  ``module_type``
 ==================  ==================
 
-and both module-array layouts (``name,BC_type,vessel_type,inp_vessels,out_vessels`` and
-PhLynx's ``name,module_type,module_subtype,inp_instances,out_instances``, which may be named
-``<prefix>_module_array.csv``).
+and both module-array layouts (``name,module_type,module_subtype,inp_instances,out_instances``
+and the older ``name,BC_type,vessel_type,inp_vessels,out_vessels``, which may be named
+``<prefix>_vessel_array.csv``). The fixture library is written in the older keys, so every
+generation test below also reads them.
 
 multi_port values are case-insensitive. A whole-port "Sum" on a port other than a
 volume_port makes the port's single variable the sum of the neighbours' variables (read as
@@ -45,6 +47,7 @@ import copy
 import filecmp
 import json
 import os
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -55,7 +58,7 @@ from libcuflynx.scripts.script_generate_with_new_architecture import generate_wi
 from libcuflynx.solver_wrappers import get_simulation_helper
 from libcuflynx.utilities.config_schemas import (normalise_module_config_entry,
                                                  normalise_module_array_columns,
-                                                 module_array_path)
+                                                 normalise_vessel_record, module_array_path)
 
 
 # --------------------------------------------------------------------------------------------
@@ -126,7 +129,7 @@ def _port(port_type, variables, multi_port=None, **extra):
 
 
 def _module(vessel_type, module_type, entrance_ports, exit_ports, variables_and_units, BC_type="nn"):
-    """A module config entry in the libcuflynx schema."""
+    """A module config entry in the older libcuflynx keys."""
     return {
         "vessel_type": vessel_type,
         "BC_type": BC_type,
@@ -140,8 +143,8 @@ def _module(vessel_type, module_type, entrance_ports, exit_ports, variables_and_
     }
 
 
-def _to_phlynx(entry):
-    """The same entry in the PhLynx schema, keys in PhLynx's export order."""
+def _to_current(entry):
+    """The same entry in the current keys, in PhLynx's export order."""
     out = {"module_type": entry["vessel_type"], "module_subtype": entry["BC_type"]}
     for key, value in entry.items():
         if key in ("vessel_type", "BC_type"):
@@ -230,18 +233,19 @@ def _prescribed_params(name, mean, amp, omega):
             (f"omega_{name}", "per_s", omega)]
 
 
-LIBCUFLYNX_HEADER = "name,BC_type,vessel_type,inp_vessels,out_vessels"
-PHLYNX_HEADER = "name,module_subtype,module_type,inp_instances,out_instances"
+LEGACY_HEADER = "name,BC_type,vessel_type,inp_vessels,out_vessels"
+# the current columns, with the subtype before the type as in LEGACY_HEADER
+CURRENT_HEADER = "name,module_subtype,module_type,inp_instances,out_instances"
 
 
-def _generate(work_dir, modules_dir, prefix, vessel_rows, params, layout="libcuflynx",
+def _generate(work_dir, modules_dir, prefix, vessel_rows, params, layout="legacy",
               array_name="module_array"):
     """Write the module array (in ``layout``) and parameters and generate the model."""
     resources_dir = os.path.join(work_dir, "resources")
     os.makedirs(resources_dir, exist_ok=True)
-    lines = [LIBCUFLYNX_HEADER if layout == "libcuflynx" else PHLYNX_HEADER]
+    lines = [LEGACY_HEADER if layout == "legacy" else CURRENT_HEADER]
     for name, vessel_type, inp, out in vessel_rows:
-        # both headers put the BC column (BC_type / module_subtype) before the type column
+        # both headers put the subtype column before the type column
         lines.append(f"{name},nn,{vessel_type},{' '.join(inp)},{' '.join(out)}")
     with open(os.path.join(resources_dir, f"{prefix}_{array_name}.csv"), "w") as f:
         f.write("\n".join(lines) + "\n")
@@ -324,45 +328,100 @@ def _assert_same_generated_models(path_a, path_b):
 # 1. module config schemas
 # --------------------------------------------------------------------------------------------
 
+_LEGACY_SUPERMODULE = {"vessel_type": "pair", "BC_type": "supermodule",
+                      "module_format": "supermodule",
+                      "submodules": [{"name": "a", "vessel_type": "flow_src", "BC_type": "nn",
+                                      "out_vessels": ["b"]},
+                                     {"name": "b", "vessel_type": "collector", "BC_type": "nn",
+                                      "inp_vessels": ["a"]}]}
+_CURRENT_SUPERMODULE = {"module_type": "pair", "module_subtype": "supermodule",
+                        "module_format": "supermodule",
+                        "submodules": [{"name": "a", "module_type": "flow_src",
+                                        "module_subtype": "nn", "out_instances": ["b"]},
+                                       {"name": "b", "module_type": "collector",
+                                        "module_subtype": "nn", "inp_instances": ["a"]}]}
+_LEGACY_RECORD = {"name": "a", "BC_type": "nn", "vessel_type": "flow_src",
+                  "inp_vessels": "x y", "out_vessels": ["z"], "parameterisation": "p"}
+_CURRENT_RECORD = {"name": "a", "module_type": "flow_src", "module_subtype": "nn",
+                   "inp_instances": "x y", "out_instances": ["z"], "parameterisation": "p"}
+
+
+def _normalise(kind, value):
+    if kind == "array":
+        return normalise_vessel_record(value, source="m_module_array.json", index=0)
+    return normalise_module_config_entry(value, source="lib.json")
+
+
 @pytest.mark.unit
-def test_phlynx_entry_is_renamed_to_libcuflynx_names():
-    entry = modules_config()[0]
-    normalised = normalise_module_config_entry(_to_phlynx(entry))
-    assert normalised == entry
-    assert list(normalised) == list(entry)
-    # a libcuflynx entry is returned as it is
-    assert normalise_module_config_entry(entry) == entry
+def test_normalised_records_use_phlynx_keys():
+    entry = normalise_module_config_entry(modules_config()[0])
+    assert list(entry)[:2] == ["module_type", "module_subtype"]
+    assert entry == _to_current(modules_config()[0])
+    assert list(entry) == list(_to_current(modules_config()[0]))
+    record = _normalise("array", _LEGACY_RECORD)
+    assert list(record) == ["name", "module_type", "module_subtype", "inp_instances",
+                            "out_instances", "parameterisation"]
+    supermodule = _normalise("supermodule", _LEGACY_SUPERMODULE)
+    assert list(supermodule)[:2] == ["module_type", "module_subtype"]
+    assert list(supermodule["submodules"][0])[:5] == ["name", "module_type", "module_subtype",
+                                                      "inp_instances", "out_instances"]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("kind, legacy, current", [
+    ("config", None, None),
+    ("array", _LEGACY_RECORD, _CURRENT_RECORD),
+    ("supermodule", _LEGACY_SUPERMODULE, _CURRENT_SUPERMODULE),
+])
+def test_old_keys_read_as_aliases(kind, legacy, current):
+    """The older keys are read as the current ones, silently."""
+    if kind == "config":
+        legacy, current = modules_config()[0], _to_current(modules_config()[0])
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert _normalise(kind, copy.deepcopy(legacy)) == _normalise(kind, current)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("kind, value, message", [
+    # the older keys mark an entry as older; the current component_* keys as current
+    ("config", {"vessel_type": "a", "BC_type": "nn", "module_file": "f.cellml",
+                "module_type": "a_type", "component_type": "a_type"}, "mixes the older keys"),
+    ("config", {"module_type": "a", "module_subtype": "nn", "component_file": "f.cellml",
+                "component_type": "a_type", "BC_type": "nn"}, "mixes the older keys"),
+    ("array", dict(_CURRENT_RECORD, out_vessels=["z"]), "mixes the older keys"),
+    ("array", dict(_LEGACY_RECORD, module_subtype="nn"), "mixes the older keys"),
+    ("supermodule", dict(_CURRENT_SUPERMODULE, BC_type="supermodule"), "mixes the older keys"),
+])
+def test_old_and_new_keys_mixed_rejected(kind, value, message):
+    with pytest.raises(ValueError, match=message):
+        _normalise(kind, value)
 
 
 @pytest.mark.unit
 @pytest.mark.parametrize("entry, message", [
-    # component_type marks the PhLynx schema, vessel_type the libcuflynx one
-    ({"vessel_type": "a", "BC_type": "nn", "module_file": "f.cellml", "module_type": "a_type",
-      "component_type": "a_type"}, "mixes the libcuflynx schema"),
-    ({"module_type": "a", "module_subtype": "nn", "component_file": "f.cellml",
-      "component_type": "a_type", "BC_type": "nn"}, "mixes the libcuflynx schema"),
-    # PhLynx schema with a key missing
+    # a current entry with a key missing
     ({"module_type": "a", "module_subtype": "nn", "component_type": "a_type"},
      r"missing \['component_file'\]"),
-    # module_type alone is ambiguous: it is a key of both schemas
-    ({"module_type": "a", "module_format": "cellml"}, "Cannot tell the schema"),
+    # module_type alone is ambiguous: it is a key of both
+    ({"module_type": "a", "module_format": "cellml"}, "Cannot tell the style"),
 ])
-def test_mixed_or_ambiguous_entry_is_rejected(entry, message):
+def test_incomplete_or_ambiguous_entry_is_rejected(entry, message):
     with pytest.raises(ValueError, match=message):
         normalise_module_config_entry(entry, source="lib.json")
 
 
 @pytest.mark.integration
 def test_phlynx_config_generates_identically(tmp_path, library_dir):
-    """The whole fixture library in the PhLynx schema, split over two files of which one is
-    PhLynx and one libcuflynx, generates byte-identical files."""
+    """The whole fixture library in the current keys, and split over two files of which one
+    is in the current keys and one in the older ones, generates byte-identical files."""
     reference = _generate_full(tmp_path / "lib", library_dir)
     entries = modules_config()
     phlynx_dir = _write_library(tmp_path / "phlynx_modules", {
-        "a_modules_config.json": [_to_phlynx(e) for e in entries],
+        "a_modules_config.json": [_to_current(e) for e in entries],
     })
     mixed_dir = _write_library(tmp_path / "mixed_modules", {
-        "a_modules_config.json": [_to_phlynx(e) for e in entries[:5]],
+        "a_modules_config.json": [_to_current(e) for e in entries[:5]],
         "b_module_config.json": entries[5:],
     })
     _assert_same_generated_models(reference, _generate_full(tmp_path / "phlynx", phlynx_dir))
@@ -371,11 +430,11 @@ def test_phlynx_config_generates_identically(tmp_path, library_dir):
 
 @pytest.mark.integration
 def test_mixed_entry_fails_generation(tmp_path):
-    bad = _to_phlynx(modules_config()[0])
+    bad = _to_current(modules_config()[0])
     bad["vessel_type"] = "flow_src"
     modules_dir = _write_library(tmp_path / "bad_modules",
                                  {"bad_modules_config.json": [bad] + modules_config()[1:]})
-    with pytest.raises(ValueError, match="mixes the libcuflynx schema"):
+    with pytest.raises(ValueError, match="mixes the older keys"):
         _generate(str(tmp_path), modules_dir, "schema_bad",
                   [("src_a", "flow_src", [], ["coll"]), ("coll", "collector", ["src_a"], [])],
                   _prescribed_params("src_a", 1.0e-5, 0.5, 6.0))
@@ -387,25 +446,26 @@ def test_mixed_entry_fails_generation(tmp_path):
 
 @pytest.mark.unit
 def test_module_array_columns_are_normalised():
-    phlynx = pd.DataFrame([["a", "nn", "src", "", "b"]], columns=PHLYNX_HEADER.split(","))
-    out = normalise_module_array_columns(phlynx)
-    assert list(out.columns) == LIBCUFLYNX_HEADER.split(",")
-    assert out.iloc[0].tolist() == ["a", "nn", "src", "", "b"]
-    libcuflynx = pd.DataFrame([["a", "nn", "src", "", "b"]], columns=LIBCUFLYNX_HEADER.split(","))
-    assert normalise_module_array_columns(libcuflynx) is libcuflynx
+    legacy = pd.DataFrame([["a", "nn", "src", "", "b"]], columns=LEGACY_HEADER.split(","))
+    out = normalise_module_array_columns(legacy)
+    assert list(out.columns) == ["name", "module_type", "module_subtype", "inp_instances",
+                                 "out_instances"]
+    assert out.iloc[0].tolist() == ["a", "src", "nn", "", "b"]
+    current = pd.DataFrame([["a", "nn", "src", "", "b"]], columns=CURRENT_HEADER.split(","))
+    assert normalise_module_array_columns(current) is current
     mixed = pd.DataFrame([["a", "nn", "src", "", "b"]],
                          columns=["name", "BC_type", "module_type", "inp_instances", "out_vessels"])
-    with pytest.raises(ValueError, match="mixes libcuflynx columns"):
+    with pytest.raises(ValueError, match="mixes the older columns"):
         normalise_module_array_columns(mixed)
 
 
 @pytest.mark.unit
 def test_the_old_vessel_array_file_name_is_a_fallback(tmp_path):
     assert module_array_path(str(tmp_path), "m").endswith("m_module_array.csv")
-    (tmp_path / "m_vessel_array.csv").write_text(PHLYNX_HEADER + "\n")
+    (tmp_path / "m_vessel_array.csv").write_text(CURRENT_HEADER + "\n")
     with pytest.warns(FutureWarning, match="m_vessel_array.csv uses the old name.*rename it to m_module_array.csv"):
         assert module_array_path(str(tmp_path), "m").endswith("m_vessel_array.csv")
-    (tmp_path / "m_module_array.csv").write_text(LIBCUFLYNX_HEADER + "\n")
+    (tmp_path / "m_module_array.csv").write_text(LEGACY_HEADER + "\n")
     with pytest.warns(UserWarning, match="Using m_module_array.csv; the others are ignored"):
         assert module_array_path(str(tmp_path), "m").endswith("m_module_array.csv")
 
@@ -414,9 +474,10 @@ def test_the_old_vessel_array_file_name_is_a_fallback(tmp_path):
 @pytest.mark.parametrize("array_name", ["module_array", "vessel_array"])
 @pytest.mark.filterwarnings("ignore:m_vessel_array.csv uses the old name:FutureWarning")
 def test_phlynx_module_array_generates_identically(tmp_path, library_dir, array_name):
-    """Either file name (vessel_array is the old one), in the PhLynx layout."""
+    """Either file name (vessel_array is the old one), in the current layout, generates what
+    the older layout does."""
     reference = _generate_full(tmp_path / "lib", library_dir)
-    phlynx = _generate_full(tmp_path / "phlynx", library_dir, layout="phlynx", array_name=array_name)
+    phlynx = _generate_full(tmp_path / "phlynx", library_dir, layout="current", array_name=array_name)
     _assert_same_generated_models(reference, phlynx)
 
 

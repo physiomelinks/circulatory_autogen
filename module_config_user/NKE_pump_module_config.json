@@ -1,10 +1,10 @@
 [
   {
-    "vessel_type":"NKE_pump",
-    "BC_type":"nn",
-    "module_format":"cellml",
-    "module_file":"NKE_pump_modules.cellml",
     "module_type":"NKE_pump",
+    "module_subtype":"nn",
+    "module_format":"cellml",
+    "component_file":"NKE_pump_modules.cellml",
+    "component_type":"NKE_pump",
     "entrance_ports":
     [
     ],
