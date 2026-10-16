@@ -1,0 +1,15 @@
+[
+ {"name": "src_a", "module_type": "flow_src", "module_subtype": "nn", "inp_instances": [],
+  "out_instances": ["pair/coll"], "phlynx_position": {"x": 0, "y": 0}},
+ {"name": "src_b", "module_type": "flow_src", "module_subtype": "nn", "inp_instances": [],
+  "out_instances": ["pair"]},
+ {"name": "pair", "module_type": "flowpair", "module_subtype": "supermodule",
+  "inp_instances": ["src_b"], "out_instances": ["rd"],
+  "per_submodule_outputs": {"g": ["rd"]}},
+ {"name": "rd", "module_type": "reader", "module_subtype": "nn", "inp_instances": ["pair"],
+  "out_instances": []},
+ {"name": "o", "module_type": "outer", "module_subtype": "supermodule",
+  "inp_instances": [], "out_instances": []},
+ {"name": "rd2", "module_type": "reader", "module_subtype": "nn", "inp_instances": ["o/pair/g"],
+  "out_instances": []}
+]

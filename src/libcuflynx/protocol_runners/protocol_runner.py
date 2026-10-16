@@ -8,7 +8,7 @@ delegating the core simulation loop to ProtocolExecutor.
 Usage::
 
     runner = ProtocolRunner('/path/to/model.cellml', solver='CVODE_myokit')
-    t_list, res_list, sim_times = runner.run_protocols(model_path, protocol_info)
+    t_list, res_list, sim_times = runner.run_protocols(protocol_info=protocol_info)
 """
 
 import json
@@ -20,6 +20,7 @@ import numpy as np
 from libcuflynx.utilities.paths import default_user_inputs_dir
 from libcuflynx.solver_wrappers import get_simulation_helper
 from libcuflynx.protocol_runners.protocol_executor import ProtocolExecutor
+from libcuflynx.protocol_runners.predictions import join_segments
 
 
 def _solver_accepts(solver, key):
@@ -87,15 +88,9 @@ class ProtocolRunner:
         self.MaximumStep = solver_info.get('MaximumStep', 0.001)
         self.MaximumNumberOfSteps = solver_info.get('MaximumNumberOfSteps', 5000)
 
-        # Preserve all solver_info keys (e.g. rtol/atol/method) and only fill in
-        # MaximumStep / MaximumNumberOfSteps defaults — previously the extra keys
-        # were silently dropped, so tight tolerances passed by callers were ignored.
-        #
-        # The MaximumNumberOfSteps default is conditional: this relays solver_info
-        # to the backend rather than consuming it, so seeding it unconditionally
-        # put the key back for solvers whose helper ignores it (CVODE_myokit) --
-        # undoing migrate_legacy_solver_info_keys and re-creating a setting that
-        # looks live but does nothing.
+        # Keep every solver_info key (e.g. rtol/atol/method) and fill in the
+        # MaximumStep / MaximumNumberOfSteps defaults. MaximumNumberOfSteps is seeded
+        # only for solvers that read it (not CVODE_myokit).
         full_solver_info = dict(solver_info)
         if _solver_accepts(solver, 'MaximumNumberOfSteps'):
             full_solver_info.setdefault('MaximumNumberOfSteps', self.MaximumNumberOfSteps)
@@ -125,25 +120,45 @@ class ProtocolRunner:
         """Return a mapping from variable name to index in the result list."""
         return {name: idx for idx, name in enumerate(self.variable_names)}
 
-    def run_protocols(self, model_path, protocol_info=None,
-                      id_param_names=None, id_param_vals=None):
+    def _apply_protocol_info(self, protocol_info):
+        """Hand ``protocol_info`` to the helper before running it.
+
+        A params_to_change entry naming a trace (or a shape) needs the helper to know the
+        protocol. Guarded on identity because for the Myokit backend this binds the traced
+        inputs and recreates the simulation, which is not something to redo on every call.
+        The result rows are ordered by the rebuilt model's variables, so ``variable_names`` is
+        re-read; left stale, every variable silently reads as its neighbour.
+        """
+        if hasattr(self.sim_helper, 'set_protocol_info'):
+            if getattr(self, '_applied_protocol_info', None) is not protocol_info:
+                self.sim_helper.set_protocol_info(protocol_info)
+                self._applied_protocol_info = protocol_info
+                self.variable_names = self.sim_helper.get_all_variable_names()
+
+    def run_protocols(self, model_path=None, protocol_info=None,
+                      id_param_names=None, id_param_vals=None,
+                      result_variables=None, return_segments=False):
         """Run the protocol defined by ``protocol_info`` and return result arrays.
 
         Args:
-            model_path: Path to the model. Kept for API compatibility; the model
-                was loaded at construction time and this argument is not re-used.
+            model_path: Not used (the model was loaded at construction time); kept so
+                existing positional calls keep working.
             protocol_info: Protocol descriptor. If None, read from
                 ``inp_data_dict['param_id_obs_path']``.
             id_param_names: Parameter names to set (same format as param_id).
             id_param_vals: Values to apply before each experiment (e.g.
                 calibrated parameters).
+            result_variables: The variables to record, as for ``get_results``; None records
+                every variable, in ``get_variable_names()`` order.
+            return_segments: Also return the per-sub-experiment results.
 
         Returns:
             tuple: ``(t_list, res_list, sim_times)`` where ``t_list`` is the time
             vector per experiment (pre_time removed); ``res_list[exp][var]`` is
-            the full time-series for that variable concatenated across
-            sub-experiments; and ``sim_times`` is the ``sim_times`` from
-            ``protocol_info``.
+            the full time-series for that variable joined across sub-experiments
+            (``join_segments``); and ``sim_times`` is the ``sim_times`` from
+            ``protocol_info``. With ``return_segments``, a fourth element
+            ``{(exp, sub): results}`` holds each sub-experiment's own results.
         """
         if protocol_info is None:
             obs_path = self.inp_data_dict['param_id_obs_path']
@@ -151,21 +166,7 @@ class ProtocolRunner:
                 json_obj = json.load(fh)
             protocol_info = json_obj['protocol_info']
 
-        # Hand the protocol to the helper before running it. Without this a
-        # params_to_change entry naming a trace (or a shape) failed here with
-        # "protocol_traces not found in protocol_info" -- the helper had never
-        # been told the protocol it was executing. Guarded on identity because
-        # for the Myokit backend this rebinds `pace` and recreates the
-        # simulation, which is not something to redo on every call.
-        if hasattr(self.sim_helper, 'set_protocol_info'):
-            if getattr(self, '_applied_protocol_info', None) is not protocol_info:
-                self.sim_helper.set_protocol_info(protocol_info)
-                self._applied_protocol_info = protocol_info
-                # Binding `pace` rebuilds the simulation, and the result rows are
-                # ordered by the rebuilt model's variables -- so the map captured
-                # in __init__ no longer indexes what get_results returns. Left
-                # stale, every variable silently reads as its neighbour.
-                self.variable_names = self.sim_helper.get_all_variable_names()
+        self._apply_protocol_info(protocol_info)
 
         sim_times = protocol_info['sim_times']
         pre_times = protocol_info['pre_times']
@@ -183,7 +184,7 @@ class ProtocolRunner:
 
         success, results_by_sub, _, t_by_exp = self._executor.run_protocol(
             protocol_info,
-            result_variables=None,
+            result_variables=result_variables,
             id_param_names=id_param_names,
             id_param_vals=id_param_vals,
         )
@@ -194,33 +195,18 @@ class ProtocolRunner:
         res_list = []
         for exp_idx in range(num_experiments):
             t_list.append(t_by_exp[exp_idx])
-
-            res_vec = None
-            for sub_idx in range(num_sub_per_exp[exp_idx]):
-                sub_res = results_by_sub.get((exp_idx, sub_idx))
-                if sub_res is None:
-                    continue
-
-                if sub_idx == 0:
-                    res_vec = list(sub_res)
-                    for var_idx in range(len(res_vec)):
-                        if not hasattr(res_vec[var_idx], '__len__'):
-                            n = len(t_by_exp[exp_idx]) if t_by_exp[exp_idx] is not None else 1
-                            res_vec[var_idx] = np.ones(n) * res_vec[var_idx]
-                else:
-                    for var_idx in range(len(res_vec)):
-                        new_data = sub_res[var_idx]
-                        if not hasattr(new_data, '__len__'):
-                            n_sub = round(sim_times[exp_idx][sub_idx] / self.dt)
-                            new_data = np.ones(n_sub) * new_data
-                        else:
-                            new_data = new_data[1:]
-                        res_vec[var_idx] = np.concatenate([res_vec[var_idx], new_data])
-
-            res_list.append(res_vec)
+            subs = range(num_sub_per_exp[exp_idx])
+            results = [results_by_sub.get((exp_idx, sub_idx)) for sub_idx in subs]
+            if result_variables is not None:
+                # get_results gives one list per requested name list; flattened in order
+                results = [None if r is None else [v for entry in r for v in entry]
+                           for r in results]
+            res_list.append(join_segments(results, sim_times[exp_idx], self.dt))
             print(
                 f'Experiment {exp_idx} completed. '
                 f'Remaining: {num_experiments - exp_idx - 1}'
             )
 
+        if return_segments:
+            return t_list, res_list, sim_times, results_by_sub
         return t_list, res_list, sim_times

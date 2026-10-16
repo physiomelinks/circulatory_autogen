@@ -182,13 +182,13 @@ def _port(port_type, variables, multi_port=None):
     return port
 
 
-def _module(vessel_type, BC_type, module_type, entrance_ports, exit_ports, variables_and_units):
+def _module(module_type, module_subtype, component_type, entrance_ports, exit_ports, variables_and_units):
     return {
-        "vessel_type": vessel_type,
-        "BC_type": BC_type,
-        "module_format": "cellml",
-        "module_file": "multiport_test_modules.cellml",
         "module_type": module_type,
+        "module_subtype": module_subtype,
+        "module_format": "cellml",
+        "component_file": "multiport_test_modules.cellml",
+        "component_type": component_type,
         "entrance_ports": entrance_ports,
         "exit_ports": exit_ports,
         "general_ports": [],
@@ -196,8 +196,8 @@ def _module(vessel_type, BC_type, module_type, entrance_ports, exit_ports, varia
     }
 
 
-def _source_config(vessel_type, module_type, flow_units):
-    return _module(vessel_type, "nn", module_type, [], [_port("vessel_port", ["v", "u_out"])], [
+def _source_config(module_type, component_type, flow_units):
+    return _module(module_type, "nn", component_type, [], [_port("vessel_port", ["v", "u_out"])], [
         ["v", flow_units, "access", "variable"],
         ["u_out", "J_per_m3", "access", "boundary_condition"],
         ["v_mean", flow_units, "access", "constant"],
@@ -349,32 +349,32 @@ def external_modules_dir(tmp_path_factory):
 # parameters for every fixture/built-in module used below; the generator keeps only the ones
 # the module array needs
 def _source_params(name, v_mean, amp, omega, units="m3_per_s"):
-    return [(f"v_mean_{name}", units, v_mean), (f"amp_{name}", "dimensionless", amp),
-            (f"omega_{name}", "per_s", omega)]
+    return [(f"{name}/v_mean", units, v_mean), (f"{name}/amp", "dimensionless", amp),
+            (f"{name}/omega", "per_s", omega)]
 
 
 def _arterial_params(name):
-    return [(f"R_{name}", "Js_per_m6", 1.0e7), (f"C_{name}", "m6_per_J", 1.0e-9),
-            (f"I_{name}", "Js2_per_m6", 1.0e5), (f"q_0_{name}", "m3", 1.0e-5),
-            (f"u_0_{name}", "J_per_m3", 0.0), (f"u_ext_{name}", "J_per_m3", 0.0),
-            (f"u_out_{name}", "J_per_m3", 1000.0)]
+    return [(f"{name}/R", "Js_per_m6", 1.0e7), (f"{name}/C", "m6_per_J", 1.0e-9),
+            (f"{name}/I", "Js2_per_m6", 1.0e5), (f"{name}/q_0", "m3", 1.0e-5),
+            (f"{name}/u_0", "J_per_m3", 0.0), (f"{name}/u_ext", "J_per_m3", 0.0),
+            (f"{name}/u_out", "J_per_m3", 1000.0)]
 
 
 def _windkessel_params(name):
-    return [(f"R_{name}", "Js_per_m6", 1.0e8), (f"C_{name}", "m6_per_J", 1.0e-8)]
+    return [(f"{name}/R", "Js_per_m6", 1.0e8), (f"{name}/C", "m6_per_J", 1.0e-8)]
 
 
 def _rl_params(name, R):
-    return [(f"R_{name}", "Js_per_m6", R), (f"L_{name}", "Js2_per_m6", 1.0e6)]
+    return [(f"{name}/R", "Js_per_m6", R), (f"{name}/L", "Js2_per_m6", 1.0e6)]
 
 
 def _generate(tmp_path, external_modules_dir, prefix, vessel_rows, params, model_type="cellml"):
     """Write the module array and parameters for ``vessel_rows`` and generate the model."""
     resources_dir = tmp_path / "resources"
     resources_dir.mkdir(parents=True, exist_ok=True)
-    lines = ["name,BC_type,vessel_type,inp_vessels,out_vessels"]
-    for name, BC_type, vessel_type, inp, out in vessel_rows:
-        lines.append(f"{name},{BC_type},{vessel_type},{' '.join(inp)},{' '.join(out)}")
+    lines = ["name,module_subtype,module_type,inp_instances,out_instances"]
+    for name, module_subtype, module_type, inp, out in vessel_rows:
+        lines.append(f"{name},{module_subtype},{module_type},{' '.join(inp)},{' '.join(out)}")
     (resources_dir / f"{prefix}_module_array.csv").write_text("\n".join(lines) + "\n")
     param_lines = ["variable_name,units,value,data_reference"]
     for variable_name, units, value in params:
@@ -573,11 +573,11 @@ def test_flow_merge_takes_a_terminal_inflow(tmp_path, external_modules_dir):
             ("src_a", "nn", "flow_source", [], ["merge"]),
             ("merge", "vp", "flow_merge", ["term", "src_a"], ["wk"]),
             ("wk", "nn", "windkessel", ["merge"], [])]
-    params = ([("u_mean_psrc", "J_per_m3", 1.0e4), ("amp_psrc", "dimensionless", 0.5),
-               ("omega_psrc", "per_s", 6.0),
-               ("R_T_term", "Js_per_m6", 1.0e8), ("C_T_term", "m6_per_J", 1.0e-9),
-               ("u_ext_term", "J_per_m3", 0.0), ("q_us_term", "m3", 0.0),
-               ("q_init_term", "m3", 1.0e-6)] +
+    params = ([("psrc/u_mean", "J_per_m3", 1.0e4), ("psrc/amp", "dimensionless", 0.5),
+               ("psrc/omega", "per_s", 6.0),
+               ("term/R_T", "Js_per_m6", 1.0e8), ("term/C_T", "m6_per_J", 1.0e-9),
+               ("term/u_ext", "J_per_m3", 0.0), ("term/q_us", "m3", 0.0),
+               ("term/q_init", "m3", 1.0e-6)] +
               _source_params("src_a", *MERGE_SOURCES["src_a"]) + _windkessel_params("wk"))
     cellml_path = _generate(tmp_path, external_modules_dir, "mp_term", rows, params)
 
@@ -594,13 +594,13 @@ def test_flow_merge_takes_a_terminal_inflow(tmp_path, external_modules_dir):
 
 
 def _terminal_params(name):
-    return [("R_T_" + name, "Js_per_m6", 1.0e8), ("C_T_" + name, "m6_per_J", 1.0e-9),
-            ("u_ext_" + name, "J_per_m3", 0.0), ("q_us_" + name, "m3", 0.0),
-            ("q_init_" + name, "m3", 1.0e-6)]
+    return [(name + "/R_T", "Js_per_m6", 1.0e8), (name + "/C_T", "m6_per_J", 1.0e-9),
+            (name + "/u_ext", "J_per_m3", 0.0), (name + "/q_us", "m3", 0.0),
+            (name + "/q_init", "m3", 1.0e-6)]
 
 
-PSRC_PARAMS = [("u_mean_psrc", "J_per_m3", 1.0e4), ("amp_psrc", "dimensionless", 0.5),
-               ("omega_psrc", "per_s", 6.0)]
+PSRC_PARAMS = [("psrc/u_mean", "J_per_m3", 1.0e4), ("psrc/amp", "dimensionless", 0.5),
+               ("psrc/omega", "per_s", 6.0)]
 
 
 @pytest.mark.integration
@@ -618,10 +618,10 @@ def test_terminal_inflow_with_separate_list_form_uptake_port(tmp_path, external_
             ("ven", "vp", "venous_uptake", ["term", "up_a", "up_b"], ["wk"]),
             ("wk", "nn", "windkessel", ["ven"], [])]
     params = (PSRC_PARAMS + _terminal_params("term") +
-              [("v_mean_up_a", "m3_per_s", 1.0e-6), ("amp_up_a", "dimensionless", 0.5),
-               ("omega_up_a", "per_s", 6.0),
-               ("v_mean_up_b", "m3_per_s", 2.0e-6), ("amp_up_b", "dimensionless", 0.3),
-               ("omega_up_b", "per_s", 4.0)] +
+              [("up_a/v_mean", "m3_per_s", 1.0e-6), ("up_a/amp", "dimensionless", 0.5),
+               ("up_a/omega", "per_s", 6.0),
+               ("up_b/v_mean", "m3_per_s", 2.0e-6), ("up_b/amp", "dimensionless", 0.3),
+               ("up_b/omega", "per_s", 4.0)] +
               _windkessel_params("wk"))
     cellml_path = _generate(tmp_path, external_modules_dir, "mp_term_uptake", rows, params)
 
@@ -650,8 +650,8 @@ def test_fan_out_to_two_modules_in_other_units_maps_directly(tmp_path, external_
     rows = [("store", "nn", "volume_store", [], ["reader_a", "reader_b"]),
             ("reader_a", "nn", "volume_reader", ["store"], []),
             ("reader_b", "nn", "volume_reader", ["store"], [])]
-    params = [("q_mean_store", "m3", 2.0e-3), ("amp_store", "dimensionless", 0.5),
-              ("omega_store", "per_s", 6.0)]
+    params = [("store/q_mean", "m3", 2.0e-3), ("store/amp", "dimensionless", 0.5),
+              ("store/omega", "per_s", 6.0)]
     cellml_path = _generate(tmp_path, external_modules_dir, "mp_fan_units", rows, params)
 
     text = _read(cellml_path)
@@ -677,8 +677,8 @@ def test_fan_out_to_two_modules_in_other_units_maps_directly(tmp_path, external_
 ])
 def test_a_connection_in_other_units_converts_in_the_direction_the_value_flows(
         tmp_path, external_modules_dir, rows):
-    params = [("q_mean_store", "m3", 2.0e-3), ("amp_store", "dimensionless", 0.5),
-              ("omega_store", "per_s", 6.0)]
+    params = [("store/q_mean", "m3", 2.0e-3), ("store/amp", "dimensionless", 0.5),
+              ("store/omega", "per_s", 6.0)]
     cellml_path = _generate(tmp_path, external_modules_dir, "mp_units_dir", rows, params)
     res = _simulate(cellml_path, ["store/q", "reader/q_seen"])
     assert np.ptp(res["store/q"]) > 0
@@ -691,7 +691,7 @@ def test_a_connection_between_affine_units_is_rejected(tmp_path, external_module
             ("reader", "nn", "temperature_reader", ["src"], [])]
     with pytest.raises(ValueError, match='Cannot map "T".*needs an offset'):
         _generate(tmp_path, external_modules_dir, "mp_affine", rows,
-                  [("T_set_src", "kelvin", 310.0)])
+                  [("src/T_set", "kelvin", 310.0)])
 
 
 @pytest.mark.integration
@@ -701,7 +701,7 @@ def test_a_connection_between_affine_units_is_rejected(tmp_path, external_module
 ])
 def test_a_plain_port_pair_with_different_variable_counts_is_rejected(
         tmp_path, external_modules_dir, rows):
-    params = (_source_params("src", *MERGE_SOURCES["src_a"]) + [("u_out_src", "J_per_m3", 0.0)] +
+    params = (_source_params("src", *MERGE_SOURCES["src_a"]) + [("src/u_out", "J_per_m3", 0.0)] +
               _windkessel_params("wk"))
     with pytest.raises(ValueError, match="needs the same number of variables on both sides"):
         _generate(tmp_path, external_modules_dir, "mp_counts", rows, params)
@@ -712,7 +712,7 @@ def test_a_bc_with_a_blank_partner_keeps_its_value(tmp_path, external_modules_di
     """flow_source [v, u_out] into [v_in, ""]: u_out is not connected, so it keeps its value."""
     rows = [("src", "nn", "flow_source", [], ["wk"]),
             ("wk", "nn", "windkessel_blank", ["src"], [])]
-    params = (_source_params("src", *MERGE_SOURCES["src_a"]) + [("u_out_src", "J_per_m3", 1234.0)] +
+    params = (_source_params("src", *MERGE_SOURCES["src_a"]) + [("src/u_out", "J_per_m3", 1234.0)] +
               _windkessel_params("wk"))
     cellml_path = _generate(tmp_path, external_modules_dir, "mp_blank", rows, params)
     res = _simulate(cellml_path, ["src/u_seen"], sim_time=0.1)
@@ -724,13 +724,13 @@ def test_flow_merge_one_neighbour_matches_one_to_one(tmp_path, external_modules_
     params = _source_params("src_a", *MERGE_SOURCES["src_a"]) + _windkessel_params("wk")
     names = ["src_a/v", "merge/v_out", "merge/u", "wk/u", "wk/q", "src_a/u_seen"]
     results = {}
-    for vessel_type in ["flow_merge", "flow_merge_plain"]:
+    for module_type in ["flow_merge", "flow_merge_plain"]:
         rows = [("src_a", "nn", "flow_source", [], ["merge"]),
-                ("merge", "vp", vessel_type, ["src_a"], ["wk"]),
+                ("merge", "vp", module_type, ["src_a"], ["wk"]),
                 ("wk", "nn", "windkessel", ["merge"], [])]
-        cellml_path = _generate(tmp_path / vessel_type, external_modules_dir,
-                                f"mp_one_{vessel_type}", rows, params)
-        results[vessel_type] = _simulate(cellml_path, names)
+        cellml_path = _generate(tmp_path / module_type, external_modules_dir,
+                                f"mp_one_{module_type}", rows, params)
+        results[module_type] = _simulate(cellml_path, names)
     for name in names:
         np.testing.assert_allclose(results["flow_merge"][name], results["flow_merge_plain"][name],
                                    rtol=1e-12, atol=1e-30, err_msg=name)
@@ -804,8 +804,8 @@ def test_flow_split_three_downstream_vessels(tmp_path, external_modules_dir):
             ("sink_a", "nn", "rl_sink", ["split"], []),
             ("sink_b", "nn", "rl_sink", ["split"], []),
             ("art_d", "pp", "arterial_simple", ["split"], [])]
-    params = ([("u_mean_psrc", "J_per_m3", 1.0e4), ("amp_psrc", "dimensionless", 0.5),
-               ("omega_psrc", "per_s", 6.0)] +
+    params = ([("psrc/u_mean", "J_per_m3", 1.0e4), ("psrc/amp", "dimensionless", 0.5),
+               ("psrc/omega", "per_s", 6.0)] +
               _rl_params("sink_a", 1.0e8) + _rl_params("sink_b", 3.0e8) + _arterial_params("art_d"))
     cellml_path = _generate(tmp_path, external_modules_dir, "mp_split", rows, params)
 
@@ -835,8 +835,8 @@ def test_flow_split_python_model(tmp_path, external_modules_dir):
             ("split", "pv", "flow_split", ["psrc"], ["sink_a", "sink_b"]),
             ("sink_a", "nn", "rl_sink", ["split"], []),
             ("sink_b", "nn", "rl_sink", ["split"], [])]
-    params = ([("u_mean_psrc", "J_per_m3", 1.0e4), ("amp_psrc", "dimensionless", 0.5),
-               ("omega_psrc", "per_s", 6.0)] +
+    params = ([("psrc/u_mean", "J_per_m3", 1.0e4), ("psrc/amp", "dimensionless", 0.5),
+               ("psrc/omega", "per_s", 6.0)] +
               _rl_params("sink_a", 1.0e8) + _rl_params("sink_b", 3.0e8))
     _generate(tmp_path, external_modules_dir, "mp_split_py", rows, params, model_type="python")
     generated = os.listdir(tmp_path / "generated_models" / "mp_split_py")

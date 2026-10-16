@@ -48,8 +48,7 @@ def _doc(data_items, prediction_items=None):
 
 
 def _parse(doc):
-    return ObsAndParamDataParser().parse_obs_data_json(obs_data_dict=doc,
-                                                       pre_time=0.0, sim_time=1.0)
+    return ObsAndParamDataParser().parse_obs_data_json(obs_data_dict=doc)
 
 
 # ------------------------------------------------------------------ the old keys are refused
@@ -171,7 +170,7 @@ def test_the_shipped_extra_ops_example_differences_two_distinct_items():
     """
     path = os.path.join(_ROOT, 'resources', '3compartment_extra_ops_obs_data.json')
     with open(path, encoding='utf-8-sig') as fh:
-        items = json.load(fh)
+        items = json.load(fh)['data_items']
 
     by_name = {i['data_item_name']: i for i in items}
     diff = next(i for i in items
@@ -327,6 +326,5 @@ def test_the_obs_data_creator_writes_a_file_the_reader_accepts(tmp_path):
         example_format_obs_data_json_file
     path = tmp_path / 'obs_data.json'
     example_format_obs_data_json_file(str(path))
-    out = ObsAndParamDataParser().parse_obs_data_json(param_id_obs_path=str(path),
-                                                      pre_time=1.0, sim_time=1.0)
+    out = ObsAndParamDataParser().parse_obs_data_json(param_id_obs_path=str(path))
     assert out['prediction_info']['operands'] == [['NKE_pump/v_2'], ['NKE_pump/u_e']]

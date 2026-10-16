@@ -4,6 +4,7 @@ Tests for sensitivity analysis functionality.
 These tests verify that sensitivity analysis works correctly for various models.
 """
 import os
+from _obs_data import retimed_obs_data
 import pytest
 from mpi4py import MPI
 
@@ -58,7 +59,7 @@ def test_sensitivity_analysis_3compartment_succeeds(base_user_inputs, resources_
         'file_prefix': '3compartment',
         'input_param_file': '3compartment_parameters.csv',
         'model_type': 'cellml',
-        'solver': 'CVODE',
+        'solver': 'CVODE_myokit',
         'param_id_method': 'genetic_algorithm',
         'pre_time': 20,
         'sim_time': 2,
@@ -69,7 +70,6 @@ def test_sensitivity_analysis_3compartment_succeeds(base_user_inputs, resources_
         'model_out_names': ['heart/u_lv'],
         'solver_info': {
             'MaximumStep': 0.001,
-            'MaximumNumberOfSteps': 5000,
         },
         'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
         'param_id_output_dir': temp_output_dir,
@@ -107,7 +107,7 @@ def test_sensitivity_analysis_3compartment_extra_ops_succeeds(
         'file_prefix': '3compartment_extra_ops',
         'input_param_file': '3compartment_extra_ops_parameters.csv',
         'model_type': 'cellml',
-        'solver': 'CVODE',
+        'solver': 'CVODE_myokit',
         'param_id_method': 'genetic_algorithm',
         'pre_time': 20,
         'sim_time': 2,
@@ -118,7 +118,6 @@ def test_sensitivity_analysis_3compartment_extra_ops_succeeds(
         'model_out_names': ['heart/u_lv'],  
         'solver_info': {
             'MaximumStep': 0.001,
-            'MaximumNumberOfSteps': 5000,
         },
         'param_id_obs_path': os.path.join(resources_dir, '3compartment_extra_ops_obs_data.json'),
         'param_id_output_dir': temp_output_dir,
@@ -152,6 +151,8 @@ def _build_local_sa_engine(base_user_inputs, resources_dir, temp_output_dir,
     from libcuflynx.param_id.paramID import CVS0DParamID
 
     obs_file = '3compartment_obs_data.json'
+    obs_path = retimed_obs_data(os.path.join(resources_dir, obs_file), 0.3, 0.5,
+                                temp_output_dir)
     config = base_user_inputs.copy()
     config.update({
         'file_prefix': '3compartment',
@@ -165,10 +166,10 @@ def _build_local_sa_engine(base_user_inputs, resources_dir, temp_output_dir,
         'DEBUG': False,
         'do_uq': False,
         'plot_predictions': False,
-        'solver_info': {'MaximumStep': 0.005, 'MaximumNumberOfSteps': 50000,
+        'solver_info': {'MaximumStep': 0.005,
                         'rtol': 1e-9, 'atol': 1e-9} if model_type == 'cellml'
                        else {'method': 'bdf'},
-        'param_id_obs_path': os.path.join(resources_dir, obs_file),
+        'param_id_obs_path': obs_path,
         'param_id_output_dir': temp_output_dir,
         'generated_models_dir': temp_generated_models_dir,
     })
@@ -180,7 +181,7 @@ def _build_local_sa_engine(base_user_inputs, resources_dir, temp_output_dir,
     parsed = YamlFileParser().parse_user_inputs_file(config)
     parsed['one_rank'] = True
     engine_outer = CVS0DParamID.init_from_dict(parsed)
-    with open(os.path.join(resources_dir, obs_file)) as f:
+    with open(obs_path) as f:
         obs_data = json.load(f)
     engine_outer.set_ground_truth_data(obs_data)
     engine_outer.set_params_for_id([
@@ -297,6 +298,8 @@ def test_sensitivity_analysis_local_method_end_to_end(
     rank = mpi_comm.Get_rank()
     obs_file = '3compartment_obs_data.json'
     out_dir = os.path.join(temp_output_dir, '3compartment_local_SA_results')
+    obs_path = retimed_obs_data(os.path.join(resources_dir, obs_file), 0.3, 0.5,
+                                temp_output_dir)
     config = base_user_inputs.copy()
     config.update({
         'file_prefix': '3compartment',
@@ -309,9 +312,9 @@ def test_sensitivity_analysis_local_method_end_to_end(
         'DEBUG': False,
         'do_uq': False,
         'plot_predictions': False,
-        'solver_info': {'MaximumStep': 0.005, 'MaximumNumberOfSteps': 50000,
+        'solver_info': {'MaximumStep': 0.005,
                         'rtol': 1e-9, 'atol': 1e-9},
-        'param_id_obs_path': os.path.join(resources_dir, obs_file),
+        'param_id_obs_path': obs_path,
         'param_id_output_dir': temp_output_dir,
         'generated_models_dir': temp_generated_models_dir,
         'sa_options': {'method': 'local', 'num_samples': 8, 'sample_type': 'saltelli',
@@ -321,7 +324,7 @@ def test_sensitivity_analysis_local_method_end_to_end(
 
     parsed = YamlFileParser().parse_user_inputs_file(config)
     sa = SensitivityAnalysis.init_from_dict(parsed)
-    with open(os.path.join(resources_dir, obs_file)) as f:
+    with open(obs_path) as f:
         obs_data = json.load(f)
     sa.set_ground_truth_data(obs_data)
     sa.set_params_for_id([

@@ -1,6 +1,6 @@
 """
-The first two letters of a ``BC_type`` (``module_subtype``) are a vessel BC pair (``vv``,
-``vp``, ``pv``, ``pp``) only for vessel modules. Any other module may have any BC_type,
+The first two letters of a ``module_subtype`` (``module_subtype``) are a vessel BC pair (``vv``,
+``vp``, ``pv``, ``pp``) only for vessel modules. Any other module may have any module_subtype,
 e.g. ``lv_test``, ``rv``, ``SN_soma`` or ``cardiomyocyte``, without an ``nn`` prefix.
 
 Before, every connection whose sides did not start with ``nn`` had its BC letters checked,
@@ -53,20 +53,20 @@ def test_non_vessel_bc_prefixes(bc):
 
 
 def test_vessel_module_needs_vessel_ports():
-    assert is_vessel_module({'BC_type': 'vp', **VESSEL_PORTS})
-    assert is_vessel_module({'BC_type': 'pv_micro', **MICRO_PORTS})
+    assert is_vessel_module({'module_subtype': 'vp', **VESSEL_PORTS})
+    assert is_vessel_module({'module_subtype': 'pv_micro', **MICRO_PORTS})
     # a BC-like name on a module without vessel ports is not a vessel
-    assert not is_vessel_module({'BC_type': 'pp_cell', **SIGNAL_PORTS})
+    assert not is_vessel_module({'module_subtype': 'pp_cell', **SIGNAL_PORTS})
     # nn modules with a vessel_port (the constant BCs) stay non-vessels
-    assert not is_vessel_module({'BC_type': 'nn_constant', **VESSEL_PORTS})
-    assert not is_vessel_module({'BC_type': 'lv_test', **VESSEL_PORTS})
+    assert not is_vessel_module({'module_subtype': 'nn_constant', **VESSEL_PORTS})
+    assert not is_vessel_module({'module_subtype': 'lv_test', **VESSEL_PORTS})
     # without port info (the raw module array) the prefix decides
-    assert has_vessel_ports({'BC_type': 'vp'}) is None
-    assert is_vessel_module({'BC_type': 'vp'})
-    assert not is_vessel_module({'BC_type': 'lv'})
+    assert has_vessel_ports({'module_subtype': 'vp'}) is None
+    assert is_vessel_module({'module_subtype': 'vp'})
+    assert not is_vessel_module({'module_subtype': 'lv'})
     # pandas rows and itertuples() rows work too
-    df = pd.DataFrame([{'name': 'a', 'BC_type': 'vp', **VESSEL_PORTS},
-                       {'name': 'b', 'BC_type': 'lv_test', **SIGNAL_PORTS}])
+    df = pd.DataFrame([{'name': 'a', 'module_subtype': 'vp', **VESSEL_PORTS},
+                       {'name': 'b', 'module_subtype': 'lv_test', **SIGNAL_PORTS}])
     assert [is_vessel_module(row) for _, row in df.iterrows()] == [True, False]
     assert [is_vessel_module(row) for row in df.itertuples()] == [True, False]
 
@@ -80,16 +80,16 @@ _check = CVS0DCellMLGenerator._CVS0DCellMLGenerator__check_input_output_modules
 
 def _pair_df(main_bc, main_ports, out_bc, out_ports):
     return pd.DataFrame([
-        {'name': 'a', 'BC_type': main_bc, 'module_type': 'a_type', 'vessel_type': 'a_type',
-         'inp_vessels': [], 'out_vessels': ['b'], **main_ports},
-        {'name': 'b', 'BC_type': out_bc, 'module_type': 'b_type', 'vessel_type': 'b_type',
-         'inp_vessels': ['a'], 'out_vessels': [], **out_ports},
+        {'name': 'a', 'module_subtype': main_bc, 'component_type': 'a_type', 'module_type': 'a_type',
+         'inp_instances': [], 'out_instances': ['b'], **main_ports},
+        {'name': 'b', 'module_subtype': out_bc, 'component_type': 'b_type', 'module_type': 'b_type',
+         'inp_instances': ['a'], 'out_instances': [], **out_ports},
     ])
 
 
 def _run_check(df):
     a, b = df.iloc[0], df.iloc[1]
-    _check(None, df, 'a', 'b', a.BC_type, b.BC_type, a.module_type, b.module_type)
+    _check(None, df, 'a', 'b', a.module_subtype, b.module_subtype, a.component_type, b.component_type)
 
 
 @pytest.mark.parametrize('main_bc, out_bc', [('vv', 'vp'), ('vp', 'pv'), ('pv_micro', 'vv_micro')])
@@ -178,11 +178,11 @@ UNITS_CELLML = """\
 """
 
 
-def _config_entry(vessel_type, bc_type, file_stem, module_type, entrance, exit_, variables):
+def _config_entry(module_type, bc_type, file_stem, component_type, entrance, exit_, variables):
     import json
     return json.dumps([{
-        'vessel_type': vessel_type, 'BC_type': bc_type, 'module_format': 'cellml',
-        'module_file': f'{file_stem}_modules.cellml', 'module_type': module_type,
+        'module_type': module_type, 'module_subtype': bc_type, 'module_format': 'cellml',
+        'component_file': f'{file_stem}_modules.cellml', 'component_type': component_type,
         'entrance_ports': entrance, 'exit_ports': exit_, 'general_ports': [],
         'variables_and_units': variables,
     }], indent=2)
@@ -253,15 +253,15 @@ def test_non_vessel_modules_with_arbitrary_names_connect_and_generate(tmp_path, 
     generated_dir = _generate(
         tmp_path, 'bc_names',
         f"""\
-        name,BC_type,vessel_type,inp_vessels,out_vessels
+        name,module_subtype,module_type,inp_instances,out_instances
         src,{source_bc},bc_test_source,,snk
         snk,{sink_bc},bc_test_sink,src,
         """,
         """\
         variable_name,units,value,data_reference
-        s_init_src,dimensionless,2.0,test
-        k_src,bc_test_per_second,0.5,test
-        gain_snk,dimensionless,3.0,test
+        src/s_init,dimensionless,2.0,test
+        src/k,bc_test_per_second,0.5,test
+        snk/gain,dimensionless,3.0,test
         """,
         library_dir, use_builtin_modules=False)
 
@@ -274,15 +274,15 @@ def test_non_vessel_modules_with_arbitrary_names_connect_and_generate(tmp_path, 
 # Min_junction vp and the constant BCs as in test_generation_fixes (#524).
 JUNCTION_PARAMETERS = """\
     variable_name,units,value,data_reference
-    v_inflow_a,m3_per_s,4.0e-5,test
-    v_inflow_b,m3_per_s,7.0e-5,test
-    P_outp,J_per_m3,12665.6,test
-    u_0_junc,J_per_m3,10640.0,test
-    u_ext_junc,J_per_m3,0.0,test
-    theta_junc,dimensionless,90.0,test
-    E_junc,J_per_m3,4.0e5,test
-    l_junc,metre,0.014796,test
-    r_0_junc,metre,0.0133364,test
+    inflow_a/v,m3_per_s,4.0e-5,test
+    inflow_b/v,m3_per_s,7.0e-5,test
+    outp/P,J_per_m3,12665.6,test
+    junc/u_0,J_per_m3,10640.0,test
+    junc/u_ext,J_per_m3,0.0,test
+    junc/theta,dimensionless,90.0,test
+    junc/E,J_per_m3,4.0e5,test
+    junc/l,metre,0.014796,test
+    junc/r_0,metre,0.0133364,test
     mu,Js_per_m3,1.0,test
     rho,Js2_per_m5,1.0,test
     g,m_per_s2,9.81,test
@@ -318,7 +318,7 @@ def test_min_junction_with_non_vessel_neighbour(tmp_path, reader_bc):
     generated_dir = _generate(
         tmp_path, 'junction_reader',
         f"""\
-        name,BC_type,vessel_type,inp_vessels,out_vessels
+        name,module_subtype,module_type,inp_instances,out_instances
         inflow_a,nn_constant,inlet_flow,,junc
         inflow_b,nn_constant,inlet_flow,,junc
         junc,vp,Min_junction,inflow_a inflow_b,outp reader
@@ -349,7 +349,7 @@ def test_non_vessel_neighbour_of_nout_junction_keeps_its_connections(tmp_path):
     generated_dir = _generate(
         tmp_path, 'nout_reader',
         """\
-        name,BC_type,vessel_type,inp_vessels,out_vessels
+        name,module_subtype,module_type,inp_instances,out_instances
         p_in,nn_constant,inlet_pressure,,junc
         junc,pv,Nout_junction,p_in,va fb reader
         va,pv,arterial_simple,junc,fa reader
@@ -359,21 +359,21 @@ def test_non_vessel_neighbour_of_nout_junction_keeps_its_connections(tmp_path):
         """,
         """\
         variable_name,units,value,data_reference
-        P_p_in,J_per_m3,12000.0,test
-        v_fa,m3_per_s,4.0e-5,test
-        v_fb,m3_per_s,7.0e-5,test
-        u_0_junc,J_per_m3,10640.0,test
-        u_ext_junc,J_per_m3,0.0,test
-        theta_junc,dimensionless,90.0,test
-        E_junc,J_per_m3,4.0e5,test
-        l_junc,metre,0.014796,test
-        r_0_junc,metre,0.0133364,test
-        R_va,Js_per_m6,1.0e7,test
-        C_va,m6_per_J,1.0e-8,test
-        I_va,Js2_per_m6,1.0e5,test
-        q_0_va,m3,0,test
-        u_0_va,J_per_m3,0,test
-        u_ext_va,J_per_m3,0,test
+        p_in/P,J_per_m3,12000.0,test
+        fa/v,m3_per_s,4.0e-5,test
+        fb/v,m3_per_s,7.0e-5,test
+        junc/u_0,J_per_m3,10640.0,test
+        junc/u_ext,J_per_m3,0.0,test
+        junc/theta,dimensionless,90.0,test
+        junc/E,J_per_m3,4.0e5,test
+        junc/l,metre,0.014796,test
+        junc/r_0,metre,0.0133364,test
+        va/R,Js_per_m6,1.0e7,test
+        va/C,m6_per_J,1.0e-8,test
+        va/I,Js2_per_m6,1.0e5,test
+        va/q_0,m3,0,test
+        va/u_0,J_per_m3,0,test
+        va/u_ext,J_per_m3,0,test
         mu,Js_per_m3,1.0,test
         rho,Js2_per_m5,1.0,test
         g,m_per_s2,9.81,test
@@ -396,7 +396,7 @@ def test_non_vessel_neighbour_of_nout_junction_keeps_its_connections(tmp_path):
 @pytest.mark.slow
 @pytest.mark.usefixtures('skip_generated_model_checks')
 def test_renaming_junction_non_vessel_neighbours_changes_nothing(tmp_path):
-    """generic_junction_test_open_loop has a K_tube (material_prop_visco_const, BC_type nn)
+    """generic_junction_test_open_loop has a K_tube (material_prop_visco_const, module_subtype nn)
     next to every Nout_junction. Giving those K_tubes the version name ``lv_test`` instead
     of ``nn`` generates the same model: they are still not taken into the junction nodes
     nor checked as vessel BCs."""
@@ -407,8 +407,8 @@ def test_renaming_junction_non_vessel_neighbours_changes_nothing(tmp_path):
 
     builtin = builtin_modules_dir()
     entry = next(m for m in json.load(open(os.path.join(builtin, 'vessel_properties_modules_config.json')))
-                 if m['vessel_type'] == 'material_prop_visco_const' and m['BC_type'] == 'nn')
-    cellml = open(os.path.join(builtin, entry['module_file'])).read()
+                 if m['module_type'] == 'material_prop_visco_const' and m['module_subtype'] == 'nn')
+    cellml = open(os.path.join(builtin, entry['component_file'])).read()
     component = re.search(r'<component name="material_prop_visco_const_type".*?</component>',
                           cellml, re.S).group(0)
     component = component.replace('"material_prop_visco_const_type"', '"K_tube_lv_test_type"', 1)
@@ -419,8 +419,8 @@ def test_renaming_junction_non_vessel_neighbours_changes_nothing(tmp_path):
         "<?xml version='1.0' encoding='UTF-8'?>\n"
         '<model name="modules" xmlns="http://www.cellml.org/cellml/1.1#" '
         'xmlns:cellml="http://www.cellml.org/cellml/1.1#">\n' + component + '\n</model>\n')
-    entry = dict(entry, BC_type='lv_test', module_type='K_tube_lv_test_type',
-                 module_file='K_tube_lv_test_modules.cellml')
+    entry = dict(entry, module_subtype='lv_test', component_type='K_tube_lv_test_type',
+                 component_file='K_tube_lv_test_modules.cellml')
     (module_dir / 'K_tube_lv_test_modules_config.json').write_text(json.dumps([entry]))
 
     resources = os.path.join(os.path.dirname(__file__), '..', 'resources')

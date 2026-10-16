@@ -65,7 +65,6 @@ class OptimiserComparison:
         self.method_configs = {
             'genetic_algorithm': {
                 'param_id_method': 'genetic_algorithm',
-                # Use optimiser_options for preferred path; GA still supports ga_options via merge
                 'optimiser_options': {},
             },
             'CMA-ES': {

@@ -841,8 +841,6 @@ def register_user_operations(registry, backend):
     ``ml_to_m3``, and names starting with ``RICRI_`` (parameter helpers).
     Imported callables are skipped via ``__module__`` checks.
     """
-    global mb
-    mb = backend
     g = globals()
     mod = __name__
     exclude = frozenset(

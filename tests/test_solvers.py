@@ -767,7 +767,7 @@ def test_myokit_set_constant_preserved_after_rebind():
     """
     Regression test for issue #219: cost mismatch when two protocol_traces are active.
 
-    Root cause: _rebind_pace_to creates a new myokit.Simulation(self.model). Myokit clones
+    Root cause: binding a traced input creates a new myokit.Simulation(self.model). Myokit clones
     self.model at construction time, so any set_constant calls made on the *old* simulation
     (e.g. ID parameters applied at the start of each experiment) were silently discarded.
     The fix syncs self.model via Variable.set_rhs so the next _recreate_simulation picks
@@ -878,7 +878,7 @@ def test_myokit_set_constant_preserved_after_rebind():
     # making results_alpha7[1] == results_alpha5[1].
     assert not np.allclose(results_alpha7[1], results_alpha5[1], rtol=1e-3), (
         "exp1 (rebind triggered): alpha=7.0 should still be active after rebind — "
-        "if this fails, set_constant changes are being lost in _rebind_pace_to "
+        "if this fails, set_constant changes are being lost in _bind_trace_inputs "
         "(issue #219)."
     )
 

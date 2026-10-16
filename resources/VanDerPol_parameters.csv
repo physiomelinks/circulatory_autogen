@@ -1,4 +1,4 @@
 variable_name,units,value,data_reference
-x_init_VanDerPol,dimensionless,2,None
-y_init_VanDerPol,dimensionless,0,None
-mu_VanDerPol,dimensionless,100,None
+VanDerPol/x_init,dimensionless,2,None
+VanDerPol/y_init,dimensionless,0,None
+VanDerPol/mu,dimensionless,100,None

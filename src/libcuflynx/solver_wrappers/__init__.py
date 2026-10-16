@@ -188,11 +188,7 @@ def get_simulation_helper(model_path: str = None, solver: str = None,
     aadc_solvers = ['aadc_semi_implicit']
     external_solvers = ['external']
 
-    # Determine if this is a Python model. Note nothing here tests for 'cellml':
-    # it is the fall-through, so the renamed spelling ('cellml_only', see
-    # PrimitiveParsers.MODEL_TYPE_ALIASES) reaches the right backend untranslated
-    # and this file needs no alias handling of its own. Keep it that way -- an
-    # `== 'cellml'` added here would silently start refusing old configs.
+    # cellml is the fall-through: nothing here tests for it.
     is_python_model = (model_type == 'python')
     is_casadi_python_model = (model_type == 'casadi_python')
     is_aadc_python_model = (model_type == 'aadc_python')
@@ -219,7 +215,7 @@ def get_simulation_helper(model_path: str = None, solver: str = None,
             raise RuntimeError(_unavailable_message('Myokit', 'CVODE_myokit'))
     elif solver in python_solvers:
         if not is_python_model:
-            raise ValueError(f"solve_ivp method {solver} can only be used with Python models. Use CVODE_opencor (or legacy CVODE) or CVODE_myokit for CellML models.")
+            raise ValueError(f"solve_ivp method {solver} can only be used with Python models. Use CVODE_opencor or CVODE_myokit for CellML models.")
         if not model_path.endswith('.py'):
             raise ValueError(f"model_path {model_path} does not end with .py, which is required for Python models")
         return PythonSimulationHelper(model_path, dt, sim_time, solver_info, pre_time=pre_time)

@@ -96,8 +96,8 @@ def normalise_port_multi_port(port, module_description):
     value = port.get('multi_port')
     port_type = port.get('port_type')
     variables = port.get('variables', [])
-    if value is None or value is False or (isinstance(value, str) and value.lower() == 'false'):
-        # no multi_port (null, false or "False")
+    if value is None or value is False:
+        # no multi_port (null or false)
         port = {k: v for k, v in port.items() if k != 'multi_port'}
         if 'multiply_factor' in port:
             raise ValueError(f'{module_description}: port "{port_type}" has a multiply_factor but no '

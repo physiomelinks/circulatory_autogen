@@ -6,10 +6,11 @@ from scipy.integrate import solve_ivp
 import copy
 import sys
 from .name_resolver import VariableNameResolver
+from libcuflynx.solver_wrappers.experiment_time import ExperimentTimeMixin
 DEBUG = False
 
 
-class SimulationHelper:
+class SimulationHelper(ExperimentTimeMixin):
     """SciPy-based solver for libCellML-generated Python modules.
 
     This implements the common `SimulationHelper` interface that every backend
@@ -47,21 +48,6 @@ class SimulationHelper:
         self.update_times(dt, 0.0, sim_time, pre_time)
         self._has_run = False
         self._last_results_dict = None
-
-    def get_time(self, include_pre_time=False):
-        """Return the output time vector.
-
-        Args:
-            include_pre_time: If True, include the unlogged pre-time portion;
-                otherwise return time relative to the end of pre-time.
-
-        Returns:
-            numpy.ndarray: The sampled time points.
-        """
-        if include_pre_time:
-            return self.tSim
-        else:
-            return self.tSim - self.pre_time
 
     def set_protocol_info(self, protocol_info):
         """Store protocol metadata for a common helper API."""
@@ -131,6 +117,7 @@ class SimulationHelper:
         self.pre_time = pre_time
         self.sim_time = sim_time
         self.start_time = start_time
+        self._track_experiment_start(start_time, pre_time)
         self.stop_time = start_time + pre_time + sim_time
         self.pre_steps = int(pre_time/dt)
         self.n_steps = int(sim_time/dt)
@@ -342,7 +329,7 @@ class SimulationHelper:
 
     def _extract(self, name):
         if name == 'time':
-            return self.tSim
+            return self.get_time()
         if name in self.state_name_to_idx:
             data = self.state_traj[self.state_name_to_idx[name], :]
             return data[self.pre_steps:]

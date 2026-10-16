@@ -1,10 +1,10 @@
 [
     {
-        "vessel_type":"tissue_diffusion",
-        "BC_type":"nn",
+        "module_type":"tissue_diffusion",
+        "module_subtype":"nn",
         "module_format":"cellml",
-        "module_file":"diffusion_volume_modules.cellml",
-        "module_type":"diffusion_volume_one_species",
+        "component_file":"diffusion_volume_modules.cellml",
+        "component_type":"diffusion_volume_one_species",
         "entrance_ports":
         [
           {

@@ -1,4 +1,15 @@
 {
+  "protocol_info": {
+    "pre_times": [
+      20.0
+    ],
+    "sim_times": [
+      [
+        2.0
+      ]
+    ],
+    "params_to_change": {}
+  },
   "prediction_items": [
     {
       "data_item_name": "common_carotid_R6_A/u",

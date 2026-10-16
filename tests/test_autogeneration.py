@@ -14,23 +14,23 @@ from libcuflynx.scripts.script_generate_with_new_architecture import generate_wi
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.parametrize("file_prefix,input_param_file,model_type,solver", [
-    ('ports_test', 'ports_test_parameters.csv', 'cellml', 'CVODE'),
-    ('test_init_states', 'test_init_states_parameters.csv', 'cellml', 'CVODE'),
-    ('3compartment', '3compartment_parameters.csv', 'cellml', 'CVODE'),
-    ('3compartment_extra_ops', '3compartment_extra_ops_parameters.csv', 'cellml', 'CVODE'),
-    ('simple_physiological', 'simple_physiological_parameters.csv', 'cellml', 'CVODE'),
-    ('parasympathetic_model', 'parasympathetic_model_parameters.csv', 'cellml', 'CVODE'),
-    ('test_fft', 'test_fft_parameters.csv', 'cellml', 'CVODE'),
-    ('neonatal', 'neonatal_parameters.csv', 'cellml', 'CVODE'),
-    ('generic_junction_test_closed_loop', 'generic_junction_test_closed_loop_parameters.csv', 'cellml', 'CVODE'),
-    ('generic_junction_test2_closed_loop', 'generic_junction_test_closed_loop_parameters.csv', 'cellml', 'CVODE'),
-    ('generic_junction_test_open_loop', 'generic_junction_test_open_loop_parameters.csv', 'cellml', 'CVODE'),
-    ('generic_junction_test2_open_loop', 'generic_junction_test_open_loop_parameters.csv', 'cellml', 'CVODE'),
-    ('SN_simple', 'SN_simple_parameters.csv', 'cellml', 'CVODE'),
-    ('physiological', 'physiological_parameters.csv', 'cellml', 'CVODE'),
-    ('control_phys', 'control_phys_parameters.csv', 'cellml', 'CVODE'),
-    ('control_parasymp', 'control_parasymp_parameters.csv', 'cellml', 'CVODE'),
-    ('control_phys_asd', 'control_phys_asd_parameters.csv', 'cellml', 'CVODE'),
+    ('ports_test', 'ports_test_parameters.csv', 'cellml', 'CVODE_myokit'),
+    ('test_init_states', 'test_init_states_parameters.csv', 'cellml', 'CVODE_myokit'),
+    ('3compartment', '3compartment_parameters.csv', 'cellml', 'CVODE_myokit'),
+    ('3compartment_extra_ops', '3compartment_extra_ops_parameters.csv', 'cellml', 'CVODE_myokit'),
+    ('simple_physiological', 'simple_physiological_parameters.csv', 'cellml', 'CVODE_myokit'),
+    ('parasympathetic_model', 'parasympathetic_model_parameters.csv', 'cellml', 'CVODE_myokit'),
+    ('test_fft', 'test_fft_parameters.csv', 'cellml', 'CVODE_myokit'),
+    ('neonatal', 'neonatal_parameters.csv', 'cellml', 'CVODE_myokit'),
+    ('generic_junction_test_closed_loop', 'generic_junction_test_closed_loop_parameters.csv', 'cellml', 'CVODE_myokit'),
+    ('generic_junction_test2_closed_loop', 'generic_junction_test_closed_loop_parameters.csv', 'cellml', 'CVODE_myokit'),
+    ('generic_junction_test_open_loop', 'generic_junction_test_open_loop_parameters.csv', 'cellml', 'CVODE_myokit'),
+    ('generic_junction_test2_open_loop', 'generic_junction_test_open_loop_parameters.csv', 'cellml', 'CVODE_myokit'),
+    ('SN_simple', 'SN_simple_parameters.csv', 'cellml', 'CVODE_myokit'),
+    ('physiological', 'physiological_parameters.csv', 'cellml', 'CVODE_myokit'),
+    ('control_phys', 'control_phys_parameters.csv', 'cellml', 'CVODE_myokit'),
+    ('control_parasymp', 'control_parasymp_parameters.csv', 'cellml', 'CVODE_myokit'),
+    ('control_phys_asd', 'control_phys_asd_parameters.csv', 'cellml', 'CVODE_myokit'),
 ])
 def test_generate_cellml_model_succeeds(file_prefix, input_param_file, model_type, solver, base_user_inputs, resources_dir, temp_generated_models_dir):
     """
@@ -264,6 +264,7 @@ def test_generate_cpp_model_succeeds(base_user_inputs, resources_dir, temp_outpu
         'input_param_file': 'aortic_bif_1d_parameters.csv',
         'model_type': 'cpp',
         'solver': 'RK4',
+        'solver_info': {'dt_solver': 0.0001},
         'couple_to_1d': True,
         'generated_models_dir': temp_generated_models_dir,
         'cpp_generated_models_dir': temp_output_dir,
@@ -300,7 +301,7 @@ def test_generate_model_with_invalid_parameters_fails(base_user_inputs, resource
         'file_prefix': 'nonexistent_model',
         'input_param_file': 'nonexistent_parameters.csv',
         'model_type': 'cellml',
-        'solver': 'CVODE',
+        'solver': 'CVODE_myokit',
         'generated_models_dir': temp_generated_models_dir,
     })
     

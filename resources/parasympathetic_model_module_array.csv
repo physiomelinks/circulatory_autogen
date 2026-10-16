@@ -1,4 +1,4 @@
-name,BC_type,vessel_type,inp_vessels,out_vessels
+name,module_subtype,module_type,inp_instances,out_instances
 lung_stretch, nn, lung_stretch_receptor_Gee2023, , sympathetic_afferent NTS
 baroreceptor, nn, baroreceptor, , sympathetic_afferent NTS LCN
 cardiopulm_receptor, nn, cardiopulmonary_receptor_Gee2023, , sympathetic_afferent NTS LCN

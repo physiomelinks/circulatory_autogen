@@ -1,10 +1,10 @@
 [
     {
-        "vessel_type":"baroreceptor",
-        "BC_type":"nn",
+        "module_type":"baroreceptor",
+        "module_subtype":"nn",
         "module_format":"cellml",
-        "module_file":"control_modules.cellml",
-        "module_type":"baroreceptor_type",
+        "component_file":"control_modules.cellml",
+        "component_type":"baroreceptor_type",
         "entrance_ports":
         [
           {
@@ -37,11 +37,11 @@
         ]
     },
     {
-        "vessel_type":"chemoreceptor",
-        "BC_type":"nn",
+        "module_type":"chemoreceptor",
+        "module_subtype":"nn",
         "module_format":"cellml",
-        "module_file":"control_modules.cellml",
-        "module_type":"chemoreceptor_type",
+        "component_file":"control_modules.cellml",
+        "component_type":"chemoreceptor_type",
         "entrance_ports":
         [
           {
@@ -100,11 +100,11 @@
         ]
     },
     {
-        "vessel_type":"afferent_to_vagal_efferent",
-        "BC_type":"nn",
+        "module_type":"afferent_to_vagal_efferent",
+        "module_subtype":"nn",
         "module_format":"cellml",
-        "module_file":"control_modules.cellml",
-        "module_type":"afferent_to_vagal_efferent_type",
+        "component_file":"control_modules.cellml",
+        "component_type":"afferent_to_vagal_efferent_type",
         "entrance_ports":
         [
           {
@@ -139,11 +139,11 @@
         ]
     },
     {
-        "vessel_type":"afferent_to_respiratory_efferent",
-        "BC_type":"nn",
+        "module_type":"afferent_to_respiratory_efferent",
+        "module_subtype":"nn",
         "module_format":"cellml",
-        "module_file":"control_modules.cellml",
-        "module_type":"afferent_to_respiratory_efferent_type",
+        "component_file":"control_modules.cellml",
+        "component_type":"afferent_to_respiratory_efferent_type",
         "entrance_ports":
         [
           {
@@ -177,11 +177,11 @@
         ]
     },
     {
-        "vessel_type":"afferent_to_sympathetic_efferent",
-        "BC_type":"nn",
+        "module_type":"afferent_to_sympathetic_efferent",
+        "module_subtype":"nn",
         "module_format":"cellml",
-        "module_file":"control_modules.cellml",
-        "module_type":"afferent_to_sympathetic_efferent_type",
+        "component_file":"control_modules.cellml",
+        "component_type":"afferent_to_sympathetic_efferent_type",
         "entrance_ports":
         [
           {
@@ -229,11 +229,11 @@
         ]
     },
     {
-        "vessel_type":"efferent_resistance_effector",
-        "BC_type":"nn",
+        "module_type":"efferent_resistance_effector",
+        "module_subtype":"nn",
         "module_format":"cellml",
-        "module_file":"control_modules.cellml",
-        "module_type":"efferent_resistance_effector_Argus_type",
+        "component_file":"control_modules.cellml",
+        "component_type":"efferent_resistance_effector_Argus_type",
         "entrance_ports":
         [
           {
@@ -262,11 +262,11 @@
         ]
     },
     {
-        "vessel_type":"efferent_resistance_effector_Ursino",
-        "BC_type":"nn",
+        "module_type":"efferent_resistance_effector_Ursino",
+        "module_subtype":"nn",
         "module_format":"cellml",
-        "module_file":"control_modules.cellml",
-        "module_type":"efferent_resistance_effector_Ursino_type",
+        "component_file":"control_modules.cellml",
+        "component_type":"efferent_resistance_effector_Ursino_type",
         "entrance_ports":
         [
           {
@@ -294,11 +294,11 @@
         ]
     },
     {
-        "vessel_type":"efferent_venous_us_volume_and_compliance_effector",
-        "BC_type":"nn",
+        "module_type":"efferent_venous_us_volume_and_compliance_effector",
+        "module_subtype":"nn",
         "module_format":"cellml",
-        "module_file":"control_modules.cellml",
-        "module_type":"efferent_venous_us_volume_and_compliance_effector_Argus_type",
+        "component_file":"control_modules.cellml",
+        "component_type":"efferent_venous_us_volume_and_compliance_effector_Argus_type",
         "entrance_ports":
         [
           {
@@ -331,11 +331,11 @@
         ]
     },
     {
-        "vessel_type":"efferent_respiratory_effector_Gee_Argus_2026",
-        "BC_type":"nn",
+        "module_type":"efferent_respiratory_effector_Gee_Argus_2026",
+        "module_subtype":"nn",
         "module_format":"cellml",
-        "module_file":"control_modules.cellml",
-        "module_type":"efferent_respiratory_effector_Gee_Argus_2026_type",
+        "component_file":"control_modules.cellml",
+        "component_type":"efferent_respiratory_effector_Gee_Argus_2026_type",
         "entrance_ports":
         [
           {
@@ -394,11 +394,11 @@
         ]
     },
     {
-        "vessel_type":"efferent_respiratory_effector",
-        "BC_type":"nn",
+        "module_type":"efferent_respiratory_effector",
+        "module_subtype":"nn",
         "module_format":"cellml",
-        "module_file":"control_modules.cellml",
-        "module_type":"efferent_respiratory_effector_type",
+        "component_file":"control_modules.cellml",
+        "component_type":"efferent_respiratory_effector_type",
         "entrance_ports":
         [
           {
@@ -457,11 +457,11 @@
         ]
     },
     {
-        "vessel_type":"efferent_heart_elastance_effector",
-        "BC_type":"nn_lv",
+        "module_type":"efferent_heart_elastance_effector",
+        "module_subtype":"nn_lv",
         "module_format":"cellml",
-        "module_file":"control_modules.cellml",
-        "module_type":"efferent_heart_elastance_effector_type",
+        "component_file":"control_modules.cellml",
+        "component_type":"efferent_heart_elastance_effector_type",
         "entrance_ports":
         [
           {
@@ -488,11 +488,11 @@
         ]
     },
     {
-        "vessel_type":"efferent_heart_elastance_effector",
-        "BC_type":"nn_rv",
+        "module_type":"efferent_heart_elastance_effector",
+        "module_subtype":"nn_rv",
         "module_format":"cellml",
-        "module_file":"control_modules.cellml",
-        "module_type":"efferent_heart_elastance_effector_type",
+        "component_file":"control_modules.cellml",
+        "component_type":"efferent_heart_elastance_effector_type",
         "entrance_ports":
         [
           {
@@ -519,11 +519,11 @@
         ]
     },
     {
-        "vessel_type":"efferent_heart_period_effector",
-        "BC_type":"nn",
+        "module_type":"efferent_heart_period_effector",
+        "module_subtype":"nn",
         "module_format":"cellml",
-        "module_file":"control_modules.cellml",
-        "module_type":"efferent_heart_period_effector_type",
+        "component_file":"control_modules.cellml",
+        "component_type":"efferent_heart_period_effector_type",
         "entrance_ports":
         [
           {
@@ -564,11 +564,11 @@
         ]
     },
     {
-        "vessel_type":"local_flow_control_muscle",
-        "BC_type":"nn",
+        "module_type":"local_flow_control_muscle",
+        "module_subtype":"nn",
         "module_format":"cellml",
-        "module_file":"control_modules.cellml",
-        "module_type":"local_flow_control_muscle_type",
+        "component_file":"control_modules.cellml",
+        "component_type":"local_flow_control_muscle_type",
         "entrance_ports":
         [
           {
@@ -607,11 +607,11 @@
         ]
     },
     {
-        "vessel_type":"local_flow_control_brain",
-        "BC_type":"nn",
+        "module_type":"local_flow_control_brain",
+        "module_subtype":"nn",
         "module_format":"cellml",
-        "module_file":"control_modules.cellml",
-        "module_type":"local_flow_control_brain_type",
+        "component_file":"control_modules.cellml",
+        "component_type":"local_flow_control_brain_type",
         "entrance_ports":
         [
           {
@@ -655,11 +655,11 @@
     },
 
     {
-        "vessel_type":"heart_effector_Gee2023",
-        "BC_type":"nn_lv",
-        "module_format":"cellml",
-        "module_file":"control_modules.cellml",
         "module_type":"heart_effector_Gee2023",
+        "module_subtype":"nn_lv",
+        "module_format":"cellml",
+        "component_file":"control_modules.cellml",
+        "component_type":"heart_effector_Gee2023",
         "entrance_ports":
         [
           {
@@ -697,11 +697,11 @@
         ]
     },
     {
-        "vessel_type":"heart_effector_Gee2023",
-        "BC_type":"nn_rv",
-        "module_format":"cellml",
-        "module_file":"control_modules.cellml",
         "module_type":"heart_effector_Gee2023",
+        "module_subtype":"nn_rv",
+        "module_format":"cellml",
+        "component_file":"control_modules.cellml",
+        "component_type":"heart_effector_Gee2023",
         "entrance_ports":
         [
           {
@@ -739,11 +739,11 @@
         ]
     },
     {
-        "vessel_type":"heart_effector_Gee2023_OLD",
-        "BC_type":"nn_rv",
+        "module_type":"heart_effector_Gee2023_OLD",
+        "module_subtype":"nn_rv",
         "module_format":"cellml",
-        "module_file":"control_modules.cellml",
-        "module_type":"heart_effector_Gee2023",
+        "component_file":"control_modules.cellml",
+        "component_type":"heart_effector_Gee2023",
         "entrance_ports":
         [
           {

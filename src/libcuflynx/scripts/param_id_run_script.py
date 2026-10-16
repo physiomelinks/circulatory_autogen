@@ -56,7 +56,6 @@ def run_param_id(inp_data_dict=None):
                 + " Or change the solver in your configuration."
             ) from exc
     dt = inp_data_dict['dt']
-    # Get optimiser_options (parser already merged any legacy ga_options/debug_ga_options)
     optimiser_options = inp_data_dict.get('optimiser_options', None)
     resources_dir = inp_data_dict['resources_dir']
     param_id_output_dir = inp_data_dict['param_id_output_dir']
@@ -180,7 +179,7 @@ def run_param_id(inp_data_dict=None):
             mcmc.set_joint_priors(joint_priors)
         ensure_mle_cost_type_for_bayesian_inner(mcmc_object, inp_data_dict)
         # mcmc.set_mcmc_parameters() TODO
-        mcmc.run_mcmc()
+        mcmc.run_UQ()
 
         if rank == 0:
             print('mcmc complete')

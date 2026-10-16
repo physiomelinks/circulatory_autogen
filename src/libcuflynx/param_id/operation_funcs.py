@@ -303,8 +303,6 @@ def register_core_operations(registry, backend):
     Skips private names (``_`` prefix), ``series_to_constant``, and the dict builders.
     Imported callables are skipped via ``__module__`` checks.
     """
-    global mb
-    mb = backend
     g = globals()
     mod = __name__
     exclude = frozenset(

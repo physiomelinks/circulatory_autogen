@@ -13,7 +13,7 @@ def _parsed(prediction_items):
                            "unit": "dimensionless", "value": 1.0, "std": 0.1}],
            "prediction_items": prediction_items,
            "protocol_info": {"pre_times": [0.0], "sim_times": [[2.0]]}}
-    return ObsAndParamDataParser().parse_obs_data_json(obs_data_dict=doc, pre_time=0.0, sim_time=2.0)
+    return ObsAndParamDataParser().parse_obs_data_json(obs_data_dict=doc)
 
 
 @pytest.mark.unit

@@ -93,7 +93,7 @@ def load_config():
 def resolve_ca_src():
     """Where circulatory_autogen is coming from, or None for an installed package.
 
-    Three arrangements, in the order the app itself uses (see ca_imports):
+    Three arrangements, in order:
 
       1. ``--ca-src`` or ``CIRCULATORY_AUTOGEN_SRC`` naming a real directory wins.
          A checkout the user deliberately pointed at is always preferred, so someone
@@ -101,13 +101,6 @@ def resolve_ca_src():
       2. Otherwise, ``libcuflynx`` installed as an ordinary package is enough.
       3. Only if neither is there does this give up, and then it names both ways out
          rather than only the checkout.
-
-    Arrangement 2 used to be missing entirely, so a user who ran
-    ``pip install libcuflynx``, configured no CA directory in the GUI and exported a
-    pipeline got a bundle that could not run: it exited 1 asking for a checkout they
-    had no reason to have. ``ca_imports`` learned to resolve an installed package when
-    the distribution went to PyPI; this script carries a deliberate duplicate of that
-    rule (see the ca_imports docstring) and the duplicate was not updated with it.
     """
     ap = argparse.ArgumentParser()
     ap.add_argument("--ca-src", default=None)
@@ -162,134 +155,20 @@ def installed_libcuflynx_available():
 
 CA_NAMESPACE = "libcuflynx"
 
-# CA's own top-level packages: anything else keeps its bare name (an
-# ``operation_funcs`` must not become ``libcuflynx.operation_funcs``).
-CA_PACKAGES = frozenset({
-    "checks", "coupler", "emulators", "generators", "identifiabilty_analysis",
-    "models", "param_id", "parsers", "protocol_runners", "scripts",
-    "sensitivity_analysis", "solver1d", "solver_wrappers", "utilities",
-})
-
-# Modules whose namespaced spelling is not the flat one with the prefix glued on
-# (CA #433 moved the funcs into the package; operation_funcs was only ever
-# reachable by bare name off a directory).
-RELOCATED_MODULES = {
-    "cost_funcs_user": CA_NAMESPACE + ".funcs.cost_funcs_user",
-    "operation_funcs_user": CA_NAMESPACE + ".funcs.operation_funcs_user",
-    "modifier_funcs_user": CA_NAMESPACE + ".funcs.modifier_funcs_user",
-    "operation_funcs": CA_NAMESPACE + ".param_id.operation_funcs",
-}
-
-
-def ca_candidates(module):
-    """Both spellings of CA module ``module``, most-preferred first."""
-    if module in RELOCATED_MODULES:
-        return [RELOCATED_MODULES[module], module]
-    if module.split(".", 1)[0] not in CA_PACKAGES:
-        return [module]
-    return [CA_NAMESPACE + "." + module, module]
-
-
-def ca_import(module):
-    """Import a circulatory_autogen module, in either of its two layouts.
-
-    CA moved every module under a ``libcuflynx.`` namespace (CA #437) and older
-    checkouts are flat, so an export has to run against both: try the namespaced
-    spelling first, then the flat one. (Mirrors ``apps/api/ca_imports.py`` in
-    CUFLynx, which is where this rule is documented; the tables above are pinned
-    against it by ``tests/test_ca_import_parity.py``.)
-    """
-    import importlib
-
-    errors = []
-    for cand in ca_candidates(module):
-        try:
-            return importlib.import_module(cand)
-        except ModuleNotFoundError as exc:
-            # Only try the other spelling when *this* one is absent. A module
-            # that is present but missing a dependency of its own must say so.
-            if not (exc.name and (cand == exc.name or cand.startswith(exc.name + "."))):
-                raise
-            errors.append("%r (%s)" % (cand, exc))
-    # ImportError, not sys.exit: callers below probe for optional CA features
-    # inside ``except Exception`` and a SystemExit would sail straight past them.
-    raise ImportError(
-        "circulatory_autogen module %r could not be imported (tried %s). "
-        "Point --ca-src at the 'src' folder of a circulatory_autogen clone."
-        % (module, " and ".join(errors))
-    )
-
 
 def ca_from(module, *names):
-    """``from <module> import <names>``; one name returns it, several a tuple.
+    """``from libcuflynx.<module> import <names>``; one name returns it, several a tuple."""
+    import importlib
 
-    A name the module does not have raises **ImportError**, not AttributeError.
-    The probes below are the "older CA -> fall back" idiom and they catch
-    ImportError; a bare getattr let an AttributeError sail straight past them, so
-    a feature the connected CA simply predates crashed the exported run instead
-    of degrading it.
-    """
-    mod = ca_import(module)
-    missing = [n for n in names if not hasattr(mod, n)]
-    if missing:
-        raise ImportError(
-            "circulatory_autogen's %r has no %s -- this circulatory_autogen "
-            "predates it." % (module, ", ".join(missing))
-        )
+    mod = importlib.import_module(CA_NAMESPACE + "." + module)
     values = tuple(getattr(mod, n) for n in names)
     return values[0] if len(names) == 1 else values
 
 
-def _uq_block(cfg):
-    """The UQ option block from the yaml, under either spelling.
-
-    CA renamed do_mcmc/mcmc_options to do_uq/UQ_options once MCMC became one method of
-    uncertainty quantification rather than the whole of it. An export made before that
-    rename still runs: both spellings are read here, and only the new one is written.
-    """
-    return dict(cfg.get("UQ_options") or cfg.get("mcmc_options") or {})
-
-
-def _do_uq(cfg):
-    return bool(cfg.get("do_uq", cfg.get("do_mcmc", False)))
-
-
-def _uq_options_key():
-    """Whether this CA's init_from_dict reads UQ_options or the older mcmc_options.
-
-    Called rather than cached at import: circulatory_autogen is only importable once
-    --ca-src has been resolved onto sys.path.
-    """
-    try:
-        import inspect
-
-        CVS0DParamID = ca_from("param_id.paramID", "CVS0DParamID")
-
-        if "UQ_options" in inspect.signature(CVS0DParamID.__init__).parameters:
-            return "UQ_options"
-    except Exception:
-        pass
-    return "mcmc_options"
-
-
 def obs_data_items(doc):
-    """The data_items of an obs_data document, whichever shape it is in.
-
-    circulatory_autogen accepts two: an object with a ``data_items`` key, and a
-    bare array *of* data_items (the data-only form the 3compartment and
-    heat_fenics studies ship). Assuming the object form here crashed the MLE
-    rewrite below with "'list' object has no attribute 'get'".
-
-    Restated in this generated script rather than imported: the export has to run
-    on a machine that has circulatory_autogen and nothing of CUFLynx. It mirrors
-    ``obs_data.data_items_of`` in the app -- keep the two in step.
-    """
-    if isinstance(doc, list):
-        return doc
-    if isinstance(doc, dict):
-        items = doc.get("data_items") or []
-        return items if isinstance(items, list) else []
-    return []
+    """The data_items of an obs_data document (``{"protocol_info": ..., "data_items": [...]}``)."""
+    items = doc.get("data_items") if isinstance(doc, dict) else None
+    return items if isinstance(items, list) else []
 
 
 def obs_protocol_info(doc):
@@ -326,7 +205,7 @@ def build_inp_data_dict(cfg, output_dir):
         "param_id_method": cfg.get("param_id_method", "genetic_algorithm"),
         "do_ad": bool(cfg.get("do_ad", False)),
         "optimiser_options": dict(cfg.get("optimiser_options", {})),
-        _uq_options_key(): dict(_uq_block(cfg)),
+        "UQ_options": dict(cfg.get("UQ_options") or {}),
         "sa_options": {**cfg.get("sa_options", {}), "output_dir": output_dir},
         "DEBUG": False,
     }
@@ -537,15 +416,14 @@ def main():
         calibrated = param_id
 
     # ---- 5) Uncertainty quantification ------------------------------------
-    if _do_uq(cfg) or cfg.get("do_ia"):
-        method = "mcmc" if _do_uq(cfg) else "laplace"
+    if cfg.get("do_uq") or cfg.get("do_ia"):
+        method = "mcmc" if cfg.get("do_uq") else "laplace"
         print(f"=== uncertainty quantification ({method}) ===", flush=True)
-        paramID_module = ca_import("param_id.paramID")
         CVS0DParamID, ensure_mle_cost_type_for_bayesian_inner = ca_from(
             "param_id.paramID", "CVS0DParamID", "ensure_mle_cost_type_for_bayesian_inner")
 
         # MCMC / Laplace need ln L = -cost, so use an MLE obs copy + MLE cost_type.
-        uq_key = _uq_options_key()
+        uq_key = "UQ_options"
         cost_type = inp[uq_key].get("cost_type", "gaussian_MLE")
         uq_inp = dict(inp)
         uq_inp["param_id_obs_path"] = mle_obs_data(inp["param_id_obs_path"], output_dir, cost_type)
@@ -563,19 +441,13 @@ def main():
 
         if method == "mcmc":
             # Reuse the calibration engine when there is one: run_UQ promotes it
-            # in place, so UQ samples with the model already compiled. Older CA
-            # only offers run_mcmc() on an object built with mcmc_instead=True,
-            # which forces a second engine and a second compile.
-            if calibrated is not None and hasattr(calibrated, "run_UQ"):
-                mcmc = calibrated
-            else:
-                mcmc = CVS0DParamID.init_from_dict({**uq_inp, "mcmc_instead": True})
+            # in place, so UQ samples with the model already compiled.
+            mcmc = (calibrated if calibrated is not None
+                    else CVS0DParamID.init_from_dict({**uq_inp, "mcmc_instead": True}))
             mcmc.set_best_param_vals(best_param_vals)
-            ensure_mle_cost_type_for_bayesian_inner(paramID_module.mcmc_object, uq_inp)
-            if hasattr(mcmc, "run_UQ"):
-                mcmc.run_UQ(uq_inp.get(uq_key))
-            else:
-                mcmc.run_mcmc()
+            ensure_mle_cost_type_for_bayesian_inner(
+                ca_from("param_id.paramID", "mcmc_object"), uq_inp)
+            mcmc.run_UQ(uq_inp.get(uq_key))
             if getattr(mcmc, "rank", 0) == 0:
                 save_uq_samples(output_dir, mcmc.get_mcmc_samples()[0], flat_param_names(mcmc))
         else:
@@ -591,13 +463,8 @@ def main():
             ensure_mle_cost_type_for_bayesian_inner(cvs.param_id, uq_inp)
             ia.run({"method": "Laplace"})
             if getattr(ia, "rank", 0) == 0:
-                # CA renamed `mean_Lapalace` -> `mean_Laplace`; prefer the corrected
-                # name, fall back to the old spelling for older CA versions.
-                laplace_mean = getattr(ia, "mean_Laplace", None)
-                if laplace_mean is None:
-                    laplace_mean = ia.mean_Lapalace
                 samples = np.random.multivariate_normal(
-                    laplace_mean, ia.covariance_matrix_Laplace, size=100000
+                    ia.mean_Laplace, ia.covariance_matrix_Laplace, size=100000
                 )
                 save_uq_samples(output_dir, samples, flat_param_names(cvs))
 
@@ -951,23 +818,9 @@ def uq_posteriors(bins=40):
 
 
 def obs_data_items(doc):
-    """The data_items of an obs_data document, whichever shape it is in.
-
-    circulatory_autogen accepts two: an object with a ``data_items`` key, and a
-    bare array *of* data_items (the data-only form the 3compartment and
-    heat_fenics studies ship). Only the object form used to be recognised here,
-    so a data-only study exported plots with no observed targets at all.
-
-    Restated in this generated script rather than imported: it has to run on a
-    machine that has none of CUFLynx. Mirrors ``obs_data.data_items_of`` in the
-    app -- keep the two in step.
-    """
-    if isinstance(doc, list):
-        return doc
-    if isinstance(doc, dict):
-        items = doc.get("data_items") or []
-        return items if isinstance(items, list) else []
-    return []
+    """The data_items of an obs_data document (``{"protocol_info": ..., "data_items": [...]}``)."""
+    items = doc.get("data_items") if isinstance(doc, dict) else None
+    return items if isinstance(items, list) else []
 
 
 def latest_obs_data():
@@ -1811,20 +1664,10 @@ if __name__ == "__main__":
 '''
 
 def _data_items_of(document):
-    """The ``data_items`` of an obs_data document, in either accepted shape.
-
-    A document may be the object form (``{"data_items": [...]}``) or a bare
-    array of items -- the shipped 3compartment and heat_fenics obs_data are bare
-    arrays. Tolerant on purpose: this is only used to name the generated panels,
-    so anything else reads as "no items" rather than raising. The parser is what
-    refuses a malformed document, with a message naming the problem.
-    """
-    if isinstance(document, dict):
-        items = document.get('data_items')
-        return items if isinstance(items, list) else []
-    if isinstance(document, list):
-        return document
-    return []
+    """The ``data_items`` of an obs_data document; ``[]`` for anything else (this only names
+    the generated panels; the parser is what refuses a malformed document)."""
+    items = document.get('data_items') if isinstance(document, dict) else None
+    return items if isinstance(items, list) else []
 
 
 def _identifier(text):
@@ -1849,9 +1692,6 @@ def _panel_functions(obs_data):
     panel is a few lines of ordinary matplotlib with the variable names already
     written in, so changing one is changing one.
 
-    Accepts either obs_data shape (object or bare array of data_items): the app
-    hands over the object form, but a caller reading a study's file straight off
-    disk has whichever the user wrote.
     """
     items = _data_items_of(obs_data)
     if not items:

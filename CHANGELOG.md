@@ -5,6 +5,42 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Removed — older module config, module array, parameter name and obs_data forms
+
+libcuflynx reads only the current forms of its input files. A file in an older form is refused
+with an error naming the `cuflynx-upgrade` command that converts it once, in place. Convert a
+model's module configs and module array before its parameter names.
+- Module configs (`cuflynx-upgrade module-config FILE`): the keys `vessel_type`, `BC_type`,
+  `module_file` and `module_type` (the component) -> `module_type`, `module_subtype`,
+  `component_file`, `component_type`; `default_instance` -> `default_parameterisation`; a
+  supermodule's `default_parameters` CSV -> its parameterisation `parameterisations/default/`;
+  `multi_port: "False"` (leave it out, or `null`/`false`).
+- Module arrays (`cuflynx-upgrade module-array FILE`): the keys and columns `vessel_type`,
+  `BC_type`, `inp_vessels`, `out_vessels`; `<prefix>_vessel_array.*` file names (renamed
+  `<prefix>_module_array.*`). A heart with one output no longer gets `par` and `pvn` added: the
+  array lists the pulmonary circuit, and the converter adds it.
+- Parameter names (`cuflynx-upgrade parameter-names --module-array ARRAY` or
+  `--supermodule-config CONFIG`, with `--module-library-dir` for library modules): a host
+  parameters file names a module's parameter `<vessel>/<variable>` (`aortic_root/C`), and
+  `C_aortic_root` is refused; a name without `/` is a global. A supermodule parameterisation row
+  is `<submodule>/<variable>`; `{var}_{sub}` is refused. Nested levels joined with a single `_`
+  are refused (`__` is the join).
+- Parameterisations: a version with an `instances/` directory and no `parameterisations/` is
+  refused; rename the directory.
+- obs_data (`cuflynx-upgrade obs-data FILE --user-inputs user_inputs.yaml`): an obs_data must
+  have a `protocol_info` with `pre_times` and `sim_times`. A bare list of data items, or an
+  object without `protocol_info` timed by user_inputs.yaml's `pre_time`/`sim_time`, is refused.
+  `parse_obs_data_json` no longer takes `pre_time` / `sim_time`.
+- `python -m libcuflynx.utilities.config_schemas to-json` no longer takes `--style`, and
+  `module_array_to_json` no longer takes `style`: they write the current keys.
+
+### Added — `cuflynx-upgrade`
+
+`cuflynx-upgrade module-config | module-array | obs-data | parameter-names` converts files written
+for an earlier libcuflynx, in place, and prints what it changed; `--dry-run` only prints. A file
+already in the current form is left as it is. It replaces `cuflynx-migrate-parameter-names`, which
+is removed (`cuflynx-upgrade parameter-names` takes the same options).
+
 ### Removed — old obs_data and params_for_id spellings, and `cuflynx-migrate-obs-data`
 
 No shipped or library file used them, so they are no longer read; the schema refuses them by name
@@ -21,7 +57,44 @@ No shipped or library file used them, so they are no longer read; the schema ref
   distribution `cost_type` and `prob_dist_params`.
 
 `cuflynx-migrate-obs-data`, which rewrote those spellings, is removed with them. A bare list of
-data items is still read as an obs_data.
+data items is refused too (see above).
+
+### Removed — old configuration keys and Python names
+
+`user_inputs.yaml` keys and values that are no longer read are refused with a `ValueError`
+naming what to write instead:
+- `ga_options` / `debug_ga_options` -> `optimiser_options` / `debug_optimiser_options`.
+- `do_mcmc` / `mcmc_options` / `debug_mcmc_options` -> `do_uq` / `UQ_options` /
+  `debug_UQ_options`.
+- `model_type: cellml_only` -> `cellml`.
+- `solver: CVODE` with a cellml model -> `CVODE_myokit` or `CVODE_opencor` (`CVODE` stays the
+  cpp solver).
+- AADC `method: bdf_tape` / `bdf_kernel` -> `method: semi_implicit_signed` with
+  `gradient_strategy: tape` / `kernel`.
+- `sa_options.gradient_method: analytic` -> `auto`.
+- solver_info keys of another solver are no longer moved across: `MaximumStep` on solve_ivp
+  (`max_step`), casadi_integrator (`max_step_size`) or the cpp solvers (`dt_solver`), and
+  `MaximumNumberOfSteps` on solve_ivp or CVODE_myokit (no such setting) or casadi_integrator
+  (`max_num_steps`). The error lists the solver's own keys.
+
+External funcs files import the built-in funcs as `libcuflynx.funcs.cost_funcs_user` (and
+`operation_funcs_user`, `modifier_funcs_user`); the bare `from cost_funcs_user import ...` is
+refused with that import.
+
+Python names removed (use the second):
+- `OpencorParamID`, `OpencorMCMC` -> `ParamID`, `MCMC`.
+- `CVS0DParamID.run_mcmc()` -> `run_UQ()`; the `mcmc_options=` argument of `CVS0DParamID`,
+  `run_UQ`, `MCMC`, `MCMC.from_param_id` and `MCMC_plotter` -> `UQ_options=`.
+- `PARAM_MODIFIER_OPERATIONS`, `DEFAULT_PARAM_MODIFIER_OPERATION`, `param_modifier_operations`
+  -> `PARAM_MODIFIERS`, `DEFAULT_PARAM_MODIFIER`, `param_modifiers`.
+- `MODEL_TYPE_ALIASES`, `normalise_model_type`, `AADC_LEGACY_METHOD_ALIASES`,
+  `migrate_legacy_solver_info_keys` (none needed), `paramID.TAPE_CONSISTENT_AADC_METHODS` ->
+  `aadc_backend.TAPE_CONSISTENT_METHODS`, `CSV0DModelParser.split_0d_1d_vessel_array` ->
+  `split_0d_1d_module_array`, `sobol_SA.create_SA_info` -> `_create_SA_info`.
+- `libcuflynx.utilities.protocol_funcs` -> `libcuflynx.protocol_runners.ProtocolRunner`, and
+  the dead `libcuflynx.obsolete` package.
+
+The exported `run_pipeline.py` imports `libcuflynx.*` only and reads `do_uq` / `UQ_options`.
 
 ### Changed — input files are checked against their JSON Schemas on read
 
@@ -48,6 +121,81 @@ core dependency.
   had two `"variable "` (trailing space) fixed.
 - PhLynx main's CA-format files and value lists are tested against the readers and schemas
   (`tests/test_phlynx_consistency.py`, `PHLYNX_DIR`; CI checks PhLynx out).
+
+### Changed — `time` means the same on every backend (#557)
+
+- `get_results(['time'])` and `get_time()` are the cumulative time after the experiment's
+  warm-up, the axis of the executor's `t_by_exp`, in every sub-experiment. **With
+  `pre_time > 0` this changes what the `python`, `casadi_python`, `aadc_python`,
+  `external_python` and OpenCOR backends return**: they gave the raw solver clock
+  (warm-up included); OpenCOR's `get_time` restarted at 0 in each sub-experiment; Myokit was
+  `pre_time` too large after the first sub-experiment. A time-based operation (e.g.
+  `first_peak_time`) on those backends now reads the same times Myokit gives.
+
+### Fixed — traced inputs on Myokit (#556, #559)
+
+- A trace or shape of an experiment's first sub-experiment starts at that sub-experiment, not
+  at the start of the warm-up, and holds its first value through the warm-up.
+- Several inputs can follow traces in one sub-experiment: each is bound to its own Myokit label
+  (`pace`, `pace_1`, ...; a variable that already has a binding keeps it).
+- The offline warm-up (`offline_pre_time`) holds each traced input at its first value of
+  experiment 0, instead of 0.
+
+### Fixed — PhLynx's `instance_parameters` / `global_parameters` (#558)
+
+- Parameters PhLynx (v0.3.0 on) hoists into `instance_parameters` and `global_parameters` resolve,
+  in the solvers, in `model_qname_candidates`, the variable mapping, methods and the
+  calibrated-value writer. One list, `parameter_names.HOISTED_PARAMETER_CONVENTIONS`, holds the
+  conventions they all read.
+
+### Added — predictions without a calibration (#569)
+
+- `libcuflynx.protocol_runners.run_prediction_items(model, obs, dt, solver_info, ...)` runs an
+  obs_data's protocol and returns its prediction items as traces, scalar features, per-segment
+  results and validation; `predict_on` does the same on an executor you have.
+- `cuflynx-run-predictions MODEL OBS_DATA --dt ...` writes `traces.npz`, `features.csv`,
+  `validation_results.json` and the `prediction_plots` figures.
+- `ProtocolRunner.run_protocols` takes `result_variables` and `return_segments`; `model_path` is
+  optional. **Its join of sub-experiments pads a scalar result to its own segment**
+  (`int(sim_time/dt)+1` samples, as the solvers step); it used to pad sub-experiment 0 to the
+  whole experiment and use `round`, so the result could be longer than `t`.
+- `save_prediction_data` is built on `predict_on`; its files are unchanged.
+
+### Added — `prediction_plots` in obs_data (#568)
+
+- An optional top-level list of figures: a scalar feature against another feature or against
+  the number an input is set to, across experiments, optionally one line per value of a series
+  input. A group is the data_items and prediction_items sharing an `item_name_for_plotting`.
+  Drawn by `save_prediction_data` and `cuflynx-run-predictions`; see the tutorial.
+
+### Changed — PhLynx's key names (#163)
+
+- Module configs and module arrays use PhLynx's keys: `module_type`, `module_subtype`,
+  `component_file`, `component_type`, `inp_instances`, `out_instances`. **Files CA writes use
+  them**, and so do `resources/`, `module_config_user/` and the built-in module configs. The
+  older `vessel_type`, `BC_type`, `module_file`, `module_type` (= the component, beside the other
+  older keys), `inp_vessels` and `out_vessels` are refused; `cuflynx-upgrade module-config` and
+  `cuflynx-upgrade module-array` convert them. Code reading a module dataframe's columns, or a
+  normalised record's keys, sees the new names.
+
+### Changed — nested names, path references and interfaces (#582)
+
+- **Nested levels are joined with `__`**: the submodule `lv` of the supermodule instance `heart`
+  is `heart__lv`, its parameter `E_heart__lv`. A module-array or submodule name may not contain
+  `__` nor begin or end with `_`. Names joined with a single `_` (`heart_lv/q`, `E_heart_lv`)
+  are refused in parameters files, params_for_id and obs operands; `cuflynx-upgrade
+  parameter-names` converts a parameters file.
+- A host may name a submodule by its path (`heart/ra`, `neuron/soma/membrane`) in its own
+  inp/out list, keeping its own order; a `per_submodule_*` key may be a path into a nested
+  instance.
+- A supermodule entry may declare an `interface` that hosts bind to by port type.
+- `phlynx_*` keys on records and config entries are read and ignored.
+
+### Fixed — docs of `offline_pre_time` (#560)
+
+- The tutorial lists every backend that runs it (now also OpenCOR and `aadc_python`) and the
+  calibration-parameter restriction; the benchmarks note and the Myokit docstring describe the
+  run-once behaviour.
 
 ### Added — packing a calibration workflow
 
@@ -124,12 +272,12 @@ Ordered calibrations and analyses are run by `cuflynx-calibration-workflow`.
 - **The `/` form.** A parameters file may name a module's parameter `aortic_root/C` (or `heart/lv/E`, for a supermodule's expanded submodule; `global/R` or `R` for a global). A supermodule's parameterisation and `default_parameters` rows name a submodule's parameter `lv/E`, or `soma/i_M/rho_M` when nested.
   - Generated models keep their names (`C_aortic_root`), because CellML names cannot contain `/`.
 - **Why.** The `_` form cannot be split reliably when names contain `_`, which supermodule rows had to do: `g_leak_Na` is `g` of `leak_Na` or `g_leak` of `Na`.
-- **The old form still works.** In host parameters files it is read as before; setting a parameter both ways is an error. In supermodule rows it is read with a `FutureWarning`.
+- **The old form is refused**, in host parameters files and supermodule rows; `cuflynx-upgrade parameter-names` converts it.
 - **Checks on the new form.**
   - A host `/` row naming a vessel or variable the model does not have, or a global constant through a vessel, is an error.
   - A supermodule row naming a path that is not a submodule is an error.
   - A parameterisation's rows must stay bare variable names.
-- **`cuflynx-migrate-parameter-names`** rewrites old names, in a host file (`--module-array`) or in a supermodule's files (`--supermodule-config`). It rewrites a name only when exactly one reading of it names a real variable of that module, and reports the others.
+- **`cuflynx-upgrade parameter-names`** rewrites old names, in a host file (`--module-array`) or in a supermodule's files (`--supermodule-config`). It rewrites a name only when exactly one reading of it names a real variable of that module, and reports the others.
 
 ### Changed — local SA differentiates prediction features analytically
 
@@ -184,17 +332,15 @@ library that copies built-in modules needed `use_builtin_modules: false`.
 ### Changed — vessel arrays are now called module arrays
 
 The file is `[file_prefix]_module_array.json` or `.csv`, and every model in `resources/` has been
-renamed. A `[file_prefix]_vessel_array.json`/`.csv` is still read, after the new names, with a
-`FutureWarning` asking for it to be renamed; to rename yours, run
-`for f in *_vessel_array.*; do git mv "$f" "${f/_vessel_array./_module_array.}"; done`. The
+renamed. A `[file_prefix]_vessel_array.json`/`.csv` is refused; `cuflynx-upgrade module-array`
+renames and converts it. The
 functions and constants that carried the old name are renamed in the same way
 (`module_array_path`, `read_module_array_records`, `load_module_array`, `module_array_to_json`,
 `PHLYNX_MODULE_ARRAY_COLUMNS`, ...), without aliases, as none of them was released;
-`CSV0DModelParser.split_0d_1d_vessel_array`, which was, is now `split_0d_1d_module_array`, and
-the old name still works with a `FutureWarning`. The 0D/1D split writes `[file_prefix]_{0d,1d}_module_array.csv`,
+`CSV0DModelParser.split_0d_1d_vessel_array`, which was, is now `split_0d_1d_module_array`
+(the old name is removed). The 0D/1D split writes `[file_prefix]_{0d,1d}_module_array.csv`,
 `convert_0d_to_1d` writes `[model]_hybrid_module_array.*`, and the JSON Schema is
-`libcuflynx/schemas/module_array.schema.json`. The record keys (`vessel_type`, `BC_type`,
-`inp_vessels`, `out_vessels`) and the `vessels_csv_abs_path` config key are unchanged.
+`libcuflynx/schemas/module_array.schema.json`. The `vessels_csv_abs_path` config key is unchanged (the record keys are renamed by #163, above).
 
 ### Added — writing a model and its calibration up in LaTeX
 
@@ -254,9 +400,8 @@ A module version's named parameter sets live in `parameterisations/<name>/<name>
 (with `<name>_obs_data.json` and `<name>_params_for_id.csv`); a record or submodule picks one with
 `"parameterisation"`, and a config entry names its default with `"default_parameterisation"`.
 "Instance" now means one use of a version in a module array, as a PhLynx node does. The older
-names are still read for module configs: `instances/` is used when a version has no
-`parameterisations/`, and `"default_instance"` is read as `"default_parameterisation"` (both with
-different values is a ValueError). A module-array record or submodule must use
+names are refused: rename an `instances/` directory to `parameterisations/`, and convert
+`"default_instance"` with `cuflynx-upgrade module-config`. A module-array record or submodule must use
 `"parameterisation"`: `"instance"` there is a ValueError, and invalid in the JSON Schemas. The
 module is `libcuflynx.utilities.parameterisations` (was `module_instances`), with
 `record_parameterisation`, `parameterisations_dir`, `parameterisation_parameters_path`,

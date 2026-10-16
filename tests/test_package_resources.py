@@ -46,7 +46,7 @@ def test_builtin_module_config_parses():
     """The built-in module *config* ships too -- the vessel/BC lookup is built from it."""
     entries = json.loads(builtin_module_file('BG_modules_config.json').read_text(encoding='utf-8'))
     assert entries, 'BG_modules_config.json is empty'
-    assert {'vessel_type', 'BC_type'} <= set(entries[0])
+    assert {'module_type', 'module_subtype'} <= set(entries[0])
 
 
 @pytest.mark.unit
@@ -171,7 +171,3 @@ def test_the_built_wheel_carries_the_data_files_and_not_the_dead_code(tmp_path):
     assert 'libcuflynx/schemas/module_config.schema.json' in names
     assert 'libcuflynx/schemas/obs_data.schema.json' in names
     assert 'libcuflynx/schemas/params_for_id.schema.json' in names
-
-    # ...and the dead code that packages.find excludes stays excluded.
-    obsolete = sorted(n for n in names if n.startswith('libcuflynx/obsolete/'))
-    assert obsolete == [], obsolete

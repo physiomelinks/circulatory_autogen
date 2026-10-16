@@ -20,7 +20,7 @@ optimisers, plus MCMC sampling.
         - remove_params_by_name
         - remove_params_by_idx
         - run
-        - run_mcmc
+        - run_UQ
         - simulate_with_best_param_vals
         - plot_outputs
         - plot_mcmc

@@ -7,7 +7,8 @@ import pytest
 
 from libcuflynx.parsers.PrimitiveParsers import (
     YamlFileParser,
-    migrate_legacy_solver_info_keys,
+    refuse_removed_user_inputs,
+    step_from_dt_solver,
     validate_solver_info,
     warn_if_casadi_nonzero_pre_time,
     PARAM_ID_METHODS,
@@ -23,8 +24,6 @@ from libcuflynx.parsers.PrimitiveParsers import (
     uq_options,
     _SOLVER_INTEGRATOR_KEYS,
     _CASADI_ADJOINT_METHODS,
-    MODEL_TYPE_ALIASES,
-    normalise_model_type,
 )
 
 # The descriptor shape shared by optimiser_options, solver_info fields, and analysis options.
@@ -127,54 +126,6 @@ def test_solver_info_fields_schema_well_formed():
     assert solver_info_fields('CVODE_myokit') and solver_info_fields('not_a_solver') == []
 
 
-@pytest.mark.unit
-def test_the_schema_offers_current_model_type_names_only():
-    """A renamed model_type is accepted but never *advertised*.
-
-    SOLVER_SCHEMA is what a downstream tool builds its menu from (CUFLynx reads it
-    to populate the "Generated model format" dropdown), so a name on its way out
-    must not appear there -- otherwise the rename never finishes, because the GUI
-    keeps writing the old spelling into new configs.
-    """
-    for old, current in MODEL_TYPE_ALIASES.items():
-        assert old not in SOLVER_SCHEMA['model_types'], old
-        assert old not in SOLVER_SCHEMA['solvers_by_model_type'], old
-        assert old not in SOLVER_SCHEMA['default_solver_by_model_type'], old
-        # The name it maps to has to be a real one, or the alias sends configs nowhere.
-        assert current in SOLVER_SCHEMA['model_types'], current
-
-    # 'cellml' specifically: it is the default, so it must be selectable.
-    assert 'cellml' in SOLVER_SCHEMA['model_types']
-
-
-@pytest.mark.unit
-def test_the_old_cellml_only_spelling_still_resolves():
-    """`cellml_only` was the default model_type, so it is written in every
-    user_inputs.yaml that predates the rename -- including the dated copies CA
-    archives beside every run. It has to keep working."""
-    assert normalise_model_type('cellml_only') == 'cellml'
-    # Everything else passes through untouched: this translates, it does not
-    # validate. An invalid name must reach the caller's own check unchanged, so
-    # the error names what the user actually wrote.
-    assert normalise_model_type('cellml') == 'cellml'
-    assert normalise_model_type('casadi_python') == 'casadi_python'
-    assert normalise_model_type('not_a_model_type') == 'not_a_model_type'
-    assert normalise_model_type(None) is None
-
-
-@pytest.mark.unit
-def test_a_config_written_before_the_rename_still_parses(tmp_path, base_user_inputs):
-    """The end-to-end version of the above: the whole point of the alias is that a
-    yaml saying `cellml_only` still resolves a model path rather than exiting."""
-    inp = dict(base_user_inputs)
-    inp['model_type'] = 'cellml_only'
-    inp['generated_models_dir'] = str(tmp_path / 'generated')
-    parsed = YamlFileParser().parse_user_inputs_file(
-        inp, obs_path_needed=False, do_generation_with_fit_parameters=False)
-    assert parsed['model_type'] == 'cellml'
-    assert parsed['model_path'].endswith('.cellml')
-
-
 def test_solver_integrator_keys_derived_from_schema():
     """_SOLVER_INTEGRATOR_KEYS (used by validate_solver_info) is derived from SOLVER_INFO_FIELDS,
     so the accepted keys and the advertised settings cannot drift. Locks the exact key sets that
@@ -192,7 +143,7 @@ def test_solver_integrator_keys_derived_from_schema():
     assert _SOLVER_INTEGRATOR_KEYS['casadi_integrator'] == {
         'reltol', 'abstol', 'rtol', 'atol', 'max_num_steps', 'max_step_size', 'max_step',
         'options'}
-    # 'max_step' comes with the stiff BDF methods (bdf_newton / bdf_tape / bdf_kernel).
+    # 'max_step' comes with the stiff BDF methods (bdf_newton / semi_implicit_signed).
     # 'gradient_strategy' selects tape vs kernel for semi_implicit_signed (issue #346).
     assert _SOLVER_INTEGRATOR_KEYS['aadc_semi_implicit'] == {
         'tol', 'threads', 'max_step', 'gradient_strategy', 'jac_lag'}
@@ -220,7 +171,7 @@ def test_schema_settings_are_actually_read_by_the_code():
     corpus = '\n'.join(
         path.read_text(errors='ignore')
         for path in src_dir.rglob('*.py')
-        if path.name != 'PrimitiveParsers.py' and 'obsolete' not in path.parts
+        if path.name != 'PrimitiveParsers.py'
     )
 
     def never_read(names):
@@ -667,8 +618,6 @@ def test_every_uq_option_the_code_reads_is_advertised():
     pattern = re.compile(r"""UQ_options(?:\.get\(|\[)\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]""")
     read = set()
     for path in src_dir.rglob('*.py'):
-        if 'obsolete' in path.parts:
-            continue
         read.update(pattern.findall(_without_docstrings(path.read_text(encoding='utf-8'))))
 
     advertised = {o['name'] for o in analysis_options('uq')}
@@ -943,16 +892,6 @@ def test_cellml_solver_accepts_maximum_step_keys():
     })
 
 
-def test_myokit_rejects_maximum_number_of_steps_after_migration():
-    """It has no such knob, so a config that still carries it is migrated (with a
-    warning) rather than validated -- reaching validation means it was set anew."""
-    with pytest.raises(ValueError, match='MaximumNumberOfSteps'):
-        validate_solver_info('CVODE_myokit', {
-            'solver': 'CVODE_myokit',
-            'MaximumNumberOfSteps': 5000,
-        })
-
-
 def test_cpp_rk4_accepts_maximum_number_of_steps():
     """MaximumNumberOfSteps is the one integrator key the cpp path really forwards: the generate
     script reads it and CVSCppGenerator emits it as CVODE's mxsteps."""
@@ -985,72 +924,6 @@ def test_cpp_solvers_accept_tolerances_now_that_the_generator_emits_them(solver)
     })
 
 
-@pytest.mark.parametrize('solver', ['CVODE', 'RK4', 'PETSC'])
-def test_cpp_maximum_step_is_migrated_with_a_warning_not_rejected(solver, capsys):
-    """A config written for a CVODE backend must keep running -- it just has to say which of its
-    settings stopped applying, rather than failing validation on the way in."""
-    migrated = migrate_legacy_solver_info_keys(solver, {
-        'solver': solver,
-        'dt_solver': 1e-4,
-        'MaximumStep': 0.001,
-        'MaximumNumberOfSteps': 5000,
-        'rtol': 1e-8,
-        'atol': 1e-10,
-    })
-    # MaximumStep goes; the tolerances stay, because the generator emits them (#398).
-    assert set(migrated) == {'solver', 'dt_solver', 'MaximumNumberOfSteps', 'rtol', 'atol'}
-    validate_solver_info(solver, migrated)  # the migrated config is accepted
-
-    warned = capsys.readouterr().out
-    assert 'MaximumStep' in warned, 'MaximumStep was dropped silently'
-    assert 'dt_solver' in warned, 'the MaximumStep warning should name the setting to use instead'
-    for kept in ('rtol', 'atol'):
-        assert kept not in warned, kept + ' is wired up and must not warn'
-
-
-@pytest.mark.parametrize('solver', ['CVODE', 'RK4', 'PETSC'])
-def test_cpp_maximum_step_alone_becomes_the_solver_step(solver, capsys):
-    """MaximumStep on its own is the only step the user gave, so it has to survive.
-
-    It used to be dropped here, and the parser's own MaximumStep -> dt_solver fallback runs
-    *after* this -- so nothing was left for it to find and generation died with
-    ``KeyError: 'dt_solver'`` on every cpp config that had not already been rewritten to the new
-    key, including the cpp autogeneration test.
-    """
-    migrated = migrate_legacy_solver_info_keys(solver, {
-        'solver': solver,
-        'MaximumStep': 0.001,
-    })
-    assert migrated == {'solver': solver, 'dt_solver': 0.001}
-    validate_solver_info(solver, migrated)
-
-    warned = capsys.readouterr().out
-    assert 'MaximumStep' in warned and 'dt_solver' in warned, (
-        'a renamed setting must name what it became'
-    )
-
-
-def test_a_cpp_config_with_only_maximum_step_still_generates():
-    """The end the bug was actually felt at: the value has to reach the generator.
-
-    ``script_generate_with_new_architecture`` reads ``solver_info['dt_solver']`` directly, so a
-    config that names the step the old way must arrive with that key present rather than raising
-    KeyError part-way through generation.
-    """
-    parsed = YamlFileParser().parse_user_inputs_file(
-        {
-            'file_prefix': '3compartment',
-            'input_param_file': '3compartment_parameters.csv',
-            'model_type': 'cpp',
-            'solver': 'RK4',
-            'solver_info': {'MaximumStep': 0.001},
-        },
-        obs_path_needed=False,
-        do_generation_with_fit_parameters=False,
-    )
-    assert parsed['solver_info']['dt_solver'] == 0.001
-
-
 def test_solve_ivp_rejects_maximum_step_keys():
     with pytest.raises(ValueError, match="MaximumStep"):
         validate_solver_info('solve_ivp', {
@@ -1058,108 +931,6 @@ def test_solve_ivp_rejects_maximum_step_keys():
             'method': 'BDF',
             'MaximumStep': 0.001,
         })
-
-
-def test_migrate_legacy_solver_info_keys_for_solve_ivp():
-    migrated = migrate_legacy_solver_info_keys('solve_ivp', {
-        'MaximumStep': 0.0001,
-        'MaximumNumberOfSteps': 5000,
-        'method': 'BDF',
-    })
-    assert migrated == {'method': 'BDF', 'max_step': 0.0001}
-    validate_solver_info('solve_ivp', {'solver': 'solve_ivp', **migrated})
-
-
-def test_migrate_legacy_solver_info_keys_for_casadi_integrator():
-    migrated = migrate_legacy_solver_info_keys('casadi_integrator', {
-        'MaximumStep': 0.0001,
-        'MaximumNumberOfSteps': 5000,
-        'method': 'cvodes',
-    })
-    assert migrated == {
-        'method': 'cvodes',
-        'max_step_size': 0.0001,
-        'max_num_steps': 5000,
-    }
-    validate_solver_info('casadi_integrator', {'solver': 'casadi_integrator', **migrated})
-
-
-def test_migrate_drops_maximum_number_of_steps_for_myokit(capsys):
-    """myokit has no max-step-count knob, so the key is dropped rather than renamed --
-    but never in silence: a setting that stops taking effect must say so."""
-    migrated = migrate_legacy_solver_info_keys('CVODE_myokit', {
-        'MaximumStep': 0.0001,
-        'MaximumNumberOfSteps': 5000,
-        'rtol': 1e-8,
-    })
-    assert migrated == {'MaximumStep': 0.0001, 'rtol': 1e-8}
-    validate_solver_info('CVODE_myokit', {'solver': 'CVODE_myokit', **migrated})
-
-    warning = capsys.readouterr().out
-    assert 'WARNING' in warning
-    assert 'MaximumNumberOfSteps' in warning
-    assert 'CVODE_myokit' in warning
-    # Names what to use instead, since there is no direct replacement.
-    assert 'MaximumStep' in warning
-    assert 'rtol' in warning
-
-
-def test_migrate_is_silent_when_there_is_nothing_to_migrate(capsys):
-    """A config already using the right keys must not be nagged."""
-    migrate_legacy_solver_info_keys('CVODE_myokit', {'MaximumStep': 0.0001, 'atol': 1e-8})
-    assert capsys.readouterr().out == ''
-
-
-def test_migrate_names_the_replacement_key_when_renaming(capsys):
-    migrate_legacy_solver_info_keys('solve_ivp', {'MaximumStep': 0.0001})
-    out = capsys.readouterr().out
-    assert 'MaximumStep' in out and 'max_step' in out
-
-    migrate_legacy_solver_info_keys('casadi_integrator', {'MaximumNumberOfSteps': 500})
-    out = capsys.readouterr().out
-    assert 'MaximumNumberOfSteps' in out and 'max_num_steps' in out
-
-
-def test_setting_both_names_for_one_setting_is_an_error():
-    """Not a warning: preferring either value would hide the other from a user who
-    believes it is in effect, and nothing can tell which one they meant."""
-    with pytest.raises(ValueError) as exc:
-        migrate_legacy_solver_info_keys('casadi_integrator', {
-            'MaximumNumberOfSteps': 500,
-            'max_num_steps': 999,
-        })
-    msg = str(exc.value)
-    # Both names, both values, and which one to delete.
-    assert 'MaximumNumberOfSteps' in msg and 'max_num_steps' in msg
-    assert '500' in msg and '999' in msg
-    assert 'Remove' in msg
-
-    with pytest.raises(ValueError, match='MaximumStep'):
-        migrate_legacy_solver_info_keys('solve_ivp', {
-            'MaximumStep': 0.001,
-            'max_step': 0.002,
-        })
-
-
-def test_duplicate_names_error_even_when_the_values_agree():
-    """The config still says one thing twice; leaving it means the next edit to
-    either name silently does nothing."""
-    with pytest.raises(ValueError):
-        migrate_legacy_solver_info_keys('casadi_integrator', {
-            'MaximumNumberOfSteps': 500,
-            'max_num_steps': 500,
-        })
-
-
-def test_dt_solver_alongside_the_new_key_is_not_a_duplicate(capsys):
-    """dt_solver is a framework key used only as a *fallback* source, not another
-    spelling of max_step, so pairing the two is legitimate and silent."""
-    migrated = migrate_legacy_solver_info_keys('solve_ivp', {
-        'dt_solver': 0.01,
-        'max_step': 0.002,
-    })
-    assert migrated == {'dt_solver': 0.01, 'max_step': 0.002}
-    assert capsys.readouterr().out == ''
 
 
 def test_myokit_default_solver_info_needs_no_migration():
@@ -1176,26 +947,6 @@ def test_myokit_default_solver_info_needs_no_migration():
     opencor = _solver_info_default_for('cellml', 'CVODE_opencor')
     assert opencor['MaximumNumberOfSteps'] == 5000
     validate_solver_info('CVODE_opencor', opencor)
-
-
-def test_parse_user_inputs_migrates_legacy_keys_for_python_model():
-    parsed = YamlFileParser().parse_user_inputs_file({
-        'file_prefix': '3compartment',
-        'input_param_file': '3compartment_parameters.csv',
-        'model_type': 'python',
-        'solver': 'solve_ivp',
-        'solver_info': {
-            'MaximumStep': 0.0001,
-            'MaximumNumberOfSteps': 5000,
-            'method': 'BDF',
-        },
-        'dt': 0.01,
-        'pre_time': 0.0,
-        'sim_time': 1.0,
-    }, obs_path_needed=False)
-    assert parsed['solver_info']['max_step'] == 0.0001
-    assert 'MaximumStep' not in parsed['solver_info']
-    assert 'MaximumNumberOfSteps' not in parsed['solver_info']
 
 
 def test_parse_user_inputs_warns_for_casadi_nonzero_pre_time():
@@ -1477,14 +1228,12 @@ def test_semi_implicit_signed_replaces_the_two_bdf_gradient_names():
     or a C++ kernel replay that falls back to the tape). Advertising them as separate integrators
     made a GUI offer two 'methods' that no forward solve accepts.
     """
-    from libcuflynx.parsers.PrimitiveParsers import (
-        AADC_BDF_AD_METHODS, AADC_LEGACY_METHOD_ALIASES)
+    from libcuflynx.parsers.PrimitiveParsers import AADC_BDF_AD_METHODS
 
     methods = SOLVER_SCHEMA['methods_by_solver']['aadc_semi_implicit']
     assert 'semi_implicit_signed' in methods
     for gone in ('bdf_tape', 'bdf_kernel'):
         assert gone not in methods, f"{gone} is a gradient strategy, not a method"
-        assert gone in AADC_LEGACY_METHOD_ALIASES, "old configs must keep working"
     # still AD-capable, by its own gradient path
     assert 'semi_implicit_signed' in AADC_BDF_AD_METHODS
     assert 'semi_implicit_signed' in SOLVER_SCHEMA['ad_suitable_methods']['aadc_semi_implicit']
@@ -1492,50 +1241,6 @@ def test_semi_implicit_signed_replaces_the_two_bdf_gradient_names():
     strategy = [f for f in SOLVER_INFO_FIELDS['aadc_semi_implicit']
                 if f['name'] == 'gradient_strategy']
     assert strategy and strategy[0]['choices'] == ['tape', 'kernel']
-
-
-@pytest.mark.unit
-def test_legacy_bdf_names_resolve_through_the_dispatch_not_just_the_alias_table():
-    """"Old configs keep working" has to be checked against the code that runs them.
-
-    Asserting only that 'bdf_tape' appears in AADC_LEGACY_METHOD_ALIASES tests a declaration:
-    the table could stay correct while the dispatch that consumes it was rewritten to ignore a
-    name, and the guarantee would break with every test still green. So drive the resolver.
-    """
-    from libcuflynx.param_id.aadc_backend import resolve_gradient_strategy
-
-    assert resolve_gradient_strategy('bdf_tape', {}) == ('semi_implicit_signed', 'tape')
-    assert resolve_gradient_strategy('bdf_kernel', {}) == ('semi_implicit_signed', 'kernel')
-
-    # the canonical name honours the setting, and defaults to the tape
-    assert resolve_gradient_strategy('semi_implicit_signed', {}) == ('semi_implicit_signed', 'tape')
-    assert resolve_gradient_strategy(
-        'semi_implicit_signed', {'gradient_strategy': 'kernel'}) == ('semi_implicit_signed', 'kernel')
-
-    # anything else is not this scheme, and must fall through to the other gradient paths
-    for other in ('bdf_newton', 'rk4', 'semi_implicit', 'adaptive_rk45'):
-        assert resolve_gradient_strategy(other, {}) is None
-
-    with pytest.raises(ValueError, match='gradient_strategy'):
-        resolve_gradient_strategy('semi_implicit_signed', {'gradient_strategy': 'nonsense'})
-
-
-@pytest.mark.unit
-def test_a_legacy_name_warns_rather_than_silently_dropping_a_conflicting_strategy():
-    """'bdf_kernel' fixes the strategy, so gradient_strategy='tape' alongside it cannot be
-    honoured. The name wins (it is the more specific statement of intent), but silently
-    discarding a setting the user wrote is the failure mode this whole change is fixing."""
-    from libcuflynx.param_id.aadc_backend import resolve_gradient_strategy
-
-    with pytest.warns(UserWarning, match='ignored'):
-        resolved = resolve_gradient_strategy('bdf_kernel', {'gradient_strategy': 'tape'})
-    assert resolved == ('semi_implicit_signed', 'kernel')
-
-    # no warning when they agree
-    with warnings.catch_warnings():
-        warnings.simplefilter('error')
-        assert resolve_gradient_strategy(
-            'bdf_tape', {'gradient_strategy': 'tape'}) == ('semi_implicit_signed', 'tape')
 
 
 @pytest.mark.unit
@@ -1717,71 +1422,132 @@ def test_cvode_myokit_schema_declares_cas_defaults():
 
 
 # ---------------------------------------------------------------------------
-# Legacy mcmc_options / do_mcmc spelling (renamed to UQ_options / do_uq)
+# Removed configuration keys and values are refused with what to write instead
 # ---------------------------------------------------------------------------
 @pytest.mark.unit
-def test_legacy_mcmc_option_names_are_migrated_with_a_warning(capsys):
-    """MCMC became one method of UQ, so its settings moved to UQ_options/do_uq. A config written
-    for the old names must keep running and be told, once, what to rename -- the same
-    migrate-with-a-warning treatment solver_info keys get."""
-    from libcuflynx.parsers.PrimitiveParsers import _normalise_uq_option_names
-
-    inp = {
-        'do_mcmc': True,
-        'mcmc_options': {'num_steps': 11},
-        'debug_mcmc_options': {'num_steps': 3},
-    }
-    _normalise_uq_option_names(inp)
-
-    assert inp == {
-        'do_uq': True,
-        'UQ_options': {'num_steps': 11},
-        'debug_UQ_options': {'num_steps': 3},
-    }, 'the values must survive the rename, and the old keys must not linger'
-
-    warned = capsys.readouterr().out
-    for old_key, new_key in [('mcmc_options', 'UQ_options'),
-                             ('debug_mcmc_options', 'debug_UQ_options'),
-                             ('do_mcmc', 'do_uq')]:
-        assert old_key in warned and new_key in warned, old_key + ' was renamed silently'
+@pytest.mark.parametrize('inp, replacement', [
+    ({'ga_options': {}}, 'optimiser_options'),
+    ({'debug_ga_options': {}}, 'debug_optimiser_options'),
+    ({'mcmc_options': {}}, 'UQ_options'),
+    ({'debug_mcmc_options': {}}, 'debug_UQ_options'),
+    ({'do_mcmc': True}, 'do_uq'),
+    ({'model_type': 'cellml_only'}, "'cellml'"),
+    ({'solver': 'CVODE'}, 'CVODE_myokit'),
+    ({'model_type': 'cellml', 'solver_info': {'solver': 'CVODE'}}, 'CVODE_myokit'),
+    ({'model_type': 'aadc_python', 'solver_info': {'method': 'bdf_tape'}},
+     'gradient_strategy: tape'),
+    ({'model_type': 'aadc_python', 'solver_info': {'method': 'bdf_kernel'}},
+     'gradient_strategy: kernel'),
+])
+def test_a_removed_user_inputs_form_is_refused_naming_its_replacement(inp, replacement):
+    with pytest.raises(ValueError, match=replacement):
+        refuse_removed_user_inputs(inp)
 
 
 @pytest.mark.unit
-def test_a_config_using_only_the_new_uq_names_is_silent():
-    """The migration must not nag a config that is already correct."""
-    from libcuflynx.parsers.PrimitiveParsers import _normalise_uq_option_names
-
-    inp = {'do_uq': False, 'UQ_options': {'method': 'mcmc'}}
-    before = dict(inp)
-    _normalise_uq_option_names(inp)
-    assert inp == before
+def test_current_user_inputs_forms_are_not_refused():
+    refuse_removed_user_inputs({'model_type': 'cpp', 'solver': 'CVODE', 'do_uq': True,
+                                'UQ_options': {}, 'optimiser_options': {}})
+    refuse_removed_user_inputs({'model_type': 'aadc_python',
+                                'solver_info': {'method': 'semi_implicit_signed'}})
 
 
 @pytest.mark.unit
-def test_setting_both_uq_spellings_is_refused():
-    """Not a stale key to migrate but a contradiction: the two values can disagree, and
-    silently preferring either would hide one from a user who believes it is in effect."""
-    from libcuflynx.parsers.PrimitiveParsers import _normalise_uq_option_names
-
-    with pytest.raises(ValueError, match='mcmc_options'):
-        _normalise_uq_option_names({'mcmc_options': {'num_steps': 1},
-                                    'UQ_options': {'num_steps': 2}})
+def test_the_parser_refuses_a_removed_form(base_user_inputs, tmp_path):
+    inp = dict(base_user_inputs, ga_options={'num_calls_to_function': 10},
+               generated_models_dir=str(tmp_path / 'generated'))
+    with pytest.raises(ValueError, match='optimiser_options'):
+        YamlFileParser().parse_user_inputs_file(
+            inp, obs_path_needed=False, do_generation_with_fit_parameters=False)
 
 
 @pytest.mark.unit
-def test_deprecated_mcmc_options_kwarg_still_reaches_UQ_options(capsys):
-    """The public CVS0DParamID(mcmc_options=...) kwarg keeps working, and passing both spellings
-    is refused for the same reason as above."""
-    from libcuflynx.param_id.paramID import _resolve_UQ_options
+@pytest.mark.parametrize('solver, key, hint', [
+    ('solve_ivp', 'MaximumStep', 'max_step'),
+    ('solve_ivp', 'MaximumNumberOfSteps', 'no step-count limit'),
+    ('casadi_integrator', 'MaximumStep', 'max_step_size'),
+    ('casadi_integrator', 'MaximumNumberOfSteps', 'max_num_steps'),
+    ('CVODE_myokit', 'MaximumNumberOfSteps', 'MaximumStep'),
+    ('CVODE', 'MaximumStep', 'dt_solver'),
+    ('RK4', 'MaximumStep', 'dt_solver'),
+    ('PETSC', 'MaximumStep', 'dt_solver'),
+])
+def test_a_key_of_another_solver_is_refused_with_a_hint_and_the_solvers_fields(
+        solver, key, hint):
+    with pytest.raises(ValueError) as exc:
+        validate_solver_info(solver, {'solver': solver, key: 1})
+    msg = str(exc.value)
+    assert key in msg and hint in msg
+    for field in _SOLVER_INTEGRATOR_KEYS[solver]:
+        assert field in msg, f'the message should list {solver}\'s own field {field}'
 
-    assert _resolve_UQ_options(None, {'num_steps': 5}) == {'num_steps': 5}
-    assert 'deprecated' in capsys.readouterr().out
 
-    assert _resolve_UQ_options({'num_steps': 9}, None) == {'num_steps': 9}
-    assert capsys.readouterr().out == '', 'the new spelling must be silent'
+@pytest.mark.unit
+def test_the_parser_refuses_a_key_of_another_solver(capsys):
+    with pytest.raises(SystemExit):
+        YamlFileParser().parse_user_inputs_file({
+            'file_prefix': '3compartment',
+            'input_param_file': '3compartment_parameters.csv',
+            'model_type': 'python',
+            'solver': 'solve_ivp',
+            'solver_info': {'MaximumStep': 0.0001, 'method': 'BDF'},
+            'dt': 0.01, 'pre_time': 0.0, 'sim_time': 1.0,
+        }, obs_path_needed=False)
+    assert 'use max_step instead of MaximumStep' in capsys.readouterr().out
 
-    with pytest.raises(ValueError, match='not both'):
-        _resolve_UQ_options({'num_steps': 9}, {'num_steps': 5})
+
+@pytest.mark.unit
+@pytest.mark.parametrize('solver', ['CVODE', 'RK4', 'PETSC'])
+def test_a_cpp_config_with_dt_solver_parses(solver, tmp_path):
+    parsed = YamlFileParser().parse_user_inputs_file({
+        'file_prefix': '3compartment',
+        'input_param_file': '3compartment_parameters.csv',
+        'model_type': 'cpp',
+        'solver': solver,
+        'solver_info': {'dt_solver': 1e-4},
+        'generated_models_dir': str(tmp_path),
+    }, obs_path_needed=False, do_generation_with_fit_parameters=False)
+    assert parsed['solver_info']['dt_solver'] == 1e-4
+    assert 'MaximumStep' not in parsed['solver_info']
+
+
+@pytest.mark.unit
+def test_dt_solver_seeds_the_solvers_own_step_key_only_when_unset():
+    assert step_from_dt_solver('solve_ivp', {'dt_solver': 0.01}) == {
+        'dt_solver': 0.01, 'max_step': 0.01}
+    assert step_from_dt_solver('casadi_integrator', {'dt_solver': 0.01}) == {
+        'dt_solver': 0.01, 'max_step_size': 0.01}
+    assert step_from_dt_solver('solve_ivp', {'dt_solver': 0.01, 'max_step': 0.002}) == {
+        'dt_solver': 0.01, 'max_step': 0.002}
+    assert step_from_dt_solver('CVODE_myokit', {'dt_solver': 0.01}) == {'dt_solver': 0.01}
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('module, name', [
+    ('libcuflynx.param_id.paramID', 'OpencorParamID'),
+    ('libcuflynx.param_id.paramID', 'OpencorMCMC'),
+    ('libcuflynx.param_id.paramID', 'TAPE_CONSISTENT_AADC_METHODS'),
+    ('libcuflynx.param_id.paramID', '_resolve_UQ_options'),
+    ('libcuflynx.parsers.PrimitiveParsers', 'PARAM_MODIFIER_OPERATIONS'),
+    ('libcuflynx.parsers.PrimitiveParsers', 'DEFAULT_PARAM_MODIFIER_OPERATION'),
+    ('libcuflynx.parsers.PrimitiveParsers', 'param_modifier_operations'),
+    ('libcuflynx.parsers.PrimitiveParsers', 'MODEL_TYPE_ALIASES'),
+    ('libcuflynx.parsers.PrimitiveParsers', 'AADC_LEGACY_METHOD_ALIASES'),
+    ('libcuflynx.parsers.PrimitiveParsers', 'migrate_legacy_solver_info_keys'),
+])
+def test_a_removed_python_name_is_gone(module, name):
+    import importlib
+    assert not hasattr(importlib.import_module(module), name)
+
+
+@pytest.mark.unit
+def test_the_uq_entry_points_take_UQ_options_only():
+    import inspect
+    from libcuflynx.param_id import paramID
+    for fn in (paramID.CVS0DParamID.__init__, paramID.CVS0DParamID.run_UQ,
+               paramID.MCMC.__init__, paramID.MCMC.from_param_id, paramID.MCMC_plotter.__init__):
+        assert 'mcmc_options' not in inspect.signature(fn).parameters, fn
+    assert not hasattr(paramID.CVS0DParamID, 'run_mcmc')
 
 
 @pytest.mark.unit
@@ -1794,12 +1560,8 @@ def test_a_config_that_names_no_solver_gets_one_a_pip_install_can_provide():
     invisible in a checkout, because the shipped `user_inputs.yaml` sets it explicitly,
     and invisible in CI for the same reason.
 
-    Pinned because nothing else pins it. The change that fixed this shipped no test, and
-    upstream then renamed the key this value hangs off (`cellml_only` -> `cellml`) in a
-    separate branch. Merging the two would have restored the old default silently, with
-    every suite still green -- three independent reads (the schema, the solver_info
-    default, and the implicit fallback in `parse_user_inputs_file`) all agreeing on the
-    wrong answer.
+    Three reads must agree: the schema, the solver_info default, and the implicit
+    fallback in `parse_user_inputs_file`.
     """
     assert SOLVER_SCHEMA['default_solver_by_model_type']['cellml'] == 'CVODE_myokit'
     assert get_solver_info_default('cellml')['solver'] == 'CVODE_myokit'
@@ -1829,14 +1591,3 @@ def test_the_defaulted_solver_comes_from_the_schema_for_every_model_type():
             f'{model_type} defaults to {defaults[model_type]!r}, which is not one of its '
             f'solvers {solvers} -- a method name here is the mistake to look for')
 
-
-@pytest.mark.unit
-def test_the_legacy_cvode_alias_leaves_cpp_alone():
-    """'CVODE' is a legacy spelling for CellML *and* a current solver for cpp.
-
-    Before the split into CVODE_opencor / CVODE_myokit, 'CVODE' meant the CellML backend.
-    The compatibility rewrite applied to every model type, so a cpp study that named its
-    own valid solver had it silently replaced with a CellML one.
-    """
-    assert 'CVODE' in SOLVER_SCHEMA['solvers_by_model_type']['cpp']
-    assert 'CVODE' not in SOLVER_SCHEMA['solvers_by_model_type']['cellml']

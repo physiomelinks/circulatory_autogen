@@ -1,10 +1,10 @@
 [
     {
-        "vessel_type":"heart",
-        "BC_type":"vp_wCont",
+        "module_type":"heart",
+        "module_subtype":"vp_wCont",
         "module_format":"cellml",
-        "module_file":"heart_modules.cellml",
-        "module_type":"heart_simple_wCont",
+        "component_file":"heart_modules.cellml",
+        "component_type":"heart_simple_wCont",
         "entrance_ports":
         [
           {
@@ -144,11 +144,11 @@
         ]
     },
     {
-        "vessel_type":"heart_ASD",
-        "BC_type":"vp_wCont",
+        "module_type":"heart_ASD",
+        "module_subtype":"vp_wCont",
         "module_format":"cellml",
-        "module_file":"heart_modules.cellml",
-        "module_type":"heart_simple_wCont_ASD",
+        "component_file":"heart_modules.cellml",
+        "component_type":"heart_simple_wCont_ASD",
         "entrance_ports":
         [
           {
@@ -290,11 +290,11 @@
         ]
     },
     {
-        "vessel_type":"heart_nonstiff",
-        "BC_type":"vp_wCont",
-        "module_format":"cellml",
-        "module_file":"heart_modules.cellml",
         "module_type":"heart_nonstiff",
+        "module_subtype":"vp_wCont",
+        "module_format":"cellml",
+        "component_file":"heart_modules.cellml",
+        "component_type":"heart_nonstiff",
         "entrance_ports":
         [
           {
@@ -442,11 +442,11 @@
         ]
     },
     {
-        "vessel_type":"heart",
-        "BC_type":"vp",
+        "module_type":"heart",
+        "module_subtype":"vp",
         "module_format":"cellml",
-        "module_file":"heart_modules.cellml",
-        "module_type":"heart_simple",
+        "component_file":"heart_modules.cellml",
+        "component_type":"heart_simple",
         "entrance_ports":
         [
           {
@@ -558,11 +558,11 @@
         ]
     },
     {
-        "vessel_type":"heart",
-        "BC_type":"vp_Ca",
+        "module_type":"heart",
+        "module_subtype":"vp_Ca",
         "module_format":"cellml",
-        "module_file":"heart_modules.cellml",
-        "module_type":"heart_Ca_input",
+        "component_file":"heart_modules.cellml",
+        "component_type":"heart_Ca_input",
         "entrance_ports":
         [
           {
@@ -674,11 +674,11 @@
         ]
     },
     {
-        "vessel_type":"heart_new_valve",
-        "BC_type":"vp",
-        "module_format":"cellml",
-        "module_file":"heart_modules.cellml",
         "module_type":"heart_new_valve",
+        "module_subtype":"vp",
+        "module_format":"cellml",
+        "component_file":"heart_modules.cellml",
+        "component_type":"heart_new_valve",
         "entrance_ports":
         [
           {
@@ -798,11 +798,11 @@
         ]
     },
     {
-        "vessel_type":"heart_LVprop",
-        "BC_type":"vp",
+        "module_type":"heart_LVprop",
+        "module_subtype":"vp",
         "module_format":"cellml",
-        "module_file":"heart_modules.cellml",
-        "module_type":"heart_simple_LVprop",
+        "component_file":"heart_modules.cellml",
+        "component_type":"heart_simple_LVprop",
         "entrance_ports":
         [
           {
@@ -912,11 +912,11 @@
         ]
     },
     {
-        "vessel_type":"heart",
-        "BC_type":"vp_devel",
+        "module_type":"heart",
+        "module_subtype":"vp_devel",
         "module_format":"cellml",
-        "module_file":"heart_modules.cellml",
-        "module_type":"heart_devel",
+        "component_file":"heart_modules.cellml",
+        "component_type":"heart_devel",
         "entrance_ports":
         [
           {

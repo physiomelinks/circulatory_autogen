@@ -453,8 +453,6 @@ def norm_additive(costs):
 def register_cost_funcs(registry, backend):
     """Register all cost callables defined in this module, each bound to ``backend`` (so
     registries for different backends stay independent -- see math_backend.bind_backend, #315)."""
-    global mb
-    mb = backend
     g = globals()
     mod = __name__
     exclude = frozenset(

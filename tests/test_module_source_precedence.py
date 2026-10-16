@@ -1,4 +1,4 @@
-"""A (vessel_type, BC_type) that several module sources define comes from the most specific one
+"""A (module_type, module_subtype) that several module sources define comes from the most specific one
 (utilities/module_library.py): external_modules_dir, then module_library_dirs in order, then
 module_config_user, then the built-in modules. The others' config entries and CellML are left
 out, a ModuleShadowWarning lists the competition, and a type defined twice within one source is
@@ -106,7 +106,7 @@ def test_a_component_another_kept_type_still_needs_is_not_left_out(tmp_path):
     with open(config) as f:
         entry = json.load(f)[0]
     with open(config, 'w') as f:
-        json.dump([entry, dict(entry, BC_type='vv')], f)
+        json.dump([entry, dict(entry, module_subtype='vv')], f)
     library_cellml = os.path.join(library, 'lv', 'Lotka_Volterra_modules.cellml')
     external = str(tmp_path / 'external')
     _copy(external, 'external')

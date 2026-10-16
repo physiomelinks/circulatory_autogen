@@ -234,7 +234,7 @@ def test_obs_reducers_cover_the_shipped_operations():
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     with open(os.path.join(root, 'resources', '3compartment_obs_data.json')) as f:
-        items = _json.load(f)
+        items = _json.load(f)['data_items']
     missing = sorted({it['operation'] for it in items} - set(_OBS_REDUCERS))
     assert not missing, f'no reducer for obs operation(s): {missing}'
 

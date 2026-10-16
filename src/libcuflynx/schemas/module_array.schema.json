@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/physiomelinks/circulatory_autogen/schemas/module_array.schema.json",
   "title": "libcuflynx module array (<prefix>_module_array.json)",
-  "description": "A list of module instance records. Each record uses PhLynx keys (name, module_type, module_subtype, inp_instances, out_instances) or libcuflynx keys (name, vessel_type, BC_type, inp_vessels, out_vessels), never both. A record may name its parameterisation (\"parameterisation\"; \"instance\" is refused). A supermodule instance may add per_submodule_inputs / per_submodule_outputs. Other keys are kept: a scalar one becomes a column of the module dataframe. A CSV module array (same columns, lists space-separated) is read as these records. Checked by libcuflynx/utilities/config_schemas.py (normalise_vessel_record), which also checks what JSON Schema cannot: names unique, connections naming existing instances.",
+  "description": "A list of module instance records. Each record has name, module_type, module_subtype, and optional inp_instances and out_instances. Other keys are allowed. A record may name its parameterisation (\"parameterisation\"). A supermodule instance may add per_submodule_inputs / per_submodule_outputs. See libcuflynx/utilities/config_schemas.py.",
   "type": "array",
   "items": {
     "$ref": "#/$defs/record"
@@ -14,7 +14,7 @@
       "description": "A name with no whitespace inside it (surrounding whitespace is stripped): names become CellML component and variable names."
     },
     "nameList": {
-      "description": "instance names: a list, or one space-separated string (null: none)",
+      "description": "instance names: a list, or one space-separated string (null: none). A name may be a path to a submodule of a supermodule instance, \"heart/ra\" (\"neuron/soma/membrane\" two levels down)",
       "oneOf": [
         {
           "type": "array",
@@ -31,7 +31,7 @@
       ]
     },
     "perSubmodule": {
-      "description": "{submodule: [host, ...]}, or a list of one-key objects A submodule may appear once (the loader checks this; JSON Schema cannot).",
+      "description": "{submodule: [host, ...]}, or a list of one-key objects. A submodule may appear once (the loader checks this; JSON Schema cannot). A key may be a path into a nested supermodule instance (\"soma/membrane\").",
       "oneOf": [
         {
           "type": "object",
@@ -53,7 +53,7 @@
       ]
     },
     "phlynxRecord": {
-      "title": "instance record, PhLynx keys",
+      "title": "instance record",
       "type": "object",
       "required": [
         "name",
@@ -62,16 +62,16 @@
       ],
       "properties": {
         "name": {
-          "$ref": "#/$defs/name",
+          "$ref": "#/$defs/instanceName",
           "description": "Required. The instance name, unique in the array; a module's parameters and variables are named <variable>_<name>."
         },
         "module_type": {
           "$ref": "#/$defs/name",
-          "description": "Required. The module type: the vessel_type (PhLynx: module_type) of a module config entry."
+          "description": "Required. The module type: the module_type of a module config entry."
         },
         "module_subtype": {
           "$ref": "#/$defs/name",
-          "description": "Required. The module version: the BC_type (PhLynx: module_subtype) of that entry."
+          "description": "Required. The module version: the module_subtype of that entry."
         },
         "inp_instances": {
           "$ref": "#/$defs/nameList",
@@ -98,7 +98,7 @@
               ".."
             ]
           },
-          "description": "the parameterisation (named parameter set of the module version) whose parameters this record uses: <config dir>/parameterisations/<name>/<name>_parameters.csv, or instances/<name>/ in older libraries (default: the config entry's default_parameterisation, if that file exists)"
+          "description": "the parameterisation (named parameter set of the module version) whose parameters this record uses: <config dir>/parameterisations/<name>/<name>_parameters.csv (default: the config entry's default_parameterisation, if that file exists)"
         }
       },
       "not": {
@@ -134,101 +134,20 @@
           },
           "description": "\"instance\" is not a record key: a record names its parameter set with \"parameterisation\"."
         }
-      ]
-    },
-    "libcuflynxRecord": {
-      "title": "instance record, libcuflynx keys",
-      "type": "object",
-      "required": [
-        "name",
-        "vessel_type",
-        "BC_type"
       ],
-      "properties": {
-        "name": {
-          "$ref": "#/$defs/name",
-          "description": "Required. The instance name, unique in the array; a module's parameters and variables are named <variable>_<name>."
-        },
-        "vessel_type": {
-          "$ref": "#/$defs/name",
-          "description": "Required. The module type: the vessel_type (PhLynx: module_type) of a module config entry."
-        },
-        "BC_type": {
-          "$ref": "#/$defs/name",
-          "description": "Required. The module version: the BC_type (PhLynx: module_subtype) of that entry."
-        },
-        "inp_vessels": {
-          "$ref": "#/$defs/nameList",
-          "description": "The instances feeding this one (connected to its entrance ports). Default: none."
-        },
-        "out_vessels": {
-          "$ref": "#/$defs/nameList",
-          "description": "The instances this one feeds (connected to its exit ports). Default: none."
-        },
-        "per_submodule_inputs": {
-          "$ref": "#/$defs/perSubmodule",
-          "description": "Supermodule instances only: {submodule: [host instance, ...]}, the host instances feeding each submodule. Each host must list this instance in its out list. Default: none."
-        },
-        "per_submodule_outputs": {
-          "$ref": "#/$defs/perSubmodule",
-          "description": "Supermodule instances only: {submodule: [host instance, ...]}, the host instances each submodule feeds. Each host must list this instance in its inp list. Default: none."
-        },
-        "parameterisation": {
-          "type": "string",
-          "pattern": "^[^/\\\\]*[^/\\\\\\s][^/\\\\]*$",
-          "not": {
-            "enum": [
-              ".",
-              ".."
-            ]
-          },
-          "description": "the parameterisation (named parameter set of the module version) whose parameters this record uses: <config dir>/parameterisations/<name>/<name>_parameters.csv, or instances/<name>/ in older libraries (default: the config entry's default_parameterisation, if that file exists)"
+      "patternProperties": {
+        "^phlynx_": {
+          "description": "PhLynx's own metadata (layout, interface labels); read and ignored"
         }
-      },
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "module_type"
-            ]
-          },
-          {
-            "required": [
-              "module_subtype"
-            ]
-          },
-          {
-            "required": [
-              "inp_instances"
-            ]
-          },
-          {
-            "required": [
-              "out_instances"
-            ]
-          }
-        ]
-      },
-      "allOf": [
-        {
-          "not": {
-            "required": [
-              "instance"
-            ]
-          },
-          "description": "\"instance\" is not a record key: a record names its parameter set with \"parameterisation\"."
-        }
-      ]
+      }
     },
     "record": {
-      "oneOf": [
-        {
-          "$ref": "#/$defs/phlynxRecord"
-        },
-        {
-          "$ref": "#/$defs/libcuflynxRecord"
-        }
-      ]
+      "$ref": "#/$defs/phlynxRecord"
+    },
+    "instanceName": {
+      "type": "string",
+      "pattern": "^\\s*(?!_)(?![^\\s/]*__)[^\\s/]*[^\\s/_]\\s*$",
+      "description": "an instance name (surrounding whitespace is dropped): no whitespace inside, no \"/\", no \"__\", and no \"_\" at either end (nested levels are joined with \"__\": heart/lv is heart__lv)"
     }
   }
 }

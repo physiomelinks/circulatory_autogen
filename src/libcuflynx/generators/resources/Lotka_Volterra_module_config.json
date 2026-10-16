@@ -1,10 +1,10 @@
 [
   {
-    "vessel_type": "Lotka_Volterra",
-    "BC_type": "nn",
-    "module_format": "cellml",
-    "module_file": "Lotka_Volterra_modules.cellml",
     "module_type": "Lotka_Volterra",
+    "module_subtype": "nn",
+    "module_format": "cellml",
+    "component_file": "Lotka_Volterra_modules.cellml",
+    "component_type": "Lotka_Volterra",
     "entrance_ports": [],
     "exit_ports": [],
     "general_ports": [],

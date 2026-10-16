@@ -111,19 +111,17 @@ cuflynx-variable-mapping = "libcuflynx.scripts.variable_mapping_script:main"
 cuflynx-methods-latex = "libcuflynx.scripts.methods_latex_script:main"
 cuflynx-sensitivity = "libcuflynx.scripts.sensitivity_analysis_run_script:main"
 cuflynx-identifiability = "libcuflynx.scripts.identifiability_run_script:main"
-# Not a pipeline stage: a one-off that rewrites obs_data files into the #466 vocabulary.
-# A console command rather than a note in the changelog because the rename is not purely
-# mechanical: data_item_name has to be made unique, and the tool derives a name from
-# whatever actually distinguishes the colliding items.
-# Rewrites parameter names written {variable}_{vessel} as <vessel>/<variable>, checking each
-# against the modules rather than guessing where the variable ends.
-cuflynx-migrate-parameter-names = "libcuflynx.scripts.migrate_parameter_names:main"
+# Not a pipeline stage: converts, once, files in a form libcuflynx no longer reads.
+cuflynx-upgrade = "libcuflynx.upgrade:main"
 cuflynx-train-emulator = "libcuflynx.scripts.train_emulator_run_script:main"
 cuflynx-plot = "libcuflynx.scripts.plot_param_id_script:main"
 # Writes a folder that reproduces a configuration: the model, the observations, the
 # parameter bounds, the config, and a run_pipeline.py that drives every stage its do_*
 # flags enable. CUFLynx exports the same bundle from the GUI and calls this to write it.
 cuflynx-generate-pipeline = "libcuflynx.scripts.generate_pipeline_script:main"
+# An obs_data's prediction items on a model with no calibration: traces, features and validation
+# (libcuflynx.protocol_runners.run_prediction_items).
+cuflynx-run-predictions = "libcuflynx.scripts.run_predictions_script:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -131,9 +129,6 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["src"]
-# src/libcuflynx/obsolete is dead code kept in the tree for reference; it is not shipped.
-# find() matches the dotted package name it discovers, hence the namespaced spelling as well.
-exclude = ["obsolete*", "libcuflynx.obsolete*"]
 
 # Non-Python files that are read at runtime and therefore have to ship in the wheel.
 # Without them `pip install libcuflynx` imports fine and then fails at the first

@@ -35,8 +35,8 @@ def generate_parameterisation(target, work_dir, file_prefix, overrides=(), libra
     '''Generate the module parameterisation ``target`` (a spec.Target) alone, as a single
     module-array record named ``vessel``, under ``work_dir``.
 
-    ``overrides`` are parameter rows (``variable_name`` in the generated model's naming,
-    ``units``, ``value``, ``data_reference``) written as the host parameters file, which wins
+    ``overrides`` are parameter rows (``variable_name`` as a host parameters file names it,
+    ``mod__A/p``, ``units``, ``value``, ``data_reference``) written as the host parameters file, which wins
     over every parameterisation and supermodule default. ``library_inputs`` are the generation
     keys that locate the modules (``module_library_dirs`` etc.).
 
@@ -62,16 +62,15 @@ def generate_parameterisation(target, work_dir, file_prefix, overrides=(), libra
 def generate_module_array(model, work_dir, file_prefix, overrides=(), library_inputs=None,
                           model_type='cellml', solver=None):
     '''Generate the module array ``model`` (a spec.ModuleArray) under ``work_dir``, from a copy
-    of its module array and parameters file. ``overrides`` (rows named as in the generated
-    model) replace the rows of the parameters file that set the same parameter, in whichever
-    form those rows name it. Returns as :func:`generate_parameterisation`.'''
+    of its module array and parameters file. ``overrides`` (rows named as a host parameters
+    file names them) replace the rows of the parameters file that set the same parameter. Returns as :func:`generate_parameterisation`.'''
     work_dir = os.path.abspath(work_dir)
     resources_dir = os.path.join(work_dir, 'resources')
     os.makedirs(resources_dir, exist_ok=True)
     extension = os.path.splitext(model.module_array)[1].lower() or '.csv'
     shutil.copyfile(model.module_array,
                     os.path.join(resources_dir, f'{file_prefix}_module_array{extension}'))
-    overridden = {row['variable_name'] for row in overrides}
+    overridden = {host_model_name(row['variable_name']) for row in overrides}
     rows = [r for r in read_parameter_rows(model.parameters)
             if host_model_name(r.get('variable_name') or '') not in overridden]
     write_parameter_rows(os.path.join(resources_dir, f'{file_prefix}_parameters.csv'),

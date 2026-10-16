@@ -1,10 +1,10 @@
 [
     {
-        "vessel_type":"electrical_stim_input_Paci_2013",
-        "BC_type":"nn",
+        "module_type":"electrical_stim_input_Paci_2013",
+        "module_subtype":"nn",
         "module_format":"cellml",
-        "module_file":"input_stimulation_modules.cellml",
-        "module_type":"stim_mode_Paci_2013",
+        "component_file":"input_stimulation_modules.cellml",
+        "component_type":"stim_mode_Paci_2013",
         "entrance_ports":
         [
         ],
@@ -30,11 +30,11 @@
         ]
     },
     {
-        "vessel_type":"voltage_change",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"input_stimulation_modules.cellml",
         "module_type":"voltage_change",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"input_stimulation_modules.cellml",
+        "component_type":"voltage_change",
         "entrance_ports":
         [
         ],
@@ -53,11 +53,11 @@
         ]
     },
     {
-      "vessel_type":"i_stim_periodic",
-      "BC_type":"nn",
-      "module_format":"cellml",
-      "module_file":"input_stimulation_modules.cellml",
       "module_type":"i_stim_periodic",
+      "module_subtype":"nn",
+      "module_format":"cellml",
+      "component_file":"input_stimulation_modules.cellml",
+      "component_type":"i_stim_periodic",
       "entrance_ports":
       [
       ],

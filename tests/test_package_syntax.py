@@ -65,14 +65,8 @@ def test_module_compiles(path):
         )
 
 
-def _wheel_modules():
-    """The modules that actually ship: everything under libcuflynx except obsolete/,
-    which pyproject's packages.find excludes from the wheel."""
-    return [p for p in _shipped_modules() if "obsolete" not in p.parts]
-
-
 @pytest.mark.unit
-@pytest.mark.parametrize("path", _wheel_modules(), ids=lambda p: p.name)
+@pytest.mark.parametrize("path", _shipped_modules(), ids=lambda p: p.name)
 def test_no_shipped_module_imports_distutils(path):
     """distutils was removed from the standard library in Python 3.12, and pyproject
     declares ``requires-python = ">=3.10"`` with no upper bound -- so a shipped module that
@@ -81,8 +75,7 @@ def test_no_shipped_module_imports_distutils(path):
     The compile sweep above cannot catch this class of bug: ``from distutils import util``
     parses fine everywhere, and only fails when the module is *imported* -- which nothing
     in the suite does for every module. Scanning the AST for the import statement catches
-    it without needing every optional dependency installed. (``src/libcuflynx/obsolete/``
-    still imports distutils, and may: it is excluded from the wheel.)
+    it without needing every optional dependency installed.
     """
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     for node in ast.walk(tree):
@@ -122,7 +115,7 @@ def _declared_distributions():
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("path", _wheel_modules(), ids=lambda p: p.name)
+@pytest.mark.parametrize("path", _shipped_modules(), ids=lambda p: p.name)
 def test_no_shipped_module_imports_an_undeclared_backport(path):
     """A version-guarded fallback import still needs the fallback to be a dependency.
 

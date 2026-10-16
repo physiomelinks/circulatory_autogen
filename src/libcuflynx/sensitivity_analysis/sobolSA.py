@@ -143,10 +143,7 @@ class sobol_SA():
             self.obs_and_param_parser = ObsAndParamDataParser(
                 modifier_funcs_external_path=getattr(self, 'modifier_funcs_external_path', None))
             parsed_data = self.obs_and_param_parser.parse_obs_data_json(
-                param_id_obs_path=param_id_path,
-                pre_time=pre_time,
-                sim_time=sim_time
-            )
+                param_id_obs_path=param_id_path)
             self.gt_df = parsed_data["gt_df"]
             self.protocol_info = parsed_data["protocol_info"]
             # Reported as extra outputs when sa_options.include_prediction_items is set: the
@@ -207,7 +204,7 @@ class sobol_SA():
             # self.__set_and_save_param_names()
 
         if self.param_id_info is not None:
-            self.SA_info = self.create_SA_info(self.sample_type, self.SA_info["num_samples"])
+            self.SA_info = self._create_SA_info(self.sample_type, self.SA_info["num_samples"])
     
 
     def add_user_operation_func(self, func):
@@ -220,10 +217,7 @@ class sobol_SA():
             self.obs_and_param_parser = ObsAndParamDataParser(
                 modifier_funcs_external_path=getattr(self, 'modifier_funcs_external_path', None))
         parsed_data = self.obs_and_param_parser.parse_obs_data_json(
-            obs_data_dict=obs_data_dict,
-            pre_time=self.pre_time,
-            sim_time=self.sim_time
-        )
+            obs_data_dict=obs_data_dict)
         self.gt_df = parsed_data["gt_df"]
         self.protocol_info = parsed_data["protocol_info"]
         self.prediction_info = parsed_data["prediction_info"]
@@ -248,7 +242,7 @@ class sobol_SA():
                 modifier_funcs_external_path=getattr(self, 'modifier_funcs_external_path', None))
         self.param_id_info = self.obs_and_param_parser.get_param_id_info_from_entries(params_for_id_dict)
         self.obs_and_param_parser.save_param_names(self.param_id_info, self.output_dir)
-        self.create_SA_info(self.sample_type, self.SA_info["num_samples"])
+        self._create_SA_info(self.sample_type, self.SA_info["num_samples"])
         if self.rank == 0:
             print(f'Params for id set: {self.param_id_info["param_names"]}')
 
@@ -336,10 +330,6 @@ class sobol_SA():
             return labels
         return ['+'.join(n) if isinstance(n, (list, tuple)) else n
                 for n in self.SA_info["param_names"]]
-
-    def create_SA_info(self, sample_type, num_samples):
-        # Backwards compatibility alias
-        return self._create_SA_info(sample_type, num_samples)
 
 
     @property

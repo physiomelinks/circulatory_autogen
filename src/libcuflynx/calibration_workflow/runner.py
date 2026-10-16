@@ -221,6 +221,7 @@ class _Run:
                         f'{record["value"]} (from "{origin}").')
                 values[name] = {'vessel': vessel,
                                 'param': record['param'], 'model_name': name,
+                                'host_name': naming.host_row_name(vessel, record['param']),
                                 'value': record['value'], 'units': record.get('units', ''),
                                 'from_step': origin}
             if left_out:
@@ -312,7 +313,7 @@ class _Run:
             generated = {k: (v.replace(source_dir, step_dir, 1) if isinstance(v, str) else v)
                          for k, v in source['generated'].items()}
         else:
-            overrides = [{'variable_name': name, 'units': row['units'],
+            overrides = [{'variable_name': row['host_name'], 'units': row['units'],
                           'value': repr(float(row['value'])),
                           'data_reference': f'fixed by calibration workflow '
                                             f'{self.workflow.name}, step {row["from_step"]}'}
@@ -408,6 +409,8 @@ class _Run:
                     calibrated.append({
                         'vessel': vessel, 'param': param, 'model_name': parameter.model_name,
                         'target_model_name': resolved.target_model_name(parameter),
+                        'target_host_name': naming.host_row_name(resolved.to_target(vessel),
+                                                                 param),
                         'target_parameterisation_name':
                             resolved.target_parameterisation_name(parameter),
                         'value': float(value), 'units': units.get(parameter.model_name, '')})
@@ -633,6 +636,7 @@ class _Run:
             for record in result['calibrated']:
                 merged[record['target_model_name']] = {
                     'model_name': record['target_model_name'],
+                    'host_name': record['target_host_name'],
                     'parameterisation_name': record['target_parameterisation_name'],
                     'value': record['value'], 'units': record.get('units', ''),
                     'from_step': step.id}
@@ -659,7 +663,7 @@ class _Run:
             'calibrated_parameters_file': None,
         }
         if generate_target and merged:
-            overrides = [{'variable_name': r['model_name'], 'units': r['units'],
+            overrides = [{'variable_name': r['host_name'], 'units': r['units'],
                           'value': repr(float(r['value'])),
                           'data_reference': f'calibration workflow {self.workflow.name}, '
                                             f'step {r["from_step"]}'}
@@ -714,8 +718,7 @@ def write_calibrated_parameters(target, merged_parameters, workflow_name):
     '''``<name>_calibrated_parameters.csv`` beside the target's parameters file (``<name>`` its
     parameterisation, or its module array's prefix): its parameters with the merged values in
     place, and rows it lacks added, written ``<vessel or submodule>/<variable>``. A row is
-    matched by the model parameter it names, so ``i_M/rho_M`` and the older ``rho_M_i_M``
-    both take the value.'''
+    matched by the model parameter it names.'''
     rows = read_parameter_rows(target.parameters_path)
     columns = list(rows[0].keys()) if rows else ['variable_name', 'units', 'value',
                                                   'data_reference']
@@ -789,7 +792,7 @@ def _row_model_name(name, target):
     if target.kind == 'array':
         return naming.host_model_name(name)
     if target.paths:
-        return supermodule_row_name(name, naming.STEP_VESSEL, target.paths)[0]
+        return supermodule_row_name(name, naming.STEP_VESSEL, target.paths)
     _, variable = split_path_name(name) if is_path_name(name) else ([], name)
     return naming.model_name(naming.STEP_VESSEL, variable)
 
@@ -984,15 +987,18 @@ def workflow_model(source, view, *, output_dir, work_dir, module_library_dirs=No
             stale.append(step_id)
         return result
 
+    # overrides: {host parameters file name: (record, step id)}
     overrides, fixed, calibrated = {}, [], []
     if view == TARGET_VIEW:
         kind, model = 'target', workflow.target
+        latest = {}
         for step in workflow.topological_order():
             result = available(step.id)
             for record in (result or {}).get('calibrated', []):
-                overrides[record['target_model_name']] = (record, step.id)
+                latest[record['target_model_name']] = (record, step.id)
+        overrides = {rec['target_host_name']: (rec, sid) for rec, sid in latest.values()}
         calibrated = [{'model_name': name, 'value': rec['value'], 'units': rec.get('units', ''),
-                       'from_step': sid} for name, (rec, sid) in sorted(overrides.items())]
+                       'from_step': sid} for name, (rec, sid) in sorted(latest.items())]
         own_step = next((s for s in workflow.steps if s.model == workflow.target
                          and s.kind == 'calibration'), None)
         place = ''
@@ -1015,8 +1021,8 @@ def workflow_model(source, view, *, output_dir, work_dir, module_library_dirs=No
                     continue
                 name = naming.model_name(vessel, record['param'])
                 origin = record.get('from_step', source_id)
-                overrides[name] = ({'value': record['value'], 'units': record.get('units', '')},
-                                   origin)
+                overrides[naming.host_row_name(vessel, record['param'])] = (
+                    {'value': record['value'], 'units': record.get('units', '')}, origin)
                 fixed.append({'model_name': name, 'value': record['value'],
                               'units': record.get('units', ''), 'from_step': origin})
         own_step = step
@@ -1026,8 +1032,9 @@ def workflow_model(source, view, *, output_dir, work_dir, module_library_dirs=No
                            'units': r.get('units', ''), 'from_step': step.id}
                           for r in own_result['calibrated']]
             if with_own_results:
-                for record in calibrated:
-                    overrides.setdefault(record['model_name'], (record, step.id))
+                for r, record in zip(own_result['calibrated'], calibrated):
+                    overrides.setdefault(naming.host_row_name(r['vessel'], r['param']),
+                                         (record, step.id))
     rows = [{'variable_name': name, 'units': rec.get('units', ''),
              'value': repr(float(rec['value'])),
              'data_reference': f'calibration workflow {workflow.name}, step {sid}'}

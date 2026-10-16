@@ -122,12 +122,11 @@ INP_DATA_DICT = {{
     "file_prefix": FILE_PREFIX,
     "input_param_file": FILE_PREFIX + "_parameters.csv",
     "model_type": "cellml",
-    "solver": "CVODE",
+    "solver": "CVODE_myokit",
     "solver_info": {{
         "solver": "CVODE_myokit",
         "method": "CVODE",
         "MaximumStep": 0.1,
-        "MaximumNumberOfSteps": 5000,
         "rtol": 1e-8,
         "atol": 1e-8,
     }},

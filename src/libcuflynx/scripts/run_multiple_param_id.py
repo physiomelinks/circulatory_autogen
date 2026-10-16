@@ -18,6 +18,7 @@ from libcuflynx.utilities.paths import (default_generated_models_dir, default_re
 MPI = _get_MPI()
 
 from libcuflynx.param_id.paramID import CVS0DParamID
+from libcuflynx.parsers.PrimitiveParsers import refuse_removed_user_inputs
 from libcuflynx.scripts.read_and_insert_parameters import insert_parameters
 from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
 import traceback
@@ -47,6 +48,7 @@ if __name__ == '__main__':
         else:
             user_files_dir = ''
 
+        refuse_removed_user_inputs(inp_data_dict)
         DEBUG = inp_data_dict['DEBUG']
 
 
@@ -94,10 +96,7 @@ if __name__ == '__main__':
 
         solver_info = inp_data_dict['solver_info']
         dt = inp_data_dict['dt']
-        # Prefer optimiser_options; fall back to legacy ga_options for compatibility
-        optimiser_options = inp_data_dict.get('optimiser_options', None)
-        if optimiser_options is None:
-            optimiser_options = inp_data_dict.get('ga_options', {})
+        optimiser_options = inp_data_dict.get('optimiser_options') or {}
 
         obs_dir = '/eresearch/heart/farg967/Sandboxes/Finbar/combined'
         # obs_dir = '/home/farg967/Documents/data/heart_projects/Argus_2022'
@@ -179,7 +178,7 @@ if __name__ == '__main__':
             #                             solver_info=solver_info, dt=dt, UQ_options=UQ_options, DEBUG=DEBUG)
             #     mcmc.set_best_param_vals(best_param_vals)
             #     # mcmc.set_mcmc_parameters() TODO
-            #     mcmc.run_mcmc()
+            #     mcmc.run_UQ()
             
 
     except:

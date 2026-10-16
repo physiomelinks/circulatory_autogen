@@ -124,7 +124,7 @@ def obs_operand_lists(info):
 
 #: Top-level key naming an obs_data file: the module parameterisation (or data set) it belongs
 #: to. In a module library a parameterisation's ``parameterisations/<name>/<name>_obs_data.json``
-#: (``instances/<name>/`` in older libraries) carries ``"obs_data_name": "<name>"``. Optional;
+#: carries ``"obs_data_name": "<name>"``. Optional;
 #: see ``schemas/obs_data.schema.json``.
 OBS_DATA_NAME_KEY = 'obs_data_name'
 
@@ -132,9 +132,8 @@ OBS_DATA_NAME_KEY = 'obs_data_name'
 def check_obs_data_name(json_obj, path=None):
     """The ``obs_data_name`` of an obs_data document, or None when it has none.
 
-    ``json_obj`` is the loaded file (a dict, or the legacy bare list of data items, which has
-    no name). A name that is not a non-empty string is a ValueError. When ``path`` lies in a
-    ``parameterisations/<name>/`` (or older ``instances/<name>/``) directory of a module
+    ``json_obj`` is the loaded file. A name that is not a non-empty string is a ValueError.
+    When ``path`` lies in a ``parameterisations/<name>/`` directory of a module
     library, a missing or different ``obs_data_name`` is warned about (UserWarning), since the
     file then describes another parameterisation than the one it is filed under.
     """
@@ -146,7 +145,7 @@ def check_obs_data_name(json_obj, path=None):
         name = name.strip()
     if path is not None:
         directory = os.path.dirname(os.path.abspath(str(path)))
-        if os.path.basename(os.path.dirname(directory)) in ('parameterisations', 'instances'):
+        if os.path.basename(os.path.dirname(directory)) == 'parameterisations':
             instance = os.path.basename(directory)
             if name != instance:
                 found = f"'{OBS_DATA_NAME_KEY}' is {name!r}" if name is not None else \
@@ -474,7 +473,7 @@ class ObsDataCreator:
 
 
 def fill_protocol_info(
-    obs_data: dict[str, Any] | list | None, protocol_info: dict[str, Any]
+    obs_data: dict[str, Any] | None, protocol_info: dict[str, Any]
 ) -> dict[str, Any]:
     """Put ``protocol_info`` into an obs_data document, returning a new dict.
 
@@ -483,11 +482,7 @@ def fill_protocol_info(
     pacing" reads better than "pacing, period 1000"), and re-deriving the timings
     is no reason to throw them away.
 
-    A bare array of data_items -- the other accepted shape, and what the
-    3compartment / heat_fenics studies ship -- becomes the object form carrying
-    those same items, which is the only shape that can hold a protocol_info at
-    all. ``dict(obs_data or {})`` used to raise on one, so a data-only file died
-    rather than being updated.
+    A bare list of data items is refused (``cuflynx-upgrade obs-data`` converts one).
 
     Here rather than beside the ``.mmt`` reader that first needed it: every key
     it writes -- ``protocol_info``, ``data_items``, ``experiment_labels``,
@@ -497,7 +492,9 @@ def fill_protocol_info(
     anything else.
     """
     if isinstance(obs_data, list):
-        obs_data = {"data_items": obs_data}
+        from libcuflynx.upgrade import hint
+        raise ValueError("obs_data is a bare list of data items, which libcuflynx no longer "
+                         "reads. " + hint("obs-data", "<file>", " --user-inputs <user_inputs.yaml>"))
     out = dict(obs_data or {})
     existing = out.get("protocol_info") or {}
     merged = dict(protocol_info)

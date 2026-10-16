@@ -93,9 +93,9 @@ _SESSION_START = None
 _PARAM_ID_RESULTS_FILE = os.path.join(os.path.dirname(__file__), "..", ".pytest_param_id_results")
 _TEST_OUTPUT_ROOT = os.path.join(os.path.dirname(__file__), "test_outputs")
 # _AUTOGEN_CONFIGS = [
-#     {"file_prefix": "3compartment", "input_param_file": "3compartment_parameters.csv", "model_type": "cellml", "solver": "CVODE"},
-#     {"file_prefix": "simple_physiological", "input_param_file": "simple_physiological_parameters.csv", "model_type": "cellml", "solver": "CVODE"},
-#     {"file_prefix": "test_fft", "input_param_file": "test_fft_parameters.csv", "model_type": "cellml", "solver": "CVODE"},
+#     {"file_prefix": "3compartment", "input_param_file": "3compartment_parameters.csv", "model_type": "cellml", "solver": "CVODE_myokit"},
+#     {"file_prefix": "simple_physiological", "input_param_file": "simple_physiological_parameters.csv", "model_type": "cellml", "solver": "CVODE_myokit"},
+#     {"file_prefix": "test_fft", "input_param_file": "test_fft_parameters.csv", "model_type": "cellml", "solver": "CVODE_myokit"},
 # ]
 _LOCK_FILE = os.path.realpath(os.path.join(_TEST_ROOT, ".pytest_param_id_lock"))
 _PARAM_ID_TRIGGERS = ("test_param_id", "compare_optimisers", "test_sensitivity_analysis",
@@ -651,7 +651,7 @@ def generated_cellml_model_factory(base_user_inputs, resources_dir, temp_generat
     autogeneration.
     """
 
-    def _generate(file_prefix, input_param_file=None, solver="CVODE"):
+    def _generate(file_prefix, input_param_file=None, solver="CVODE_myokit"):
         source_dir = os.path.join(_TEST_ROOT, "generated_models", file_prefix)
         target_dir = os.path.join(temp_generated_models_dir, file_prefix)
         source_cellml = os.path.join(source_dir, f"{file_prefix}.cellml")
@@ -676,7 +676,7 @@ def generated_cellml_model_factory(base_user_inputs, resources_dir, temp_generat
             "do_uq": False,
             "resources_dir": resources_dir,
             "generated_models_dir": temp_generated_models_dir,
-            "solver_info": {"MaximumStep": 0.001, "MaximumNumberOfSteps": 5000},
+            "solver_info": {"MaximumStep": 0.001},
         })
         ok = generate_with_new_architecture(False, config)
         assert ok, f"Autogeneration failed for {file_prefix}"
@@ -707,19 +707,19 @@ def test_model_configs():
     """
     return [
         # CellML models
-        ('ports_test', 'ports_test_parameters.csv', 'cellml', 'CVODE'),
-        ('3compartment', '3compartment_parameters.csv', 'cellml', 'CVODE'),
-        ('simple_physiological', 'simple_physiological_parameters.csv', 'cellml', 'CVODE'),
-        ('parasympathetic_model', 'parasympathetic_model_parameters.csv', 'cellml', 'CVODE'),
-        ('test_fft', 'test_fft_parameters.csv', 'cellml', 'CVODE'),
-        ('neonatal', 'neonatal_parameters.csv', 'cellml', 'CVODE'),
-        ('generic_junction_test_closed_loop', 'generic_junction_test_closed_loop_parameters.csv', 'cellml', 'CVODE'),
-        ('generic_junction_test2_closed_loop', 'generic_junction_test_closed_loop_parameters.csv', 'cellml', 'CVODE'),
-        ('generic_junction_test_open_loop', 'generic_junction_test_open_loop_parameters.csv', 'cellml', 'CVODE'),
-        ('generic_junction_test2_open_loop', 'generic_junction_test_open_loop_parameters.csv', 'cellml', 'CVODE'),
-        ('SN_simple', 'SN_simple_parameters.csv', 'cellml', 'CVODE'),
-        ('physiological', 'physiological_parameters.csv', 'cellml', 'CVODE'),
-        ('control_phys', 'control_phys_parameters.csv', 'cellml', 'CVODE'),
+        ('ports_test', 'ports_test_parameters.csv', 'cellml', 'CVODE_myokit'),
+        ('3compartment', '3compartment_parameters.csv', 'cellml', 'CVODE_myokit'),
+        ('simple_physiological', 'simple_physiological_parameters.csv', 'cellml', 'CVODE_myokit'),
+        ('parasympathetic_model', 'parasympathetic_model_parameters.csv', 'cellml', 'CVODE_myokit'),
+        ('test_fft', 'test_fft_parameters.csv', 'cellml', 'CVODE_myokit'),
+        ('neonatal', 'neonatal_parameters.csv', 'cellml', 'CVODE_myokit'),
+        ('generic_junction_test_closed_loop', 'generic_junction_test_closed_loop_parameters.csv', 'cellml', 'CVODE_myokit'),
+        ('generic_junction_test2_closed_loop', 'generic_junction_test_closed_loop_parameters.csv', 'cellml', 'CVODE_myokit'),
+        ('generic_junction_test_open_loop', 'generic_junction_test_open_loop_parameters.csv', 'cellml', 'CVODE_myokit'),
+        ('generic_junction_test2_open_loop', 'generic_junction_test_open_loop_parameters.csv', 'cellml', 'CVODE_myokit'),
+        ('SN_simple', 'SN_simple_parameters.csv', 'cellml', 'CVODE_myokit'),
+        ('physiological', 'physiological_parameters.csv', 'cellml', 'CVODE_myokit'),
+        ('control_phys', 'control_phys_parameters.csv', 'cellml', 'CVODE_myokit'),
         # CPP models
         ('aortic_bif_1d', 'aortic_bif_1d_parameters.csv', 'cpp', 'RK4'),
     ]
@@ -1491,7 +1491,7 @@ def minimal_param_id_config(base_user_inputs, resources_dir, temp_output_dir):
     config = base_user_inputs.copy()
     config.update({
         'model_type': 'cellml',
-        'solver': 'CVODE',
+        'solver': 'CVODE_myokit',
         'param_id_method': 'genetic_algorithm',
         'pre_time': 1,
         'sim_time': 1,
@@ -1501,7 +1501,6 @@ def minimal_param_id_config(base_user_inputs, resources_dir, temp_output_dir):
         'plot_predictions': False,
         'solver_info': {
             'MaximumStep': 0.001,
-            'MaximumNumberOfSteps': 5000,
         },
         'param_id_output_dir': temp_output_dir,
     })

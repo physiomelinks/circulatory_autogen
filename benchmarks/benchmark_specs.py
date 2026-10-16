@@ -319,7 +319,7 @@ def three_compartment_config(base_config, resources_dir, output_dir, generated_m
         'do_uq': False,
         'plot_predictions': False,
         'do_ia': False,
-        'solver_info': {'MaximumStep': 0.001, 'MaximumNumberOfSteps': 5000},
+        'solver_info': {'MaximumStep': 0.001},
         'param_id_obs_path': obs_path or os.path.join(resources_dir, '3compartment_obs_data.json'),
         'param_id_output_dir': output_dir,
         'generated_models_dir': generated_models_dir,
@@ -353,7 +353,7 @@ def run_three_compartment(base_config, resources_dir, output_dir, generated_mode
     multi_start_fsa = {
         'param_id_method': 'multi_start_sp_minimize',
         'model_type': 'cellml', 'solver': 'CVODE_myokit', 'do_ad': True,
-        'solver_info': {'MaximumStep': 0.005, 'MaximumNumberOfSteps': 50000,
+        'solver_info': {'MaximumStep': 0.005,
                         'rtol': 1e-9, 'atol': 1e-9},
         'generated_models_dir': myokit_models,
     }
@@ -515,7 +515,7 @@ def goodwin_config(base_config, resources_dir, output_dir, generated_models_dir,
         'plot_predictions': False,
         'do_ia': False,
         'cost_type': 'gaussian_MLE',
-        'solver_info': {'MaximumStep': 0.01, 'MaximumNumberOfSteps': 50000,
+        'solver_info': {'MaximumStep': 0.01,
                         'rtol': 1e-8, 'atol': 1e-8},
         'param_id_obs_path': os.path.join(resources_dir, 'Goodwin_obs_data.json'),
         'param_id_output_dir': output_dir,
@@ -555,7 +555,7 @@ def run_goodwin(base_config, resources_dir, output_dir, generated_models_dir,
     multi_start_fsa = {
         'param_id_method': 'multi_start_sp_minimize',
         'model_type': 'cellml', 'solver': 'CVODE_myokit', 'do_ad': True,
-        'solver_info': {'MaximumStep': 0.01, 'MaximumNumberOfSteps': 50000,
+        'solver_info': {'MaximumStep': 0.01,
                         'rtol': 1e-9, 'atol': 1e-9},
         'generated_models_dir': models,
     }
@@ -667,7 +667,7 @@ def teusink_config(base_config, resources_dir, output_dir, generated_models_dir,
         # true parameters really are the global minimum. Glycolysis goes stiff for some parameter
         # combinations in the search box, so allow plenty of internal steps -- the few that still
         # fail return an infinite cost and the optimiser simply avoids that region.
-        'solver_info': {'MaximumStep': 0.005, 'MaximumNumberOfSteps': 200000,
+        'solver_info': {'MaximumStep': 0.005,
                         'rtol': 1e-9, 'atol': 1e-9},
         'param_id_obs_path': os.path.join(resources_dir, 'Teusink_obs_data.json'),
         'param_id_output_dir': output_dir,

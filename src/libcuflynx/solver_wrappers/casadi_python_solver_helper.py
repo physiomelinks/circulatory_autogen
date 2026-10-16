@@ -9,8 +9,9 @@ try:
 except ImportError:
     ca = None
 from .name_resolver import VariableNameResolver
+from libcuflynx.solver_wrappers.experiment_time import ExperimentTimeMixin
 
-class SimulationHelper:
+class SimulationHelper(ExperimentTimeMixin):
     """
     CasADi-based solver for libCellML-generated Python modules.
 
@@ -308,6 +309,7 @@ class SimulationHelper:
         self.pre_time = pre_time
         self.sim_time = sim_time
         self.start_time = start_time
+        self._track_experiment_start(start_time, pre_time)
         self.stop_time = start_time + pre_time + sim_time
         self.pre_steps = int(pre_time/dt)
         self.n_steps = int(sim_time/dt)
@@ -673,7 +675,7 @@ class SimulationHelper:
         if self._do_ad:
             return self._extract_symb(name)
         if name == 'time':
-            return self.tSim
+            return self.get_time()
         if name in self.state_name_to_idx:
             idx = self.state_name_to_idx[name]
             return self.state_traj_dm[idx, self.pre_steps:]

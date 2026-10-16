@@ -72,7 +72,7 @@ def _config(base_user_inputs, resources_dir, temp_output_dir, temp_generated_mod
         'do_uq': False,
         'do_ia': False,
         'plot_predictions': False,
-        'solver_info': {'MaximumStep': 0.01, 'MaximumNumberOfSteps': 5000},
+        'solver_info': {'MaximumStep': 0.01},
         'param_id_obs_path': os.path.join(resources_dir,
                                           'Simple_ODE_Benchmark_obs_data.json'),
         'params_for_id_path': os.path.join(resources_dir,
@@ -363,8 +363,7 @@ def _benchmark_infos(base_user_inputs, resources_dir, tmp_path):
     os.makedirs(scratch, exist_ok=True)
     parser = ObsAndParamDataParser()
     parsed = parser.parse_obs_data_json(
-        param_id_obs_path=config['param_id_obs_path'], pre_time=config['pre_time'],
-        sim_time=config['sim_time'], model_type=config['model_type'],
+        param_id_obs_path=config['param_id_obs_path'], model_type=config['model_type'],
         method=config['solver_info'].get('method'))
     obs_info = parser.process_obs_info(gt_df=parsed['gt_df'], output_dir=scratch, dt=config['dt'])
     protocol_info = parser.process_protocol_and_weights(

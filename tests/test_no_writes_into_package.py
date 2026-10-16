@@ -299,7 +299,7 @@ def test_generation_and_calibration_never_write_into_the_package(
         'do_uq': False,
         'do_ia': False,
         'plot_predictions': False,
-        'solver_info': {'MaximumStep': 0.001, 'MaximumNumberOfSteps': 5000},
+        'solver_info': {'MaximumStep': 0.001},
         'resources_dir': user_resources_dir,
         'generated_models_dir': os.path.join(workspace, 'generated_models'),
         'param_id_output_dir': os.path.join(workspace, 'param_id_output'),

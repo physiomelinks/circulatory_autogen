@@ -162,16 +162,17 @@ def test_the_aadc_message_now_points_at_fd():
         pid.get_observable_sensitivities([1.0])
 
 
-def test_an_unknown_gradient_method_is_rejected():
+@pytest.mark.parametrize("name", ["central", "analytic"])
+def test_an_unknown_gradient_method_is_rejected_naming_auto(name):
     from libcuflynx.param_id.paramID import ParamID
 
     pid = ParamID.__new__(ParamID)
     pid.model_type = "casadi_python"
-    with pytest.raises(ValueError, match="unknown gradient_method 'central'"):
-        pid.get_observable_sensitivities([1.0], gradient_method="central")
+    with pytest.raises(ValueError, match=f"unknown gradient_method '{name}'.*'auto'"):
+        pid.get_observable_sensitivities([1.0], gradient_method=name)
 
 
-@pytest.mark.parametrize("alias", [None, "", "analytic", "AUTO"])
+@pytest.mark.parametrize("alias", [None, "", "auto", "AUTO"])
 def test_the_analytic_aliases_do_not_divert_to_fd(alias):
     from libcuflynx.param_id.paramID import ParamID
 
@@ -187,8 +188,7 @@ def test_the_analytic_aliases_do_not_divert_to_fd(alias):
 def test_gradient_method_is_in_the_analysis_schema():
     """The arms carry their own names -- AD / FSA, matching gradient_sources() and the Laplace
     gradient_source -- because only an explicit name can be offered, disabled, or reported back
-    by a UI. 'analytic' is still accepted in code as a legacy spelling of 'auto', but is no
-    longer advertised."""
+    by a UI."""
     from libcuflynx.parsers.PrimitiveParsers import ANALYSIS_OPTIONS
 
     opts = {o["name"]: o for o in ANALYSIS_OPTIONS["sensitivity_analysis"]["options"]}

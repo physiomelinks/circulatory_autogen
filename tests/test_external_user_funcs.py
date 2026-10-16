@@ -29,7 +29,7 @@ _EXTERNAL_OPS = textwrap.dedent('''
 ''')
 
 _EXTERNAL_COSTS = textwrap.dedent('''
-    from cost_funcs_user import is_MLE
+    from libcuflynx.funcs.cost_funcs_user import is_MLE
     from libcuflynx.param_id.differentiable import differentiable
     from libcuflynx.param_id.math_backend import make_math_backend
     mb = make_math_backend("numpy")
@@ -227,71 +227,14 @@ def test_merged_modifier_registry_is_builtins_plus_external(tmp_path):
 
 
 @pytest.mark.unit
-def test_pre_433_external_files_still_import_the_decorators_by_bare_name(tmp_path):
-    """External funcs files are *user* code CA does not get to rewrite, and every documented
-    example told users to write ``from cost_funcs_user import is_MLE``. The bare names survive
-    as aliases of the package modules, installed when an external file is loaded."""
-    cost_path = _write(tmp_path, "legacy_costs.py", _EXTERNAL_COSTS)
-    meta = scriptFunctionParser(cost_funcs_external_path=cost_path).cost_func_metadata("numpy")
-    assert meta["my_external_cost"]["is_MLE"] is True
-
-    import sys
-    from libcuflynx.funcs import cost_funcs_user
-    assert sys.modules["cost_funcs_user"] is cost_funcs_user
-
-
-# The exact header CUFLynx has been writing into user output directories: two decorators
-# imported from the bare module name, in a file that is *itself* called cost_funcs_user.py.
-_CUFLYNX_WRITTEN_COST_FILE = textwrap.dedent('''
-    from cost_funcs_user import is_MLE, cost_combiner
-    from libcuflynx.param_id.differentiable import differentiable
-    from libcuflynx.param_id.math_backend import make_math_backend
-    mb = make_math_backend("numpy")
-
-    @differentiable
-    @is_MLE
-    def gui_authored_cost(output, desired_mean, std, weight):
-        return mb.sum(mb.abs((output - desired_mean) / std)) * weight
-
-    @cost_combiner
-    def gui_authored_combiner(costs):
-        return mb.sum(costs)
-''')
-
-
-@pytest.mark.unit
-def test_a_cost_file_cuflynx_already_wrote_still_loads(tmp_path):
-    """The real downstream consumer, reproduced: CUFLynx writes user-authored funcs to
-    ``<outputs>/user_funcs/{operation,cost,modifier}_funcs_user.py`` and points CA at them with
-    the ``*_funcs_external_path`` config keys. Files it wrote before #433 begin with a bare
-    ``from cost_funcs_user import is_MLE, cost_combiner``, which used to resolve because CA put
-    the repo's ``funcs_user/`` on ``sys.path``. That ``sys.path`` surgery is gone; the import now
-    resolves only because ``param_id/external_funcs.py::_install_legacy_module_aliases()``
-    registers the bare names in ``sys.modules`` before exec'ing an external file.
-
-    So that alias shim is **not** dead compatibility code: every such file already sitting in a
-    user's output directory keeps that import forever, and deleting the shim breaks those runs
-    with a ``ModuleNotFoundError`` from inside the user's own file. Note the file is itself named
-    ``cost_funcs_user.py`` -- the alias must win over any same-named file, which is only true
-    because its directory is not on ``sys.path``.
-    """
-    user_funcs_dir = tmp_path / "outputs" / "user_funcs"
-    user_funcs_dir.mkdir(parents=True)
-    cost_path = _write(user_funcs_dir, "cost_funcs_user.py", _CUFLYNX_WRITTEN_COST_FILE)
-
-    meta = scriptFunctionParser(cost_funcs_external_path=cost_path).cost_func_metadata("numpy")
-
-    # the user's funcs, with the flags their decorators set
-    assert meta["gui_authored_cost"] == {"is_MLE": True, "is_combiner": False,
-                                         "differentiable": True}
-    assert meta["gui_authored_combiner"] == {"is_MLE": False, "is_combiner": True,
-                                            "differentiable": False}
-    # ...in the same registry as the built-ins the package ships, which the external file
-    # must not displace
-    assert meta["gaussian_MLE"] == {"is_MLE": True, "is_combiner": False, "differentiable": True}
-    assert meta["additive"] == {"is_MLE": True, "is_combiner": True, "differentiable": True}
-    # the imported decorators are not themselves registered as cost funcs
-    assert "is_MLE" not in meta and "cost_combiner" not in meta
+@pytest.mark.parametrize("module", ["cost_funcs_user", "operation_funcs_user",
+                                    "modifier_funcs_user"])
+def test_a_bare_name_import_of_the_builtin_funcs_is_refused(tmp_path, module):
+    """An external file imports the built-in funcs modules from ``libcuflynx.funcs``; the bare
+    name is refused with the import to write instead."""
+    path = _write(tmp_path, "bare_import.py", f"from {module} import something\n")
+    with pytest.raises(ImportError, match=f"libcuflynx.funcs.{module}"):
+        register_funcs_from_file(path, {}, make_math_backend("numpy"))
 
 
 # ---------------------------------------------------------------------------

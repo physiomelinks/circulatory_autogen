@@ -15,8 +15,7 @@ input_param_file: 3compartment_parameters.csv
 
 # cpp generation inputs
 # model_type can be cellml (the default), python, cpp, casadi_python, aadc_python or
-# external_python. `cellml` used to be spelled `cellml_only`; that still works and warns,
-# but update it -- the old name will be removed.
+# external_python.
 # The first five are generated from the vessel/module CSV arrays; external_python is the one way
 # to bring a model of your own -- a Python class that owns its time stepping, registered as
 # SIM_HELPER and pointed at by external_model_path. See tutorial/docs/external-python-solvers.md
@@ -96,7 +95,6 @@ solver: CVODE_myokit
 solver_info:
   # Maximum time step for solver
   MaximumStep: 0.0001
-  MaximumNumberOfSteps: 5000
   # method: RK45 # any method for solve_ivp
   # method: cvodes # any method for casadi ('cvodes', 'idas', 'collocation', 'rk')
 
@@ -141,9 +139,7 @@ debug_optimiser_options:
   # Note: When DEBUG is True, debug_optimiser_options overrides optimiser_options
 
 #______ uncertainty quantification inputs ___________
-# Was do_mcmc / mcmc_options: MCMC is one UQ method rather than the whole of it, so `method`
-# below is where other methods are selected as they are added. The old names still work and
-# warn once.
+# `method` selects the UQ method.
 do_uq: false
 UQ_options:
   method: mcmc         # only 'mcmc' so far

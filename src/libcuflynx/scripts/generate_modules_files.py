@@ -166,11 +166,11 @@ def _extract_variables_constants_states_of_component(component, model_variables,
 # Generate module_config.json file
 def _generate_module_config(variables, constants, states, file_prefix, component_name):
     config = {
-        "vessel_type": file_prefix,
-        "BC_type": "nn",
+        "module_type": file_prefix,
+        "module_subtype": "nn",
         "module_format": "cellml",
-        "module_file": f"{file_prefix}_modules.cellml",
-        "module_type": f"{file_prefix}_{component_name}_type",
+        "component_file": f"{file_prefix}_modules.cellml",
+        "component_type": f"{file_prefix}_{component_name}_type",
         "entrance_ports": [],
         "exit_ports": [],
         "general_ports": [],
@@ -210,7 +210,7 @@ def _generate_module_array_csv(output_dir, vessel_name, file_prefix):
     file_path = os.path.join(resources_dir, f"{file_prefix}_module_array.csv")
 
     with open(file_path, "w") as fh:
-        fh.writelines(["name,BC_type,vessel_type,inp_vessels,out_vessels\n"])
+        fh.writelines(["name,module_subtype,module_type,inp_instances,out_instances\n"])
         fh.writelines([f"{vessel_name},nn,{file_prefix},,\n"])
 
     print(f"Generated module_array.csv file: {file_prefix}_module_array.csv")

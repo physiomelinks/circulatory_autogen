@@ -29,6 +29,7 @@ from libcuflynx.schemas.validation import validate as validate_schema
 from libcuflynx.utilities.obs_data_helpers import (check_obs_data_name,
                                         DEFAULT_COST_TYPE, PREVIOUS_DEFAULT_COST_TYPE,
                                         VALID_DATA_TYPES)
+from libcuflynx.param_id.prediction_plots import check_prediction_plots
 from libcuflynx.param_id.modifier_funcs import (BUILTIN_MODIFIER_FUNCS, get_modifier_funcs,
                                      probe_affine)
 
@@ -38,6 +39,7 @@ from libcuflynx.param_id.modifier_funcs import (BUILTIN_MODIFIER_FUNCS, get_modi
 # answers without opening MPI when nothing launched this process.
 from libcuflynx.utilities import mpi_utils as _mpi_utils
 from libcuflynx.utilities.module_library import as_dir_list
+from libcuflynx.utilities.parameter_names import hoisted_names
 from libcuflynx.utilities.config_schemas import (load_module_config, load_module_array,
                                                  module_array_path)
 from libcuflynx.utilities.paths import (default_generated_models_dir, default_funcs_user_dir,
@@ -112,16 +114,6 @@ AADC_TAPE_CONSISTENT_METHODS = ('rk4', 'implicit_euler_ift', 'semi_implicit', 'i
 # what ad_suitable_methods advertises.
 AADC_BDF_AD_METHODS = ('bdf_newton', 'semi_implicit_signed')
 
-# 'bdf_tape' and 'bdf_kernel' were never two integrators: both step the same signed
-# semi-implicit scheme, differing only in where the loop runs (one AADC tape, or a C++ kernel
-# replay that falls back to the tape when the extension is absent). They are now one method,
-# 'semi_implicit_signed', with the execution choice in solver_info['gradient_strategy'].
-# Accepted for configs written before the split (issue #346).
-AADC_LEGACY_METHOD_ALIASES = {
-    'bdf_tape': ('semi_implicit_signed', 'tape'),
-    'bdf_kernel': ('semi_implicit_signed', 'kernel'),
-}
-
 # The methods aadc_python_solver_helper.run() can actually integrate. A tool building a
 # "run a simulation" menu must use this rather than methods_by_solver, which is a superset
 # (issue #346).
@@ -131,51 +123,11 @@ AADC_FORWARD_METHODS = ('adaptive_rk45', 'semi_implicit', 'semi_implicit_signed'
 # Every AADC method that can produce an analytic gradient, by either route.
 AADC_AD_METHODS = AADC_TAPE_CONSISTENT_METHODS + AADC_BDF_AD_METHODS
 
-#: Model types that have been renamed, old spelling -> current one.
-#:
-#: ``cellml_only`` was renamed to ``cellml``: the "_only" said nothing (there is
-#: no ``cellml_and_something`` to be distinguished from), and it is the default
-#: model type, so it is the spelling in every ``user_inputs.yaml`` ever written
-#: -- including the dated copies ``save_dated_user_inputs`` archives beside every
-#: run. Refusing those would make old configs unrunnable to buy nothing, so the
-#: old name keeps working and warns.
-#:
-#: Note this is a different namespace from a module config's ``module_format:
-#: cellml`` (which file format one *module* is written in). A model_type says
-#: what CA generates and runs; they happen to share a word.
-MODEL_TYPE_ALIASES = {'cellml_only': 'cellml'}
-
-_warned_model_type_aliases = set()
-
-
-def normalise_model_type(model_type, source=''):
-    """Map a renamed ``model_type`` onto its current spelling, warning once.
-
-    Anything not in :data:`MODEL_TYPE_ALIASES` -- including ``None`` and names
-    that are simply invalid -- is returned untouched, so this only ever
-    translates and never validates. The caller's own check reports a bad name,
-    with the name the user actually wrote.
-    """
-    current = MODEL_TYPE_ALIASES.get(model_type)
-    if current is None:
-        return model_type
-    if model_type not in _warned_model_type_aliases:
-        _warned_model_type_aliases.add(model_type)
-        where = f' in {source}' if source else ''
-        print(f'Warning: model_type "{model_type}"{where} has been renamed to "{current}". '
-              f'It still works, but update your config: the old name will be removed.')
-    return current
-
-
 # Single source of truth for which generated model_types exist, which solvers are
 # valid for each, and which methods/plugins are valid for each solver. Used for
 # input validation here AND surfaced to downstream tools (e.g. the CUFLynx
 # settings UI) so they don't hardcode these lists. Keep this in sync with
 # solver_wrappers.get_simulation_helper.
-#
-# Renamed model types are NOT listed here -- see MODEL_TYPE_ALIASES. This is the
-# menu of what to write today, and a downstream tool building a dropdown from it
-# should not offer a name that is on its way out.
 SOLVER_SCHEMA = {
     'model_types': ['cellml', 'python', 'cpp', 'casadi_python', 'aadc_python',
                     'external_python'],
@@ -358,7 +310,7 @@ _CVODE_FAMILY_SOLVER_INFO = [
     _SI_RTOL, _SI_ATOL,
 ]
 
-# Derived, so the migration below and the model_type menu cannot name different sets of solvers.
+# Derived, so the key hints below and the model_type menu name the same set of solvers.
 _CPP_SOLVERS = frozenset(SOLVER_SCHEMA['solvers_by_model_type']['cpp'])
 
 # The cpp solvers (CVODE/RK4/PETSC) are not run through a SimulationHelper at all: their
@@ -369,10 +321,7 @@ _CPP_SOLVERS = frozenset(SOLVER_SCHEMA['solvers_by_model_type']['cpp'])
 # 'MaximumStep' is deliberately absent: the generated C++ integrates at the fixed `dt_solver`, so
 # there is no maximum-step-size knob for it to control. Advertising a setting nothing reads makes
 # a downstream tool (e.g. CUFLynx) render a control the user can change with no effect and no way
-# to tell -- the same reasoning as the notes on 'CVODE_myokit' and 'aadc_semi_implicit'. Configs
-# that already set it are migrated with a warning, not rejected (migrate_legacy_solver_info_keys).
-# rtol/atol used to be absent for the same reason; they came back once the generator stopped
-# hardcoding them (#398). The defaults are the literals the generator used to emit.
+# to tell -- the same reasoning as the notes on 'CVODE_myokit' and 'aadc_semi_implicit'.
 _CPP_SOLVER_INFO = [
     {'name': 'MaximumNumberOfSteps', 'type': 'int', 'default': 5000, 'required': False,
      'description': 'Maximum number of internal integrator steps (emitted as CVODE mxsteps).'},
@@ -387,8 +336,7 @@ _CPP_SOLVER_INFO = [
 # knob, so myokit_helper never reads MaximumNumberOfSteps. Advertising a setting the
 # code never reads makes a downstream tool (e.g. CUFLynx) render a control that
 # silently does nothing -- the same reasoning as the note on 'aadc_semi_implicit'
-# below. Configs that already set it are migrated with a warning, not rejected; see
-# migrate_legacy_solver_info_keys.
+# below.
 _MYOKIT_SOLVER_INFO = [
     {'name': 'MaximumStep', 'type': 'float', 'default': 0.001, 'required': False,
      'description': 'Maximum integrator step size (myokit Simulation.set_max_step_size).'},
@@ -663,10 +611,6 @@ PARAM_MODIFIERS = {
     },
 }
 DEFAULT_PARAM_MODIFIER = 'scale'
-# Legacy spellings (issue #383 review): "operations" act on *outputs* (obs_data); what acts on
-# *parameters* is a modifier. Kept as aliases so #378-era importers keep working.
-PARAM_MODIFIER_OPERATIONS = PARAM_MODIFIERS
-DEFAULT_PARAM_MODIFIER_OPERATION = DEFAULT_PARAM_MODIFIER
 
 
 def _empty_prediction_info():
@@ -1070,9 +1014,9 @@ def model_qname_candidates(qname):
     uploaded model's variable set. Ordering is meaningful: the first hit wins, so the
     component-qualified name is offered before any flattened alias and the bare name last.
 
-    Mirrors the alias list in ``solver_wrappers.name_resolver.VariableNameResolver``, which is
-    equivalent but cannot be imported without pulling in ``solver_wrappers/__init__`` (and thus
-    scipy) -- see the module note there.
+    Mirrors the alias list in ``solver_wrappers.name_resolver.VariableNameResolver``, which
+    cannot be imported without pulling in ``solver_wrappers/__init__`` (and thus scipy); both
+    take the hoisted names from ``utilities.parameter_names.hoisted_names``.
     """
     text = str(qname).strip()
     if '/' not in text:
@@ -1087,7 +1031,8 @@ def model_qname_candidates(qname):
     else:
         candidates.append(f'{vessel}_module/{param}')
     candidates += [f'parameters/{gen}', f'parameters_{vessel}/{param}',
-                   f'parameters_global/{gen}', gen]
+                   f'parameters_global/{gen}']
+    candidates += hoisted_names(vessel, param) + [gen]
     # order-preserving de-duplication: 'global/x' makes several candidates coincide
     seen, ordered = set(), []
     for candidate in candidates:
@@ -1224,10 +1169,6 @@ def param_modifiers(external_path=None):
                                                                meta['description'])}
         out[name] = meta
     return out
-
-
-# Legacy name (#378): "operations" act on outputs; these are modifiers. Same callable.
-param_modifier_operations = param_modifiers
 
 
 # Keys an entry may carry. Anything else is a typo and is refused, on the same reasoning as
@@ -1781,8 +1722,7 @@ ANALYSIS_OPTIONS = {
             # own names -- AD / FSA, the same vocabulary as gradient_sources() and the Laplace
             # gradient_source -- because only an explicit name can be offered, disabled, or
             # reported back by a UI; each validates against the backend rather than being
-            # silently reinterpreted. 'analytic' remains accepted in code as a legacy spelling
-            # of 'auto' but is no longer advertised.
+            # silently reinterpreted.
             {'name': 'gradient_method', 'type': 'enum', 'default': 'auto', 'required': False,
              'choices': ['auto', 'AD', 'FSA', 'FD'],
              'description': ('For method "local": how to differentiate. "auto" picks the '
@@ -1830,8 +1770,7 @@ ANALYSIS_OPTIONS = {
     # Named 'uq' rather than 'mcmc' because MCMC is one method of uncertainty quantification, not
     # the whole of it: 'method' below is the seam other UQ methods (SMC, surrogate/history
     # matching -- #333/#334) are added at, the same way sa_options and ia_options already select
-    # their method. The legacy 'mcmc_options'/'do_mcmc' spelling is still accepted and normalised
-    # onto these names with a warning; see _normalise_uq_option_names.
+    # their method.
     'uq': {
         'label': 'Uncertainty quantification',
         'enable_flag': 'do_uq',
@@ -2105,41 +2044,33 @@ def analysis_options(mode):
     return meta['options'] if meta else []
 
 
-# The pre-UQ spellings, kept working. MCMC is one UQ method rather than the whole of it, so the
-# settings moved to UQ_options/do_uq with a 'method' key other methods can be added at. A config
-# written for the old names keeps running and is told, once, what to rename.
-_LEGACY_UQ_KEY_RENAMES = (
-    ('mcmc_options', 'UQ_options'),
-    ('debug_mcmc_options', 'debug_UQ_options'),
-    ('do_mcmc', 'do_uq'),
-)
+# user_inputs keys CA does not read, with the key to write instead.
+REMOVED_USER_INPUTS_KEYS = {
+    'ga_options': 'optimiser_options',
+    'debug_ga_options': 'debug_optimiser_options',
+    'mcmc_options': 'UQ_options',
+    'debug_mcmc_options': 'debug_UQ_options',
+    'do_mcmc': 'do_uq',
+}
 
 
-def _normalise_uq_option_names(inp_data_dict):
-    """Move legacy ``mcmc_options``/``debug_mcmc_options``/``do_mcmc`` onto their UQ names.
-
-    Migrating rather than rejecting keeps existing user_inputs.yaml files working. Setting both
-    spellings is refused instead of migrated: the two values can disagree, and silently preferring
-    either would discard one from a user who believes it is in effect -- the same reasoning as
-    ``_raise_duplicate_solver_info_key``.
-    """
-    for old_key, new_key in _LEGACY_UQ_KEY_RENAMES:
-        if old_key not in inp_data_dict:
-            continue
-        if new_key in inp_data_dict:
-            raise ValueError(
-                f'user_inputs sets both {old_key!r} and {new_key!r}. These are the same setting: '
-                f'{old_key!r} is the legacy name for {new_key!r}, which is the one CA uses now. '
-                f'Remove {old_key!r} (keeping {new_key!r}) so there is one value, not two.'
-            )
-        inp_data_dict[new_key] = inp_data_dict.pop(old_key)
-        print(
-            f'WARNING: user_inputs key {old_key!r} has been renamed to {new_key!r}; its value was '
-            f'applied to {new_key!r}. MCMC is now one method of uncertainty quantification '
-            f"(UQ_options: method: mcmc), so other methods can be added alongside it. Rename it "
-            f'in your user_inputs to silence this.'
-        )
-    return inp_data_dict
+def refuse_removed_user_inputs(inp_data_dict):
+    """Raise ValueError naming the replacement for a key or value CA does not accept."""
+    for old_key, new_key in REMOVED_USER_INPUTS_KEYS.items():
+        if old_key in inp_data_dict:
+            raise ValueError(f'user_inputs key {old_key!r} is not supported; '
+                             f'write {new_key!r} instead.')
+    if inp_data_dict.get('model_type') == 'cellml_only':
+        raise ValueError("model_type 'cellml_only' is not supported; write 'cellml' instead.")
+    solver_info = inp_data_dict.get('solver_info') or {}
+    solver = solver_info.get('solver', inp_data_dict.get('solver'))
+    if solver == 'CVODE' and inp_data_dict.get('model_type', 'cellml') == 'cellml':
+        raise ValueError("solver 'CVODE' is for model_type 'cpp'; for a cellml model write "
+                         "'CVODE_myokit' or 'CVODE_opencor' instead.")
+    method = solver_info.get('method')
+    if method in ('bdf_tape', 'bdf_kernel'):
+        raise ValueError(f"solver_info method {method!r} is not supported; write method: "
+                         f"semi_implicit_signed with gradient_strategy: {method[4:]} instead.")
 
 
 def save_dated_user_inputs(inp_data_dict):
@@ -2407,14 +2338,9 @@ class YamlFileParser(object):
         os.makedirs(inp_data_dict['generated_models_dir'], exist_ok=True)
         os.makedirs(inp_data_dict['generated_models_subdir'], exist_ok=True)
             
+        refuse_removed_user_inputs(inp_data_dict)
         if 'model_type' not in inp_data_dict.keys():
             inp_data_dict['model_type'] = 'cellml'
-        else:
-            # The one strict door: the if/elif below exits on a model_type it does
-            # not know, so a config still saying `cellml_only` has to be translated
-            # here or it stops being runnable.
-            inp_data_dict['model_type'] = normalise_model_type(
-                inp_data_dict['model_type'], source='user_inputs.yaml')
 
         if inp_data_dict.get('model_type') == 'external_python':
             model_ext = None
@@ -2488,14 +2414,6 @@ class YamlFileParser(object):
         solver_name = inp_data_dict.get('solver_info', {}).get('solver')
         if solver_name is None:
             solver_name = inp_data_dict.get('solver')
-        
-        # Backward compatibility: 'CVODE' meant the CellML CVODE backend before it was split
-        # into CVODE_opencor / CVODE_myokit. Only for CellML models -- 'CVODE' is still a
-        # current, valid solver name for `cpp` (see SOLVER_SCHEMA['solvers_by_model_type']),
-        # and rewriting it there turned a working config into a CellML solver the C++ path
-        # cannot use.
-        if solver_name == 'CVODE' and inp_data_dict.get('model_type') == 'cellml':
-            solver_name = 'CVODE_myokit'
 
         if solver_name is None:
             # From the schema, not a ladder of literals. SOLVER_SCHEMA is what CUFLynx and
@@ -2524,15 +2442,8 @@ class YamlFileParser(object):
         
 
         if 'solver_info' in inp_data_dict:
-            try:
-                inp_data_dict['solver_info'] = migrate_legacy_solver_info_keys(
-                    solver_name, inp_data_dict['solver_info']
-                )
-            except ValueError as exc:
-                # Same failure mode as validate_solver_info below: the config is
-                # wrong and no guess about which value was meant is safe.
-                print(exc)
-                exit()
+            inp_data_dict['solver_info'] = step_from_dt_solver(
+                solver_name, inp_data_dict['solver_info'])
 
         if 'solver_info' not in inp_data_dict.keys():
             inp_data_dict['solver_info'] = _solver_info_default_for(
@@ -2579,7 +2490,7 @@ class YamlFileParser(object):
             dt_solver = solver_info.get('max_step')
         if dt_solver is not None:
             solver_info['dt_solver'] = dt_solver
-        if solver_info.get('solver', '').startswith('CVODE') and dt_solver is not None:
+        if solver_info.get('solver') in valid_cellml_solvers and dt_solver is not None:
             solver_info['MaximumStep'] = dt_solver
 
         inp_data_dict['solver_info'] = solver_info
@@ -2649,7 +2560,7 @@ class YamlFileParser(object):
         if solver_method in valid_solve_ivp_methods:
             if inp_data_dict.get('model_type') not in ['python', None]:
                 print(f'solve_ivp method {solver_method} requires model_type to be "python"')
-                print('Use CVODE_opencor (or legacy CVODE) or CVODE_myokit for CellML models')
+                print('Use CVODE_opencor or CVODE_myokit for CellML models')
                 print('Use CVODE or RK4 or PETSC for Cpp models')
                 exit()
 
@@ -2695,7 +2606,7 @@ class YamlFileParser(object):
         if solver_method in valid_casadi_solver_plugins:
             if inp_data_dict.get('model_type') not in ['casadi_python', 'aadc_python', None]:
                 print(f'CasADi solver {solver_method} requires model_type to be "casadi_python"')
-                print('Use CVODE_opencor (or legacy CVODE) or CVODE_myokit for CellML models')
+                print('Use CVODE_opencor or CVODE_myokit for CellML models')
                 print('Use CVODE or RK4 or PETSC for Cpp models')
                 exit()
 
@@ -2711,21 +2622,9 @@ class YamlFileParser(object):
             method=(inp_data_dict.get('solver_info') or {}).get('method'),
         )
 
-        # Before the debug merge below, so a legacy config's debug_mcmc_options is already
-        # debug_UQ_options by the time it is merged onto UQ_options.
-        _normalise_uq_option_names(inp_data_dict)
-
-        if 'DEBUG' in inp_data_dict.keys():
-            if inp_data_dict['DEBUG']:
-                # For backwards compatibility, still set ga_options if debug_ga_options exists
-                if 'debug_ga_options' in inp_data_dict.keys():
-                    inp_data_dict['ga_options'] = inp_data_dict['debug_ga_options']
-                if 'debug_UQ_options' in inp_data_dict.keys():
-                    inp_data_dict['UQ_options'] = inp_data_dict['debug_UQ_options']
-            else:
-                pass
-        else:
-            inp_data_dict['DEBUG'] = False
+        inp_data_dict.setdefault('DEBUG', False)
+        if inp_data_dict['DEBUG'] and 'debug_UQ_options' in inp_data_dict:
+            inp_data_dict['UQ_options'] = inp_data_dict['debug_UQ_options']
 
         if 'external_modules_dir' not in inp_data_dict.keys() or inp_data_dict['external_modules_dir'] is None:
             inp_data_dict['external_modules_dir'] = None
@@ -2831,52 +2730,10 @@ class YamlFileParser(object):
         emulator_settings.setdefault('fd_rel_step', 1e-3)
         emulator_settings.setdefault('include_prediction_items', False)
 
-        # Parse optimiser_options - this is the new unified way to specify options
-        # Handle backwards compatibility: if ga_options or debug_ga_options is specified, merge into optimiser_options
-        if 'optimiser_options' not in inp_data_dict.keys():
+        if inp_data_dict.get('optimiser_options') is None:
             inp_data_dict['optimiser_options'] = {}
-        else:
-            # Ensure optimiser_options is a dictionary
-            if inp_data_dict['optimiser_options'] is None:
-                inp_data_dict['optimiser_options'] = {}
-            
-        # Merge ga_options into optimiser_options for backwards compatibility
-        
-        # Backwards compatibility: convert ga_options to optimiser_options
-        # Only copy entries that don't already exist in optimiser_options to avoid duplicates
-        # Note: If DEBUG is True, ga_options may have been set to debug_ga_options above,
-        # but we still want to merge the original ga_options first (if it exists and DEBUG is False)
-        # or merge debug_ga_options with higher precedence when DEBUG is True
-        if not inp_data_dict['DEBUG']:
-            # When DEBUG is False, merge ga_options normally
-            if 'ga_options' in inp_data_dict.keys() and inp_data_dict['ga_options'] is not None:
-                ga_opts = inp_data_dict['ga_options']
-                if isinstance(ga_opts, dict):
-                    for key, value in ga_opts.items():
-                        # Only add if not already in optimiser_options
-                        if key not in inp_data_dict['optimiser_options']:
-                            inp_data_dict['optimiser_options'][key] = value
-                        # Warn if there's a conflict (same key, different value)
-                        elif inp_data_dict['optimiser_options'][key] != value:
-                            print(f'Warning: ga_options["{key}"] conflicts with optimiser_options["{key}"]. '
-                                  f'Using optimiser_options value: {inp_data_dict["optimiser_options"][key]}')
-        
-        # Handle debug_ga_options for backwards compatibility
-        # When DEBUG is True, debug_ga_options should override optimiser_options
-        if inp_data_dict['DEBUG']:
-            if 'debug_ga_options' in inp_data_dict.keys() and inp_data_dict['debug_ga_options'] is not None:
-                debug_ga_opts = inp_data_dict['debug_ga_options']
-                if isinstance(debug_ga_opts, dict):
-                    for key, value in debug_ga_opts.items():
-                        # Debug options override optimiser_options (they take precedence)
-                        if key in inp_data_dict['optimiser_options']:
-                            if inp_data_dict['optimiser_options'][key] != value:
-                                print(f'Note: debug_ga_options["{key}"] overriding optimiser_options["{key}"] '
-                                      f'({inp_data_dict["optimiser_options"][key]} -> {value})')
-                        inp_data_dict['optimiser_options'][key] = value
-        
-        # Handle debug_optimiser_options (new preferred way)
-        # Only apply when DEBUG is True to avoid overriding production runs
+
+        # debug_optimiser_options overrides optimiser_options when DEBUG is True.
         if inp_data_dict['DEBUG']:
             if 'debug_optimiser_options' in inp_data_dict.keys() and inp_data_dict['debug_optimiser_options'] is not None:
                 debug_opts = inp_data_dict['debug_optimiser_options']
@@ -2928,123 +2785,33 @@ _SOLVER_INTEGRATOR_KEYS = {
 }
 
 
-def _warn_renamed_solver_info_key(solver_name, old_key, new_key):
-    """Tell the user which key the value was moved to, and to rename it.
-
-    Migration used to be silent, so a config could keep a key that had quietly
-    stopped doing anything and nothing said which key had replaced it.
-    """
-    print(
-        f'WARNING: solver_info key {old_key!r} is not used by solver '
-        f'{solver_name!r}; its value was applied to {new_key!r} instead. '
-        f'Rename it in your user_inputs to silence this.'
-    )
+# The solver's own maximum-step key, seeded from the framework key dt_solver when unset.
+_MAX_STEP_KEY_BY_SOLVER = {'solve_ivp': 'max_step', 'casadi_integrator': 'max_step_size'}
 
 
-def _raise_duplicate_solver_info_key(solver_name, old_key, new_key, solver_info):
-    """One setting, specified twice, under two names.
-
-    Not a warning: picking a winner would silently discard the other value, and
-    there is no way to tell which one the user meant -- if the two disagree, one
-    of them is what they think the run is using. Refuse and make them delete one.
-    """
-    raise ValueError(
-        f'solver_info sets both {old_key!r} ({solver_info[old_key]!r}) and '
-        f'{new_key!r} ({solver_info[new_key]!r}) for solver {solver_name!r}. '
-        f'These are the same setting: {old_key!r} is the legacy name for '
-        f'{new_key!r}, which is the one this solver uses. Remove {old_key!r} '
-        f'(keeping {new_key!r}) so there is one value, not two.'
-    )
-
-
-def _warn_dropped_solver_info_key(solver_name, key, reason):
-    print(
-        f'WARNING: solver_info key {key!r} is not supported by solver '
-        f'{solver_name!r} and was ignored. {reason}'
-    )
-
-
-def migrate_legacy_solver_info_keys(solver_name, solver_info):
-    """
-    Map legacy CVODE-style solver_info keys to backend-specific names and drop
-    keys that the selected integrator does not accept.
-
-    Every rename and every drop warns, naming the key to use instead (or saying
-    that there is none), so a setting can never stop taking effect silently.
-    Migrating rather than rejecting keeps configs written for another backend --
-    or for an older CA -- working.
-
-    Raises ValueError when a config sets both names for one setting: that is not
-    a stale key to migrate but a contradiction, and no choice between the two
-    values can be made on the user's behalf.
-    """
+def step_from_dt_solver(solver_name, solver_info):
+    """A copy of ``solver_info`` with the solver's maximum-step key set from ``dt_solver``
+    when only ``dt_solver`` is given."""
     solver_info = dict(solver_info)
-
-    def migrate(old_key, new_key, fallback_key=None):
-        """Move ``old_key`` onto ``new_key`` (unless already set), then drop it."""
-        if old_key not in solver_info and fallback_key not in solver_info:
-            return
-        if new_key in solver_info and old_key in solver_info:
-            # One setting under two names. Silently preferring either would hide
-            # the other value from a user who believes it is in effect.
-            _raise_duplicate_solver_info_key(solver_name, old_key, new_key, solver_info)
-        if new_key not in solver_info:
-            source = old_key if old_key in solver_info else fallback_key
-            solver_info[new_key] = solver_info[source]
-            if source == old_key:
-                _warn_renamed_solver_info_key(solver_name, old_key, new_key)
-        solver_info.pop(old_key, None)
-
-    if solver_name == 'solve_ivp':
-        migrate('MaximumStep', 'max_step', fallback_key='dt_solver')
-        if 'MaximumNumberOfSteps' in solver_info:
-            _warn_dropped_solver_info_key(
-                solver_name, 'MaximumNumberOfSteps',
-                'scipy.integrate.solve_ivp has no step-count limit.',
-            )
-            solver_info.pop('MaximumNumberOfSteps', None)
-    elif solver_name == 'casadi_integrator':
-        migrate('MaximumStep', 'max_step_size', fallback_key='dt_solver')
-        migrate('MaximumNumberOfSteps', 'max_num_steps')
-    elif solver_name == 'CVODE_myokit':
-        # No equivalent to migrate onto: myokit.Simulation exposes only
-        # set_max_step_size / set_min_step_size / set_tolerance.
-        if 'MaximumNumberOfSteps' in solver_info:
-            _warn_dropped_solver_info_key(
-                solver_name, 'MaximumNumberOfSteps',
-                "Myokit's integrator has no maximum-step-count setting; use "
-                "'MaximumStep' to bound the step size, or 'rtol'/'atol' to "
-                'control accuracy.',
-            )
-            solver_info.pop('MaximumNumberOfSteps', None)
-    elif solver_name in _CPP_SOLVERS:
-        # The generated C++ integrates at a fixed step, taken from the framework key
-        # 'dt_solver'. rtol/atol are NOT touched here: the generator emits them since #398.
-        if 'MaximumStep' in solver_info:
-            if 'dt_solver' in solver_info:
-                # Both given: dt_solver is the one the generated code reads, so MaximumStep
-                # stops applying and says so. Not an error -- a config written for a CVODE
-                # backend has to keep running.
-                _warn_dropped_solver_info_key(
-                    solver_name, 'MaximumStep',
-                    'The generated C++ integrates at the fixed step in '
-                    "'dt_solver', which is already set.",
-                )
-            else:
-                # Carried across rather than discarded. Dropping it lost the only step the
-                # user had given -- and this runs *before* the parser's own
-                # MaximumStep -> dt_solver fallback, so there was nothing left for that to
-                # find and generation died with KeyError: 'dt_solver' on every cpp config
-                # that had not already been rewritten to the new key.
-                #
-                # A maximum adaptive step and a fixed step are not the same quantity, but
-                # reading the former as the latter is conservative, and is exactly what that
-                # fallback already did.
-                solver_info['dt_solver'] = solver_info['MaximumStep']
-                _warn_renamed_solver_info_key(solver_name, 'MaximumStep', 'dt_solver')
-            solver_info.pop('MaximumStep', None)
-
+    step_key = _MAX_STEP_KEY_BY_SOLVER.get(solver_name)
+    if step_key and 'dt_solver' in solver_info:
+        solver_info.setdefault(step_key, solver_info['dt_solver'])
     return solver_info
+
+
+# What to write instead of a CVODE-style key on a solver that does not take it.
+_SOLVER_INFO_KEY_HINTS = {
+    ('casadi_integrator', 'MaximumStep'): 'use max_step_size instead of MaximumStep',
+    ('casadi_integrator', 'MaximumNumberOfSteps'):
+        'use max_num_steps instead of MaximumNumberOfSteps',
+    ('solve_ivp', 'MaximumStep'): 'use max_step instead of MaximumStep',
+    ('solve_ivp', 'MaximumNumberOfSteps'): 'solve_ivp has no step-count limit',
+    ('CVODE_myokit', 'MaximumNumberOfSteps'):
+        "Myokit has no step-count limit; bound the step with MaximumStep",
+    **{(cpp, 'MaximumStep'): 'the generated C++ integrates at the fixed step dt_solver; '
+                             'use dt_solver instead of MaximumStep'
+       for cpp in _CPP_SOLVERS},
+}
 
 
 def validate_solver_info(solver_name, solver_info):
@@ -3069,25 +2836,8 @@ def validate_solver_info(solver_name, solver_info):
 
     integrator_keys = sorted(_SOLVER_INTEGRATOR_KEYS[solver_name])
     framework_keys = sorted(_FRAMEWORK_SOLVER_INFO_KEYS)
-    hints = []
-    if solver_name == 'casadi_integrator':
-        if 'MaximumStep' in unsupported:
-            hints.append(
-                f'for solver {solver_name!r}, use max_step_size instead of MaximumStep'
-            )
-        if 'MaximumNumberOfSteps' in unsupported:
-            hints.append(
-                f'for solver {solver_name!r}, use max_num_steps instead of MaximumNumberOfSteps'
-            )
-    elif solver_name == 'solve_ivp':
-        if 'MaximumStep' in unsupported:
-            hints.append(
-                f'for solver {solver_name!r}, use max_step instead of MaximumStep'
-            )
-        if 'MaximumNumberOfSteps' in unsupported:
-            hints.append(
-                f'for solver {solver_name!r}, MaximumNumberOfSteps is not supported'
-            )
+    hints = [_SOLVER_INFO_KEY_HINTS[(solver_name, key)] for key in unsupported
+             if (solver_name, key) in _SOLVER_INFO_KEY_HINTS]
 
     hint_text = f' Hint: {"; ".join(hints)}.' if hints else ''
     raise ValueError(
@@ -3102,10 +2852,8 @@ def _solver_info_default_for(model_type, solver_name):
 
     The defaults are per model_type, but a model_type can host backends with
     different settings: cellml covers both CVODE_opencor (which takes
-    MaximumNumberOfSteps) and CVODE_myokit (which has no such knob). Seeding the
-    whole default set would put back exactly what
-    migrate_legacy_solver_info_keys just removed, and validate_solver_info would
-    then reject CA's own default.
+    MaximumNumberOfSteps) and CVODE_myokit (which has no such knob), so only the
+    keys validate_solver_info accepts for ``solver_name`` are kept.
     """
     defaults = get_solver_info_default(model_type)
     allowed = _SOLVER_INTEGRATOR_KEYS.get(solver_name)
@@ -3205,7 +2953,8 @@ class CSVFileParser(object):
                 else:
                     sub_entries = entry.split()
 
-                if column_name in ['vessel_name', 'inp_vessels', 'out_vessels']:
+                if column_name in ['vessel_name', 'inp_instances', 'out_instances',
+                                   'inp_vessels', 'out_vessels']:
                     if sub_entries == []:
                         new_entry = []
                         pass
@@ -3332,9 +3081,9 @@ class JSONFileParser(object):
         """The component entries of one module config JSON file, in either the libcuflynx or
         the PhLynx schema, as a dataframe with libcuflynx column names (see
         utilities/config_schemas.py). Supermodule entries are left out, and so are the
-        ``(file, (vessel_type, BC_type))`` pairs in ``exclude``."""
+        ``(file, (module_type, module_subtype))`` pairs in ``exclude``."""
         return pd.DataFrame([e for e in load_module_config(json_path)
-                             if (str(json_path), (e['vessel_type'], e['BC_type'])) not in exclude])
+                             if (str(json_path), (e['module_type'], e['module_subtype'])) not in exclude])
 
     def json_files_to_dataframe(self, json_files, exclude=()):
         """All module config entries from ``json_files``, in order, as one dataframe, without
@@ -3393,15 +3142,15 @@ class JSONFileParser(object):
 
         add_on_lists = {column:[] for column in module_df.columns[2:]}
         for vessel_tup in vessel_df.itertuples():
-            vessel_type = vessel_tup.vessel_type
-            BC_type = vessel_tup.BC_type
-            if len(BC_type) <1 or len(vessel_type) <1:
+            module_type = vessel_tup.module_type
+            module_subtype = vessel_tup.module_subtype
+            if len(module_subtype) <1 or len(module_type) <1:
                 print('You have an empty entry in your module array, exiting')
                 exit()
-            this_vessel_module_df = module_df.loc[((module_df["vessel_type"] == vessel_type)
-                                                   & (module_df["BC_type"] == BC_type))].squeeze()
+            this_vessel_module_df = module_df.loc[((module_df["module_type"] == module_type)
+                                                   & (module_df["module_subtype"] == module_subtype))].squeeze()
             if this_vessel_module_df.empty:
-                print(f'combination of vessel_type = {vessel_type} and BC_type = {BC_type} doesn\'t exist, check module_config.json',
+                print(f'combination of module_type = {module_type} and module_subtype = {module_subtype} doesn\'t exist, check module_config.json',
                         'for this combination')
                 exit()
             for column in add_on_lists:
@@ -3515,14 +3264,14 @@ class ObsAndParamDataParser(object):
         self,
         param_id_obs_path=None,
         obs_data_dict=None,
-        pre_time=None,
-        sim_time=None,
         model_type=None,
         method=None,
     ):
         """
-        Loads the ground truth observation data from the JSON file and returns 
+        Loads the ground truth observation data from the JSON file and returns
         the core data structures: gt_df, protocol_info, and prediction_info.
+        An obs_data written without a protocol_info (a bare list of data items, timed by
+        user_inputs.yaml) is refused, naming ``cuflynx-upgrade obs-data``.
         """
         
         if param_id_obs_path is not None:
@@ -3534,14 +3283,22 @@ class ObsAndParamDataParser(object):
             print("No obs data path or obs data dict provided, exiting")
             return None
 
+        if not isinstance(json_obj, dict) or 'protocol_info' not in json_obj:
+            from libcuflynx.upgrade import hint
+            where = param_id_obs_path or 'obs_data'
+            raise ValueError(
+                f'{where} has no protocol_info ({"a bare list of data items" if isinstance(json_obj, list) else "it times its experiment from user_inputs.yaml"}), '
+                f'which libcuflynx no longer reads. '
+                + hint('obs-data', where, ' --user-inputs <the user_inputs.yaml it ran with>'))
+
         # The schema owns the file's structure (keys, types, enums); what follows reads it,
         # fills defaults, and checks what needs the protocol.
         validate_schema(OBS_DATA_SCHEMA, json_obj, source=param_id_obs_path or 'obs_data',
                         what='obs_data file')
 
         # Optional top-level "obs_data_name" (the parameterisation/data set the file belongs
-        # to); warns when a file filed under parameterisations/<name>/ (or the older
-        # instances/<name>/) names another parameterisation.
+        # to); warns when a file filed under parameterisations/<name>/ names another
+        # parameterisation.
         obs_data_name = check_obs_data_name(json_obj, param_id_obs_path)
 
         gt_df, protocol_info, prediction_info = None, None, None
@@ -3690,181 +3447,142 @@ class ObsAndParamDataParser(object):
                 hydrated.append(item)
             return hydrated
 
-        # --- Case 1: Simple list of data items ---
-        if type(json_obj) == list:
-            gt_df = pd.DataFrame(json_obj)
-            protocol_info = {"pre_times": [pre_time], 
-                             "sim_times": [[sim_time]],
-                             "params_to_change": {}}
-            prediction_info = _empty_prediction_info()
-            
+        if 'data_items' in json_obj:
+            data_items = _hydrate_series_data_items(json_obj['data_items'])
+            gt_df = pd.DataFrame(data_items)
 
-        # --- Case 2: Dictionary structure ---
-        elif type(json_obj) == dict:
-            # Load Data Items (gt_df)
-            if 'data_items' in json_obj:
-                data_items = _hydrate_series_data_items(json_obj['data_items'])
-                gt_df = pd.DataFrame(data_items)
-            else:
-                print("data_items not found in json object. ",
-                      "Please check that data_items is the key for the list of data items")
+        protocol_info = copy.deepcopy(json_obj['protocol_info'])
+        protocol_defaults = {
+            "params_to_change": {},
+            "offline_pre_time": None,
+            "experiment_labels": None,
+            "experiment_ids": None,
+            "experiment_colors": None,
+            "comment": None,
+            "protocol_traces": {},
+            # The same waveforms written as Myokit-style events rather than
+            # point tables; expanded into protocol_traces below.
+            "protocol_shapes": {},
+        }
 
-            # Load Protocol Info
-            if 'protocol_info' in json_obj.keys():
-                protocol_info = copy.deepcopy(json_obj['protocol_info'])
-            else:
-                if pre_time is None or sim_time is None:
-                    print("protocol_info not found in json object. ",
-                          "If this is the case sim_time and pre_time must be set",
-                          "in the user_inputs.yaml file")
-                    exit()
-                protocol_info = {"pre_times": [pre_time], "sim_times": [[sim_time]], "params_to_change": {}}
+        # keys and types are the schema's; here each missing key gets its default
+        for key, default in protocol_defaults.items():
+            if key not in protocol_info or _is_missing_scalar(protocol_info[key]):
+                protocol_info[key] = copy.deepcopy(default)
 
-            protocol_defaults = {
-                "pre_times": [pre_time] if pre_time is not None else REQUIRED,
-                "sim_times": [[sim_time]] if sim_time is not None else REQUIRED,
-                "params_to_change": {},
-                "offline_pre_time": None,
-                "experiment_labels": None,
-                "experiment_ids": None,
-                "experiment_colors": None,
-                "comment": None,
-                "protocol_traces": {},
-                # The same waveforms written as Myokit-style events rather than
-                # point tables; expanded into protocol_traces below.
-                "protocol_shapes": {},
+        validate_params_to_change(protocol_info)
+        # Shapes become traces here, once, so every consumer downstream --
+        # solver helpers, plotting, anything added later -- keeps seeing only
+        # protocol_traces and needs no knowledge of shapes.
+        materialise_shapes(protocol_info)
+        validate_trace_references(protocol_info)
+
+        # Load Prediction Info
+        if 'prediction_items' in json_obj.keys():
+            prediction_items = json_obj['prediction_items']
+
+            # A prediction_item is a data_item without a ground truth, so it carries the
+            # same names. Its `operands` is the single model variable to record; the
+            # legacy spelling was `variable`, which also named the item (#466).
+            prediction_entry_defaults = {
+                "data_item_name": REQUIRED,
+                "operands": REQUIRED,
+                "unit": REQUIRED,
+                "trace_name_for_plotting": lambda entry: str((entry.get("operands") or [''])[0])
+                    or str(entry.get("data_item_name", '')),
+                "item_name_for_plotting": lambda entry: str(entry.get("trace_name_for_plotting", '')),
+                "experiment_idx": 0,
+                # Optional measured data for the prediction: held-out data it is checked
+                # against afterwards, never scored in the calibration. A series needs obs_dt.
+                "data_type": None,
+                "value": None,
+                "std": None,
+                "obs_dt": None,
+                # Optional reduction of the operands to one number, with the same vocabulary
+                # as a data_item's. An item with an operation is a scalar *feature*: held-out
+                # data is compared with operation(operands), and sensitivity analysis and
+                # emulator training can include it (include_prediction_items).
+                "operation": None,
+                "operation_kwargs": None,
+                # The sub-experiment of experiment_idx the item's operands are recorded over;
+                # defaults to that experiment's last one.
+                "subexperiment_idx": None,
             }
+            optional_ground_truth = ("data_type", "value", "std", "obs_dt",
+                                     "operation", "operation_kwargs", "subexperiment_idx")
+            pred_sim_times = (protocol_info or {}).get('sim_times') or [[None]]
 
-            # keys and types are the schema's; here each missing key gets its default
-            missing_protocol_required = []
-            for key, default in protocol_defaults.items():
-                if key not in protocol_info or _is_missing_scalar(protocol_info[key]):
-                    if default == REQUIRED:
-                        missing_protocol_required.append(key)
-                    else:
-                        protocol_info[key] = copy.deepcopy(default)
+            prediction_info = _empty_prediction_info()
+            for entry_idx, raw_entry in enumerate(prediction_items):
+                entry = copy.deepcopy(raw_entry)
+                # keys and types are the schema's; here each missing key gets its default
+                missing_pred_required = []
+                for key, default in prediction_entry_defaults.items():
+                    if key not in entry or _is_missing_scalar(entry[key]):
+                        if default == REQUIRED:
+                            missing_pred_required.append(key)
+                            continue
+                        entry[key] = default(entry) if callable(default) else copy.deepcopy(default)
 
-            if len(missing_protocol_required) > 0:
-                raise ValueError(
-                    f"Missing required protocol_info keys: {sorted(missing_protocol_required)}"
-                )
+                if len(missing_pred_required) > 0:
+                    raise ValueError(
+                        f"Missing required keys in prediction_items[{entry_idx}]: {sorted(missing_pred_required)}"
+                    )
 
-            validate_params_to_change(protocol_info)
-            # Shapes become traces here, once, so every consumer downstream --
-            # solver helpers, plotting, anything added later -- keeps seeing only
-            # protocol_traces and needs no knowledge of shapes.
-            materialise_shapes(protocol_info)
-            validate_trace_references(protocol_info)
-
-            # Load Prediction Info
-            if 'prediction_items' in json_obj.keys():
-                prediction_items = json_obj['prediction_items']
-
-                # A prediction_item is a data_item without a ground truth, so it carries the
-                # same names. Its `operands` is the single model variable to record; the
-                # legacy spelling was `variable`, which also named the item (#466).
-                prediction_entry_defaults = {
-                    "data_item_name": REQUIRED,
-                    "operands": REQUIRED,
-                    "unit": REQUIRED,
-                    "trace_name_for_plotting": lambda entry: str((entry.get("operands") or [''])[0])
-                        or str(entry.get("data_item_name", '')),
-                    "item_name_for_plotting": lambda entry: str(entry.get("trace_name_for_plotting", '')),
-                    "experiment_idx": 0,
-                    # Optional measured data for the prediction: held-out data it is checked
-                    # against afterwards, never scored in the calibration. A series needs obs_dt.
-                    "data_type": None,
-                    "value": None,
-                    "std": None,
-                    "obs_dt": None,
-                    # Optional reduction of the operands to one number, with the same vocabulary
-                    # as a data_item's. An item with an operation is a scalar *feature*: held-out
-                    # data is compared with operation(operands), and sensitivity analysis and
-                    # emulator training can include it (include_prediction_items).
-                    "operation": None,
-                    "operation_kwargs": None,
-                    # The sub-experiment of experiment_idx the item's operands are recorded over;
-                    # defaults to that experiment's last one.
-                    "subexperiment_idx": None,
-                }
-                optional_ground_truth = ("data_type", "value", "std", "obs_dt",
-                                         "operation", "operation_kwargs", "subexperiment_idx")
-                pred_sim_times = (protocol_info or {}).get('sim_times') or [[None]]
-
-                prediction_info = _empty_prediction_info()
-                for entry_idx, raw_entry in enumerate(prediction_items):
-                    entry = copy.deepcopy(raw_entry)
-                    # keys and types are the schema's; here each missing key gets its default
-                    missing_pred_required = []
-                    for key, default in prediction_entry_defaults.items():
-                        if key not in entry or _is_missing_scalar(entry[key]):
-                            if default == REQUIRED:
-                                missing_pred_required.append(key)
-                                continue
-                            entry[key] = default(entry) if callable(default) else copy.deepcopy(default)
-
-                    if len(missing_pred_required) > 0:
-                        raise ValueError(
-                            f"Missing required keys in prediction_items[{entry_idx}]: {sorted(missing_pred_required)}"
-                        )
-
-                    prediction_info['operands'].append(list(entry['operands']))
-                    prediction_info['units'].append(entry['unit'])
-                    prediction_info['data_item_names'].append(entry['data_item_name'])
-                    prediction_info['trace_names_for_plotting'].append(
-                        entry['trace_name_for_plotting'])
-                    prediction_info['item_names_for_plotting'].append(
-                        entry['item_name_for_plotting'])
-                    where = f"prediction_items[{entry_idx}] ('{entry['data_item_name']}')"
-                    exp_idx = int(entry['experiment_idx'])
-                    if not 0 <= exp_idx < len(pred_sim_times):
-                        raise ValueError(
-                            f"{where}: experiment_idx {exp_idx} is not an experiment of "
-                            f"protocol_info, which has {len(pred_sim_times)}.")
-                    num_sub = len(pred_sim_times[exp_idx])
-                    sub_idx = entry['subexperiment_idx']
-                    sub_idx = num_sub - 1 if sub_idx is None else int(sub_idx)
-                    if not 0 <= sub_idx < num_sub:
-                        raise ValueError(
-                            f"{where}: subexperiment_idx {sub_idx} is not a sub-experiment of "
-                            f"experiment {exp_idx}, which has {num_sub}.")
-                    prediction_info['experiment_idxs'].append(exp_idx)
-                    prediction_info['subexperiment_idxs'].append(sub_idx)
-                    if entry['value'] is not None and entry['data_type'] is None:
-                        raise ValueError(
-                            f"{where} has a value, so it needs data_type 'constant' or "
-                            f"'series'.")
-                    if entry['data_type'] is not None and entry['data_type'] not in (
-                            'constant', 'series'):
-                        raise ValueError(
-                            f"{where}: data_type must be 'constant' or 'series', got "
-                            f"{entry['data_type']!r}.")
-                    check_value_shape(where, entry['data_type'], entry['value'], entry['std'],
-                                      entry['obs_dt'])
-                    if entry['value'] is not None and entry['std'] is not None:
-                        entry['std'] = _held_out_std(entry, entry_idx)
-                    operation = entry['operation']
-                    if operation is not None and str(operation).strip() in _NO_OPERATION_SPELLINGS:
-                        operation = None
-                    operation_kwargs = entry['operation_kwargs'] or {}
-                    if operation_kwargs and operation is None:
-                        raise ValueError(
-                            f"prediction_items[{entry_idx}] ('{entry['data_item_name']}') has "
-                            f"operation_kwargs but no operation. operation_kwargs are the "
-                            f"keyword arguments of the operation func; name the operation, or "
-                            f"drop operation_kwargs.")
-                    prediction_info['data_types'].append(entry['data_type'])
-                    prediction_info['values'].append(entry['value'])
-                    prediction_info['stds'].append(entry['std'])
-                    prediction_info['obs_dts'].append(entry['obs_dt'])
-                    prediction_info['operations'].append(operation)
-                    prediction_info['operation_kwargs'].append(dict(operation_kwargs))
-            else:
-                prediction_info = _empty_prediction_info()
-            
+                prediction_info['operands'].append(list(entry['operands']))
+                prediction_info['units'].append(entry['unit'])
+                prediction_info['data_item_names'].append(entry['data_item_name'])
+                prediction_info['trace_names_for_plotting'].append(
+                    entry['trace_name_for_plotting'])
+                prediction_info['item_names_for_plotting'].append(
+                    entry['item_name_for_plotting'])
+                where = f"prediction_items[{entry_idx}] ('{entry['data_item_name']}')"
+                exp_idx = int(entry['experiment_idx'])
+                if not 0 <= exp_idx < len(pred_sim_times):
+                    raise ValueError(
+                        f"{where}: experiment_idx {exp_idx} is not an experiment of "
+                        f"protocol_info, which has {len(pred_sim_times)}.")
+                num_sub = len(pred_sim_times[exp_idx])
+                sub_idx = entry['subexperiment_idx']
+                sub_idx = num_sub - 1 if sub_idx is None else int(sub_idx)
+                if not 0 <= sub_idx < num_sub:
+                    raise ValueError(
+                        f"{where}: subexperiment_idx {sub_idx} is not a sub-experiment of "
+                        f"experiment {exp_idx}, which has {num_sub}.")
+                prediction_info['experiment_idxs'].append(exp_idx)
+                prediction_info['subexperiment_idxs'].append(sub_idx)
+                if entry['value'] is not None and entry['data_type'] is None:
+                    raise ValueError(
+                        f"{where} has a value, so it needs data_type 'constant' or "
+                        f"'series'.")
+                if entry['data_type'] is not None and entry['data_type'] not in (
+                        'constant', 'series'):
+                    raise ValueError(
+                        f"{where}: data_type must be 'constant' or 'series', got "
+                        f"{entry['data_type']!r}.")
+                check_value_shape(where, entry['data_type'], entry['value'], entry['std'],
+                                  entry['obs_dt'])
+                if entry['value'] is not None and entry['std'] is not None:
+                    entry['std'] = _held_out_std(entry, entry_idx)
+                operation = entry['operation']
+                if operation is not None and str(operation).strip() in _NO_OPERATION_SPELLINGS:
+                    operation = None
+                operation_kwargs = entry['operation_kwargs'] or {}
+                if operation_kwargs and operation is None:
+                    raise ValueError(
+                        f"prediction_items[{entry_idx}] ('{entry['data_item_name']}') has "
+                        f"operation_kwargs but no operation. operation_kwargs are the "
+                        f"keyword arguments of the operation func; name the operation, or "
+                        f"drop operation_kwargs.")
+                prediction_info['data_types'].append(entry['data_type'])
+                prediction_info['values'].append(entry['value'])
+                prediction_info['stds'].append(entry['std'])
+                prediction_info['obs_dts'].append(entry['obs_dt'])
+                prediction_info['operations'].append(operation)
+                prediction_info['operation_kwargs'].append(dict(operation_kwargs))
         else:
-            print(f"Error: unknown data type for imported json object of {type(json_obj)}")
-            return None
+            prediction_info = _empty_prediction_info()
+
 
         # Fill common optional fields so downstream processing can rely on defaults.
         if gt_df is not None:
@@ -4004,7 +3722,6 @@ class ObsAndParamDataParser(object):
 
         warn_if_casadi_nonzero_pre_time(
             model_type,
-            pre_time=pre_time,
             pre_times=protocol_info.get('pre_times') if protocol_info is not None else None,
             offline_pre_time=protocol_info.get('offline_pre_time') if protocol_info is not None else None,
             method=method,
@@ -4012,12 +3729,18 @@ class ObsAndParamDataParser(object):
 
         check_data_item_names_unique(gt_df, prediction_info)
         check_prediction_operation_references(gt_df, prediction_info)
+        # Figures across experiments (#568): checked structurally here; that each item is a
+        # scalar feature needs the operation funcs, so plot_prediction_plots checks it.
+        prediction_plots = check_prediction_plots(
+            json_obj.get('prediction_plots') if isinstance(json_obj, dict) else None,
+            gt_df, prediction_info, protocol_info)
 
         return {
             "gt_df": gt_df, 
             "protocol_info": protocol_info, 
             "prediction_info": prediction_info,
             "obs_data_name": obs_data_name,
+            "prediction_plots": prediction_plots,
         }
 
     def process_obs_info(self, gt_df, output_dir, dt):

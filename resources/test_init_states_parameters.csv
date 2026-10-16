@@ -1,3 +1,2 @@
 variable_name,units,value,data_reference
-a_test_vessel,dimensionless,3,unit_test
-
+test_vessel/a,dimensionless,3,unit_test

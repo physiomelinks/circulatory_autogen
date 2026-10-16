@@ -68,12 +68,11 @@ def build_config(output_dir, resources_dir, generated_models_dir,
         'file_prefix': FILE_PREFIX,
         'input_param_file': FILE_PREFIX + '_parameters.csv',
         'model_type': 'cellml',
-        # Named explicitly: a bare 'CVODE' resolves to the OpenCOR backend, whose
-        # Python module is not on PyPI, so a pip-installed libcuflynx cannot run
-        # it -- and this has to run wherever the tests do.
+        # Myokit, not OpenCOR: OpenCOR's Python module is not on PyPI, and this has to
+        # run wherever the tests do.
         'solver': 'CVODE_myokit',
         'solver_info': {'solver': 'CVODE_myokit',
-                        'MaximumStep': 0.001, 'MaximumNumberOfSteps': 5000},
+                        'MaximumStep': 0.001},
         'param_id_method': 'genetic_algorithm',
         'pre_time': 20,
         'sim_time': 2,

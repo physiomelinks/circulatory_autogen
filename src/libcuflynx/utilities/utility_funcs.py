@@ -7,6 +7,7 @@ import libcellml
 import libcuflynx.utilities.libcellml_helper_funcs as cellml
 import libcuflynx.utilities.libcellml_utilities as libcellml_utils
 from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
+from libcuflynx.utilities.parameter_names import hoisted_names
 import re
 import pint
 import numdifftools as nd
@@ -261,6 +262,18 @@ def change_parameter_values_and_save(cellml_file, parameter_names, parameter_val
                     found = True
             # print(comp.variableCount())
             # print([comp.variable(i).name() for i in range(comp.variableCount())])
+        if not found:
+            # A model hoisted by another generator (HOISTED_PARAMETER_CONVENTIONS): the first
+            # name that exists with an initial value is the parameter.
+            for hoisted in hoisted_names(module, name):
+                comp_name, var_name = hoisted.split('/', 1)
+                comp = flat_model.component(comp_name)
+                if comp is not None and comp.hasVariable(var_name):
+                    var = comp.variable(var_name)
+                    if var.initialValue() != '':
+                        var.setInitialValue(str(new_val))
+                        found = True
+                        break
         if not found:
             print(f"Parameter '{name}' not found in any component.")
 

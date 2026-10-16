@@ -5,7 +5,7 @@ Regression tests for generation bugs:
   ``min``, ``sec``, ...) that the generated utilities never defined.
 - #525: a ``sum`` multi-port (e.g. ``volume_sum``) with no inputs raised ``IndexError``.
 - #529: the constant pressure / flow BCs lacked their port variable in ``variables_and_units``.
-- #524: generic junctions left out neighbours whose BC_type starts with ``nn`` (e.g. constant BCs).
+- #524: generic junctions left out neighbours whose module_subtype starts with ``nn`` (e.g. constant BCs).
 """
 import math
 import os
@@ -143,11 +143,11 @@ LOGIC_MODULES_CELLML = """\
 LOGIC_MODULES_CONFIG = """\
 [
   {
-    "vessel_type": "eq_rate",
-    "BC_type": "nn",
+    "module_type": "eq_rate",
+    "module_subtype": "nn",
     "module_format": "cellml",
-    "module_file": "logic_test_modules.cellml",
-    "module_type": "eq_rate_type",
+    "component_file": "logic_test_modules.cellml",
+    "component_type": "eq_rate_type",
     "entrance_ports": [],
     "exit_ports": [],
     "general_ports": [],
@@ -157,11 +157,11 @@ LOGIC_MODULES_CONFIG = """\
     ]
   },
   {
-    "vessel_type": "logic_rate",
-    "BC_type": "nn",
+    "module_type": "logic_rate",
+    "module_subtype": "nn",
     "module_format": "cellml",
-    "module_file": "logic_test_modules.cellml",
-    "module_type": "logic_rate_type",
+    "component_file": "logic_test_modules.cellml",
+    "component_type": "logic_rate_type",
     "entrance_ports": [],
     "exit_ports": [],
     "general_ports": [],
@@ -190,16 +190,16 @@ def test_python_model_with_eq_or_not_min_runs(tmp_path, k, expected_x_rate):
     generated_dir = _generate(
         tmp_path, 'logic_test',
         """\
-        name,BC_type,vessel_type,inp_vessels,out_vessels
+        name,module_subtype,module_type,inp_instances,out_instances
         eqmod,nn,eq_rate,,
         logic,nn,logic_rate,,
         """,
         f"""\
         variable_name,units,value,data_reference
-        k_eqmod,dimensionless,{k},test
-        k_logic,dimensionless,{k},test
-        a_logic,per_s,2.0,test
-        b_logic,per_s,0.5,test
+        eqmod/k,dimensionless,{k},test
+        logic/k,dimensionless,{k},test
+        logic/a,per_s,2.0,test
+        logic/b,per_s,0.5,test
         """,
         model_type='python', external_modules_dir=str(modules_dir))
 
@@ -337,12 +337,12 @@ def test_empty_sum_multi_port_is_zero(tmp_path, capsys):
 # ---------------------------------------------------------------------------------------
 
 VESSEL_PARAMETERS = """\
-    R_va,Js_per_m6,1.0e7,test
-    C_va,m6_per_J,1.0e-8,test
-    I_va,Js2_per_m6,1.0e5,test
-    q_0_va,m3,0,test
-    u_0_va,J_per_m3,0,test
-    u_ext_va,J_per_m3,0,test
+    va/R,Js_per_m6,1.0e7,test
+    va/C,m6_per_J,1.0e-8,test
+    va/I,Js2_per_m6,1.0e5,test
+    va/q_0,m3,0,test
+    va/u_0,J_per_m3,0,test
+    va/u_ext,J_per_m3,0,test
     """
 
 
@@ -353,15 +353,15 @@ def test_constant_flow_into_vessel_draining_to_constant_pressure(tmp_path):
     generated_dir = _generate(
         tmp_path, 'const_flow_bc',
         """\
-        name,BC_type,vessel_type,inp_vessels,out_vessels
+        name,module_subtype,module_type,inp_instances,out_instances
         flow_in,nn_constant,inlet_flow,,va
         va,vp,arterial_simple,flow_in,p_out
         p_out,nn_constant,outlet_pressure,va,
         """,
         """\
         variable_name,units,value,data_reference
-        v_flow_in,m3_per_s,1.0e-4,test
-        P_p_out,J_per_m3,666.0,test
+        flow_in/v,m3_per_s,1.0e-4,test
+        p_out/P,J_per_m3,666.0,test
         """ + VESSEL_PARAMETERS)
     _, res = _run(generated_dir / 'const_flow_bc.cellml', ['va/v', 'va/u'], sim_time=2.0)
     # Steady state: the vessel passes the imposed inflow, at P_out + R v.
@@ -375,15 +375,15 @@ def test_constant_pressure_into_vessel_drained_by_constant_flow(tmp_path):
     generated_dir = _generate(
         tmp_path, 'const_pressure_bc',
         """\
-        name,BC_type,vessel_type,inp_vessels,out_vessels
+        name,module_subtype,module_type,inp_instances,out_instances
         p_in,nn_constant,inlet_pressure,,va
         va,pv,arterial_simple,p_in,flow_out
         flow_out,nn_constant,outlet_flow,va,
         """,
         """\
         variable_name,units,value,data_reference
-        P_p_in,J_per_m3,12000.0,test
-        v_flow_out,m3_per_s,1.0e-4,test
+        p_in/P,J_per_m3,12000.0,test
+        flow_out/v,m3_per_s,1.0e-4,test
         """ + VESSEL_PARAMETERS)
     _, res = _run(generated_dir / 'const_pressure_bc.cellml', ['va/v', 'va/u'], sim_time=2.0)
     # Steady state: the vessel carries the imposed outflow, at P_in - R v.
@@ -400,15 +400,15 @@ def test_constant_pressure_into_vessel_drained_by_constant_flow(tmp_path):
 # resistive pressure drop across the junction is large enough to check.
 JUNCTION_PARAMETERS = """\
     variable_name,units,value,data_reference
-    v_inflow_a,m3_per_s,4.0e-5,test
-    v_inflow_b,m3_per_s,7.0e-5,test
-    P_outp,J_per_m3,12665.6,test
-    u_0_junc,J_per_m3,10640.0,test
-    u_ext_junc,J_per_m3,0.0,test
-    theta_junc,dimensionless,90.0,test
-    E_junc,J_per_m3,4.0e5,test
-    l_junc,metre,0.014796,test
-    r_0_junc,metre,0.0133364,test
+    inflow_a/v,m3_per_s,4.0e-5,test
+    inflow_b/v,m3_per_s,7.0e-5,test
+    outp/P,J_per_m3,12665.6,test
+    junc/u_0,J_per_m3,10640.0,test
+    junc/u_ext,J_per_m3,0.0,test
+    junc/theta,dimensionless,90.0,test
+    junc/E,J_per_m3,4.0e5,test
+    junc/l,metre,0.014796,test
+    junc/r_0,metre,0.0133364,test
     mu,Js_per_m3,1.0,test
     rho,Js2_per_m5,1.0,test
     g,m_per_s2,9.81,test
@@ -422,13 +422,13 @@ JUNCTION_PARAMETERS = """\
 
 @pytest.mark.integration
 def test_min_junction_fed_by_boundary_conditions(tmp_path):
-    """#524: a Min_junction whose inlet node is two constant-inflow BCs (BC_type
+    """#524: a Min_junction whose inlet node is two constant-inflow BCs (module_subtype
     nn_constant) generates and runs. It used to stop with "Min_junction junc has NO other
     vessels connected to its inlet node"."""
     generated_dir = _generate(
         tmp_path, 'junction_bc',
         """\
-        name,BC_type,vessel_type,inp_vessels,out_vessels
+        name,module_subtype,module_type,inp_instances,out_instances
         inflow_a,nn_constant,inlet_flow,,junc
         inflow_b,nn_constant,inlet_flow,,junc
         junc,vp,Min_junction,inflow_a inflow_b,outp

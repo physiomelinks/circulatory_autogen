@@ -1,5 +1,5 @@
 variable_name,units,value,data_reference
-x_init_benchmark,dimensionless,0,None
-y_init_benchmark,dimensionless,0,None
-p_benchmark,dimensionless,1,None
-q_benchmark,dimensionless,1,None
+benchmark/x_init,dimensionless,0,None
+benchmark/y_init,dimensionless,0,None
+benchmark/p,dimensionless,1,None
+benchmark/q,dimensionless,1,None

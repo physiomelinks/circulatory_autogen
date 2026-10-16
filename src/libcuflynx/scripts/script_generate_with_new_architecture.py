@@ -96,8 +96,6 @@ def generate_with_new_architecture(do_generation_with_fit_parameters=False,
     file_prefix_1d = inp_data_dict.get('file_prefix_1d')
 
     solver_info = inp_data_dict['solver_info']
-    # Get solver from solver_info (check both 'solver' and 'method' for backward compatibility)
-    solver = solver_info.get('solver') or solver_info.get('method')
 
     if do_generation_with_fit_parameters:
         param_id_output_dir_abs_path = inp_data_dict['param_id_output_dir_abs_path']

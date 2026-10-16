@@ -24,6 +24,6 @@
 
 ## Inner param-id engine
 
-::: libcuflynx.param_id.paramID.OpencorParamID
+::: libcuflynx.param_id.paramID.ParamID
 
-::: libcuflynx.param_id.paramID.OpencorMCMC
+::: libcuflynx.param_id.paramID.MCMC

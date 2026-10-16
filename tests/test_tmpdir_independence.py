@@ -25,7 +25,7 @@ _HARDCODED_TMP = re.compile(r"""['"]/tmp(?:/|['"])""")
 
 
 def _shipped_modules():
-    return [p for p in sorted(_PACKAGE.rglob("*.py")) if "obsolete" not in p.parts]
+    return sorted(_PACKAGE.rglob("*.py"))
 
 
 @pytest.mark.unit

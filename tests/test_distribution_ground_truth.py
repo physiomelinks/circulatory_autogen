@@ -63,7 +63,7 @@ def _parse(items, tmp_path):
     path = tmp_path / "obs_data.json"
     path.write_text(json.dumps(_obs_data(items)))
     parser = ObsAndParamDataParser()
-    parsed = parser.parse_obs_data_json(param_id_obs_path=str(path), pre_time=0.0, sim_time=1.0,
+    parsed = parser.parse_obs_data_json(param_id_obs_path=str(path),
                                         model_type="cellml")
     return parser.process_obs_info(gt_df=parsed["gt_df"], output_dir=str(tmp_path), dt=0.01)
 
@@ -137,7 +137,7 @@ def test_an_obs_data_with_no_data_items_is_still_valid(tmp_path):
     path = tmp_path / "obs_data.json"
     path.write_text(json.dumps(_obs_data([])))
     parsed = ObsAndParamDataParser().parse_obs_data_json(
-        param_id_obs_path=str(path), pre_time=0.0, sim_time=1.0, model_type="cellml")
+        param_id_obs_path=str(path), model_type="cellml")
 
     assert len(parsed["gt_df"]) == 0
 
@@ -226,8 +226,7 @@ def test_cost_calc_scores_a_distribution_item_in_the_constant_loop(tmp_path):
 
     parser = ObsAndParamDataParser()
     parsed = parser.parse_obs_data_json(
-        obs_data_dict=_obs_data([_kde_item(cost_kwargs={"bandwidth": 0.1}), _gaussian_item()]),
-        pre_time=0.0, sim_time=1.0)
+        obs_data_dict=_obs_data([_kde_item(cost_kwargs={"bandwidth": 0.1}), _gaussian_item()]))
     obs_info = parser.process_obs_info(gt_df=parsed["gt_df"], output_dir=str(tmp_path), dt=0.01)
     protocol_info = parser.process_protocol_and_weights(
         gt_df=parsed["gt_df"], protocol_info=parsed["protocol_info"], dt=0.01)
@@ -260,8 +259,7 @@ def test_a_distribution_cost_cannot_be_differentiated_symbolically(tmp_path):
     ca = pytest.importorskip('casadi')
 
     parser = ObsAndParamDataParser()
-    parsed = parser.parse_obs_data_json(obs_data_dict=_obs_data([_kde_item()]),
-                                        pre_time=0.0, sim_time=1.0)
+    parsed = parser.parse_obs_data_json(obs_data_dict=_obs_data([_kde_item()]))
     obs_info = parser.process_obs_info(gt_df=parsed["gt_df"], output_dir=str(tmp_path), dt=0.01)
     protocol_info = parser.process_protocol_and_weights(
         gt_df=parsed["gt_df"], protocol_info=parsed["protocol_info"], dt=0.01)

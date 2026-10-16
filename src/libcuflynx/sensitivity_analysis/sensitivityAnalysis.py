@@ -375,7 +375,7 @@ class SensitivityAnalysis():
         # identity (scale -> 1.0), where every target sits at its resolved baseline.
         apply_modifier_identity_nominals(engine.param_id_info, nominal)
 
-        # 'analytic' (the default) keeps the backend's own sensitivity; 'FD' opts into
+        # 'auto' (the default) keeps the backend's own sensitivity; 'FD' opts into
         # central finite differences, the only local SA available on a backend with no
         # analytic arm (issue #338).
         sens = engine.get_observable_sensitivities(  # {obs_label: {param: d(feat)/dp}}

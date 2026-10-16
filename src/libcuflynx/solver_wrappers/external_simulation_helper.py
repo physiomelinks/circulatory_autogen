@@ -50,6 +50,7 @@ import traceback
 import numpy as np
 
 from libcuflynx.solver_wrappers.param_grouping import as_name_list, pair_names_with_values
+from libcuflynx.solver_wrappers.experiment_time import ExperimentTimeMixin
 
 #: The module-level name the user's file must bind to their solver class. Explicit registration
 #: rather than "the only class in the file": a user file is free to define helper classes, and
@@ -167,7 +168,7 @@ def _resolve_user_class(module, model_path):
     return user_class, parameters, output_names
 
 
-class SimulationHelper:
+class SimulationHelper(ExperimentTimeMixin):
     """``SimulationHelper`` over a user-supplied external solver class.
 
     Constructed by [`get_simulation_helper`][solver_wrappers.get_simulation_helper] for
@@ -232,6 +233,7 @@ class SimulationHelper:
         """The wrapper's own timeline bookkeeping, identical to python_solver_helper's."""
         self.dt = dt
         self.start_time = start_time
+        self._track_experiment_start(start_time, pre_time)
         self.sim_time = sim_time
         self.pre_time = pre_time
         self.stop_time = start_time + pre_time + sim_time
@@ -259,20 +261,6 @@ class SimulationHelper:
         self._results = None
         self._has_run = False
         self.user.update_times(dt, start_time, sim_time, pre_time)
-
-    def get_time(self, include_pre_time=False):
-        """Return the output time vector.
-
-        Args:
-            include_pre_time: If True, keep the unlogged pre-time offset; otherwise return time
-                relative to the end of pre-time.
-
-        Returns:
-            numpy.ndarray: The sampled time points.
-        """
-        if include_pre_time:
-            return self.tSim
-        return self.tSim - self.pre_time
 
     def set_protocol_info(self, protocol_info):
         """Store protocol metadata for the common helper API."""
@@ -445,7 +433,7 @@ class SimulationHelper:
 
     def _extract(self, name):
         if name == 'time':
-            return self.tSim
+            return self.get_time()
         if self._results is None:
             raise RuntimeError(
                 f"{self.model_path}: results were requested before a successful run(). Call "

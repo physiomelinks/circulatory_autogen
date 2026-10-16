@@ -372,7 +372,7 @@ def _obs_data_json(operation_kwargs_for_second_item):
 
 def _parse_obs_info(obs_data_dict, tmp_path):
     parser = ObsAndParamDataParser()
-    parsed = parser.parse_obs_data_json(obs_data_dict=obs_data_dict, pre_time=0.0, sim_time=1.0)
+    parsed = parser.parse_obs_data_json(obs_data_dict=obs_data_dict)
     return parser.process_obs_info(gt_df=parsed["gt_df"], output_dir=str(tmp_path), dt=0.01)
 
 
@@ -433,7 +433,7 @@ def test_shipped_extra_ops_obs_data_json_still_validates(tmp_path):
         data_items = json.load(fh)
 
     parser = ObsAndParamDataParser()
-    parsed = parser.parse_obs_data_json(obs_data_dict=data_items, pre_time=0.0, sim_time=1.0)
+    parsed = parser.parse_obs_data_json(obs_data_dict=data_items)
     obs_info = parser.process_obs_info(gt_df=parsed["gt_df"], output_dir=str(tmp_path), dt=0.01)
     validate_operation_kwargs(obs_info, scriptFunctionParser().get_operation_funcs_dict('numpy'))
 

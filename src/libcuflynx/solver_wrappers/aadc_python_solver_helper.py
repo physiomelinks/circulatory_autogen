@@ -25,6 +25,7 @@ import warnings
 import numpy as np
 
 from libcuflynx.parsers.PrimitiveParsers import AADC_FORWARD_METHODS
+from libcuflynx.solver_wrappers.experiment_time import ExperimentTimeMixin
 
 try:
     import aadc
@@ -64,7 +65,7 @@ def _emit_third_party_notice():
         _notice_emitted = True
 
 
-class SimulationHelper:
+class SimulationHelper(ExperimentTimeMixin):
     """
     AADC-based solver for libCellML-generated Python modules.
 
@@ -213,6 +214,7 @@ class SimulationHelper:
         self.pre_time = pre_time
         self.sim_time = sim_time
         self.start_time = start_time
+        self._track_experiment_start(start_time, pre_time)
         self.stop_time = start_time + pre_time + sim_time
         self.pre_steps = int(pre_time / dt)
         self.n_steps = int(sim_time / dt)
@@ -973,20 +975,13 @@ class SimulationHelper:
                 idx = self.var_name_to_idx[name]
                 self.var_traj[vi, ti_idx] = float(vars_copy[idx])
 
-    # ---- time ----
-    def get_time(self, include_pre_time=False):
-        if include_pre_time:
-            return self.tSim
-        else:
-            return self.tSim - self.pre_time
-
     # ---- results ----
     def get_all_variable_names(self):
         return list(self.state_name_to_idx.keys()) + list(self.var_name_to_idx.keys())
 
     def _extract(self, name):
         if name == 'time':
-            return self.tSim
+            return self.get_time()
         if name in self.state_name_to_idx:
             idx = self.state_name_to_idx[name]
             return self.state_traj[idx, :]

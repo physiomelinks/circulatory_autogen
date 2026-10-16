@@ -50,7 +50,7 @@ class FakeEngine:
     def set_params_for_id(self, params):
         pass
 
-    def run_mcmc(self):
+    def run_UQ(self):
         self.ran_mcmc = True
 
 

@@ -5,6 +5,7 @@ These tests verify that parameter identification works correctly for various mod
 """
 import copy
 import os
+from _obs_data import retimed_obs_data
 import pytest
 import numpy as np
 from mpi4py import MPI
@@ -57,6 +58,9 @@ def test_operation_and_cost_dicts_are_backend_independent():
     # casadi-mode reductions still take a casadi symbol and stay symbolic.
     s = ca.SX.sym("s", 4)
     assert casadi_ops["mean"](s).shape == (1, 1)
+    # ...nor the module's own backend, which a direct call of a func uses
+    from libcuflynx.param_id import operation_funcs
+    assert float(operation_funcs.mean(x)) == pytest.approx(2.5)
     # bind_backend preserves the @differentiable / series_to_constant markers used by the AD path.
     assert is_circulatory_differentiable(numpy_ops["mean"])
     assert getattr(numpy_ops["mean"], "series_to_constant", False)
@@ -360,7 +364,7 @@ def test_param_id_nke_pump_succeeds(base_user_inputs, resources_dir, temp_output
         'file_prefix': 'NKE_pump',
         'input_param_file': 'NKE_pump_parameters.csv',
         'model_type': 'cellml',
-        'solver': 'CVODE',
+        'solver': 'CVODE_myokit',
         'param_id_method': 'genetic_algorithm',
         # Keep runtime short under MPI tests
         'pre_time': 0.5,
@@ -371,7 +375,6 @@ def test_param_id_nke_pump_succeeds(base_user_inputs, resources_dir, temp_output
         'plot_predictions': True,
         'solver_info': {
             'MaximumStep': 0.001,
-            'MaximumNumberOfSteps': 5000,
         },
         'param_id_obs_path': os.path.join(temp_output_dir, 'NKE_pump_obs_data.json'),
         'param_id_output_dir': temp_output_dir,
@@ -424,7 +427,7 @@ def test_param_id_3compartment_succeeds(base_user_inputs, resources_dir, temp_ou
         'file_prefix': '3compartment',
         'input_param_file': '3compartment_parameters.csv',
         'model_type': 'cellml',
-        'solver': 'CVODE',
+        'solver': 'CVODE_myokit',
         'param_id_method': 'genetic_algorithm',
         'pre_time': 20,
         'sim_time': 2,
@@ -436,7 +439,6 @@ def test_param_id_3compartment_succeeds(base_user_inputs, resources_dir, temp_ou
         'ia_options': {'method': 'Laplace'},
         'solver_info': {
             'MaximumStep': 0.001,
-            'MaximumNumberOfSteps': 5000,
         },
         'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
         'param_id_output_dir': temp_output_dir,
@@ -488,8 +490,8 @@ def test_param_id_3compartment_genetic_algorithm_myokit_fast(
         'do_uq': False,
         'plot_predictions': False,
         'do_ia': False,
-        'solver_info': {'MaximumStep': 0.001, 'MaximumNumberOfSteps': 5000},
-        'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
+        'solver_info': {'MaximumStep': 0.001},
+        'param_id_obs_path': retimed_obs_data(os.path.join(resources_dir, '3compartment_obs_data.json'), 2, 1, temp_output_dir),
         'param_id_output_dir': temp_output_dir,
         'generated_models_dir': temp_generated_models_dir,
         # num_calls must exceed the genetic-algorithm population (28 for these 4 params); keep it
@@ -543,7 +545,7 @@ def test_param_id_3compartment_casadi_genetic_algorithm_fast(
         'plot_predictions': False,
         'do_ia': False,
         'solver_info': {'method': 'bdf'},
-        'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
+        'param_id_obs_path': retimed_obs_data(os.path.join(resources_dir, '3compartment_obs_data.json'), 2, 1, temp_output_dir),
         'param_id_output_dir': temp_output_dir,
         'generated_models_dir': temp_generated_models_dir,
         # num_calls must exceed the DEBUG genetic-algorithm population (28 for these 4 params).
@@ -588,7 +590,7 @@ def test_param_id_3compartment_extra_ops_succeeds(base_user_inputs, resources_di
         'file_prefix': '3compartment_extra_ops',
         'input_param_file': '3compartment_extra_ops_parameters.csv',
         'model_type': 'cellml',
-        'solver': 'CVODE',
+        'solver': 'CVODE_myokit',
         'param_id_method': 'genetic_algorithm',
         'pre_time': 20,
         'sim_time': 2,
@@ -600,7 +602,6 @@ def test_param_id_3compartment_extra_ops_succeeds(base_user_inputs, resources_di
         'ia_options': {'method': 'Laplace'},
         'solver_info': {
             'MaximumStep': 0.001,
-            'MaximumNumberOfSteps': 5000,
         },
         'param_id_obs_path': os.path.join(resources_dir, '3compartment_extra_ops_obs_data.json'),
         'param_id_output_dir': temp_output_dir,
@@ -649,7 +650,7 @@ def test_param_id_3compartment_cmaes_succeeds(base_user_inputs, resources_dir, t
         'file_prefix': '3compartment',
         'input_param_file': '3compartment_parameters.csv',
         'model_type': 'cellml',
-        'solver': 'CVODE',
+        'solver': 'CVODE_myokit',
         'param_id_method': 'CMA-ES',
         'pre_time': 20,
         'sim_time': 2,
@@ -660,7 +661,6 @@ def test_param_id_3compartment_cmaes_succeeds(base_user_inputs, resources_dir, t
         'do_ia': False,
         'solver_info': {
             'MaximumStep': 0.001,
-            'MaximumNumberOfSteps': 5000,
         },
         'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
         'param_id_output_dir': temp_output_dir,
@@ -728,7 +728,7 @@ def test_param_id_3compartment_python_succeeds(base_user_inputs, resources_dir, 
             'rtol': 1e-6,
             'atol': 1e-8,
         },
-        'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
+        'param_id_obs_path': retimed_obs_data(os.path.join(resources_dir, '3compartment_obs_data.json'), 0.5, 0.3, temp_output_dir),
         'param_id_output_dir': temp_output_dir,
         'generated_models_dir': temp_generated_models_dir,
         'optimiser_options': {'num_calls_to_function': 40, 'max_patience': 10, 'cost_convergence': 1e-3},
@@ -777,7 +777,7 @@ def test_param_id_test_fft_cost_is_zero(base_user_inputs, resources_dir, temp_ou
         'file_prefix': 'test_fft',
         'input_param_file': 'test_fft_parameters.csv',
         'model_type': 'cellml',
-        'solver': 'CVODE',
+        'solver': 'CVODE_myokit',
         'param_id_method': 'genetic_algorithm',
         'pre_time': 1,
         'sim_time': 1,
@@ -789,9 +789,8 @@ def test_param_id_test_fft_cost_is_zero(base_user_inputs, resources_dir, temp_ou
         'ia_options': {'method': 'Laplace'},
         'solver_info': {
             'MaximumStep': 0.001,
-            'MaximumNumberOfSteps': 5000,
         },
-        'param_id_obs_path': os.path.join(resources_dir, 'test_fft_obs_data.json'),
+        'param_id_obs_path': retimed_obs_data(os.path.join(resources_dir, 'test_fft_obs_data.json'), 1, 1, temp_output_dir),
         'param_id_output_dir': temp_output_dir,
         'generated_models_dir': temp_generated_models_dir,
         'debug_optimiser_options': {'num_calls_to_function': 2000, 'max_patience': 500, 'cost_type': 'gaussian_MLE'},  
@@ -884,9 +883,8 @@ def test_param_id_calibration_outputs_match_rerun(base_user_inputs, resources_di
         "do_ia": False,
         "solver_info": {
             "MaximumStep": 0.001,
-            "MaximumNumberOfSteps": 5000,
         },
-        "param_id_obs_path": os.path.join(resources_dir, "3compartment_obs_data.json"),
+        "param_id_obs_path": retimed_obs_data(os.path.join(resources_dir, '3compartment_obs_data.json'), 0.0, 0.2, temp_output_dir),
         "param_id_output_dir": temp_output_dir,
         "generated_models_dir": temp_generated_models_dir,
         "optimiser_options": {
@@ -1018,7 +1016,6 @@ def test_param_id_SN_simple_CVODE_myokit_ga_smoke(
             "do_ia": False,
             "solver_info": {
                 "MaximumStep": 0.02,
-                "MaximumNumberOfSteps": 50000,
             },
             "param_id_obs_path": obs_path,
             "param_id_output_dir": temp_output_dir,
@@ -1135,7 +1132,7 @@ def test_param_id_simple_physiological_succeeds(base_user_inputs, resources_dir,
         'file_prefix': 'simple_physiological',
         'input_param_file': 'simple_physiological_parameters.csv',
         'model_type': 'cellml',
-        'solver': 'CVODE',
+        'solver': 'CVODE_myokit',
         'param_id_method': 'genetic_algorithm',
         'pre_time': 20,
         'sim_time': 2,
@@ -1147,7 +1144,6 @@ def test_param_id_simple_physiological_succeeds(base_user_inputs, resources_dir,
         'ia_options': {'method': 'Laplace'},
         'solver_info': {
             'MaximumStep': 0.001,
-            'MaximumNumberOfSteps': 5000,
         },
         'param_id_obs_path': os.path.join(resources_dir, 'simple_physiological_obs_data.json'),
         'param_id_output_dir': temp_output_dir,
@@ -1745,7 +1741,7 @@ def test_3compartment_nonstiff_casadi_forward_and_gradient(
             'max_num_steps': 50000,
             'method': 'cvodes',
         },
-        'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
+        'param_id_obs_path': retimed_obs_data(os.path.join(resources_dir, '3compartment_obs_data.json'), 0.0, 0.3, temp_output_dir),
         'param_id_output_dir': temp_output_dir,
         'generated_models_dir': temp_generated_models_dir,
         'resources_dir': resources_dir,
@@ -1761,7 +1757,7 @@ def test_3compartment_nonstiff_casadi_forward_and_gradient(
 
     runner = CVS0DParamID.init_from_dict(parsed)
 
-    with open(os.path.join(resources_dir, '3compartment_obs_data.json')) as f:
+    with open(retimed_obs_data(os.path.join(resources_dir, '3compartment_obs_data.json'), 0.0, 0.3, temp_output_dir)) as f:
         obs_data = json.load(f)
     runner.set_ground_truth_data(obs_data)
 
@@ -1854,6 +1850,8 @@ def _build_3compartment_casadi_runner(
     """
     import json
 
+    obs_path = retimed_obs_data(os.path.join(resources_dir, obs_file), pre_time, sim_time,
+                                temp_output_dir)
     config = base_user_inputs.copy()
     config.update({
         'file_prefix': '3compartment',
@@ -1875,7 +1873,7 @@ def _build_3compartment_casadi_runner(
             'max_num_steps': 50000,
             'method': method,
         },
-        'param_id_obs_path': os.path.join(resources_dir, obs_file),
+        'param_id_obs_path': obs_path,
         'param_id_output_dir': temp_output_dir,
         'generated_models_dir': temp_generated_models_dir,
         'resources_dir': resources_dir,
@@ -1890,7 +1888,7 @@ def _build_3compartment_casadi_runner(
     parsed['one_rank'] = True
 
     runner = CVS0DParamID.init_from_dict(parsed)
-    with open(os.path.join(resources_dir, obs_file)) as f:
+    with open(obs_path) as f:
         obs_data = json.load(f)
     runner.set_ground_truth_data(obs_data)
 
@@ -2080,6 +2078,8 @@ def _build_3compartment_fsa_runner(
     """
     import json
 
+    obs_path = retimed_obs_data(os.path.join(resources_dir, obs_file), pre_time, sim_time,
+                                temp_output_dir)
     config = base_user_inputs.copy()
     config.update({
         'file_prefix': '3compartment',
@@ -2096,9 +2096,9 @@ def _build_3compartment_fsa_runner(
         'do_uq': False,
         'plot_predictions': False,
         'do_ia': False,
-        'solver_info': {'MaximumStep': 0.005, 'MaximumNumberOfSteps': 50000,
+        'solver_info': {'MaximumStep': 0.005,
                         'rtol': 1e-9, 'atol': 1e-9},
-        'param_id_obs_path': os.path.join(resources_dir, obs_file),
+        'param_id_obs_path': obs_path,
         'param_id_output_dir': temp_output_dir,
         'generated_models_dir': temp_generated_models_dir,
         'resources_dir': resources_dir,
@@ -2113,7 +2113,7 @@ def _build_3compartment_fsa_runner(
     parsed['one_rank'] = True
 
     runner = CVS0DParamID.init_from_dict(parsed)
-    with open(os.path.join(resources_dir, obs_file)) as f:
+    with open(obs_path) as f:
         obs_data = json.load(f)
     runner.set_ground_truth_data(obs_data)
 
@@ -2310,7 +2310,7 @@ def _lotka_multisub_fsa_config(base_user_inputs, resources_dir, output_dir, gene
         'do_uq': False,
         'plot_predictions': False,
         'do_ia': False,
-        'solver_info': {'MaximumStep': 0.005, 'MaximumNumberOfSteps': 50000,
+        'solver_info': {'MaximumStep': 0.005,
                         'rtol': 1e-9, 'atol': 1e-9},
         'param_id_obs_path': os.path.join(resources_dir, 'Lotka_Volterra_multisub_obs_data.json'),
         'param_id_output_dir': output_dir,
@@ -2505,7 +2505,7 @@ def test_param_id_3compartment_nonstiff_casadi_succeeds(
 
         # --- Step 2: build obs_data from GT simulation ---
         # Replace every item in the template with values from the GT simulation.
-        with open(os.path.join(resources_dir, '3compartment_obs_data.json')) as f:
+        with open(retimed_obs_data(os.path.join(resources_dir, '3compartment_obs_data.json'), 0.0, 0.3, temp_output_dir)) as f:
             obs_template = json.load(f)
 
         _op_map = {
@@ -2633,7 +2633,7 @@ def test_param_id_3compartment_nonstiff_python_succeeds(
             'atol': 1e-8,
             'max_step': 1e-3,
         },
-        'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
+        'param_id_obs_path': retimed_obs_data(os.path.join(resources_dir, '3compartment_obs_data.json'), 0.5, 0.3, temp_output_dir),
         'param_id_output_dir': temp_output_dir,
         'generated_models_dir': temp_generated_models_dir,
         'optimiser_options': {'num_calls_to_function': 40, 'max_patience': 10, 'cost_convergence': 1e-3},
@@ -2797,7 +2797,7 @@ def test_laplace_approximation_hessian_validation(base_user_inputs, resources_di
         'file_prefix': 'Simple_ODE_Benchmark',  # Replace with your model name  
         'input_param_file': 'Simple_ODE_Benchmark_parameters.csv',  # Replace with your CSV  
         'model_type': 'cellml',  
-        'solver': 'CVODE',  
+        'solver': 'CVODE_myokit',  
         'param_id_method': 'genetic_algorithm',  
         'pre_time': 0.5,  
         'sim_time': 10.0,  
@@ -2920,7 +2920,6 @@ def test_offline_pre_time_lotka_volterra_outputs_match(
         "generated_models_dir": temp_generated_models_dir,
         "solver_info": {
             "MaximumStep": 0.001,
-            "MaximumNumberOfSteps": 5000,
         },
     })
 
@@ -2962,7 +2961,7 @@ def test_offline_pre_time_3compartment_outputs_match(
 
     rank = mpi_comm.Get_rank()
 
-    base_obs_path = os.path.join(resources_dir, "3compartment_obs_data.json")
+    base_obs_path = retimed_obs_data(os.path.join(resources_dir, '3compartment_obs_data.json'), 2.0, 2.0, temp_output_dir)
 
     config = base_user_inputs.copy()
     config.update({
@@ -2982,7 +2981,6 @@ def test_offline_pre_time_3compartment_outputs_match(
         "generated_models_dir": temp_generated_models_dir,
         "solver_info": {
             "MaximumStep": 0.001,
-            "MaximumNumberOfSteps": 5000,
         },
     })
 
@@ -3139,7 +3137,7 @@ def test_offline_pre_time_3compartment_python_outputs_match(
     import json
 
     rank = mpi_comm.Get_rank()
-    base_obs_path = os.path.join(resources_dir, "3compartment_obs_data.json")
+    base_obs_path = retimed_obs_data(os.path.join(resources_dir, '3compartment_obs_data.json'), 2.0, 2.0, temp_output_dir)
     config = base_user_inputs.copy()
     config.update({
         "file_prefix": "3compartment",
@@ -3246,7 +3244,7 @@ def test_parse_obs_data_json_rejects_value_and_npy_paths(tmp_path):
 
     parser = ObsAndParamDataParser()
     with pytest.raises(ValueError, match=r"(?s)not allowed.*not both"):
-        parser.parse_obs_data_json(obs_data_dict=obs_data_dict, pre_time=0.0, sim_time=1.0)
+        parser.parse_obs_data_json(obs_data_dict=obs_data_dict)
 
 
 def test_parse_obs_data_json_series_std_scalar_from_npy_paths(tmp_path):
@@ -3282,7 +3280,7 @@ def test_parse_obs_data_json_series_std_scalar_from_npy_paths(tmp_path):
 
     parser = ObsAndParamDataParser()
     parsed = parser.parse_obs_data_json(
-        obs_data_dict=obs_data_dict, pre_time=0.0, sim_time=1.0,
+        obs_data_dict=obs_data_dict,
     )
     assert list(parsed["gt_df"].iloc[0]["std"]) == [0.5, 0.5, 0.5]
 
@@ -3318,7 +3316,7 @@ def test_parse_obs_data_json_series_std_required_for_npy_paths(tmp_path):
 
     parser = ObsAndParamDataParser()
     with pytest.raises(ValueError, match=r"'std' is a required property"):
-        parser.parse_obs_data_json(obs_data_dict=obs_data_dict, pre_time=0.0, sim_time=1.0)
+        parser.parse_obs_data_json(obs_data_dict=obs_data_dict)
 
 
 
@@ -3346,7 +3344,7 @@ def test_param_id_archives_input_files(resources_dir, temp_output_dir,
         'param_id_obs_path': obs_path,
         'resources_dir': resources_dir,
         'param_id_output_dir': temp_output_dir,
-        'solver_info': {'solver': 'CVODE_myokit', 'MaximumStep': 0.001, 'MaximumNumberOfSteps': 5000},
+        'solver_info': {'solver': 'CVODE_myokit', 'MaximumStep': 0.001},
         'dt': 0.01, 'sim_time': 2.0, 'pre_time': 20.0, 'DEBUG': False,
     })
 
@@ -3925,7 +3923,7 @@ def test_multi_start_reports_both_minima_of_a_two_minimum_model(
         'do_uq': False,
         'plot_predictions': False,
         'do_ia': False,
-        'solver_info': {'MaximumStep': 0.01, 'MaximumNumberOfSteps': 5000},
+        'solver_info': {'MaximumStep': 0.01},
         'param_id_obs_path': os.path.join(resources_dir, 'TwoMinima_obs_data.json'),
         'param_id_output_dir': temp_output_dir,
         'generated_models_dir': temp_generated_models_dir,
@@ -4775,7 +4773,7 @@ def _aadc_3compartment_config(base_user_inputs, resources_dir, temp_output_dir,
         'plot_predictions': False,
         'do_ia': False,
         'solver_info': {'method': 'semi_implicit'},  # fixed-step, tape-consistent
-        'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
+        'param_id_obs_path': retimed_obs_data(os.path.join(resources_dir, '3compartment_obs_data.json'), 0.0, 0.3, temp_output_dir),
         'param_id_output_dir': temp_output_dir,
         'generated_models_dir': temp_generated_models_dir,
         'resources_dir': resources_dir,
@@ -5106,7 +5104,7 @@ def test_offline_pre_time_multisub_fsa_gradient(
     runner, baseline = _build_lotka_offline_gradient_runner(
         base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir,
         model_type='cellml', solver='CVODE_myokit',
-        solver_info={'MaximumStep': 0.005, 'MaximumNumberOfSteps': 50000,
+        solver_info={'MaximumStep': 0.005,
                      'rtol': 1e-10, 'atol': 1e-10},
         offline_calls=offline_calls)
     inner = runner.param_id
@@ -5218,8 +5216,8 @@ def test_param_id_3compartment_modifier_calibration_fsa(
         'do_uq': False,
         'plot_predictions': False,
         'do_ia': False,
-        'solver_info': {'MaximumStep': 0.001, 'MaximumNumberOfSteps': 5000},
-        'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
+        'solver_info': {'MaximumStep': 0.001},
+        'param_id_obs_path': retimed_obs_data(os.path.join(resources_dir, '3compartment_obs_data.json'), 2, 1, temp_output_dir),
         # os.path.join(resources_dir, <absolute path>) resolves to the absolute path, the same
         # way every test's absolute param_id_obs_path passes through its own join.
         'params_for_id_file': params_path,
@@ -5351,8 +5349,8 @@ def test_param_id_3compartment_remainder_calibration_fsa(
         'do_uq': False,
         'plot_predictions': False,
         'do_ia': False,
-        'solver_info': {'MaximumStep': 0.001, 'MaximumNumberOfSteps': 5000},
-        'param_id_obs_path': os.path.join(resources_dir, '3compartment_obs_data.json'),
+        'solver_info': {'MaximumStep': 0.001},
+        'param_id_obs_path': retimed_obs_data(os.path.join(resources_dir, '3compartment_obs_data.json'), 2, 1, temp_output_dir),
         'params_for_id_file': params_path,
         'param_id_output_dir': temp_output_dir,
         'generated_models_dir': temp_generated_models_dir,

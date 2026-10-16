@@ -1,10 +1,10 @@
 [
     {
-        "vessel_type":"i_Na_Paci_2013",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"ion_channel_modules.cellml",
         "module_type":"i_Na_Paci_2013",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"ion_channel_modules.cellml",
+        "component_type":"i_Na_Paci_2013",
         "entrance_ports":
         [
           {
@@ -57,11 +57,11 @@
         ]
       },
       {
-        "vessel_type":"i_Na_m_gate_Paci_2013",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"ion_channel_modules.cellml",
         "module_type":"i_Na_m_gate_Paci_2013",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"ion_channel_modules.cellml",
+        "component_type":"i_Na_m_gate_Paci_2013",
         "entrance_ports":
         [
           {
@@ -85,11 +85,11 @@
         ]
       },
       {
-        "vessel_type":"i_Na_h_gate_Paci_2013",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"ion_channel_modules.cellml",
         "module_type":"i_Na_h_gate_Paci_2013",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"ion_channel_modules.cellml",
+        "component_type":"i_Na_h_gate_Paci_2013",
         "entrance_ports":
         [
           {
@@ -113,11 +113,11 @@
         ]
       },
       {
-        "vessel_type":"i_Na_j_gate_Paci_2013",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"ion_channel_modules.cellml",
         "module_type":"i_Na_j_gate_Paci_2013",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"ion_channel_modules.cellml",
+        "component_type":"i_Na_j_gate_Paci_2013",
         "entrance_ports":
         [
           {
@@ -141,11 +141,11 @@
         ]
       },
       {
-        "vessel_type":"i_CaL_Paci_2013",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"ion_channel_modules.cellml",
         "module_type":"i_CaL_Paci_2013",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"ion_channel_modules.cellml",
+        "component_type":"i_CaL_Paci_2013",
         "entrance_ports":
         [
           {
@@ -209,11 +209,11 @@
         ]
       },
       {
-        "vessel_type":"i_CaL_d_gate_Paci_2013",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"ion_channel_modules.cellml",
         "module_type":"i_CaL_d_gate_Paci_2013",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"ion_channel_modules.cellml",
+        "component_type":"i_CaL_d_gate_Paci_2013",
         "entrance_ports":
         [
           {
@@ -243,11 +243,11 @@
         ]
       },
       {
-        "vessel_type":"i_CaL_f1_gate_Paci_2013",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"ion_channel_modules.cellml",
         "module_type":"i_CaL_f1_gate_Paci_2013",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"ion_channel_modules.cellml",
+        "component_type":"i_CaL_f1_gate_Paci_2013",
         "entrance_ports":
         [
           {
@@ -275,11 +275,11 @@
         ]
       },
       {
-        "vessel_type":"i_CaL_f2_gate_Paci_2013",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"ion_channel_modules.cellml",
         "module_type":"i_CaL_f2_gate_Paci_2013",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"ion_channel_modules.cellml",
+        "component_type":"i_CaL_f2_gate_Paci_2013",
         "entrance_ports":
         [
           {
@@ -303,11 +303,11 @@
         ]
       },
       {
-        "vessel_type":"i_CaL_fCa_gate_Paci_2013",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"ion_channel_modules.cellml",
         "module_type":"i_CaL_fCa_gate_Paci_2013",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"ion_channel_modules.cellml",
+        "component_type":"i_CaL_fCa_gate_Paci_2013",
         "entrance_ports":
         [
           {
@@ -336,11 +336,11 @@
         ]
       },
       {
-        "vessel_type":"i_Kr_Paci_2013",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"ion_channel_modules.cellml",
         "module_type":"i_Kr_Paci_2013",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"ion_channel_modules.cellml",
+        "component_type":"i_Kr_Paci_2013",
         "entrance_ports":
         [
           {
@@ -391,11 +391,11 @@
         ]
       },
       {
-        "vessel_type":"i_Kr_Xr1_gate_Paci_2013",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"ion_channel_modules.cellml",
         "module_type":"i_Kr_Xr1_gate_Paci_2013",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"ion_channel_modules.cellml",
+        "component_type":"i_Kr_Xr1_gate_Paci_2013",
         "entrance_ports":
         [
           {
@@ -426,11 +426,11 @@
         ]
       },
       {
-        "vessel_type":"i_Kr_Xr2_gate_Paci_2013",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"ion_channel_modules.cellml",
         "module_type":"i_Kr_Xr2_gate_Paci_2013",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"ion_channel_modules.cellml",
+        "component_type":"i_Kr_Xr2_gate_Paci_2013",
         "entrance_ports":
         [
           {
@@ -454,11 +454,11 @@
         ]
       },
       {
-        "vessel_type":"i_Ks_Paci_2013",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"ion_channel_modules.cellml",
         "module_type":"i_Ks_Paci_2013",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"ion_channel_modules.cellml",
+        "component_type":"i_Ks_Paci_2013",
         "entrance_ports":
         [
           {
@@ -506,11 +506,11 @@
         ]
       },
       {
-        "vessel_type":"i_Ks_Xs_gate_Paci_2013",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"ion_channel_modules.cellml",
         "module_type":"i_Ks_Xs_gate_Paci_2013",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"ion_channel_modules.cellml",
+        "component_type":"i_Ks_Xs_gate_Paci_2013",
         "entrance_ports":
         [
           {
@@ -534,11 +534,11 @@
         ]
       },
       {
-        "vessel_type":"i_K1_Paci_2013",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"ion_channel_modules.cellml",
         "module_type":"i_K1_Paci_2013",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"ion_channel_modules.cellml",
+        "component_type":"i_K1_Paci_2013",
         "entrance_ports":
         [
           {
@@ -572,11 +572,11 @@
         ]
       },
       {
-        "vessel_type":"i_f_Paci_2013",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"ion_channel_modules.cellml",
         "module_type":"i_f_Paci_2013",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"ion_channel_modules.cellml",
+        "component_type":"i_f_Paci_2013",
         "entrance_ports":
         [
           {
@@ -610,11 +610,11 @@
         ]
       },
       {
-        "vessel_type":"i_f_Xf_gate_Paci_2013",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"ion_channel_modules.cellml",
         "module_type":"i_f_Xf_gate_Paci_2013",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"ion_channel_modules.cellml",
+        "component_type":"i_f_Xf_gate_Paci_2013",
         "entrance_ports":
         [
           {
@@ -638,11 +638,11 @@
         ]
       },
       {
-        "vessel_type":"i_b_Na_Paci_2013",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"ion_channel_modules.cellml",
         "module_type":"i_b_Na_Paci_2013",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"ion_channel_modules.cellml",
+        "component_type":"i_b_Na_Paci_2013",
         "entrance_ports":
         [
           {
@@ -677,11 +677,11 @@
         ]
       },
       {
-        "vessel_type":"i_b_Ca_Paci_2013",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"ion_channel_modules.cellml",
         "module_type":"i_b_Ca_Paci_2013",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"ion_channel_modules.cellml",
+        "component_type":"i_b_Ca_Paci_2013",
         "entrance_ports":
         [
           {
@@ -716,11 +716,11 @@
         ]
       },
       {
-        "vessel_type":"i_NaK_Paci_2013",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"ion_channel_modules.cellml",
         "module_type":"i_NaK_Paci_2013",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"ion_channel_modules.cellml",
+        "component_type":"i_NaK_Paci_2013",
         "entrance_ports":
         [
           {
@@ -766,11 +766,11 @@
         ]
       },
       {
-        "vessel_type":"i_NaCa_Paci_2013",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"ion_channel_modules.cellml",
         "module_type":"i_NaCa_Paci_2013",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"ion_channel_modules.cellml",
+        "component_type":"i_NaCa_Paci_2013",
         "entrance_ports":
         [
           {
@@ -819,11 +819,11 @@
         ]
       },
       {
-        "vessel_type":"i_PCa_Paci_2013",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"ion_channel_modules.cellml",
         "module_type":"i_PCa_Paci_2013",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"ion_channel_modules.cellml",
+        "component_type":"i_PCa_Paci_2013",
         "entrance_ports":
         [
           {
@@ -859,11 +859,11 @@
         ]
       },
       {
-        "vessel_type":"i_to_Paci_2013",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"ion_channel_modules.cellml",
         "module_type":"i_to_Paci_2013",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"ion_channel_modules.cellml",
+        "component_type":"i_to_Paci_2013",
         "entrance_ports":
         [
           {
@@ -906,11 +906,11 @@
         ]
       },
       {
-        "vessel_type":"i_to_q_gate_Paci_2013",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"ion_channel_modules.cellml",
         "module_type":"i_to_q_gate_Paci_2013",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"ion_channel_modules.cellml",
+        "component_type":"i_to_q_gate_Paci_2013",
         "entrance_ports":
         [
           {
@@ -934,11 +934,11 @@
         ]
       },
       {
-        "vessel_type":"i_to_r_gate_Paci_2013",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"ion_channel_modules.cellml",
         "module_type":"i_to_r_gate_Paci_2013",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"ion_channel_modules.cellml",
+        "component_type":"i_to_r_gate_Paci_2013",
         "entrance_ports":
         [
           {
@@ -962,11 +962,11 @@
         ]
       },
       {
-        "vessel_type":"i_Ca_Tao_2011",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"ion_channel_modules.cellml",
         "module_type":"i_Ca_Tao_2011",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"ion_channel_modules.cellml",
+        "component_type":"i_Ca_Tao_2011",
         "entrance_ports":
         [
           {
@@ -1007,11 +1007,11 @@
         ]
       },
       {
-        "vessel_type":"i_Na_Tao_2011",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"ion_channel_modules.cellml",
         "module_type":"i_Na_Tao_2011",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"ion_channel_modules.cellml",
+        "component_type":"i_Na_Tao_2011",
         "entrance_ports":
         [
           {
@@ -1044,11 +1044,11 @@
         ]
       },
       {
-        "vessel_type":"i_KV_Tao_2011",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"ion_channel_modules.cellml",
         "module_type":"i_KV_Tao_2011",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"ion_channel_modules.cellml",
+        "component_type":"i_KV_Tao_2011",
         "entrance_ports":
         [
           {
@@ -1079,11 +1079,11 @@
         ]
       },
       {
-        "vessel_type":"i_A_Tao_2011",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"ion_channel_modules.cellml",
         "module_type":"i_A_Tao_2011",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"ion_channel_modules.cellml",
+        "component_type":"i_A_Tao_2011",
         "entrance_ports":
         [
           {
@@ -1116,11 +1116,11 @@
         ]
       },
       {
-        "vessel_type":"i_KCa_Tao_2011",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"ion_channel_modules.cellml",
         "module_type":"i_KCa_Tao_2011",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"ion_channel_modules.cellml",
+        "component_type":"i_KCa_Tao_2011",
         "entrance_ports":
         [
           {
@@ -1155,11 +1155,11 @@
       },
 
       {
-        "vessel_type":"i_piezo_Na_Argus_unpublished",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"ion_channel_modules.cellml",
         "module_type":"i_piezo_Na_Argus_unpublished",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"ion_channel_modules.cellml",
+        "component_type":"i_piezo_Na_Argus_unpublished",
         "entrance_ports":
         [
         ],

@@ -11,6 +11,7 @@ emulator training with them.
 import copy
 import json
 import os
+import shutil
 import warnings
 from types import SimpleNamespace
 
@@ -48,8 +49,7 @@ def _parsed_prediction_info(items, sim_times=((2.0,),)):
            "prediction_items": items,
            "protocol_info": {"pre_times": [0.0] * len(sim_times),
                              "sim_times": [list(t) for t in sim_times]}}
-    parsed = ObsAndParamDataParser().parse_obs_data_json(obs_data_dict=doc, pre_time=0.0,
-                                                          sim_time=2.0)
+    parsed = ObsAndParamDataParser().parse_obs_data_json(obs_data_dict=doc)
     return parsed["prediction_info"], parsed["protocol_info"]
 
 
@@ -340,7 +340,7 @@ def _benchmark_obs(tmp_path, items=PREDICTION_ITEMS, resources_dir=None):
 
 def _parsed_benchmark(obs_path, scratch):
     parser = ObsAndParamDataParser()
-    parsed = parser.parse_obs_data_json(param_id_obs_path=obs_path, pre_time=0.0, sim_time=8.0)
+    parsed = parser.parse_obs_data_json(param_id_obs_path=obs_path)
     os.makedirs(scratch, exist_ok=True)
     obs_info = parser.process_obs_info(gt_df=parsed['gt_df'], output_dir=scratch, dt=0.05)
     protocol_info = parser.process_protocol_and_weights(
@@ -607,7 +607,7 @@ def _benchmark_config(base_user_inputs, resources_dir, temp_output_dir,
         'do_uq': False,
         'do_ia': False,
         'plot_predictions': False,
-        'solver_info': {'MaximumStep': 0.01, 'MaximumNumberOfSteps': 5000},
+        'solver_info': {'MaximumStep': 0.01},
         'param_id_obs_path': obs_path,
         'params_for_id_path': os.path.join(resources_dir,
                                            'Simple_ODE_Benchmark_params_for_id.csv'),
@@ -1086,3 +1086,85 @@ def test_every_experiment_with_data_is_simulated_as_before(
     cost = engine.get_cost_from_params(np.array([1.0, 1.0]))
     assert np.isfinite(cost)
     assert spy.calls == [[0, 1]]
+
+
+# ============================================================================ save_prediction_data
+# output pin. The files save_prediction_data writes, for a protocol with items in the last and in
+# an earlier sub-experiment, compared with tests/test_inputs/prediction_data_pin (written by the
+# implementation this pin was taken from). Set CA_WRITE_PREDICTION_PIN=1 to rewrite them.
+
+PREDICTION_PIN_DIR = os.path.join(os.path.dirname(__file__), 'test_inputs', 'prediction_data_pin')
+
+
+
+def _assert_same_json(got, want, where=''):
+    if isinstance(want, dict):
+        assert isinstance(got, dict) and sorted(got) == sorted(want), where
+        for key in want:
+            _assert_same_json(got[key], want[key], f'{where}.{key}')
+    elif isinstance(want, list):
+        assert isinstance(got, list) and len(got) == len(want), where
+        for i, (g, w) in enumerate(zip(got, want)):
+            _assert_same_json(g, w, f'{where}[{i}]')
+    elif isinstance(want, float):
+        assert got == pytest.approx(want, rel=1e-9, abs=1e-12), where
+    else:
+        assert got == want, where
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+@pytest.mark.mpi
+def test_save_prediction_data_outputs_are_stable(
+        base_user_inputs, resources_dir, temp_output_dir, temp_generated_models_dir, mpi_comm,
+        tmp_path):
+    t_obs = np.arange(5) * 0.5
+    items = [
+        {"data_item_name": "x_trace", "operands": ["benchmark/x"], "unit": "dimensionless",
+         "experiment_idx": 0},
+        {"data_item_name": "y_trace", "operands": ["benchmark/y"], "unit": "dimensionless",
+         "experiment_idx": 0},
+        {"data_item_name": "x_sub0", "operands": ["benchmark/x"], "unit": "dimensionless",
+         "experiment_idx": 1, "subexperiment_idx": 0, "data_type": "series",
+         "value": _x_exp1(1.0, t_obs).tolist(), "std": 0.05, "obs_dt": 0.5},
+        {"data_item_name": "x_sub1", "operands": ["benchmark/x"], "unit": "dimensionless",
+         "experiment_idx": 1, "data_type": "series",
+         "value": _x_exp1(1.0, 2.0 + t_obs).tolist(), "std": 0.05, "obs_dt": 0.5},
+        {"data_item_name": "x_max_sub0", "operands": ["benchmark/x"], "unit": "dimensionless",
+         "experiment_idx": 1, "subexperiment_idx": 0, "operation": "max",
+         "data_type": "constant", "value": 2.0, "std": 0.1},
+        {"data_item_name": "x_max_sub1", "operands": ["benchmark/x"], "unit": "dimensionless",
+         "experiment_idx": 1, "operation": "max", "data_type": "constant",
+         "value": 1.1, "std": 0.1}]
+    obs_path, _ = _validation_obs(tmp_path, resources_dir, exp1_sim_times=(2.0, 3.0),
+                                  prediction_items=items)
+    config = _benchmark_config(base_user_inputs, resources_dir, temp_output_dir,
+                               temp_generated_models_dir, obs_path)
+    _generate(config, mpi_comm)
+    if mpi_comm.Get_rank() != 0:
+        return
+    pid = CVS0DParamID.init_from_dict(config)
+    pid.set_best_param_vals(np.array([0.5, 1.0]))
+    pid.save_prediction_data()
+
+    written = sorted(f for f in os.listdir(pid.output_dir)
+                     if f.startswith('prediction_variable_') or
+                     f == validation.VALIDATION_RESULTS_FILE)
+    if os.environ.get('CA_WRITE_PREDICTION_PIN'):
+        os.makedirs(PREDICTION_PIN_DIR, exist_ok=True)
+        for name in written:
+            shutil.copy(os.path.join(pid.output_dir, name), PREDICTION_PIN_DIR)
+    assert written == sorted(os.listdir(PREDICTION_PIN_DIR))
+    for name in written:
+        got_path = os.path.join(pid.output_dir, name)
+        want_path = os.path.join(PREDICTION_PIN_DIR, name)
+        if name.endswith('.npy'):
+            got, want = np.load(got_path), np.load(want_path)
+            assert got.shape == want.shape and got.dtype == want.dtype, name
+            np.testing.assert_allclose(got, want, rtol=1e-9, atol=1e-12, err_msg=name)
+        elif name.endswith('.json'):
+            with open(got_path) as g, open(want_path) as w:
+                _assert_same_json(json.load(g), json.load(w), name)
+        else:
+            with open(got_path, 'rb') as g, open(want_path, 'rb') as w:
+                assert g.read() == w.read(), name

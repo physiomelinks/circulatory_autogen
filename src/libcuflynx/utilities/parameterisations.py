@@ -12,11 +12,9 @@ A module library (e.g. circulatory-autogen-modules) lays a module out as::
             <name>_obs_data.json      optional; "obs_data_name": "<name>"
             <name>_params_for_id.csv  optional
 
-An ``instances/`` directory is read when there is no ``parameterisations/`` one, and a config
-entry's ``"default_instance"`` as ``"default_parameterisation"`` (the config loaders in
-``config_schemas.py`` normalise it to ``default_parameterisation``). A
-module-array record names its parameterisation with ``"parameterisation"`` only: ``"instance"``
-there is an error, since an instance is the record itself.
+A module-array record names its parameterisation with ``"parameterisation"``; ``"instance"``
+there is an error, since an instance is the record itself. A version directory with the
+older ``instances/`` and no ``parameterisations/`` is an error naming the rename.
 
 A parameterisation only changes parameters, never the math. Its parameter names carry no
 suffix: a row ``C`` becomes ``C_<vessel>`` for the module-array record that uses it, except a
@@ -26,14 +24,13 @@ A module-array record (or a supermodule's submodule) picks a parameterisation wi
 ``"parameterisation": "<name>"``; without one, the config entry's
 ``"default_parameterisation"`` is used if that parameterisation's parameters file exists, and
 otherwise nothing is loaded. The directory is looked for next to the config file the
-(vessel_type, BC_type) entry came from:
+(module_type, module_subtype) entry came from:
 ``<config dir>/parameterisations/<name>/<name>_parameters.csv``.
 
 Parameterisation parameters are *default* parameters: the host model's parameters file wins
 over them (``ModelParsers.merge_default_parameters``). The order of precedence is
 
-    host parameters file > supermodule parameterisation > supermodule default_parameters
-                         > submodule / component parameterisation
+    host parameters file > supermodule parameterisation > submodule / component parameterisation
 
 and within one tier the first record in the (expanded) module array wins, so a global set by
 several parameterisations is added once. A global is one value for the whole model, so a
@@ -43,9 +40,9 @@ are a supermodule overriding the parameterisations inside it, which is what a su
 parameterisation is for, and a global the host parameters file sets.
 
 A supermodule entry may also live in a version directory with parameterisations. Its
-parameterisation's rows are named ``{var}_{submodule}`` (local) or are globals, like
-``default_parameters``, and are renamed to ``{var}_{instance}_{submodule}``
-(``supermodules.rename_default_parameter``), ``instance`` being the supermodule record's name.
+parameterisation's rows are named ``<submodule>/<variable>`` (local) or are globals, and are
+renamed to ``{variable}_{instance}__{submodule}``, ``instance`` being the supermodule record's
+name (``supermodules.read_supermodule_parameters``).
 '''
 
 import os
@@ -54,16 +51,15 @@ import warnings
 import pandas as pd
 
 PARAMETERISATIONS_DIR = 'parameterisations'
-# the older name of PARAMETERISATIONS_DIR, used when a version has no parameterisations/
-INSTANCES_DIR = 'instances'
-# the record / config entry keys naming a parameterisation: (new, older) -> internal (older)
+# the name PARAMETERISATIONS_DIR had before; a version directory with only it is refused
+OLD_PARAMETERISATIONS_DIR = 'instances'
+# the record key naming a parameterisation, and the older one that is refused
 PARAMETERISATION_KEY, INSTANCE_KEY = 'parameterisation', 'instance'
 DEFAULT_PARAMETERISATION_KEY = 'default_parameterisation'
-DEFAULT_INSTANCE_KEY = 'default_instance'
 GLOBAL_CONSTANT = 'global_constant'
 
-# the columns a parameters CSV (a parameterisation's, or a supermodule's default_parameters) must
-# have; config_schemas.PARAMETER_COLUMNS re-exports this
+# the columns a parameterisation's parameters CSV must have; config_schemas.PARAMETER_COLUMNS
+# re-exports this
 PARAMETER_COLUMNS = ('variable_name', 'units', 'value', 'data_reference')
 
 
@@ -78,25 +74,6 @@ def check_parameterisation_name(value, where, key=PARAMETERISATION_KEY):
         raise ValueError(f'{where}: "{key}" is "{value}", but a parameterisation name is a '
                          f'directory name under {PARAMETERISATIONS_DIR}/, not a path.')
     return value
-
-
-def merge_renamed_key(mapping, new_key, old_key, where):
-    '''
-    A copy of ``mapping`` with its older ``old_key`` (``default_instance``) stored under
-    ``new_key`` (``default_parameterisation``), the name the code reads. Either spelling may be
-    given; both with different values is a ValueError naming ``where``. ``mapping`` is
-    returned unchanged when it has no ``old_key``.
-    '''
-    if old_key not in mapping:
-        return mapping
-    if new_key in mapping:
-        new, old = mapping[new_key], mapping[old_key]
-        same = (isinstance(new, str) and isinstance(old, str) and new.strip() == old.strip()) \
-            or new == old
-        if not same:
-            raise ValueError(f'{where} has both "{new_key}" ({new!r}) and its older name '
-                             f'"{old_key}" ({old!r}). Give only "{new_key}".')
-    return {(new_key if k == old_key else k): v for k, v in mapping.items() if k != new_key}
 
 
 def reject_instance_key(record, where, what='A module-array record'):
@@ -117,25 +94,25 @@ def record_parameterisation(record, where):
 
 def parameterisations_dir(config_path):
     '''Where the parameterisations of the config at ``config_path`` live:
-    ``<config dir>/parameterisations``, or the older ``<config dir>/instances`` when only that
-    exists.'''
+    ``<config dir>/parameterisations``. A directory with only the older ``instances/`` is a
+    ValueError asking for the rename.'''
     version_dir = os.path.dirname(os.path.abspath(config_path))
     path = os.path.join(version_dir, PARAMETERISATIONS_DIR)
-    legacy = os.path.join(version_dir, INSTANCES_DIR)
-    if not os.path.isdir(path) and os.path.isdir(legacy):
-        return legacy
+    old = os.path.join(version_dir, OLD_PARAMETERISATIONS_DIR)
+    if not os.path.isdir(path) and os.path.isdir(old):
+        raise ValueError(f'{old} has the older name of {PARAMETERISATIONS_DIR}/, which libcuflynx '
+                         f'no longer reads: rename it {path}.')
     return path
 
 
 def parameterisation_parameters_path(config_path, name):
-    '''``<config dir>/parameterisations/<name>/<name>_parameters.csv`` (or under
-    ``instances/``, see ``parameterisations_dir``)'''
+    '''``<config dir>/parameterisations/<name>/<name>_parameters.csv``'''
     return os.path.join(parameterisations_dir(config_path), name, f'{name}_parameters.csv')
 
 
 def available_parameterisations(config_path):
     '''The parameterisations next to the config at ``config_path``: the subdirectories of
-    ``parameterisations/`` (or ``instances/``) that hold a ``<name>_parameters.csv``, sorted.'''
+    ``parameterisations/`` that hold a ``<name>_parameters.csv``, sorted.'''
     root = parameterisations_dir(config_path)
     if not os.path.isdir(root):
         return []
@@ -165,7 +142,7 @@ def read_parameter_rows(path, where, what='parameters file'):
 
 
 def _entry_label(entry):
-    return f'({entry.get("vessel_type")}, {entry.get("BC_type")})'
+    return f'({entry.get("module_type")}, {entry.get("module_subtype")})'
 
 
 def parameterisation_rows(entry, parameterisation, where):
@@ -204,7 +181,7 @@ def parameterisation_rows(entry, parameterisation, where):
     if not os.path.isdir(parameterisations_dir(config_path)):
         raise ValueError(
             f'{where}: names parameterisation "{parameterisation}" of {label}, but its module config '
-            f'{config_path} has no {PARAMETERISATIONS_DIR}/ (or older {INSTANCES_DIR}/) '
+            f'{config_path} has no {PARAMETERISATIONS_DIR}/ '
             f'directory next to it, so {label} has no parameterisations. Parameterisations '
             f'live in {version_dir}/{PARAMETERISATIONS_DIR}/<name>/<name>_parameters.csv.')
     path = parameterisation_parameters_path(config_path, parameterisation)
@@ -294,7 +271,7 @@ def component_parameterisation_rows(records, component_registry, source=None, se
     '''
     The parameterisation rows of every record in ``records`` (the normalised records of an
     expanded module array, whose parameterisation is in ``record["parameterisation"]``) whose
-    (vessel_type, BC_type) is in ``component_registry`` (see
+    (module_type, module_subtype) is in ``component_registry`` (see
     ``config_schemas.load_component_registry``), in record order: each row ``{var}`` renamed
     to ``{var}_{record name}``, or kept if ``var`` is a global constant of the module.
 
@@ -310,7 +287,7 @@ def component_parameterisation_rows(records, component_registry, source=None, se
     check_here = settings is None
     settings = [] if check_here else settings
     for record in records:
-        key = (record['vessel_type'], record['BC_type'])
+        key = (record['module_type'], record['module_subtype'])
         where = f'{source}: "{record["name"]}" {key}'
         parameterisation = record_parameterisation(record, where)
         entry = component_registry.get(key)

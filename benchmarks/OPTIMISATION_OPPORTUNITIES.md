@@ -27,14 +27,14 @@ integration itself; items 3-4 are the worthwhile Python-side wins; item 5 is the
 evaluations in a full GA run integrates 22 s of model time, of which 20 s is unlogged warmup
 discarded before the observables are computed.
 
-**`offline_pre_time` does not currently help.** It is documented as an offline warmup reused across
-evaluations, and the backend primitive works (`run_offline_pre_and_set_default_state`, now covered
-by tests), but `paramID.py` deliberately **folds it into `pre_time`** rather than running it once:
-freezing one offline state made every evaluation start from the steady state of the *initial*
-parameter guess, biasing the cost surface, and silently dropped the d(steady state)/d(p) term from
-the gradient — invisible to AD-vs-FD checks, since both perturb the same frozen state. Reinstating
-a correct offline optimisation is issue #269. Until that lands, setting `offline_pre_time: X`
-during calibration *adds* X to `pre_time` and makes every evaluation **slower**.
+**`offline_pre_time` runs once.** `paramID.py` integrates it a single time, before the first
+evaluation (`run_offline_pre_and_set_default_state`), and every evaluation starts its own `pre_time`
+from that state. Moving most of a long warmup into `offline_pre_time` therefore removes it from
+every evaluation; the per-evaluation `pre_time` only has to cover the re-settling the trial
+parameters need. It is refused when a calibration parameter sets a state's initial value
+(`OFFLINE_PRE_TIME_INIT_STATE_ERROR`), because a frozen state would not move with that parameter
+and its gradient would drop the d(steady state)/d(p) term (issue #269). How long the per-evaluation
+`pre_time` must be still depends on the parameters, which is what the next paragraph measures.
 
 **How much warmup is actually needed varies enormously with the parameters.** Measured on
 `aortic_root/u`, as the deviation of each cardiac cycle from the final cycle (1% threshold):

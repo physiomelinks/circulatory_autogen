@@ -1,5 +1,5 @@
 '''
-``cuflynx-migrate-parameter-names``: rewrite parameter names written ``{variable}_{vessel}`` as
+``cuflynx-upgrade parameter-names``: rewrite parameter names written ``{variable}_{vessel}`` as
 ``<vessel>/<variable>`` (see ``utilities/parameter_names.py``).
 
 Two kinds of file:
@@ -7,7 +7,7 @@ Two kinds of file:
 * a host parameters file, with ``--module-array <prefix>_module_array.json|csv``: each name
   ``{var}_{vessel}`` of a vessel in the (expanded) module array becomes ``<vessel>/<var>``,
   written ``<record>/<submodule>/<var>`` for a supermodule's expanded vessel;
-* a supermodule's parameterisation files and default_parameters, with ``--supermodule-config
+* a supermodule's parameterisation files, with ``--supermodule-config
   <its *_modules_config.json>``: ``{var}_{sub}`` becomes ``<sub>/<var>``, and
   ``<sub>/<subsub>/<var>`` for a nested submodule.
 
@@ -30,16 +30,16 @@ from libcuflynx.utilities.config_schemas import (is_supermodule_entry, load_comp
 from libcuflynx.utilities.parameterisations import (available_parameterisations,
                                                     parameterisation_parameters_path)
 from libcuflynx.utilities.module_library import ModuleSources
-from libcuflynx.utilities.parameter_names import SEPARATOR
+from libcuflynx.utilities.parameter_names import SEPARATOR, flat_name
 from libcuflynx.utilities.supermodules import submodule_path_parts
 
 EPILOG = (
     "Not a pipeline stage: it does not read user_inputs.yaml. Give the files' module array or\n"
     "supermodule config, and the module libraries their modules come from.\n"
     "\n"
-    "  cuflynx-migrate-parameter-names --module-array resources/m_module_array.json \\\n"
+    "  cuflynx-upgrade parameter-names --module-array resources/m_module_array.json \\\n"
     "      --module-library-dir ../circulatory-autogen-modules/modules\n"
-    "  cuflynx-migrate-parameter-names --supermodule-config \\\n"
+    "  cuflynx-upgrade parameter-names --supermodule-config \\\n"
     "      modules/heart/versions/v1/heart_v1_modules_config.json --module-library-dir modules\n"
     "\n"
     "--dry-run prints the changes without writing them."
@@ -108,17 +108,18 @@ def host_places(module_array, config_files):
     components = load_component_registry(config_files)
     written = {}
     for record in read_module_array_records(module_array):
-        entry = supermodules.get((record['vessel_type'], record['BC_type']))
+        entry = supermodules.get((record['module_type'], record['module_subtype']))
         if entry is None:
             written[record['name']] = record['name']
             continue
         for parts in submodule_path_parts(entry, supermodules):
-            written['_'.join((record['name'],) + parts)] = SEPARATOR.join(
-                (record['name'],) + parts)
+            for joined in (flat_name((record['name'],) + parts),
+                           '_'.join((record['name'],) + parts)):  # current and older joins
+                written.setdefault(joined, SEPARATOR.join((record['name'],) + parts))
     records, _ = load_expanded_vessel_records(module_array, supermodules, components)
     variables = {}
     for record in records:
-        entry = components.get((record['vessel_type'], record['BC_type']))
+        entry = components.get((record['module_type'], record['module_subtype']))
         variables[record['name']] = _variables(entry) if entry else {}
         written.setdefault(record['name'], record['name'])
     places = {name: written[name] for name in variables}
@@ -134,11 +135,11 @@ def supermodule_places(entry, config_files):
         container, leaf = entry, None
         for part in parts:
             leaf = next(s for s in container['submodules'] if s['name'] == part)
-            container = supermodules.get((leaf['vessel_type'], leaf['BC_type']), {})
-        component = components.get((leaf['vessel_type'], leaf['BC_type']))
-        joined = '_'.join(parts)
-        variables[joined] = _variables(component) if component else {}
-        places[joined] = SEPARATOR.join(parts)
+            container = supermodules.get((leaf['module_type'], leaf['module_subtype']), {})
+        component = components.get((leaf['module_type'], leaf['module_subtype']))
+        for joined in (flat_name(parts), '_'.join(parts)):  # current and older joins
+            variables.setdefault(joined, _variables(component) if component else {})
+            places.setdefault(joined, SEPARATOR.join(parts))
     return places, (lambda name: variables.get(name, {}))
 
 
@@ -152,17 +153,14 @@ def supermodule_files(config_path):
     entry = dict(entries[0], config_path=os.path.abspath(config_path))
     files = [parameterisation_parameters_path(config_path, name)
              for name in available_parameterisations(config_path)]
-    if entry.get('default_parameters'):
-        files.append(os.path.join(os.path.dirname(os.path.abspath(config_path)),
-                                  entry['default_parameters']))
     return entry, files
 
 
 def build_parser():
     parser = argparse.ArgumentParser(
+        prog='cuflynx-upgrade parameter-names',
         description='Rewrite {variable}_{vessel} parameter names as <vessel>/<variable>, in a '
-                    'host parameters file or in a supermodule\'s parameterisation and default '
-                    'parameters files.',
+                    'host parameters file or in a supermodule\'s parameterisation files.',
         epilog=EPILOG, formatter_class=argparse.RawDescriptionHelpFormatter)
     kind = parser.add_mutually_exclusive_group(required=True)
     kind.add_argument('--module-array', help='the host model\'s module array')
@@ -208,15 +206,14 @@ def run(args):
 
 def _host_parameters(module_array):
     directory, name = os.path.split(module_array)
-    for suffix in ('_module_array.json', '_module_array.csv', '_vessel_array.json',
-                   '_vessel_array.csv'):
+    for suffix in ('_module_array.json', '_module_array.csv'):
         if name.endswith(suffix):
             return os.path.join(directory, name[:-len(suffix)] + '_parameters.csv')
     raise ValueError(f'{module_array}: not a <prefix>_module_array file; give --parameters')
 
 
 def main(argv=None):
-    """Entry point for the ``cuflynx-migrate-parameter-names`` command."""
+    """``cuflynx-upgrade parameter-names``."""
     args = build_parser().parse_args(argv)
     return run(args)
 

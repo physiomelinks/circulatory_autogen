@@ -81,7 +81,7 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
         nameV = vess[i]['name']
 
         #XXX TODO improve this code below to differentiate between arterial and venous vessels, 
-        # assuming that we do not have a 'vessel_type' in the CA module array file that can tell us this information
+        # assuming that we do not have a 'module_type' in the CA module array file that can tell us this information
         if nameV.startswith(("A_","a_")) or any(sub in nameV for sub in ("art", "Art", "aort", "Aort")):
             vess[i]['type'] = 1 # artery
         elif nameV.startswith(("V_","v_")) or any(sub in nameV for sub in ("ven", "Ven", "vein", "Vein")):
@@ -212,8 +212,8 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
                     conn1d0d_found = True
                     break
             
-            inp_vess = df_vess.at[i,'inp_vessels']
-            out_vess = df_vess.at[i,'out_vessels']
+            inp_vess = df_vess.at[i,'inp_instances']
+            out_vess = df_vess.at[i,'out_instances']
 
             if conn1d0d_found:
                 for j in range(len(inp_vess)):
@@ -222,7 +222,7 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
                     for k in range(nV):
                         if vess[k]['name']==nameV2:
                             print(f"Another 1D vessel found in hybrid connection: {nameV2}")
-                            if nameV in df_vess.at[k,'out_vessels']:
+                            if nameV in df_vess.at[k,'out_instances']:
                                 vess[k]['n2'] = iN
                                 iV2 = vess[k]['id']
                                 nodes[iN]['vess_list'].append(iV2)
@@ -266,8 +266,8 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
                             search_vess = inp_vess[j]
                             for k in range(nV):
                                 nameV2 = df_vess.at[k]['name'] # vess[k]['name']
-                                inp_vess2 = df_vess.at[k,'inp_vessels']
-                                out_vess2 = df_vess.at[k,'out_vessels']
+                                inp_vess2 = df_vess.at[k,'inp_instances']
+                                out_vess2 = df_vess.at[k,'out_instances']
                                 if nameV2 == search_vess: 
                                     for h in range(len(nameVJ_list)):
                                         if (nameVJ_list[h]!=nameV2 and nameVJ_list[h] in inp_vess2):
@@ -277,8 +277,8 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
                                                 nameV3 = inp_vess2[p]
                                                 iV3 = [kk for kk in range(nV) if vess[kk]['name']==nameV3][0]
                                                 if nameV3 not in nameVJ_list:
-                                                    inp_vess3 = df_vess.at[iV3,'inp_vessels']
-                                                    out_vess3 = df_vess.at[iV3,'out_vessels']
+                                                    inp_vess3 = df_vess.at[iV3,'inp_instances']
+                                                    out_vess3 = df_vess.at[iV3,'out_instances']
                                                     if any(x in nameVJ_list for x in inp_vess3):
                                                         vess[iV3]['n1'] = iN
                                                     elif any(x in nameVJ_list for x in out_vess3):
@@ -296,8 +296,8 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
                                                 nameV3 = out_vess2[p]
                                                 iV3 = [kk for kk in range(nV) if vess[kk]['name']==nameV3][0]
                                                 if nameV3 not in nameVJ_list:
-                                                    inp_vess3 = df_vess.at[iV3,'inp_vessels']
-                                                    out_vess3 = df_vess.at[iV3,'out_vessels']
+                                                    inp_vess3 = df_vess.at[iV3,'inp_instances']
+                                                    out_vess3 = df_vess.at[iV3,'out_instances']
                                                     if any(x in nameVJ_list for x in inp_vess3):
                                                         vess[iV3]['n1'] = iN
                                                     elif any(x in nameVJ_list for x in out_vess3):
@@ -331,8 +331,8 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
                     conn1d0d_found = True
                     break
 
-            inp_vess = df_vess.at[i,'inp_vessels']
-            out_vess = df_vess.at[i,'out_vessels']
+            inp_vess = df_vess.at[i,'inp_instances']
+            out_vess = df_vess.at[i,'out_instances']
 
             if conn1d0d_found:
                 for j in range(len(out_vess)):
@@ -341,7 +341,7 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
                     for k in range(nV):
                         if vess[k]['name']==nameV2:
                             print(f"Another 1D vessel found in hybrid connection: {nameV2}")
-                            if nameV in df_vess.at[k,'inp_vessels']:
+                            if nameV in df_vess.at[k,'inp_instances']:
                                 vess[k]['n1'] = iN
                                 iV2 = vess[k]['id']
                                 nodes[iN]['vess_list'].append(iV2)
@@ -385,8 +385,8 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
                             search_vess = out_vess[j]
                             for k in range(nV):
                                 nameV2 = vess[k]['name']
-                                inp_vess2 = df_vess.at[k,'inp_vessels']
-                                out_vess2 = df_vess.at[k,'out_vessels']
+                                inp_vess2 = df_vess.at[k,'inp_instances']
+                                out_vess2 = df_vess.at[k,'out_instances']
                                 if nameV2 == search_vess: 
                                     for h in range(len(nameVJ_list)):
                                         if (nameVJ_list[h]!=nameV2 and nameVJ_list[h] in inp_vess2):
@@ -396,8 +396,8 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
                                                 nameV3 = inp_vess2[p]
                                                 iV3 = [kk for kk in range(nV) if vess[kk]['name']==nameV3][0]
                                                 if nameV3 not in nameVJ_list:
-                                                    inp_vess3 = df_vess.at[iV3,'inp_vessels']
-                                                    out_vess3 = df_vess.at[iV3,'out_vessels']
+                                                    inp_vess3 = df_vess.at[iV3,'inp_instances']
+                                                    out_vess3 = df_vess.at[iV3,'out_instances']
                                                     if any(x in nameVJ_list for x in inp_vess3):
                                                         vess[iV3]['n1'] = iN
                                                     elif any(x in nameVJ_list for x in out_vess3):
@@ -415,8 +415,8 @@ def generate1DPythonModelFiles(df_vess, df_params, vess_file, nodes_file, names_
                                                 nameV3 = out_vess2[p]
                                                 iV3 = [kk for kk in range(nV) if vess[kk]['name']==nameV3][0]
                                                 if nameV3 not in nameVJ_list:
-                                                    inp_vess3 = df_vess.at[iV3,'inp_vessels']
-                                                    out_vess3 = df_vess.at[iV3,'out_vessels']
+                                                    inp_vess3 = df_vess.at[iV3,'inp_instances']
+                                                    out_vess3 = df_vess.at[iV3,'out_instances']
                                                     if any(x in nameVJ_list for x in inp_vess3):
                                                         vess[iV3]['n1'] = iN
                                                     elif any(x in nameVJ_list for x in out_vess3):

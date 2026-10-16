@@ -34,6 +34,9 @@ def test_a_registry_change_is_reported_and_written(monkeypatch):
     assert not registries._apply(document, key[1], changed[key])
 
 
+_PROTOCOL = {'pre_times': [0.0], 'sim_times': [[1.0]]}
+
+
 def _item(**fields):
     return dict({'data_item_name': 'systolic', 'data_type': 'constant', 'unit': 'Pa',
                  'operands': ['aorta/u'], 'operation': 'max', 'value': 1.0, 'std': 0.1},
@@ -42,7 +45,8 @@ def _item(**fields):
 
 @pytest.mark.unit
 def test_a_problem_is_named_by_where_it_is_and_what_the_field_is_for():
-    doc = {'data_items': [_item(), _item(data_item_name='mean', value=[1.0, 2.0])]}
+    doc = {'protocol_info': _PROTOCOL,
+           'data_items': [_item(), _item(data_item_name='mean', value=[1.0, 2.0])]}
     with pytest.raises(SchemaValidationError) as excinfo:
         validate(OBS_DATA_SCHEMA, doc, source='aorta_obs_data.json', what='obs_data file')
     message = str(excinfo.value)
@@ -57,14 +61,15 @@ def test_a_problem_is_named_by_where_it_is_and_what_the_field_is_for():
 
 @pytest.mark.unit
 def test_a_document_built_in_python_is_checked_as_its_json_would_be():
-    validate(OBS_DATA_SCHEMA, {'data_items': [
+    validate(OBS_DATA_SCHEMA, {'protocol_info': _PROTOCOL,
+                               'data_items': [
         _item(data_type='series', operation=None, value=np.array([1.0, 2.0]),
               std=np.float64(0.1), obs_dt=np.float32(0.5), experiment_idx=np.int64(0))]})
 
 
 @pytest.mark.unit
 def test_every_problem_is_counted_and_the_first_ones_listed():
-    doc = {'data_items': [_item(data_item_name=f'i{n}', colour='red')
+    doc = {'protocol_info': _PROTOCOL, 'data_items': [_item(data_item_name=f'i{n}', colour='red')
                           for n in range(MAX_LISTED + 3)]}
     with pytest.raises(SchemaValidationError) as excinfo:
         validate(OBS_DATA_SCHEMA, doc)
@@ -102,7 +107,7 @@ def test_a_module_config_the_schema_refuses_is_refused_on_load(entry, message):
 @pytest.mark.unit
 def test_a_document_that_passed_is_not_checked_again_but_an_edited_one_is(monkeypatch):
     from libcuflynx.schemas import validation
-    doc = {'data_items': [_item(data_item_name='cached')]}
+    doc = {'protocol_info': _PROTOCOL, 'data_items': [_item(data_item_name='cached')]}
     validate(OBS_DATA_SCHEMA, doc)
     calls = []
     monkeypatch.setattr(validation, 'problems',
@@ -133,7 +138,8 @@ def test_without_jsonschema_files_still_load_with_a_warning(monkeypatch):
     validation.jsonschema_available.cache_clear()
     try:
         with pytest.warns(UserWarning, match='does not import .FileNotFoundError'):
-            validate(OBS_DATA_SCHEMA, {'data_items': [_item(colour='red')]})
+            validate(OBS_DATA_SCHEMA, {'protocol_info': _PROTOCOL,
+                                       'data_items': [_item(colour='red')]})
     finally:
         validation.jsonschema_available.cache_clear()
 
@@ -141,14 +147,16 @@ def test_without_jsonschema_files_still_load_with_a_warning(monkeypatch):
 @pytest.mark.unit
 def test_a_numpy_value_is_not_taken_for_its_string_spelling():
     """np.int64(0) and "0" must not share a cache entry: the second is not a valid index."""
-    validate(OBS_DATA_SCHEMA, {'data_items': [_item(experiment_idx=np.int64(0))]})
+    validate(OBS_DATA_SCHEMA, {'protocol_info': _PROTOCOL,
+                               'data_items': [_item(experiment_idx=np.int64(0))]})
     with pytest.raises(SchemaValidationError, match='experiment_idx'):
-        validate(OBS_DATA_SCHEMA, {'data_items': [_item(experiment_idx='0')]})
+        validate(OBS_DATA_SCHEMA, {'protocol_info': _PROTOCOL,
+                                   'data_items': [_item(experiment_idx='0')]})
 
 
 @pytest.mark.unit
 def test_problems_are_listed_in_document_order():
-    doc = {'data_items': [_item(data_item_name=f'i{n}', **({'colour': 'r'} if n in (2, 10) else {}))
+    doc = {'protocol_info': _PROTOCOL, 'data_items': [_item(data_item_name=f'i{n}', **({'colour': 'r'} if n in (2, 10) else {}))
                           for n in range(11)]}
     with pytest.raises(SchemaValidationError) as excinfo:
         validate(OBS_DATA_SCHEMA, doc)

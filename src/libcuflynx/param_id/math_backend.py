@@ -23,7 +23,7 @@ def bind_backend(func, backend):
     """Wrap ``func`` so it runs with its module's ``mb`` global temporarily set to ``backend``.
 
     The built-in / user / external operation and cost funcs dispatch through a *module-level*
-    ``mb`` math backend, and each ``register_*`` hook rebinds that global. When two registries for
+    ``mb`` math backend (numpy unless a call is bound otherwise). When two registries for
     different backends must coexist -- e.g. a ``casadi_python`` model needs casadi-mode funcs for
     the AD path AND numpy-mode funcs for the numeric (gradient-free) cost path -- building the
     second registry would otherwise silently change the backend of the first, so numpy operands

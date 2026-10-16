@@ -263,11 +263,11 @@ def test_clear_run_history_removes_the_transient_files_and_keeps_the_results(tmp
 
 
 @pytest.mark.unit
-def test_run_UQ_exists_and_run_mcmc_is_kept_as_an_alias():
+def test_run_UQ_exists():
     from libcuflynx.param_id.paramID import CVS0DParamID, MCMC
 
     assert callable(CVS0DParamID.run_UQ)
-    assert callable(CVS0DParamID.run_mcmc)
+    assert not hasattr(CVS0DParamID, 'run_mcmc')
     # the behavioural half of the ask: UQ can adopt an already-built engine
     assert callable(MCMC.from_param_id)
     assert callable(MCMC._init_mcmc)

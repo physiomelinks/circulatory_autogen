@@ -1,4 +1,4 @@
-name,BC_type,vessel_type,inp_vessels,out_vessels
+name,module_subtype,module_type,inp_instances,out_instances
 par,                     vp, arterial_simple,    heart,                              pcap
 pcap,                    vp, arterial_simple,    par,                                pvn pulmonary_GE
 pulmonary_GE,            nn, pulmonary_GE,       pcap venous_gas_transport,          arterial_gas_transport  respiratory_gt             

@@ -1,10 +1,10 @@
 [
     {
-        "vessel_type":"inlet_flow",
-        "BC_type":"nn_adan",
+        "module_type":"inlet_flow",
+        "module_subtype":"nn_adan",
         "module_format":"cellml",
-        "module_file":"open_loop_modules.cellml",
-        "module_type":"adan_flow_fourier_BC_type",
+        "component_file":"open_loop_modules.cellml",
+        "component_type":"adan_flow_fourier_BC_type",
         "entrance_ports":
         [
         ],
@@ -23,11 +23,11 @@
         ]
     },
     {
-        "vessel_type":"inlet_flow",
-        "BC_type":"nn_adan_2",
+        "module_type":"inlet_flow",
+        "module_subtype":"nn_adan_2",
         "module_format":"cellml",
-        "module_file":"open_loop_modules.cellml",
-        "module_type":"adan_flow_interp_BC_type",
+        "component_file":"open_loop_modules.cellml",
+        "component_type":"adan_flow_interp_BC_type",
         "entrance_ports":
         [
         ],
@@ -46,11 +46,11 @@
         ]
     },
     {
-        "vessel_type":"inlet_flow",
-        "BC_type":"nn_aorticbif",
+        "module_type":"inlet_flow",
+        "module_subtype":"nn_aorticbif",
         "module_format":"cellml",
-        "module_file":"open_loop_modules.cellml",
-        "module_type":"aorticbif_flow_BC_type",
+        "component_file":"open_loop_modules.cellml",
+        "component_type":"aorticbif_flow_BC_type",
         "entrance_ports":
         [
         ],
@@ -69,11 +69,11 @@
         ]
     },
     {
-      "vessel_type":"terminalOL",
-      "BC_type":"pp_controller",
+      "module_type":"terminalOL",
+      "module_subtype":"pp_controller",
       "module_format":"cellml",
-      "module_file":"open_loop_modules.cellml",
-      "module_type":"controller_OL_type",
+      "component_file":"open_loop_modules.cellml",
+      "component_type":"controller_OL_type",
       "entrance_ports":
       [
         {
@@ -118,11 +118,11 @@
       ]
     },
     {
-      "vessel_type":"terminalOL",
-      "BC_type":"pp_wFB",
+      "module_type":"terminalOL",
+      "module_subtype":"pp_wFB",
       "module_format":"cellml",
-      "module_file":"open_loop_modules.cellml",
-      "module_type":"pp_T_OL_wFB_type",
+      "component_file":"open_loop_modules.cellml",
+      "component_type":"pp_T_OL_wFB_type",
       "entrance_ports":
       [
         {

@@ -1,10 +1,10 @@
 [
     {
-        "vessel_type":"test_units",
-        "BC_type":"nn",
-        "module_format":"cellml",
-        "module_file":"test_modules.cellml",
         "module_type":"test_units",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"test_modules.cellml",
+        "component_type":"test_units",
         "entrance_ports":
         [
         ],
@@ -17,11 +17,11 @@
         ]
     },
     {
-        "vessel_type":"vessel_type_test1",
-        "BC_type":"nn",
+        "module_type":"vessel_type_test1",
+        "module_subtype":"nn",
         "module_format":"cellml",
-        "module_file":"test_modules.cellml",
-        "module_type":"vessel_type1_type",
+        "component_file":"test_modules.cellml",
+        "component_type":"vessel_type1_type",
         "entrance_ports": [],
         "exit_ports":
         [
@@ -56,11 +56,11 @@
         ]
     },
     {
-        "vessel_type":"vessel_type_test2",
-        "BC_type":"nn",
+        "module_type":"vessel_type_test2",
+        "module_subtype":"nn",
         "module_format":"cellml",
-        "module_file":"test_modules.cellml",
-        "module_type":"vessel_type2_type",
+        "component_file":"test_modules.cellml",
+        "component_type":"vessel_type2_type",
         "entrance_ports": 
         [
           {
@@ -96,11 +96,11 @@
         ]
     },
     {
-        "vessel_type":"init_states_test",
-        "BC_type":"nn",
+        "module_type":"init_states_test",
+        "module_subtype":"nn",
         "module_format":"cellml",
-        "module_file":"test_modules.cellml",
-        "module_type":"init_states_test_type",
+        "component_file":"test_modules.cellml",
+        "component_type":"init_states_test_type",
         "entrance_ports": [],
         "exit_ports": [],
         "general_ports": [],

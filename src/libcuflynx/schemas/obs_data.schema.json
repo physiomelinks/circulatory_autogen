@@ -2,44 +2,113 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/physiomelinks/circulatory_autogen/schemas/obs_data.schema.json",
   "title": "libcuflynx obs_data file (<name>_obs_data.json)",
-  "description": "The data a calibration is scored against, its protocol, and the outputs to predict: an object with data_items, protocol_info and prediction_items, and an optional obs_data_name; or (legacy) a bare list of data items. Other top-level keys are ignored. Read by ObsAndParamDataParser.parse_obs_data_json (libcuflynx/parsers/PrimitiveParsers.py); vocabularies in libcuflynx/utilities/obs_data_helpers.py. The parser fills the defaults given here and refuses unknown keys in items and protocol_info.",
-  "oneOf": [
-    {
-      "type": "object",
-      "properties": {
-        "obs_data_name": {
-          "type": "string",
-          "pattern": "\\S",
-          "description": "The name of this obs_data set. In a module library, parameterisations/<name>/<name>_obs_data.json (instances/<name>/ in older libraries) must set it to <name> (a different or missing name is warned about). Default: none."
-        },
-        "data_items": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/dataItem"
-          },
-          "description": "The observations a model is scored against. Default: none (a protocol-only file)."
-        },
-        "prediction_items": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/predictionItem"
-          },
-          "description": "Outputs to record and plot, not scored in the calibration; with a value they are held-out validation data. Default: none."
-        },
-        "protocol_info": {
-          "$ref": "#/$defs/protocolInfo"
-        }
-      }
+  "description": "The data a calibration is scored against, its protocol, and the outputs to predict: an object with protocol_info (required), data_items and prediction_items, and an optional obs_data_name. Other top-level keys are ignored. Read by ObsAndParamDataParser.parse_obs_data_json (libcuflynx/parsers/PrimitiveParsers.py); vocabularies in libcuflynx/utilities/obs_data_helpers.py. The parser fills the defaults given here and refuses unknown keys in items and protocol_info.",
+  "type": "object",
+  "properties": {
+    "obs_data_name": {
+      "type": "string",
+      "pattern": "\\S",
+      "description": "The name of this obs_data set. In a module library, parameterisations/<name>/<name>_obs_data.json must set it to <name> (a different or missing name is warned about). Default: none."
     },
-    {
+    "data_items": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/dataItem"
       },
-      "description": "Legacy: a bare list of data items, simulated as one experiment of pre_time then sim_time from user_inputs.yaml."
+      "description": "The observations a model is scored against. Default: none (a protocol-only file)."
+    },
+    "prediction_items": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/predictionItem"
+      },
+      "description": "Outputs to record and plot, not scored in the calibration; with a value they are held-out validation data. Default: none."
+    },
+    "protocol_info": {
+      "$ref": "#/$defs/protocolInfo"
+    },
+    "prediction_plots": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/prediction_plot"
+      },
+      "description": "figures of a scalar feature against another feature or an input, across experiments (libcuflynx.param_id.prediction_plots); drawn by save_prediction_data and cuflynx-run-predictions"
     }
+  },
+  "required": [
+    "protocol_info"
   ],
   "$defs": {
+    "prediction_plot": {
+      "type": "object",
+      "description": "one figure. A group is the data_items and prediction_items sharing an item_name_for_plotting, at most one per experiment; a point is one experiment",
+      "required": [
+        "name",
+        "kind",
+        "x",
+        "y"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "\\S",
+          "description": "figure title and file stem; unique"
+        },
+        "kind": {
+          "enum": [
+            "feature_vs_feature",
+            "feature_vs_input"
+          ],
+          "description": "feature_vs_feature: y against another group; feature_vs_input: y against a value params_to_change sets"
+        },
+        "y": {
+          "type": "string",
+          "description": "the group on the y-axis"
+        },
+        "x": {
+          "description": "feature_vs_feature: a group; feature_vs_input: the number params_to_change sets in that sub-experiment",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/input_reference"
+            }
+          ]
+        },
+        "series": {
+          "description": "one line per distinct value of this input",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/input_reference"
+            }
+          ]
+        }
+      }
+    },
+    "input_reference": {
+      "type": "object",
+      "required": [
+        "params_to_change",
+        "subexperiment_idx"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "params_to_change": {
+          "type": "string",
+          "description": "the params_to_change key (a model parameter) whose value is used"
+        },
+        "subexperiment_idx": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "the sub-experiment whose value is used"
+        }
+      }
+    },
     "dataItem": {
       "type": "object",
       "description": "One observation the model is scored against. Unknown keys are refused. Checked by ObsAndParamDataParser.parse_obs_data_json (libcuflynx/parsers/PrimitiveParsers.py); it also checks what JSON Schema cannot: names unique across data_items and prediction_items, operation_kwargs references, a series std as long as its value, experiment indices in range.",
@@ -863,7 +932,11 @@
           },
           "description": "{name: shape}: the same inputs written as Myokit-style events or a ramp, expanded into protocol_traces on read. A name is defined in one of the two. Default: {}."
         }
-      }
+      },
+      "required": [
+        "pre_times",
+        "sim_times"
+      ]
     },
     "shape": {
       "description": "A waveform written as Myokit-style events (type \"pacing\", the default) or a linear sweep (type \"ramp\"). A bare list is read as {\"events\": list}. Expanded into protocol_traces over the sub-experiment that uses it (libcuflynx/utilities/protocol_shapes.py).",

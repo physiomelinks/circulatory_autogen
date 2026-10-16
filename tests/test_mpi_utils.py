@@ -289,16 +289,12 @@ def test_no_module_imports_mpi4py_at_module_scope():
     behind in sensitivity_analysis_run_script.py. Nothing here is subtle enough
     to warrant catching by hand on review.
 
-    Only ``obsolete/`` is exempt, because it is not on any run path.
-    ``generate_omex_analysis_script.py`` used to be too -- it matched inside the
-    *text of a script it generates* -- but #435 made that generated script take
-    its MPI from ``get_MPI()`` as well, after the sys.path bootstrap that makes
-    libcuflynx importable. So the scan now covers generated scripts, and the last
-    place mpi4py could be a hard requirement is gone.
+    The scan covers generated scripts too: they take their MPI from ``get_MPI()``
+    after the sys.path bootstrap that makes libcuflynx importable.
     """
     offenders = []
     for dirpath, dirnames, filenames in os.walk(SRC):
-        dirnames[:] = [d for d in dirnames if d not in ('obsolete', '__pycache__')]
+        dirnames[:] = [d for d in dirnames if d != '__pycache__']
         for name in filenames:
             if not name.endswith('.py'):
                 continue

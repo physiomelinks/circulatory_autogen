@@ -1,10 +1,10 @@
 [
   {
-    "vessel_type": "arterial_simple",
-    "BC_type": "vp",
+    "module_type": "arterial_simple",
+    "module_subtype": "vp",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vp_simple_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vp_simple_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -118,11 +118,11 @@
     ]
   },
   {
-    "vessel_type": "arterial_simple",
-    "BC_type": "vp_nonlinear",
+    "module_type": "arterial_simple",
+    "module_subtype": "vp_nonlinear",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vp_simple_nonlinear_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vp_simple_nonlinear_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -254,11 +254,11 @@
     ]
   },
   {
-    "vessel_type": "arterial",
-    "BC_type": "vp",
+    "module_type": "arterial",
+    "module_subtype": "vp",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vp_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vp_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -426,11 +426,11 @@
     ]
   },
   {
-    "vessel_type": "arterial_simple",
-    "BC_type": "pv",
+    "module_type": "arterial_simple",
+    "module_subtype": "pv",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pv_simple_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pv_simple_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -544,11 +544,11 @@
     ]
   },
   {
-    "vessel_type": "arterial",
-    "BC_type": "pv",
+    "module_type": "arterial",
+    "module_subtype": "pv",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pv_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pv_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -727,11 +727,11 @@
     ]
   },
   {
-    "vessel_type": "arterial_simple",
-    "BC_type": "pp",
+    "module_type": "arterial_simple",
+    "module_subtype": "pp",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pp_simple_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pp_simple_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -851,11 +851,11 @@
     ]
   },
   {
-    "vessel_type": "arterial_simple_novisco",
-    "BC_type": "pp",
+    "module_type": "arterial_simple_novisco",
+    "module_subtype": "pp",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pp_simple_novisco_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pp_simple_novisco_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -987,11 +987,11 @@
     ]
   },
   {
-    "vessel_type": "arterial",
-    "BC_type": "pp",
+    "module_type": "arterial",
+    "module_subtype": "pp",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pp_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pp_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -1171,11 +1171,11 @@
     ]
   },
   {
-    "vessel_type": "arterial_simple",
-    "BC_type": "vv",
+    "module_type": "arterial_simple",
+    "module_subtype": "vv",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_simple_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_simple_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -1313,11 +1313,11 @@
     ]
   },
   {
-    "vessel_type": "rigid_vessel",
-    "BC_type": "vv",
+    "module_type": "rigid_vessel",
+    "module_subtype": "vv",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_rigid_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_rigid_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -1365,11 +1365,11 @@
     ]
   },
   {
-    "vessel_type": "arterial",
-    "BC_type": "vv",
+    "module_type": "arterial",
+    "module_subtype": "vv",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -1561,11 +1561,11 @@
     ]
   },
   {
-    "vessel_type": "terminal",
-    "BC_type": "pp",
+    "module_type": "terminal",
+    "module_subtype": "pp",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pp_T_fixed_I_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pp_T_fixed_I_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -1673,11 +1673,11 @@
     ]
   },
   {
-    "vessel_type": "terminal",
-    "BC_type": "pp_spec_I",
+    "module_type": "terminal",
+    "module_subtype": "pp_spec_I",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pp_T_spec_I_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pp_T_spec_I_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -1791,11 +1791,11 @@
     ]
   },
   {
-    "vessel_type": "terminal",
-    "BC_type": "pp_RCR_wCont",
+    "module_type": "terminal",
+    "module_subtype": "pp_RCR_wCont",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pp_T_RCR_wCont_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pp_T_RCR_wCont_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -1915,11 +1915,11 @@
     ]
   },
   {
-    "vessel_type": "terminal",
-    "BC_type": "pp_RICRI",
+    "module_type": "terminal",
+    "module_subtype": "pp_RICRI",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pp_T_RICRI_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pp_T_RICRI_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -2051,11 +2051,11 @@
     ]
   },
   {
-    "vessel_type": "terminal",
-    "BC_type": "pp_R1ICR2I",
+    "module_type": "terminal",
+    "module_subtype": "pp_R1ICR2I",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pp_T_R1ICR2I_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pp_T_R1ICR2I_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -2187,11 +2187,11 @@
     ]
   },
   {
-    "vessel_type": "terminal",
-    "BC_type": "pp_RICRI_nonlinear",
+    "module_type": "terminal",
+    "module_subtype": "pp_RICRI_nonlinear",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pp_T_RICRI_nonlinear_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pp_T_RICRI_nonlinear_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -2328,11 +2328,11 @@
     ]
   },
   {
-    "vessel_type": "single_terminal",
-    "BC_type": "vp_wCont",
+    "module_type": "single_terminal",
+    "module_subtype": "vp_wCont",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vp_T_wCont_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vp_T_wCont_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -2464,11 +2464,11 @@
     ]
   },
   {
-    "vessel_type": "single_terminal",
-    "BC_type": "vp_R1CR2_wCont",
+    "module_type": "single_terminal",
+    "module_subtype": "vp_R1CR2_wCont",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vp_T_R1CR2_wCont_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vp_T_R1CR2_wCont_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -2618,11 +2618,11 @@
     ]
   },
   {
-    "vessel_type": "single_terminal",
-    "BC_type": "vp_ZCIR_wCont",
+    "module_type": "single_terminal",
+    "module_subtype": "vp_ZCIR_wCont",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vp_T_ZCIR_wCont_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vp_T_ZCIR_wCont_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -2784,11 +2784,11 @@
     ]
   },
   {
-    "vessel_type": "single_terminal",
-    "BC_type": "vp_R1CR2_wI_wCont",
+    "module_type": "single_terminal",
+    "module_subtype": "vp_R1CR2_wI_wCont",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vp_T_R1CR2_wI_wCont_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vp_T_R1CR2_wI_wCont_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -2950,11 +2950,11 @@
     ]
   },
   {
-    "vessel_type": "single_terminal",
-    "BC_type": "vp_R1CR2_wI",
+    "module_type": "single_terminal",
+    "module_subtype": "vp_R1CR2_wI",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vp_T_R1CR2_wI_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vp_T_R1CR2_wI_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -3080,11 +3080,11 @@
     ]
   },
   {
-    "vessel_type": "terminal",
-    "BC_type": "pp_I",
+    "module_type": "terminal",
+    "module_subtype": "pp_I",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pp_T_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pp_T_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -3210,11 +3210,11 @@
     ]
   },
   {
-    "vessel_type": "terminal",
-    "BC_type": "pp_wCont",
+    "module_type": "terminal",
+    "module_subtype": "pp_wCont",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pp_T_wCont_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pp_T_wCont_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -3364,11 +3364,11 @@
     ]
   },
   {
-    "vessel_type": "terminal",
-    "BC_type": "pp_R1CR2_wCont",
+    "module_type": "terminal",
+    "module_subtype": "pp_R1CR2_wCont",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pp_T_R1CR2_wCont_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pp_T_R1CR2_wCont_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -3524,11 +3524,11 @@
     ]
   },
   {
-    "vessel_type": "terminal",
-    "BC_type": "pp_wLocal",
+    "module_type": "terminal",
+    "module_subtype": "pp_wLocal",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pp_T_wCont_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pp_T_wCont_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -3678,11 +3678,11 @@
     ]
   },
   {
-    "vessel_type": "terminal",
-    "BC_type": "pp_wCont_no_local",
+    "module_type": "terminal",
+    "module_subtype": "pp_wCont_no_local",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pp_T_wCont_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pp_T_wCont_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -3832,11 +3832,11 @@
     ]
   },
   {
-    "vessel_type": "split_junction",
-    "BC_type": "pv",
+    "module_type": "split_junction",
+    "module_subtype": "pv",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pv_split_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pv_split_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -4042,11 +4042,11 @@
     ]
   },
   {
-    "vessel_type": "split_junction_simple",
-    "BC_type": "pv",
+    "module_type": "split_junction_simple",
+    "module_subtype": "pv",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pv_split_simple_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pv_split_simple_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -4198,11 +4198,11 @@
     ]
   },
   {
-    "vessel_type": "merge_junction",
-    "BC_type": "vv",
+    "module_type": "merge_junction",
+    "module_subtype": "vv",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_merge_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_merge_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -4413,11 +4413,11 @@
     ]
   },
   {
-    "vessel_type": "merge_junction",
-    "BC_type": "vp",
+    "module_type": "merge_junction",
+    "module_subtype": "vp",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vp_merge_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vp_merge_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -4592,11 +4592,11 @@
     ]
   },
   {
-    "vessel_type": "venous_merge_junction",
-    "BC_type": "vp_nonlinear",
+    "module_type": "venous_merge_junction",
+    "module_subtype": "vp_nonlinear",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vp_merge_nonlinear_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vp_merge_nonlinear_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -4796,11 +4796,11 @@
     ]
   },
   {
-    "vessel_type": "merge_junction_simple",
-    "BC_type": "vp",
+    "module_type": "merge_junction_simple",
+    "module_subtype": "vp",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vp_merge_simple_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vp_merge_simple_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -4921,11 +4921,11 @@
     ]
   },
   {
-    "vessel_type": "venous_merge_junction_simple",
-    "BC_type": "vp",
+    "module_type": "venous_merge_junction_simple",
+    "module_subtype": "vp",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vp_merge_simple_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vp_merge_simple_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -5046,11 +5046,11 @@
     ]
   },
   {
-    "vessel_type": "merge_junction_simple",
-    "BC_type": "vv",
+    "module_type": "merge_junction_simple",
+    "module_subtype": "vv",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_merge_simple_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_merge_simple_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -5195,11 +5195,11 @@
     ]
   },
   {
-    "vessel_type": "venous_merge_junction_simple",
-    "BC_type": "vv",
+    "module_type": "venous_merge_junction_simple",
+    "module_subtype": "vv",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_merge_simple_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_merge_simple_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -5344,11 +5344,11 @@
     ]
   },
   {
-    "vessel_type": "split_junction",
-    "BC_type": "vv",
+    "module_type": "split_junction",
+    "module_subtype": "vv",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_split_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_split_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -5553,11 +5553,11 @@
     ]
   },
   {
-    "vessel_type": "split_junction",
-    "BC_type": "vv_novisco",
+    "module_type": "split_junction",
+    "module_subtype": "vv_novisco",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_split_novisco_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_split_novisco_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -5756,11 +5756,11 @@
     ]
   },
   {
-    "vessel_type": "split_junction_simple",
-    "BC_type": "vv",
+    "module_type": "split_junction_simple",
+    "module_subtype": "vv",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_split_simple_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_split_simple_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -5911,11 +5911,11 @@
     ]
   },
   {
-    "vessel_type": "venous_split_junction_simple",
-    "BC_type": "vv",
+    "module_type": "venous_split_junction_simple",
+    "module_subtype": "vv",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_split_simple_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_split_simple_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -6066,11 +6066,11 @@
     ]
   },
   {
-    "vessel_type": "2in2out_junction",
-    "BC_type": "vv",
+    "module_type": "2in2out_junction",
+    "module_subtype": "vv",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_2in2out_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_2in2out_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -6295,11 +6295,11 @@
     ]
   },
   {
-    "vessel_type": "venous",
-    "BC_type": "vp_woCont",
+    "module_type": "venous",
+    "module_subtype": "vp_woCont",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vp_simple_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vp_simple_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -6413,11 +6413,11 @@
     ]
   },
   {
-    "vessel_type": "venous_novisco",
-    "BC_type": "vp_woCont",
+    "module_type": "venous_novisco",
+    "module_subtype": "vp_woCont",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vp_simple_novisco_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vp_simple_novisco_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -6531,11 +6531,11 @@
     ]
   },
   {
-    "vessel_type": "venous",
-    "BC_type": "vp",
+    "module_type": "venous",
+    "module_subtype": "vp",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vp_ven_simple_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vp_ven_simple_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -6680,11 +6680,11 @@
     ]
   },
   {
-    "vessel_type": "venous_novisco",
-    "BC_type": "vp",
+    "module_type": "venous_novisco",
+    "module_subtype": "vp",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vp_ven_simple_novisco_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vp_ven_simple_novisco_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -6829,11 +6829,11 @@
     ]
   },
   {
-    "vessel_type": "venous",
-    "BC_type": "vp_wCont",
+    "module_type": "venous",
+    "module_subtype": "vp_wCont",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vp_ven_simple_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vp_ven_simple_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -7021,11 +7021,11 @@
     ]
   },
   {
-    "vessel_type": "venous",
-    "BC_type": "vp_nonlinear",
+    "module_type": "venous",
+    "module_subtype": "vp_nonlinear",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vp_nonlinear_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vp_nonlinear_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -7210,11 +7210,11 @@
     ]
   },
   {
-    "vessel_type": "venous",
-    "BC_type": "pv",
+    "module_type": "venous",
+    "module_subtype": "pv",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pv_simple_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pv_simple_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -7328,11 +7328,11 @@
     ]
   },
   {
-    "vessel_type": "venous",
-    "BC_type": "pp",
+    "module_type": "venous",
+    "module_subtype": "pp",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pp_simple_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pp_simple_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -7452,11 +7452,11 @@
     ]
   },
   {
-    "vessel_type": "venous",
-    "BC_type": "pp_nonlinear",
+    "module_type": "venous",
+    "module_subtype": "pp_nonlinear",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pp_nonlinear_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pp_nonlinear_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -7653,11 +7653,11 @@
     ]
   },
   {
-    "vessel_type": "venous",
-    "BC_type": "vv",
+    "module_type": "venous",
+    "module_subtype": "vv",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_simple_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_simple_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -7795,11 +7795,11 @@
     ]
   },
   {
-    "vessel_type": "flow_sum_2",
-    "BC_type": "nn",
+    "module_type": "flow_sum_2",
+    "module_subtype": "nn",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "flow_sum_2_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "flow_sum_2_type",
     "entrance_ports": [
       {
         "port_type": "flow_port",
@@ -7845,11 +7845,11 @@
     ]
   },
   {
-    "vessel_type": "terminal2",
-    "BC_type": "pp",
+    "module_type": "terminal2",
+    "module_subtype": "pp",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "W_controller2_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "W_controller2_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -7908,11 +7908,11 @@
     ]
   },
   {
-    "vessel_type": "arterial",
-    "BC_type": "pv_nonlinear_constR",
+    "module_type": "arterial",
+    "module_subtype": "pv_nonlinear_constR",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pv_nonlinear_constR_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pv_nonlinear_constR_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -8098,11 +8098,11 @@
     ]
   },
   {
-    "vessel_type": "arterial",
-    "BC_type": "pv_nonlinear",
+    "module_type": "arterial",
+    "module_subtype": "pv_nonlinear",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pv_nonlinear_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pv_nonlinear_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -8294,11 +8294,11 @@
     ]
   },
   {
-    "vessel_type": "arterial",
-    "BC_type": "pv_nonlinear_visco",
+    "module_type": "arterial",
+    "module_subtype": "pv_nonlinear_visco",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pv_nonlinear_visco_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pv_nonlinear_visco_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -8508,11 +8508,11 @@
     ]
   },
   {
-    "vessel_type": "arterial",
-    "BC_type": "vp_nonlinear_constR",
+    "module_type": "arterial",
+    "module_subtype": "vp_nonlinear_constR",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vp_nonlinear_constR_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vp_nonlinear_constR_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -8698,11 +8698,11 @@
     ]
   },
   {
-    "vessel_type": "arterial",
-    "BC_type": "vp_nonlinear",
+    "module_type": "arterial",
+    "module_subtype": "vp_nonlinear",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vp_nonlinear_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vp_nonlinear_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -8894,11 +8894,11 @@
     ]
   },
   {
-    "vessel_type": "arterial",
-    "BC_type": "vp_nonlinear_visco",
+    "module_type": "arterial",
+    "module_subtype": "vp_nonlinear_visco",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vp_nonlinear_visco_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vp_nonlinear_visco_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -9108,11 +9108,11 @@
     ]
   },
   {
-    "vessel_type": "arterial",
-    "BC_type": "pp_nonlinear_constR",
+    "module_type": "arterial",
+    "module_subtype": "pp_nonlinear_constR",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pp_nonlinear_constR_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pp_nonlinear_constR_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -9303,11 +9303,11 @@
     ]
   },
   {
-    "vessel_type": "arterial",
-    "BC_type": "pp_nonlinear",
+    "module_type": "arterial",
+    "module_subtype": "pp_nonlinear",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pp_nonlinear_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pp_nonlinear_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -9511,11 +9511,11 @@
     ]
   },
   {
-    "vessel_type": "arterial",
-    "BC_type": "pp_nonlinear_visco",
+    "module_type": "arterial",
+    "module_subtype": "pp_nonlinear_visco",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pp_nonlinear_visco_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pp_nonlinear_visco_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -9737,11 +9737,11 @@
     ]
   },
   {
-    "vessel_type": "arterial",
-    "BC_type": "vv_nonlinear_constR",
+    "module_type": "arterial",
+    "module_subtype": "vv_nonlinear_constR",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_nonlinear_constR_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_nonlinear_constR_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -9951,11 +9951,11 @@
     ]
   },
   {
-    "vessel_type": "arterial",
-    "BC_type": "vv_nonlinear",
+    "module_type": "arterial",
+    "module_subtype": "vv_nonlinear",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_nonlinear_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_nonlinear_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -10171,11 +10171,11 @@
     ]
   },
   {
-    "vessel_type": "arterial",
-    "BC_type": "vv_nonlinear_visco",
+    "module_type": "arterial",
+    "module_subtype": "vv_nonlinear_visco",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_nonlinear_visco_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_nonlinear_visco_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -10409,11 +10409,11 @@
     ]
   },
   {
-    "vessel_type": "split_junction",
-    "BC_type": "pv_nonlinear_constR",
+    "module_type": "split_junction",
+    "module_subtype": "pv_nonlinear_constR",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pv_split_nonlinear_constR_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pv_split_nonlinear_constR_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -10631,11 +10631,11 @@
     ]
   },
   {
-    "vessel_type": "split_junction",
-    "BC_type": "pv_nonlinear",
+    "module_type": "split_junction",
+    "module_subtype": "pv_nonlinear",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pv_split_nonlinear_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pv_split_nonlinear_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -10859,11 +10859,11 @@
     ]
   },
   {
-    "vessel_type": "split_junction",
-    "BC_type": "pv_nonlinear_visco",
+    "module_type": "split_junction",
+    "module_subtype": "pv_nonlinear_visco",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pv_split_nonlinear_visco_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pv_split_nonlinear_visco_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -11105,11 +11105,11 @@
     ]
   },
   {
-    "vessel_type": "split_junction",
-    "BC_type": "vv_nonlinear_constR",
+    "module_type": "split_junction",
+    "module_subtype": "vv_nonlinear_constR",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_split_nonlinear_constR_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_split_nonlinear_constR_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -11332,11 +11332,11 @@
     ]
   },
   {
-    "vessel_type": "split_junction",
-    "BC_type": "vv_nonlinear",
+    "module_type": "split_junction",
+    "module_subtype": "vv_nonlinear",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_split_nonlinear_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_split_nonlinear_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -11565,11 +11565,11 @@
     ]
   },
   {
-    "vessel_type": "split_junction",
-    "BC_type": "vv_nonlinear_visco",
+    "module_type": "split_junction",
+    "module_subtype": "vv_nonlinear_visco",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_split_nonlinear_visco_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_split_nonlinear_visco_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -11816,11 +11816,11 @@
     ]
   },
   {
-    "vessel_type": "merge_junction",
-    "BC_type": "vp_nonlinear_constR",
+    "module_type": "merge_junction",
+    "module_subtype": "vp_nonlinear_constR",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vp_merge_nonlinear_constR_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vp_merge_nonlinear_constR_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -12013,11 +12013,11 @@
     ]
   },
   {
-    "vessel_type": "merge_junction",
-    "BC_type": "vp_nonlinear",
+    "module_type": "merge_junction",
+    "module_subtype": "vp_nonlinear",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vp_merge_nonlinear_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vp_merge_nonlinear_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -12216,11 +12216,11 @@
     ]
   },
   {
-    "vessel_type": "merge_junction",
-    "BC_type": "vp_nonlinear_visco",
+    "module_type": "merge_junction",
+    "module_subtype": "vp_nonlinear_visco",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vp_merge_nonlinear_visco_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vp_merge_nonlinear_visco_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -12437,11 +12437,11 @@
     ]
   },
   {
-    "vessel_type": "merge_junction",
-    "BC_type": "vv_nonlinear_constR",
+    "module_type": "merge_junction",
+    "module_subtype": "vv_nonlinear_constR",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_merge_nonlinear_constR_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_merge_nonlinear_constR_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -12658,11 +12658,11 @@
     ]
   },
   {
-    "vessel_type": "merge_junction",
-    "BC_type": "vv_nonlinear",
+    "module_type": "merge_junction",
+    "module_subtype": "vv_nonlinear",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_merge_nonlinear_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_merge_nonlinear_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -12885,11 +12885,11 @@
     ]
   },
   {
-    "vessel_type": "merge_junction",
-    "BC_type": "vv_nonlinear_visco",
+    "module_type": "merge_junction",
+    "module_subtype": "vv_nonlinear_visco",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_merge_nonlinear_visco_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_merge_nonlinear_visco_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -13130,11 +13130,11 @@
     ]
   },
   {
-    "vessel_type": "constriction",
-    "BC_type": "pv",
+    "module_type": "constriction",
+    "module_subtype": "pv",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pv_constriction_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pv_constriction_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -13266,11 +13266,11 @@
     ]
   },
   {
-    "vessel_type": "capillary_simple",
-    "BC_type": "vp",
+    "module_type": "capillary_simple",
+    "module_subtype": "vp",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vp_simple_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vp_simple_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -13384,11 +13384,11 @@
     ]
   },
   {
-    "vessel_type": "capillary_simple",
-    "BC_type": "pv",
+    "module_type": "capillary_simple",
+    "module_subtype": "pv",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pv_simple_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pv_simple_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -13502,11 +13502,11 @@
     ]
   },
   {
-    "vessel_type": "capillary_simple",
-    "BC_type": "pp",
+    "module_type": "capillary_simple",
+    "module_subtype": "pp",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pp_simple_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pp_simple_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -13626,11 +13626,11 @@
     ]
   },
   {
-    "vessel_type": "capillary_simple",
-    "BC_type": "vv",
+    "module_type": "capillary_simple",
+    "module_subtype": "vv",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_simple_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_simple_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -13768,11 +13768,11 @@
     ]
   },
   {
-    "vessel_type": "capillary_split",
-    "BC_type": "pv",
+    "module_type": "capillary_split",
+    "module_subtype": "pv",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pv_split_capillary_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pv_split_capillary_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -13961,11 +13961,11 @@
     ]
   },
   {
-    "vessel_type": "capillary",
-    "BC_type": "pp",
+    "module_type": "capillary",
+    "module_subtype": "pp",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pp_capillary_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pp_capillary_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -14141,11 +14141,11 @@
     ]
   },
   {
-    "vessel_type": "capillary_merge",
-    "BC_type": "vp",
+    "module_type": "capillary_merge",
+    "module_subtype": "vp",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vp_merge_capillary_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vp_merge_capillary_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -14335,11 +14335,11 @@
     ]
   },
   {
-    "vessel_type": "capillary",
-    "BC_type": "vp",
+    "module_type": "capillary",
+    "module_subtype": "vp",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vp_capillary_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vp_capillary_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -14509,11 +14509,11 @@
     ]
   },
   {
-    "vessel_type": "MinNout_junction",
-    "BC_type": "vv_simple",
+    "module_type": "MinNout_junction",
+    "module_subtype": "vv_simple",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_MinNout_simple_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_MinNout_simple_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -14646,11 +14646,11 @@
     ]
   },
   {
-    "vessel_type": "MinNout_junction",
-    "BC_type": "vv",
+    "module_type": "MinNout_junction",
+    "module_subtype": "vv",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_MinNout_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_MinNout_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -14837,11 +14837,11 @@
     ]
   },
   {
-    "vessel_type": "MinNout_junction",
-    "BC_type": "vv_nonlinear_constR",
+    "module_type": "MinNout_junction",
+    "module_subtype": "vv_nonlinear_constR",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_MinNout_nonlinear_constR_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_MinNout_nonlinear_constR_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -15040,11 +15040,11 @@
     ]
   },
   {
-    "vessel_type": "MinNout_junction",
-    "BC_type": "vv_nonlinear",
+    "module_type": "MinNout_junction",
+    "module_subtype": "vv_nonlinear",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_MinNout_nonlinear_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_MinNout_nonlinear_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -15249,11 +15249,11 @@
     ]
   },
   {
-    "vessel_type": "MinNout_junction",
-    "BC_type": "vv_nonlinear_visco",
+    "module_type": "MinNout_junction",
+    "module_subtype": "vv_nonlinear_visco",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_MinNout_nonlinear_visco_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_MinNout_nonlinear_visco_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -15476,11 +15476,11 @@
     ]
   },
   {
-    "vessel_type": "Min_junction",
-    "BC_type": "vp_simple",
+    "module_type": "Min_junction",
+    "module_subtype": "vp_simple",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vp_Min_simple_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vp_Min_simple_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -15594,11 +15594,11 @@
     ]
   },
   {
-    "vessel_type": "Min_junction",
-    "BC_type": "vp_simple_novisco",
+    "module_type": "Min_junction",
+    "module_subtype": "vp_simple_novisco",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vp_Min_simple_novisco_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vp_Min_simple_novisco_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -15712,11 +15712,11 @@
     ]
   },
   {
-    "vessel_type": "Min_junction",
-    "BC_type": "vp",
+    "module_type": "Min_junction",
+    "module_subtype": "vp",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vp_Min_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vp_Min_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -15884,11 +15884,11 @@
     ]
   },
   {
-    "vessel_type": "Min_junction",
-    "BC_type": "vp_nonlinear_constR",
+    "module_type": "Min_junction",
+    "module_subtype": "vp_nonlinear_constR",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vp_Min_nonlinear_constR_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vp_Min_nonlinear_constR_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -16062,11 +16062,11 @@
     ]
   },
   {
-    "vessel_type": "Min_junction",
-    "BC_type": "vp_nonlinear",
+    "module_type": "Min_junction",
+    "module_subtype": "vp_nonlinear",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vp_Min_nonlinear_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vp_Min_nonlinear_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -16246,11 +16246,11 @@
     ]
   },
   {
-    "vessel_type": "Min_junction",
-    "BC_type": "vp_nonlinear_visco",
+    "module_type": "Min_junction",
+    "module_subtype": "vp_nonlinear_visco",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vp_Min_nonlinear_visco_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vp_Min_nonlinear_visco_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -16448,11 +16448,11 @@
     ]
   },
   {
-    "vessel_type": "Min_junction",
-    "BC_type": "vv_simple",
+    "module_type": "Min_junction",
+    "module_subtype": "vv_simple",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_Min_simple_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_Min_simple_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -16584,11 +16584,11 @@
     ]
   },
   {
-    "vessel_type": "Min_junction",
-    "BC_type": "vv",
+    "module_type": "Min_junction",
+    "module_subtype": "vv",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_Min_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_Min_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -16774,11 +16774,11 @@
     ]
   },
   {
-    "vessel_type": "Min_junction",
-    "BC_type": "vv_nonlinear_constR",
+    "module_type": "Min_junction",
+    "module_subtype": "vv_nonlinear_constR",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_Min_nonlinear_constR_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_Min_nonlinear_constR_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -16976,11 +16976,11 @@
     ]
   },
   {
-    "vessel_type": "Min_junction",
-    "BC_type": "vv_nonlinear",
+    "module_type": "Min_junction",
+    "module_subtype": "vv_nonlinear",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_Min_nonlinear_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_Min_nonlinear_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -17184,11 +17184,11 @@
     ]
   },
   {
-    "vessel_type": "Min_junction",
-    "BC_type": "vv_nonlinear_visco",
+    "module_type": "Min_junction",
+    "module_subtype": "vv_nonlinear_visco",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_Min_nonlinear_visco_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_Min_nonlinear_visco_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -17410,11 +17410,11 @@
     ]
   },
   {
-    "vessel_type": "Nout_junction",
-    "BC_type": "pv_simple",
+    "module_type": "Nout_junction",
+    "module_subtype": "pv_simple",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pv_Nout_simple_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pv_Nout_simple_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -17541,11 +17541,11 @@
     ]
   },
   {
-    "vessel_type": "Nout_junction",
-    "BC_type": "pv",
+    "module_type": "Nout_junction",
+    "module_subtype": "pv",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pv_Nout_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pv_Nout_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -17726,11 +17726,11 @@
     ]
   },
   {
-    "vessel_type": "Nout_junction",
-    "BC_type": "pv_nonlinear_constR",
+    "module_type": "Nout_junction",
+    "module_subtype": "pv_nonlinear_constR",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pv_Nout_nonlinear_constR_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pv_Nout_nonlinear_constR_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -17929,11 +17929,11 @@
     ]
   },
   {
-    "vessel_type": "Nout_junction",
-    "BC_type": "pv_nonlinear",
+    "module_type": "Nout_junction",
+    "module_subtype": "pv_nonlinear",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pv_Nout_nonlinear_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pv_Nout_nonlinear_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -18138,11 +18138,11 @@
     ]
   },
   {
-    "vessel_type": "Nout_junction",
-    "BC_type": "pv_nonlinear_visco",
+    "module_type": "Nout_junction",
+    "module_subtype": "pv_nonlinear_visco",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "pv_Nout_nonlinear_visco_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "pv_Nout_nonlinear_visco_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -18365,11 +18365,11 @@
     ]
   },
   {
-    "vessel_type": "Nout_junction",
-    "BC_type": "vv_simple",
+    "module_type": "Nout_junction",
+    "module_subtype": "vv_simple",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_Nout_simple_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_Nout_simple_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -18501,11 +18501,11 @@
     ]
   },
   {
-    "vessel_type": "Nout_junction",
-    "BC_type": "vv",
+    "module_type": "Nout_junction",
+    "module_subtype": "vv",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_Nout_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_Nout_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -18691,11 +18691,11 @@
     ]
   },
   {
-    "vessel_type": "Nout_junction",
-    "BC_type": "vv_nonlinear_constR",
+    "module_type": "Nout_junction",
+    "module_subtype": "vv_nonlinear_constR",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_Nout_nonlinear_constR_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_Nout_nonlinear_constR_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -18899,11 +18899,11 @@
     ]
   },
   {
-    "vessel_type": "Nout_junction",
-    "BC_type": "vv_nonlinear",
+    "module_type": "Nout_junction",
+    "module_subtype": "vv_nonlinear",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_Nout_nonlinear_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_Nout_nonlinear_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -19113,11 +19113,11 @@
     ]
   },
   {
-    "vessel_type": "Nout_junction",
-    "BC_type": "vv_nonlinear_visco",
+    "module_type": "Nout_junction",
+    "module_subtype": "vv_nonlinear_visco",
     "module_format": "cellml",
-    "module_file": "BG_modules.cellml",
-    "module_type": "vv_Nout_nonlinear_visco_type",
+    "component_file": "BG_modules.cellml",
+    "component_type": "vv_Nout_nonlinear_visco_type",
     "entrance_ports": [
       {
         "port_type": "vessel_port",
@@ -19345,11 +19345,11 @@
     ]
   },
   {
-    "vessel_type":"capillary_simple_vol_ctl_uptake",
-    "BC_type":"vv",
+    "module_type":"capillary_simple_vol_ctl_uptake",
+    "module_subtype":"vv",
     "module_format":"cellml",
-    "module_file":"BG_modules.cellml",
-    "module_type":"vv_simple_vol_ctl_type",
+    "component_file":"BG_modules.cellml",
+    "component_type":"vv_simple_vol_ctl_type",
     "entrance_ports":
     [
       {
@@ -19404,11 +19404,11 @@
     ]
   },
   {
-    "vessel_type":"capillary_simple_vol_ctl_intake",
-    "BC_type":"vv",
+    "module_type":"capillary_simple_vol_ctl_intake",
+    "module_subtype":"vv",
     "module_format":"cellml",
-    "module_file":"BG_modules.cellml",
-    "module_type":"vv_simple_vol_ctl_type",
+    "component_file":"BG_modules.cellml",
+    "component_type":"vv_simple_vol_ctl_type",
     "entrance_ports":
     [
       {
@@ -19463,11 +19463,11 @@
     ]
   },
   {
-    "vessel_type":"venous_Rctl",
-    "BC_type":"vp_woCont",
+    "module_type":"venous_Rctl",
+    "module_subtype":"vp_woCont",
     "module_format":"cellml",
-    "module_file":"BG_modules.cellml",
-    "module_type":"vp_simple_Rctl_type",
+    "component_file":"BG_modules.cellml",
+    "component_type":"vp_simple_Rctl_type",
     "entrance_ports":
     [
       {
@@ -19513,11 +19513,11 @@
     ]
   },
   {
-    "vessel_type":"Min_junction_usV_C_ctl",
-    "BC_type":"vp_simple",
+    "module_type":"Min_junction_usV_C_ctl",
+    "module_subtype":"vp_simple",
     "module_format":"cellml",
-    "module_file":"BG_modules.cellml",
-    "module_type":"vp_Min_usV_C_ctl_type",
+    "component_file":"BG_modules.cellml",
+    "component_type":"vp_Min_usV_C_ctl_type",
     "entrance_ports":
     [
       {

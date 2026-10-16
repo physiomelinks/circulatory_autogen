@@ -1,4 +1,4 @@
-name,BC_type,vessel_type,inp_vessels,out_vessels
+name,module_subtype,module_type,inp_instances,out_instances
 input_flow_basilar,nn_constant_2,inlet_flow,,basilar_C4
 input_flow_internalcarotid_L,nn_constant,inlet_flow,,ascending_aorta_A
 input_flow_internalcarotid_R,nn_constant,inlet_flow,,ascending_aorta_B

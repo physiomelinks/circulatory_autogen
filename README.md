@@ -108,10 +108,11 @@ Each pipeline stage also has a console command, all configured from
 | `cuflynx-train-emulator` | train a surrogate of the obs features |
 | `cuflynx-plot` | plot calibration results |
 | `cuflynx-generate-pipeline` | write a self-contained, movable bundle that reruns the study |
+| `cuflynx-run-predictions` | run an obs_data's prediction items on a model with no calibration: traces, features and validation (`run_prediction_items`) |
 | `cuflynx-calibration-workflow` | run a `calibration_workflow.json`: ordered calibrations of module-library parameterisations merged into a supermodule (takes the workflow path) |
 | `cuflynx-variable-mapping` | write a model's `<prefix>_variable_mapping.csv`: the LaTeX symbol of every variable (takes the model or a workflow) |
 | `cuflynx-methods-latex` | write a methods section in LaTeX: equations per module, a flow chart of the calibration, and the methods of each step |
-| `cuflynx-migrate-parameter-names` | rewrite parameter names `{variable}_{vessel}` as `<vessel>/<variable>`, in a parameters file or a supermodule's parameterisation files (upgrade helper) |
+| `cuflynx-upgrade` | convert, once, files in an older form that the readers refuse: `module-config`, `module-array`, `obs-data`, `parameter-names` (not a pipeline stage) |
 
 ### `CUFLYNX_USER_DIR` — where an installed libcuflynx reads and writes
 

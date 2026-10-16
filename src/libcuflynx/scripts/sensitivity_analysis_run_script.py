@@ -26,7 +26,7 @@ def run_SA(inp_data_dict=None):
 
     # SA_agent = SensitivityAnalysis(model_path=model_path, model_type=model_type, file_name_prefix=file_name_prefix,
     #                                DEBUG=DEBUG, model_out_names=model_out_names, solver_info=solver_info, dt=dt, 
-    #                                ga_options=optimiser_options, param_id_obs_path=param_id_obs_path, params_for_id_path=params_for_id_path)
+    #                                optimiser_options=optimiser_options, param_id_obs_path=param_id_obs_path, params_for_id_path=params_for_id_path)
     SA_agent = SensitivityAnalysis.init_from_dict(inp_data_dict)
     if inp_data_dict.get('obs_data_dict') is not None:
         SA_agent.set_ground_truth_data(inp_data_dict['obs_data_dict'])

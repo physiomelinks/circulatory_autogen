@@ -17,7 +17,7 @@ Modules come from up to four places, in this order:
 ``use_builtin_modules: false`` switches off (1) and (2) so a module library such as
 circulatory-autogen-modules can be the only source of modules.
 
-A (vessel_type, BC_type) defined in more than one source is taken from the most specific:
+A (module_type, module_subtype) defined in more than one source is taken from the most specific:
 
     external_modules_dir > module_library_dirs (in the order listed) > module_config_user
                          > built-in
@@ -81,7 +81,7 @@ def _is_units_cellml(filename):
 
 
 class ModuleShadowWarning(UserWarning):
-    '''More than one module source defines a (vessel_type, BC_type); the most specific one is
+    '''More than one module source defines a (module_type, module_subtype); the most specific one is
     used. ``shadowed`` is ``{key: (winning config file, [the config files it shadows])}``.'''
 
     def __init__(self, message, shadowed=None):
@@ -110,7 +110,7 @@ def resolve_duplicate_types(config_files, source_of, precedence):
 
     ``source_of`` maps each of ``config_files`` to its source's label and ``precedence`` lists
     the labels, most specific first. Returns ``(excluded_entries, excluded_components)``:
-    ``{(config file, (vessel_type, BC_type))}`` of the shadowed definitions, and
+    ``{(config file, (module_type, module_subtype))}`` of the shadowed definitions, and
     ``{(realpath of a CellML file, component name)}`` of their components that no definition
     still in use needs. Warns once (``ModuleShadowWarning``) when any type is shadowed; raises
     ValueError for a type defined twice within one source.
@@ -118,7 +118,7 @@ def resolve_duplicate_types(config_files, source_of, precedence):
     definitions = {}
     for path in config_files:
         for entry in _config_entries(path):
-            key = (entry['vessel_type'], entry['BC_type'])
+            key = (entry['module_type'], entry['module_subtype'])
             definitions.setdefault(key, []).append((str(path), entry))
 
     excluded, shadowed = set(), {}
@@ -139,16 +139,16 @@ def resolve_duplicate_types(config_files, source_of, precedence):
         shadowed[key] = (ranked[0][0], losers)
 
     def component(path, entry):
-        if not entry.get('module_file') or not entry.get('module_type'):
+        if not entry.get('component_file') or not entry.get('component_type'):
             return None
-        cellml = os.path.join(os.path.dirname(os.path.abspath(path)), entry['module_file'])
-        return os.path.realpath(cellml), entry['module_type']
+        cellml = os.path.join(os.path.dirname(os.path.abspath(path)), entry['component_file'])
+        return os.path.realpath(cellml), entry['component_type']
 
     kept = {component(path, entry) for found in definitions.values() for path, entry in found
-            if (path, (entry['vessel_type'], entry['BC_type'])) not in excluded}
+            if (path, (entry['module_type'], entry['module_subtype'])) not in excluded}
     excluded_components = {component(path, entry) for found in definitions.values()
                            for path, entry in found
-                           if (path, (entry['vessel_type'], entry['BC_type'])) in excluded}
+                           if (path, (entry['module_type'], entry['module_subtype'])) in excluded}
     excluded_components = {c for c in excluded_components if c is not None and c not in kept}
 
     if shadowed:

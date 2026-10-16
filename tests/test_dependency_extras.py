@@ -306,9 +306,6 @@ def _files_that_can_carry_install_instructions():
     for path in REPO_ROOT.rglob('*'):
         if not path.is_file() or path.suffix not in _INSTALL_INSTRUCTION_SUFFIXES:
             continue
-        # Dead code kept for reference, and not shipped.
-        if 'obsolete' in path.parts:
-            continue
         paths.append(path)
     # Tracked files only: a venv, a build directory or another checkout underneath this one
     # is not this repository's documentation. (This test file is the exemption -- it has to

@@ -42,14 +42,8 @@ def _registries():
         # the settings a workflow may set: the keys of its settings object
         (CALIBRATION_WORKFLOW_SCHEMA, '/$defs/settings/properties'): list(ALLOWED_SETTINGS),
         (MODULE_CONFIG_SCHEMA,
-         '/$defs/libcuflynxComponent/properties/variables_and_units/items/prefixItems/2/enum'):
-            list(VARIABLE_ACCESS),
-        (MODULE_CONFIG_SCHEMA,
          '/$defs/phlynxComponent/properties/variables_and_units/items/prefixItems/2/enum'):
             list(VARIABLE_ACCESS),
-        (MODULE_CONFIG_SCHEMA,
-         '/$defs/libcuflynxComponent/properties/variables_and_units/items/prefixItems/3/enum'):
-            list(VARIABLE_KINDS),
         (MODULE_CONFIG_SCHEMA,
          '/$defs/phlynxComponent/properties/variables_and_units/items/prefixItems/3/enum'):
             list(VARIABLE_KINDS),

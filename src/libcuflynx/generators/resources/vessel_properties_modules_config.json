@@ -1,10 +1,10 @@
 [
     {
-    "vessel_type":"material_prop_const",
-    "BC_type":"nn",
+    "module_type":"material_prop_const",
+    "module_subtype":"nn",
     "module_format":"cellml",
-    "module_file":"vessel_properties_modules.cellml",
-    "module_type":"material_prop_const_type",
+    "component_file":"vessel_properties_modules.cellml",
+    "component_type":"material_prop_const_type",
     "entrance_ports":
     [
       {
@@ -33,11 +33,11 @@
     ]
   },
   {
-    "vessel_type":"material_prop_visco_const",
-    "BC_type":"nn",
+    "module_type":"material_prop_visco_const",
+    "module_subtype":"nn",
     "module_format":"cellml",
-    "module_file":"vessel_properties_modules.cellml",
-    "module_type":"material_prop_visco_const_type",
+    "component_file":"vessel_properties_modules.cellml",
+    "component_type":"material_prop_visco_const_type",
     "entrance_ports":
     [
       {
@@ -78,11 +78,11 @@
     ]
   },
   {
-    "vessel_type":"material_prop_fromPWV",
-    "BC_type":"nn",
+    "module_type":"material_prop_fromPWV",
+    "module_subtype":"nn",
     "module_format":"cellml",
-    "module_file":"vessel_properties_modules.cellml",
-    "module_type":"material_prop_fromPWV_type",
+    "component_file":"vessel_properties_modules.cellml",
+    "component_type":"material_prop_fromPWV_type",
     "entrance_ports":
     [
       {
@@ -111,11 +111,11 @@
     ]
   },
   {
-    "vessel_type":"material_prop_visco_fromPWV",
-    "BC_type":"nn",
+    "module_type":"material_prop_visco_fromPWV",
+    "module_subtype":"nn",
     "module_format":"cellml",
-    "module_file":"vessel_properties_modules.cellml",
-    "module_type":"material_prop_visco_fromPWV_type",
+    "component_file":"vessel_properties_modules.cellml",
+    "component_type":"material_prop_visco_fromPWV_type",
     "entrance_ports":
     [
       {
@@ -156,11 +156,11 @@
     ]
   },
   {
-    "vessel_type":"material_prop_const_ven",
-    "BC_type":"nn",
+    "module_type":"material_prop_const_ven",
+    "module_subtype":"nn",
     "module_format":"cellml",
-    "module_file":"vessel_properties_modules.cellml",
-    "module_type":"material_prop_const_ven_type",
+    "component_file":"vessel_properties_modules.cellml",
+    "component_type":"material_prop_const_ven_type",
     "entrance_ports":
     [
       {
@@ -185,11 +185,11 @@
     ]
   },
   {
-    "vessel_type":"material_prop_visco_const_ven",
-    "BC_type":"nn",
+    "module_type":"material_prop_visco_const_ven",
+    "module_subtype":"nn",
     "module_format":"cellml",
-    "module_file":"vessel_properties_modules.cellml",
-    "module_type":"material_prop_visco_const_ven_type",
+    "component_file":"vessel_properties_modules.cellml",
+    "component_type":"material_prop_visco_const_ven_type",
     "entrance_ports":
     [
       {
@@ -231,11 +231,11 @@
     ]
   },
   {
-    "vessel_type":"material_prop_fromPWV_ven",
-    "BC_type":"nn",
+    "module_type":"material_prop_fromPWV_ven",
+    "module_subtype":"nn",
     "module_format":"cellml",
-    "module_file":"vessel_properties_modules.cellml",
-    "module_type":"material_prop_fromPWV_ven_type",
+    "component_file":"vessel_properties_modules.cellml",
+    "component_type":"material_prop_fromPWV_ven_type",
     "entrance_ports":
     [
       {
@@ -265,11 +265,11 @@
     ]
   },
   {
-    "vessel_type":"material_prop_visco_fromPWV_ven",
-    "BC_type":"nn",
+    "module_type":"material_prop_visco_fromPWV_ven",
+    "module_subtype":"nn",
     "module_format":"cellml",
-    "module_file":"vessel_properties_modules.cellml",
-    "module_type":"material_prop_visco_fromPWV_ven_type",
+    "component_file":"vessel_properties_modules.cellml",
+    "component_type":"material_prop_visco_fromPWV_ven_type",
     "entrance_ports":
     [
       {

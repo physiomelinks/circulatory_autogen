@@ -21,42 +21,20 @@ import numpy as np
 
 # The methods whose forward integration the tape can record step-for-step. Defined in
 # parsers.PrimitiveParsers alongside SOLVER_SCHEMA['ad_suitable_methods'], which is derived from
-# it, so the advertised menu and the check enforced here cannot drift (issue #336). Re-exported
-# under the original name for callers that already import it from this module.
-from libcuflynx.parsers.PrimitiveParsers import (AADC_TAPE_CONSISTENT_METHODS as TAPE_CONSISTENT_METHODS,
-                                      AADC_LEGACY_METHOD_ALIASES)
+# it, so the advertised menu and the check enforced here cannot drift.
+from libcuflynx.parsers.PrimitiveParsers import AADC_TAPE_CONSISTENT_METHODS as TAPE_CONSISTENT_METHODS
 BDF_NEWTON_METHOD = 'bdf_newton'
 SEMI_IMPLICIT_SIGNED_METHOD = 'semi_implicit_signed'
-# Legacy names kept so configs written before the split still run; both now select a
-# gradient_strategy of the one method rather than naming an integrator (issue #346).
-BDF_TAPE_METHOD = 'bdf_tape'
-BDF_KERNEL_METHOD = 'bdf_kernel'
 GRADIENT_STRATEGIES = ('tape', 'kernel')
 DEFAULT_GRADIENT_STRATEGY = 'tape'
 
 
 def resolve_gradient_strategy(method, solver_info):
-    """Resolve a configured method to ``(canonical_method, strategy)`` for the signed scheme.
+    """Resolve a configured method to ``(semi_implicit_signed, strategy)``.
 
-    Returns ``None`` for any method that is not ``semi_implicit_signed`` or one of its legacy
-    aliases, so the caller can fall through to the other gradient paths.
-
-    The alias table lives in PrimitiveParsers next to the schema that advertises the split, and
-    is read here rather than restated: a second copy of the mapping is exactly how 'bdf_tape'
-    and 'bdf_kernel' drifted into looking like two integrators in the first place (issue #346).
+    Returns ``None`` for any method that is not ``semi_implicit_signed``, so the caller can fall
+    through to the other gradient paths.
     """
-    if method in AADC_LEGACY_METHOD_ALIASES:
-        canonical, strategy = AADC_LEGACY_METHOD_ALIASES[method]
-        configured = (solver_info or {}).get('gradient_strategy')
-        if configured is not None and configured != strategy:
-            # The legacy name is the more specific statement of intent, so it wins -- but say so,
-            # rather than dropping a setting the user deliberately wrote.
-            warnings.warn(
-                f"solver_info method {method!r} already fixes the gradient strategy to "
-                f"{strategy!r}, so gradient_strategy={configured!r} is ignored. Use method "
-                f"{canonical!r} to choose the strategy explicitly.", stacklevel=2)
-        return canonical, strategy
-
     if method != SEMI_IMPLICIT_SIGNED_METHOD:
         return None
 

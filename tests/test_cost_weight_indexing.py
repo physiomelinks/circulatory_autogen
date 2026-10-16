@@ -47,8 +47,7 @@ def _const_item(name, value=5.0, weight=1.0, std=1.0):
 
 def _parsed(items, tmp_path):
     parser = ObsAndParamDataParser()
-    parsed = parser.parse_obs_data_json(obs_data_dict=_obs_data(items),
-                                        pre_time=0.0, sim_time=1.0)
+    parsed = parser.parse_obs_data_json(obs_data_dict=_obs_data(items))
     obs_info = parser.process_obs_info(gt_df=parsed["gt_df"], output_dir=str(tmp_path), dt=0.01)
     protocol_info = parser.process_protocol_and_weights(
         gt_df=parsed["gt_df"], protocol_info=parsed["protocol_info"], dt=0.01)
