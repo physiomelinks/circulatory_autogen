@@ -1,0 +1,1318 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://finbarargus.github.io/circulatory_autogen/methods-latex/">
+      
+      
+        <link rel="prev" href="../emulators/">
+      
+      
+        <link rel="next" href="../example-3compartment-model/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Writing up a model and its calibration - Circulatory Autogen</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#writing-up-a-model-and-its-calibration" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Circulatory Autogen" class="md-header__button md-logo" aria-label="Circulatory Autogen" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Circulatory Autogen
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Writing up a model and its calibration
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Circulatory Autogen" class="md-nav__button md-logo" aria-label="Circulatory Autogen" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Circulatory Autogen
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Welcome to Circulatory Autogen
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../model-generation-simulation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model Generation and Simulation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../design-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Designing a model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../external-python-solvers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    External Python Solvers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../model-formats/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Importing other model formats
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../parameter-identification/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parameter Identification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sensitivity-analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sensitivity Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../identifiability-analysis/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Identifiability Analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../emulators/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Emulators (Surrogate Models)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Writing up a model and its calibration
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Writing up a model and its calibration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-variable-mapping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The variable mapping
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-methods-section" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The methods section
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The methods section">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#citations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Citations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Options
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../example-3compartment-model/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Example: 3Compartment Model
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../running-on-hpc/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Running on the HPC
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../other-features/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Other Useful Features
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_15" >
+        
+          
+          <label class="md-nav__link" for="__nav_15" id="__nav_15_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_15_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_15">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/generation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Model generation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/solver-wrappers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Simulation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/param-id/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parameter identification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sensitivity/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sensitivity analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/identifiability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Identifiability analysis
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/emulators/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Emulators
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/protocols/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Protocols
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/utilities/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Observation data &amp; utilities
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/internals/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parsers &amp; generators (internal)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-variable-mapping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The variable mapping
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-methods-section" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The methods section
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The methods section">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#citations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Citations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Options
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="writing-up-a-model-and-its-calibration">Writing up a model and its calibration</h1>
+<p>Two commands turn a model and its calibration into the methods section of a paper:</p>
+<ol>
+<li><code>cuflynx-variable-mapping</code> lists every variable and parameter of the model with the LaTeX symbol it is written as;</li>
+<li><code>cuflynx-methods-latex</code> writes a methods section in LaTeX. It has four parts:<ul>
+<li>the model's equations, one subsection per module;</li>
+<li>a table of every parameter with its value and source, citing your references;</li>
+<li>a flow chart of the calibration;</li>
+<li>what was done in each step of the flow chart.</li>
+</ul>
+</li>
+</ol>
+<p>To see one without setting anything up, run the workflow example in
+<a href="../parameter-identification/#try-it">Calibration workflows → Try it</a>.</p>
+<h2 id="the-variable-mapping">The variable mapping</h2>
+<div class="highlight"><pre><span></span><code>cuflynx-variable-mapping generated_models/&lt;prefix&gt;/&lt;prefix&gt;_flat.cellml
+cuflynx-variable-mapping --workflow workflow.json
+</code></pre></div>
+<p>Each command writes <code>&lt;prefix&gt;_variable_mapping.csv</code> beside the model. For a calibration workflow, the file goes beside the target's parameters file instead, as <code>&lt;name&gt;_variable_mapping.csv</code> (<code>&lt;name&gt;</code> is the target module array's prefix, or its parameterisation).</p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>What it holds</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>variable_name</code></td>
+<td><code>component/variable</code>, with <code>_module</code> dropped from the component (<code>mod_C/z</code>, <code>parameters/p_mod_A</code>). These are the names obs_data operands and CUFLynx use.</td>
+</tr>
+<tr>
+<td><code>latex</code></td>
+<td>The symbol, without <code>$</code>. <strong>Edit these.</strong></td>
+</tr>
+<tr>
+<td><code>kind</code></td>
+<td><code>state</code>, <code>parameter</code>, <code>constant</code>, <code>algebraic</code> or <code>time</code>.</td>
+</tr>
+<tr>
+<td><code>component</code>, <code>units</code></td>
+<td>Where the variable is defined, and its units.</td>
+</tr>
+</tbody>
+</table>
+<p>The default symbols follow a simple rule, meant to be edited:</p>
+<ul>
+<li><strong>Subscripts:</strong> a name is split on <code>_</code>. The first part is the symbol and the rest are its subscripts: <code>g_leak_Na</code> → $g_{\mathrm{leak},\mathrm{Na}}$.</li>
+<li><strong>Greek letters:</strong> the name of a Greek letter becomes that letter: <code>rho_M</code> → $\rho_{M}$, <code>Delta_C</code> → $\Delta_{C}$.</li>
+<li><strong>Upright text:</strong> one-character parts stay italic, and longer ones are set upright: <code>Nai</code> → $\mathrm{Nai}$.</li>
+<li><strong>Module subscript:</strong> the module a variable belongs to is added as a last subscript. A generated parameter <code>&lt;var&gt;_&lt;vessel&gt;</code> is split into its variable and its vessel. In a model generated alone (vessel <code>mod</code>), the <code>mod_</code> prefix is dropped: <code>p_mod_A</code> → $p_{A}$.</li>
+</ul>
+<p>Running the command again keeps every symbol already in the file. It adds new variables with the default rule and drops variables the model no longer has. The command also warns when two variables share a symbol, because they could not be told apart in the equations. CUFLynx edits the same file from its Variables panel.</p>
+<h2 id="the-methods-section">The methods section</h2>
+<div class="highlight"><pre><span></span><code># a calibration workflow (see Parameter Identification -&gt; Calibration workflows)
+cuflynx-methods-latex --workflow workflow.json --run-dir workflow_output/&lt;name&gt; -o methods.tex --pdf
+
+# one calibration
+cuflynx-methods-latex --model &lt;prefix&gt;_flat.cellml --obs-data &lt;obs&gt;.json \
+    --params-for-id &lt;params&gt;.csv --settings user_run_files/user_inputs.yaml \
+    --run-dir param_id_output/&lt;method&gt;_&lt;prefix&gt;_&lt;obs&gt; -o methods.tex
+</code></pre></div>
+<p>The document has four parts.</p>
+<ol>
+<li>
+<p><strong>Model.</strong> Each module gets a subsection with:</p>
+<ul>
+<li>its ODEs and algebraic equations, as written by Myokit's LaTeX writer in the mapping's symbols, with conditionals set as <code>cases</code>;</li>
+<li>its initial values;</li>
+<li>a table of the parameters it uses (symbol, value, units, name in the model).</li>
+</ul>
+<p>For a workflow, the model is the target, and each module is labelled with its module type, version and parameterisation, from the target's module array or supermodule config.
+2. <strong>Parameters and sources.</strong> One table of every parameter of the model: symbol, value, units and source (see <a href="#citations">Citations</a>). A parameter that was calibrated names the step that calibrated it, with a link to that step's subsection.
+3. <strong>Flow chart.</strong> This is a TikZ figure.
+- <strong>For a workflow:</strong> one box per step (its model, how many parameters and observables, the method). Arrows run from each step to the steps after it: solid for values passed on as fixed values, dashed for priors. A last box shows the merge into the target.
+- <strong>For one calibration:</strong> the model, observables and parameters feed the optimisation, followed by MCMC and identifiability when they were run.
+4. <strong>One subsection per step.</strong> Each covers:
+- which model the step calibrates and against which observations;
+- the values it was given by earlier steps, and the priors it was given;
+- the protocol (experiments, pre-times, segment durations, inputs set per segment);
+- the observables (feature, observed value ± standard deviation, weight, experiment and segment);
+- the calibrated parameters with their ranges and priors;
+- the method, from CA's own description of it, with its settings, the solver, and the cost function as a formula;
+- MCMC settings when the step stored its posterior;
+- with <code>--run-dir</code>, the calibrated values and the best cost. A step that used priors reports its posterior medians.</p>
+</li>
+</ol>
+<h3 id="citations">Citations</h3>
+<p>A parameter's source is the <code>data_reference</code> column of the model's parameters CSV. By convention it starts with the BibTeX key of the source, followed by a note: <code>martin2023modelling; Methods (p. 16): w_inf k = 10 mV</code>. Every word in it that is a key of the bibliography becomes <code>\cite{key}</code>; other words, such as <code>definitional</code> or <code>user_defined</code>, stay as text.</p>
+<ul>
+<li><strong>For a workflow,</strong> the bibliography is the <code>*_references.bib</code> (and <code>*_references_proposed.bib</code>) of every module version in the target, as the module library keeps them. Pass <code>--bib</code> to use other files instead.</li>
+<li><strong>For one calibration,</strong> pass the <code>.bib</code> files with <code>--bib</code> (repeatable). The parameters CSV is <code>&lt;prefix&gt;_parameters.csv</code> beside the model, or <code>--parameters</code>.</li>
+</ul>
+<p>The command writes the cited entries to a <code>.bib</code> beside the <code>.tex</code> (<code>methods.bib</code> for <code>-o methods.tex</code>), and the document ends with <code>\bibliography{methods}</code>. <code>--pdf</code> compiles it with <code>latexmk</code>, which runs BibTeX.</p>
+<h3 id="options">Options</h3>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--workflow</code></td>
+<td>a <code>calibration_workflow.json</code>; with <code>--module-library-dir</code> for libraries the file does not list</td>
+</tr>
+<tr>
+<td><code>--model</code>, <code>--obs-data</code>, <code>--params-for-id</code></td>
+<td>one calibration instead of a workflow</td>
+</tr>
+<tr>
+<td><code>--settings</code></td>
+<td>the <code>user_inputs.yaml</code> of that calibration (method, optimiser options, solver, UQ)</td>
+</tr>
+<tr>
+<td><code>--run-dir</code></td>
+<td>a workflow's output directory, or a param_id run directory: adds the results</td>
+</tr>
+<tr>
+<td><code>--mapping</code></td>
+<td>the variable mapping CSV (default: the one <code>cuflynx-variable-mapping</code> writes)</td>
+</tr>
+<tr>
+<td><code>--parameters</code></td>
+<td>the model's parameters CSV (one calibration)</td>
+</tr>
+<tr>
+<td><code>--bib</code></td>
+<td>a <code>.bib</code> file the sources cite (repeatable)</td>
+</tr>
+<tr>
+<td><code>-o</code></td>
+<td>the <code>.tex</code> to write</td>
+</tr>
+<tr>
+<td><code>--title</code></td>
+<td>the document title</td>
+</tr>
+<tr>
+<td><code>--body-only</code></td>
+<td>the sections without a preamble, to <code>\input</code> into a paper; the packages it needs are listed in its first line</td>
+</tr>
+<tr>
+<td><code>--flowchart-only</code></td>
+<td>just the figure</td>
+</tr>
+<tr>
+<td><code>--pdf</code></td>
+<td>also compile it with <code>latexmk</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>cuflynx-variable-mapping</code> writes beside the model by default, or where <code>-o</code> says.</p>
+<p>The full document needs <code>amsmath</code>, <code>amssymb</code>, <code>booktabs</code>, <code>longtable</code>, <code>graphicx</code> and <code>tikz</code>. Compile it with <code>latexmk</code> (<code>--pdf</code> does this), or run pdflatex, BibTeX and pdflatex twice, so the references and the figure resolve.</p>
+<p>From Python:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">libcuflynx.reporting</span><span class="w"> </span><span class="kn">import</span> <span class="n">workflow_methods_latex</span><span class="p">,</span> <span class="n">calibration_methods_latex</span><span class="p">,</span> <span class="n">update_variable_mapping_file</span>
+<span class="n">update_variable_mapping_file</span><span class="p">(</span><span class="n">model_path</span><span class="p">,</span> <span class="n">mapping_path</span><span class="p">)</span>
+<span class="n">text</span> <span class="o">=</span> <span class="n">workflow_methods_latex</span><span class="p">(</span><span class="n">workflow_path</span><span class="p">,</span> <span class="n">run_dir</span><span class="o">=</span><span class="n">run_dir</span><span class="p">,</span> <span class="n">mapping</span><span class="o">=</span><span class="n">mapping_path</span><span class="p">)</span>
+</code></pre></div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The output is a starting point for the paper's methods, not the paper. Check the symbols, and reword the text to suit. A very long single equation can run past the margin: LaTeX cannot break an <code>align</code> line by itself.</p>
+</div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["instant", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
