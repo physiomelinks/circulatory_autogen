@@ -5,6 +5,14 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Added — `"multiply"` in a list-form `multi_port`
+
+A list-form port's entry may be `"multiply"` (any case), as PhLynx exports a port whose
+variables have different types: that variable reaches its neighbour times its factor, like a
+whole-port `"Multiply"`. `multiply_factor` may be a list aligned with the port's variables (a
+number for each Multiply variable, null for the others). A variable pair cannot be Multiply on
+both ends.
+
 ### Added — packing a calibration workflow
 
 `pack_workflow(workflow, dest_dir)` and `cuflynx-calibration-workflow <workflow> --pack DIR`

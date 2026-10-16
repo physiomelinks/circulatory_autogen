@@ -25,13 +25,18 @@ The list form gives one entry per port variable, aligned with the port's ``varia
   through this port, of the neighbour's corresponding port variable.
 * ``"True"`` -- this module's variable is mapped to the corresponding variable of every
   connected neighbour (normally an output: one source, many sinks).
+* ``"multiply"`` -- as a whole-port ``"Multiply"``, for this variable: its neighbour's variable
+  is set to (or, into a "sum", gets the term) the factor times this variable. The factor is
+  ``multiply_factor``: one number for every Multiply variable, or a list aligned with
+  ``variables`` (null for the others), as PhLynx exports it.
 
 A list-form port accepts any number of neighbours, on entrance, exit or general ports.
-Only one side of a connection can sum, and a variable can be summed through one port only.
+Only one side of a connection can sum, or multiply, a variable pair, and a variable can be
+summed through one port only.
 
 ``normalise_port_multi_port`` puts a port's multi_port in canonical form when the module
 config is loaded (utilities/config_schemas.py), so the generator only sees ``"True"``,
-``"sum"`` (volume ports), ``"Multiply"`` and list forms of ``"sum"``/``"True"``.
+``"sum"`` (volume ports), ``"Multiply"`` and list forms of ``"sum"``/``"True"``/``"Multiply"``.
 """
 
 import numbers
@@ -44,9 +49,12 @@ MULTI_PORT_MULTIPLY = 'Multiply'
 LEGACY_SUM_PORT_TYPE = 'volume_port'
 
 def _canonical_entry(entry):
-    """A list-form entry as "sum"/"True" (case-insensitively), or unchanged if unknown."""
+    """A list-form entry as "sum"/"True"/"Multiply" (case-insensitively), or unchanged if
+    unknown."""
     if isinstance(entry, str) and entry.lower() == 'sum':
         return MULTI_PORT_SUM
+    if isinstance(entry, str) and entry.lower() == 'multiply':
+        return MULTI_PORT_MULTIPLY
     if entry is True or entry == 'True':
         return MULTI_PORT_SHARED
     return entry
@@ -72,9 +80,24 @@ def is_multiply_port(port):
     return isinstance(port, dict) and port.get('multi_port') == MULTI_PORT_MULTIPLY
 
 
-def multiply_factor(port):
-    """The ``multiply_factor`` of a Multiply port, as a float (default 1)."""
-    return float(port.get('multiply_factor', 1))
+def multiply_factor(port, index=0):
+    """The ``multiply_factor`` of the Multiply variable at ``index`` of ``port``, as a float
+    (default 1). The factor is one number for every Multiply variable, or a list aligned with
+    the port's variables."""
+    factor = port.get('multiply_factor', 1)
+    if isinstance(factor, (list, tuple)):
+        factor = factor[index]
+    return float(1 if factor is None else factor)
+
+
+def _is_number(value):
+    if isinstance(value, bool) or not isinstance(value, (numbers.Real, str)):
+        return False
+    try:
+        float(value)
+    except ValueError:
+        return False
+    return True
 
 
 def normalise_port_multi_port(port, module_description):
@@ -84,12 +107,15 @@ def normalise_port_multi_port(port, module_description):
       ``["sum"]`` on any other port, which must then have exactly one variable;
     * a string "multiply" in any case: "Multiply", on a port with exactly one variable, and
       a numeric ``multiply_factor`` if one is given;
-    * list-form entries: "sum" in any case becomes "sum";
+    * list-form entries: "sum" and "multiply" in any case become "sum" and "Multiply";
     * anything else is left as it is.
 
+    ``multiply_factor`` is a number, or a list with one entry per variable: a number for each
+    Multiply variable and null for the others.
+
     Raises ValueError for a Sum/Multiply port that does not have exactly one variable, a
-    ``multiply_factor`` that is not a number, or a ``multiply_factor`` on a port that is not
-    Multiply.
+    ``multiply_factor`` that is not a number (or such a list), or a ``multiply_factor`` on a
+    port with no Multiply variable.
     """
     if not isinstance(port, dict) or 'multi_port' not in port and 'multiply_factor' not in port:
         return port
@@ -134,19 +160,23 @@ def normalise_port_multi_port(port, module_description):
         new_value = [_canonical_entry(entry) for entry in value]
 
     if 'multiply_factor' in port:
-        if new_value != MULTI_PORT_MULTIPLY:
+        entries = new_value if isinstance(new_value, list) else [new_value] * len(variables)
+        if MULTI_PORT_MULTIPLY not in entries:
             raise ValueError(
                 f'{module_description}: port "{port_type}" has a multiply_factor but its '
-                f'multi_port is {value!r}; multiply_factor only applies to "Multiply" ports.')
+                f'multi_port is {value!r}; multiply_factor only applies to "Multiply" variables.')
         factor = port['multiply_factor']
-        if isinstance(factor, bool) or not isinstance(factor, (numbers.Real, str)):
+        if isinstance(factor, (list, tuple)):
+            if len(factor) != len(variables) or not all(
+                    _is_number(f) if e == MULTI_PORT_MULTIPLY else f is None
+                    for f, e in zip(factor, entries)):
+                raise ValueError(
+                    f'{module_description}: port "{port_type}" has multiply_factor {factor!r}. '
+                    f'A list needs one entry per variable {list(variables)}: a number for each '
+                    f'"multiply" variable and null for the others.')
+        elif not _is_number(factor):
             raise ValueError(f'{module_description}: port "{port_type}" has multiply_factor '
                              f'{factor!r}, which is not a number.')
-        try:
-            float(factor)
-        except ValueError:
-            raise ValueError(f'{module_description}: port "{port_type}" has multiply_factor '
-                             f'{factor!r}, which is not a number.') from None
 
     if new_value == value and type(new_value) is type(value):
         return port
@@ -178,10 +208,11 @@ def validate_list_multi_port(port, module_description):
             f'{list(value)} of length {len(value)}, but {len(variables)} variables '
             f'{list(variables)}. The list must have one entry per port variable.')
     for entry, variable in zip(value, variables):
-        if _canonical_entry(entry) not in (MULTI_PORT_SUM, MULTI_PORT_SHARED):
+        if _canonical_entry(entry) not in (MULTI_PORT_SUM, MULTI_PORT_SHARED, MULTI_PORT_MULTIPLY):
             raise ValueError(
                 f'{module_description}: port "{port.get("port_type")}" has multi_port entry '
-                f'{entry!r} for variable "{variable}". List-form entries must be "sum" or "True".')
+                f'{entry!r} for variable "{variable}". List-form entries must be "sum", "True" '
+                f'or "multiply".')
 
 
 def module_has_list_multi_port(module_row):

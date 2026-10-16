@@ -307,6 +307,9 @@ def _component(**port):
     ({'multiply_factor': 2}, False),
     ({'multi_port': 'True', 'multiply_factor': 2}, False),
     ({'multi_port': 'Multiply', 'multiply_factor': 'two'}, False),
+    ({'multi_port': ['multiply'], 'multiply_factor': [4]}, True),
+    ({'multi_port': ['True'], 'multiply_factor': [4]}, False),
+    ({'multi_port': ['multiply'], 'multiply_factor': ['four']}, False),
 ])
 def test_module_config_multiply_factor_in_the_reader_and_the_schema(port, accepted):
     entry = _component(**port)
@@ -318,9 +321,9 @@ def test_module_config_multiply_factor_in_the_reader_and_the_schema(port, accept
             normalise_module_config_entry(entry)
 
 
-def test_module_config_list_multi_port_entries_are_sum_or_true():
+def test_module_config_list_multi_port_entries_are_sum_true_or_multiply():
     port = {'port_type': 'flow_port', 'variables': ['q'], 'multi_port': ['bogus']}
-    with pytest.raises(ValueError, match='must be "sum" or "True"'):
+    with pytest.raises(ValueError, match='must be "sum", "True" or "multiply"'):
         validate_list_multi_port(normalise_port_multi_port(port, 'test'), 'test')
     assert not _validator(MODULE_CONFIG_SCHEMA).is_valid([_component(multi_port=['bogus'])])
 

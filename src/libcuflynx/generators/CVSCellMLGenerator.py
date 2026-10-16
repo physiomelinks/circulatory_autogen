@@ -1231,16 +1231,10 @@ class CVS0DCellMLGenerator(object):
         by position, as in a plain one-to-one mapping, and a pair with a blank variable is
         skipped. A "sum" entry registers the neighbour's variable as a term of the generated
         multiport sum component instead of mapping it directly. A Multiply variable, on either
-        end, reaches its neighbour times its port's multiply_factor: the neighbour's variable is
-        set to that, or, if the neighbour's variable is a "sum", that is one of its terms. Every
-        other variable is mapped directly (so a "True" variable ends up mapped to every
-        neighbour).
+        end, reaches its neighbour times its factor: the neighbour's variable is set to that, or,
+        if the neighbour's variable is a "sum", that is one of its terms. Every other variable is
+        mapped directly (so a "True" variable ends up mapped to every neighbour).
         """
-        if is_multiply_port(main_port) and is_multiply_port(out_port):
-            raise ValueError(
-                f'Cannot connect "{main_module}" {list(variables_1)} to "{out_module}" '
-                f'{list(variables_2)}: both ports are "Multiply"; only one end of a connection '
-                f'can scale its variable.')
         entries = []
         for port, variables in ((main_port, variables_1), (out_port, variables_2)):
             if is_multiply_port(port):
@@ -1249,9 +1243,15 @@ class CVS0DCellMLGenerator(object):
                 entries.append(list_multi_port(port) or [None] * len(variables))
 
         direct_1, direct_2 = [], []
-        for var_1, var_2, entry_1, entry_2 in zip(variables_1, variables_2, *entries):
+        for index, (var_1, var_2, entry_1, entry_2) in enumerate(
+                zip(variables_1, variables_2, *entries)):
             if is_blank_variable(var_1) or is_blank_variable(var_2):
                 continue
+            if entry_1 == MULTI_PORT_MULTIPLY and entry_2 == MULTI_PORT_MULTIPLY:
+                raise ValueError(
+                    f'Cannot connect "{main_module}" variable "{var_1}" to "{out_module}" '
+                    f'variable "{var_2}": both are "Multiply"; only one end of a connection can '
+                    f'scale its variable.')
             if entry_1 == MULTI_PORT_SUM and entry_2 == MULTI_PORT_SUM:
                 raise ValueError(
                     f'"{main_module}" variable "{var_1}" and "{out_module}" variable "{var_2}" '
@@ -1265,7 +1265,7 @@ class CVS0DCellMLGenerator(object):
                 scaled, other = ends if entry_1 == MULTI_PORT_MULTIPLY else ends[::-1]
                 kind = MULTI_PORT_SUM if other[2] == MULTI_PORT_SUM else MULTI_PORT_MULTIPLY
                 self.__add_multiport_sum_term(other[0], other[1], scaled[0], scaled[1],
-                                              factor=multiply_factor(scaled[3]), kind=kind)
+                                              factor=multiply_factor(scaled[3], index), kind=kind)
             elif entry_1 == MULTI_PORT_SUM:
                 self.__add_multiport_sum_term(main_module, var_1, out_module, var_2)
             elif entry_2 == MULTI_PORT_SUM:

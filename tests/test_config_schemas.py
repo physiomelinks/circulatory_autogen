@@ -50,7 +50,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from libcuflynx.generators.multi_port import normalise_port_multi_port
+from libcuflynx.generators.multi_port import multiply_factor, normalise_port_multi_port
 from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
 from libcuflynx.solver_wrappers import get_simulation_helper
 from libcuflynx.utilities.config_schemas import (normalise_module_config_entry,
@@ -113,6 +113,16 @@ MODULES_CELLML = (
     + _prescribed('gain_type', 'x', 'm3_per_s')
     + _seen('reader_type', 'y', 'm3_per_s')
     + _seen('gain_sum_type', 'y_sum', 'm3_per_s')
+    + _component('pair_src_type', [_var('a', 'm3_per_s', 'out'), _var('b', 'm3_per_s', 'out'),
+                                   _var('mean', 'm3_per_s', 'in'), _var('amp', 'dimensionless', 'in'),
+                                   _var('omega', 'per_s', 'in')],
+                 [_eq('<ci>a</ci>', _sinusoid('mean', 'amp', 'omega')),
+                  _eq('<ci>b</ci>', '<apply><times/><cn cellml:units="dimensionless">3</cn>'
+                                    '<ci>a</ci></apply>')])
+    + _component('pair_seen_type', [_var('ya', 'm3_per_s', 'in'), _var('yb', 'm3_per_s', 'in'),
+                                    _var('a_seen', 'm3_per_s', 'out'),
+                                    _var('b_seen', 'm3_per_s', 'out')],
+                 [_eq('<ci>a_seen</ci>', '<ci>ya</ci>'), _eq('<ci>b_seen</ci>', '<ci>yb</ci>')])
     + '</model>\n'
 )
 
@@ -198,6 +208,31 @@ def modules_config(volume_sum="sum", gain_factor=2.5):
         _module("collector2", "collector_type",
                 [_port("flow_port", ["v_in_sum"], "Sum"), _port("gain_port", ["v_in_sum"], "Sum")],
                 [], _seen_vars("v_in_sum")),
+    ]
+    pair_vars = [["a", "m3_per_s", "access", "variable"], ["b", "m3_per_s", "access", "variable"],
+                 ["mean", "m3_per_s", "access", "constant"],
+                 ["amp", "dimensionless", "access", "constant"],
+                 ["omega", "per_s", "access", "constant"]]
+    pair_seen_vars = [["ya", "m3_per_s", "access", "boundary_condition"],
+                      ["yb", "m3_per_s", "access", "boundary_condition"],
+                      ["a_seen", "m3_per_s", "access", "variable"],
+                      ["b_seen", "m3_per_s", "access", "variable"]]
+    config += [
+        # per-variable Multiply, as PhLynx exports it: one factor per variable, null where none
+        _module("pair_src_mul", "pair_src_type", [],
+                [_port("pair_port", ["a", "b"], ["True", "multiply"], multiply_factor=[None, 4])],
+                pair_vars),
+        _module("pair_src_mul_all", "pair_src_type", [],
+                [_port("pair_port", ["a", "b"], ["Multiply", "multiply"], multiply_factor=2)],
+                pair_vars),
+        _module("pair_src", "pair_src_type", [], [_port("pair_port", ["a", "b"])], pair_vars),
+        _module("pair_reader", "pair_seen_type", [_port("pair_port", ["ya", "yb"])], [],
+                pair_seen_vars),
+        # ya is left out (a blank slot), so only yb is connected: the sum of its neighbours' b
+        _module("pair_reader_sum", "pair_seen_type",
+                [_port("pair_port", ["", "yb"], ["True", "sum"])], [], pair_seen_vars),
+        _module("pair_reader_mul", "pair_seen_type",
+                [_port("pair_port", ["ya", "yb"], ["True", "multiply"])], [], pair_seen_vars),
     ]
     if gain_factor is None:
         del config[6]["exit_ports"][0]["multiply_factor"]
@@ -445,6 +480,23 @@ def test_multi_port_normalisation():
         normalise_port_multi_port(_port("p", ["x"], "True", multiply_factor=2), "m")
 
 
+@pytest.mark.unit
+def test_list_form_multiply_normalisation():
+    port = normalise_port_multi_port(
+        _port("p", ["a", "b"], ["True", "MULTIPLY"], multiply_factor=[None, "4"]), "m")
+    assert port["multi_port"] == ["True", "Multiply"]
+    assert multiply_factor(port, 1) == 4.0
+    assert multiply_factor(_port("p", ["a", "b"], ["Multiply", "Multiply"], multiply_factor=2), 0) \
+        == 2.0
+    assert multiply_factor(_port("p", ["a", "b"], ["True", "Multiply"]), 1) == 1.0
+    for factor in ([4], [1, 4], [None, "four"], [None, None]):
+        with pytest.raises(ValueError, match="one entry per variable"):
+            normalise_port_multi_port(
+                _port("p", ["a", "b"], ["True", "multiply"], multiply_factor=factor), "m")
+    with pytest.raises(ValueError, match="only applies"):
+        normalise_port_multi_port(_port("p", ["a", "b"], ["True", "sum"], multiply_factor=2), "m")
+
+
 @pytest.mark.integration
 def test_volume_port_sum_is_case_insensitive(tmp_path):
     rows = [("tank_a", "tank", [], ["vsum"]), ("tank_b", "tank", [], ["vsum"]),
@@ -542,8 +594,36 @@ def test_multiply_on_the_downstream_end(tmp_path, library_dir):
 def test_multiply_on_both_ends_is_rejected(tmp_path, library_dir):
     rows = [("g1", "gain_flow", [], ["g2"]), ("g2", "gain_in", ["g1"], [])]
     params = _prescribed_params("g1", 1.0e-5, 0.5, 3.0) + _prescribed_params("g2", 2.0e-5, 0.4, 8.0)
-    with pytest.raises(ValueError, match='both ports are "Multiply"'):
+    with pytest.raises(ValueError, match='both are "Multiply"'):
         _generate(str(tmp_path), library_dir, "schema_mul_both", rows, params)
+
+
+@pytest.mark.integration
+def test_list_form_multiply_scales_each_variable_by_its_own_factor(tmp_path, library_dir):
+    """["True", "multiply"] with factors [null, 4]: a is mapped, b reaches its neighbour times
+    4; into a "sum" entry it is one term. ["Multiply", "multiply"] with one factor scales both."""
+    rows = [("s", "pair_src_mul", [], ["r", "rs"]), ("r", "pair_reader", ["s"], []),
+            ("s2", "pair_src", [], ["rs"]), ("rs", "pair_reader_sum", ["s", "s2"], []),
+            ("sa", "pair_src_mul_all", [], ["ra"]), ("ra", "pair_reader", ["sa"], [])]
+    params = (_prescribed_params("s", 1.0e-5, 0.5, 3.0) + _prescribed_params("s2", 2.0e-5, 0.4, 8.0)
+              + _prescribed_params("sa", 3.0e-5, 0.3, 5.0) + [("ya_rs", "m3_per_s", 0.0)])
+    path = _generate(str(tmp_path), library_dir, "schema_list_mul", rows, params)
+    res = _simulate(path, ["s/a", "s/b", "r/a_seen", "r/b_seen", "s2/b", "rs/b_seen",
+                           "sa/a", "sa/b", "ra/a_seen", "ra/b_seen"])
+    np.testing.assert_allclose(res["r/a_seen"], res["s/a"], **EXACT)
+    np.testing.assert_allclose(res["r/b_seen"], 4.0 * res["s/b"], **EXACT)
+    np.testing.assert_allclose(res["rs/b_seen"], 4.0 * res["s/b"] + res["s2/b"], **EXACT)
+    np.testing.assert_allclose(res["ra/a_seen"], 2.0 * res["sa/a"], **EXACT)
+    np.testing.assert_allclose(res["ra/b_seen"], 2.0 * res["sa/b"], **EXACT)
+    assert np.ptp(res["r/b_seen"]) > 0
+
+
+@pytest.mark.integration
+def test_list_form_multiply_on_both_ends_of_a_variable_is_rejected(tmp_path, library_dir):
+    rows = [("s", "pair_src_mul", [], ["r"]), ("r", "pair_reader_mul", ["s"], [])]
+    with pytest.raises(ValueError, match='variable "b" to "r" variable "yb": both are "Multiply"'):
+        _generate(str(tmp_path), library_dir, "schema_list_mul_both", rows,
+                  _prescribed_params("s", 1.0e-5, 0.5, 3.0))
 
 
 @pytest.mark.integration
