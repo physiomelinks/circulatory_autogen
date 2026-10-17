@@ -13,6 +13,10 @@
 * ``params_for_id.schema.json`` -- ``<prefix>_params_for_id.json``: the JSON form of
   params_for_id (version 1), which a ``params_for_id.csv`` is converted to on read
   (``ObsAndParamDataParser.params_for_id_csv_to_json``).
+* ``variable_mapping.schema.json`` -- ``<prefix>_variable_mapping.csv``: the JSON form of a
+  variable mapping (the LaTeX symbol of each variable, for the methods text), which the CSV is
+  converted to on read (``libcuflynx.reporting.variable_mapping.variable_mapping_document``);
+  columns beyond libcuflynx's (such as a CellDL editor's ``bondgraph``) are kept.
 * ``calibration_workflow.schema.json`` -- ``calibration_workflow.json``: ordered calibrations
   of module parameterisations merged into a supermodule parameterisation
   (``libcuflynx.calibration_workflow``, whose ``spec.py`` and ``resolve.py`` check the same
@@ -21,8 +25,8 @@
 Every reader checks its file against its schema when it loads it
 (:mod:`libcuflynx.schemas.validation`), so a schema is the definition of its file's structure:
 what an editor, PhLynx or CUFLynx accepts is what libcuflynx accepts. The readers check only
-what a schema cannot (that a file exists, that a vessel is in the model). For obs_data and
-params_for_id the schema runs first; module configs, module arrays and calibration workflows
+what a schema cannot (that a file exists, that a vessel is in the model). For obs_data,
+params_for_id and variable mappings the schema runs first; module configs, module arrays and calibration workflows
 are checked by their readers first, for those readers' more specific messages, and then by
 the schema. Enums that libcuflynx keeps as registries (prior types, step kinds, data types,
 variable kinds ...) are generated into the schemas by :mod:`libcuflynx.schemas.registries`.
@@ -38,6 +42,7 @@ MODULE_CONFIG_SCHEMA = 'module_config.schema.json'
 OBS_DATA_SCHEMA = 'obs_data.schema.json'
 PARAMS_FOR_ID_SCHEMA = 'params_for_id.schema.json'
 CALIBRATION_WORKFLOW_SCHEMA = 'calibration_workflow.schema.json'
+VARIABLE_MAPPING_SCHEMA = 'variable_mapping.schema.json'
 
 
 def schema_file(name):

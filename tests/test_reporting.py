@@ -145,6 +145,48 @@ def test_refreshing_a_mapping_keeps_edits_and_follows_the_model(tmp_path):
 
 
 @pytest.mark.unit
+def test_a_column_beyond_libcuflynxs_is_kept_through_a_refresh(tmp_path):
+    # a mapping written by a CellDL editor or bgtool: the bond graph name of each variable
+    path = str(tmp_path / 'Goodwin_variable_mapping.csv')
+    rows = update_variable_mapping_file(GOODWIN, path)
+    with open(path, newline='') as f:
+        records = list(csv.reader(f))
+    records[0].append('bondgraph')
+    for record in records[1:]:
+        record.append('q_' + record[0].split('/')[1] if record[0] == 'Xi/Xi' else '')
+    with open(path, 'w', newline='') as f:
+        csv.writer(f).writerows(records)
+    assert read_variable_mapping(path)['Xi/Xi']['bondgraph'] == 'q_Xi'
+    rows = update_variable_mapping_file(GOODWIN, path)
+    assert {r['variable_name']: r['bondgraph'] for r in rows}['Xi/Xi'] == 'q_Xi'
+    with open(path, newline='') as f:
+        assert next(csv.reader(f)) == ['variable_name', 'latex', 'kind', 'component', 'units',
+                                       'bondgraph']
+    assert read_variable_mapping(path)['Xi/Xi']['bondgraph'] == 'q_Xi'
+
+
+@pytest.mark.unit
+def test_a_mapping_its_schema_refuses_is_refused_on_read(tmp_path):
+    path = tmp_path / 'm_variable_mapping.csv'
+    path.write_text('variable_name,latex,kind\nXi/Xi,X_i,variable\n')
+    with pytest.raises(VariableMappingError, match='kind'):
+        read_variable_mapping(str(path))
+    path.write_text('variable_name,latex\nXi,X_i\n')
+    with pytest.raises(VariableMappingError, match='variable_name'):
+        read_variable_mapping(str(path))
+    path.write_text('variable_name,latex\nXi/Xi,X_i\nXi/Xi,Y\n')
+    with pytest.raises(VariableMappingError, match='twice'):
+        read_variable_mapping(str(path))
+    path.write_text('name,latex\nXi/Xi,X_i\n')
+    with pytest.raises(VariableMappingError, match='missing'):
+        read_variable_mapping(str(path))
+    # blank lines and surrounding spaces are fine; libcuflynx's columns may be absent
+    path.write_text('variable_name , latex\n\n Xi/Xi , X_i \n')
+    assert read_variable_mapping(str(path))['Xi/Xi'] == {
+        'variable_name': 'Xi/Xi', 'latex': 'X_i', 'kind': '', 'component': '', 'units': ''}
+
+
+@pytest.mark.unit
 def test_problems_a_reader_would_notice_are_reported(tmp_path):
     rows = [{'variable_name': 'a/x', 'latex': 'x'}, {'variable_name': 'b/x', 'latex': 'x'},
             {'variable_name': 'c/y', 'latex': ''}]

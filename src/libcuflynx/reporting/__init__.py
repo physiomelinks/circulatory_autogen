@@ -12,8 +12,10 @@ from libcuflynx.reporting.variable_mapping import (check_variable_mapping,
                                                    default_variable_mapping,
                                                    read_variable_mapping,
                                                    update_variable_mapping_file,
-                                                   variable_mapping, write_variable_mapping)
+                                                   variable_mapping, variable_mapping_document,
+                                                   write_variable_mapping)
 
 __all__ = ['calibration_methods_latex', 'check_variable_mapping', 'default_variable_mapping',
            'module_sections', 'read_variable_mapping', 'update_variable_mapping_file',
-           'variable_mapping', 'workflow_methods_latex', 'write_variable_mapping']
+           'variable_mapping', 'variable_mapping_document', 'workflow_methods_latex',
+           'write_variable_mapping']

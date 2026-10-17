@@ -1,8 +1,8 @@
-"""The shipped JSON Schemas of the four input files (libcuflynx/schemas) agree with the readers.
+"""The shipped JSON Schemas of the input files (libcuflynx/schemas) agree with the readers.
 
 * every schema is a valid draft 2020-12 schema, and every property it declares is described;
-* the repository's obs_data and params_for_id files, the converted params_for_id CSVs and the
-  examples in tests/test_inputs/schema_examples validate;
+* the repository's obs_data and params_for_id files, the converted params_for_id and variable
+  mapping CSVs and the examples in tests/test_inputs/schema_examples validate;
 * the key sets the schemas allow are those the readers accept (read from the readers' own
   constants, or from the rule dicts in ``parse_obs_data_json``);
 * inputs the readers refuse are refused by the schemas too.
@@ -21,8 +21,9 @@ import pytest
 from libcuflynx.parsers.PrimitiveParsers import (PARAM_PRIOR_TYPES, PARAMS_FOR_ID_ENTRY_KEYS,
                                                  PARAMS_FOR_ID_JSON_VERSION, ObsAndParamDataParser)
 from libcuflynx.generators.multi_port import normalise_port_multi_port, validate_list_multi_port
+from libcuflynx.reporting.variable_mapping import KINDS, variable_mapping_document
 from libcuflynx.schemas import (MODULE_ARRAY_SCHEMA, MODULE_CONFIG_SCHEMA, OBS_DATA_SCHEMA,
-                                PARAMS_FOR_ID_SCHEMA, load_schema)
+                                PARAMS_FOR_ID_SCHEMA, VARIABLE_MAPPING_SCHEMA, load_schema)
 from libcuflynx.utilities.config_schemas import (PHLYNX_MODULE_ARRAY_COLUMNS, PHLYNX_MODULE_KEYS,
                                                  normalise_module_config_entry)
 from libcuflynx.utilities.obs_data_helpers import VALID_DATA_TYPES
@@ -34,7 +35,8 @@ pytestmark = pytest.mark.unit
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXAMPLES = os.path.join(ROOT, 'tests', 'test_inputs', 'schema_examples')
-ALL_SCHEMAS = (MODULE_ARRAY_SCHEMA, MODULE_CONFIG_SCHEMA, OBS_DATA_SCHEMA, PARAMS_FOR_ID_SCHEMA)
+ALL_SCHEMAS = (MODULE_ARRAY_SCHEMA, MODULE_CONFIG_SCHEMA, OBS_DATA_SCHEMA, PARAMS_FOR_ID_SCHEMA,
+               VARIABLE_MAPPING_SCHEMA)
 
 
 def _validator(name):
@@ -86,7 +88,8 @@ def test_the_examples_validate():
     kinds = {'_module_array.json': MODULE_ARRAY_SCHEMA,
              '_modules_config.json': MODULE_CONFIG_SCHEMA,
              '_obs_data.json': OBS_DATA_SCHEMA,
-             '_params_for_id.json': PARAMS_FOR_ID_SCHEMA}
+             '_params_for_id.json': PARAMS_FOR_ID_SCHEMA,
+             '_variable_mapping.json': VARIABLE_MAPPING_SCHEMA}
     seen = set()
     for path in sorted(glob.glob(os.path.join(EXAMPLES, '*.json'))):
         name = next(n for suffix, n in kinds.items() if path.endswith(suffix))
@@ -101,6 +104,32 @@ def test_the_example_params_for_id_csv_converts_to_its_json():
         os.path.join(EXAMPLES, 'SN_simple_params_for_id.csv'))
     with open(os.path.join(EXAMPLES, 'SN_simple_params_for_id.json')) as f:
         assert converted == json.load(f)
+
+
+def test_the_example_variable_mapping_csv_converts_to_its_json():
+    converted = variable_mapping_document(os.path.join(EXAMPLES, 'Goodwin_variable_mapping.csv'))
+    with open(os.path.join(EXAMPLES, 'Goodwin_variable_mapping.json')) as f:
+        assert converted == json.load(f)
+
+
+@pytest.mark.parametrize('row, accepted', [
+    ({'variable_name': 'Xi/Xi', 'latex': 'X_i'}, True),
+    # a CellDL editor's file: kind and units left empty, the bond graph name as another column
+    ({'variable_name': 'main/n_B_c', 'latex': 'n_{B,c}', 'kind': '', 'component': 'main', 'units': '',
+      'bondgraph': 'q_B_B_c'}, True),
+    ({'variable_name': 'Xi/Xi', 'latex': 'X_i', 'kind': 'variable'}, False),
+    ({'variable_name': 'Xi', 'latex': 'X_i'}, False),
+    ({'variable_name': 'a/b/c', 'latex': 'x'}, False),
+    ({'latex': 'X_i'}, False),
+    ({'variable_name': 'Xi/Xi', 'latex': 'X_i', 'bondgraph': 3}, False),
+])
+def test_variable_mapping_rows_the_schema_accepts(row, accepted):
+    assert _validator(VARIABLE_MAPPING_SCHEMA).is_valid({'variables': [row]}) == accepted
+
+
+def test_variable_mapping_kinds_are_the_readers():
+    kind = load_schema(VARIABLE_MAPPING_SCHEMA)['$defs']['row']['properties']['kind']
+    assert kind['anyOf'][0]['enum'] == list(KINDS)
 
 
 def test_the_repository_obs_data_files_validate():
