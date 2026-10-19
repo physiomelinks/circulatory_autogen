@@ -1,0 +1,99 @@
+# remove when libcellml 0.7.2 is on PyPI
+name: Install libCellML built from source
+description: >-
+  Replace the installed libcellml with a wheel built from cellml/libcellml at a fixed commit,
+  when this checkout's libcuflynx requirement admits it. libCellML 0.7.1 drops an imported
+  unit's exponent; the fix (cellml/libcellml#1498) is merged but not released. Use after the
+  job has pip-installed this checkout and run install-system-deps.
+
+inputs:
+  libcellml-sha:
+    description: The cellml/libcellml commit to build.
+    # LIBCELLML_SHA: the one place the commit is named.
+    default: 1bba2ef491e715a73310895733baa8d0423b435b
+  version:
+    description: The version the wheel is given (libcellml main keeps `__VERSION__` in its pyproject).
+    default: 0.7.2.dev0
+
+runs:
+  using: composite
+  steps:
+    # Inert unless the installed libcuflynx accepts this version: on a branch that pins
+    # libcellml<0.7.0 the remaining steps are skipped, and the PyPI wheel stays in place.
+    - name: Check whether this checkout wants libCellML from source
+      id: gate
+      shell: bash
+      env:
+        LIBCELLML_VERSION: ${{ inputs.version }}
+      run: |
+        python - <<'EOF' >> "$GITHUB_OUTPUT"
+        import importlib.metadata, os
+        from packaging.requirements import Requirement
+        reqs = [Requirement(r) for r in importlib.metadata.requires("libcuflynx") or []]
+        spec = next(r.specifier for r in reqs if r.name.lower() == "libcellml")
+        wanted = spec.contains(os.environ["LIBCELLML_VERSION"], prereleases=True)
+        print(f"build={'true' if wanted else 'false'}")
+        EOF
+        tail -1 "$GITHUB_OUTPUT"
+
+    - name: Key the libCellML wheel cache
+      id: key
+      if: steps.gate.outputs.build == 'true'
+      shell: bash
+      run: |
+        py="$(python -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")')"
+        echo "dir=${RUNNER_TEMP}/libcellml-wheel" >> "$GITHUB_OUTPUT"
+        echo "key=libcellml-wheel-${ImageOS:-${RUNNER_OS}}-py${py}-${{ inputs.libcellml-sha }}" >> "$GITHUB_OUTPUT"
+
+    - name: Restore the libCellML wheel
+      id: cache
+      if: steps.gate.outputs.build == 'true'
+      uses: actions/cache@v4
+      with:
+        path: ${{ steps.key.outputs.dir }}
+        key: ${{ steps.key.outputs.key }}
+
+    - name: Check out libCellML
+      if: steps.gate.outputs.build == 'true' && steps.cache.outputs.cache-hit != 'true'
+      uses: actions/checkout@v4
+      with:
+        repository: cellml/libcellml
+        ref: ${{ inputs.libcellml-sha }}
+        path: ${{ runner.temp }}/libcellml-src
+
+    # SWIG comes from PyPI rather than apt: the bindings build against the stable ABI
+    # (Py_LIMITED_API), which SWIG 4.0 cannot generate. The tools go in their own venv so
+    # they do not land in the environment under test.
+    - name: Build the libCellML wheel
+      if: steps.gate.outputs.build == 'true' && steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        SRC: ${{ runner.temp }}/libcellml-src
+        OUT: ${{ steps.key.outputs.dir }}
+        LIBCELLML_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        sudo apt-get install -y libxml2-dev
+        python -m venv "${RUNNER_TEMP}/libcellml-tools"
+        "${RUNNER_TEMP}/libcellml-tools/bin/pip" install "cmake>=3.26.1" "ninja>=1.11" "swig>=4.2"
+        export PATH="${RUNNER_TEMP}/libcellml-tools/bin:${PATH}"
+        # As cellml/libcellml's deploy-on-release.yml sets it.
+        sed -i "s/__VERSION__/${LIBCELLML_VERSION}/" "${SRC}/src/bindings/python/pyproject.toml"
+        grep '^version' "${SRC}/src/bindings/python/pyproject.toml"
+        python -m pip wheel --no-deps "${SRC}/src/bindings/python" -w "${OUT}"
+
+    - name: Install the libCellML wheel
+      if: steps.gate.outputs.build == 'true'
+      shell: bash
+      env:
+        OUT: ${{ steps.key.outputs.dir }}
+        LIBCELLML_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        python -m pip install --force-reinstall --no-deps "${OUT}"/libcellml-*.whl
+        python - <<'EOF'
+        import importlib.metadata, os, libcellml
+        installed = importlib.metadata.version("libcellml")
+        assert installed == os.environ["LIBCELLML_VERSION"], installed
+        print("libcellml", installed, "core", libcellml.versionString())
+        EOF
