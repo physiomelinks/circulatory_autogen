@@ -53,13 +53,18 @@ runs:
         path: ${{ steps.key.outputs.dir }}
         key: ${{ steps.key.outputs.key }}
 
+    # git rather than actions/checkout, which only checks out under the workspace.
     - name: Check out libCellML
       if: steps.gate.outputs.build == 'true' && steps.cache.outputs.cache-hit != 'true'
-      uses: actions/checkout@v4
-      with:
-        repository: cellml/libcellml
-        ref: ${{ inputs.libcellml-sha }}
-        path: ${{ runner.temp }}/libcellml-src
+      shell: bash
+      env:
+        SRC: ${{ runner.temp }}/libcellml-src
+        LIBCELLML_SHA: ${{ inputs.libcellml-sha }}
+      run: |
+        set -euo pipefail
+        git init -q "${SRC}"
+        git -C "${SRC}" fetch -q --depth 1 https://github.com/cellml/libcellml.git "${LIBCELLML_SHA}"
+        git -C "${SRC}" checkout -q FETCH_HEAD
 
     # SWIG comes from PyPI rather than apt: the bindings build against the stable ABI
     # (Py_LIMITED_API), which SWIG 4.0 cannot generate. The tools go in their own venv so
