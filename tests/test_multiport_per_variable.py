@@ -453,7 +453,7 @@ def test_list_multi_port_helpers():
 @pytest.mark.parametrize("multi_port, message", [
     (["sum"], "one entry per port variable"),
     (["sum", "True", "True"], "one entry per port variable"),
-    (["sum", "average"], 'must be "sum" or "True"'),
+    (["sum", "average"], 'must be "sum", "True" or "multiply"'),
 ])
 def test_malformed_list_multi_port_is_rejected(multi_port, message):
     with pytest.raises(ValueError, match=message):

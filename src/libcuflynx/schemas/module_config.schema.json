@@ -30,7 +30,7 @@
           "description": "Required. The module variables the port maps, in order, onto the same positions of the connected port. An empty string or null maps nothing in that position."
         },
         "multi_port": {
-          "description": "Whether the port takes several connections, and how (libcuflynx/generators/multi_port.py). \"True\" (or true): every connected module's variables are mapped to this module's (one source, many sinks). \"Sum\" (any case): the port's one variable is the sum over every connected module (on a volume_port, the legacy blood-volume sum). \"Multiply\" (any case): the port's one variable, times multiply_factor, sets each connected module's variable. A list gives one \"sum\" or \"True\" per variable. Default (absent, null or false): one connection.",
+          "description": "Whether the port takes several connections, and how (libcuflynx/generators/multi_port.py). \"True\" (or true): every connected module's variables are mapped to this module's (one source, many sinks). \"Sum\" (any case): the port's one variable is the sum over every connected module (on a volume_port, the legacy blood-volume sum). \"Multiply\" (any case): the port's one variable, times multiply_factor, sets each connected module's variable. A list gives one \"sum\", \"True\" or \"multiply\" (any case) per variable. Default (absent, null or false): one connection.",
           "anyOf": [
             {
               "type": "boolean"
@@ -50,7 +50,7 @@
                   },
                   {
                     "type": "string",
-                    "pattern": "^[Ss][Uu][Mm]$"
+                    "pattern": "^([Ss][Uu][Mm]|[Mm][Uu][Ll][Tt][Ii][Pp][Ll][Yy])$"
                   }
                 ]
               }
@@ -69,9 +69,26 @@
             {
               "type": "string",
               "pattern": "^\\s*[-+]?(\\d+\\.?\\d*|\\.\\d+)([eE][-+]?\\d+)?\\s*$"
+            },
+            {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^\\s*[-+]?(\\d+\\.?\\d*|\\.\\d+)([eE][-+]?\\d+)?\\s*$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
             }
           ],
-          "description": "Multiply ports only: the factor (a number, or a string holding one). Default: 1."
+          "description": "The factor of the port's Multiply variables (a number, or a string holding one), or a list with one entry per variable: a number for each \"multiply\" variable, null for the others. Default: 1."
         },
         "only_one_port": {
           "anyOf": [
@@ -102,12 +119,23 @@
             ],
             "properties": {
               "multi_port": {
-                "type": "string",
-                "pattern": "^[Mm][Uu][Ll][Tt][Ii][Pp][Ll][Yy]$"
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[Mm][Uu][Ll][Tt][Ii][Pp][Ll][Yy]$"
+                  },
+                  {
+                    "type": "array",
+                    "contains": {
+                      "type": "string",
+                      "pattern": "^[Mm][Uu][Ll][Tt][Ii][Pp][Ll][Yy]$"
+                    }
+                  }
+                ]
               }
             }
           },
-          "description": "multiply_factor needs multi_port \"Multiply\"."
+          "description": "multiply_factor needs a \"Multiply\" multi_port, or a list with a \"multiply\" entry."
         }
       ]
     },
