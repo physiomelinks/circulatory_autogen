@@ -53,7 +53,7 @@
         {
           "type": "string",
           "minLength": 1,
-          "description": "a CA module array; its parameters file is <prefix>_parameters.csv beside it"
+          "description": "a CA module array; its parameters file is <prefix>_parameters.json beside it"
         },
         {
           "$ref": "#/$defs/module_array"
@@ -78,7 +78,7 @@
         "parameters": {
           "type": "string",
           "minLength": 1,
-          "description": "its parameters file; default <prefix>_parameters.csv beside it"
+          "description": "its parameters file; default <prefix>_parameters.json beside it"
         }
       }
     },

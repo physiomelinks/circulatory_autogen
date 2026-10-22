@@ -93,9 +93,9 @@ _SESSION_START = None
 _PARAM_ID_RESULTS_FILE = os.path.join(os.path.dirname(__file__), "..", ".pytest_param_id_results")
 _TEST_OUTPUT_ROOT = os.path.join(os.path.dirname(__file__), "test_outputs")
 # _AUTOGEN_CONFIGS = [
-#     {"file_prefix": "3compartment", "input_param_file": "3compartment_parameters.csv", "model_type": "cellml", "solver": "CVODE_myokit"},
-#     {"file_prefix": "simple_physiological", "input_param_file": "simple_physiological_parameters.csv", "model_type": "cellml", "solver": "CVODE_myokit"},
-#     {"file_prefix": "test_fft", "input_param_file": "test_fft_parameters.csv", "model_type": "cellml", "solver": "CVODE_myokit"},
+#     {"file_prefix": "3compartment", "input_param_file": "3compartment_parameters.json", "model_type": "cellml", "solver": "CVODE_myokit"},
+#     {"file_prefix": "simple_physiological", "input_param_file": "simple_physiological_parameters.json", "model_type": "cellml", "solver": "CVODE_myokit"},
+#     {"file_prefix": "test_fft", "input_param_file": "test_fft_parameters.json", "model_type": "cellml", "solver": "CVODE_myokit"},
 # ]
 _LOCK_FILE = os.path.realpath(os.path.join(_TEST_ROOT, ".pytest_param_id_lock"))
 _PARAM_ID_TRIGGERS = ("test_param_id", "compare_optimisers", "test_sensitivity_analysis",
@@ -636,9 +636,9 @@ def temp_generated_models_dir(request, temp_output_dir):
 # Default parameters CSV per model prefix, used by generated_cellml_model_factory
 # when the caller doesn't pass input_param_file explicitly.
 _MODEL_INPUT_FILES = {
-    "3compartment": "3compartment_parameters.csv",
-    "SN_simple": "SN_simple_parameters.csv",
-    "test_init_states": "test_init_states_parameters.csv",
+    "3compartment": "3compartment_parameters.json",
+    "SN_simple": "SN_simple_parameters.json",
+    "test_init_states": "test_init_states_parameters.json",
 }
 
 
@@ -707,21 +707,21 @@ def test_model_configs():
     """
     return [
         # CellML models
-        ('ports_test', 'ports_test_parameters.csv', 'cellml', 'CVODE_myokit'),
-        ('3compartment', '3compartment_parameters.csv', 'cellml', 'CVODE_myokit'),
-        ('simple_physiological', 'simple_physiological_parameters.csv', 'cellml', 'CVODE_myokit'),
-        ('parasympathetic_model', 'parasympathetic_model_parameters.csv', 'cellml', 'CVODE_myokit'),
-        ('test_fft', 'test_fft_parameters.csv', 'cellml', 'CVODE_myokit'),
-        ('neonatal', 'neonatal_parameters.csv', 'cellml', 'CVODE_myokit'),
-        ('generic_junction_test_closed_loop', 'generic_junction_test_closed_loop_parameters.csv', 'cellml', 'CVODE_myokit'),
-        ('generic_junction_test2_closed_loop', 'generic_junction_test_closed_loop_parameters.csv', 'cellml', 'CVODE_myokit'),
-        ('generic_junction_test_open_loop', 'generic_junction_test_open_loop_parameters.csv', 'cellml', 'CVODE_myokit'),
-        ('generic_junction_test2_open_loop', 'generic_junction_test_open_loop_parameters.csv', 'cellml', 'CVODE_myokit'),
-        ('SN_simple', 'SN_simple_parameters.csv', 'cellml', 'CVODE_myokit'),
-        ('physiological', 'physiological_parameters.csv', 'cellml', 'CVODE_myokit'),
-        ('control_phys', 'control_phys_parameters.csv', 'cellml', 'CVODE_myokit'),
+        ('ports_test', 'ports_test_parameters.json', 'cellml', 'CVODE_myokit'),
+        ('3compartment', '3compartment_parameters.json', 'cellml', 'CVODE_myokit'),
+        ('simple_physiological', 'simple_physiological_parameters.json', 'cellml', 'CVODE_myokit'),
+        ('parasympathetic_model', 'parasympathetic_model_parameters.json', 'cellml', 'CVODE_myokit'),
+        ('test_fft', 'test_fft_parameters.json', 'cellml', 'CVODE_myokit'),
+        ('neonatal', 'neonatal_parameters.json', 'cellml', 'CVODE_myokit'),
+        ('generic_junction_test_closed_loop', 'generic_junction_test_closed_loop_parameters.json', 'cellml', 'CVODE_myokit'),
+        ('generic_junction_test2_closed_loop', 'generic_junction_test_closed_loop_parameters.json', 'cellml', 'CVODE_myokit'),
+        ('generic_junction_test_open_loop', 'generic_junction_test_open_loop_parameters.json', 'cellml', 'CVODE_myokit'),
+        ('generic_junction_test2_open_loop', 'generic_junction_test_open_loop_parameters.json', 'cellml', 'CVODE_myokit'),
+        ('SN_simple', 'SN_simple_parameters.json', 'cellml', 'CVODE_myokit'),
+        ('physiological', 'physiological_parameters.json', 'cellml', 'CVODE_myokit'),
+        ('control_phys', 'control_phys_parameters.json', 'cellml', 'CVODE_myokit'),
         # CPP models
-        ('aortic_bif_1d', 'aortic_bif_1d_parameters.csv', 'cpp', 'RK4'),
+        ('aortic_bif_1d', 'aortic_bif_1d_parameters.json', 'cpp', 'RK4'),
     ]
 
 

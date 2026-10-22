@@ -100,6 +100,20 @@ class VesselNetwork():
             self.vessel_centroids = vessel_centroids
             self.vessel_df = None
             self.parameter_df = None
+            # {name in parameter_df (the model's {variable}_{vessel}): its name in the
+            #  parameters file (<vessel>/<variable>, a global plain)}
+            self.parameter_file_names = {}
+
+    def write_parameters_file(self, path):
+        '''Write parameter_df as the model's parameters file ``path`` (nested JSON,
+        libcuflynx.utilities.parameters_file), each parameter under its vessel.'''
+        from libcuflynx.utilities.parameters_file import write_parameter_rows
+        rows = [{'variable_name': self.parameter_file_names.get(row['variable_name'],
+                                                               row['variable_name']),
+                 'units': row['units'], 'value': str(row['value']),
+                 'data_reference': str(row['data_reference'])}
+                for row in self.parameter_df.to_dict('records')]
+        write_parameter_rows(str(path), rows)
 
     def generate_module_array(self):
 
@@ -904,6 +918,7 @@ class VesselNetwork():
                         global_const.append(var_new)
                 elif var[-1]=='constant':
                     var_name = var[0]+'_'+nameV
+                    self.parameter_file_names[var_name] = f'{nameV}/{var[0]}'
                     new_row = {'variable_name': var_name,
                                 'units': var[1],
                                 'value': -1.0,
@@ -932,8 +947,7 @@ class VesselNetwork():
                                         'data_reference': 'TO_DO'}
                 self.parameter_df = pd.concat([self.parameter_df, pd.DataFrame([new_row])], ignore_index=True)
 
-        # parameters_csv_abs_path_temp = '/home/dsas627/PycharmProjects/me_bioeng_cb_vessel_network/resources/image_to_model_parameters.csv'
-        self.parameter_df.to_csv(parameters_csv_abs_path, index=False, header=True)
+        self.write_parameters_file(parameters_csv_abs_path)
                     
         print('DONE :: Parameters array file for model '+file_prefix+' generated and saved.')
 
@@ -1665,7 +1679,7 @@ def run_image_to_model(target_image_path, resources_path, ilastik_path, model_pa
     output_segment_connectivity_filename = "image_to_model_vessel_xyz.csv"  # Base name
     # New configuration for the vessel parameters DataFrame
     generate_vessel_parameters_file = True
-    output_vessel_parameters_filename = "image_to_model_parameters.csv"
+    output_vessel_parameters_filename = "image_to_model_parameters.json"
     # --- NEW: Glomus Cell Superimposition ---
     render_with_glomus_cells = False
     glomus_file_path = "/home/dsas627/PycharmProjects/me_bioeng_cb_vessel_network/Segmentation (Label 1)_glomus_cells.h5"  # <-- IMPORTANT: SET THIS FILE PATH
@@ -2852,10 +2866,10 @@ def run_image_to_model(target_image_path, resources_path, ilastik_path, model_pa
     vessel_network.generate_parameter_array()
     vessel_network.populate_parameter_array()
 
-    parameters_csv_abs_path_temp_resources = resources_path / 'image_to_model_parameters.csv'
-    parameters_csv_abs_path_temp_user_output = output_dir / 'image_to_model_parameters.csv'
-    vessel_network.parameter_df.to_csv(parameters_csv_abs_path_temp_resources, index=False, header=True)
-    vessel_network.parameter_df.to_csv(parameters_csv_abs_path_temp_user_output, index=False, header=True)
+    parameters_path_resources = resources_path / 'image_to_model_parameters.json'
+    parameters_path_user_output = output_dir / 'image_to_model_parameters.json'
+    vessel_network.write_parameters_file(parameters_path_resources)
+    vessel_network.write_parameters_file(parameters_path_user_output)
 
     #####################################
     ### // Run Circulatory Autogen // ###

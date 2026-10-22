@@ -55,7 +55,7 @@ def build_parser():
                              'run nothing')
     parser.add_argument('--write-calibrated', action='store_true',
                         help='also write the merged set beside the target\'s parameters '
-                             'file, as <name>_calibrated_parameters.csv')
+                             'file, as <name>_calibrated_parameters.json')
     parser.add_argument('--pack', default=None, metavar='DIR',
                         help='copy every file the workflow needs to run (its inputs, module '
                              'versions and settings files, none of its results) into the new '

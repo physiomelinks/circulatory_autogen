@@ -112,7 +112,7 @@ Each pipeline stage also has a console command, all configured from
 | `cuflynx-calibration-workflow` | run a `calibration_workflow.json`: ordered calibrations of module-library parameterisations merged into a supermodule (takes the workflow path) |
 | `cuflynx-variable-mapping` | write a model's `<prefix>_variable_mapping.csv`: the LaTeX symbol of every variable (takes the model or a workflow) |
 | `cuflynx-methods-latex` | write a methods section in LaTeX: equations per module, a flow chart of the calibration, and the methods of each step |
-| `cuflynx-upgrade` | convert, once, files in an older form that the readers refuse: `module-config`, `module-array`, `obs-data`, `parameter-names` (not a pipeline stage) |
+| `cuflynx-upgrade` | convert, once, files in an older form that the readers refuse: `module-config`, `module-array`, `obs-data`, `parameter-names`, `parameters` (a parameters CSV to nested JSON); and `supermodule-instances`, which writes a new supermodule instance's values into a model's parameters file (not a pipeline stage) |
 
 ### `CUFLYNX_USER_DIR` — where an installed libcuflynx reads and writes
 

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/physiomelinks/circulatory_autogen/schemas/module_config.schema.json",
   "title": "libcuflynx module config (*_modules_config.json)",
-  "description": "A list of module config entries: component entries (module_type, module_subtype, component_file, component_type), and supermodule entries (module_format \"supermodule\" with a submodules list of instance records). See libcuflynx/utilities/config_schemas.py. Any entry may name a default_parameterisation: a directory under parameterisations/ next to the config file holding <name>_parameters.csv.",
+  "description": "A list of module config entries: component entries (module_type, module_subtype, component_file, component_type), and supermodule entries (module_format \"supermodule\" with the submodule versions it is built from; its instances are in its own module array file). See libcuflynx/utilities/config_schemas.py. Any entry may name a default_parameterisation: a directory under parameterisations/ next to the config file holding <name>_parameters.csv.",
   "type": "array",
   "items": {
     "$ref": "#/$defs/entry"
@@ -190,7 +190,7 @@
               },
               {
                 "type": "string",
-                "description": "\"constant\" (a parameter named <variable>_<instance> in the parameters file), \"global_constant\" (a parameter shared by every instance, named <variable>), \"boundary_condition\" (a parameter named <variable>_<instance> that a connection can replace), or \"variable\" (computed by the model, not a parameter)",
+                "description": "\"constant\" (a parameter written <instance>/<variable> in the parameters file), \"global_constant\" (a parameter shared by every instance, under \"global\"), \"boundary_condition\" (a parameter written <instance>/<variable> that a connection can replace), or \"variable\" (computed by the model, not a parameter)",
                 "enum": [
                   "constant",
                   "global_constant",
@@ -213,7 +213,7 @@
               ".."
             ]
           },
-          "description": "the parameterisation (a directory under parameterisations/, next to this config file) used when a record names none; ignored if its <name>_parameters.csv does not exist"
+          "description": "the parameterisation (a directory under parameterisations/, next to this config file) used when a record names none; ignored if its <name>_parameters.json does not exist"
         },
         "delay_info": {
           "type": "object",
@@ -293,7 +293,7 @@
       "required": [
         "module_type",
         "module_subtype",
-        "submodules"
+        "submodule_versions"
       ],
       "properties": {
         "module_type": {
@@ -314,13 +314,28 @@
           "type": "string",
           "description": "Free text. Not read."
         },
-        "submodules": {
+        "submodule_versions": {
           "type": "array",
           "minItems": 1,
           "items": {
-            "$ref": "#/$defs/record"
+            "type": "object",
+            "required": [
+              "module_type",
+              "module_subtype"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "module_type": {
+                "$ref": "#/$defs/name",
+                "description": "the submodule version's module type"
+              },
+              "module_subtype": {
+                "$ref": "#/$defs/name",
+                "description": "the submodule version's module subtype"
+              }
+            }
           },
-          "description": "Required. Module-array records whose names are local to the supermodule. Their inp/out lists name sibling submodules only; each may name its own \"parameterisation\" (\"instance\" is refused). Connections to the host model are made by the instance's per_submodule_inputs / per_submodule_outputs."
+          "description": "Required. The module versions the supermodule is built from. Its instances and their connections are in <module_type>_<module_subtype>_module_array.json beside this config, whose records each use one of these versions."
         },
         "default_parameterisation": {
           "type": "string",
@@ -331,7 +346,7 @@
               ".."
             ]
           },
-          "description": "the parameterisation (a directory under parameterisations/, next to this config file) used when a record names none; ignored if its <name>_parameters.csv does not exist"
+          "description": "the parameterisation (a directory under parameterisations/, next to this config file) used when a record names none; ignored if its <name>_parameters.json does not exist"
         },
         "interface": {
           "type": "array",
@@ -400,6 +415,11 @@
             "required": [
               "default_parameters"
             ]
+          },
+          {
+            "required": [
+              "submodules"
+            ]
           }
         ]
       },
@@ -408,7 +428,7 @@
           "description": "PhLynx's own metadata (layout, interface labels); read and ignored"
         }
       },
-      "description": "A named group of modules (submodules) that an instance names like any module; it is expanded into its submodules (<instance>__<submodule>) before the model is built (libcuflynx/utilities/supermodules.py). Recognised by module_format \"supermodule\" or a submodules list. It has no component of its own. Other keys are allowed and not read."
+      "description": "A named group of modules (submodules) that an instance names like any module; it is expanded into its submodules (<instance>__<submodule>) before the model is built (libcuflynx/utilities/supermodules.py). Recognised by module_format \"supermodule\" or a submodule_versions list. Its instances are in its own module array file. It has no component of its own. Other keys are allowed and not read."
     },
     "entry": {
       "oneOf": [
@@ -424,144 +444,6 @@
       "type": "string",
       "pattern": "^\\s*\\S+\\s*$",
       "description": "A name with no whitespace inside it (surrounding whitespace is stripped): names become CellML component and variable names."
-    },
-    "nameList": {
-      "description": "sibling submodule names: a list, or one space-separated string (null: none); no paths",
-      "oneOf": [
-        {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "pattern": "^[^/]+$"
-          }
-        },
-        {
-          "type": "string",
-          "pattern": "^[^/]*$"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
-    "perSubmodule": {
-      "description": "{submodule: [host, ...]}, or a list of one-key objects. A submodule may appear once (the loader checks this; JSON Schema cannot). A key may be a path into a nested supermodule instance (\"soma/membrane\").",
-      "oneOf": [
-        {
-          "type": "object",
-          "additionalProperties": {
-            "$ref": "#/$defs/nameList"
-          }
-        },
-        {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "minProperties": 1,
-            "maxProperties": 1,
-            "additionalProperties": {
-              "$ref": "#/$defs/nameList"
-            }
-          }
-        }
-      ]
-    },
-    "phlynxRecord": {
-      "title": "instance record",
-      "type": "object",
-      "required": [
-        "name",
-        "module_type",
-        "module_subtype"
-      ],
-      "properties": {
-        "name": {
-          "$ref": "#/$defs/instanceName",
-          "description": "Required. The instance name, unique in the array; a module's parameters and variables are named <variable>_<name>."
-        },
-        "module_type": {
-          "$ref": "#/$defs/name",
-          "description": "Required. The module type: the vessel_type (PhLynx: module_type) of a module config entry."
-        },
-        "module_subtype": {
-          "$ref": "#/$defs/name",
-          "description": "Required. The module version: the BC_type (PhLynx: module_subtype) of that entry."
-        },
-        "inp_instances": {
-          "$ref": "#/$defs/nameList",
-          "description": "The instances feeding this one (connected to its entrance ports). Default: none."
-        },
-        "out_instances": {
-          "$ref": "#/$defs/nameList",
-          "description": "The instances this one feeds (connected to its exit ports). Default: none."
-        },
-        "per_submodule_inputs": {
-          "$ref": "#/$defs/perSubmodule",
-          "description": "Supermodule instances only: {submodule: [host instance, ...]}, the host instances feeding each submodule. Each host must list this instance in its out list. Default: none."
-        },
-        "per_submodule_outputs": {
-          "$ref": "#/$defs/perSubmodule",
-          "description": "Supermodule instances only: {submodule: [host instance, ...]}, the host instances each submodule feeds. Each host must list this instance in its inp list. Default: none."
-        },
-        "parameterisation": {
-          "type": "string",
-          "pattern": "^[^/\\\\]*[^/\\\\\\s][^/\\\\]*$",
-          "not": {
-            "enum": [
-              ".",
-              ".."
-            ]
-          },
-          "description": "the parameterisation (named parameter set of the module version) whose parameters this record uses: <config dir>/parameterisations/<name>/<name>_parameters.csv (default: the config entry's default_parameterisation, if that file exists)"
-        }
-      },
-      "not": {
-        "anyOf": [
-          {
-            "required": [
-              "vessel_type"
-            ]
-          },
-          {
-            "required": [
-              "BC_type"
-            ]
-          },
-          {
-            "required": [
-              "inp_vessels"
-            ]
-          },
-          {
-            "required": [
-              "out_vessels"
-            ]
-          }
-        ]
-      },
-      "allOf": [
-        {
-          "not": {
-            "required": [
-              "instance"
-            ]
-          },
-          "description": "\"instance\" is not a record key: a record names its parameter set with \"parameterisation\"."
-        }
-      ],
-      "patternProperties": {
-        "^phlynx_": {
-          "description": "PhLynx's own metadata (layout, interface labels); read and ignored"
-        }
-      }
-    },
-    "record": {
-      "$ref": "#/$defs/phlynxRecord"
-    },
-    "instanceName": {
-      "type": "string",
-      "pattern": "^\\s*(?!_)(?![^\\s/]*__)[^\\s/]*[^\\s/_]\\s*$",
-      "description": "an instance name (surrounding whitespace is dropped): no whitespace inside, no \"/\", no \"__\", and no \"_\" at either end (nested levels are joined with \"__\": heart/lv is heart__lv)"
     }
   }
 }

@@ -3659,13 +3659,15 @@ class CVS1DPythonGenerator(object):
         if all_parameters is not None:
             self.params_df = pd.DataFrame(all_parameters).astype(object)
         else:
-            self.params_df = self.csv_parser.get_data_as_dataframe_multistrings(parameters_csv_abs_path, True)
-            # <vessel>/<variable> names (utilities/parameter_names.py) as the model's names
+            # the model's parameters file, with <vessel>/<variable> names
+            # (utilities/parameter_names.py) as the model's names
             from libcuflynx.utilities.parameter_names import model_name
-            if 'variable_name' in self.params_df.columns:
-                self.params_df['variable_name'] = [
-                    model_name(str(n), where=f'{parameters_csv_abs_path}: ')
-                    for n in self.params_df['variable_name']]
+            from libcuflynx.utilities.parameters_file import read_parameter_rows
+            rows = read_parameter_rows(parameters_csv_abs_path)
+            for row in rows:
+                row['variable_name'] = model_name(row['variable_name'],
+                                                  where=f'{parameters_csv_abs_path}: ')
+            self.params_df = pd.DataFrame(rows).astype(object)
 
         self.vessFileName = self.initFiles1dFold+f'/vess_{self.file_prefix[:-3]}.txt'
         self.nodeFileName = self.initFiles1dFold+f'/nodes_{self.file_prefix[:-3]}.txt'

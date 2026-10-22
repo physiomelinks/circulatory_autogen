@@ -27,8 +27,8 @@ def study(tmp_path):
     model.write_text("<model/>")
     obs = src / "resources" / "demo_obs_data.json"
     obs.write_text('{"protocol_info": {}, "data_items": [], "prediction_items": []}')
-    params = src / "resources" / "demo_params_for_id.csv"
-    params.write_text("vessel_name,param_name,param_type,min,max\n")
+    params = src / "resources" / "demo_params_for_id.json"
+    params.write_text('{"version": 1, "params": []}\n')
     funcs = src / "my_ops.py"
     funcs.write_text("def op():\n    return 1\n")
 
@@ -72,7 +72,7 @@ def test_bundle_carries_every_input(study, tmp_path):
         "run_pipeline.py",
         "generated_models/demo/demo.cellml",
         "resources/demo_obs_data.json",
-        "resources/demo_params_for_id.csv",
+        "resources/demo_params_for_id.json",
         "resources/my_ops.py",
     ):
         assert (out / name).is_file(), f"{name} missing from the bundle"
@@ -88,7 +88,7 @@ def test_every_path_in_the_yaml_is_relative(study, tmp_path):
 
     assert cfg["resources_dir"] == "resources"
     assert cfg["param_id_obs_path"] == "resources/demo_obs_data.json"
-    assert cfg["params_for_id_file"] == "demo_params_for_id.csv"
+    assert cfg["params_for_id_file"] == "demo_params_for_id.json"
     assert cfg["model_file"] == "demo.cellml"
     assert cfg["operation_funcs_external_path"] == "resources/my_ops.py"
 

@@ -6,10 +6,10 @@ import os
 import re
 import shutil
 
-import pandas as pd
 import pytest
 
 from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
+from _parameters import read_parameters, write_parameters
 
 RESOURCES = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'resources')
 
@@ -29,12 +29,12 @@ def _mapped(connections, comp_a, var_a, comp_b, var_b):
             (var_b, var_a) in connections.get((comp_b, comp_a), []))
 
 
-def _generate(tmp_path, prefix, array_text, parameters_text):
+def _generate(tmp_path, prefix, array_text, parameter_rows):
     work = tmp_path / 'resources'
     work.mkdir(exist_ok=True)
     (work / f'{prefix}_module_array.csv').write_text(array_text)
-    (work / f'{prefix}_parameters.csv').write_text(parameters_text)
-    config = {'file_prefix': prefix, 'input_param_file': f'{prefix}_parameters.csv',
+    write_parameters(work / f'{prefix}_parameters.json', parameter_rows)
+    config = {'file_prefix': prefix, 'input_param_file': f'{prefix}_parameters.json',
               'model_type': 'cellml', 'solver': 'CVODE_myokit', 'resources_dir': str(work),
               'generated_models_dir': str(tmp_path / 'generated'), 'DEBUG': False}
     ok = generate_with_new_architecture(False, config)
@@ -75,7 +75,7 @@ def test_inputs_take_same_type_entrance_ports_in_inp_instances_order(tmp_path):
              'a,vp,arterial,src_a,m\n'
              'm,vp,merge_junction,a b,sink\n'
              'sink,nn_constant,outlet_pressure,m,\n')
-    _, text = _generate(tmp_path, 'merge_order', array, 'variable_name,units,value,data_reference\n')
+    _, text = _generate(tmp_path, 'merge_order', array, [])
     conns = _connections(text)
     assert _mapped(conns, 'a_module', 'v', 'm_module', 'v_in_1')
     assert _mapped(conns, 'b_module', 'v', 'm_module', 'v_in_2')
@@ -87,7 +87,7 @@ def test_a_heart_connects_by_its_ports_and_an_explicit_zero_flow(tmp_path):
     vessel_port entrances (v_ivc, v_svc, v_pvn) in that order, although pvn's row is first
     and zero_flow's last."""
     ok, text = _generate(tmp_path, '3compartment', _read('3compartment_module_array.csv'),
-                         _read('3compartment_parameters.csv'))
+                         read_parameters(os.path.join(RESOURCES, '3compartment_parameters.json')))
     assert ok
     conns = _connections(text)
     assert _mapped(conns, 'zero_flow_module', 'v_zero', 'heart_module', 'v_ivc')
@@ -106,7 +106,8 @@ def test_a_heart_without_a_listed_zero_flow_gets_none(tmp_path, capsys):
     array = '\n'.join(line for line in array.splitlines() if not line.startswith('zero_flow,'))
     array = array.replace('zero_flow venous_svc pvn,', 'venous_svc pvn,') + '\n'
     capsys.readouterr()
-    ok, text = _generate(tmp_path, '3compartment', array, _read('3compartment_parameters.csv'))
+    ok, text = _generate(tmp_path, '3compartment', array,
+                         read_parameters(os.path.join(RESOURCES, '3compartment_parameters.json')))
     assert not ok
     assert 'heart/v_pvn: a boundary condition of "heart" that no connected module' in \
         capsys.readouterr().out
@@ -120,7 +121,7 @@ def test_a_heart_without_a_listed_zero_flow_gets_none(tmp_path, capsys):
 def test_two_hearts_generate(tmp_path):
     """Two closed loops, each with its own heart, in one model."""
     array = _read('3compartment_module_array.csv').splitlines()
-    parameters = _read('3compartment_parameters.csv').splitlines()
+    parameters = read_parameters(os.path.join(RESOURCES, '3compartment_parameters.json'))
     names = [line.split(',')[0].strip() for line in array[1:] if line.strip()]
     loop = [n for n in names if n != 'volume_sum']
 
@@ -134,10 +135,10 @@ def test_two_hearts_generate(tmp_path):
 
     second = [renamed(line) for line in array[1:]
               if line.strip() and not line.startswith('volume_sum')]
-    second_parameters = [line.replace('/', '_b/', 1) for line in parameters[1:]
-                         if line.split('/')[0] in loop]
+    second_parameters = [dict(row, variable_name=row['variable_name'].replace('/', '_b/', 1))
+                         for row in parameters if row['variable_name'].split('/')[0] in loop]
     ok, text = _generate(tmp_path, 'two_hearts', '\n'.join(array + second) + '\n',
-                         '\n'.join(parameters + second_parameters) + '\n')
+                         parameters + second_parameters)
     assert ok
     conns = _connections(text)
     for suffix in ('', '_b'):
@@ -166,11 +167,11 @@ def test_1d_coupling_rows_come_from_the_ports_not_the_names(tmp_path):
                rec('lung_artery', 'arterial', 'vp', ['h'], ['lung_vein']),
                rec('loop', 'arterial', 'vp', ['outflow'], ['cava_lower', 'cava_upper'])]
     (tmp_path / 'm_0d_module_array.json').write_text(dump_vessel_records(records))
-    (tmp_path / 'm_0d_parameters.csv').write_text('variable_name,units,value,data_reference\n')
-    convert_0d_to_1d('m', str(tmp_path), 'm_0d_parameters.csv',
+    write_parameters(tmp_path / 'm_0d_parameters.json', [])
+    convert_0d_to_1d('m', str(tmp_path), 'm_0d_parameters.json',
                      vess_1d_list=['outflow', 'lung_artery', 'lung_vein', 'cava_lower'])
-    rows = pd.read_csv(tmp_path / 'm_hybrid_parameters.csv')
-    h_rows = dict(zip(rows['variable_name'], rows['units']))
+    rows = read_parameters(tmp_path / 'm_hybrid_parameters.json')
+    h_rows = {row['variable_name']: row['units'] for row in rows}
     assert {k: v for k, v in h_rows.items() if k.startswith('h/')} == {
         'h/u_root': 'J_per_m3', 'h/u_par': 'J_per_m3',
         'h/v_pvn': 'm3_per_s', 'h/v_ivc': 'm3_per_s'}
@@ -183,12 +184,12 @@ def test_a_1d_vessel_couples_to_the_heart_port_it_is_connected_to(tmp_path):
     (u_root) whatever it is called; it used to need "aorta" in its name."""
     work = tmp_path / 'resources'
     work.mkdir()
-    for suffix in ('_module_array.csv', '_parameters.csv'):
+    for suffix in ('_module_array.csv', '_parameters.json'):
         text = _read('cvs_model_with_arm_hybrid' + suffix)
         (work / ('cvs_model_with_arm_hybrid' + suffix)).write_text(
             re.sub(r'\bA_aorta_ascending_1\b', 'outflow_1d', text))
     config = {'file_prefix': 'cvs_model_with_arm_hybrid',
-              'input_param_file': 'cvs_model_with_arm_hybrid_parameters.csv',
+              'input_param_file': 'cvs_model_with_arm_hybrid_parameters.json',
               'model_type': 'cpp', 'solver': 'RK4', 'solver_info': {'dt_solver': 0.0001},
               'couple_to_1d': True, 'resources_dir': str(work),
               'generated_models_dir': str(tmp_path / 'generated'),

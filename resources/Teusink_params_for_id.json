@@ -1,0 +1,9 @@
+{
+ "version": 1,
+ "params": [
+  {"targets": ["v_GLK/v_max"], "min": 75.0, "max": 680.0, "name_for_plotting": "Vmax_GLK", "prior": "uniform"},
+  {"targets": ["v_PGI/v_max"], "min": 113.0, "max": 1020.0, "name_for_plotting": "Vmax_PGI", "prior": "uniform"},
+  {"targets": ["v_PYK/v_max"], "min": 360.0, "max": 3270.0, "name_for_plotting": "Vmax_PYK", "prior": "uniform"},
+  {"targets": ["v_GAPDH/v_max_f"], "min": 395.0, "max": 3550.0, "name_for_plotting": "Vmax_GAPDH_f", "prior": "uniform"}
+ ]
+}

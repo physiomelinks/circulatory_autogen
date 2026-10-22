@@ -1,0 +1,4 @@
+[
+ {"name": "src", "module_type": "flow_src", "module_subtype": "nn", "inp_instances": [], "out_instances": ["pair"]},
+ {"name": "pair", "module_type": "flowpair", "module_subtype": "supermodule", "inp_instances": ["src"], "out_instances": [], "per_submodule_inputs": {"coll": ["src"]}}
+]

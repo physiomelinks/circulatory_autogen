@@ -1,0 +1,6 @@
+{
+ "schema_version": 1,
+ "test_vessel": {
+  "a": {"value": 3, "units": "dimensionless", "data_reference": "unit_test"}
+ }
+}

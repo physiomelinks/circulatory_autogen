@@ -80,8 +80,15 @@ def flat_name(parts):
 
 def check_instance_name(name, where=''):
     '''ValueError unless ``name`` (a module-array or submodule record's) can be a level of a flat
-    name: no ``__``, and no ``_`` at either end.'''
+    name -- no ``__``, and no ``_`` at either end -- and a key of a parameters file: not one of
+    ``parameters_file.RESERVED_NAMES`` (``global``, ``value``, ``schema_version``).'''
+    from libcuflynx.utilities.parameters_file import RESERVED_NAMES
     name = str(name)
+    if name in RESERVED_NAMES:
+        raise ValueError(
+            f'{where}: name "{name}" cannot be used. A parameters file nests values by instance, '
+            f'and {", ".join(RESERVED_NAMES)} are reserved there ("global" holds the global '
+            f'constants, "value" a parameter\'s value).')
     if LEVEL_SEPARATOR in name or name.startswith('_') or name.endswith('_'):
         raise ValueError(
             f'{where}: name "{name}" cannot be used. A nested instance\'s vessel joins the levels '

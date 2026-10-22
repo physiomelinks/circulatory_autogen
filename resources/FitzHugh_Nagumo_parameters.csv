@@ -1,6 +1,0 @@
-variable_name,units,value,data_reference
-fhn/V_init,dimensionless,-1.0,Ramsay_2007
-fhn/R_init,dimensionless,1.0,Ramsay_2007
-fhn/a,dimensionless,0.8,poor_initial_guess_local_minimum
-fhn/b,dimensionless,0.9,poor_initial_guess_local_minimum
-fhn/c,dimensionless,2.0,poor_initial_guess_local_minimum

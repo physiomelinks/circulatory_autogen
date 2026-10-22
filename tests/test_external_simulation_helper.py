@@ -46,7 +46,7 @@ def _make_resources(temp_output_dir):
     resources_dir = os.path.join(temp_output_dir, 'resources')
     if comm.Get_rank() == 0:
         os.makedirs(resources_dir, exist_ok=True)
-        for name in ('heat1d_params_for_id.csv', 'heat1d_parameters.csv', 'heat1d_obs_data.json'):
+        for name in ('heat1d_params_for_id.json', 'heat1d_parameters.json', 'heat1d_obs_data.json'):
             shutil.copy(os.path.join(_EXAMPLE_DIR, name), os.path.join(resources_dir, name))
     if comm.Get_size() > 1:
         comm.Barrier()
@@ -58,7 +58,7 @@ def _heat1d_config(base_user_inputs, temp_output_dir, temp_generated_models_dir)
     config = base_user_inputs.copy()
     config.update({
         'file_prefix': 'heat1d',
-        'input_param_file': 'heat1d_parameters.csv',
+        'input_param_file': 'heat1d_parameters.json',
         'model_type': 'external_python',
         'solver': 'external',
         # Override the base solver_info, which carries CVODE-only keys the external solver

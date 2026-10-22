@@ -41,10 +41,10 @@ def _generate_python_model(model_name, param_file, cellml_path, temp_dir):
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.parametrize("model_name,param_file,method,sim_time", [
-    ("Lotka_Volterra", "Lotka_Volterra_parameters.csv", "adaptive_rk45", 1.0),
-    ("VanDerPol", "VanDerPol_parameters.csv", "adaptive_rk45", 1.0),
+    ("Lotka_Volterra", "Lotka_Volterra_parameters.json", "adaptive_rk45", 1.0),
+    ("VanDerPol", "VanDerPol_parameters.json", "adaptive_rk45", 1.0),
     # 3compartment_nonstiff still too stiff for Python BDF comparison
-    # ("3compartment_nonstiff", "3compartment_nonstiff_parameters.csv", "adaptive_rk45", 1.0),
+    # ("3compartment_nonstiff", "3compartment_nonstiff_parameters.json", "adaptive_rk45", 1.0),
 ])
 def test_aadc_vs_python_solver_nonstiff(model_name, param_file, method, sim_time,
                                          base_user_inputs, resources_dir, temp_generated_models_dir):
@@ -103,7 +103,7 @@ def test_aadc_stiff_model_runs(base_user_inputs, resources_dir, temp_generated_m
 
     aadc_dir = os.path.join(temp_generated_models_dir, "aadc_stiff")
     os.makedirs(aadc_dir, exist_ok=True)
-    aadc_path = _generate_aadc_model("3compartment", "3compartment_parameters.csv",
+    aadc_path = _generate_aadc_model("3compartment", "3compartment_parameters.json",
                                       base_user_inputs, aadc_dir)
 
     sim = get_simulation_helper(model_path=aadc_path, solver='aadc_semi_implicit',
@@ -128,7 +128,7 @@ def test_aadc_gradient_vs_fd(aadc_licensed, base_user_inputs, resources_dir,
 
     aadc_dir = os.path.join(temp_generated_models_dir, "aadc_grad")
     os.makedirs(aadc_dir, exist_ok=True)
-    aadc_path = _generate_aadc_model("3compartment", "3compartment_parameters.csv",
+    aadc_path = _generate_aadc_model("3compartment", "3compartment_parameters.json",
                                       base_user_inputs, aadc_dir)
 
     sim = get_simulation_helper(model_path=aadc_path, solver='aadc_semi_implicit',
@@ -183,7 +183,7 @@ def test_aadc_implicit_euler_ift_nonstiff(base_user_inputs, resources_dir, temp_
 
     aadc_dir = os.path.join(temp_generated_models_dir, "aadc_ift")
     os.makedirs(aadc_dir, exist_ok=True)
-    aadc_path = _generate_aadc_model("Lotka_Volterra", "Lotka_Volterra_parameters.csv",
+    aadc_path = _generate_aadc_model("Lotka_Volterra", "Lotka_Volterra_parameters.json",
                                       base_user_inputs, aadc_dir)
 
     # Run with implicit_euler_ift (small dt for accuracy)
@@ -213,7 +213,7 @@ def test_aadc_implicit_euler_ift_gradient(aadc_licensed, base_user_inputs, resou
 
     aadc_dir = os.path.join(temp_generated_models_dir, "aadc_ift_grad")
     os.makedirs(aadc_dir, exist_ok=True)
-    aadc_path = _generate_aadc_model("Lotka_Volterra", "Lotka_Volterra_parameters.csv",
+    aadc_path = _generate_aadc_model("Lotka_Volterra", "Lotka_Volterra_parameters.json",
                                       base_user_inputs, aadc_dir)
 
     sim = get_simulation_helper(model_path=aadc_path, solver='aadc_semi_implicit',
@@ -265,7 +265,7 @@ def test_aadc_implicit_euler_ift_parallel(aadc_licensed, base_user_inputs, resou
 
     aadc_dir = os.path.join(temp_generated_models_dir, "aadc_ift_par")
     os.makedirs(aadc_dir, exist_ok=True)
-    aadc_path = _generate_aadc_model("Lotka_Volterra", "Lotka_Volterra_parameters.csv",
+    aadc_path = _generate_aadc_model("Lotka_Volterra", "Lotka_Volterra_parameters.json",
                                       base_user_inputs, aadc_dir)
 
     sim = get_simulation_helper(model_path=aadc_path, solver='aadc_semi_implicit',
@@ -321,7 +321,7 @@ def test_aadc_implicit_euler_ift_benchmark(aadc_licensed, base_user_inputs, reso
 
     aadc_dir = os.path.join(temp_generated_models_dir, "aadc_ift_bench")
     os.makedirs(aadc_dir, exist_ok=True)
-    aadc_path = _generate_aadc_model("Lotka_Volterra", "Lotka_Volterra_parameters.csv",
+    aadc_path = _generate_aadc_model("Lotka_Volterra", "Lotka_Volterra_parameters.json",
                                       base_user_inputs, aadc_dir)
 
     # Record tape
@@ -395,7 +395,7 @@ def test_aadc_backend_warns_it_is_third_party_proprietary(base_user_inputs, reso
 
     aadc_dir = os.path.join(temp_generated_models_dir, "aadc_notice")
     os.makedirs(aadc_dir, exist_ok=True)
-    aadc_path = _generate_aadc_model("3compartment", "3compartment_parameters.csv",
+    aadc_path = _generate_aadc_model("3compartment", "3compartment_parameters.json",
                                      base_user_inputs, aadc_dir)
 
     aadc_helper._notice_emitted = False  # the notice is once-per-process

@@ -1,0 +1,9 @@
+{
+ "version": 1,
+ "params": [
+  {"targets": ["Lotka_Volterra/alpha"], "min": 0.1, "max": 7, "name_for_plotting": "\\alpha", "prior": "uniform"},
+  {"targets": ["Lotka_Volterra/beta"], "min": 0.01, "max": 2, "name_for_plotting": "\\beta", "prior": "uniform"},
+  {"targets": ["Lotka_Volterra/delta"], "min": 0.01, "max": 2, "name_for_plotting": "\\delta", "prior": "uniform"},
+  {"targets": ["Lotka_Volterra/gamma"], "min": 0.1, "max": 10, "name_for_plotting": "\\gamma", "prior": "uniform"}
+ ]
+}

@@ -1,4 +1,4 @@
-# This document details the references specified in the data_reference entry of the parameters.csv file
+# This document details the references specified in the data_reference entry of a parameters file (<prefix>_parameters.json)
 
 to_find_reference:        value has been obtained from data, I need to find the
                           paper/datasource where this value was obtained.

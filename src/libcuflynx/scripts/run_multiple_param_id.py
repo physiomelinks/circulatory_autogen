@@ -80,7 +80,7 @@ if __name__ == '__main__':
 
         model_type = inp_data_dict['model_type']
 
-        input_params_path = os.path.join(resources_dir, f'{file_prefix}_params_for_id.csv')
+        input_params_path = os.path.join(resources_dir, f'{file_prefix}_params_for_id.json')
         if not os.path.exists(input_params_path):
             print(f'input_params_path of {input_params_path} doesn\'t exist, user must create this file')
             exit()

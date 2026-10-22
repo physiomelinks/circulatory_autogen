@@ -379,12 +379,13 @@ def _generate(tmp_path, external_modules_dir, prefix, vessel_rows, params, model
     param_lines = ["variable_name,units,value,data_reference"]
     for variable_name, units, value in params:
         param_lines.append(f"{variable_name},{units},{value},test")
-    (resources_dir / f"{prefix}_parameters.csv").write_text("\n".join(param_lines) + "\n")
+    from _parameters import write_parameters
+    write_parameters(resources_dir / f"{prefix}_parameters.json", "\n".join(param_lines) + "\n")
 
     generated_dir = tmp_path / "generated_models"
     config = {
         'file_prefix': prefix,
-        'input_param_file': f'{prefix}_parameters.csv',
+        'input_param_file': f'{prefix}_parameters.json',
         'model_type': model_type,
         'solver': 'CVODE_myokit' if model_type == 'cellml' else 'solve_ivp',
         'resources_dir': str(resources_dir),

@@ -1,0 +1,10 @@
+{
+ "schema_version": 1,
+ "fhn": {
+  "V_init": {"value": -1.0, "units": "dimensionless", "data_reference": "Ramsay_2007"},
+  "R_init": {"value": 1.0, "units": "dimensionless", "data_reference": "Ramsay_2007"},
+  "a": {"value": 0.8, "units": "dimensionless", "data_reference": "poor_initial_guess_local_minimum"},
+  "b": {"value": 0.9, "units": "dimensionless", "data_reference": "poor_initial_guess_local_minimum"},
+  "c": {"value": 2.0, "units": "dimensionless", "data_reference": "poor_initial_guess_local_minimum"}
+ }
+}

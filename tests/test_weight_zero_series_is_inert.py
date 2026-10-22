@@ -85,7 +85,7 @@ def _run_sa(base_user_inputs, resources_dir, obs_path, out_dir, generated_models
     config = base_user_inputs.copy()
     config.update({
         "file_prefix": "3compartment",
-        "input_param_file": "3compartment_parameters.csv",
+        "input_param_file": "3compartment_parameters.json",
         "model_type": "cellml",
         "solver": "CVODE_myokit",
         "param_id_method": "genetic_algorithm",

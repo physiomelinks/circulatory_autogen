@@ -408,7 +408,7 @@ def get_default_inp_data_dict(file_prefix, input_param_file, resources_dir):
     Args:
         file_prefix: Model name prefix; ties together the ``{prefix}_*`` resource
             files in ``resources_dir``.
-        input_param_file: Name of the parameters CSV file.
+        input_param_file: Name of the parameters file (``<prefix>_parameters.json``).
         resources_dir: Directory holding the input resources.
 
     Returns:

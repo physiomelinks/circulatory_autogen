@@ -1,0 +1,7 @@
+{
+ "version": 1,
+ "params": [
+  {"targets": ["benchmark/p"], "min": 0, "max": 6, "param_type": "const", "name_for_plotting": "p"},
+  {"targets": ["benchmark/q"], "min": 0, "max": 6, "param_type": "const", "name_for_plotting": "q"}
+ ]
+}

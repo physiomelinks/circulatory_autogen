@@ -8,47 +8,52 @@ A module library (e.g. circulatory-autogen-modules) lays a module out as::
         <module_type>_<version>_modules_config.json   one entry, module_subtype == <version>
         <module_type>_<version>_units.cellml
         parameterisations/<name>/
-            <name>_parameters.csv     variable_name,units,value,data_reference[,sourced]
+            <name>_parameters.json    nested parameter values (utilities/parameters_file.py)
             <name>_obs_data.json      optional; "obs_data_name": "<name>"
-            <name>_params_for_id.csv  optional
+            <name>_params_for_id.json optional
 
 A module-array record names its parameterisation with ``"parameterisation"``; ``"instance"``
 there is an error, since an instance is the record itself. A version directory with the
-older ``instances/`` and no ``parameterisations/`` is an error naming the rename.
+older ``instances/`` and no ``parameterisations/`` is an error naming the rename, and a
+parameterisation with a ``<name>_parameters.csv`` and no ``.json`` one is an error naming
+``cuflynx-upgrade parameters``.
 
-A parameterisation only changes parameters, never the math. Its parameter names carry no
-suffix: a row ``C`` becomes ``C_<vessel>`` for the module-array record that uses it, except a
-row naming one of the module's ``global_constant`` variables, which keeps its plain name.
+A parameterisation only changes parameters, never the math. Its parameters file is rooted at
+the module: a component module's own variables at the top (``{"C": {...}}``), which become
+``C_<vessel>`` for the module-array record that uses it, and the module's ``global_constant``
+variables it sets under ``global``, which keep their plain names. A supermodule's
+parameterisation holds its sub-instances' values (``{"lv": {"E_A": {...}}}``) and its globals.
 
-A module-array record (or a supermodule's submodule) picks a parameterisation with
-``"parameterisation": "<name>"``; without one, the config entry's
-``"default_parameterisation"`` is used if that parameterisation's parameters file exists, and
-otherwise nothing is loaded. The directory is looked for next to the config file the
-(module_type, module_subtype) entry came from:
-``<config dir>/parameterisations/<name>/<name>_parameters.csv``.
+A module-array record picks a parameterisation with ``"parameterisation": "<name>"``; without
+one, the config entry's ``"default_parameterisation"`` is used if that parameterisation's
+parameters file exists, and otherwise nothing is loaded. The directory is looked for next to
+the config file the (module_type, module_subtype) entry came from:
+``<config dir>/parameterisations/<name>/<name>_parameters.json``.
 
-Parameterisation parameters are *default* parameters: the host model's parameters file wins
-over them (``ModelParsers.merge_default_parameters``). The order of precedence is
+Parameterisation parameters are *default* parameters: the model's parameters file wins over
+them (``ModelParsers.merge_default_parameters``). The order of precedence is
 
-    host parameters file > supermodule parameterisation > submodule / component parameterisation
+    model's parameters file > supermodule parameterisation's globals
+        > submodule / component parameterisation
 
 and within one tier the first record in the (expanded) module array wins, so a global set by
 several parameterisations is added once. A global is one value for the whole model, so a
 parameterisation that set it to another value than the one used is warned about
 (``ConflictingGlobalWarning``): its module runs at a value it did not choose. The exceptions
 are a supermodule overriding the parameterisations inside it, which is what a supermodule
-parameterisation is for, and a global the host parameters file sets.
+parameterisation is for, and a global the model's parameters file sets.
 
-A supermodule entry may also live in a version directory with parameterisations. Its
-parameterisation's rows are named ``<submodule>/<variable>`` (local) or are globals, and are
-renamed to ``{variable}_{instance}__{submodule}``, ``instance`` being the supermodule record's
-name (``supermodules.read_supermodule_parameters``).
+A supermodule instance's sub-instance values are in the model's parameters file, under the
+instance (``heart/lv/E_A``). Its version's default parameterisation is the template they are
+copied from when the instance is made (``supermodules.write_instance_parameters``); generation
+reads only a supermodule parameterisation's globals (``supermodules.read_supermodule_parameters``).
 '''
 
 import os
 import warnings
 
-import pandas as pd
+from libcuflynx.utilities.parameters_file import (CONVERT_COMMAND, GLOBAL, MODULE,
+                                                    SEPARATOR, read_parameter_rows as _read_rows)
 
 PARAMETERISATIONS_DIR = 'parameterisations'
 # the name PARAMETERISATIONS_DIR had before; a version directory with only it is refused
@@ -58,9 +63,10 @@ PARAMETERISATION_KEY, INSTANCE_KEY = 'parameterisation', 'instance'
 DEFAULT_PARAMETERISATION_KEY = 'default_parameterisation'
 GLOBAL_CONSTANT = 'global_constant'
 
-# the columns a parameterisation's parameters CSV must have; config_schemas.PARAMETER_COLUMNS
-# re-exports this
+# the keys every parameter row has; config_schemas.PARAMETER_COLUMNS re-exports this
 PARAMETER_COLUMNS = ('variable_name', 'units', 'value', 'data_reference')
+#: a parameterisation's global constants are rows named global/<variable>
+GLOBAL_PREFIX = GLOBAL + SEPARATOR
 
 
 def check_parameterisation_name(value, where, key=PARAMETERISATION_KEY):
@@ -106,39 +112,46 @@ def parameterisations_dir(config_path):
 
 
 def parameterisation_parameters_path(config_path, name):
-    '''``<config dir>/parameterisations/<name>/<name>_parameters.csv``'''
-    return os.path.join(parameterisations_dir(config_path), name, f'{name}_parameters.csv')
+    '''``<config dir>/parameterisations/<name>/<name>_parameters.json``'''
+    return os.path.join(parameterisations_dir(config_path), name, f'{name}_parameters.json')
 
 
 def available_parameterisations(config_path):
     '''The parameterisations next to the config at ``config_path``: the subdirectories of
-    ``parameterisations/`` that hold a ``<name>_parameters.csv``, sorted.'''
+    ``parameterisations/`` that hold a ``<name>_parameters.json``, sorted.'''
     root = parameterisations_dir(config_path)
     if not os.path.isdir(root):
         return []
     return sorted(name for name in os.listdir(root)
                   if not name.startswith('.')
-                  and os.path.isfile(os.path.join(root, name, f'{name}_parameters.csv')))
+                  and os.path.isfile(os.path.join(root, name, f'{name}_parameters.json')))
+
+
+def _refuse_csv_parameterisation(path, where):
+    '''A parameterisation with only the older ``<name>_parameters.csv`` is a ValueError naming
+    the converter.'''
+    csv_path = os.path.splitext(path)[0] + '.csv'
+    if not os.path.isfile(path) and os.path.isfile(csv_path):
+        raise ValueError(f'{where}: {csv_path} is a parameters CSV; libcuflynx reads a '
+                         f'parameterisation from nested JSON ({os.path.basename(path)}). Convert '
+                         f'it once with: {CONVERT_COMMAND} {csv_path}')
 
 
 def read_parameter_rows(path, where, what='parameters file'):
     '''
-    The rows of the parameters CSV at ``path`` as ``{variable_name, units, value,
-    data_reference}`` dicts of stripped strings, in file order, skipping rows without a
-    variable_name. Other columns (``sourced``...) are ignored. ValueError for missing columns.
+    The rows of the parameterisation's parameters file at ``path`` as ``{variable_name, units,
+    value, data_reference}`` dicts of strings, in file order: its own variables named as they
+    are (``C``, ``lv/E_A``), its globals ``global/<variable>``. Other keys (``sourced``...) are
+    dropped.
     '''
-    df = pd.read_csv(path, dtype=str, na_filter=False)
-    df = df.rename(columns=lambda c: str(c).strip())
-    missing = [c for c in PARAMETER_COLUMNS if c not in df.columns]
-    if missing:
-        raise ValueError(f'{where}: {what} {path} is missing the columns {missing}; it needs '
-                         f'{list(PARAMETER_COLUMNS)}.')
-    rows = []
-    for row in df[list(PARAMETER_COLUMNS)].itertuples(index=False, name=None):
-        values = {c: str(v).strip() for c, v in zip(PARAMETER_COLUMNS, row)}
-        if values['variable_name']:
-            rows.append(values)
-    return rows
+    _refuse_csv_parameterisation(path, f'{where}: {what}')
+    return [{c: row[c] for c in PARAMETER_COLUMNS}
+            for row in _read_rows(path, f'{where}: {what} ', MODULE)]
+
+
+def is_global_row(row):
+    '''Whether a parameterisation row sets a global (``global/<variable>``).'''
+    return row['variable_name'].startswith(GLOBAL_PREFIX)
 
 
 def _entry_label(entry):
@@ -165,6 +178,7 @@ def parameterisation_rows(entry, parameterisation, where):
         if not default or not config_path:
             return None, []
         path = parameterisation_parameters_path(config_path, default)
+        _refuse_csv_parameterisation(path, where)
         if not os.path.isfile(path):
             return None, []
         return default, read_parameter_rows(path, where,
@@ -183,8 +197,9 @@ def parameterisation_rows(entry, parameterisation, where):
             f'{where}: names parameterisation "{parameterisation}" of {label}, but its module config '
             f'{config_path} has no {PARAMETERISATIONS_DIR}/ '
             f'directory next to it, so {label} has no parameterisations. Parameterisations '
-            f'live in {version_dir}/{PARAMETERISATIONS_DIR}/<name>/<name>_parameters.csv.')
+            f'live in {version_dir}/{PARAMETERISATIONS_DIR}/<name>/<name>_parameters.json.')
     path = parameterisation_parameters_path(config_path, parameterisation)
+    _refuse_csv_parameterisation(path, where)
     if not os.path.isfile(path):
         existing = available_parameterisations(config_path)
         raise ValueError(
@@ -272,8 +287,10 @@ def component_parameterisation_rows(records, component_registry, source=None, se
     The parameterisation rows of every record in ``records`` (the normalised records of an
     expanded module array, whose parameterisation is in ``record["parameterisation"]``) whose
     (module_type, module_subtype) is in ``component_registry`` (see
-    ``config_schemas.load_component_registry``), in record order: each row ``{var}`` renamed
-    to ``{var}_{record name}``, or kept if ``var`` is a global constant of the module.
+    ``config_schemas.load_component_registry``), in record order: each of the module's own
+    variables ``{var}`` renamed to ``{var}_{record name}``, and each global (``global/{var}``)
+    named ``{var}``. A global of the module at the top, or a ``global`` entry that is not one of
+    its global constants, is a ValueError.
 
     A record naming a parameterisation of a type with no config entry is an error; one naming
     none of such a type is left to the module-config join to report.
@@ -301,13 +318,24 @@ def component_parameterisation_rows(records, component_registry, source=None, se
         globals_ = global_constants(entry)
         for row in raw:
             row = dict(row)
-            if '/' in row['variable_name']:
+            is_global = is_global_row(row)
+            if is_global:
+                row['variable_name'] = row['variable_name'][len(GLOBAL_PREFIX):]
+            if SEPARATOR in row['variable_name']:
                 raise ValueError(
                     f'{where}: parameterisation "{used}" names "{row["variable_name"]}", but a '
-                    f'parameterisation\'s parameters are the module\'s own variables, named '
-                    f'without a vessel ("C", not "lv/C"); the vessel is the module-array record '
+                    f'parameterisation\'s parameters are the module\'s own variables, at the top '
+                    f'of its file ("C", not "lv": {{"C"}}); the vessel is the module-array record '
                     f'that uses it.')
-            if row['variable_name'] not in globals_:
+            if is_global != (row['variable_name'] in globals_):
+                raise ValueError(
+                    f'{where}: parameterisation "{used}" has "{row["variable_name"]}" '
+                    + (f'under "{GLOBAL}", but it is not one of the module\'s global constants '
+                       f'({sorted(globals_) or "none"}); put it at the top of the file.'
+                       if is_global else
+                       f'at the top of its file, but it is a global constant of the module; put '
+                       f'it under "{GLOBAL}".'))
+            if not is_global:
                 row['variable_name'] = f'{row["variable_name"]}_{record["name"]}'
             else:
                 who = f'"{record["name"]}" (parameterisation "{used}")'

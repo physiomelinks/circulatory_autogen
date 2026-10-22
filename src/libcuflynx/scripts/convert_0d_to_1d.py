@@ -14,6 +14,9 @@ import csv
 from pathlib import Path
 from libcuflynx.utilities.config_schemas import (dump_vessel_records, read_module_array_records,
                                                  module_array_path, vessel_records_to_string_frame)
+from libcuflynx.utilities.parameters_file import (get_leaf, leaf_from_row, name_path,
+                                                  parameters_file_name, read_parameters_file,
+                                                  set_leaf, write_parameters_file)
 from libcuflynx.utilities.module_library import ModuleSources
 from libcuflynx.generators.port_order import neighbour_port_index
 
@@ -89,7 +92,9 @@ def convert_0d_to_1d(model, folder_0d, param_file_0d, folder_hyb=None, vess_1d_l
     source_path = module_array_path(str(folder_0d), f"{model}_0d")
     source_records = read_module_array_records(source_path)
     df_vess = vessel_records_to_string_frame(source_records)
-    df_params = pd.read_csv(folder_0d / param_file_0d)
+    # the 0D model's parameters file (nested JSON); the rows below add the coupling variables
+    parameters = read_parameters_file(folder_0d / param_file_0d)
+    df_params = pd.DataFrame(columns=['variable_name', 'units', 'value', 'data_reference'])
 
     registry = ModuleSources(module_sources_inputs or {}).component_registry()
 
@@ -156,7 +161,12 @@ def convert_0d_to_1d(model, folder_0d, param_file_0d, folder_hyb=None, vess_1d_l
                             folder_hyb / f"{model}_hybrid_module_array.json")
     else:
         df_vess.to_csv(folder_hyb / f"{model}_hybrid_module_array.csv", index=False, header=True)
-    df_params.to_csv(folder_hyb / f"{model}_hybrid_parameters.csv", index=False, header=True)
+    # a coupling parameter added for two 1D vessels, or one the file has, is written once
+    for row in df_params.to_dict('records'):
+        path = name_path(row['variable_name'])
+        if get_leaf(parameters, path) is None:
+            set_leaf(parameters, path, leaf_from_row({k: str(v) for k, v in row.items()}))
+    write_parameters_file(folder_hyb / parameters_file_name(f"{model}_hybrid"), parameters)
 
     print(f"Converted {n1d} vessels from 0D to 1D for model {model}.")
     print(f"Input hybrid model files saved successfully at {folder_hyb}")
@@ -171,7 +181,7 @@ if __name__ == "__main__":
     
     folder_0d = "/hpc/bghi639/Software/VITAL_TrainingSchool2_Tutorials/"+model+"_0d/resources/"
 
-    param_file_0d = model+"_0d_parameters.csv"
+    param_file_0d = model+"_0d_parameters.json"
 
     folder_hyb = "/hpc/bghi639/Software/VITAL_TrainingSchool2_Tutorials/"+model+"_hybrid/resources/"
 

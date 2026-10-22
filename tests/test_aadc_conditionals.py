@@ -18,7 +18,7 @@ from libcuflynx.scripts.script_generate_with_new_architecture import generate_wi
 def _model_config(model_type, temp_generated_models_dir):
     config = {
         "file_prefix": "3compartment",
-        "input_param_file": "3compartment_parameters.csv",
+        "input_param_file": "3compartment_parameters.json",
         "model_type": model_type,
         "generated_models_dir": temp_generated_models_dir,
     }

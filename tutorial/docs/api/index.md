@@ -81,5 +81,5 @@ pid.plot_outputs()
 
 `params_for_id_dict` is a list of
 `{vessel_name, param_name, min, max, name_for_plotting}` entries (the in-memory
-equivalent of `{prefix}_params_for_id.csv`); `vessel_name` may be a single name
+equivalent of the entries of `{prefix}_params_for_id.json`); `vessel_name` may be a single name
 or a list to share one calibrated parameter across many vessels.

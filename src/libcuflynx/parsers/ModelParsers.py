@@ -10,6 +10,7 @@ from libcuflynx.utilities.config_schemas import (load_expanded_vessel_records, l
                                                  vessel_records_to_string_frame)
 from libcuflynx.models.LumpedModels import CVS0DModel
 from libcuflynx.utilities.parameter_names import host_model_names
+from libcuflynx.utilities.parameters_file import parameters_array as rows_to_parameters_array, read_parameter_rows
 from libcuflynx.checks.LumpedModelChecks import LumpedCompositeCheck, LumpedBCVesselCheck, LumpedIDParamsCheck, LumpedPortVariableCheck
 import pandas as pd
 import numpy as np
@@ -22,10 +23,10 @@ from libcuflynx.utilities.module_library import ModuleSources
 from libcuflynx.utilities.parameterisations import reissue_warnings
 from libcuflynx.utilities.vessel_bc import is_vessel_bc
 
-# The columns a {prefix}_parameters.csv must provide. They are looked up by header name, so a file
-# may list them in any order and may carry extra columns (FTU_wCVS_parameters.csv has a 'comp_env'
-# column, for instance) without shifting the ones that matter -- see issue #159. 'const_type' is
-# deliberately absent: it is supplied by the module config, not by the CSV.
+# The keys every parameter row has. They are looked up by name, so a parameter may carry other
+# keys (FTU_wCVS_parameters.json has a 'comp_env', for instance) without shifting the ones that
+# matter -- see issue #159. 'const_type' is deliberately absent: it is supplied by the module
+# config, not by the parameters file.
 _REQUIRED_PARAMETER_COLUMNS = ('variable_name', 'units', 'value', 'data_reference')
 
 
@@ -128,7 +129,8 @@ class CSV0DModelParser(object):
         '''
         records, extra_param_rows = load_expanded_vessel_records(self.vessel_filename,
                                                                  supermodule_registry,
-                                                                 component_registry)
+                                                                 component_registry,
+                                                                 self.parameter_filename)
         # strings, with the inp/out lists space-separated, as the code below expects
         vessels_df = vessel_records_to_string_frame(records)
         
@@ -508,7 +510,8 @@ class CSV0DModelParser(object):
             if self.vessel_filename_0d is None:
                 vessels_df, extra_param_rows = load_module_array(self.vessel_filename,
                                                                  supermodule_registry,
-                                                                 component_registry)
+                                                                 component_registry,
+                                                                 self.parameter_filename)
             else:
                 extra_param_rows = self.split_0d_1d_module_array(supermodule_registry,
                                                                  component_registry)
@@ -537,8 +540,9 @@ class CSV0DModelParser(object):
         for col in ports_columns:
             vessels_df[col] = vessels_df[col].apply(lambda x: [] if x == "None" else x)
 
-        # TODO change to using a pandas dataframe
-        parameters_array_orig = self.csv_parser.get_data_as_nparray(self.parameter_filename, True)
+        # the model's parameters file, nested JSON, as rows named <vessel>/<variable> (globals
+        # by their plain names; utilities/parameters_file.py)
+        parameters_array_orig = rows_to_parameters_array(read_parameter_rows(self.parameter_filename))
         # A parameter may be written <vessel>/<variable> (utilities/parameter_names.py); from
         # here on every name is the model's {variable}_{vessel}.
         parameters_array_orig = _with_model_names(parameters_array_orig, vessels_df,
@@ -568,6 +572,8 @@ class CSV0DModelParser(object):
         # every parameter, supermodule defaults included, before the reduction to this 0D model:
         # the 1D generator reads its vessels' parameters from here, not from the file
         model_0D.all_parameters_array = parameters_array_orig
+        # {model name: the name the model's parameters file gives it}
+        model_0D.parameter_file_names = self.parameter_file_names
 
         # get the allowable types from the modules_config.json file
         model_0D.possible_module_type_subtypes = list(set(list(zip(module_df["module_type"].to_list(), module_df["module_subtype"].to_list()))))
@@ -583,6 +589,7 @@ class CSV0DModelParser(object):
         return model_0D
 
     def __reduce_parameters_array(self, parameters_array_orig, vessels_df):
+        self.parameter_file_names = {}
         # TODO get the required params from the BG modules
         #  maybe have a config file for each module that specifies the cellml model and the required constants
         required_params = []
@@ -601,6 +608,12 @@ class CSV0DModelParser(object):
                 or len(vessel_tup.variables_and_units) == 0):
                 continue
 
+            # how the model's parameters file names each one (<vessel>/<variable>, a global plain)
+            for row in vessel_tup.variables_and_units:
+                if row[3] in ('constant', 'boundary_condition'):
+                    self.parameter_file_names[row[0] + str_addon] = f'{vessel_tup.name}/{row[0]}'
+                elif row[3] == 'global_constant':
+                    self.parameter_file_names[row[0]] = row[0]
             required_params += [(vessel_tup.variables_and_units[i][0] + str_addon,
                                  vessel_tup.variables_and_units[i][1],vessel_tup.variables_and_units[i][3])  for
                                    i in range(len(vessel_tup.variables_and_units)) if
@@ -635,13 +648,9 @@ class CSV0DModelParser(object):
                 required_params_unique.append(entry)
         required_params = np.array(required_params_unique)
 
-        # Read each row by column NAME, not position (issue #159). The rows come out of
-        # get_data_as_nparray as a structured array whose fields are the CSV's own headers in the
-        # CSV's own order, so flattening a row into a list and indexing it positionally silently
-        # assumed one particular column layout. A parameters.csv carrying an extra column -- e.g.
-        # resources/FTU_wCVS_parameters.csv, which has 'comp_env' between units and value -- then
-        # shifted every field right of it: the parameter's value became the comp_env string and
-        # its data_reference became the value, with no error raised.
+        # Read each row by field NAME, not position (issue #159): a parameter may carry other
+        # keys (resources/FTU_wCVS_parameters.json has 'comp_env'), which become fields of the
+        # structured array too.
         missing_columns = [name for name in _REQUIRED_PARAMETER_COLUMNS
                            if name not in (parameters_array_orig.dtype.names or ())]
         if missing_columns:
@@ -669,7 +678,7 @@ class CSV0DModelParser(object):
             row = matches[0]
             if row['units'] != param_tuple[1]:
                 print('')
-                print(f'ERROR: units of {row["units"]} in parameters.csv file does not \n'
+                print(f'ERROR: units of {row["units"]} in the parameters file does not \n'
                       f'match with units of {param_tuple[1]} in module_config.json file \n'
                       f'for param {row["variable_name"]}, exiting \n')
                 print('')

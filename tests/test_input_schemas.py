@@ -1,4 +1,4 @@
-"""The shipped JSON Schemas of the four input files (libcuflynx/schemas) agree with the readers.
+"""The shipped JSON Schemas of the five input files (libcuflynx/schemas) agree with the readers.
 
 * every schema is a valid draft 2020-12 schema, and every property it declares is described;
 * the repository's obs_data and params_for_id files, the converted params_for_id CSVs and the
@@ -22,7 +22,7 @@ from libcuflynx.parsers.PrimitiveParsers import (PARAM_PRIOR_TYPES, PARAMS_FOR_I
                                                  PARAMS_FOR_ID_JSON_VERSION, ObsAndParamDataParser)
 from libcuflynx.generators.multi_port import normalise_port_multi_port, validate_list_multi_port
 from libcuflynx.schemas import (MODULE_ARRAY_SCHEMA, MODULE_CONFIG_SCHEMA, OBS_DATA_SCHEMA,
-                                PARAMS_FOR_ID_SCHEMA, load_schema)
+                                PARAMS_FOR_ID_SCHEMA, PARAMETERS_SCHEMA, load_schema)
 from libcuflynx.utilities.config_schemas import (COMPONENT_KEYS, MODULE_ARRAY_COLUMN_ORDER,
                                                  OLD_MODULE_ARRAY_KEYS, OLD_MODULE_CONFIG_KEYS,
                                                  normalise_module_config_entry)
@@ -35,7 +35,8 @@ pytestmark = pytest.mark.unit
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXAMPLES = os.path.join(ROOT, 'tests', 'test_inputs', 'schema_examples')
-ALL_SCHEMAS = (MODULE_ARRAY_SCHEMA, MODULE_CONFIG_SCHEMA, OBS_DATA_SCHEMA, PARAMS_FOR_ID_SCHEMA)
+ALL_SCHEMAS = (MODULE_ARRAY_SCHEMA, MODULE_CONFIG_SCHEMA, OBS_DATA_SCHEMA, PARAMS_FOR_ID_SCHEMA,
+               PARAMETERS_SCHEMA)
 
 
 def _validator(name):
@@ -87,7 +88,8 @@ def test_the_examples_validate():
     kinds = {'_module_array.json': MODULE_ARRAY_SCHEMA,
              '_modules_config.json': MODULE_CONFIG_SCHEMA,
              '_obs_data.json': OBS_DATA_SCHEMA,
-             '_params_for_id.json': PARAMS_FOR_ID_SCHEMA}
+             '_params_for_id.json': PARAMS_FOR_ID_SCHEMA,
+             '_parameters.json': PARAMETERS_SCHEMA}
     seen = set()
     for path in sorted(glob.glob(os.path.join(EXAMPLES, '*.json'))):
         name = next(n for suffix, n in kinds.items() if path.endswith(suffix))
@@ -95,13 +97,6 @@ def test_the_examples_validate():
             _validator(name).validate(json.load(f))
         seen.add(name)
     assert seen == set(ALL_SCHEMAS)
-
-
-def test_the_example_params_for_id_csv_converts_to_its_json():
-    converted = ObsAndParamDataParser.params_for_id_csv_to_json(
-        os.path.join(EXAMPLES, 'SN_simple_params_for_id.csv'))
-    with open(os.path.join(EXAMPLES, 'SN_simple_params_for_id.json')) as f:
-        assert converted == json.load(f)
 
 
 def test_the_repository_obs_data_files_validate():
@@ -114,12 +109,24 @@ def test_the_repository_obs_data_files_validate():
         assert not errors, (path, jsonschema.exceptions.best_match(errors).message)
 
 
-def test_the_repository_params_for_id_files_validate_as_json():
-    files = _repo_files('*params_for_id*.csv')
+def test_the_repository_parameters_files_validate():
+    files = _repo_files('*_parameters*.json')
+    assert len(files) > 10
+    validator = _validator(PARAMETERS_SCHEMA)
+    for path in files:
+        with open(path) as f:
+            errors = list(validator.iter_errors(json.load(f)))
+        assert not errors, (path, jsonschema.exceptions.best_match(errors).message)
+
+
+def test_the_repository_params_for_id_files_are_json_and_validate():
+    assert not _repo_files('*params_for_id*.csv')
+    files = _repo_files('*params_for_id*.json')
     assert len(files) > 10
     validator = _validator(PARAMS_FOR_ID_SCHEMA)
     for path in files:
-        doc = ObsAndParamDataParser.params_for_id_csv_to_json(path)
+        with open(path) as f:
+            doc = json.load(f)
         errors = list(validator.iter_errors(doc))
         assert not errors, (path, jsonschema.exceptions.best_match(errors).message)
 
@@ -279,7 +286,7 @@ def test_a_valid_params_for_id_document_is_accepted_by_both():
     (_params({'modifies': ['b/R'], 'modifier': 'scale', 'operation': 'scale', 'min': 0.5,
               'max': 2}), r"'operation' was unexpected"),
     (_params(dict(GOOD_ENTRY, targets=['C'])), r"(?s)targets\[0\]: 'C' is not in the form.*"
-                                               r"component/param"),
+                                               r"<vessel>/<variable>"),
     (_params(dict(GOOD_ENTRY, prior='beta')), r"prior: 'beta' is not one of"),
     (_params(dict(GOOD_ENTRY, prior='normal', prior_params={'prior_std': -1})),
      r'prior_std: -1 is less than or equal to the minimum of 0'),

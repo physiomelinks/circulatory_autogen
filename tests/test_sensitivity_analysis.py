@@ -57,7 +57,7 @@ def test_sensitivity_analysis_3compartment_succeeds(base_user_inputs, resources_
     config = base_user_inputs.copy()
     config.update({
         'file_prefix': '3compartment',
-        'input_param_file': '3compartment_parameters.csv',
+        'input_param_file': '3compartment_parameters.json',
         'model_type': 'cellml',
         'solver': 'CVODE_myokit',
         'param_id_method': 'genetic_algorithm',
@@ -105,7 +105,7 @@ def test_sensitivity_analysis_3compartment_extra_ops_succeeds(
     config = base_user_inputs.copy()
     config.update({
         'file_prefix': '3compartment_extra_ops',
-        'input_param_file': '3compartment_extra_ops_parameters.csv',
+        'input_param_file': '3compartment_extra_ops_parameters.json',
         'model_type': 'cellml',
         'solver': 'CVODE_myokit',
         'param_id_method': 'genetic_algorithm',
@@ -156,7 +156,7 @@ def _build_local_sa_engine(base_user_inputs, resources_dir, temp_output_dir,
     config = base_user_inputs.copy()
     config.update({
         'file_prefix': '3compartment',
-        'input_param_file': '3compartment_parameters.csv',
+        'input_param_file': '3compartment_parameters.json',
         'model_type': model_type,
         'solver': solver,
         'do_ad': True,
@@ -303,7 +303,7 @@ def test_sensitivity_analysis_local_method_end_to_end(
     config = base_user_inputs.copy()
     config.update({
         'file_prefix': '3compartment',
-        'input_param_file': '3compartment_parameters.csv',
+        'input_param_file': '3compartment_parameters.json',
         'model_type': 'cellml',
         'solver': 'CVODE_myokit',
         'pre_time': 0.3,

@@ -21,7 +21,7 @@ Every kind but ``reduction`` names the three inputs of an ordinary run: a ``mode
 
 * a module array of CA (``"resources/aorta_module_array.csv"``, or
   ``{"module_array": ..., "parameters": ...}`` when its parameters file is not
-  ``<prefix>_parameters.csv`` beside it), or
+  ``<prefix>_parameters.json`` beside it), or
 * a module of a module library, ``{"module_type", "version", "parameterisation"}``.
 
 Paths are relative to the workflow file. A step may take the calibrated values of earlier steps
@@ -277,7 +277,7 @@ def _model(value, base_dir):
     if 'module_array' in value:
         array = _path(value['module_array'], base_dir)
         parameters = (_path(value['parameters'], base_dir) if 'parameters' in value else
-                      os.path.join(os.path.dirname(array), f'{array_prefix(array)}_parameters.csv'))
+                      os.path.join(os.path.dirname(array), f'{array_prefix(array)}_parameters.json'))
         return ModuleArray(array, parameters)
     return Target(value['module_type'].strip(), value['version'].strip(),
                   value['parameterisation'].strip())

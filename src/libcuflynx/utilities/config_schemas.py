@@ -28,20 +28,35 @@ key                           meaning
 ``module_type``               the type an instance names in a module array
 ``module_subtype``            its variant (conventionally ``supermodule``)
 ``module_format``             ``"supermodule"``
-``submodules``                a module array (list of records, below) whose
-                              names are local to the supermodule
+``submodule_versions``        the module versions it is built from: a list of
+                              ``{"module_type", "module_subtype"}``
 ``default_parameterisation``  optional: the parameterisation used when a record
                               names none (``utilities/parameterisations.py``)
 ``description``               optional free text
 ============================  ===============================================
 
-A submodule's inp/out lists name sibling submodules only, and it may name its own
-``parameterisation``. A submodule may itself be a supermodule instance, with its own
-``per_submodule_inputs``/``per_submodule_outputs`` naming siblings. A supermodule's
-parameterisation rows are ``variable_name,units,value,data_reference``, named
-``<submodule>/<variable>`` (local to that submodule) or a global's name. Supermodule entries
-never reach the module dataframe or the (module_type, module_subtype) join: they are collected
-by ``load_supermodule_registry`` and expanded out of the module array
+A supermodule version's instances and their coupling are a module array of their own,
+``<module_type>_<module_subtype>_module_array.json`` beside the config (``supermodule_array_path``):
+records as below, whose names are local to the supermodule, inp/out lists naming sibling
+submodules only, each of one of the ``submodule_versions`` (every one of which is used). A record
+names no ``parameterisation``. A submodule may itself be a supermodule instance, with its own
+``per_submodule_inputs``/``per_submodule_outputs`` naming siblings.
+
+A supermodule version's default parameterisation (``parameterisations/<default>/``, nested JSON
+rooted at the supermodule: ``{"lv": {"E_A": {...}}, "global": {...}}``) is the template of a new
+instance's values.
+
+A model's parameter values are its parameters file, ``<prefix>_parameters.json`` beside its module
+array (``model_parameters_path``; ``utilities/parameters_file.py``). A supermodule instance's
+values are there under its name (``heart/lv/E_A``), copied once from its version's template when
+the instance is made (``supermodules.write_instance_parameters``, ``cuflynx-upgrade
+supermodule-instances``). Generation refuses a supermodule instance the file has no entry for. A
+submodule's parameter comes from the model's parameters file, then the supermodule's
+parameterisation (its globals only), then the submodule version's ``default_parameterisation``.
+
+Supermodule entries never reach the module dataframe or
+the (module_type, module_subtype) join: they are collected by ``load_supermodule_registry``, which
+reads their arrays, and expanded out of the module array
 (``utilities/supermodules.py``) before anything else reads it.
 
 Module arrays
@@ -128,7 +143,7 @@ PHLYNX_ONLY_KEY_PREFIX = 'phlynx_'
 def _without_phlynx_keys(obj):
     return {k: v for k, v in obj.items() if not str(k).startswith(PHLYNX_ONLY_KEY_PREFIX)}
 
-# PARAMETER_COLUMNS (imported above) are the columns a parameterisation's parameters CSV has
+# PARAMETER_COLUMNS (imported above) are the keys every parameter row has
 
 
 # --------------------------------------------------------------------------------------------
@@ -149,75 +164,190 @@ def _refuse_old_keys(obj, description, source, kind, old_keys):
 
 
 def is_supermodule_entry(entry):
-    '''Whether a module config entry (either schema) is a supermodule entry.'''
+    '''Whether a module config entry is a supermodule entry.'''
     return isinstance(entry, dict) and (entry.get('module_format') == SUPERMODULE_FORMAT
-                                        or 'submodules' in entry)
+                                        or 'submodule_versions' in entry or 'submodules' in entry)
+
+
+def supermodule_array_path(config_path, entry):
+    '''``<config dir>/<module_type>_<module_subtype>_module_array.json``: the module array of a
+    supermodule version's instances.'''
+    return os.path.join(os.path.dirname(os.path.abspath(config_path)),
+                        f'{entry["module_type"]}_{entry["module_subtype"]}_module_array.json')
+
+
+def supermodule_parameters_path(config_path, entry):
+    '''``<config dir>/<module_type>_<module_subtype>_parameters.json``: where a supermodule
+    version's instances' values were kept before they moved into its default parameterisation;
+    such a file is refused (``load_supermodule_registry``).'''
+    return os.path.join(os.path.dirname(os.path.abspath(config_path)),
+                        f'{entry["module_type"]}_{entry["module_subtype"]}_parameters.json')
+
+
+def _version(item, where):
+    if not isinstance(item, dict) or set(item) != {'module_type', 'module_subtype'} or \
+            not all(isinstance(item[k], str) and item[k].strip() for k in item):
+        raise ValueError(f'{where}: a submodule version is {{"module_type": ..., '
+                         f'"module_subtype": ...}}, not {item!r}.')
+    return item['module_type'].strip(), item['module_subtype'].strip()
 
 
 def normalise_supermodule_entry(entry, source=None):
     '''
     A supermodule config entry with ``module_type``/``module_subtype`` keys first and its
-    ``submodules`` normalised to module-array records (see ``normalise_vessel_record``).
-    ``entry`` itself is not modified.
+    ``submodule_versions`` as ``[{"module_type", "module_subtype"}]``. Its instances are read
+    from its own module array (``load_supermodule_array``). ``entry`` itself is not modified.
 
-    Raises ValueError for a key libcuflynx no longer reads, a component key (a supermodule has
-    none), a missing type/subtype, an empty or malformed ``submodules`` list, repeated
-    submodule names, or a submodule connection to something that is not a sibling submodule.
+    Raises ValueError for a key libcuflynx no longer reads (an inline ``submodules`` list among
+    them, naming the command that converts it), a component key (a supermodule has none), a
+    missing type/subtype, or an empty, malformed or repeating ``submodule_versions``.
     '''
     entry = _without_phlynx_keys(entry)
     description = 'supermodule ' + _describe(entry, source)[len('module config '):]
-    _refuse_old_keys(entry, description, source, 'module-config', OLD_MODULE_CONFIG_KEYS)
+    _refuse_old_keys(entry, description, source, 'module-config',
+                     OLD_MODULE_CONFIG_KEYS + ('submodules',))
     for component_key in ('component_file', 'component_type'):
         if component_key in entry:
             raise ValueError(f'{description} has "{component_key}": a supermodule has no '
-                             f'component of its own, only "submodules".')
+                             f'component of its own, only "submodule_versions".')
     type_key, subtype_key = 'module_type', 'module_subtype'
     for key in (type_key, subtype_key):
         if not isinstance(entry.get(key), str) or not entry.get(key):
             raise ValueError(f'{description} needs a non-empty string "{key}".')
     if entry.get('module_format', SUPERMODULE_FORMAT) != SUPERMODULE_FORMAT:
-        raise ValueError(f'{description} has submodules but module_format '
+        raise ValueError(f'{description} has submodule_versions but module_format '
                          f'"{entry.get("module_format")}"; a supermodule entry has '
                          f'module_format "{SUPERMODULE_FORMAT}".')
-    submodules = entry.get('submodules')
-    if not isinstance(submodules, list) or not submodules:
-        raise ValueError(f'{description} needs "submodules", a non-empty list of records.')
+    versions = entry.get('submodule_versions')
+    if not isinstance(versions, list) or not versions:
+        raise ValueError(f'{description} needs "submodule_versions", a non-empty list of '
+                         f'{{"module_type", "module_subtype"}}.')
+    keys = [_version(v, f'{description}, submodule_versions[{i}]') for i, v in enumerate(versions)]
+    repeated = sorted({k for k in keys if keys.count(k) > 1})
+    if repeated:
+        raise ValueError(f'{description}: submodule_versions lists {repeated} more than once.')
     if DEFAULT_PARAMETERISATION_KEY in entry:
         check_parameterisation_name(entry[DEFAULT_PARAMETERISATION_KEY], description,
                                     DEFAULT_PARAMETERISATION_KEY)
-
-    records = [normalise_vessel_record(sub, source=f'{description}, submodules', index=i, what=None)
-               for i, sub in enumerate(submodules)]
-    names = [r['name'] for r in records]
-    duplicated = sorted({n for n in names if names.count(n) > 1})
-    if duplicated:
-        raise ValueError(f'{description}: submodule names {duplicated} are repeated.')
-    for i, record in enumerate(records):
-        for key in _LIST_COLUMNS:
-            unknown = [n for n in record[key] if n not in names]
-            if unknown:
-                raise ValueError(
-                    f'{description}, submodules[{i}] ("{record["name"]}"): "{key}" names '
-                    f'{unknown}, which are not submodules of this supermodule. Submodules '
-                    f'connect only to each other; connections to the host model are made by '
-                    f'the instance\'s per_submodule_inputs/per_submodule_outputs.')
-        for key in PER_SUBMODULE_KEYS:
-            for sub, hosts in record.get(key, {}).items():
-                unknown = [h for h in hosts if h not in names]
-                if unknown:
-                    raise ValueError(
-                        f'{description}, submodules[{i}] ("{record["name"]}"): "{key}" names '
-                        f'{unknown} for "{sub}", which are not submodules of this supermodule.')
 
     normalised = {'module_type': entry[type_key], 'module_subtype': entry[subtype_key]}
     for key, value in entry.items():
         if key not in (type_key, subtype_key):
             normalised[key] = value
     normalised['module_format'] = SUPERMODULE_FORMAT
-    normalised['submodules'] = records
+    normalised['submodule_versions'] = [{'module_type': t, 'module_subtype': s} for t, s in keys]
     if DEFAULT_PARAMETERISATION_KEY in normalised:
         normalised[DEFAULT_PARAMETERISATION_KEY] = normalised[DEFAULT_PARAMETERISATION_KEY].strip()
     return normalised
+
+
+def load_supermodule_array(entry, config_path):
+    '''
+    The instance records of the supermodule version ``entry`` (normalised, from the config at
+    ``config_path``), read from its module array (``supermodule_array_path``).
+
+    Raises ValueError naming the file for a missing array, a record that names a
+    ``parameterisation``, repeated names, a connection to something that is not a sibling, a
+    record of a version not in ``submodule_versions``, or a listed version no record uses.
+    '''
+    path = supermodule_array_path(config_path, entry)
+    description = f'supermodule ({entry["module_type"]}, {entry["module_subtype"]})'
+    if not os.path.isfile(path):
+        raise ValueError(f'{description} of {config_path}: its module array {path}, which lists '
+                         f'its submodule instances and their connections, does not exist.')
+    records = read_module_array_records(path)
+    named = [r['name'] for r in records if PARAMETERISATION_KEY in r]
+    if named:
+        raise ValueError(f'{path}: {named} name a parameterisation. A submodule\'s values are '
+                         f'in the supermodule\'s default parameterisation, under its name.')
+    names = [r['name'] for r in records]
+    duplicated = sorted({n for n in names if names.count(n) > 1})
+    if duplicated:
+        raise ValueError(f'{path}: submodule names {duplicated} are repeated.')
+    for i, record in enumerate(records):
+        for key in _LIST_COLUMNS:
+            unknown = [n for n in record[key] if n not in names]
+            if unknown:
+                raise ValueError(
+                    f'{path}, record {i} ("{record["name"]}"): "{key}" names {unknown}, which '
+                    f'are not submodules of this supermodule. Submodules connect only to each '
+                    f'other; connections to the host model are made by the instance\'s '
+                    f'per_submodule_inputs/per_submodule_outputs.')
+        for key in PER_SUBMODULE_KEYS:
+            for sub, hosts in record.get(key, {}).items():
+                unknown = [h for h in hosts if h not in names]
+                if unknown:
+                    raise ValueError(f'{path}, record {i} ("{record["name"]}"): "{key}" names '
+                                     f'{unknown} for "{sub}", which are not submodules of this '
+                                     f'supermodule.')
+    versions = [(v['module_type'], v['module_subtype']) for v in entry['submodule_versions']]
+    used = [(r['module_type'], r['module_subtype']) for r in records]
+    unlisted = sorted(set(used) - set(versions))
+    if unlisted:
+        raise ValueError(f'{path}: instances of {unlisted}, which {description}\'s '
+                         f'submodule_versions in {config_path} does not list.')
+    unused = sorted(set(versions) - set(used))
+    if unused:
+        raise ValueError(f'{config_path}: {description} lists submodule_versions {unused}, '
+                         f'which no instance in {path} uses.')
+    return records
+
+
+def refuse_supermodule_parameters_file(entry, config_path):
+    """ValueError for a supermodule version with the older parameters file beside its array,
+    naming the converter that folds it into the version's default parameterisation."""
+    path = supermodule_parameters_path(config_path, entry)
+    if os.path.isfile(path):
+        from libcuflynx.utilities.parameters_file import CONVERT_COMMAND
+        raise ValueError(f'supermodule ({entry["module_type"]}, {entry["module_subtype"]}) of '
+                         f'{config_path}: {path} holds its instances\' values in the older form; '
+                         f'they belong in its default parameterisation, nested by instance. '
+                         f'Convert it once with: {CONVERT_COMMAND} {config_path}')
+
+
+#: the directory of a model's per-instance supermodule parameters files, an older form
+INSTANCE_PARAMETERS_DIR_SUFFIX = '_supermodule_parameters'
+_MODULE_ARRAY_SUFFIXES = ('_module_array', '_vessel_array')
+
+
+def module_array_prefix(array_path):
+    '''``aorta`` for ``aorta_module_array.json`` (or ``.csv``): the array's name without its
+    extension and ``_module_array`` suffix (the whole name without its extension when it has no
+    such suffix).'''
+    stem = os.path.splitext(os.path.basename(str(array_path)))[0]
+    for suffix in _MODULE_ARRAY_SUFFIXES:
+        if stem.endswith(suffix) and len(stem) > len(suffix):
+            return stem[:-len(suffix)]
+    return stem
+
+
+def model_parameters_path(array_path):
+    '''``<prefix>_parameters.json`` beside the module array ``array_path``: the model's parameter
+    values.'''
+    from libcuflynx.utilities.parameters_file import parameters_file_name
+    return os.path.join(os.path.dirname(os.path.abspath(str(array_path))),
+                        parameters_file_name(module_array_prefix(array_path)))
+
+
+def supermodule_instances_dir(array_path):
+    '''``<array dir>/<prefix>_supermodule_parameters``: where a model kept its supermodule
+    instances' values, one file each, before they moved into its parameters file.'''
+    return os.path.join(os.path.dirname(os.path.abspath(str(array_path))),
+                        module_array_prefix(array_path) + INSTANCE_PARAMETERS_DIR_SUFFIX)
+
+
+def refuse_supermodule_instances_dir(array_path):
+    """ValueError for a model with the older per-instance directory beside its module array,
+    naming the converter that moves it into the model's parameters file."""
+    directory = supermodule_instances_dir(array_path)
+    if os.path.isdir(directory):
+        from libcuflynx.utilities.parameters_file import CONVERT_COMMAND
+        raise ValueError(f'{array_path}: {directory} holds its supermodule instances\' values '
+                         f'in the older form, one file each; they belong in the model\'s '
+                         f'parameters file {model_parameters_path(array_path)}, under each '
+                         f'instance. Convert it once with: {CONVERT_COMMAND} '
+                         f'{os.path.splitext(model_parameters_path(array_path))[0]}.csv (or the '
+                         f'.json file, when the parameters are already JSON)')
 
 
 def normalise_module_config_entry(entry, source=None):
@@ -310,9 +440,10 @@ def load_supermodule_registry(config_files, exclude=()):
     '''
     ``{(module_type, module_subtype): supermodule entry}`` for every supermodule entry in
     ``config_files``. Each entry also gets ``config_path`` (the file it came from), against
-    whose directory its ``parameterisations/`` are resolved. Raises
-    ValueError if the same (module_type, module_subtype) supermodule is defined twice. ``exclude`` is as in
-    ``load_component_registry``.
+    whose directory its module array and ``parameterisations/`` are resolved, and
+    ``submodules``, its instance records (``load_supermodule_array``). Raises ValueError if the
+    same (module_type, module_subtype) supermodule is defined twice, or for a version with the
+    older parameters file beside its array. ``exclude`` is as in ``load_component_registry``.
     '''
     registry = {}
     for path in config_files:
@@ -330,6 +461,8 @@ def load_supermodule_registry(config_files, exclude=()):
                 raise ValueError(f'supermodule {key} is defined twice: in '
                                  f'{registry[key]["config_path"]} and in {path}.')
             entry['config_path'] = str(path)
+            entry['submodules'] = load_supermodule_array(entry, path)
+            refuse_supermodule_parameters_file(entry, path)
             registry[key] = entry
     return registry
 
@@ -590,23 +723,32 @@ def vessel_records_to_string_frame(records):
     return frame
 
 
-def load_expanded_vessel_records(path, supermodule_registry=None, component_registry=None):
+def load_expanded_vessel_records(path, supermodule_registry=None, component_registry=None,
+                                 parameters=None):
     '''
     The records of the module array at ``path`` with every supermodule instance expanded,
     and the default parameter rows: ``(records, extra_param_rows)``. The rows are the
-    supermodules' (their parameterisations', then their default_parameters) and, when
-    ``component_registry`` (``load_component_registry``) is given, every expanded record's
-    parameterisation's, in that order of precedence, each name once.
+    supermodules' globals (their parameterisations') and, when ``component_registry``
+    (``load_component_registry``) is given, every expanded record's parameterisation's, in that
+    order of precedence, each name once.
+
+    ``parameters`` is the model's parameters file (default: ``model_parameters_path``), whose
+    entries for the supermodule instances are their values: an instance it has no entry for is a
+    ValueError naming the command that writes one. It is read only when the array has a
+    supermodule instance.
     '''
     from libcuflynx.utilities.parameterisations import (component_parameterisation_rows, first_rows_win,
                                                        warn_conflicting_globals)
-    from libcuflynx.utilities.supermodules import expand_supermodules
+    from libcuflynx.utilities.supermodules import expand_supermodules, check_model_instances
+    refuse_supermodule_instances_dir(path)
+    records = read_module_array_records(path)
+    check_model_instances(records, supermodule_registry or {}, path,
+                          parameters if parameters is not None else model_parameters_path(path))
     # the globals every parameterisation sets, in precedence order, checked together: a supermodule's
     # value used for a module outside it is as much a conflict as two siblings disagreeing
     settings = []
-    records, extra_param_rows = expand_supermodules(read_module_array_records(path),
-                                                    supermodule_registry or {}, source=str(path),
-                                                    settings=settings,
+    records, extra_param_rows = expand_supermodules(records, supermodule_registry or {},
+                                                    source=str(path), settings=settings,
                                                     components=component_registry)
     if component_registry is not None:
         extra_param_rows = first_rows_win(extra_param_rows + component_parameterisation_rows(
@@ -615,20 +757,20 @@ def load_expanded_vessel_records(path, supermodule_registry=None, component_regi
     return records, extra_param_rows
 
 
-def load_module_array(path, supermodule_registry=None, component_registry=None):
+def load_module_array(path, supermodule_registry=None, component_registry=None, parameters=None):
     '''
     The module array at ``path`` (JSON or CSV), with every supermodule instance expanded
     (``utilities/supermodules.py``), as ``(frame, extra_param_rows)``:
 
     * ``frame`` -- the list-form dataframe of ``vessel_records_to_frame``;
     * ``extra_param_rows`` -- default parameters under the expanded names (supermodule
-      parameterisations and default_parameters, then module parameterisations when ``component_registry``
-      is given; see ``load_expanded_vessel_records``), a list of ``{variable_name, units,
-      value, data_reference}`` dicts, to be used wherever the model's parameters file does
-      not set that name.
+      parameterisations' globals, then module parameterisations when ``component_registry``
+      is given; see ``load_expanded_vessel_records``, which also says what ``parameters`` is), a
+      list of ``{variable_name, units, value, data_reference}`` dicts, to be used wherever the
+      model's parameters file does not set that name.
     '''
     records, extra_param_rows = load_expanded_vessel_records(path, supermodule_registry,
-                                                             component_registry)
+                                                             component_registry, parameters)
     return vessel_records_to_frame(records), extra_param_rows
 
 

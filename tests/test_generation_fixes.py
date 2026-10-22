@@ -28,17 +28,19 @@ def _read_resource(filename):
 
 def _generate(tmp_path, prefix, module_array, parameters, model_type='cellml',
               external_modules_dir=None):
-    """Write ``{prefix}_module_array.csv`` / ``_parameters.csv`` and generate the model.
+    """Write ``{prefix}_module_array.csv`` / ``_parameters.json`` (``parameters`` laid out as
+    CSV rows) and generate the model.
 
     Returns the directory the model was generated into.
     """
     resources_dir = tmp_path / 'resources'
     resources_dir.mkdir(exist_ok=True)
     (resources_dir / f'{prefix}_module_array.csv').write_text(textwrap.dedent(module_array))
-    (resources_dir / f'{prefix}_parameters.csv').write_text(textwrap.dedent(parameters))
+    from _parameters import write_parameters
+    write_parameters(resources_dir / f'{prefix}_parameters.json', textwrap.dedent(parameters))
     config = {
         'file_prefix': prefix,
-        'input_param_file': f'{prefix}_parameters.csv',
+        'input_param_file': f'{prefix}_parameters.json',
         'model_type': model_type,
         'solver': 'solve_ivp' if model_type == 'python' else 'CVODE_myokit',
         'resources_dir': str(resources_dir),
@@ -314,7 +316,7 @@ def test_empty_sum_multi_port_is_zero(tmp_path, capsys):
     module_array = _read_resource('3compartment_module_array.csv').rstrip('\n') + \
         '\nextra_sum, nn, volume_sum, , \n'
     generated_dir = _generate(tmp_path, 'empty_sum', module_array,
-                              _read_resource('3compartment_parameters.csv'))
+                              _read_resource('3compartment_parameters.json'))
     warnings = [line for line in capsys.readouterr().out.splitlines() if 'WARNING' in line]
     assert any('extra_sum' in line for line in warnings), warnings
 

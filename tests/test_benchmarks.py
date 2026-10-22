@@ -204,7 +204,7 @@ def test_tex_escape_covers_the_specials_that_appear_in_method_names():
 def test_three_compartment_ground_truth_is_inside_the_identification_bounds():
     """The synthetic ground truth must be recoverable, i.e. inside the search box.
 
-    The model's own q_lv_init default (2e-3) is OUTSIDE 3compartment_params_for_id.csv's bounds
+    The model's own q_lv_init default (2e-3) is OUTSIDE 3compartment_params_for_id.json's bounds
     of [2e-4, 1.5e-3], so the CSV defaults cannot be used wholesale as a ground truth -- an
     optimiser could never reach it and the reported error would never go to zero.
     """
@@ -212,7 +212,7 @@ def test_three_compartment_ground_truth_is_inside_the_identification_bounds():
         THREE_COMPARTMENT_TRUE_PARAMS, THREE_COMPARTMENT_PARAM_LABELS,
         THREE_COMPARTMENT_PARAM_NAMES)
 
-    bounds = {  # from resources/3compartment_params_for_id.csv
+    bounds = {  # from resources/3compartment_params_for_id.json
         'global/q_lv_init': (200e-6, 1500e-6),
         'aortic_root/C': (1e-9, 5e-8),
         'global/E_lv_A': (1e8, 5e8),

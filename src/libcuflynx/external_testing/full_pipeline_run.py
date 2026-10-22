@@ -66,7 +66,7 @@ def build_config(output_dir, resources_dir, generated_models_dir,
     return {
         'DEBUG': True,
         'file_prefix': FILE_PREFIX,
-        'input_param_file': FILE_PREFIX + '_parameters.csv',
+        'input_param_file': FILE_PREFIX + '_parameters.json',
         'model_type': 'cellml',
         # Myokit, not OpenCOR: OpenCOR's Python module is not on PyPI, and this has to
         # run wherever the tests do.
@@ -86,7 +86,7 @@ def build_config(output_dir, resources_dir, generated_models_dir,
         # predictive check does -- bypasses that, and a missing params_for_id
         # leaves param_id_info None and every evaluation raising.
         'params_for_id_path': os.path.join(
-            resources_dir, FILE_PREFIX + '_params_for_id.csv'),
+            resources_dir, FILE_PREFIX + '_params_for_id.json'),
         'param_id_output_dir': output_dir,
         'generated_models_dir': generated_models_dir,
         # gaussian_MLE throughout: MCMC needs ln L = -cost, and a calibration on

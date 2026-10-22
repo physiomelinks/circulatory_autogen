@@ -249,7 +249,7 @@ def _parse(config):
 
 
 _MINIMAL_CONFIG = {'file_prefix': '3compartment',
-                   'input_param_file': '3compartment_parameters.csv'}
+                   'input_param_file': '3compartment_parameters.json'}
 
 
 @pytest.mark.unit

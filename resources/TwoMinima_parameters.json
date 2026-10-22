@@ -1,0 +1,8 @@
+{
+ "schema_version": 1,
+ "twomin": {
+  "x_init": {"value": 0.0, "units": "dimensionless", "data_reference": "None"},
+  "a": {"value": 1.0, "units": "dimensionless", "data_reference": "initial_guess"},
+  "c": {"value": 3.0, "units": "dimensionless", "data_reference": "rate_constant"}
+ }
+}

@@ -34,7 +34,7 @@ This software is designed so the user can easily make their own modules and coup
 
         Standard usage: entrance and exit ports are used for spatial connections (e.g. exit to entrance of a parent and daughter vessel), whereas general ports are used for non-spatial connections (e.g a port for a material property of a whole vessel)
 
-6. Define model constants in a `[CA_user_dir]/[file_prefix]_parameters.csv` file. OR run the autogeneration, which will call an error and create a `[CA_user_dir]/[file_prefix]_parameters_unfinished.csv`. See [model generation and simulation](model-generation-simulation.md)
+6. Define model constants in a `[CA_user_dir]/[file_prefix]_parameters.json` file. OR run the autogeneration, which will call an error and create a `[CA_user_dir]/[file_prefix]_parameters_unfinished.json`. See [model generation and simulation](model-generation-simulation.md)
 
 The following sections include more details on creating the above required files.
 
@@ -104,31 +104,32 @@ Below figure is an example of a module_array file.
 
 Every row of the module array file represents a specific part or module in the defined system. Therefore, each module needs several parameters for modeling and generating a CellML file.
 
-These parameters should be inserted in the parameters file: `[resources_dir]/[file_prefix]_parameters.csv`.
+These parameters go in the model's parameters file, `[resources_dir]/[file_prefix]_parameters.json`, beside the module array. It is JSON nested by instance, sub-instance and variable (schema `libcuflynx/schemas/parameters.schema.json`):
 
-This file has the structure as shown below.
+```json
+{"schema_version": 1,
+ "global": {"R": {"value": 8.314, "units": "J_per_mol_K", "data_reference": "..."}},
+ "aortic_root": {"C": {"value": 1.2e-8, "units": "m3_per_Pa", "data_reference": "Liang2009"}},
+ "heart": {"lv": {"E_A": {"value": 366575000, "units": "J_per_m6", "data_reference": "Liang_2009_Table_2"}}}}
+```
 
-| Column Name    | Description                                       |
-|----------------|---------------------------------------------------|
-| variable_name  | Parameter name: `[vessel_name]/[variable_name]`, or `[variable_name]` for a global (see below) |
-| units          | Unit in the defined units in CellML's unit file   |
-| value          | Value of parameter                                |
-| data_reference | Reference of the parameter value. Typically in `[last_name][date][first_word_of_paper]` format for papers.  |
+- A parameter is an object with **value** (a number, or text such as `EMPTY_MUST_BE_FILLED`), **units** (as in CellML's units file) and **data_reference** (where the value comes from, typically `[last_name][date][first_word_of_paper]`). Any other string key, such as a library's `sourced`, is kept and not read.
+- Every other object is an instance (a module-array record) or a sub-instance of a supermodule instance. `global` holds the global constants.
+- `global`, `value` and `schema_version` are reserved: no module-array record, submodule or variable may have those names.
+- Numbers keep the text they are written with (`1.2e-8` stays `1.2e-8` in the generated model).
 
-The following is an example of a parameter file.
-
-![Example of parameter file](images/parameter-file.png)
+A parameters CSV (`variable_name,units,value,data_reference`) is refused. Convert one once with `cuflynx-upgrade parameters [file]`, which writes the `.json` beside it, and name the `.json` file in `input_param_file`.
 
 !!! Note
     If you forget to add or insert any needed parameter in the file when you run the code, it shows you this message at the end:
 
     ![Error in parameter file](images/error-parameters.png)
 
-    At this time, you should open the `[resources_dir]/[file_prefix]_parameters_unfinished.csv`, which will include the parameters which were not inserted in the file with *EMPTY_MUST_BE_FILLED* value and data_reference entries. You should add the parameter value and reference, then copy the line to the original [file_prefix].csv file. Or you can add the value in the _unfinished.csv file then remove the last part of the file's name (“_unfinished”) (overwriting the original) and rerun the code with the correctly set parameters.
+    At this time, you should open `[resources_dir]/[file_prefix]_parameters_unfinished.json`, which holds every parameter the model needs, with *EMPTY_MUST_BE_FILLED* value and data_reference for those your file does not set. Fill them in, then remove `_unfinished` from the file's name (overwriting the original) and rerun the code.
 
 #### Naming parameters
 
-Write a module's parameter as `[vessel_name]/[variable_name]`, with a `/` between the module and the variable, as obs_data operands and params_for_id targets already do:
+A parameter's path in the parameters file is how it is written everywhere else, with a `/` between the levels, as obs_data operands and params_for_id targets do:
 
 | Written | Meaning | Name in the generated model |
 |---|---|---|
@@ -136,9 +137,9 @@ Write a module's parameter as `[vessel_name]/[variable_name]`, with a `/` betwee
 | `heart/lv/E` | `E` of the submodule `lv` of the supermodule instance `heart` | `E_heart__lv` |
 | `R` or `global/R` | the global constant `R` | `R` |
 
-The generated model uses `[variable_name]_[vessel_name]`, because a CellML name cannot contain `/`, but a parameters file must use the `/` form: a row such as `C_aortic_root` is refused, and a name without `/` is a global. The `/` form is never ambiguous and it is checked: a row naming a vessel that is not in the module array, a variable its module does not have, or a global constant through a vessel, is an error that lists every such row.
+The generated model uses `[variable_name]_[vessel_name]`, because a CellML name cannot contain `/`. A parameter is checked: one under a vessel that is not in the module array, a variable its module does not have, a global constant under a vessel, or a global (`C_aortic_root` under `global`) no module declares, is an error that lists every such parameter.
 
-To convert a parameters file written in the `[variable_name]_[vessel_name]` form once, run `cuflynx-upgrade parameter-names --module-array [resources_dir]/[file_prefix]_module_array.csv` (add `--module-library-dir` for modules from a library), after converting the model's module configs and module array. It rewrites a name only when exactly one reading of it is a variable of that vessel's module, and reports the rest.
+A parameters CSV written in the older `[variable_name]_[vessel_name]` form is converted in two steps, after the model's module configs and module array: `cuflynx-upgrade parameter-names --module-array [resources_dir]/[file_prefix]_module_array.csv` (add `--module-library-dir` for modules from a library), which rewrites a name only when exactly one reading of it is a variable of that vessel's module and reports the rest, then `cuflynx-upgrade parameters [resources_dir]/[file_prefix]_parameters.csv`.
 
 ### Modules and definition of a new module
 
@@ -219,34 +220,70 @@ The keys are PhLynx's. An entry with the older keys `vessel_type`, `BC_type` or 
     - [2] **access or no_access**: whether the variable can be accessed within the cellml simulation. This should always be "access" for accessibility, unless you want to decrease memory usage.
     - [3] **parameter type**: can be constant, global_constant, variable, or boundary_condition.
       - If parameter_type is boundary_condition it will be set to a variable accesses from another module if the corresponding port is connected. However, if the 
-        corresponding port is not connected, the boundary_condition will be set to a constant, and required to be set in the `[resources_dir]/[file_prefix]_parameters.csv` file 
+        corresponding port is not connected, the boundary_condition will be set to a constant, and required to be set in the `[resources_dir]/[file_prefix]_parameters.json` file 
 
     !!! Note
-        All constants are required to be entered in the `[resources_dir]/[file_prefix]_parameters.csv` file, named **[vessel_name]/[variable_name]** (or, as before, **[variable_name]_[vessel_name]**; see [Naming parameters](#naming-parameters)).
+        All constants are required to be entered in the `[resources_dir]/[file_prefix]_parameters.json` file, under their vessel: **[vessel_name]/[variable_name]** (see [Naming parameters](#naming-parameters)).
 
-        All global_constants are required to be entered in the `[resources_dir]/[file_prefix]_parameters.csv` file as just **[variable_name]**.
+        All global_constants are required to be entered in the `[resources_dir]/[file_prefix]_parameters.json` file under `global`.
 
 ### Supermodules
 
-A supermodule is a named group of modules that a module array uses like one module. It is an entry in a `*_modules_config.json` file, in a directory listed in `module_library_dirs` (or in `external_modules_dir`):
+A supermodule is a named group of modules that a module array uses like one module. Its version is an entry in a `*_modules_config.json` file, in a directory listed in `module_library_dirs` (or in `external_modules_dir`), naming the module versions it is built from:
 
 ```json
 {"module_type": "heart", "module_subtype": "supermodule", "module_format": "supermodule",
  "description": "four chambers, four valves and a cardiac clock",
- "submodules": [
-   {"name": "clock", "module_type": "cardiac_clock", "module_subtype": "nn", "inp_instances": [], "out_instances": ["ra", "rv", "la", "lv"]},
-   {"name": "ra", "module_type": "chamber", "module_subtype": "vv", "inp_instances": ["clock"], "out_instances": ["trv"]}
+ "submodule_versions": [
+   {"module_type": "cardiac_clock", "module_subtype": "nn"},
+   {"module_type": "chamber", "module_subtype": "vv"}
  ],
  "default_parameterisation": "adult"}
 ```
 
+Its instances and their connections are a module array of their own, `[module_type]_[module_subtype]_module_array.json` beside the config (`heart_supermodule_module_array.json`):
+
+```json
+[{"name": "clock", "module_type": "cardiac_clock", "module_subtype": "nn", "out_instances": ["ra", "rv", "la", "lv"]},
+ {"name": "ra", "module_type": "chamber", "module_subtype": "vv", "inp_instances": ["clock"], "out_instances": ["trv"]}]
+```
+
 - **module_type / module_subtype**: the type that instances name in a module array.
 - **module_format**: `"supermodule"`. A supermodule has no `component_file`/`component_type`; it is never a component module, and its type may not also be a component module's type.
-- **submodules**: module-array records. Their names are local to the supermodule, and their input and output lists name other submodules only.
-- **default_parameterisation** (optional): the [parameterisation](#module-versions-and-parameterisations) used when a module-array record names none. A supermodule parameterisation's parameters file has the usual `variable_name,units,value,data_reference` columns. A row named `[submodule]/[variable]` is a parameter of that submodule, `[submodule]/[its submodule]/[variable]` one of a nested submodule, and any other row is a global.
-- A `default_parameters` CSV is refused; `cuflynx-upgrade module-config [file]` moves it to the parameterisation `parameterisations/default/`.
-- A submodule record may name its own `"parameterisation"`.
+- **submodule_versions**: the versions its module array's records use. Each record uses one of them, and each is used.
+- The module array's names are local to the supermodule, and their input and output lists name other submodules only. A record names no `"parameterisation"`.
+- **default_parameterisation** (optional): the [parameterisation](#module-versions-and-parameterisations) used when a module-array record names none. It is the template of a new instance's values.
+- An inline `submodules` list or a `default_parameters` CSV is refused. `cuflynx-upgrade module-config [file] --module-library-dir [library]` converts them: the submodule records to the module array file, `submodule_versions` into the entry, each instance's values into the default parameterisation, and a `default_parameters` CSV to the parameterisation `parameterisations/default/`.
 - **description** (optional).
+
+A supermodule's parameterisation, `parameterisations/[name]/[name]_parameters.json`, is nested by its instances, with its globals under `global`:
+
+```json
+{"schema_version": 1,
+ "global": {"T": {"value": 1, "units": "second", "data_reference": "Liang_2009_Table_2"}},
+ "ra": {"E_A": {"value": 7998000, "units": "J_per_m6", "data_reference": "Liang_2009_Table_2"}},
+ "lv": {"E_A": {"value": 366575000, "units": "J_per_m6", "data_reference": "Liang_2009_Table_2"}},
+ "soma": {"i_M": {"g_M": {"value": 1.0, "units": "dimensionless", "data_reference": "..."}}}}
+```
+
+An instance that is itself a supermodule nests a level further (`soma` above), over its own version's default parameterisation. A supermodule version's directory has no other parameters file; a `[module_type]_[module_subtype]_parameters.json` beside its module array is refused, and `cuflynx-upgrade parameters [its config]` folds it into the default parameterisation.
+
+#### A model's supermodule instances
+
+A supermodule instance's values are in the model's parameters file, under its name, like any instance's: `heart/lv/E_A` is `{"heart": {"lv": {"E_A": ...}}}` in `resources/3compartment_parameters.json`.
+
+- They are copied once, when the instance is made, from its version's template: the version's default parameterisation, or the one the record names in its place, and the templates of the supermodules nested in it under them:
+
+  ```
+  cuflynx-upgrade supermodule-instances resources/3compartment_module_array.json --module-library-dir [library]
+  ```
+
+  (with `--external-modules-dir` and `--no-builtin-modules` as the model is generated with, and `--parameters [file]` for a parameters file that is not `[prefix]_parameters.json` beside the array). It writes the values of each supermodule instance the file has no entry for, and leaves the others; `--instance [name]` picks instances and `--replace` writes theirs again from the version, over the model's values.
+- A named supermodule parameterisation replaces the default, so it sets every instance value the default sets; an instance made from one that lacks some is refused, naming them. (Its globals are read from it at generation; a global it lacks comes from the submodule version's default.)
+- After that the model's file holds the instance's values, so editing or calibrating one model changes no other. Generation refuses a supermodule instance the file has no entry for, naming that command.
+- Of the supermodule's parameterisation, generation reads only the globals. A value the model's file does not set comes from the submodule version's `default_parameterisation`.
+- A calibration of the model (a calibration workflow, or a selection of a nested instance) writes its values to the model's file. In a module library, `calibrate apply` of a submodule version writes every instance of it, in the supermodule versions' default parameterisations and in every system model's parameters file.
+- A model made with the per-instance files `[prefix]_supermodule_parameters/[instance].json` beside its module array is converted by `cuflynx-upgrade parameters [prefix]_parameters.csv` (or the `.json`), which moves each file in under its instance; the model's own values win.
 
 An instance in a module array names the supermodule's type and links its hosts, the modules outside it, to individual submodules:
 
@@ -264,7 +301,7 @@ Before anything else reads the module array, each instance is replaced, at its p
 - the hosts in `per_submodule_inputs["ra"]` come first in `heart__ra`'s inputs, and the hosts in `per_submodule_outputs["ra"]` last in its outputs;
 - in a host, the instance name is replaced, in place, by every `heart__[submodule]` that the instance links it to.
 
-So the model's parameters and outputs are named after the expanded modules, e.g. `E_heart__lv`, `heart__lv/q`. In your own files, write the path instead: `heart/lv/E` in a parameters file and `heart/lv/q` in obs_data operands, or `SN/soma/membrane/V` two levels down. The flat `heart__lv/q` is accepted too. The supermodule's parameterisation is renamed in the same way: `lv/E` becomes `E_heart__lv` for the instance `heart`. A path that is not a submodule is an error. A row in the `[variable]_[submodule]` form is refused, since such a name can only be split by guessing (`g_leak_Na` is `g` of `leak_Na` or `g_leak` of `Na`); `cuflynx-upgrade parameter-names --supermodule-config [config] --module-library-dir [library]` rewrites such rows once, checking each against the submodules' variables. The rows are used for every name that `[file_prefix]_parameters.csv` does not set, so values in your parameters file always win. A global used by several parameterisations is added once. The supermodule's values win over those of its submodules' own parameterisations.
+So the model's parameters and outputs are named after the expanded modules, e.g. `E_heart__lv`, `heart__lv/q`. In your own files, write the path instead: `heart/lv/E` in a parameters file and `heart/lv/q` in obs_data operands, or `SN/soma/membrane/V` two levels down. The flat `heart__lv/q` is accepted too. A path that is not a submodule is an error. A supermodule parameterisation CSV row in the older `[variable]_[submodule]` form can only be split by guessing (`g_leak_Na` is `g` of `leak_Na` or `g_leak` of `Na`); `cuflynx-upgrade parameter-names --supermodule-config [config] --module-library-dir [library]` rewrites such rows once, checking each against the submodules' variables, before `cuflynx-upgrade parameters`. The supermodule parameterisation's globals are used for every global that `[file_prefix]_parameters.json` does not set, so values in your parameters file always win. A global used by several parameterisations is added once. The supermodule's globals win over those of its submodules' own parameterisations.
 
 A submodule can itself be a supermodule instance, with its own `per_submodule_inputs`/`per_submodule_outputs` naming its siblings; it is expanded in turn. A supermodule that contains itself, directly or through others, is an error.
 
@@ -272,7 +309,7 @@ A submodule can itself be a supermodule instance, with its own `per_submodule_in
 
 A host can also name a submodule directly, by its path, in its own `inp_instances`/`out_instances`: `"out_instances": ["heart/ra"]`, or `"neuron/soma/membrane"` two levels down. The reference becomes `heart__ra` where it stands, so each host keeps its own order (with `per_submodule_*`, every host gets the submodules in that object's order), and the submodule takes the host as it would from `per_submodule_*`. A `per_submodule_*` key may be a path too, `{"soma/membrane": ["axon"]}`: it is passed down to the nested instance `soma`. Paths are allowed only in a host's lists and in `per_submodule_*` keys, not in the instance's own lists or in a supermodule's submodule records, and a path that names nothing once everything is expanded is an error.
 
-Because the levels are joined with `__`, a module-array or submodule name may not contain `__` nor begin or end with `_`: then `heart__ra` splits back into `heart/ra` one way only (with a single `_`, `a` + `b_c` and `a_b` + `c` would both be `a_b_c`). Nested levels joined with a single `_` (`heart_ra/q` in an obs_data operand or a params_for_id row, `E_heart_ra` in a parameters file) are refused; `cuflynx-upgrade parameter-names` rewrites them in a parameters file.
+Because the levels are joined with `__`, a module-array or submodule name may not contain `__` nor begin or end with `_`: then `heart__ra` splits back into `heart/ra` one way only (with a single `_`, `a` + `b_c` and `a_b` + `c` would both be `a_b_c`). Nested levels joined with a single `_` (`heart_ra/q` in an obs_data operand or a params_for_id row, `E_heart_ra` in a parameters CSV) are refused; `cuflynx-upgrade parameter-names` rewrites them in a parameters CSV.
 
 #### Interface
 
@@ -297,15 +334,23 @@ modules/<category>/<module_type>/versions/<version>/
     <module_type>_<version>_modules_config.json      one entry; module_subtype is <version>
     <module_type>_<version>_units.cellml
     parameterisations/<name>/
-        <name>_parameters.csv                       variable_name,units,value,data_reference[,sourced]
+        <name>_parameters.json                      nested parameter values, rooted at the module
         <name>_obs_data.json                        optional; "obs_data_name": "<name>"
-        <name>_params_for_id.csv                    optional
+        <name>_params_for_id.json                   optional
 ```
 
 !!! Note
-    A version with an `instances/` directory and no `parameterisations/` is refused: rename the directory to `parameterisations/`. A module-array record names its parameterisation with `"parameterisation"`: `"instance"` there is an error, since an instance is the record itself.
+    A version with an `instances/` directory and no `parameterisations/` is refused: rename the directory to `parameterisations/`. A parameterisation with only a `[name]_parameters.csv` is refused: convert it with `cuflynx-upgrade parameters [file]`, or a whole library with `cuflynx-upgrade parameters [modules directory]`. A module-array record names its parameterisation with `"parameterisation"`: `"instance"` there is an error, since an instance is the record itself.
 
-A parameterisation changes only parameters, never the equations. Its parameter names carry no vessel suffix: `C`, not `C_[vessel]`.
+A parameterisation changes only parameters, never the equations. Its parameters file has the model file's form rooted at the module: the module's own variables at the top, with no vessel, and the `global_constant` variables it sets under `global`:
+
+```json
+{"schema_version": 1,
+ "global": {"rho": {"value": 1050, "units": "Js2_per_m5", "data_reference": "known", "sourced": "yes"}},
+ "C": {"value": 1.2e-8, "units": "m3_per_Pa", "data_reference": "Liang2009", "sourced": "yes"}}
+```
+
+A global constant of the module at the top, or a variable under `global` that is not one of its global constants, is an error.
 
 The config entry names the parameterisation used by default:
 
@@ -321,15 +366,15 @@ A module-array record chooses a parameterisation with `"parameterisation"`:
  "inp_instances": ["mv"], "out_instances": ["aov"]}
 ```
 
-When the model is generated, the parameterisation's parameters file is looked for next to the config file the record's `(module_type, module_subtype)` came from: `[config directory]/parameterisations/[name]/[name]_parameters.csv`. Each row `[variable]` becomes `[variable]_[record name]` (`C_lv`). A row for one of the module's `global_constant` variables keeps its plain name. A record without `"parameterisation"` uses the entry's `default_parameterisation`, if the entry has one and that file exists. Otherwise no parameterisation parameters are loaded.
+When the model is generated, the parameterisation's parameters file is looked for next to the config file the record's `(module_type, module_subtype)` came from: `[config directory]/parameterisations/[name]/[name]_parameters.json`. Each of its variables `[variable]` becomes `[variable]_[record name]` (`C_lv`); a global keeps its plain name. A record without `"parameterisation"` uses the entry's `default_parameterisation`, if the entry has one and that file exists. Otherwise no parameterisation parameters are loaded.
 
-Parameterisation parameters are defaults. A name that `[file_prefix]_parameters.csv` sets keeps the value from that file. The order of precedence is:
+Parameterisation parameters are defaults. A parameter that `[file_prefix]_parameters.json` sets keeps the value from that file. The order of precedence is:
 
-1. your `[file_prefix]_parameters.csv`;
-2. a supermodule's parameterisation;
-3. the parameterisation of a submodule, or of an ordinary module.
+1. your `[file_prefix]_parameters.json`, which holds a supermodule instance's values too;
+2. a supermodule's parameterisation (its globals);
+3. the parameterisation of an ordinary module: the one its record names, or its version's `default_parameterisation` (for a submodule, always the default).
 
-Within one level, the first record in the (expanded) module array wins, so a global set by several parameterisations is added once. A global is one value for the whole model, so if parameterisations set it to different values you get a `ConflictingGlobalWarning` naming each value, its units and the record that set it: the modules after the first run at a value their parameterisation did not choose. Set the global in `[file_prefix]_parameters.csv` to choose it, which also silences the warning. A supermodule parameterisation overriding the parameterisations inside it is not warned about. If the units differ too, the modules most likely mean different quantities by one name, and one of them needs renaming.
+Within one level, the first record in the (expanded) module array wins, so a global set by several parameterisations is added once. A global is one value for the whole model, so if parameterisations set it to different values you get a `ConflictingGlobalWarning` naming each value, its units and the record that set it: the modules after the first run at a value their parameterisation did not choose. Set the global in `[file_prefix]_parameters.json` to choose it, which also silences the warning. A supermodule parameterisation overriding the parameterisations inside it is not warned about. If the units differ too, the modules most likely mean different quantities by one name, and one of them needs renaming.
 
 A parameterisation that does not exist is an error. The error names the version directory and lists the parameterisations it has. Naming a parameterisation of a module whose config has no `parameterisations/` directory next to it is an error too.
 
@@ -342,7 +387,7 @@ You can find the script **"generate_modules_files.py"** at `[CA_dir]/src/libcufl
 
 Update the script to change the `input_model` variable to the path of your CellML model and `output_dir` variable to the directory where you need to create the resources files and the new `[file_prefix]_user_inputs.yaml` file.
 
-This script generates `[file_prefix]_modules.cellml` and `[file_prefix]_module_config.json` in the `module_config_user` directory. `[file_prefix]_parameters.csv` and `[file_prefix]_module_array.csv` files are created in `[output_dir]/resources` and `[file_prefix]_user_inputs.yaml` is created in `[output_dir]`.
+This script generates `[file_prefix]_modules.cellml` and `[file_prefix]_module_config.json` in the `module_config_user` directory. `[file_prefix]_parameters.json` and `[file_prefix]_module_array.csv` files are created in `[output_dir]/resources` and `[file_prefix]_user_inputs.yaml` is created in `[output_dir]`.
 
 You only need to update the `user_inputs.yaml` file at the `user_run_files` directory to set **`user_inputs_path_override:`** to `[output_dir]/[file_prefix]_user_inputs.yaml` to run model autogeneration.
 
@@ -359,6 +404,6 @@ You only need to update the `user_inputs.yaml` file at the `user_run_files` dire
 You should have:
 
 - A `*_modules.cellml` file and a matching modules config JSON.
-- Updated `*_module_array.csv` and `*_parameters.csv` files referencing your modules.
+- Updated `*_module_array.csv` and `*_parameters.json` files referencing your modules.
 - A `user_inputs.yaml` file that points to your resources directory.
 

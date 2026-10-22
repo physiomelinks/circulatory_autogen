@@ -97,7 +97,7 @@ SUMMARY_PATH = OUTPUT_ROOT / "pipeline_summary.json"
 
 
 # These entries are discovered from the OMEX archive's input metadata and can be
-# edited directly without writing a params_for_id.csv file.
+# edited directly without writing a params_for_id.json file.
 PARAMS_FOR_ID = $params_for_id
 
 
@@ -120,7 +120,7 @@ OBSERVABLE_DATASET_OPTIONS = $observable_dataset_options
 INP_DATA_DICT = {{
     "DEBUG": True,
     "file_prefix": FILE_PREFIX,
-    "input_param_file": FILE_PREFIX + "_parameters.csv",
+    "input_param_file": FILE_PREFIX + "_parameters.json",
     "model_type": "cellml",
     "solver": "CVODE_myokit",
     "solver_info": {{

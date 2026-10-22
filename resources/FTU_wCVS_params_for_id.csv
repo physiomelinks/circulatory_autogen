@@ -1,7 +1,0 @@
-vessel_name,                  param_name,       min,        max
-global,                       q_lv_init,             400e-6,     1800e-6 
-aortic_root,                  R,                1.0e5,      1.0e7
-aortic_root,                  C,                5.0e-10,    5.0e-8
-systemic_T,                   R_T,              5.0e6,      5.0e9
-venous_svc,                   R,                5.0e3,      5.0e6
-venous_svc,                   C,                1.0e-11,    5.0e-8

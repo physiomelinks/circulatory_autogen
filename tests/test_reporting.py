@@ -282,7 +282,7 @@ def test_a_single_calibration_flow_chart_has_its_stages():
 def _goodwin_methods(**kwargs):
     return calibration_methods_latex(
         GOODWIN, os.path.join(RESOURCES, 'Goodwin_obs_data.json'),
-        os.path.join(RESOURCES, 'Goodwin_params_for_id.csv'),
+        os.path.join(RESOURCES, 'Goodwin_params_for_id.json'),
         settings={'param_id_method': 'genetic_algorithm',
                   'optimiser_options': {'num_calls_to_function': 500,
                                         'cost_type': 'gaussian_MLE'},
@@ -394,7 +394,7 @@ def test_the_commands_write_the_mapping_and_the_methods(tmp_path):
     out = str(tmp_path / 'goodwin.tex')
     assert methods_latex_script.main([
         '--model', GOODWIN, '--obs-data', os.path.join(RESOURCES, 'Goodwin_obs_data.json'),
-        '--params-for-id', os.path.join(RESOURCES, 'Goodwin_params_for_id.csv'),
+        '--params-for-id', os.path.join(RESOURCES, 'Goodwin_params_for_id.json'),
         '--mapping', mapping, '-o', out, '--body-only']) == 0
     with open(out) as f:
         assert r'\section{Model}' in f.read()

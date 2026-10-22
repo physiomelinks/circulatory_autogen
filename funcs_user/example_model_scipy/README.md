@@ -31,8 +31,8 @@ one.
 | File | Purpose |
 |---|---|
 | `oscillator_model.py` | The model class plus `SIM_HELPER = Oscillator`. |
-| `oscillator_params_for_id.csv` | Parameters to calibrate / sweep (`c`, `k`) with bounds. |
-| `oscillator_parameters.csv` | Default parameter values (the calibration start point). |
+| `oscillator_params_for_id.json` | Parameters to calibrate / sweep (`c`, `k`) with bounds. |
+| `oscillator_parameters.json` | Default parameter values (the calibration start point). |
 | `oscillator_obs_data.json` | The `protocol_info` (the run window) plus target observables — `mean(x)`, `min(x)`, `range(v)` at the "true" `c=0.7, k=5.0`. |
 
 `oscillator/energy` is exposed as an output but not scored by any observable; it is there to show
@@ -81,8 +81,8 @@ class MyModel:
 SIM_HELPER = MyModel      # required: the class object, at module level
 ```
 
-Names are `component/variable`, matching the `params_for_id` CSV columns
-(`vessel_name`/`param_name`) and the obs_data `operands`.
+Names are `component/variable`, matching the `params_for_id` `targets` and the obs_data
+`operands`.
 
 **Time is CA's, not yours.** `pre_time` is spin-up that `run()` must perform and CA discards; the
 logged trace starts at the end of it. `run()` always starts from the initial condition — there is
@@ -93,7 +93,7 @@ type.
 
 ```yaml
 file_prefix: oscillator
-input_param_file: oscillator_parameters.csv
+input_param_file: oscillator_parameters.json
 model_type: external_python
 solver: external
 # Default model location is funcs_user/{file_prefix}_model.py. This example lives in a

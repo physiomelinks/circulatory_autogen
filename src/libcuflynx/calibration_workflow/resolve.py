@@ -23,6 +23,7 @@ from libcuflynx.utilities.config_schemas import is_supermodule_entry, read_modul
 from libcuflynx.utilities.parameterisations import parameterisations_dir
 from libcuflynx.utilities.supermodules import submodule_path_parts
 from libcuflynx.utilities.module_library import ModuleSources
+from libcuflynx.utilities.parameters_file import refuse_csv
 
 
 @dataclass
@@ -49,7 +50,7 @@ class ResolvedParameterisation:
 
     @property
     def parameters_path(self):
-        return self.file('parameters.csv')
+        return self.file('parameters.json')
 
     @property
     def vessels(self):
@@ -296,6 +297,10 @@ def resolve_workflow(workflow):
 def _resolve_model(model, components, supermodules, where):
     if model.kind == 'library':
         return _resolve_parameterisation(model, components, supermodules, where)
+    try:
+        refuse_csv(model.parameters, f'{where}: ')
+    except ValueError as exc:
+        raise WorkflowError(str(exc)) from exc
     for path, what in ((model.module_array, 'module array'), (model.parameters, 'parameters')):
         if not os.path.isfile(path):
             raise WorkflowError(f'{where}: its {what} file {path} does not exist.')

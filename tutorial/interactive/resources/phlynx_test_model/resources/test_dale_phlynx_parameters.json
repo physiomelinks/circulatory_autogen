@@ -1,0 +1,123 @@
+{
+ "schema_version": 1,
+ "global": {
+  "mu": {"value": 0.004, "units": "Js_per_m3", "data_reference": "known"},
+  "rho": {"value": 1040.0, "units": "Js2_per_m5", "data_reference": "known"},
+  "g": {"value": 9.81, "units": "m_per_s2", "data_reference": "known"},
+  "beta_g": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "a_vessel": {"value": 0.2802, "units": "dimensionless", "data_reference": "Avolio_1980"},
+  "b_vessel": {"value": -505.3, "units": "per_m", "data_reference": "Avolio_1980"},
+  "c_vessel": {"value": 0.1324, "units": "dimensionless", "data_reference": "Avolio_1980"},
+  "d_vessel": {"value": -11.14, "units": "per_m", "data_reference": "Avolio_1980"}
+ },
+ "A_0": {
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "TO_DO"},
+  "u_0": {"value": 6666.119995655042, "units": "J_per_m3", "data_reference": "TO_DO"},
+  "theta": {"value": 0.0, "units": "dimensionless", "data_reference": "TO_DO"},
+  "E": {"value": 172487.5212949156, "units": "J_per_m3", "data_reference": "TO_DO"},
+  "l": {"value": 0.24987780173793273, "units": "metre", "data_reference": "TO_DO"},
+  "r_0": {"value": 0.0037608359094413466, "units": "metre", "data_reference": "TO_DO"}
+ },
+ "a_0": {
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "TO_DO"},
+  "u_0": {"value": 6221.985266212102, "units": "J_per_m3", "data_reference": "TO_DO"},
+  "theta": {"value": 0.0, "units": "dimensionless", "data_reference": "TO_DO"},
+  "E": {"value": 6500.0, "units": "J_per_m3", "data_reference": "TO_DO"},
+  "l": {"value": 0.0028922033851177084, "units": "metre", "data_reference": "TO_DO"},
+  "r_0": {"value": 8.235396570799838e-06, "units": "metre", "data_reference": "TO_DO"}
+ },
+ "a_1": {
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "TO_DO"},
+  "u_0": {"value": 6664.424593110621, "units": "J_per_m3", "data_reference": "TO_DO"},
+  "theta": {"value": 0.0, "units": "dimensionless", "data_reference": "TO_DO"},
+  "E": {"value": 6500.0, "units": "J_per_m3", "data_reference": "TO_DO"},
+  "l": {"value": 0.0025430136545626664, "units": "metre", "data_reference": "TO_DO"},
+  "r_0": {"value": 3.5280470068849305e-05, "units": "metre", "data_reference": "TO_DO"}
+ },
+ "c_0": {
+  "q_C_init": {"value": 0.0, "units": "m3", "data_reference": "TO_DO"},
+  "E": {"value": 6500.0, "units": "J_per_m3", "data_reference": "TO_DO"},
+  "l": {"value": 0.0006517655843423065, "units": "metre", "data_reference": "TO_DO"},
+  "r": {"value": 3.7496360594987945e-06, "units": "metre", "data_reference": "TO_DO"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "TO_DO"}
+ },
+ "c_1": {
+  "q_C_init": {"value": 0.0, "units": "m3", "data_reference": "TO_DO"},
+  "E": {"value": 6500.0, "units": "J_per_m3", "data_reference": "TO_DO"},
+  "l": {"value": 0.0008392484058949723, "units": "metre", "data_reference": "TO_DO"},
+  "r": {"value": 2.9740887796447565e-06, "units": "metre", "data_reference": "TO_DO"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "TO_DO"}
+ },
+ "c_2": {
+  "q_C_init": {"value": 0.0, "units": "m3", "data_reference": "TO_DO"},
+  "E": {"value": 6500.0, "units": "J_per_m3", "data_reference": "TO_DO"},
+  "l": {"value": 0.0006775219463141806, "units": "metre", "data_reference": "TO_DO"},
+  "r": {"value": 3.1339704386179348e-06, "units": "metre", "data_reference": "TO_DO"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "TO_DO"}
+ },
+ "c_3": {
+  "q_C_init": {"value": 0.0, "units": "m3", "data_reference": "TO_DO"},
+  "E": {"value": 6500.0, "units": "J_per_m3", "data_reference": "TO_DO"},
+  "l": {"value": 0.0006039025863350949, "units": "metre", "data_reference": "TO_DO"},
+  "r": {"value": 4.050539645846312e-06, "units": "metre", "data_reference": "TO_DO"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "TO_DO"}
+ },
+ "c_4": {
+  "q_C_init": {"value": 0.0, "units": "m3", "data_reference": "TO_DO"},
+  "E": {"value": 6500.0, "units": "J_per_m3", "data_reference": "TO_DO"},
+  "l": {"value": 0.0005030087593161453, "units": "metre", "data_reference": "TO_DO"},
+  "r": {"value": 4.1068327579118245e-06, "units": "metre", "data_reference": "TO_DO"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "TO_DO"}
+ },
+ "c_5": {
+  "q_C_init": {"value": 0.0, "units": "m3", "data_reference": "TO_DO"},
+  "E": {"value": 6500.0, "units": "J_per_m3", "data_reference": "TO_DO"},
+  "l": {"value": 0.0003539278012548932, "units": "metre", "data_reference": "TO_DO"},
+  "r": {"value": 3.911277566567885e-06, "units": "metre", "data_reference": "TO_DO"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "TO_DO"}
+ },
+ "c_6": {
+  "q_C_init": {"value": 0.0, "units": "m3", "data_reference": "TO_DO"},
+  "E": {"value": 6500.0, "units": "J_per_m3", "data_reference": "TO_DO"},
+  "l": {"value": 0.0005915411312613252, "units": "metre", "data_reference": "TO_DO"},
+  "r": {"value": 3.824663714128694e-06, "units": "metre", "data_reference": "TO_DO"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "TO_DO"}
+ },
+ "c_7": {
+  "q_C_init": {"value": 0.0, "units": "m3", "data_reference": "TO_DO"},
+  "E": {"value": 6500.0, "units": "J_per_m3", "data_reference": "TO_DO"},
+  "l": {"value": 0.0004140972941454612, "units": "metre", "data_reference": "TO_DO"},
+  "r": {"value": 3.878249914600483e-06, "units": "metre", "data_reference": "TO_DO"},
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "TO_DO"}
+ },
+ "v_0": {
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "TO_DO"},
+  "u_0": {"value": 668.0497632091875, "units": "J_per_m3", "data_reference": "TO_DO"},
+  "theta": {"value": 0.0, "units": "dimensionless", "data_reference": "TO_DO"},
+  "E": {"value": 6500.0, "units": "J_per_m3", "data_reference": "TO_DO"},
+  "l": {"value": 0.0021273876535086458, "units": "metre", "data_reference": "TO_DO"},
+  "r_0": {"value": 3.3657488547780376e-05, "units": "metre", "data_reference": "TO_DO"}
+ },
+ "v_1": {
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "TO_DO"},
+  "u_0": {"value": 914.770768969794, "units": "J_per_m3", "data_reference": "TO_DO"},
+  "theta": {"value": 0.0, "units": "dimensionless", "data_reference": "TO_DO"},
+  "E": {"value": 6500.0, "units": "J_per_m3", "data_reference": "TO_DO"},
+  "l": {"value": 0.0029696258555314, "units": "metre", "data_reference": "TO_DO"},
+  "r_0": {"value": 1.0106908365467664e-05, "units": "metre", "data_reference": "TO_DO"}
+ },
+ "V_0": {
+  "u_ext": {"value": 0.0, "units": "J_per_m3", "data_reference": "TO_DO"},
+  "u_0": {"value": 666.6120027840933, "units": "J_per_m3", "data_reference": "TO_DO"},
+  "theta": {"value": 0.0, "units": "dimensionless", "data_reference": "TO_DO"},
+  "E": {"value": 11036.224947327166, "units": "J_per_m3", "data_reference": "TO_DO"},
+  "l": {"value": 0.20883645185675503, "units": "metre", "data_reference": "TO_DO"},
+  "r_0": {"value": 0.00401910615585655, "units": "metre", "data_reference": "TO_DO"}
+ },
+ "A_0_PI": {
+  "P": {"value": 6666.12, "units": "J_per_m3", "data_reference": "TO_DO"}
+ },
+ "V_0_PO": {
+  "P": {"value": 666.612, "units": "J_per_m3", "data_reference": "TO_DO"}
+ }
+}

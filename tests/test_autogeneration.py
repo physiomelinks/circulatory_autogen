@@ -14,23 +14,23 @@ from libcuflynx.scripts.script_generate_with_new_architecture import generate_wi
 @pytest.mark.integration
 @pytest.mark.slow
 @pytest.mark.parametrize("file_prefix,input_param_file,model_type,solver", [
-    ('ports_test', 'ports_test_parameters.csv', 'cellml', 'CVODE_myokit'),
-    ('test_init_states', 'test_init_states_parameters.csv', 'cellml', 'CVODE_myokit'),
-    ('3compartment', '3compartment_parameters.csv', 'cellml', 'CVODE_myokit'),
-    ('3compartment_extra_ops', '3compartment_extra_ops_parameters.csv', 'cellml', 'CVODE_myokit'),
-    ('simple_physiological', 'simple_physiological_parameters.csv', 'cellml', 'CVODE_myokit'),
-    ('parasympathetic_model', 'parasympathetic_model_parameters.csv', 'cellml', 'CVODE_myokit'),
-    ('test_fft', 'test_fft_parameters.csv', 'cellml', 'CVODE_myokit'),
-    ('neonatal', 'neonatal_parameters.csv', 'cellml', 'CVODE_myokit'),
-    ('generic_junction_test_closed_loop', 'generic_junction_test_closed_loop_parameters.csv', 'cellml', 'CVODE_myokit'),
-    ('generic_junction_test2_closed_loop', 'generic_junction_test_closed_loop_parameters.csv', 'cellml', 'CVODE_myokit'),
-    ('generic_junction_test_open_loop', 'generic_junction_test_open_loop_parameters.csv', 'cellml', 'CVODE_myokit'),
-    ('generic_junction_test2_open_loop', 'generic_junction_test_open_loop_parameters.csv', 'cellml', 'CVODE_myokit'),
-    ('SN_simple', 'SN_simple_parameters.csv', 'cellml', 'CVODE_myokit'),
-    ('physiological', 'physiological_parameters.csv', 'cellml', 'CVODE_myokit'),
-    ('control_phys', 'control_phys_parameters.csv', 'cellml', 'CVODE_myokit'),
-    ('control_parasymp', 'control_parasymp_parameters.csv', 'cellml', 'CVODE_myokit'),
-    ('control_phys_asd', 'control_phys_asd_parameters.csv', 'cellml', 'CVODE_myokit'),
+    ('ports_test', 'ports_test_parameters.json', 'cellml', 'CVODE_myokit'),
+    ('test_init_states', 'test_init_states_parameters.json', 'cellml', 'CVODE_myokit'),
+    ('3compartment', '3compartment_parameters.json', 'cellml', 'CVODE_myokit'),
+    ('3compartment_extra_ops', '3compartment_extra_ops_parameters.json', 'cellml', 'CVODE_myokit'),
+    ('simple_physiological', 'simple_physiological_parameters.json', 'cellml', 'CVODE_myokit'),
+    ('parasympathetic_model', 'parasympathetic_model_parameters.json', 'cellml', 'CVODE_myokit'),
+    ('test_fft', 'test_fft_parameters.json', 'cellml', 'CVODE_myokit'),
+    ('neonatal', 'neonatal_parameters.json', 'cellml', 'CVODE_myokit'),
+    ('generic_junction_test_closed_loop', 'generic_junction_test_closed_loop_parameters.json', 'cellml', 'CVODE_myokit'),
+    ('generic_junction_test2_closed_loop', 'generic_junction_test_closed_loop_parameters.json', 'cellml', 'CVODE_myokit'),
+    ('generic_junction_test_open_loop', 'generic_junction_test_open_loop_parameters.json', 'cellml', 'CVODE_myokit'),
+    ('generic_junction_test2_open_loop', 'generic_junction_test_open_loop_parameters.json', 'cellml', 'CVODE_myokit'),
+    ('SN_simple', 'SN_simple_parameters.json', 'cellml', 'CVODE_myokit'),
+    ('physiological', 'physiological_parameters.json', 'cellml', 'CVODE_myokit'),
+    ('control_phys', 'control_phys_parameters.json', 'cellml', 'CVODE_myokit'),
+    ('control_parasymp', 'control_parasymp_parameters.json', 'cellml', 'CVODE_myokit'),
+    ('control_phys_asd', 'control_phys_asd_parameters.json', 'cellml', 'CVODE_myokit'),
 ])
 def test_generate_cellml_model_succeeds(file_prefix, input_param_file, model_type, solver, base_user_inputs, resources_dir, temp_generated_models_dir):
     """
@@ -75,13 +75,13 @@ _SN_SIMPLE_XFAIL = (
 @pytest.mark.parametrize(
     "file_prefix,input_param_file,model_type,solver",
     [
-        ('3compartment', '3compartment_parameters.csv', 'python', 'solve_ivp'),
-        pytest.param('SN_simple', 'SN_simple_parameters.csv', 'python', 'solve_ivp',
+        ('3compartment', '3compartment_parameters.json', 'python', 'solve_ivp'),
+        pytest.param('SN_simple', 'SN_simple_parameters.json', 'python', 'solve_ivp',
                      marks=pytest.mark.xfail(strict=True, reason=_SN_SIMPLE_XFAIL)),
-        ('pid_control', 'pid_control_parameters.csv', 'python', 'solve_ivp'),
-        ('Lotka_Volterra', 'Lotka_Volterra_parameters.csv', 'casadi_python', 'casadi_integrator'),
-        ('3compartment', '3compartment_parameters.csv', 'casadi_python', 'casadi_integrator'),
-        ('3compartment_nonstiff', '3compartment_nonstiff_parameters.csv', 'casadi_python', 'casadi_integrator'),
+        ('pid_control', 'pid_control_parameters.json', 'python', 'solve_ivp'),
+        ('Lotka_Volterra', 'Lotka_Volterra_parameters.json', 'casadi_python', 'casadi_integrator'),
+        ('3compartment', '3compartment_parameters.json', 'casadi_python', 'casadi_integrator'),
+        ('3compartment_nonstiff', '3compartment_nonstiff_parameters.json', 'casadi_python', 'casadi_integrator'),
     ],
 )
 def test_generate_python_model_succeeds(file_prefix, input_param_file, model_type, solver, base_user_inputs, resources_dir, temp_generated_models_dir):
@@ -136,7 +136,7 @@ def test_generate_python_model_is_human_readable_by_default(base_user_inputs, re
     config = base_user_inputs.copy()
     config.update({
         'file_prefix': '3compartment',
-        'input_param_file': '3compartment_parameters.csv',
+        'input_param_file': '3compartment_parameters.json',
         'model_type': 'python',
         'solver': 'solve_ivp',
         'generated_models_dir': temp_generated_models_dir,
@@ -148,7 +148,7 @@ def test_generate_python_model_is_human_readable_by_default(base_user_inputs, re
         },
     })
 
-    param_file_path = os.path.join(resources_dir, '3compartment_parameters.csv')
+    param_file_path = os.path.join(resources_dir, '3compartment_parameters.json')
     assert os.path.exists(param_file_path), f"Parameter file not found: {param_file_path}"
 
     success = generate_with_new_architecture(False, config)
@@ -214,7 +214,7 @@ def test_generate_python_model_uses_original_code_when_human_readable_disabled(
     config = base_user_inputs.copy()
     config.update({
         'file_prefix': '3compartment',
-        'input_param_file': '3compartment_parameters.csv',
+        'input_param_file': '3compartment_parameters.json',
         'model_type': 'python',
         'solver': 'solve_ivp',
         'generated_models_dir': temp_generated_models_dir,
@@ -227,7 +227,7 @@ def test_generate_python_model_uses_original_code_when_human_readable_disabled(
         },
     })
 
-    param_file_path = os.path.join(resources_dir, '3compartment_parameters.csv')
+    param_file_path = os.path.join(resources_dir, '3compartment_parameters.json')
     assert os.path.exists(param_file_path), f"Parameter file not found: {param_file_path}"
 
     if config_source == "inp_data_dict":
@@ -261,7 +261,7 @@ def test_generate_cpp_model_succeeds(base_user_inputs, resources_dir, temp_outpu
     config = base_user_inputs.copy()
     config.update({
         'file_prefix': 'aortic_bif_1d',
-        'input_param_file': 'aortic_bif_1d_parameters.csv',
+        'input_param_file': 'aortic_bif_1d_parameters.json',
         'model_type': 'cpp',
         'solver': 'RK4',
         'solver_info': {'dt_solver': 0.0001},
@@ -272,7 +272,7 @@ def test_generate_cpp_model_succeeds(base_user_inputs, resources_dir, temp_outpu
     })
     
     # Verify parameter file exists
-    param_file_path = os.path.join(resources_dir, 'aortic_bif_1d_parameters.csv')
+    param_file_path = os.path.join(resources_dir, 'aortic_bif_1d_parameters.json')
     assert os.path.exists(param_file_path), f"Parameter file not found: {param_file_path}"
     
     # Generate model
@@ -299,7 +299,7 @@ def test_generate_model_with_invalid_parameters_fails(base_user_inputs, resource
     config = base_user_inputs.copy()
     config.update({
         'file_prefix': 'nonexistent_model',
-        'input_param_file': 'nonexistent_parameters.csv',
+        'input_param_file': 'nonexistent_parameters.json',
         'model_type': 'cellml',
         'solver': 'CVODE_myokit',
         'generated_models_dir': temp_generated_models_dir,

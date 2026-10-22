@@ -1,0 +1,44 @@
+{
+ "schema_version": 1,
+ "global": {
+  "T": {"value": 1, "units": "second", "data_reference": "biobeat_measurement"},
+  "beta_g": {"value": 1, "units": "dimensionless", "data_reference": "test"},
+  "rho": {"value": 1, "units": "Js2_per_m5", "data_reference": "test"},
+  "mu": {"value": 1, "units": "Js_per_m3", "data_reference": "test"},
+  "g": {"value": 1, "units": "m_per_s2", "data_reference": "test"},
+  "a_vessel": {"value": 1, "units": "dimensionless", "data_reference": "test"},
+  "b_vessel": {"value": 1, "units": "per_m", "data_reference": "test"},
+  "c_vessel": {"value": 1, "units": "dimensionless", "data_reference": "test"},
+  "d_vessel": {"value": 1, "units": "per_m", "data_reference": "test"}
+ },
+ "inlet": {
+  "A_0": {"value": 0.0001, "units": "m3_per_s", "data_reference": "Alfred_database"},
+  "A_1": {"value": 0.001, "units": "m3_per_s", "data_reference": "user_defined"},
+  "A_2": {"value": 0, "units": "m3_per_s", "data_reference": "user_defined"},
+  "A_3": {"value": 0, "units": "m3_per_s", "data_reference": "user_defined"},
+  "A_4": {"value": 0.0001, "units": "m3_per_s", "data_reference": "user_defined"},
+  "A_5": {"value": 0, "units": "m3_per_s", "data_reference": "user_defined"},
+  "A_6": {"value": 0, "units": "m3_per_s", "data_reference": "user_defined"},
+  "A_7": {"value": 0, "units": "m3_per_s", "data_reference": "user_defined"},
+  "A_8": {"value": 0, "units": "m3_per_s", "data_reference": "user_defined"},
+  "phi_0": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "phi_1": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"},
+  "phi_2": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "phi_3": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "phi_4": {"value": -1, "units": "dimensionless", "data_reference": "user_defined"},
+  "phi_5": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "phi_6": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "phi_7": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "phi_8": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "P": {"value": 100, "units": "J_per_m3", "data_reference": "user_defined"}
+ },
+ "vessel_1": {
+  "E": {"value": 1, "units": "J_per_m3", "data_reference": "test"},
+  "l": {"value": 1, "units": "metre", "data_reference": "test"},
+  "r_0": {"value": 1, "units": "metre", "data_reference": "test"},
+  "u_ext": {"value": 1, "units": "J_per_m3", "data_reference": "test"},
+  "u_0": {"value": 1, "units": "J_per_m3", "data_reference": "test"},
+  "theta": {"value": 1, "units": "dimensionless", "data_reference": "test"},
+  "u_out": {"value": 1, "units": "J_per_m3", "data_reference": "test"}
+ }
+}

@@ -1,5 +1,0 @@
-variable_name,units,value,data_reference
-benchmark/x_init,dimensionless,0,None
-benchmark/y_init,dimensionless,0,None
-benchmark/p,dimensionless,1,None
-benchmark/q,dimensionless,1,None

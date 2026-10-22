@@ -82,7 +82,7 @@ whole run **milliseconds** once the forms are compiled; the one-off FFCx compila
 | File | Purpose |
 |---|---|
 | `heat_fenics_model.py` | The solver class (`parameters`, `output_names`, `init_solver`, `update_times`, `set_param_vals`, `run`, `get_results`, `reset`, `extra_plots`, `close`) and `SIM_HELPER`. |
-| `heat_fenics_params_for_id.csv` | The calibration box: `heat/k ∈ [0.001, 0.2]`, `heat/u_D ∈ [-0.5, 0.5]`. |
+| `heat_fenics_params_for_id.json` | The calibration box: `heat/k ∈ [0.001, 0.2]`, `heat/u_D ∈ [-0.5, 0.5]`. |
 | `heat_fenics_obs_data.json` | The `protocol_info` (the `dt = 0.02` / `sim_time = 2.0` window, above) plus six scalar observables — `mean` and `min` of each of the three probes, so every probe is scored against a ground truth rather than only the centre one. |
 
 !!! warning "Why not `max(T_p*)`?"

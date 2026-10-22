@@ -6,12 +6,13 @@ DEBUG: false # TODO change back
 # every fresh clone to a file that only exists on one machine. Example:
 # user_inputs_path_override: /abs/path/to/my_study/user_inputs.yaml
 file_prefix: 3compartment 
-# input_param_file must be stored in resources. If first creating a parameters file 
-# set this to parameters_orig.csv and a 
-# parameters file will be generated with spaces for the required parameters
+# input_param_file (nested JSON, in resources) holds the model's parameter values. When values are
+# missing, generation writes <file_prefix>_parameters_unfinished.json in resources with
+# EMPTY_MUST_BE_FILLED where a value is needed. A parameters CSV is refused; convert it with
+# cuflynx-upgrade parameters <file>.
 
-# input_param_file: SN_simple_parameters.csv
-input_param_file: 3compartment_parameters.csv
+# input_param_file: SN_simple_parameters.json
+input_param_file: 3compartment_parameters.json
 
 # cpp generation inputs
 # model_type can be cellml (the default), python, cpp, casadi_python, aadc_python or
@@ -121,7 +122,7 @@ optimiser_options:
   # multi_start_sp_minimize specific options:
   # num_starts: 10             # number of L-BFGS-B descents (default 10, or 4 when DEBUG)
   # start_sampling: sobol      # sobol (default), latin_hypercube or random
-  # include_init_point: true   # make the first start the x0 from {file_prefix}_parameters.csv
+  # include_init_point: true   # make the first start the x0 from {file_prefix}_parameters.json
   # seed: 0                    # seed for the start sampler, so runs are repeatable
   # fd_step: 1.0e-4            # finite-difference step, used when AD isn't available
   # no_new_starts_on_convergence: true  # true: stop launching starts once one converges.
@@ -129,7 +130,7 @@ optimiser_options:
   #                                     # each minimum (maps the basins of a multi-modal problem)
   # convergence_cluster_tol_frac: 0.02  # two converged starts are the same solution if every
   #                                     # param agrees to within this fraction of its range
-  # Note: Initial parameter values (x0) are automatically loaded from {file_prefix}_parameters.csv
+  # Note: Initial parameter values (x0) are automatically loaded from {file_prefix}_parameters.json
 
 #______ debug optimiser options (used when DEBUG is True) ___________
 debug_optimiser_options:

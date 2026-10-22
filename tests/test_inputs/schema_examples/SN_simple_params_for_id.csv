@@ -1,4 +1,0 @@
-vessel_name,                  param_name,       min,        max,    name_for_plotting
-soma_SN,                      gamma_Na,         6.52174,      39.1304,    \gamma_{Na}
-soma_SN,                      gamma_M,          3.42205,      13.6882,    \gamma_{M}
-soma_SN,                      gamma_Kv1_5,      3.98716,      13.2905,    \gamma_{kv}

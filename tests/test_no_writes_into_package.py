@@ -182,7 +182,7 @@ def test_parsed_config_archives_into_the_configured_resources_dir(tmp_path):
 
     resources_dir = tmp_path / 'resources'
     resources_dir.mkdir()
-    inp = get_default_inp_data_dict('3compartment', '3compartment_parameters.csv',
+    inp = get_default_inp_data_dict('3compartment', '3compartment_parameters.json',
                                     str(resources_dir))
 
     assert inp['resources_dir'] == str(resources_dir)
@@ -208,7 +208,7 @@ def test_config_defaults_follow_the_user_dir_when_nothing_is_configured(tmp_path
 
     before = _sweep_package()
     parsed = YamlFileParser().parse_user_inputs_file(
-        {'file_prefix': _MODEL_PREFIX, 'input_param_file': f'{_MODEL_PREFIX}_parameters.csv'},
+        {'file_prefix': _MODEL_PREFIX, 'input_param_file': f'{_MODEL_PREFIX}_parameters.json'},
         obs_path_needed=False)
 
     for key in ('resources_dir', 'generated_models_dir', 'param_id_output_dir'):
@@ -228,8 +228,8 @@ def test_config_defaults_follow_the_user_dir_when_nothing_is_configured(tmp_path
 _MODEL_PREFIX = '3compartment'
 _MODEL_FILES = (
     f'{_MODEL_PREFIX}_module_array.csv',
-    f'{_MODEL_PREFIX}_parameters.csv',
-    f'{_MODEL_PREFIX}_params_for_id.csv',
+    f'{_MODEL_PREFIX}_parameters.json',
+    f'{_MODEL_PREFIX}_params_for_id.json',
     f'{_MODEL_PREFIX}_obs_data.json',
 )
 
@@ -288,7 +288,7 @@ def test_generation_and_calibration_never_write_into_the_package(
     config = base_user_inputs.copy()
     config.update({
         'file_prefix': _MODEL_PREFIX,
-        'input_param_file': f'{_MODEL_PREFIX}_parameters.csv',
+        'input_param_file': f'{_MODEL_PREFIX}_parameters.json',
         'model_type': 'cellml',
         'solver': 'CVODE_myokit',
         'param_id_method': 'genetic_algorithm',
@@ -372,7 +372,7 @@ def test_generation_works_with_no_checkout_directories_present(
     monkeypatch.setenv(paths.CUFLYNX_USER_DIR_ENV_VAR, str(user_dir))
     before = _sweep_package()
 
-    config = get_default_inp_data_dict(_MODEL_PREFIX, f'{_MODEL_PREFIX}_parameters.csv',
+    config = get_default_inp_data_dict(_MODEL_PREFIX, f'{_MODEL_PREFIX}_parameters.json',
                                        str(user_resources))
     config.update({'model_type': 'cellml', 'solver': 'CVODE_myokit',
                    'pre_time': 2, 'sim_time': 1, 'dt': 0.01})

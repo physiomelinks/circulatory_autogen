@@ -1,0 +1,6 @@
+{
+ "version": 1,
+ "params": [
+  {"targets": ["vessel_1/E"], "min": 1.0, "max": 2.0, "name_for_plotting": "E"}
+ ]
+}

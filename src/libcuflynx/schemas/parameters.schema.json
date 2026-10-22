@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/physiomelinks/circulatory_autogen/schemas/parameters.schema.json",
+  "title": "libcuflynx parameters (<prefix>_parameters.json; parameterisations/<name>/<name>_parameters.json)",
+  "description": "Parameter values, nested as instance, sub-instance, variable. A model's file, <prefix>_parameters.json beside its module array, has its instances at the top ({\"aortic_root\": {\"C\": {...}}, \"heart\": {\"lv\": {\"E_A\": {...}}}}); a module's parameterisation, and a calibrated result of one, is rooted at the module (a component's variables at the top, {\"C\": {...}}; a supermodule's sub-instances, {\"lv\": {\"E_A\": {...}}}). A path is the name CA's users write: aortic_root/C, heart/lv/E_A, global/R. Rules: a leaf (one parameter) is an object with \"value\"; every other object is an instance or sub-instance; \"global\" at the top holds the global constants; \"global\", \"value\" and \"schema_version\" are reserved, so no instance, sub-instance or variable has those names; in a model's file every top-level key but \"global\" is an instance. Written by cuflynx-upgrade parameters from a parameters CSV. Read by libcuflynx/utilities/parameters_file.py (read_parameters_file).",
+  "type": "object",
+  "required": [
+    "schema_version"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "description": "The format version: 1."
+    },
+    "global": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/parameter"
+      },
+      "description": "The global constants: {variable: parameter}. A model's file sets them for the whole model (written global/R or R); a parameterisation, those its module sets."
+    }
+  },
+  "propertyNames": {
+    "not": {
+      "const": "value"
+    },
+    "description": "\"value\" is reserved: it marks a parameter."
+  },
+  "additionalProperties": {
+    "$ref": "#/$defs/entry"
+  },
+  "$defs": {
+    "entry": {
+      "if": {
+        "type": "object",
+        "required": [
+          "value"
+        ]
+      },
+      "then": {
+        "$ref": "#/$defs/parameter"
+      },
+      "else": {
+        "$ref": "#/$defs/instance"
+      },
+      "description": "An object with \"value\" is a parameter; any other is an instance or sub-instance."
+    },
+    "instance": {
+      "type": "object",
+      "propertyNames": {
+        "not": {
+          "enum": [
+            "value",
+            "global",
+            "schema_version"
+          ]
+        },
+        "description": "A sub-instance or variable may not be named \"value\", \"global\" or \"schema_version\"."
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/entry"
+      },
+      "description": "An instance or sub-instance: {sub-instance or variable: ...}."
+    },
+    "parameter": {
+      "type": "object",
+      "required": [
+        "value"
+      ],
+      "properties": {
+        "value": {
+          "type": [
+            "number",
+            "string"
+          ],
+          "description": "Required. The value: a number, or text such as EMPTY_MUST_BE_FILLED."
+        },
+        "units": {
+          "type": "string",
+          "description": "Its units, as the module config names them."
+        },
+        "data_reference": {
+          "type": "string",
+          "description": "Where the value comes from. Default: empty."
+        }
+      },
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "One parameter. Other string keys (a module library's \"sourced\") are kept and not read."
+    }
+  }
+}

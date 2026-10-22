@@ -1,7 +1,8 @@
 #!/bin/bash
-# Merge a parameters file into the one named by input_param_file in user_inputs.yaml.
+# Set every parameter of a parameters file (nested JSON) in the one named by input_param_file
+# in user_inputs.yaml, in place.
 # Usage: ./read_and_insert_parameters.sh parameters_to_add.json
-#    or: ./read_and_insert_parameters.sh parameters.csv parameters_to_add.json
+#    or: ./read_and_insert_parameters.sh parameters.json parameters_to_add.json
 # This script's own directory, using builtins only: dirname needs a working PATH, and a
 # broken PATH is precisely the situation the helper below exists to report on.
 _cuflynx_dir="${BASH_SOURCE[0]%/*}"

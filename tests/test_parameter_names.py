@@ -17,9 +17,11 @@ import _module_library as module_library
 from libcuflynx.utilities.config_schemas import (load_component_registry,
                                                  load_expanded_vessel_records,
                                                  load_supermodule_registry)
+from libcuflynx.utilities.supermodules import write_instance_parameters
 from libcuflynx.utilities.parameter_names import (host_model_names, model_name, output_model_name,
                                                   split_path_name,
                                                   supermodule_row_name)
+from _parameters import MODEL, MODULE, read_parameters, write_parameters
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RESOURCES_DIR = os.path.join(REPO_ROOT, 'resources')
@@ -162,47 +164,56 @@ PREFIX = '3compartment'
 
 def _copy_resources(directory):
     os.makedirs(directory)
-    for suffix in ('_module_array.csv', '_parameters.csv'):
+    for suffix in ('_module_array.csv', '_parameters.json'):
         shutil.copy(os.path.join(RESOURCES_DIR, PREFIX + suffix), directory)
-    return os.path.join(directory, f'{PREFIX}_parameters.csv')
+    return os.path.join(directory, f'{PREFIX}_parameters.json')
 
 
 def _generate(resources, generated):
     from libcuflynx.scripts.script_generate_with_new_architecture import \
         generate_with_new_architecture
-    config = {'file_prefix': PREFIX, 'input_param_file': f'{PREFIX}_parameters.csv',
+    config = {'file_prefix': PREFIX, 'input_param_file': f'{PREFIX}_parameters.json',
               'model_type': 'cellml', 'solver': 'CVODE_myokit', 'resources_dir': resources,
               'generated_models_dir': generated, 'DEBUG': False}
     assert generate_with_new_architecture(False, config)
     return os.path.join(generated, PREFIX)
 
 
-def _read(path):
-    with open(path, newline='') as f:
-        return list(csv.DictReader(f))
+def _read(path, kind=MODEL):
+    return read_parameters(path, kind)
 
 
-def _write_old_form(path, rename):
-    rows = _read(path)
-    for row in rows:
-        row['variable_name'] = rename(row['variable_name'])
-    with open(path, 'w', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=list(rows[0]))
-        writer.writeheader()
-        writer.writerows(rows)
+def _write_old_form(path, rename, kind=MODEL):
+    write_parameters(path, [dict(row, variable_name=rename(row['variable_name']))
+                            for row in _read(path, kind)], kind)
 
 
 @pytest.mark.integration
-def test_a_host_file_in_the_older_form_is_refused_and_converted(tmp_path):
+@pytest.mark.parametrize('form', ['json', 'csv'])
+def test_a_host_file_in_the_older_form_is_refused_and_converted(tmp_path, form):
+    """Names written {variable}_{vessel} are refused naming parameter-names, which rewrites
+    them in the nested JSON file, or in the parameters CSV they were first written in, which
+    ``parameters`` then converts."""
     from libcuflynx.upgrade import main as upgrade
-    current = _read(os.path.join(RESOURCES_DIR, f'{PREFIX}_parameters.csv'))
+    current = _read(os.path.join(RESOURCES_DIR, f'{PREFIX}_parameters.json'))
     assert any(r['variable_name'] == 'aortic_root/C' for r in current)
     params = _copy_resources(str(tmp_path / 'r'))
     _write_old_form(params, model_name)
     with pytest.raises(ValueError, match='cuflynx-upgrade parameter-names'):
         _generate(str(tmp_path / 'r'), str(tmp_path / 'g_old'))
+    if form == 'csv':
+        rows = _read(params)
+        os.remove(params)
+        csv_path = params[:-len('.json')] + '.csv'
+        with open(csv_path, 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=list(rows[0]))
+            writer.writeheader()
+            writer.writerows(rows)
     assert upgrade(['parameter-names', '--module-array',
                     str(tmp_path / 'r' / f'{PREFIX}_module_array.csv')]) == 0
+    if form == 'csv':
+        assert upgrade(['parameters', csv_path]) == 0
+        assert not os.path.exists(csv_path)
     assert _read(params) == current
     _generate(str(tmp_path / 'r'), str(tmp_path / 'g'))
 
@@ -210,12 +221,9 @@ def test_a_host_file_in_the_older_form_is_refused_and_converted(tmp_path):
 @pytest.mark.integration
 def test_a_misspelt_vessel_is_an_error(tmp_path):
     params = _copy_resources(str(tmp_path / 'r'))
-    with open(params) as f:
-        text = f.read()
-    columns = text.splitlines()[0].count(',') + 1
-    row = ['aortic_rot/C', 'm6_per_N', '1e-9', 'typo'] + [''] * (columns - 4)
-    with open(params, 'w') as f:
-        f.write(text.rstrip('\n') + '\n' + ','.join(row) + '\n')
+    write_parameters(params, _read(params) + [{'variable_name': 'aortic_rot/C',
+                                               'units': 'm6_per_N', 'value': '1e-9',
+                                               'data_reference': 'typo'}])
     with pytest.raises(ValueError, match=r'aortic_rot/C \(no vessel "aortic_rot"'):
         _generate(str(tmp_path / 'r'), str(tmp_path / 'g'))
 
@@ -237,18 +245,23 @@ def library_files():
 
 
 def _soma_rows(tmp_path, files):
+    """The soma's default rows (its parameterisation's globals, its submodules' defaults) in a
+    model of one soma instance in ``tmp_path``, made from its version."""
     path = str(tmp_path / 'm_module_array.json')
     import json
     with open(path, 'w') as f:
         json.dump([{'name': 'soma', 'module_type': SOMA[0], 'module_subtype': SOMA[1],
                     'inp_instances': [], 'out_instances': []}], f)
-    _, rows = load_expanded_vessel_records(path, load_supermodule_registry(files),
-                                           load_component_registry(files))
+    supermodules = load_supermodule_registry(files)
+    write_instance_parameters(path, supermodules)
+    _, rows = load_expanded_vessel_records(path, supermodules, load_component_registry(files))
     return {r['variable_name']: (r['value'], r['data_reference']) for r in rows}
 
 
 def _old_row_name(name):
     '''<sub>/<var> written {var}_{sub} (nested levels joined with "_").'''
+    if name.startswith('global/'):
+        return name
     *path, variable = name.split('/')
     return f'{variable}_{"_".join(path)}' if path else name
 
@@ -262,24 +275,21 @@ def test_a_supermodule_parameterisation_in_the_older_form_is_refused_and_convert
     copy = tmp_path / 'soma_copy'
     shutil.copytree(os.path.dirname(original), copy)
     config = str(copy / os.path.basename(original))
-    parameterisation = str(copy / 'parameterisations' / 'default' / 'default_parameters.csv')
-    if not any('/' in r['variable_name'] for r in _read(parameterisation)):
-        # the library is not converted yet: convert the copy to have a reference
-        assert upgrade(['parameter-names', '--supermodule-config', config,
-                        '--module-library-dir', modules, '--no-builtin-modules']) == 0
-    current = _read(parameterisation)
+    parameterisation = str(copy / 'parameterisations' / 'default' / 'default_parameters.json')
+    current = _read(parameterisation, MODULE)
     assert any(r['variable_name'].startswith('membrane/') for r in current)
     files_with_copy = [f for f in files if f != original] + [config]
     os.makedirs(tmp_path / 'current')
     expected = _soma_rows(tmp_path / 'current', files_with_copy)
 
-    _write_old_form(parameterisation, _old_row_name)
+    _write_old_form(parameterisation, _old_row_name, MODULE)
     os.makedirs(tmp_path / 'old')
     with pytest.raises(ValueError, match='cuflynx-upgrade parameter-names --supermodule-config'):
         _soma_rows(tmp_path / 'old', files_with_copy)
     assert upgrade(['parameter-names', '--supermodule-config', config, '--module-library-dir',
                     modules, '--no-builtin-modules']) == 0
-    assert _read(parameterisation) == current
+    assert sorted(_read(parameterisation, MODULE), key=lambda r: r['variable_name']) == \
+        sorted(current, key=lambda r: r['variable_name'])
     os.makedirs(tmp_path / 'after')
     assert _soma_rows(tmp_path / 'after', files_with_copy) == expected
 
@@ -289,10 +299,10 @@ def test_a_parameterisation_names_its_variables_without_a_vessel(tmp_path):
     from libcuflynx.utilities.parameterisations import component_parameterisation_rows
     directory = tmp_path / 'pulse' / 'versions' / 'v1'
     os.makedirs(directory / 'parameterisations' / 'x')
-    (directory / 'parameterisations' / 'x' / 'x_parameters.csv').write_text(
-        'variable_name,units,value,data_reference\ns1/mean,m3_per_s,1,r\n')
+    write_parameters(directory / 'parameterisations' / 'x' / 'x_parameters.json',
+                     'variable_name,units,value,data_reference\ns1/mean,m3_per_s,1,r\n', MODULE)
     entry = {'module_type': 'pulse_src', 'module_subtype': 'v1', 'variables_and_units': [],
              'config_path': str(directory / 'pulse_v1_modules_config.json')}
     record = {'name': 's1', 'module_type': 'pulse_src', 'module_subtype': 'v1', 'parameterisation': 'x'}
-    with pytest.raises(ValueError, match='named without a vessel'):
+    with pytest.raises(ValueError, match="the module's own variables, at the top of its file"):
         component_parameterisation_rows([record], {('pulse_src', 'v1'): entry})

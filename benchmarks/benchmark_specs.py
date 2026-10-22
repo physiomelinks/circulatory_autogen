@@ -62,8 +62,8 @@ def fitzhugh_nagumo_config(base_config, resources_dir, output_dir, generated_mod
     config = dict(base_config)
     config.update({
         'file_prefix': 'FitzHugh_Nagumo',
-        'input_param_file': 'FitzHugh_Nagumo_parameters.csv',
-        'params_for_id_file': 'FitzHugh_Nagumo_params_for_id.csv',
+        'input_param_file': 'FitzHugh_Nagumo_parameters.json',
+        'params_for_id_file': 'FitzHugh_Nagumo_params_for_id.json',
         'model_type': 'casadi_python',
         'solver': 'casadi_integrator',
         'param_id_method': param_id_method,
@@ -233,7 +233,7 @@ def assert_fitzhugh_nagumo(result, mpi_comm):
 
 # Ground-truth parameters the synthetic 3compartment obs data is generated at, by forward
 # simulating the model. All four lie inside the identification bounds in
-# 3compartment_params_for_id.csv -- note the model's own q_lv_init default (2e-3) does NOT, so the
+# 3compartment_params_for_id.json -- note the model's own q_lv_init default (2e-3) does NOT, so the
 # CSV defaults cannot be used wholesale as a ground truth.
 THREE_COMPARTMENT_TRUE_PARAMS = np.array([8.0e-4, 1.2028e-8, 3.66575e8, 1.0664e7])
 THREE_COMPARTMENT_PARAM_LABELS = ['q_lv_init', 'C_ao', 'E_lv_A', 'E_lv_B']
@@ -304,7 +304,7 @@ def three_compartment_config(base_config, resources_dir, output_dir, generated_m
     config = dict(base_config)
     config.update({
         'file_prefix': '3compartment',
-        'input_param_file': '3compartment_parameters.csv',
+        'input_param_file': '3compartment_parameters.json',
         'model_type': 'cellml',
         # Myokit (not OpenCOR) so the gradient-free baselines run in CI without OpenCOR.
         'solver': 'CVODE_myokit',
@@ -502,8 +502,8 @@ def goodwin_config(base_config, resources_dir, output_dir, generated_models_dir,
     config = dict(base_config)
     config.update({
         'file_prefix': 'Goodwin',
-        'input_param_file': 'Goodwin_parameters.csv',  # unused: x0 comes from the CellML itself
-        'params_for_id_file': 'Goodwin_params_for_id.csv',
+        'input_param_file': 'Goodwin_parameters.json',  # unused: x0 comes from the CellML itself
+        'params_for_id_file': 'Goodwin_params_for_id.json',
         'model_type': 'cellml',
         'solver': 'CVODE_myokit',
         'param_id_method': param_id_method,
@@ -641,7 +641,7 @@ def assert_goodwin(result, mpi_comm):
 # ----------------------------------------------------------------------------------------
 
 # Ground-truth v_max values the synthetic obs data was generated at (the model's published PMR
-# values), in the order of Teusink_params_for_id.csv.
+# values), in the order of Teusink_params_for_id.json.
 TEUSINK_TRUE_PARAMS = np.array([226.452, 339.677, 1088.71, 1184.52])
 TEUSINK_PARAM_LABELS = ['Vmax_GLK', 'Vmax_PGI', 'Vmax_PYK', 'Vmax_GAPDH_f']
 
@@ -650,8 +650,8 @@ def teusink_config(base_config, resources_dir, output_dir, generated_models_dir,
     config = dict(base_config)
     config.update({
         'file_prefix': 'Teusink',
-        'input_param_file': 'Teusink_parameters.csv',  # unused: x0 comes from the CellML itself
-        'params_for_id_file': 'Teusink_params_for_id.csv',
+        'input_param_file': 'Teusink_parameters.json',  # unused: x0 comes from the CellML itself
+        'params_for_id_file': 'Teusink_params_for_id.json',
         'model_type': 'cellml',
         'solver': 'CVODE_myokit',
         'param_id_method': param_id_method,

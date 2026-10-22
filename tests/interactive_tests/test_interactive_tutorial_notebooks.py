@@ -337,8 +337,8 @@ def _sanitize_image_to_hemodynamics(source: str) -> str:
     source = _replace_once(source, "run_ilastik_batch_processing = True", "run_ilastik_batch_processing = False")
     source = _replace_once(
         source,
-        'print("Wrote:", str(CA_root / Path("tutorial/interactive/resources/user_output/image_to_model_parameters.csv")))\n',
-        'print("Wrote:", str(Path.cwd() / "resources/user_output/image_to_model_parameters.csv"))\nprint("INTERACTIVE_NOTEBOOK_COMPLETED")\n',
+        'print("Wrote:", str(CA_root / Path("tutorial/interactive/resources/user_output/image_to_model_parameters.json")))\n',
+        'print("Wrote:", str(Path.cwd() / "resources/user_output/image_to_model_parameters.json"))\nprint("INTERACTIVE_NOTEBOOK_COMPLETED")\n',
     )
 
     return source
@@ -492,4 +492,4 @@ def test_image_to_hemodynamics_notebook_executes_as_script_when_dependencies_exi
         )
 
     assert "INTERACTIVE_NOTEBOOK_COMPLETED" in completed.stdout
-    assert (temp_root / "resources" / "user_output" / "image_to_model_parameters.csv").exists()
+    assert (temp_root / "resources" / "user_output" / "image_to_model_parameters.json").exists()

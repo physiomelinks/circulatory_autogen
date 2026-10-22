@@ -10,8 +10,8 @@ When that module is the submodule at ``path`` (``i_M``, or ``soma__i_M`` two lev
 a supermodule that is itself generated as ``mod``, supermodule expansion
 (``utilities/supermodules.py``) renames its vessel ``mod[__x]`` to ``mod__<path>[__x]``, so the
 same parameter is ``param_name_for_gen('mod_<path>[_x]', param_name)`` there. In the
-supermodule's own parameterisation parameters CSV it is written ``<path>/<var>``
-(``i_M/rho_M``, ``soma/i_M/rho_M`` when nested), as ``utilities/parameter_names.py`` reads it.
+supermodule's own parameterisation it is at ``<path>/<var>`` (``i_M/rho_M``, ``soma/i_M/rho_M``
+when nested; ``utilities/parameters_file.py``).
 
 These are the rules circulatory-autogen-modules' ``calibrate apply`` follows by hand.
 '''
@@ -58,12 +58,14 @@ def host_row_name(vessel, param):
 
 
 def parameterisation_name(vessel, param, submodule_paths=(), step_vessel=STEP_VESSEL):
-    '''The name of ``param`` of ``vessel`` in the parameterisation parameters CSV of the module
-    generated as ``step_vessel``, whose submodules are ``submodule_paths`` (tuples, as
-    ``supermodules.submodule_path_parts`` gives them): ``('mod', 'p') -> 'p'``,
-    ``('mod__A', 'p') -> 'A/p'``, ``('mod__soma__i_M', 'p') -> 'soma/i_M/p'``; a global
-    unchanged.'''
-    if is_global(vessel) or vessel == step_vessel:
+    '''The name of ``param`` of ``vessel`` in the parameterisation parameters file of the module
+    generated as ``step_vessel`` (its path there, utilities/parameters_file.py), whose
+    submodules are ``submodule_paths`` (tuples, as ``supermodules.submodule_path_parts`` gives
+    them): ``('mod', 'p') -> 'p'``, ``('mod__A', 'p') -> 'A/p'``,
+    ``('mod__soma__i_M', 'p') -> 'soma/i_M/p'``; a global ``global/p``.'''
+    if is_global(vessel):
+        return f'{GLOBAL_VESSEL}/{param}'
+    if vessel == step_vessel:
         return param
     prefix = step_vessel + LEVEL_SEPARATOR
     if vessel.startswith(prefix):

@@ -10,7 +10,7 @@ them in the right order. This writes all of that into one folder:
     plot_outputs.py              the figures, including the posterior ones
     plot_utilities.py            the machinery those figures are drawn with
     generated_models/<prefix>/   the CellML model
-    resources/                   obs_data.json, params_for_id.csv, any user funcs
+    resources/                   obs_data.json, params_for_id.json, any user funcs
 
 ``run_pipeline.py`` is a *static* script: everything specific to a study lives in
 the yaml beside it, so the script stays readable and there is no generated code to
@@ -58,7 +58,7 @@ stage runs only if its ``do_*`` flag is set in the yaml — flip them there.
 This folder is self-contained:
     user_inputs_<date>.yaml      the run configuration (edit the do_* flags here)
     generated_models/<prefix>/   the CellML model
-    resources/                   obs_data.json + params_for_id.csv
+    resources/                   obs_data.json + params_for_id.json
     output/                      results are written here
 
 Usage:
@@ -190,7 +190,7 @@ def build_inp_data_dict(cfg, output_dir):
 
     inp = {
         "file_prefix": cfg["file_prefix"],
-        "input_param_file": cfg.get("input_param_file", cfg["file_prefix"] + "_parameters.csv"),
+        "input_param_file": cfg.get("input_param_file", cfg["file_prefix"] + "_parameters.json"),
         "model_type": cfg.get("model_type", "cellml"),
         # The CellML lives at generated_models/<prefix>/<prefix>.cellml — the layout
         # circulatory_autogen resolves model_path to, so every stage agrees.
@@ -653,6 +653,13 @@ def cost_history():
     return rows
 
 
+def model_name(qname):
+    """The model's name of a parameter written with its vessel's path: heart/lv/E is
+    heart__lv/E."""
+    path, _, variable = str(qname).rpartition("/")
+    return "__".join(path.split("/")) + "/" + variable if path else str(qname)
+
+
 def param_bounds():
     """``{label: (min, max)}`` from the study's own params_for_id, or {}.
 
@@ -662,29 +669,22 @@ def param_bounds():
     writes a member qname with "/" replaced by a space.
     """
     bounds = {}
-    for name in ("params_for_id.json", "params_for_id.csv"):
-        path = os.path.join(HERE, "resources", name)
-        if not os.path.isfile(path):
-            continue
-        try:
-            if name.endswith(".json"):
-                with open(path, encoding="utf-8-sig") as fh:
-                    entries = json.load(fh).get("params") or []
-                for entry in entries:
-                    targets = entry.get("targets") or entry.get("modifies") or []
-                    labels = [entry.get("name")] + list(targets)
-                    for label in labels:
-                        if label and entry.get("min") is not None:
-                            bounds[str(label)] = (float(entry["min"]), float(entry["max"]))
-            else:
-                with open(path, newline="", encoding="utf-8-sig") as fh:
-                    for row in csv.DictReader(fh):
-                        label = "%s/%s" % (row["vessel_name"].strip(),
-                                           row["param_name"].strip())
-                        bounds[label] = (float(row["min"]), float(row["max"]))
-        except (OSError, ValueError, KeyError, TypeError):
-            continue
-        break
+    path = os.path.join(HERE, "resources", "params_for_id.json")
+    try:
+        with open(path, encoding="utf-8-sig") as fh:
+            entries = json.load(fh).get("params") or []
+        for entry in entries:
+            targets = entry.get("targets") or entry.get("modifies") or []
+            if isinstance(targets, str):
+                targets = [targets]
+            labels = [entry.get("name")] + list(targets)
+            # a nested vessel's path (heart/lv/E) is labelled as the model names it (heart__lv/E)
+            labels += [model_name(t) for t in targets]
+            for label in labels:
+                if label and entry.get("min") is not None:
+                    bounds[str(label)] = (float(entry["min"]), float(entry["max"]))
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        pass
     # The history header writes "vessel param", not "vessel/param".
     for label, value in list(bounds.items()):
         bounds.setdefault(label.replace("/", " "), value)

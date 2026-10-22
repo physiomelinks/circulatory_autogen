@@ -21,8 +21,8 @@ with [`../example_model_scipy/`](../example_model_scipy/) instead — same contr
 | File | Purpose |
 |---|---|
 | `heat1d_model.py` | The solver class plus `SIM_HELPER = Heat1D`. |
-| `heat1d_params_for_id.csv` | Parameters to calibrate / sweep (`k`, `u_D`) with bounds. |
-| `heat1d_parameters.csv` | Default parameter values (the calibration start point). |
+| `heat1d_params_for_id.json` | Parameters to calibrate / sweep (`k`, `u_D`) with bounds. |
+| `heat1d_parameters.json` | Default parameter values (the calibration start point). |
 | `heat1d_obs_data.json` | The `protocol_info` (the run window) plus target observables — the three probe means at the "true" `k=0.25, u_D=0.1`. |
 
 ## The contract
@@ -67,8 +67,8 @@ class MyModel:
 SIM_HELPER = MyModel      # required: the class object, at module level
 ```
 
-Names are `component/variable`, matching the `params_for_id` CSV columns
-(`vessel_name`/`param_name`) and the obs_data `operands`.
+Names are `component/variable`, matching the `params_for_id` `targets` and the obs_data
+`operands`.
 
 **Time is CA's, not yours.** `pre_time` is spin-up that `run()` must perform and CA discards; the
 logged trace starts at the end of it. `run()` always starts from the initial condition — there is
@@ -79,7 +79,7 @@ type.
 
 ```yaml
 file_prefix: heat1d
-input_param_file: heat1d_parameters.csv
+input_param_file: heat1d_parameters.json
 model_type: external_python
 solver: external
 # Default model location is funcs_user/{file_prefix}_model.py. This example lives in a

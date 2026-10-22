@@ -5,6 +5,82 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Changed — a supermodule names its submodule versions; its instances are its own module array
+
+A supermodule version's config lists the module versions it is built from, `submodule_versions:
+[{"module_type", "module_subtype"}]`. Its instances and their connections are a module array of their
+own, `<module_type>_<module_subtype>_module_array.json` beside the config, whose records name no
+`parameterisation`. Its default parameterisation is the template of a new instance's values. An inline
+`submodules` list is refused; `cuflynx-upgrade module-config <file> --module-library-dir <library>`
+converts it: the records to the module array, and each instance's values (from the parameterisation it
+named, else its version's default, with the supermodule's default parameterisation's
+`<instance>/<variable>` rows over them) into the default parameterisation, nested by instance.
+
+### Changed — parameter values are nested JSON
+
+A model's parameter values are `<prefix>_parameters.json` beside its module array (schema
+`parameters.schema.json`), nested instance, sub-instance, variable:
+
+```json
+{"schema_version": 1,
+ "global": {"R": {"value": 8.314, "units": "J_per_mol_K", "data_reference": "..."}},
+ "aortic_root": {"C": {"value": 1.2e-8, "units": "m3_per_Pa", "data_reference": "Liang2009"}},
+ "heart": {"lv": {"E_A": {"value": 366575000, "units": "J_per_m6", "data_reference": "..."}}}}
+```
+
+- A parameter is an object with `value` (a number, or text such as `EMPTY_MUST_BE_FILLED`; an empty
+  one is read as `EMPTY_MUST_BE_FILLED`), `units`, `data_reference` and any other string key (a
+  library's `sourced`). A number keeps the text it is written with. Every other object is an instance
+  or sub-instance. `global` holds the global constants. `global`, `value` and `schema_version` are
+  reserved: no module-array record, submodule or variable may have those names.
+- A path is the name users write: `aortic_root/C`, `heart/lv/E_A`, `global/R` or `R`.
+- A parameterisation, `parameterisations/<name>/<name>_parameters.json`, has the same form rooted at
+  its module: a component's own variables at the top (`{"C": {...}}`) and its global constants under
+  `global`; a supermodule's sub-instances (`{"lv": {"E_A": {...}}}`) and its globals.
+- A supermodule instance's values are in the model's file under its name. `cuflynx-upgrade
+  supermodule-instances <module array> --module-library-dir <library> [--instance N] [--replace]
+  [--parameters FILE]` copies them once from the version's template (its default parameterisation,
+  or the one the record names in its place, which must set every instance value the default sets,
+  and nested supermodules' templates under it); an instance that
+  has an entry keeps it. Generation refuses a supermodule instance the file has no entry for, naming that command.
+  Of a supermodule's parameterisation it reads only the globals; a value the model's file lacks comes
+  from the submodule version's `default_parameterisation`.
+- Calibration workflows write `<name>_calibrated_parameters.json` in the same form: a module array
+  target's full file with the calibrated values set, or a parameterisation's.
+- A parameters CSV is refused. `cuflynx-upgrade parameters <file | *_modules_config.json | directory>`
+  converts it to the `.json` beside it: a model's file (and the per-instance
+  `<prefix>_supermodule_parameters/` files beside its module array, moved in under each instance), a
+  parameterisation (globals by its config), a config's parameterisations (and a supermodule version's
+  `<module_type>_<module_subtype>_parameters.json`, folded into its default parameterisation), or every
+  one below a directory. Name the `.json` file in `input_param_file`.
+- Generation writes the generated model's parameters as `<prefix>_parameters.csv` beside the
+  generated model, named as the model names them. A model with missing values gets
+  `<prefix>_parameters_unfinished.json` in its resources directory.
+
+### Changed — params_for_id is JSON
+
+A calibration's parameters are `<prefix>_params_for_id.json` (schema `params_for_id.schema.json`), a
+flat list of entries, not nested by instance: an entry groups parameters or modifies them, so it is
+not one parameter.
+
+```json
+{"version": 1,
+ "params": [
+  {"targets": ["aortic_root/C"], "min": 1e-9, "max": 5e-8, "name_for_plotting": "C_{ao}"},
+  {"targets": ["heart/lv/E_A", "heart/rv/E_A"], "min": 1e8, "max": 5e8},
+  {"name": "R_scale", "modifies": ["venous_svc/R", "venous_ivc/R"], "modifier": "scale", "min": 0.5, "max": 2}]}
+```
+
+- Parameters are named as users write them: `<vessel>/<variable>`, a nested vessel by its path
+  (`heart/lv/E_A`, read as the model's `heart__lv`) and a global as `global/<variable>`.
+- A params_for_id CSV is refused (`params_for_id_file`, the default `<prefix>_params_for_id.*`, a
+  workflow step's `params_for_id`). `cuflynx-upgrade params-for-id <CSV | directory>` writes the
+  `.json` beside each CSV and removes it: one entry per row, `vessel_name "a b"` with `param_name "C"`
+  as `"targets": ["a/C", "b/C"]`, the `prior_*` columns under `prior_params`, numbers as written.
+  `ObsAndParamDataParser.params_for_id_csv_to_json` returns the same document.
+- Calibration workflows write a step's params_for_id with its priors' parameters, and a reduction's,
+  as `<step>_params_for_id.json`; a prior over parameters of different names is no longer refused.
+
 ### Added — trace inputs and time courses in `prediction_plots`
 
 - An input reference (`x`, `series`) takes an optional `reduce` that makes a trace one number:

@@ -1,7 +1,7 @@
 # Emulators (Surrogate Models)
 
 An **emulator** (or surrogate) is a fast statistical stand-in for your model. Circulatory Autogen
-fits one that maps the parameters in your `params_for_id.csv` to the **scalar features** of your
+fits one that maps the parameters in your `params_for_id.json` to the **scalar features** of your
 `obs_data.json` data items — the same numbers the cost function is computed from. Once it is
 trained, calibration, sensitivity analysis, UQ/MCMC and identifiability analysis can all evaluate
 the emulator instead of running the solver.

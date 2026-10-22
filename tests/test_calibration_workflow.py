@@ -25,6 +25,9 @@ import os
 import numpy as np
 import pytest
 
+from _supermodules import write_supermodule
+from _parameters import MODULE, read_parameters, write_parameters
+from _params_for_id import params_for_id_entries, write_params_for_id
 from libcuflynx.calibration_workflow import (StoredDistribution, WorkflowError,
                                              generate_parameterisation, load_workflow,
                                              load_workflow_run, plan_workflow, resolve_workflow,
@@ -78,9 +81,9 @@ def test_a_step_names_its_files_relative_to_the_workflow(library):
     array = load_workflow(library['chain_array'])
     assert array.target == ModuleArray(
         os.path.join(library['arrays'], 'chain_module_array.json'),
-        os.path.join(library['arrays'], 'chain_parameters.csv'))
+        os.path.join(library['arrays'], 'chain_parameters.json'))
     assert array.step('a-alone').params_for_id == os.path.join(library['arrays'], 'data',
-                                                                'a_params.csv')
+                                                                'a_params.json')
 
 
 @pytest.mark.unit
@@ -209,7 +212,7 @@ def test_plan_names_every_parameter_in_the_target(library):
 
 @pytest.mark.unit
 def test_every_step_needs_its_own_params_for_id(library):
-    os.remove(os.path.join(library['lin_b/fit_b'], 'fit_b_params_for_id.csv'))
+    os.remove(os.path.join(library['lin_b/fit_b'], 'fit_b_params_for_id.json'))
     with pytest.raises(WorkflowError, match='params_for_id file .* does not exist'):
         resolve_workflow(load_workflow(library['twin_split']))
 
@@ -219,7 +222,7 @@ def _library_step(library, step_id, module_type, name):
     return {'id': step_id,
             'model': {'module_type': module_type, 'version': 'v1', 'parameterisation': name},
             'obs_data': os.path.join(directory, f'{name}_obs_data.json'),
-            'params_for_id': os.path.join(directory, f'{name}_params_for_id.csv')}
+            'params_for_id': os.path.join(directory, f'{name}_params_for_id.json')}
 
 
 def _with_joint_step(library):
@@ -254,9 +257,9 @@ def test_the_later_calibration_of_a_parameter_is_merged(library, tmp_path):
 @pytest.mark.integration
 def test_a_step_calibrates_a_parameter_it_would_be_given_fixed(library, tmp_path):
     # rest takes fit_a's values as fixed but also calibrates p of A itself: its own wins
-    params = os.path.join(library['chain/rest'], 'rest_params_for_id.csv')
-    with open(params, 'a') as f:
-        f.write('mod__A,p,0.1,5.0,p_mod__A\n')
+    params = os.path.join(library['chain/rest'], 'rest_params_for_id.json')
+    write_params_for_id(params, params_for_id_entries(params) + [
+        {'targets': ['mod/A/p'], 'min': 0.1, 'max': 5.0, 'name_for_plotting': 'p_mod__A'}])
     with pytest.warns(UserWarning, match='more than one step'):
         result = run_calibration_workflow(library['chain_rest'],
                                           output_dir=str(tmp_path / 'run'))
@@ -278,15 +281,13 @@ def test_a_step_must_land_in_the_target(library):
 def test_an_ambiguous_submodule_must_be_named(library):
     version_dir = os.path.join(library['modules'], 'double', 'versions', 'v1')
     os.makedirs(os.path.join(version_dir, 'parameterisations', 'default'))
-    sub = {'module_type': 'lin_a', 'module_subtype': 'v1', 'parameterisation': 'default',
-           'inp_instances': [], 'out_instances': []}
-    _write_json(os.path.join(version_dir, 'double_v1_modules_config.json'), [{
+    sub = {'module_type': 'lin_a', 'module_subtype': 'v1', 'inp_instances': [], 'out_instances': []}
+    write_supermodule(version_dir, {
         'module_type': 'double', 'module_subtype': 'v1', 'module_format': 'supermodule',
         'default_parameterisation': 'default',
-        'submodules': [dict(sub, name='A1'), dict(sub, name='A2')]}])
-    with open(os.path.join(version_dir, 'parameterisations', 'default', 'default_parameters.csv'),
-              'w') as f:
-        f.write('variable_name,units,value,data_reference\n')
+        'submodules': [dict(sub, name='A1'), dict(sub, name='A2')]})
+    write_parameters(os.path.join(version_dir, 'parameterisations', 'default',
+                                  'default_parameters.json'), [], MODULE)
     raw = {'workflow_name': 'double', 'module_library_dirs': [library['modules']],
            'target': {'module_type': 'double', 'version': 'v1', 'parameterisation': 'default'},
            'steps': [_library_step(library, 'fit_a', 'lin_a', 'fit_a')]}
@@ -430,10 +431,10 @@ def _calibrate_joint(library, out_dir):
                 'do_ia': False, 'do_uq': False, 'UQ_options': {},
                 'resources_dir': generated['resources_dir'],
                 'generated_models_dir': generated['generated_models_dir'],
-                'input_param_file': 'joint_parameters.csv',
+                'input_param_file': 'joint_parameters.json',
                 'param_id_obs_path': os.path.join(library['twin/joint'], 'joint_obs_data.json'),
                 'params_for_id_file': os.path.join(library['twin/joint'],
-                                                   'joint_params_for_id.csv'),
+                                                   'joint_params_for_id.json'),
                 'param_id_output_dir': os.path.join(out_dir, 'param_id')})
     outcome = run_param_id(inp)
     best = np.load(os.path.join(outcome['output_dir'], 'best_param_vals.npy'))
@@ -474,13 +475,13 @@ def test_calibrating_independent_parts_apart_matches_calibrating_them_together(l
     # each step was calibrated with its own params_for_id, and only its own parameter
     for step_id, param_vessel in (('fit_a', 'mod'), ('fit_b', 'mod')):
         step = _read_json(str(tmp_path / 'split' / step_id / 'step_result.json'))
-        assert step['inputs']['params_for_id']['path'].endswith(f'{step_id}_params_for_id.csv')
+        assert step['inputs']['params_for_id']['path'].endswith(f'{step_id}_params_for_id.json')
         snapshots = [f for f in os.listdir(step['param_id_output_dir'])
-                     if f.startswith(f'{step_id}_params_for_id_') and f.endswith('.csv')]
+                     if f.startswith(f'{step_id}_params_for_id_') and f.endswith('.json')]
         assert len(snapshots) == 1
-        with open(os.path.join(step['param_id_output_dir'], snapshots[0])) as f:
-            rows = list(csv.DictReader(f))
-        assert [(r['vessel_name'], r['param_name']) for r in rows] == [(param_vessel, 'p')]
+        entries = params_for_id_entries(
+            os.path.join(step['param_id_output_dir'], snapshots[0]))
+        assert [e['targets'] for e in entries] == [[f'{param_vessel}/p']]
         assert [c['model_name'] for c in step['calibrated']] == ['p_mod']
 
 
@@ -500,6 +501,7 @@ def test_fixed_values_flow_into_the_supermodule_and_editing_obs_data_redoes_it(l
 
     rest = _read_json(os.path.join(out, 'rest', 'step_result.json'))
     assert [(f['model_name'], f['from_step']) for f in rest['fixed']] == [('p_mod__A', 'fit_a')]
+    # the generated step model's parameters, named as the model names them
     with open(os.path.join(os.path.dirname(rest['model_path']), 'rest_parameters.csv')) as f:
         generated = {r['variable_name']: float(r['value']) for r in csv.DictReader(f)}
     assert generated['p_mod__A'] == pytest.approx(merged['A/p'], rel=1e-12)
@@ -527,10 +529,10 @@ def test_fixed_values_flow_into_the_supermodule_and_editing_obs_data_redoes_it(l
     assert _merged(result)['C/q'] == pytest.approx(4.0, rel=1e-4)
 
     # the merged set, in the target parameterisation's naming, next to its parameters
-    with open(result['calibrated_parameters_file']) as f:
-        written = {r['variable_name']: r for r in csv.DictReader(f)}
+    written = {r['variable_name']: r
+               for r in read_parameters(result['calibrated_parameters_file'], MODULE)}
     assert result['calibrated_parameters_file'] == os.path.join(
-        library['chain/rest'], 'rest_calibrated_parameters.csv')
+        library['chain/rest'], 'rest_calibrated_parameters.json')
     assert float(written['A/p']['value']) == pytest.approx(1.5, rel=1e-6)
     assert float(written['C/q']['value']) == pytest.approx(4.0, rel=1e-6)
     assert 'step rest' in written['C/q']['data_reference']
@@ -553,8 +555,9 @@ def test_fixed_values_flow_into_the_supermodule_and_editing_obs_data_redoes_it(l
 
 @pytest.mark.integration
 def test_a_failing_step_is_reported_and_stops_the_workflow(library, tmp_path):
-    with open(os.path.join(library['lin_a/fit_a'], 'fit_a_params_for_id.csv'), 'w') as f:
-        f.write('vessel_name,param_name,min,max,name_for_plotting\nmod,not_a_param,0.1,5,x\n')
+    write_params_for_id(os.path.join(library['lin_a/fit_a'], 'fit_a_params_for_id.json'),
+                        [{'targets': ['mod/not_a_param'], 'min': 0.1, 'max': 5,
+                          'name_for_plotting': 'x'}])
     events = []
     with pytest.raises(Exception):
         run_calibration_workflow(library['chain_rest'], output_dir=str(tmp_path / 'fail'),
@@ -589,9 +592,9 @@ def test_a_stored_posterior_becomes_the_prior_of_a_later_step(library, tmp_path)
     assert rest['priors'][0]['parameters'] == ['p_mod__A']
     # with priors and a cost-minimising optimiser, the values are the posterior's medians
     assert rest['point_estimate'] == 'posterior_median'
-    with open(os.path.join(out, 'rest', 'rest_params_for_id.csv')) as f:
-        rows = [(r['vessel_name'], r['param_name']) for r in csv.DictReader(f)]
-    assert rows == [('mod__C', 'q'), ('mod__A', 'p')]
+    targets = [e['targets'] for e in
+               params_for_id_entries(os.path.join(out, 'rest', 'rest_params_for_id.json'))]
+    assert targets == [['mod/C/q'], ['mod/A/p']]
     posterior = StoredDistribution.load(os.path.join(out, 'rest'))
     p_a = posterior.marginal('p_mod__A')
     # z = 2 p_A^2 + q^2 alone is a ridge; the prior from fit_a is what pins p_A
@@ -650,24 +653,32 @@ def test_calibrated_values_replace_their_rows_and_new_ones_are_added(tmp_path):
     class _Target:
         kind = 'library'
         paths = (('A',), ('C',))
-        parameters_path = str(tmp_path / 'rest_parameters.csv')
+        parameters_path = str(tmp_path / 'rest_parameters.json')
 
         def file(self, suffix):
             return str(tmp_path / f'rest_{suffix}')
 
-    with open(_Target.parameters_path, 'w') as f:
-        f.write('variable_name,units,value,data_reference\n'
-                'A/p,dimensionless,1.0,a\nC/q,dimensionless,1.0,c\n')
+    write_parameters(_Target.parameters_path, 'variable_name,units,value,data_reference,sourced\n'
+                     'A/p,dimensionless,1.0,a,yes\nC/q,dimensionless,1.0,c,\n'
+                     'global/T,kelvin,300,t,\n', MODULE)
+    before = open(_Target.parameters_path).read()
     merged = [{'model_name': 'p_mod__A', 'parameterisation_name': 'A/p', 'value': 2.0,
                'units': 'dimensionless', 'from_step': 'fit_a'},
               {'model_name': 'q_mod__C', 'parameterisation_name': 'C/q', 'value': 3.0,
                'units': 'dimensionless', 'from_step': 'rest'},
               {'model_name': 'r_mod__A', 'parameterisation_name': 'A/r', 'value': 4.0,
-               'units': 'dimensionless', 'from_step': 'fit_a'}]
+               'units': 'dimensionless', 'from_step': 'fit_a'},
+              {'model_name': 'T', 'parameterisation_name': 'global/T', 'value': 310.0,
+               'units': 'kelvin', 'from_step': 'rest'}]
     path = write_calibrated_parameters(_Target(), merged, 'wf')
-    with open(path, newline='') as f:
-        rows = {r['variable_name']: float(r['value']) for r in csv.DictReader(f)}
-    assert rows == {'A/p': 2.0, 'C/q': 3.0, 'A/r': 4.0}
+    assert path == str(tmp_path / 'rest_calibrated_parameters.json')
+    rows = {r['variable_name']: r for r in read_parameters(path, MODULE)}
+    assert {n: float(r['value']) for n, r in rows.items()} == \
+        {'global/T': 310.0, 'A/p': 2.0, 'C/q': 3.0, 'A/r': 4.0}
+    # a calibrated value is no longer sourced; its data_reference says where it came from
+    assert rows['A/p']['sourced'] == 'no' and 'step fit_a' in rows['A/p']['data_reference']
+    assert rows['A/r']['units'] == 'dimensionless'
+    assert open(_Target.parameters_path).read() == before
 
 
 @pytest.mark.unit
@@ -715,12 +726,13 @@ def test_a_vessel_map_renames_a_module_array_into_the_target(library):
     _write_json(os.path.join(arrays, 'aorta_module_array.json'), [
         {'name': 'aorta', 'module_type': 'lin_a', 'module_subtype': 'v1',
          'parameterisation': 'default', 'inp_instances': [], 'out_instances': []}])
-    with open(os.path.join(arrays, 'aorta_parameters.csv'), 'w') as f:
-        f.write('variable_name,units,value,data_reference\naorta/p,dimensionless,1.0,x\n')
-    with open(os.path.join(arrays, 'data', 'aorta_params.csv'), 'w') as f:
-        f.write('vessel_name,param_name,min,max,name_for_plotting\naorta,p,0.1,5.0,p\n')
+    write_parameters(os.path.join(arrays, 'aorta_parameters.json'),
+                     'variable_name,units,value,data_reference\naorta/p,dimensionless,1.0,x\n')
+    write_params_for_id(os.path.join(arrays, 'data', 'aorta_params.json'),
+                        [{'targets': ['aorta/p'], 'min': 0.1, 'max': 5.0,
+                          'name_for_plotting': 'p'}])
     raw = _raw(library, 'chain_array')
-    raw['steps'][0].update(model='aorta_module_array.json', params_for_id='data/aorta_params.csv')
+    raw['steps'][0].update(model='aorta_module_array.json', params_for_id='data/aorta_params.json')
     with pytest.raises(WorkflowError, match='lands on vessel "aorta"'):
         resolve_workflow(parse_workflow(raw, path=library['chain_array']))
     raw['steps'][0]['vessel_map'] = {'aorta': 'A'}
@@ -757,9 +769,8 @@ def test_a_workflow_of_module_arrays_runs_and_writes_beside_the_target(library, 
     assert [(f['model_name'], f['from_step']) for f in chain['fixed']] == [('p_A', 'a-alone')]
     assert set(chain['inputs']) == {'obs_data', 'params_for_id', 'parameters', 'module_array'}
     assert result['calibrated_parameters_file'] == os.path.join(
-        library['arrays'], 'chain_calibrated_parameters.csv')
-    with open(result['calibrated_parameters_file']) as f:
-        written = {r['variable_name']: r for r in csv.DictReader(f)}
+        library['arrays'], 'chain_calibrated_parameters.json')
+    written = {r['variable_name']: r for r in read_parameters(result['calibrated_parameters_file'])}
     # the target's own rows take the values; the uncalibrated k keeps its own and its source
     assert float(written['A/p']['value']) == pytest.approx(np.sqrt(Y_A / 2), rel=1e-6)
     assert float(written['C/q']['value']) == pytest.approx(np.sqrt(Z_C - Y_A), rel=1e-6)
@@ -783,7 +794,7 @@ def test_a_workflow_records_itself_in_one_study_manifest(library, tmp_path):
     assert workflow['target']['generated_model'] == study['model']
     assert os.path.isfile(study['model'])
     assert workflow['target']['calibrated_parameters'] == os.path.join(
-        library['arrays'], 'chain_calibrated_parameters.csv')
+        library['arrays'], 'chain_calibrated_parameters.json')
     steps = {s['id']: s for s in workflow['steps']}
     assert [s['id'] for s in workflow['steps']] == ['a-alone', 'chain']
     assert steps['chain']['fixed_from'] == ['a-alone'] and steps['chain']['status'] == 'done'
@@ -893,7 +904,7 @@ def test_a_step_on_a_reduced_emulator_names_the_same_reduction(library):
     posterior = raw['steps'][-1]
     posterior.pop('params_for_id_from')
     posterior['params_for_id'] = os.path.relpath(
-        os.path.join(library['chain/pipeline'], 'pipeline_params_for_id.csv'),
+        os.path.join(library['chain/pipeline'], 'pipeline_params_for_id.json'),
         library['chain/pipeline'])
     with pytest.raises(WorkflowError, match='different params_for_id and params_for_id_from'):
         parse_workflow(raw, path=library['chain_pipeline'])
@@ -918,20 +929,21 @@ def test_a_reduction_keeps_the_top_parameters_by_its_options(tmp_path):
     assert names(rank_sobol_parameters(read, top_n=3, index_type='S1')) == ['m/a', 'm/b', 'm/c']
     assert names(rank_sobol_parameters(read, top_n=3, threshold=0.1)) == ['m/a', 'm/b']
 
-    source = tmp_path / 'params_for_id.csv'
-    source.write_text('vessel_name,param_name,min,max,name_for_plotting\n'
-                      'm,a,0.1,1.0,a_m\nm,b,0.2,2.0,b_m\nm,c,0.3,3.0,c_m\n')
-    out = tmp_path / 'reduced.csv'
+    source = tmp_path / 'params_for_id.json'
+    entry = lambda v, lo, hi: {'targets': [f'm/{v}'], 'min': lo, 'max': hi,  # noqa: E731
+                               'name_for_plotting': f'{v}_m'}
+    write_params_for_id(source, [entry('a', 0.1, 1.0), entry('b', 0.2, 2.0),
+                                 entry('c', 0.3, 3.0)])
+    out = tmp_path / 'reduced.json'
     assert SobolReduction.write_params_for_id(str(source), str(out), ['m/c', 'm/a']) == 2
-    # whole rows, bounds and all, in the source's order
-    assert out.read_text().splitlines() == ['vessel_name,param_name,min,max,name_for_plotting',
-                                            'm,a,0.1,1.0,a_m', 'm,c,0.3,3.0,c_m']
+    # whole entries, bounds and all, in the source's order
+    assert params_for_id_entries(out) == [entry('a', 0.1, 1.0), entry('c', 0.3, 3.0)]
 
     # the class a reduction step is: ranks, keeps and writes in one call
     reduction = SobolReduction(top_n=2, criterion='mean')
     assert reduction.reduce(str(indices), str(source), str(out)) == [
         ('m/b', 0.5), ('m/a', pytest.approx(0.48))]
-    assert out.read_text().splitlines()[1:] == ['m,a,0.1,1.0,a_m', 'm,b,0.2,2.0,b_m']
+    assert params_for_id_entries(out) == [entry('a', 0.1, 1.0), entry('b', 0.2, 2.0)]
     assert SobolReduction.from_options(reduction.as_dict()).as_dict() == {
         'top_n': 2, 'index_type': 'ST', 'criterion': 'mean', 'threshold': None}
     with pytest.raises(ValueError, match='no parameter scores'):
@@ -960,9 +972,8 @@ def test_a_workflow_screens_reduces_calibrates_and_analyses_the_fit(library, tmp
     assert os.path.isfile(step('screen')['sobol_indices'])
     reduce = step('reduce')
     assert [s['parameter'] for s in reduce['selected']] == ['mod__C/q']
-    with open(reduce['params_for_id'], newline='') as f:
-        assert [(r['vessel_name'], r['param_name']) for r in csv.DictReader(f)] == [
-            ('mod__C', 'q')]
+    assert [e['targets'] for e in params_for_id_entries(reduce['params_for_id'])] == [
+        ['mod/C/q']]
 
     # fit calibrates what was kept, with p_A fixed from fit_a, as chain/rest does
     fit = step('fit')
@@ -996,7 +1007,7 @@ def test_a_workflow_screens_reduces_calibrates_and_analyses_the_fit(library, tmp
 
     # editing the screen's params_for_id makes everything downstream of it stale
     from libcuflynx.calibration_workflow.runner import workflow_status
-    screened = os.path.join(library['chain/screened'], 'screened_params_for_id.csv')
+    screened = os.path.join(library['chain/screened'], 'screened_params_for_id.json')
     with open(screened, 'a') as f:
         f.write('\n')
     status = workflow_status(library['chain_analysed'], out)['steps']
@@ -1064,7 +1075,7 @@ def test_a_packed_workflow_runs_without_the_files_it_was_packed_from(tmp_path, w
         assert 'params_for_id' not in steps['fit'] and 'obs_data' not in steps['reduce']
     else:
         assert raw['target'] == {'module_array': 'inputs/_target/chain_module_array.json',
-                                 'parameters': 'inputs/_target/chain_parameters.csv'}
+                                 'parameters': 'inputs/_target/chain_parameters.json'}
 
     os.rename(str(root), str(tmp_path / 'moved'))      # the originals are gone
     result = run_calibration_workflow(packed['workflow'], output_dir=str(tmp_path / 'run'))
@@ -1136,9 +1147,8 @@ def test_a_whole_study_runs_from_submodule_calibration_to_mcmc_on_an_emulator(li
     # q drives z over its range and the gain k barely does: the reduction keeps q
     reduce = step('reduce')
     assert [s['parameter'] for s in reduce['selected']] == ['mod__C/q']
-    with open(reduce['params_for_id'], newline='') as f:
-        assert [(r['vessel_name'], r['param_name']) for r in csv.DictReader(f)] == [
-            ('mod__C', 'q')]
+    assert [e['targets'] for e in params_for_id_entries(reduce['params_for_id'])] == [
+        ['mod/C/q']]
 
     # the emulator is trained over the kept parameter alone, and the posterior is sampled on it
     emulate, posterior = step('emulate'), step('posterior')

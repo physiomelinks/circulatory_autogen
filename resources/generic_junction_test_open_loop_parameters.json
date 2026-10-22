@@ -1,0 +1,1343 @@
+{
+ "schema_version": 1,
+ "global": {
+  "T": {"value": 1, "units": "second", "data_reference": "user_defined"},
+  "mu": {"value": 0.004, "units": "Js_per_m3", "data_reference": "known"},
+  "rho": {"value": 1040, "units": "Js2_per_m5", "data_reference": "known"},
+  "nu": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "SMvolfrac_art": {"value": 0.1, "units": "dimensionless", "data_reference": "Toro_2021"},
+  "g": {"value": 9.81, "units": "m_per_s2", "data_reference": "known"},
+  "beta_g": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "R_flag": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"},
+  "a_vessel": {"value": 0.2802, "units": "dimensionless", "data_reference": "Avolio_1980"},
+  "b_vessel": {"value": -505.3, "units": "per_m", "data_reference": "Avolio_1980"},
+  "c_vessel": {"value": 0.1324, "units": "dimensionless", "data_reference": "Avolio_1980"},
+  "d_vessel": {"value": -11.14, "units": "per_m", "data_reference": "Avolio_1980"}
+ },
+ "aortic_arch_I": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.074413765495, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.0144512199325, "units": "metre", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "brachiocephalic_trunk": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.047351277755, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.006443415, "units": "metre", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "aortic_arch_II": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.009603836388, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.012759007397, "units": "metre", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "subclavian_R_I": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.015740629027, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.004536488852, "units": "metre", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "common_carotid_R": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.081219358067, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.003900915, "units": "metre", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "vertebral_R": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.204453188261, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.00133527, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "subclavian_R_II": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.041118782084, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.003239173852, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "axillary_R": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.12000204811, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.002189, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "brachial_R": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.223108204635, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.001952635, "units": "metre", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "radial_R": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.300885766109, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.001378, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "ulnar_R_I": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.029756240754, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.001408, "units": "metre", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "common_interosseous_R": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.016266065799, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.000959, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "ulnar_R_II": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.239261629581, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.001408, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "posterior_interosseous_R": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.230561368515, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.000676, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "external_carotid_R": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.06089687742, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.00226547, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "internal_carotid_R": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.132109962786, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.00276538, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "common_carotid_L": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.121319039241, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.003900915, "units": "metre", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "aortic_arch_III": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.006978531332, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.012425019167, "units": "metre", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "external_carotid_L": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.060897059943, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.00226547, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "internal_carotid_L": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.132110383494, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.00276538, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "subclavian_L_I": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.049384125272, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.004187732695, "units": "metre", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "aortic_arch_IV": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.043057670133, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.0114172317025, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "vertebral_L": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.204153808747, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.00133527, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "subclavian_L_II": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.041118785899, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.002890417695, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "axillary_L": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.120002137018, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.002189, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "brachial_L": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.2231087827, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.001952635, "units": "metre", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "radial_L": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.310884406105, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.001378, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "ulnar_L_I": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.029755789889, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.001408, "units": "metre", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "common_interosseous_L": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.016266062673, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.000959, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "ulnar_L_II": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.239262158888, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.001408, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "posterior_interosseous_L": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.230562469653, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.000676, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "thoracic_aorta_I": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.009897081257, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.0104569025195, "units": "metre", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "posterior_intercostal_T6_R": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.196881098828, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.0014, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "thoracic_aorta_II": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.007880384409, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.0102896777365, "units": "metre", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "posterior_intercostal_T6_L": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.178030219964, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.0014, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "thoracic_aorta_III": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.015555917597, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.0100692227745, "units": "metre", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "posterior_intercostal_T7_R": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.201560344682, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.00155, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "thoracic_aorta_IV": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.005327048648, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.009872785917, "units": "metre", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "posterior_intercostal_T7_L": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.185176241696, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.00155, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "thoracic_aorta_V": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.121560746471, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.0086792083595, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "thoracic_aorta_VI": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.003247666735, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.0075153320675, "units": "metre", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "celiac_trunk": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.016823833364, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.00328122, "units": "metre", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "abdominal_aorta_I": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.013988434469, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.007407022559, "units": "metre", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "common_hepatic": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.066554552251, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.00268614, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "splenic_I": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.003948745048, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.00216682, "units": "metre", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "left_gastric": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.092866914136, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.00150666, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "splenic_II": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.064402741833, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.00216682, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "superior_mesenteric": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.216398323794, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.00392612, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "abdominal_aorta_II": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.004319125635, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.0072919801365, "units": "metre", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "renal_L": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.021836535023, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.0027089, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "abdominal_aorta_III": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.011977282679, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.007189575541, "units": "metre", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "renal_R": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.037717424902, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.00309737, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "abdominal_aorta_IV": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.054089376627, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.006774420903, "units": "metre", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "inferior_mesenteric": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.090238543542, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.00207748, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "abdominal_aorta_V": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.042224742038, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.006169195007, "units": "metre", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "common_iliac_R": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.076428563993, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.004294905, "units": "metre", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "common_iliac_L": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.074038018352, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.004294905, "units": "metre", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "external_iliac_R": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.102210634017, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.00328329, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "internal_iliac_R": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.07250942087, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.00281829, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "femoral_R_I": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.031591224433, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.003166362461, "units": "metre", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "profunda_femoris_R": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.238393724757, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.00214445, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "femoral_R_II": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.319285322895, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.002914932461, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "popliteal_R_I": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.132029022862, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.002526909905, "units": "metre", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "anterior_tibial_R": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.386215673348, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.0011663, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "popliteal_R_II": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.008797428856, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.002357069905, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "tibiofibular_trunk_R": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.036162676639, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.00234646, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "posterior_tibial_R": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.382884851572, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.00122936, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "external_iliac_L": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.102210679305, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.00328329, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "internal_iliac_L": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.072509392407, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.00281829, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "femoral_L_I": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.031591223553, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.0031663624615, "units": "metre", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "profunda_femoris_L": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.238393754787, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.00214445, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "femoral_L_II": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.319285318272, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.0029149324615, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "popliteal_L_I": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.132028085435, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.0025269099235, "units": "metre", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "anterior_tibial_L": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.386216405775, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.0011663, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "popliteal_L_II": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.008797382358, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.0023570699235, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "tibiofibular_trunk_L": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.03616364034, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.00234646, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "posterior_tibial_L": {
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "theta": {"value": 0, "units": "dimensionless", "data_reference": "user_defined"},
+  "l": {"value": 0.382884647627, "units": "metre", "data_reference": "Boileau_2015"},
+  "r_0": {"value": 0.00122936, "units": "metre", "data_reference": "Boileau_2015"},
+  "u_0": {"value": 10000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "m_tube": {"value": 0.5, "units": "dimensionless", "data_reference": "known"},
+  "n_tube": {"value": 0, "units": "dimensionless", "data_reference": "known"},
+  "I_scale": {"value": 1, "units": "dimensionless", "data_reference": "user_defined"}
+ },
+ "external_carotid_R_T": {
+  "R_T": {"value": 4695404759.6, "units": "Js_per_m6", "data_reference": "Boileau_2015"},
+  "C_T": {"value": 6.031649393e-11, "units": "m6_per_J", "data_reference": "Boileau_2015"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_out": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "internal_carotid_R_T": {
+  "R_T": {"value": 2880079816.7, "units": "Js_per_m6", "data_reference": "Boileau_2015"},
+  "C_T": {"value": 9.833420276e-11, "units": "m6_per_J", "data_reference": "Boileau_2015"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_out": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "vertebral_R_T": {
+  "R_T": {"value": 9052132312.4, "units": "Js_per_m6", "data_reference": "Boileau_2015"},
+  "C_T": {"value": 3.128659004e-11, "units": "m6_per_J", "data_reference": "Boileau_2015"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_out": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "radial_R_T": {
+  "R_T": {"value": 5769404600.2, "units": "Js_per_m6", "data_reference": "Boileau_2015"},
+  "C_T": {"value": 4.90883154e-11, "units": "m6_per_J", "data_reference": "Boileau_2015"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_out": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "posterior_interosseous_R_T": {
+  "R_T": {"value": 23906526401.6, "units": "Js_per_m6", "data_reference": "Boileau_2015"},
+  "C_T": {"value": 1.184657059e-11, "units": "m6_per_J", "data_reference": "Boileau_2015"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_out": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "ulnar_R_II_T": {
+  "R_T": {"value": 5874318883.5, "units": "Js_per_m6", "data_reference": "Boileau_2015"},
+  "C_T": {"value": 4.821160687e-11, "units": "m6_per_J", "data_reference": "Boileau_2015"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_out": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "external_carotid_L_T": {
+  "R_T": {"value": 4711952132.5, "units": "Js_per_m6", "data_reference": "Boileau_2015"},
+  "C_T": {"value": 6.010467524e-11, "units": "m6_per_J", "data_reference": "Boileau_2015"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_out": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "internal_carotid_L_T": {
+  "R_T": {"value": 2889699353.9, "units": "Js_per_m6", "data_reference": "Boileau_2015"},
+  "C_T": {"value": 9.800685746e-11, "units": "m6_per_J", "data_reference": "Boileau_2015"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_out": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "vertebral_L_T": {
+  "R_T": {"value": 9621501502.2, "units": "Js_per_m6", "data_reference": "Boileau_2015"},
+  "C_T": {"value": 2.943515132e-11, "units": "m6_per_J", "data_reference": "Boileau_2015"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_out": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "radial_L_T": {
+  "R_T": {"value": 5666090236.5, "units": "Js_per_m6", "data_reference": "Boileau_2015"},
+  "C_T": {"value": 4.998338199e-11, "units": "m6_per_J", "data_reference": "Boileau_2015"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_out": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "posterior_interosseous_L_T": {
+  "R_T": {"value": 23993111146.1, "units": "Js_per_m6", "data_reference": "Boileau_2015"},
+  "C_T": {"value": 1.180381948e-11, "units": "m6_per_J", "data_reference": "Boileau_2015"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_out": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "ulnar_L_II_T": {
+  "R_T": {"value": 5988131335.4, "units": "Js_per_m6", "data_reference": "Boileau_2015"},
+  "C_T": {"value": 4.729528075e-11, "units": "m6_per_J", "data_reference": "Boileau_2015"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_out": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "posterior_intercostal_T6_R_T": {
+  "R_T": {"value": 124563461039.1, "units": "Js_per_m6", "data_reference": "Boileau_2015"},
+  "C_T": {"value": 2.27362302e-12, "units": "m6_per_J", "data_reference": "Boileau_2015"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_out": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "posterior_intercostal_T6_L_T": {
+  "R_T": {"value": 127791588033.4, "units": "Js_per_m6", "data_reference": "Boileau_2015"},
+  "C_T": {"value": 2.21618932e-12, "units": "m6_per_J", "data_reference": "Boileau_2015"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_out": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "posterior_intercostal_T7_R_T": {
+  "R_T": {"value": 116216854276.6, "units": "Js_per_m6", "data_reference": "Boileau_2015"},
+  "C_T": {"value": 2.43691291e-12, "units": "m6_per_J", "data_reference": "Boileau_2015"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_out": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "posterior_intercostal_T7_L_T": {
+  "R_T": {"value": 117212721362.1, "units": "Js_per_m6", "data_reference": "Boileau_2015"},
+  "C_T": {"value": 2.41620832e-12, "units": "m6_per_J", "data_reference": "Boileau_2015"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_out": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "common_hepatic_T": {
+  "R_T": {"value": 1674275481, "units": "Js_per_m6", "data_reference": "Boileau_2015"},
+  "C_T": {"value": 1.6915397489e-10, "units": "m6_per_J", "data_reference": "Boileau_2015"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_out": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "left_gastric_T": {
+  "R_T": {"value": 171696751436.2, "units": "Js_per_m6", "data_reference": "Boileau_2015"},
+  "C_T": {"value": 1.64947997e-12, "units": "m6_per_J", "data_reference": "Boileau_2015"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_out": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "splenic_II_T": {
+  "R_T": {"value": 2366661754.5, "units": "Js_per_m6", "data_reference": "Boileau_2015"},
+  "C_T": {"value": 1.1966659457e-10, "units": "m6_per_J", "data_reference": "Boileau_2015"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_out": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "superior_mesenteric_T": {
+  "R_T": {"value": 1090962664.9, "units": "Js_per_m6", "data_reference": "Boileau_2015"},
+  "C_T": {"value": 2.5959674129e-10, "units": "m6_per_J", "data_reference": "Boileau_2015"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_out": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "renal_L_T": {
+  "R_T": {"value": 1131408037.7, "units": "Js_per_m6", "data_reference": "Boileau_2015"},
+  "C_T": {"value": 2.5031672325e-10, "units": "m6_per_J", "data_reference": "Boileau_2015"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_out": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "renal_R_T": {
+  "R_T": {"value": 1135206894.1, "units": "Js_per_m6", "data_reference": "Boileau_2015"},
+  "C_T": {"value": 2.4947906336e-10, "units": "m6_per_J", "data_reference": "Boileau_2015"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_out": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "inferior_mesenteric_T": {
+  "R_T": {"value": 11956450359.4, "units": "Js_per_m6", "data_reference": "Boileau_2015"},
+  "C_T": {"value": 2.368682545e-11, "units": "m6_per_J", "data_reference": "Boileau_2015"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_out": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "internal_iliac_R_T": {
+  "R_T": {"value": 2072778133.7, "units": "Js_per_m6", "data_reference": "Boileau_2015"},
+  "C_T": {"value": 1.3663322092e-10, "units": "m6_per_J", "data_reference": "Boileau_2015"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_out": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "profunda_femoris_R_T": {
+  "R_T": {"value": 1713436087.6, "units": "Js_per_m6", "data_reference": "Boileau_2015"},
+  "C_T": {"value": 1.6528795833e-10, "units": "m6_per_J", "data_reference": "Boileau_2015"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_out": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "anterior_tibial_R_T": {
+  "R_T": {"value": 12262555203.7, "units": "Js_per_m6", "data_reference": "Boileau_2015"},
+  "C_T": {"value": 2.309554151e-11, "units": "m6_per_J", "data_reference": "Boileau_2015"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_out": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "posterior_tibial_R_T": {
+  "R_T": {"value": 10578184541.5, "units": "Js_per_m6", "data_reference": "Boileau_2015"},
+  "C_T": {"value": 2.677305842e-11, "units": "m6_per_J", "data_reference": "Boileau_2015"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_out": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "internal_iliac_L_T": {
+  "R_T": {"value": 2078985890.9, "units": "Js_per_m6", "data_reference": "Boileau_2015"},
+  "C_T": {"value": 1.3622524035e-10, "units": "m6_per_J", "data_reference": "Boileau_2015"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_out": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "profunda_femoris_L_T": {
+  "R_T": {"value": 1714348117.5, "units": "Js_per_m6", "data_reference": "Boileau_2015"},
+  "C_T": {"value": 1.652e-10, "units": "m6_per_J", "data_reference": "Boileau_2015"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_out": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "anterior_tibial_L_T": {
+  "R_T": {"value": 12266412645.1, "units": "Js_per_m6", "data_reference": "Boileau_2015"},
+  "C_T": {"value": 2.308827861e-11, "units": "m6_per_J", "data_reference": "Boileau_2015"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_out": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "posterior_tibial_L_T": {
+  "R_T": {"value": 10582795134.9, "units": "Js_per_m6", "data_reference": "Boileau_2015"},
+  "C_T": {"value": 2.676139423e-11, "units": "m6_per_J", "data_reference": "Boileau_2015"},
+  "u_ext": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "u_out": {"value": 0, "units": "J_per_m3", "data_reference": "user_defined"},
+  "q_us": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"},
+  "q_init": {"value": 0, "units": "m3", "data_reference": "user_defined_TO_DO"}
+ },
+ "K_tube_aortic_arch_I": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_brachiocephalic_trunk": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_aortic_arch_II": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_subclavian_R_I": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_common_carotid_R": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_vertebral_R": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_subclavian_R_II": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_axillary_R": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_brachial_R": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_radial_R": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_ulnar_R_I": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_common_interosseous_R": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_ulnar_R_II": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_posterior_interosseous_R": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_external_carotid_R": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_internal_carotid_R": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_common_carotid_L": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_aortic_arch_III": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_external_carotid_L": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_internal_carotid_L": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_subclavian_L_I": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_aortic_arch_IV": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_vertebral_L": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_subclavian_L_II": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_axillary_L": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_brachial_L": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_radial_L": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_ulnar_L_I": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_common_interosseous_L": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_ulnar_L_II": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_posterior_interosseous_L": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_thoracic_aorta_I": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_posterior_intercostal_T6_R": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_thoracic_aorta_II": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_posterior_intercostal_T6_L": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_thoracic_aorta_III": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_posterior_intercostal_T7_R": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_thoracic_aorta_IV": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_posterior_intercostal_T7_L": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_thoracic_aorta_V": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_thoracic_aorta_VI": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_celiac_trunk": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_abdominal_aorta_I": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_common_hepatic": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_splenic_I": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_left_gastric": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_splenic_II": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_superior_mesenteric": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_abdominal_aorta_II": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_renal_L": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_abdominal_aorta_III": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_renal_R": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_abdominal_aorta_IV": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_inferior_mesenteric": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_abdominal_aorta_V": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_common_iliac_R": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_common_iliac_L": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_external_iliac_R": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_internal_iliac_R": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_femoral_R_I": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_profunda_femoris_R": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_femoral_R_II": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_popliteal_R_I": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_anterior_tibial_R": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_popliteal_R_II": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_tibiofibular_trunk_R": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_posterior_tibial_R": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_external_iliac_L": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_internal_iliac_L": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_femoral_L_I": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_profunda_femoris_L": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_femoral_L_II": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_popliteal_L_I": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_anterior_tibial_L": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_popliteal_L_II": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_tibiofibular_trunk_L": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ },
+ "K_tube_posterior_tibial_L": {
+  "E": {"value": 225000, "units": "J_per_m3", "data_reference": "Boileau_2015"},
+  "K_m": {"value": 30000, "units": "Js_per_m3", "data_reference": "Toro_2021"}
+ }
+}

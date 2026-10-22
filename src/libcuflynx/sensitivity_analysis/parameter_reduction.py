@@ -1,17 +1,15 @@
 """Reducing the parameters to calibrate from a Sobol sensitivity analysis.
 
 :class:`SobolReduction` keeps the parameters with the highest Sobol index and writes those
-rows of the analysed params_for_id, so a later calibration fits only them::
+entries of the analysed params_for_id, so a later calibration fits only them::
 
     reduction = SobolReduction(top_n=3, index_type='ST', criterion='max', threshold=0.01)
     kept = reduction.reduce('sa/all_outputs_n64_Sobol_indices.csv',
-                            'candidates_params_for_id.csv', 'reduced_params_for_id.csv')
+                            'candidates_params_for_id.json', 'reduced_params_for_id.json')
     # [('aortic_root/C', 0.81), ('heart/E_max', 0.42), ...], highest first
 
 A calibration workflow's ``reduction`` step is one of these.
 """
-
-import csv
 
 from libcuflynx.sensitivity_analysis.sobol_ranking import (CRITERIA, rank_sobol_parameters,
                                                            read_sobol_indices)
@@ -66,29 +64,26 @@ class SobolReduction:
 
     @staticmethod
     def write_params_for_id(source_path, out_path, keep):
-        """Write the rows of the params_for_id ``source_path`` whose parameter is in
+        """Write the entries of the params_for_id ``source_path`` whose parameter is in
         ``keep``, whole and in its order, to ``out_path``. Returns the number written."""
         from libcuflynx.parsers.PrimitiveParsers import (ObsAndParamDataParser,
                                                          param_entry_labels)
-        with open(source_path, newline='') as f:
-            reader = csv.DictReader(f)
-            fields, rows = reader.fieldnames, list(reader)
+        from libcuflynx.utilities import params_for_id_file as pfi
+        doc = pfi.read_params_for_id(source_path, keep_text=True)
+        entries = list(doc.get('params') or [])
         labels = param_entry_labels(ObsAndParamDataParser().get_param_id_info(source_path))
-        if len(labels) != len(rows):
-            raise ValueError(f'{source_path} has {len(rows)} rows but {len(labels)} '
-                             f'parameters; a reduction keeps whole rows, one parameter each.')
+        if len(labels) != len(entries):
+            raise ValueError(f'{source_path} has {len(entries)} entries but {len(labels)} '
+                             f'parameters; a reduction keeps whole entries, one parameter each.')
         unknown = sorted(set(keep) - set(labels))
         if unknown:
             raise ValueError(f'{source_path} has no parameter {unknown}.')
-        kept = [row for row, label in zip(rows, labels) if label in keep]
-        with open(out_path, 'w', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=fields)
-            writer.writeheader()
-            writer.writerows(kept)
+        kept = [entry for entry, label in zip(entries, labels) if label in keep]
+        pfi.write_params_for_id(out_path, dict(doc, params=kept))
         return len(kept)
 
     def reduce(self, indices, params_for_id_path, out_path):
-        """Rank ``indices`` and write the kept rows of ``params_for_id_path`` to
+        """Rank ``indices`` and write the kept entries of ``params_for_id_path`` to
         ``out_path``. Returns the ranking (see :meth:`rank`); a ValueError when nothing
         scores the threshold."""
         ranked = self.rank(indices)

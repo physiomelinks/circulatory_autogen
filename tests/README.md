@@ -33,7 +33,7 @@ You can pass any pytest arguments to the script:
 ./run_pytest.sh tests/test_solvers.py::test_all_solvers -v -s
 
 # Run a single parametrized case
-./run_pytest.sh "tests/test_solvers.py::test_all_solvers[3compartment-3compartment_parameters.csv-0.1]" -v -s
+./run_pytest.sh "tests/test_solvers.py::test_all_solvers[3compartment-3compartment_parameters.json-0.1]" -v -s
 
 # Run tests matching a pattern
 ./run_pytest.sh -k "test_name_pattern"

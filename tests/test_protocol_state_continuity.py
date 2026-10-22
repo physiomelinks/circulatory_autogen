@@ -56,7 +56,7 @@ _CROSS_TOL_PCT = 1.0
 @pytest.fixture(scope="function")
 def lotka_volterra_cellml(generated_cellml_model_factory):
     """Lotka-Volterra CellML via the shared factory (copies the committed model)."""
-    return generated_cellml_model_factory("Lotka_Volterra", "Lotka_Volterra_parameters.csv")
+    return generated_cellml_model_factory("Lotka_Volterra", "Lotka_Volterra_parameters.json")
 
 
 @pytest.fixture(scope="function")

@@ -49,8 +49,8 @@ if __name__ == '__main__':
 
         input_params_to_id = True
         if input_params_to_id:
-            input_params_path = os.path.join(resources_dir_path, f'{file_name_prefix}_params_for_id.csv')
-            input_params_path_phys = os.path.join(resources_dir_path, f'{file_name_prefix_phys}_params_for_id.csv')
+            input_params_path = os.path.join(resources_dir_path, f'{file_name_prefix}_params_for_id.json')
+            input_params_path_phys = os.path.join(resources_dir_path, f'{file_name_prefix_phys}_params_for_id.json')
         else:
             input_params_path = False
         param_id_obs_path = '/home/finbar/Documents/data/cardiohance_data/cardiohance_observables.json'

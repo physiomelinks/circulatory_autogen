@@ -54,9 +54,9 @@ def _require_dolfinx():
 _EXAMPLE_DIR = os.path.realpath(
     os.path.join(os.path.dirname(__file__), '..', 'funcs_user', 'heat_fenics'))
 _MODEL_PATH = os.path.join(_EXAMPLE_DIR, 'heat_fenics_model.py')
-_RESOURCE_FILES = ('heat_fenics_params_for_id.csv', 'heat_fenics_obs_data.json')
+_RESOURCE_FILES = ('heat_fenics_params_for_id.json', 'heat_fenics_obs_data.json')
 _OBS_DATA_PATH = os.path.join(_EXAMPLE_DIR, 'heat_fenics_obs_data.json')
-_PARAMS_FOR_ID_PATH = os.path.join(_EXAMPLE_DIR, 'heat_fenics_params_for_id.csv')
+_PARAMS_FOR_ID_PATH = os.path.join(_EXAMPLE_DIR, 'heat_fenics_params_for_id.json')
 
 #: A deliberately small grid for the tests: 50 steps on an 8x8 mesh is milliseconds once the
 #: forms are compiled, and none of the assertions below need the shipped resolution. The
@@ -478,7 +478,7 @@ def _emulator_config(base_user_inputs, temp_output_dir, temp_generated_models_di
         'file_prefix': 'heat_fenics',
         # Never read for an external model (it is a generation-only path), but the parser
         # builds an absolute path from it unconditionally.
-        'input_param_file': 'heat_fenics_parameters.csv',
+        'input_param_file': 'heat_fenics_parameters.json',
         'model_type': 'external_python',
         'solver': 'external',
         'external_model_path': _MODEL_PATH,
@@ -523,12 +523,10 @@ def test_the_obs_data_and_params_for_id_describe_this_model(model_class):
     A typo here is invisible until a calibration is half an hour in, and then surfaces as a
     KeyError from inside the cost function.
     """
-    import csv
+    from libcuflynx.utilities.params_for_id_file import read_params_for_id
 
-    with open(_PARAMS_FOR_ID_PATH) as handle:
-        rows = [{key.strip(): (value or '').strip() for key, value in row.items()}
-                for row in csv.DictReader(handle)]
-    names = [f'{row["vessel_name"]}/{row["param_name"]}' for row in rows]
+    rows = read_params_for_id(_PARAMS_FOR_ID_PATH)['params']
+    names = [target for row in rows for target in row['targets']]
     assert set(names) == set(model_class.parameters), (
         f'params_for_id names {names} do not match the model\'s '
         f'{sorted(model_class.parameters)}')

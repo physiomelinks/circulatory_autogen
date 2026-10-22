@@ -58,7 +58,7 @@ def models_3compartment(tmp_path_factory):
     def _gen(model_type, solver, solver_info, subdir):
         d = os.path.join(base, subdir)
         os.makedirs(d, exist_ok=True)
-        inp = get_default_inp_data_dict("3compartment", "3compartment_parameters.csv", resources)
+        inp = get_default_inp_data_dict("3compartment", "3compartment_parameters.json", resources)
         inp.update({
             "model_type": model_type,
             "generated_models_dir": d,

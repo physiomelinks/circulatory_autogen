@@ -47,7 +47,7 @@ INPUTS = ROOT / "tests" / "test_inputs"
 SRC = ROOT / "src"
 MODEL = INPUTS / "Lotka_Volterra_forced.cellml"
 OBS = INPUTS / "Lotka_Volterra_forced_obs_data.json"
-PARAMS = INPUTS / "Lotka_Volterra_forced_params_for_id.csv"
+PARAMS = INPUTS / "Lotka_Volterra_forced_params_for_id.json"
 
 BINARY = os.environ.get("CUFLYNX_EXECUTABLE", "").strip()
 REQUIRED = os.environ.get("CUFLYNX_EXECUTABLE_REQUIRED", "").strip() not in ("", "0")

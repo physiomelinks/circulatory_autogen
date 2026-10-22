@@ -2369,10 +2369,19 @@ class YamlFileParser(object):
                 print(f'Must run param_id.create_param_id_obs to create the param_id_observables')
                 inp_data_dict['param_id_obs_path'] = None
 
+            from libcuflynx.utilities import params_for_id_file
             if 'params_for_id_file' in inp_data_dict.keys():
                 inp_data_dict['params_for_id_path'] = os.path.join(inp_data_dict['resources_dir'], inp_data_dict['params_for_id_file'])
+                params_for_id_file.refuse_csv(inp_data_dict['params_for_id_path'],
+                                              'params_for_id_file: ')
             else:
-                inp_data_dict['params_for_id_path'] = os.path.join(inp_data_dict['resources_dir'], f'{file_prefix}_params_for_id.csv')
+                inp_data_dict['params_for_id_path'] = os.path.join(
+                    inp_data_dict['resources_dir'],
+                    params_for_id_file.params_for_id_file_name(file_prefix))
+                csv_path = inp_data_dict['params_for_id_path'][:-len('.json')] + '.csv'
+                if not os.path.exists(inp_data_dict['params_for_id_path']) and \
+                        os.path.exists(csv_path):
+                    params_for_id_file.refuse_csv(csv_path)
                 if not os.path.exists(inp_data_dict['params_for_id_path']):
                     print(f'params_for_id_path={inp_data_dict["params_for_id_path"]} does not exist')
                     print(f'Therefore, you must run param_id.create_params_for_id to define the parameters for identification')
@@ -4172,72 +4181,11 @@ class ObsAndParamDataParser(object):
 
     @classmethod
     def params_for_id_csv_to_json(cls, csv_text_or_path):
-        """Convert a legacy params_for_id CSV into the canonical JSON structure.
-
-        Pure: text (or a path) in, dict out. No model, no solver, no simulation helper -- so a
-        front-end can show a user's existing CSV as JSON in an editor without loading anything.
-        The mapping is documented in the tutorial as well as implemented here, because a tool
-        without circulatory_autogen on sys.path has to be able to reproduce it.
-
-        Per row:
-            vessel_name='a b', param_name='C'  ->  targets: ['a/C', 'b/C']
-            min/max/param_type/name_for_plotting/comment  ->  same keys
-            prior + prior_mean/prior_std/...   ->  prior + prior_params: {...}
-            unbounded                          ->  unbounded (bool)
-            (none)                             ->  name, defaulting to the first target
-        """
-        import io
-
-        if isinstance(csv_text_or_path, str) and ('\n' in csv_text_or_path
-                                                  or ',' in csv_text_or_path.split('\n')[0]) \
-                and not os.path.exists(csv_text_or_path):
-            handle = io.StringIO(csv_text_or_path)
-        else:
-            handle = csv_text_or_path
-
-        df = pd.read_csv(handle, dtype=str)
-        df = df.rename(columns=lambda c: c.strip())
-        for column in df.columns:
-            df[column] = df[column].apply(lambda v: v.strip() if isinstance(v, str) else v)
-
-        def _present(value):
-            if value is None:
-                return False
-            if isinstance(value, float) and np.isnan(value):
-                return False
-            return str(value).strip() != ''
-
-        params = []
-        for idx in range(df.shape[0]):
-            row = df.iloc[idx]
-            vessels = [v for v in str(row.get('vessel_name', '') or '').split() if v]
-            param_name = str(row.get('param_name', '') or '').strip()
-            if not vessels or not param_name:
-                raise ValueError(
-                    f'params_for_id CSV row {idx}: both vessel_name and param_name are required '
-                    f'(got vessel_name={row.get("vessel_name")!r}, param_name={param_name!r}).')
-
-            entry = {'targets': [f'{v}/{param_name}' for v in vessels]}
-            entry['name'] = entry['targets'][0]
-
-            for key in ('param_type', 'name_for_plotting', 'comment', 'prior'):
-                if key in df.columns and _present(row.get(key)):
-                    entry[key] = str(row[key]).strip()
-            for key in ('min', 'max'):
-                if key in df.columns and _present(row.get(key)):
-                    entry[key] = str(row[key]).strip()
-            if PARAM_UNBOUNDED_COLUMN in df.columns and _present(row.get(PARAM_UNBOUNDED_COLUMN)):
-                entry[PARAM_UNBOUNDED_COLUMN] = _truthy_flag(row[PARAM_UNBOUNDED_COLUMN])
-
-            prior_params = {name: str(row[name]).strip()
-                            for name in PARAMS_FOR_ID_CSV_PRIOR_COLUMNS
-                            if name in df.columns and _present(row.get(name))}
-            if prior_params:
-                entry['prior_params'] = prior_params
-
-            params.append(entry)
-
-        return {'version': PARAMS_FOR_ID_JSON_VERSION, 'defaults': {}, 'params': params}
+        """The params_for_id document of a params_for_id CSV (its path or text): what
+        ``cuflynx-upgrade params-for-id`` writes (``utilities/params_for_id_file.csv_to_document``).
+        Pure: no model, so a front-end can show a user's CSV as the JSON it converts to."""
+        from libcuflynx.utilities.params_for_id_file import csv_to_document
+        return csv_to_document(csv_text_or_path)
 
     @staticmethod
     def _lower_prior_names(doc):
@@ -4306,7 +4254,8 @@ class ObsAndParamDataParser(object):
                 raise ValueError(
                     f'params_for_id entry {idx} needs a non-empty "{key}" list of '
                     f'component/param names.')
-            names = [str(t).strip() for t in names]
+            # a nested vessel written by its path (heart/lv/E) is the model's heart__lv/E
+            names = [output_model_name(t) for t in names]
             for qname in names:
                 cls._qname_to_vessel_and_param(qname)
             entry[key] = names
@@ -4390,7 +4339,7 @@ class ObsAndParamDataParser(object):
                         f'params_for_id entry {idx}: input {name!r} of modifier '
                         f'{modifier!r} is type "float" and takes a single component/param '
                         f'qname string, got {value!r}.')
-                qnames = [value.strip()]
+                qnames = [output_model_name(value)]
                 normalised[name] = qnames[0]
             else:  # 'list'
                 if isinstance(value, str):
@@ -4400,7 +4349,7 @@ class ObsAndParamDataParser(object):
                         f'params_for_id entry {idx}: input {name!r} of modifier '
                         f'{modifier!r} is type "list" and takes a non-empty list of '
                         f'component/param qnames, got {value!r}.')
-                qnames = [str(q).strip() for q in value]
+                qnames = [output_model_name(q) for q in value]
                 normalised[name] = qnames
             for qname in qnames:
                 cls._qname_to_vessel_and_param(qname)
@@ -4462,13 +4411,9 @@ class ObsAndParamDataParser(object):
             print(f'params_for_id_path cannot be None, exiting')
             return None
 
-        # One code path behind the front door: a .csv is converted to the JSON structure on read,
-        # and everything downstream sees only resolved JSON entries.
-        if str(params_for_id_path).lower().endswith('.json'):
-            with open(params_for_id_path, 'r') as f:
-                doc = json.load(f)
-        else:
-            doc = self.params_for_id_csv_to_json(params_for_id_path)
+        # JSON only: a CSV is refused, naming cuflynx-upgrade params-for-id
+        from libcuflynx.utilities.params_for_id_file import read_params_for_id
+        doc = read_params_for_id(params_for_id_path)
         entries = self.resolve_params_for_id_doc(
             doc, modifier_funcs=get_modifier_funcs(self.modifier_funcs_external_path),
             source=str(params_for_id_path))

@@ -150,13 +150,12 @@ vessel1,test,test_type1,,vessel2
 vessel2,test,test_type2,vessel1,  
 """)  
       
-    # Create parameters.csv  
-    parameters_file = os.path.join(resources_dir, 'unit_test_parameters.csv')  
-    with open(parameters_file, 'w') as f:    
-        f.write("""variable_name,units,value,data_reference  
-                vessel2/flux_local,L_per_mol,0.5,test  
-    """)
-      
+    # the parameters file
+    from _parameters import write_parameters
+    write_parameters(os.path.join(resources_dir, 'unit_test_parameters.json'),
+                     'variable_name,units,value,data_reference\n'
+                     'vessel2/flux_local,L_per_mol,0.5,test\n')
+
     return resources_dir, module_config_dir
   
 @pytest.mark.integration  
@@ -172,7 +171,7 @@ def test_summation_with_unit_conversion(temp_model_dir, create_unit_conversion_t
       
     config = {  
         'file_prefix': 'unit_test',  
-        'input_param_file': 'unit_test_parameters.csv',  
+        'input_param_file': 'unit_test_parameters.json',  
         'model_type': 'cellml',  
         'solver': 'CVODE_myokit',  
         'resources_dir': resources_dir,  

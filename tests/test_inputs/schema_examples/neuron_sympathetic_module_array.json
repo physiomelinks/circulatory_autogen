@@ -1,0 +1,5 @@
+[
+ {"name": "soma", "module_type": "soma", "module_subtype": "sympathetic", "per_submodule_outputs": {"membrane": ["axon"]}},
+ {"name": "axon", "module_type": "axon", "module_subtype": "sympathetic_monolithic_v01", "inp_instances": ["soma"], "out_instances": ["varicosity"]},
+ {"name": "varicosity", "module_type": "varicosity", "module_subtype": "sympathetic", "per_submodule_inputs": {"membrane": ["axon"]}}
+]

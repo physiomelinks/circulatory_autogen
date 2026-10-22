@@ -9,9 +9,17 @@
   ],
   "main": {
     "autogeneration": [
-      "tests/test_autogeneration.py",
+      "tests/test_autogeneration.py"
+    ],
+    "module-arrays": [
       "tests/test_json_module_arrays.py",
-      "tests/test_console_entry_points.py"
+      "tests/test_console_entry_points.py",
+      "tests/test_parameterisations.py"
+    ],
+    "simulation": [
+      "tests/test_calibration_workflow.py",
+      "tests/test_solvers.py",
+      "tests/test_sensitivity_analysis.py"
     ]
   },
   "param-id": {

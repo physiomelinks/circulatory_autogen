@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/physiomelinks/circulatory_autogen/schemas/params_for_id.schema.json",
   "title": "libcuflynx params_for_id, JSON form (<prefix>_params_for_id.json)",
-  "description": "The parameters a calibration identifies (version 1). Read by ObsAndParamDataParser.get_param_id_info: a .json file is this document; a .csv is converted to it first (params_for_id_csv_to_json), each row becoming one entry: vessel_name \"a b\" with param_name \"C\" -> targets [\"a/C\", \"b/C\"] and name \"a/C\"; min, max, param_type, name_for_plotting, prior, comment -> the same keys; the prior_* columns -> prior_params; unbounded -> unbounded (true/false). The document is then checked and defaults folded in by resolve_params_for_id_doc (libcuflynx/parsers/PrimitiveParsers.py), which also checks what JSON Schema cannot: unique names, registered modifier functions and their declared inputs, prior settings the chosen prior takes, a normal prior_mean within [min, max], min and max given unless unbounded, and no parameter both a target and modified, or modified twice. Other top-level keys are ignored.",
+  "description": "The parameters a calibration identifies (version 1), a flat list of entries (libcuflynx/utilities/params_for_id_file.py). Read by ObsAndParamDataParser.get_param_id_info; a params_for_id CSV is refused, naming cuflynx-upgrade params-for-id, which converts it: vessel_name \"a b\" with param_name \"C\" -> targets [\"a/C\", \"b/C\"] (a nested vessel heart__lv as its path, heart/lv/C); min, max, param_type, name_for_plotting, prior, comment -> the same keys; the prior_* columns -> prior_params; unbounded -> unbounded (true/false). A parameter is named as users write it: <vessel>/<variable>, a nested vessel by its path (heart/lv/E_A, the model's heart__lv) and a global as global/<variable>. The document is then checked and defaults folded in by resolve_params_for_id_doc (libcuflynx/parsers/PrimitiveParsers.py), which also checks what JSON Schema cannot: unique names, registered modifier functions and their declared inputs, prior settings the chosen prior takes, a normal prior_mean within [min, max], min and max given unless unbounded, and no parameter both a target and modified, or modified twice. Other top-level keys are ignored.",
   "type": "object",
   "required": [
     "params"
@@ -39,7 +39,7 @@
     "qname": {
       "type": "string",
       "pattern": "/",
-      "description": "A model parameter as component/param (e.g. \"aortic_root/C\", \"global/q_lv_init\"); split at the last \"/\"."
+      "description": "A model parameter as <vessel>/<variable> (e.g. \"aortic_root/C\"), a nested vessel by its path (\"heart/lv/E_A\", the model's heart__lv) and a global as \"global/<variable>\"; the variable follows the last \"/\"."
     },
     "entryKeys": {
       "type": "object",

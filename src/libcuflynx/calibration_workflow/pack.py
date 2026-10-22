@@ -119,7 +119,8 @@ def pack_workflow(source, dest_dir, module_library_dirs=None):
     def model(spec_model, owner):
         if spec_model.kind == 'library':
             return spec_model.as_dict()
-        packed = {'module_array': packer.file(spec_model.module_array, owner),
+        array = packer.file(spec_model.module_array, owner)
+        packed = {'module_array': array,
                   'parameters': packer.file(spec_model.parameters, owner)}
         return packed
 

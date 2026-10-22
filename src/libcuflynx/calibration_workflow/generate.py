@@ -8,37 +8,41 @@ import json
 import os
 import shutil
 
-from libcuflynx.calibration_workflow.naming import STEP_VESSEL, host_model_name
+from libcuflynx.calibration_workflow.naming import STEP_VESSEL
+from libcuflynx.utilities import parameters_file
 
-PARAMETER_HEADER = ('variable_name', 'units', 'value', 'data_reference')
 _MODEL_EXTENSIONS = {'cellml': '.cellml', 'python': '.py', 'casadi_python': '.py',
                      'aadc_python': '.py', 'cpp': '.cpp'}
 
 
-def write_parameter_rows(path, rows):
-    '''Write ``rows`` (dicts with PARAMETER_HEADER keys) as a parameters CSV.'''
-    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-    with open(path, 'w', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=list(PARAMETER_HEADER), extrasaction='ignore')
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({k: row.get(k, '') for k in PARAMETER_HEADER})
-
-
 def read_parameter_rows(path):
+    '''The rows of a generated model's parameters CSV (``<prefix>_parameters.csv`` beside the
+    generated model, named as the model names them).'''
     with open(path, newline='', encoding='utf-8-sig') as f:
         return [dict(row) for row in csv.DictReader(f)]
 
 
-def generate_parameterisation(target, work_dir, file_prefix, overrides=(), library_inputs=None,
-                              model_type='cellml', solver=None, vessel=STEP_VESSEL):
-    '''Generate the module parameterisation ``target`` (a spec.Target) alone, as a single
-    module-array record named ``vessel``, under ``work_dir``.
+def with_overrides(doc, overrides, where=''):
+    '''The parameters document ``doc`` with each row of ``overrides`` (``variable_name`` as a
+    model's parameters file names it, ``C/q`` or ``mod__A/p``) set over what it has.'''
+    for row in overrides:
+        parameters_file.set_leaf(doc, parameters_file.name_path(row['variable_name'], where=where),
+                                 parameters_file.leaf_from_row(row), where)
+    return doc
 
-    ``overrides`` are parameter rows (``variable_name`` as a host parameters file names it,
-    ``mod__A/p``, ``units``, ``value``, ``data_reference``) written as the host parameters file, which wins
-    over every parameterisation and supermodule default. ``library_inputs`` are the generation
-    keys that locate the modules (``module_library_dirs`` etc.).
+
+def generate_parameterisation(target, work_dir, file_prefix, overrides=(), library_inputs=None,
+                              model_type='cellml', solver=None, vessel=STEP_VESSEL,
+                              instance_values=None):
+    '''Generate the module parameterisation ``target`` (a spec.Target) alone, as a single
+    module-array record named ``vessel``, under ``work_dir``. A supermodule's record gets
+    ``instance_values`` (``{sub: {var: parameter}}``) as its values in the model's parameters
+    file, or a new instance's, from its version (``supermodules.instance_values_from_version``).
+
+    ``overrides`` are parameter rows (``variable_name`` as a model's parameters file names it,
+    ``mod__A/p``, ``units``, ``value``, ``data_reference``) set in the model's parameters file,
+    which wins over every parameterisation and supermodule default. ``library_inputs`` are the
+    generation keys that locate the modules (``module_library_dirs`` etc.).
 
     Returns ``{'model_path', 'flat_model_path', 'parameters_path', 'resources_dir',
     'generated_models_dir', 'inp_data_dict'}`` (``flat_model_path``: the CellML with its
@@ -51,30 +55,50 @@ def generate_parameterisation(target, work_dir, file_prefix, overrides=(), libra
     record = {'name': vessel, 'module_type': target.module_type,
               'module_subtype': target.version, 'parameterisation': target.parameterisation,
               'inp_instances': [], 'out_instances': []}
-    with open(os.path.join(resources_dir, f'{file_prefix}_module_array.json'), 'w') as f:
+    array = os.path.join(resources_dir, f'{file_prefix}_module_array.json')
+    with open(array, 'w') as f:
         json.dump([record], f, indent=1)
-    write_parameter_rows(os.path.join(resources_dir, f'{file_prefix}_parameters.csv'),
-                         list(overrides))
+    path = os.path.join(resources_dir, parameters_file.parameters_file_name(file_prefix))
+    doc = parameters_file.new_document()
+    values = _instance_values(record, library_inputs, instance_values)
+    if values is not None:
+        doc[vessel] = values
+    parameters_file.write_parameters_file(path, with_overrides(doc, overrides, f'{path}: '))
     return _generate(work_dir, resources_dir, file_prefix, model_type, solver, library_inputs,
                      target.label())
+
+
+def _instance_values(record, library_inputs, instance_values=None):
+    '''The values of the module-array ``record`` in its model's parameters file when it is a
+    supermodule instance (``instance_values`` if given, else a new instance's, from its version);
+    None for a component.'''
+    from libcuflynx.utilities.module_library import ModuleSources
+    from libcuflynx.utilities.supermodules import instance_values_from_version
+    registry = ModuleSources(dict(library_inputs or {})).supermodule_registry()
+    key = (record['module_type'], record['module_subtype'])
+    if key not in registry:
+        return None
+    if instance_values is not None:
+        return instance_values
+    return instance_values_from_version(registry[key], registry, record.get('parameterisation'),
+                                        f'"{record["name"]}" {key}')
 
 
 def generate_module_array(model, work_dir, file_prefix, overrides=(), library_inputs=None,
                           model_type='cellml', solver=None):
     '''Generate the module array ``model`` (a spec.ModuleArray) under ``work_dir``, from a copy
-    of its module array and parameters file. ``overrides`` (rows named as a host parameters
-    file names them) replace the rows of the parameters file that set the same parameter. Returns as :func:`generate_parameterisation`.'''
+    of its module array and its parameters file. ``overrides`` (rows named as a model's parameters
+    file names them) are set over the parameters file's values. Returns as
+    :func:`generate_parameterisation`.'''
     work_dir = os.path.abspath(work_dir)
     resources_dir = os.path.join(work_dir, 'resources')
     os.makedirs(resources_dir, exist_ok=True)
     extension = os.path.splitext(model.module_array)[1].lower() or '.csv'
-    shutil.copyfile(model.module_array,
-                    os.path.join(resources_dir, f'{file_prefix}_module_array{extension}'))
-    overridden = {host_model_name(row['variable_name']) for row in overrides}
-    rows = [r for r in read_parameter_rows(model.parameters)
-            if host_model_name(r.get('variable_name') or '') not in overridden]
-    write_parameter_rows(os.path.join(resources_dir, f'{file_prefix}_parameters.csv'),
-                         rows + list(overrides))
+    array = os.path.join(resources_dir, f'{file_prefix}_module_array{extension}')
+    shutil.copyfile(model.module_array, array)
+    path = os.path.join(resources_dir, parameters_file.parameters_file_name(file_prefix))
+    doc = parameters_file.read_parameters_file(model.parameters)
+    parameters_file.write_parameters_file(path, with_overrides(doc, overrides, f'{path}: '))
     return _generate(work_dir, resources_dir, file_prefix, model_type, solver, library_inputs,
                      model.label())
 
@@ -95,7 +119,7 @@ def _generate(work_dir, resources_dir, file_prefix, model_type, solver, library_
     from libcuflynx.scripts.script_generate_with_new_architecture import \
         generate_with_new_architecture
     generated_models_dir = os.path.join(work_dir, 'generated_models')
-    config = {'file_prefix': file_prefix, 'input_param_file': f'{file_prefix}_parameters.csv',
+    config = {'file_prefix': file_prefix, 'input_param_file': f'{file_prefix}_parameters.json',
               'model_type': model_type, 'resources_dir': resources_dir,
               'generated_models_dir': generated_models_dir, 'DEBUG': False}
     if solver:

@@ -98,7 +98,7 @@
               ".."
             ]
           },
-          "description": "the parameterisation (named parameter set of the module version) whose parameters this record uses: <config dir>/parameterisations/<name>/<name>_parameters.csv (default: the config entry's default_parameterisation, if that file exists)"
+          "description": "the parameterisation (named parameter set of the module version) whose parameters this record uses: <config dir>/parameterisations/<name>/<name>_parameters.json (default: the config entry's default_parameterisation, if that file exists)"
         }
       },
       "not": {

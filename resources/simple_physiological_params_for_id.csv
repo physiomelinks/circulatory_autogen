@@ -1,6 +1,0 @@
-vessel_name,                  param_name,       min,        max,      name_for_plotting
-global,                        q_lv_init,        14e-4,      40e-4,    q_{sbv} 
-leg_L_T leg_R_T,              R_T,              6e5,        5e9,      R_{Tleg}
-arm_L_T arm_R_T,              R_T,              6e5,        5e10,     R_{Tarm}
-head_L_T head_R_T,            R_T,              6e5,        5e10,     R_{Thead} 
-trunk_C_T,                    R_T,              6e5,        5e9,      R_{Ttrunk}

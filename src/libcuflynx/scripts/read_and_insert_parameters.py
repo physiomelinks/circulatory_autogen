@@ -7,38 +7,26 @@ Created on 29/10/2021
 import sys
 import os
 import re
-import pandas as pd
 from libcuflynx.utilities.paths import default_resources_dir, default_user_inputs_dir
 
 user_inputs_dir = default_user_inputs_dir()
 
-from libcuflynx.parsers.PrimitiveParsers import JSONFileParser, CSVFileParser
+from libcuflynx.utilities.parameters_file import (get_leaf, read_parameters_file, set_leaf,
+                                                  name_path, parameter_rows, write_parameters_file,
+                                                  leaf_from_row)
 import traceback
 import yaml
 
 def insert_parameters(parameters_path, parameters_to_add_path):
-    
-    cp = CSVFileParser()
-    jp = JSONFileParser()
-
-    if parameters_path.endswith('csv'):
-        params_df = cp.get_data_as_dataframe(parameters_path)
-    elif parameters_path.endswith('json'):
-        params_df = jp.json_to_dataframe(parameters_path)
-
-    print('before')
-    print(params_df)
-    
-    if parameters_to_add_path.endswith('csv'):
-        new_params_df = cp.get_data_as_dataframe(parameters_to_add_path)
-    elif parameters_to_add_path.endswith('json') :
-        new_params_df = jp.json_to_dataframe(parameters_to_add_path)
-
-    # params_df = pd.concat([params_df, new_params_df], ignore_index=True)
-    params_df = new_params_df.set_index('variable_name').combine_first(params_df.set_index('variable_name')).reset_index()
-    params_df.to_csv(parameters_path, index=None, header=True, columns=['variable_name', 'units', 'value', 'data_reference'])
-    print('after')
-    print(params_df)
+    '''Set every parameter of the parameters file ``parameters_to_add_path`` in the one at
+    ``parameters_path`` (both nested JSON, utilities/parameters_file.py), in place.'''
+    doc = read_parameters_file(parameters_path)
+    for row in parameter_rows(read_parameters_file(parameters_to_add_path)):
+        path = name_path(row['variable_name'])
+        print(f'{row["variable_name"]}: {(get_leaf(doc, path) or {}).get("value")} -> '
+              f'{row["value"]}')
+        set_leaf(doc, path, leaf_from_row(row))
+    write_parameters_file(parameters_path, doc)
 
 if __name__ == '__main__':
     

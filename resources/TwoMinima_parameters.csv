@@ -1,4 +1,0 @@
-variable_name,units,value,data_reference
-twomin/x_init,dimensionless,0.0,None
-twomin/a,dimensionless,1.0,initial_guess
-twomin/c,dimensionless,3.0,rate_constant

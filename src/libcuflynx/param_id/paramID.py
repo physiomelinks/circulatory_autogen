@@ -234,7 +234,7 @@ class CVS0DParamID():
         mcmc_instead: If True, build an MCMC sampler instead of an optimiser.
         file_name_prefix: Model name prefix; ties together the resource files
             and names the output case directory.
-        params_for_id_path: Optional path to a ``{prefix}_params_for_id.csv``.
+        params_for_id_path: Optional path to a ``{prefix}_params_for_id.json``.
             Alternatively call
             [`set_params_for_id`][param_id.paramID.CVS0DParamID.set_params_for_id].
         param_id_obs_path: Optional path to an ``obs_data.json``. Alternatively
@@ -829,7 +829,7 @@ class CVS0DParamID():
         Args:
             params_for_id_dict: List of entries of the form
                 ``{vessel_name, param_name, min, max, name_for_plotting}`` (the
-                in-memory equivalent of ``{prefix}_params_for_id.csv``).
+                in-memory equivalent of a ``{prefix}_params_for_id.json`` file's entries).
                 ``vessel_name`` may be a single name or a list of names to share
                 one calibrated parameter across many vessels.
         """

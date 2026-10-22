@@ -1,4 +1,0 @@
-variable_name,units,value,data_reference
-VanDerPol/x_init,dimensionless,2,None
-VanDerPol/y_init,dimensionless,0,None
-VanDerPol/mu,dimensionless,100,None

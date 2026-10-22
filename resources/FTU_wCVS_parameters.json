@@ -1,0 +1,62 @@
+{
+ "schema_version": 1,
+ "global": {
+  "rho": {"value": 1050, "units": "Js2_per_m5", "data_reference": "known", "comp_env": "heart"},
+  "T": {"value": 1.0, "units": "second", "data_reference": "defined_by_user", "comp_env": "heart"},
+  "t_astart": {"value": 0.80, "units": "second", "data_reference": "Liang_2009_Table_2", "comp_env": "heart"},
+  "t_vstart": {"value": 0.0, "units": "second", "data_reference": "Liang_2009_Table_2", "comp_env": "heart"},
+  "T_ac": {"value": 0.17, "units": "second", "data_reference": "Liang_2009_Table_2", "comp_env": "heart"},
+  "T_ar": {"value": 0.17, "units": "second", "data_reference": "Liang_2009_Table_2", "comp_env": "heart"},
+  "T_vc": {"value": 0.34, "units": "second", "data_reference": "Liang_2009_Table_2", "comp_env": "heart"},
+  "T_vr": {"value": 0.15, "units": "second", "data_reference": "Liang_2009_Table_2", "comp_env": "heart"},
+  "E_ra_A": {"value": 7.998e+6, "units": "J_per_m6", "data_reference": "Liang_2009_Table_2", "comp_env": "heart"},
+  "E_ra_B": {"value": 9.331e+6, "units": "J_per_m6", "data_reference": "Liang_2009_Table_2", "comp_env": "heart"},
+  "E_rv_A": {"value": 73.315e+6, "units": "J_per_m6", "data_reference": "Liang_2009_Table_2", "comp_env": "heart"},
+  "E_rv_B": {"value": 6.665e+6, "units": "J_per_m6", "data_reference": "Liang_2009_Table_2", "comp_env": "heart"},
+  "E_la_A": {"value": 9.331e+6, "units": "J_per_m6", "data_reference": "Liang_2009_Table_2", "comp_env": "heart"},
+  "E_la_B": {"value": 11.997e+6, "units": "J_per_m6", "data_reference": "Liang_2009_Table_2", "comp_env": "heart"},
+  "E_lv_A": {"value": 366.575e+6, "units": "J_per_m6", "data_reference": "Liang_2009_Table_2", "comp_env": "heart"},
+  "E_lv_B": {"value": 10.664e+6, "units": "J_per_m6", "data_reference": "Liang_2009_Table_2", "comp_env": "heart"},
+  "A_nn_trv": {"value": 0.0008, "units": "m2", "data_reference": "Mynard_2012", "comp_env": "heart"},
+  "A_nn_puv": {"value": 0.00071, "units": "m2", "data_reference": "Mynard_2012", "comp_env": "heart"},
+  "A_nn_miv": {"value": 0.00077, "units": "m2", "data_reference": "Mynard_2012", "comp_env": "heart"},
+  "A_nn_aov": {"value": 0.00068, "units": "m2", "data_reference": "Mynard_2012", "comp_env": "heart"},
+  "l_eff": {"value": 0.01, "units": "metre", "data_reference": "to_be_identified", "comp_env": "heart"},
+  "K_vo_trv": {"value": 0.3, "units": "m3_per_Js", "data_reference": "Mynard_2012", "comp_env": "heart"},
+  "K_vo_puv": {"value": 0.2, "units": "m3_per_Js", "data_reference": "Mynard_2012", "comp_env": "heart"},
+  "K_vo_miv": {"value": 0.3, "units": "m3_per_Js", "data_reference": "Mynard_2012", "comp_env": "heart"},
+  "K_vo_aov": {"value": 0.12, "units": "m3_per_Js", "data_reference": "Mynard_2012", "comp_env": "heart"},
+  "K_vc_trv": {"value": 0.4, "units": "m3_per_Js", "data_reference": "Mynard_2012", "comp_env": "heart"},
+  "K_vc_puv": {"value": 0.2, "units": "m3_per_Js", "data_reference": "Mynard_2012", "comp_env": "heart"},
+  "K_vc_miv": {"value": 0.4, "units": "m3_per_Js", "data_reference": "Mynard_2012", "comp_env": "heart"},
+  "K_vc_aov": {"value": 0.12, "units": "m3_per_Js", "data_reference": "Mynard_2012", "comp_env": "heart"},
+  "M_rg_trv": {"value": 0, "units": "dimensionless", "data_reference": "Mynard_2012", "comp_env": "heart"},
+  "M_rg_puv": {"value": 0, "units": "dimensionless", "data_reference": "Mynard_2012", "comp_env": "heart"},
+  "M_rg_miv": {"value": 0, "units": "dimensionless", "data_reference": "Mynard_2012", "comp_env": "heart"},
+  "M_rg_aov": {"value": 0, "units": "dimensionless", "data_reference": "Mynard_2012", "comp_env": "heart"},
+  "M_st_trv": {"value": 1, "units": "dimensionless", "data_reference": "Mynard_2012", "comp_env": "heart"},
+  "M_st_puv": {"value": 1, "units": "dimensionless", "data_reference": "Mynard_2012", "comp_env": "heart"},
+  "M_st_miv": {"value": 1, "units": "dimensionless", "data_reference": "Mynard_2012", "comp_env": "heart"},
+  "M_st_aov": {"value": 1, "units": "dimensionless", "data_reference": "Mynard_2012", "comp_env": "heart"}
+ },
+ "par": {
+  "C": {"value": 0.0309077e-8, "units": "m6_per_J", "data_reference": "to_be_identified", "comp_env": "pulmonary"},
+  "R": {"value": 10.664e+6, "units": "Js_per_m6", "data_reference": "Blanco_2013_Table_8", "comp_env": "pulmonary"},
+  "I": {"value": 1.0e-6, "units": "Js2_per_m6", "data_reference": "Blanco_2013_Table_8", "comp_env": "pulmonary"}
+ },
+ "pvn": {
+  "C": {"value": 0.60015e-8, "units": "m6_per_J", "data_reference": "to_be_identified", "comp_env": "pulmonary"},
+  "R": {"value": 1.333e+6, "units": "Js_per_m6", "data_reference": "Blanco_2013_Table_8", "comp_env": "pulmonary"},
+  "I": {"value": 1.0e-6, "units": "Js2_per_m6", "data_reference": "Blanco_2013_Table_8", "comp_env": "pulmonary"}
+ },
+ "aortic_root": {
+  "R": {"value": 1.0e+6, "units": "Js_per_m6", "data_reference": "to_be_identified", "comp_env": "systemic"},
+  "C": {"value": 1.0e-8, "units": "m6_per_J", "data_reference": "to_be_identified", "comp_env": "systemic"},
+  "I": {"value": 1.0e+4, "units": "Js2_per_m6", "data_reference": "to_be_identified", "comp_env": "systemic"}
+ },
+ "venous_svc": {
+  "R": {"value": 1.0e7, "units": "Js_per_m6", "data_reference": "small_chosen", "comp_env": "systemic"},
+  "C": {"value": 1.0e-9, "units": "m6_per_J", "data_reference": "to_be_identified", "comp_env": "systemic"},
+  "I": {"value": 1.0e-3, "units": "Js2_per_m6", "data_reference": "small_chosen", "comp_env": "systemic"}
+ }
+}

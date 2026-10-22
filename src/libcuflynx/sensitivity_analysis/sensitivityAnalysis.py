@@ -93,7 +93,7 @@ class SensitivityAnalysis():
         dt: Output sampling step (s).
         optimiser_options: Options dict (used if a nominal calibration is run).
         param_id_obs_path: Optional path to an ``obs_data.json``.
-        params_for_id_path: Optional path to a ``{prefix}_params_for_id.csv``.
+        params_for_id_path: Optional path to a ``{prefix}_params_for_id.json``.
     """
     def __init__(self, model_path, model_type, file_name_prefix, sa_options, DEBUG=False,
                  param_id_output_dir=None, resources_dir=None, model_out_names=[],

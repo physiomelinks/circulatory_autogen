@@ -163,7 +163,7 @@ def test_generated_model_has_no_duplicate_connections(generated_cellml_model_fac
     import collections
 
     cellml_path = generated_cellml_model_factory(
-        "3compartment", "3compartment_parameters.csv", solver="CVODE_myokit")
+        "3compartment", "3compartment_parameters.json", solver="CVODE_myokit")
     with open(cellml_path) as f:
         text = f.read()
 

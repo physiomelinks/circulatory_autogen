@@ -131,14 +131,14 @@ def test_generation_uses_the_winning_source_s_module_once(tmp_path):
     prefix = 'Lotka_Volterra'
     resources = tmp_path / 'resources'
     os.makedirs(resources)
-    for suffix in ('_module_array.csv', '_parameters.csv'):
+    for suffix in ('_module_array.csv', '_parameters.json'):
         shutil.copy(os.path.join(RESOURCES_DIR, prefix + suffix), resources)
     library = str(tmp_path / 'library')
     _copy(os.path.join(library, 'lv'), 'from the library')
 
     def generate(name, **extra):
         out = tmp_path / name
-        config = dict({'file_prefix': prefix, 'input_param_file': f'{prefix}_parameters.csv',
+        config = dict({'file_prefix': prefix, 'input_param_file': f'{prefix}_parameters.json',
                        'model_type': 'cellml', 'solver': 'CVODE_myokit',
                        'resources_dir': str(resources), 'generated_models_dir': str(out),
                        'DEBUG': False}, **extra)

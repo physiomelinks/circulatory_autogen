@@ -1,10 +1,10 @@
 """Regression tests for a batch of small closed issues:
 
 * #83  -- macOS AppleDouble ``._*`` files must be skipped by the module readers.
-* #99  -- ``*_parameters_unfinished.csv`` must be written to the configured ``resources_dir``.
+* #99  -- ``*_parameters_unfinished.json`` must be written to the configured ``resources_dir``.
 * #155 -- the duplicated input-flow BC modules were removed from the microvasculature config.
 * #157 -- solver Make files are copied into each generated model directory.
-* #159 -- parameter CSV columns are read by header name, not by position.
+* #159 -- a parameter's fields are read by name, not by position.
 * #398 -- solver_info rtol/atol reach the generated C++ instead of being hardcoded.
 * #167 -- sensitivity-analysis plot filenames are sanitised (no ``{}``/spaces/backslashes).
 
@@ -47,11 +47,13 @@ def test_json_reader_ignores_appledouble_sidecar(tmp_path):
 # ---------------------------------------------------------------------------
 class _StubModel:
     def __init__(self):
-        # minimum shape __generate_parameters_csv needs: a DataFrame-able array with const_type.
+        # minimum shape __generate_parameters_csv needs: a DataFrame-able array with const_type,
+        # and how the model's parameters file names each parameter
         self.parameters_array = [
             {'variable_name': 'a', 'const_type': 'global', 'value': 'EMPTY_MUST_BE_FILLED'},
-            {'variable_name': 'b', 'const_type': 'global', 'value': '1.0'},
+            {'variable_name': 'C_aortic_root', 'const_type': 'constant', 'value': '1.0'},
         ]
+        self.parameter_file_names = {'a': 'a', 'C_aortic_root': 'aortic_root/C'}
 
 
 def _bare_generator(**attrs):
@@ -74,9 +76,14 @@ def test_unfinished_parameters_csv_written_to_resources_dir(tmp_path):
 
     gen._CVS0DCellMLGenerator__generate_parameters_csv()
 
-    assert (resources / 'demo_parameters_unfinished.csv').is_file(), \
-        'unfinished CSV must land in the configured resources_dir (#99)'
-    assert not (output / 'demo_parameters_unfinished.csv').exists()
+    assert (resources / 'demo_parameters_unfinished.json').is_file(), \
+        'the unfinished parameters file must land in the configured resources_dir (#99)'
+    assert not (output / 'demo_parameters_unfinished.json').exists()
+    # nested as the model's parameters file is, ready to complete and rename
+    from libcuflynx.utilities.parameters_file import read_parameters_file
+    doc = read_parameters_file(str(resources / 'demo_parameters_unfinished.json'))
+    assert doc['global']['a']['value'] == 'EMPTY_MUST_BE_FILLED'
+    assert doc['aortic_root']['C']['value'] == '1.0'
 
 
 def test_finished_parameters_csv_written_to_output_dir(tmp_path):
@@ -89,6 +96,7 @@ def test_finished_parameters_csv_written_to_output_dir(tmp_path):
 
     gen._CVS0DCellMLGenerator__generate_parameters_csv()
 
+    # the generated model's parameters, named as the model names them
     assert (output / 'demo_parameters.csv').is_file()
 
 
@@ -165,8 +173,9 @@ def _reduce(tmp_path, header, rows, variables_and_units=None):
     from libcuflynx.parsers.ModelParsers import CSV0DModelParser
     from libcuflynx.parsers.PrimitiveParsers import CSVFileParser
 
-    csv_path = tmp_path / 'x_parameters.csv'
-    csv_path.write_text('\n'.join([header] + rows) + '\n')
+    from _parameters import rows_from_csv
+    from libcuflynx.utilities.parameters_file import parameters_array
+    csv_path = tmp_path / 'x_parameters.json'
 
     if variables_and_units is None:
         # one required constant, 'R', which gets the vessel name appended -> 'R_vessel'
@@ -178,7 +187,7 @@ def _reduce(tmp_path, header, rows, variables_and_units=None):
     parser.parameter_filename = str(csv_path)
     parser.csv_parser = CSVFileParser()
 
-    parameters_array_orig = parser.csv_parser.get_data_as_nparray(str(csv_path), True)
+    parameters_array_orig = parameters_array(rows_from_csv('\n'.join([header] + rows)))
     return parser._CSV0DModelParser__reduce_parameters_array(
         parameters_array_orig, vessels_df)
 
@@ -187,7 +196,7 @@ def test_parameters_csv_extra_column_does_not_shift_the_value(tmp_path):
     """The bug: rows were flattened into a positional list, so any column the code did not expect
     shifted every field to its right.
 
-    resources/FTU_wCVS_parameters.csv is a real file with a 'comp_env' column between units and
+    resources/FTU_wCVS_parameters.json is a real file with a 'comp_env' column between units and
     value; before the fix its parameter values parsed as the comp_env string ('heart') and its
     data_references as the values.
     """
@@ -198,37 +207,6 @@ def test_parameters_csv_extra_column_does_not_shift_the_value(tmp_path):
     assert out['data_reference'][0] == 'Blanco_2013'
     assert out['units'][0] == 'Js_per_m6'
     assert out['const_type'][0] == 'constant'
-
-
-def test_parameters_csv_columns_may_be_in_any_order(tmp_path):
-    """Header-based reading means column order is not part of the file format."""
-    reordered = _reduce(tmp_path,
-                        'data_reference,value,variable_name,units',
-                        ['Blanco_2013,1333000,R_vessel,Js_per_m6'])
-    canonical = _reduce(tmp_path,
-                        'variable_name,units,value,data_reference',
-                        ['R_vessel,Js_per_m6,1333000,Blanco_2013'])
-    for field in ('variable_name', 'units', 'const_type', 'value', 'data_reference'):
-        assert reordered[field][0] == canonical[field][0], field
-
-
-def test_parameters_csv_header_whitespace_is_tolerated(tmp_path):
-    """A space after a comma in the header row must not make a column unfindable under the name
-    the user can see in their file."""
-    out = _reduce(tmp_path,
-                  'variable_name, units, value, data_reference',
-                  ['R_vessel,Js_per_m6,1333000,Blanco_2013'])
-    assert out['value'][0] == '1333000'
-    assert out['units'][0] == 'Js_per_m6'
-
-
-def test_parameters_csv_missing_required_column_is_reported(tmp_path):
-    """Positional reading turned a missing column into a silent EMPTY_MUST_BE_FILLED; by name it
-    is a named error."""
-    with pytest.raises(SystemExit):
-        _reduce(tmp_path,
-                'variable_name,units,value',
-                ['R_vessel,Js_per_m6,1333000'])
 
 
 def test_parameters_csv_missing_row_still_flags_it_as_unfilled(tmp_path):

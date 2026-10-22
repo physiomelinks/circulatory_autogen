@@ -133,9 +133,9 @@ def test_aadc_coupled_pipeline_gradient_is_exact_and_faster_than_casadi(
     from aadc.recording_ctx import record_kernel
     from aadc.evaluate_wrappers import evaluate_kernel
 
-    lv_path = _generate_aadc_model('Lotka_Volterra', 'Lotka_Volterra_parameters.csv',
+    lv_path = _generate_aadc_model('Lotka_Volterra', 'Lotka_Volterra_parameters.json',
                                    base_user_inputs, temp_generated_models_dir)
-    vdp_path = _generate_aadc_model('VanDerPol', 'VanDerPol_parameters.csv',
+    vdp_path = _generate_aadc_model('VanDerPol', 'VanDerPol_parameters.json',
                                     base_user_inputs, temp_generated_models_dir)
 
     sim_lv = _load_sim(lv_path)

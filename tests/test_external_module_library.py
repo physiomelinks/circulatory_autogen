@@ -85,18 +85,19 @@ def _write_resources(resources_dir, prefix, module_type, k=0.5, x_init=2.0):
             name,module_subtype,module_type,inp_instances,out_instances
             decay,nn,{module_type},,
             """))
-    with open(os.path.join(resources_dir, f'{prefix}_parameters.csv'), 'w') as f:
-        f.write(textwrap.dedent(f"""\
-            variable_name,units,value,data_reference
-            decay/x_init,dimensionless,{x_init},test
-            decay/k,lib_test_per_second,{k},test
-            """))
+    from _parameters import write_parameters
+    write_parameters(os.path.join(resources_dir, f'{prefix}_parameters.json'),
+                     textwrap.dedent(f"""\
+                         variable_name,units,value,data_reference
+                         decay/x_init,dimensionless,{x_init},test
+                         decay/k,lib_test_per_second,{k},test
+                         """))
 
 
 def _config(tmp_path, prefix, library_dir, use_builtin_modules):
     config = {
         'file_prefix': prefix,
-        'input_param_file': f'{prefix}_parameters.csv',
+        'input_param_file': f'{prefix}_parameters.json',
         'model_type': 'cellml',
         'solver': 'CVODE_myokit',
         'resources_dir': str(tmp_path / 'resources'),

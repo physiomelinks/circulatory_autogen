@@ -32,7 +32,7 @@ def _param_id(output_dir, obs_path=_OBS):
     return CVS0DParamID(
         os.path.join(_INPUTS, 'Lotka_Volterra_forced.cellml'), 'cellml', 'genetic_algorithm',
         False, 'Lotka_Volterra_forced',
-        params_for_id_path=os.path.join(_INPUTS, 'Lotka_Volterra_forced_params_for_id.csv'),
+        params_for_id_path=os.path.join(_INPUTS, 'Lotka_Volterra_forced_params_for_id.json'),
         param_id_obs_path=obs_path,
         sim_time=5.0, pre_time=0.0,
         solver_info={'solver': 'CVODE_myokit', 'MaximumStep': 0.05,

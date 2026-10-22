@@ -215,10 +215,11 @@ def _generate(tmp_path, prefix, module_array, parameters, library_dir, use_built
     resources_dir = tmp_path / 'resources'
     resources_dir.mkdir(parents=True, exist_ok=True)
     (resources_dir / f'{prefix}_module_array.csv').write_text(textwrap.dedent(module_array))
-    (resources_dir / f'{prefix}_parameters.csv').write_text(textwrap.dedent(parameters))
+    from _parameters import write_parameters
+    write_parameters(resources_dir / f'{prefix}_parameters.json', textwrap.dedent(parameters))
     config = {
         'file_prefix': prefix,
-        'input_param_file': f'{prefix}_parameters.csv',
+        'input_param_file': f'{prefix}_parameters.json',
         'model_type': 'cellml',
         'solver': 'CVODE_myokit',
         'resources_dir': str(resources_dir),
@@ -425,7 +426,7 @@ def test_renaming_junction_non_vessel_neighbours_changes_nothing(tmp_path):
 
     resources = os.path.join(os.path.dirname(__file__), '..', 'resources')
     module_array = open(os.path.join(resources, 'generic_junction_test_open_loop_module_array.csv')).read()
-    parameters = open(os.path.join(resources, 'generic_junction_test_open_loop_parameters.csv')).read()
+    parameters = open(os.path.join(resources, 'generic_junction_test_open_loop_parameters.json')).read()
     renamed = re.sub(r'^(K_tube_\w+),nn,material_prop_visco_const,', r'\1,lv_test,material_prop_visco_const,',
                      module_array, flags=re.M)
     assert renamed.count(',lv_test,') > 50

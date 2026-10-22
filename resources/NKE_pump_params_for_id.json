@@ -1,0 +1,12 @@
+{
+ "version": 1,
+ "params": [
+  {"targets": ["NKE_pump/K_1"], "min": 0, "max": 1.00e+03, "name_for_plotting": "K_1"},
+  {"targets": ["NKE_pump/K_2"], "min": 0, "max": 1.00e+03, "name_for_plotting": "K_2"},
+  {"targets": ["NKE_pump/K_3"], "min": 0, "max": 1.00e+03, "name_for_plotting": "K_3"},
+  {"targets": ["NKE_pump/K_4"], "min": 0, "max": 1.00e+03, "name_for_plotting": "K_4"},
+  {"targets": ["NKE_pump/kappa_2"], "min": 0, "max": 1.00e+02, "name_for_plotting": "kappa_2"},
+  {"targets": ["NKE_pump/kappa_4"], "min": 0, "max": 1.00, "name_for_plotting": "kappa_4"},
+  {"targets": ["NKE_pump/z_1"], "min": -1.0, "max": 0.0, "name_for_plotting": "z_1"}
+ ]
+}

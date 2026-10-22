@@ -19,7 +19,7 @@ CASADI_TRUTH_VALUE_ERROR = (
 def _pid_control_generation_config(model_type, temp_generated_models_dir):
     config = {
         "file_prefix": "pid_control",
-        "input_param_file": "pid_control_parameters.csv",
+        "input_param_file": "pid_control_parameters.json",
         "model_type": model_type,
         "generated_models_dir": temp_generated_models_dir,
     }

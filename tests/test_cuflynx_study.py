@@ -197,7 +197,7 @@ def test_parser_fills_in_the_study_keys(tmp_path):
     from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
     inp = YamlFileParser().parse_user_inputs_file({
         'file_prefix': 'demo',
-        'input_param_file': 'demo_parameters.csv',
+        'input_param_file': 'demo_parameters.json',
         'resources_dir': str(tmp_path / 'resources'),
         'param_id_output_dir': str(tmp_path / 'out'),
         'generated_models_dir': str(tmp_path / 'generated_models'),

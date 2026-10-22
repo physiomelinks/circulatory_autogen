@@ -577,7 +577,7 @@ def _lotka_sim_helper(generated_cellml_model_factory, temp_model_dir, model_type
     CasADi needs a generated (casadi_compat) Python model; Myokit runs the cellml directly. Both
     are non-stiff CVODE-family integrations at tight tolerance so their trajectories agree.
     """
-    cellml = generated_cellml_model_factory("Lotka_Volterra", "Lotka_Volterra_parameters.csv")
+    cellml = generated_cellml_model_factory("Lotka_Volterra", "Lotka_Volterra_parameters.json")
     if model_type == "casadi_python":
         pytest.importorskip("casadi")
         model_path = PythonGenerator(
@@ -888,13 +888,13 @@ def test_init_states_myokit(generated_cellml_model_factory):
     Repro for computed-constant initial state values via Myokit wrapper.
 
     - Uses resources/test_init_states_module_array.csv
-    - Uses resources/test_init_states_parameters.csv where a_test_vessel = 3
+    - Uses resources/test_init_states_parameters.json where a_test_vessel = 3
     - Module defines x0 = 2 * a and x has initial_value=\"x0\"
     - Expect x(0) == 6 and y(0) == 1
     """
     cellml_path = generated_cellml_model_factory(
         "test_init_states",
-        input_param_file="test_init_states_parameters.csv",
+        input_param_file="test_init_states_parameters.json",
         solver="CVODE_myokit",
     )
 
@@ -951,7 +951,7 @@ def test_set_param_vals_updates_state_init_for_cellml_solvers(solver, model_type
     For 3compartment, q_lv initial state is controlled by q_lv_init.
     Verify set_param_vals + reset_states updates state initialization consistently.
     """
-    model_path = generated_cellml_model_factory("3compartment", "3compartment_parameters.csv", solver=solver)
+    model_path = generated_cellml_model_factory("3compartment", "3compartment_parameters.json", solver=solver)
 
     dt = 0.01
     sim_time = 0.1
@@ -1008,7 +1008,7 @@ def test_set_param_vals_updates_state_init_for_python_solver(temp_model_dir, gen
     """
     Same state-init parameter update check for Python solver helper.
     """
-    cellml_path = generated_cellml_model_factory("3compartment", "3compartment_parameters.csv")
+    cellml_path = generated_cellml_model_factory("3compartment", "3compartment_parameters.json")
 
     py_generator = PythonGenerator(
         cellml_path,
@@ -1068,8 +1068,8 @@ def temp_model_dir(request):
 
 
 @pytest.mark.parametrize("model_name,input_param_file", [
-    ("3compartment", "3compartment_parameters.csv"),
-    ("SN_simple", "SN_simple_parameters.csv"),
+    ("3compartment", "3compartment_parameters.json"),
+    ("SN_simple", "SN_simple_parameters.json"),
 ])
 @pytest.mark.parametrize("solver,solver_info", [
     pytest.param(
@@ -1140,8 +1140,8 @@ _SN_SIMPLE_XFAIL = (
 
 
 @pytest.mark.parametrize("model_name,input_param_file", [
-    ("3compartment", "3compartment_parameters.csv"),
-    pytest.param("SN_simple", "SN_simple_parameters.csv",
+    ("3compartment", "3compartment_parameters.json"),
+    pytest.param("SN_simple", "SN_simple_parameters.json",
                  marks=pytest.mark.xfail(strict=True, reason=_SN_SIMPLE_XFAIL)),
 ])
 def test_python_BDF_solver(model_name, input_param_file, temp_model_dir, generated_cellml_model_factory):
@@ -1369,10 +1369,10 @@ def _run_all_solvers_and_compare(model_name, full_model_path_cellml, temp_model_
 @pytest.mark.slow
 # .cellml gets converted to .py for python solvers
 @pytest.mark.parametrize("model_name,input_param_file,sim_time,include_casadi", [
-    ("3compartment", "3compartment_parameters.csv", 0.1, False),
-    ("SN_simple",    "SN_simple_parameters.csv",    1.0, False),
+    ("3compartment", "3compartment_parameters.json", 0.1, False),
+    ("SN_simple",    "SN_simple_parameters.json",    1.0, False),
     # Lotka-Volterra has no conditional expressions so CasADi symbolic eval works
-    ("Lotka_Volterra", "Lotka_Volterra_parameters.csv", 5.0, True),
+    ("Lotka_Volterra", "Lotka_Volterra_parameters.json", 5.0, True),
 ])
 def test_all_solvers(model_name, input_param_file, sim_time, include_casadi, temp_model_dir, generated_cellml_model_factory):
     """
@@ -1468,7 +1468,7 @@ def test_aadc_semi_implicit_vs_cvode_3compartment(aadc_licensed, temp_model_dir,
     stays visible. Note CI does not catch this: AADC is licence-gated and ``aadc_licensed``
     skips the test in an unlicensed environment.
     """
-    cellml_path = generated_cellml_model_factory("3compartment", "3compartment_parameters.csv")
+    cellml_path = generated_cellml_model_factory("3compartment", "3compartment_parameters.json")
     results, _, helpers = _run_all_solvers_and_compare(
         "3compartment", cellml_path, temp_model_dir, dt=0.001, sim_time=1.0,
         tolerance=5.0, include_aadc=True, aadc_method="semi_implicit",
@@ -1551,8 +1551,8 @@ def _max_rel_l2_error(ref_helper, other_helper, only_other_vars=None):
     # (The *stiff* 3compartment is excluded: there the diagonal damping trades
     # transient accuracy for stability — see test_param_id
     # .test_3compartment_stiff_casadi_semi_implicit_forward_and_gradient.)
-    ("Lotka_Volterra", "Lotka_Volterra_parameters.csv", 2.0, 1e-4, 1.0),
-    ("3compartment_nonstiff", "3compartment_nonstiff_parameters.csv", 0.05, 1e-5, 10.0),
+    ("Lotka_Volterra", "Lotka_Volterra_parameters.json", 2.0, 1e-4, 1.0),
+    ("3compartment_nonstiff", "3compartment_nonstiff_parameters.json", 0.05, 1e-5, 10.0),
 ])
 def test_cvode_myokit_vs_casadi_semi_implicit_euler(
     model_name, input_param_file, sim_time, dt, tolerance,
@@ -1615,7 +1615,7 @@ def test_van_der_pol_stiff_semi_implicit_euler_convergence(
     models (see the note in tutorial/docs/parameter-identification.md)."""
     pytest.importorskip("casadi")
 
-    cellml_path = generated_cellml_model_factory("VanDerPol", "VanDerPol_parameters.csv")
+    cellml_path = generated_cellml_model_factory("VanDerPol", "VanDerPol_parameters.json")
     casadi_model_path = PythonGenerator(
         cellml_path, output_dir=temp_model_dir,
         module_name="VanDerPol_casadi", casadi_compat=True,
@@ -1664,7 +1664,7 @@ def test_set_param_vals_changes_state_init_without_explicit_reset(generated_cell
     documented programmatic API -- silently simulated the old initial condition.
     """
     model_path = generated_cellml_model_factory(
-        "3compartment", "3compartment_parameters.csv", solver="CVODE_myokit")
+        "3compartment", "3compartment_parameters.json", solver="CVODE_myokit")
     helper = get_simulation_helper(
         model_path=model_path, model_type="cellml", solver="CVODE_myokit",
         dt=0.01, sim_time=0.1, pre_time=0.0,
@@ -1697,7 +1697,7 @@ def test_offline_pre_time_equals_the_same_total_warmup(generated_cellml_model_fa
     the backend primitive that a corrected offline optimisation would be rebuilt on.
     """
     model_path = generated_cellml_model_factory(
-        "3compartment", "3compartment_parameters.csv", solver="CVODE_myokit")
+        "3compartment", "3compartment_parameters.json", solver="CVODE_myokit")
     dt, sim_time, offline, logged_pre = 0.01, 0.5, 2.0, 1.0
     # Tight tolerances matter here. Splitting the warmup restarts the integrator at the boundary,
     # so the two paths take different step sequences; at Myokit's default tolerances that alone
@@ -1747,7 +1747,7 @@ def test_set_param_vals_change_states_false_rejects_states(generated_cellml_mode
     skipping the write (or applying it anyway) would both be worse than failing loudly.
     """
     model_path = generated_cellml_model_factory(
-        "3compartment", "3compartment_parameters.csv", solver="CVODE_myokit")
+        "3compartment", "3compartment_parameters.json", solver="CVODE_myokit")
     helper = get_simulation_helper(
         model_path=model_path, model_type="cellml", solver="CVODE_myokit",
         dt=0.01, sim_time=0.1, pre_time=0.0,
@@ -1770,7 +1770,7 @@ def _resolve_state_qname(helper, basename):
 def test_offline_pre_time_zero_is_a_noop(generated_cellml_model_factory):
     """A zero/negative offline warmup must leave the default state untouched."""
     model_path = generated_cellml_model_factory(
-        "3compartment", "3compartment_parameters.csv", solver="CVODE_myokit")
+        "3compartment", "3compartment_parameters.json", solver="CVODE_myokit")
     h = get_simulation_helper(
         model_path=model_path, model_type="cellml", solver="CVODE_myokit",
         dt=0.01, sim_time=0.5, pre_time=0.0,
@@ -1801,7 +1801,7 @@ def test_aadc_semi_implicit_signed_forward_tracks_cvode(temp_model_dir,
     pytest.importorskip("aadc")
 
     dt, sim_time, pre_time = 0.01, 1.0, 5.0
-    cellml_path = generated_cellml_model_factory("3compartment", "3compartment_parameters.csv")
+    cellml_path = generated_cellml_model_factory("3compartment", "3compartment_parameters.json")
 
     # Only the two backends being compared are built here. _run_all_solvers_and_compare would
     # also run solve_ivp_BDF, which cannot take a 5 s spin-up on this stiff model, so using it
