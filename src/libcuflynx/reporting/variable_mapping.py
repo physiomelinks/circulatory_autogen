@@ -24,10 +24,16 @@ import os
 import warnings
 
 from libcuflynx.reporting.latex_names import module_subscript, symbol
+from libcuflynx.schemas import VARIABLE_MAPPING_SCHEMA
+from libcuflynx.schemas.validation import SchemaValidationError, validate
 from libcuflynx.utilities.parameter_names import (GLOBAL_PARAMETER_COMPONENTS,
                                                   PARAMETER_COMPONENTS)
 
 COLUMNS = ('variable_name', 'latex', 'kind', 'component', 'units')
+#: A variable's kind (the ``kind`` column), as variable_kind gives it.
+KINDS = ('time', 'state', 'parameter', 'constant', 'algebraic')
+#: Keys of a row in memory only, never written.
+IN_MEMORY = ('default_latex', 'edited')
 ENVIRONMENT = 'environment'
 MODULE_SUFFIX = '_module'
 # the single module-array record a module (or supermodule) is generated alone as; see
@@ -187,42 +193,83 @@ def default_variable_mapping(model):
     return rows
 
 
-def read_variable_mapping(path):
-    '''``{variable_name: row}`` from a mapping CSV.'''
+def variable_mapping_document(path):
+    '''A mapping CSV as its JSON form (``variable_mapping.schema.json``): ``{'variables':
+    [row, ...]}``, a row per non-blank line with every column, values stripped.'''
     with open(path, newline='', encoding='utf-8-sig') as f:
         reader = csv.DictReader(f)
-        missing = [c for c in ('variable_name', 'latex') if c not in (reader.fieldnames or [])]
+        columns = [c.strip() for c in (reader.fieldnames or [])]
+        missing = [c for c in ('variable_name', 'latex') if c not in columns]
         if missing:
             raise VariableMappingError(f'{path}: a variable mapping needs the columns '
                                        f'{list(COLUMNS)}; {missing} missing.')
-        rows = {}
+        reader.fieldnames = columns
+        rows = []
         for row in reader:
-            name = (row.get('variable_name') or '').strip()
-            if name:
-                rows[name] = {c: (row.get(c) or '').strip() for c in COLUMNS}
+            values = {c: (row.get(c) or '').strip() for c in columns if c}
+            if any(values.values()):
+                rows.append(values)
+    return {'variables': rows}
+
+
+def _validate(document, path):
+    '''Check a mapping document against its schema; a VariableMappingError if it is refused.'''
+    try:
+        validate(VARIABLE_MAPPING_SCHEMA, document, source=str(path), what='variable mapping')
+    except SchemaValidationError as error:
+        raise VariableMappingError(str(error)) from error
+
+
+def read_variable_mapping(path):
+    '''``{variable_name: row}`` from a mapping CSV, checked against its schema. A row keeps
+    every column, libcuflynx's (COLUMNS, '' when absent) and any other.'''
+    document = variable_mapping_document(path)
+    _validate(document, path)
+    rows = {}
+    for row in document['variables']:
+        name = row['variable_name']
+        if name in rows:
+            raise VariableMappingError(f'{path}: "{name}" is in the mapping twice.')
+        rows[name] = {**{c: row.get(c, '') for c in COLUMNS}, **row}
     return rows
 
 
+def _extra_columns(rows):
+    '''The columns of ``rows`` beyond libcuflynx's, in the order first seen.'''
+    extra = []
+    for row in rows:
+        for key in row:
+            if key not in COLUMNS and key not in IN_MEMORY and key not in extra:
+                extra.append(key)
+    return extra
+
+
 def variable_mapping(model, existing=None):
-    '''The model's rows, with the ``latex`` of every row already in ``existing`` (a path or a
-    ``{variable_name: row}`` dict) kept. Each row gets ``edited``: whether its latex differs
-    from the default rule.'''
+    '''The model's rows, with the ``latex`` and any column beyond libcuflynx's (such as
+    ``bondgraph``) of every row already in ``existing`` (a path or a ``{variable_name: row}``
+    dict) kept. Each row gets ``edited``: whether its latex differs from the default rule.'''
     rows = default_variable_mapping(model)
     if isinstance(existing, (str, os.PathLike)):
         existing = read_variable_mapping(existing) if os.path.isfile(existing) else {}
     existing = existing or {}
+    extra = _extra_columns(existing.values())
     for row in rows:
         default = row['latex']
-        kept = (existing.get(row['variable_name']) or {}).get('latex')
+        old = existing.get(row['variable_name']) or {}
+        kept = old.get('latex')
         if kept:
             row['latex'] = kept
+        for column in extra:
+            row[column] = old.get(column, '')
         row['default_latex'] = default
         row['edited'] = row['latex'] != default
     return rows
 
 
 def write_variable_mapping(rows, path):
-    '''Write mapping ``rows`` (dicts with at least variable_name and latex) as a CSV.'''
+    '''Write mapping ``rows`` (dicts with at least variable_name and latex) as a CSV:
+    libcuflynx's columns, then any other the rows have. The rows are checked against the
+    schema first.'''
     seen = set()
     for row in rows:
         name = (row.get('variable_name') or '').strip()
@@ -231,21 +278,26 @@ def write_variable_mapping(rows, path):
         if name in seen:
             raise VariableMappingError(f'"{name}" is in the mapping twice.')
         seen.add(name)
+    extra = _extra_columns(rows)
+    fieldnames = list(COLUMNS) + extra
+    document = {'variables': [{c: '' if row.get(c) is None else str(row[c]).strip()
+                               for c in fieldnames} for row in rows]}
+    _validate(document, path)
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     tmp = str(path) + '.tmp'
     with open(tmp, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=list(COLUMNS), extrasaction='ignore')
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction='ignore')
         writer.writeheader()
-        for row in rows:
-            writer.writerow({c: row.get(c, '') for c in COLUMNS})
+        for row in document['variables']:
+            writer.writerow(row)
     os.replace(tmp, path)
     return str(path)
 
 
 def update_variable_mapping_file(model, path):
     '''Create or refresh the mapping file at ``path`` for ``model``: new variables get the
-    default symbol, existing rows keep theirs, rows for variables the model no longer has
-    are dropped. Returns the rows.'''
+    default symbol, existing rows keep theirs and their other columns, rows for variables the
+    model no longer has are dropped. Returns the rows.'''
     rows = variable_mapping(model, path)
     write_variable_mapping(rows, path)
     return rows

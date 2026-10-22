@@ -1,0 +1,10 @@
+variable_name,latex,kind,component,units,bondgraph
+environment/time,t,time,environment,s,
+Xi/Xi,\Xi_{\mathrm{Xi}},state,Xi,mM (1e-06),q_Xi
+Xi/ai,\mathrm{ai}_{\mathrm{Xi}},constant,Xi,mol/m^3/s (1e-06),
+Xi/bi,\mathrm{bi}_{\mathrm{Xi}},constant,Xi,mol/m^3/s (1e-06),
+Xi/Ai,\mathrm{Ai}_{\mathrm{Xi}},constant,Xi,dimensionless,
+Xi/ki,\mathrm{ki}_{\mathrm{Xi}},constant,Xi,m^3/mol (1e+06),
+Yi/Yi,\mathrm{Yi}_{\mathrm{Yi}},state,Yi,mM (1e-06),q_Yi
+Yi/beta_i,"\beta_{i,\mathrm{Yi}}",constant,Yi,mol/m^3/s (1e-06),
+Yi/alpha_i,"\alpha_{i,\mathrm{Yi}}",constant,Yi,S/F,

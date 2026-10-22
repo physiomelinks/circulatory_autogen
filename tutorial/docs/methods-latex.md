@@ -27,6 +27,9 @@ Each command writes `<prefix>_variable_mapping.csv` beside the model. For a cali
 | `latex` | The symbol, without `$`. **Edit these.** |
 | `kind` | `state`, `parameter`, `constant`, `algebraic` or `time`. |
 | `component`, `units` | Where the variable is defined, and its units. |
+| any other | Kept as it is. A CellDL editor or `bgtool --variable-mapping` adds `bondgraph`, each variable's bond graph name. |
+
+The file's structure is defined by `src/libcuflynx/schemas/variable_mapping.schema.json`, the JSON form a CSV is converted to when it is read (`variable_mapping_document`). Only `variable_name` and `latex` are required. An empty `kind` or `units` is filled in from the model when the file is refreshed. Reading or writing a file the schema refuses raises an error that gives each problem and where it is: the row's index among the non-blank rows, counting from 0, and the column (`variables[1].kind`).
 
 The default symbols follow a simple rule, meant to be edited:
 
@@ -35,7 +38,7 @@ The default symbols follow a simple rule, meant to be edited:
 - **Upright text:** one-character parts stay italic, and longer ones are set upright: `Nai` → $\mathrm{Nai}$.
 - **Module subscript:** the module a variable belongs to is added as a last subscript. A generated parameter `<var>_<vessel>` is split into its variable and its vessel. In a model generated alone (vessel `mod`), the `mod_` prefix is dropped: `p_mod_A` → $p_{A}$.
 
-Running the command again keeps every symbol already in the file. It adds new variables with the default rule and drops variables the model no longer has. The command also warns when two variables share a symbol, because they could not be told apart in the equations. CUFLynx edits the same file from its Variables panel.
+Running the command again keeps every symbol already in the file, and every column beyond these. It adds new variables with the default rule and drops variables the model no longer has. The command also warns when two variables share a symbol, because they could not be told apart in the equations. CUFLynx edits the same file from its Variables panel.
 
 ## The methods section
 

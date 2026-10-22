@@ -15,7 +15,8 @@ import os
 import sys
 
 from libcuflynx.schemas import (CALIBRATION_WORKFLOW_SCHEMA, MODULE_CONFIG_SCHEMA,
-                                OBS_DATA_SCHEMA, PARAMS_FOR_ID_SCHEMA, load_schema, schema_file)
+                                OBS_DATA_SCHEMA, PARAMS_FOR_ID_SCHEMA, VARIABLE_MAPPING_SCHEMA,
+                                load_schema, schema_file)
 
 
 def _registries():
@@ -23,6 +24,7 @@ def _registries():
     from libcuflynx.param_id.prediction_plots import (FEATURE_KINDS, KINDS, REDUCE_MODES,
                                                       TIME_COURSE_KINDS)
     from libcuflynx.parsers.PrimitiveParsers import PARAM_PRIOR_TYPES
+    from libcuflynx.reporting.variable_mapping import KINDS as MAPPING_KINDS
     from libcuflynx.sensitivity_analysis.parameter_reduction import INDEX_TYPES
     from libcuflynx.sensitivity_analysis.sobol_ranking import CRITERIA
     from libcuflynx.utilities.config_schemas import VARIABLE_ACCESS, VARIABLE_KINDS
@@ -50,6 +52,7 @@ def _registries():
          '/$defs/step/properties/reduction/properties/criterion/enum'): list(CRITERIA),
         # the settings a workflow may set: the keys of its settings object
         (CALIBRATION_WORKFLOW_SCHEMA, '/$defs/settings/properties'): list(ALLOWED_SETTINGS),
+        (VARIABLE_MAPPING_SCHEMA, '/$defs/row/properties/kind/anyOf/0/enum'): list(MAPPING_KINDS),
         (MODULE_CONFIG_SCHEMA,
          '/$defs/phlynxComponent/properties/variables_and_units/items/prefixItems/2/enum'):
             list(VARIABLE_ACCESS),
