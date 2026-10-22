@@ -1166,6 +1166,9 @@ Paths are relative to the workflow file. A **model** is one of:
 - **a module of a module library**, as `{"module_type": "i_M", "version": "Argus2026_v01",
   "parameterisation": "davis2020_wistar"}`. The library is found through `module_library_dirs`
   (see [module parameterisations](design-model.md#module-versions-and-parameterisations)).
+- (a step's, with a module-array target) **a selection** of the target's instances, as
+  `{"select": ["C"]}` or `{"select": ["heart/lv"]}` (see
+  [Calibrating a selection](#calibrating-a-selection)).
 
 | Key | Meaning |
 |---|---|
@@ -1185,6 +1188,49 @@ A step runs after every step it takes something from (`fixed_from`, `priors_from
 in [Step kinds](#step-kinds)), since it needs their results; steps that pass nothing between
 them run in file order. Here `whole-circulation` runs after `aorta-compliance`, with the aorta's
 calibrated values fixed.
+
+### Calibrating a selection
+
+A step can calibrate some instances of a module-array target as they are in it, without a model
+file of its own:
+
+```json
+{"id": "c-alone", "model": {"select": ["C"]},
+ "obs_data": "data/c_obs.json", "params_for_id": "data/c_params.json"}
+```
+
+A selection runs as one of the other models:
+
+- **one instance** -- a record, or `heart/lv` inside a super instance -- is its library module,
+  the record's version and parameterisation (a submodule's: its version's default), placed at that
+  instance as `"vessel"` would place it. A selected supermodule instance is generated with the
+  model's values for it;
+- **several records** are the module array they form, cut from the target. A link to a record
+  outside the selection is dropped, which leaves that port open.
+
+The step starts from the target's values for its instances: the entries of the target's
+parameters file under them, a nested instance's under its path (`heart/lv`; see
+[A model's supermodule instances](design-model.md#a-models-supermodule-instances)). Values fixed
+from earlier steps go over those. Its obs_data and params_for_id name vessels as
+the target does (`C/z`, `heart__lv/E`). For one instance, whose model is generated as `mod`,
+renamed copies are written to `<step_id>/inputs/` and run from there.
+
+A port the selection leaves open turns its boundary condition into a parameter. Give it a
+protocol in the step's obs_data, which sets its value while the step runs:
+
+```json
+"protocol_info": {"pre_times": [0.0], "sim_times": [[1.0]],
+                  "params_to_change": {"C/x": [[8.0]]}}
+```
+
+Without one, it takes the parameterisation's value or the target's row. A parameter with none
+of these stops the step with an `UnsetParametersError`, whose `names` list them as the target's
+parameters file does (`C/x`), so a front end can ask for their protocols. The results merge
+into the target like any step's: in `<prefix>_calibrated_parameters.json` (`write_calibrated`),
+a copy of the target's parameters file, only the values the step calibrated change, a value
+inside a super instance under its path (`heart/lv/E`).
+`write_calibrated_parameters_to(source, output_dir, path)` writes the same file to `path`, and
+nothing else: neither the target's files nor the supermodule version's template change.
 
 ### Step kinds
 

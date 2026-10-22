@@ -8,7 +8,8 @@ A step's values reach the target, and other steps, through a vessel map (``namin
   ``submodule``, inferred when its module type occurs once);
 * a library module in a module-array target is one of its records (``Placed``; the step's
   ``vessel``, inferred likewise);
-* a module array keeps its vessel names, unless its ``vessel_map`` renames them (``Renamed``).
+* a module array keeps its vessel names, unless its ``vessel_map`` renames them (``Renamed``);
+* a selection of the target's instances is one of these (``select.resolve_selection``).
 '''
 
 import os
@@ -16,6 +17,7 @@ import warnings
 from dataclasses import dataclass, field
 
 from libcuflynx.calibration_workflow import naming
+from libcuflynx.calibration_workflow.select import resolve_selection
 from libcuflynx.utilities.parameter_names import flat_name
 from libcuflynx.calibration_workflow.spec import WorkflowError
 from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser
@@ -143,6 +145,19 @@ class ResolvedStep:
     vessel_map: object             # naming.VesselMap
     parameters: list = field(default_factory=list)   # [CalibratedParameter]
     target: object = None          # the workflow target, resolved
+    selection: object = None       # select.ResolvedSelection of a selection step
+
+    @property
+    def base_rows(self):
+        '''The parameter rows the step's model starts from, under any fixed values: the
+        target's values for a selection, none otherwise.'''
+        return list(self.selection.rows) if self.selection else []
+
+    @property
+    def renames_inputs(self):
+        '''Whether the step's obs_data and params_for_id name vessels as the target does while
+        its model names them otherwise (a selection of one instance, generated as ``mod``).'''
+        return bool(self.selection and self.selection.vessel)
 
     @property
     def obs_data_path(self):
@@ -212,7 +227,9 @@ def library_inputs(workflow, settings=None):
 
 def resolve_workflow(workflow):
     '''The workflow's models and files, checked, and each step's vessel map into the target.'''
-    library = [s.model for s in workflow.steps if s.model is not None] + [workflow.target]
+    # a selection's modules are the target's, so it needs the library only as the target does
+    library = [s.model for s in workflow.steps
+               if s.model is not None and s.model.kind != 'selection'] + [workflow.target]
     if any(m.kind == 'library' for m in library) and not workflow.module_library_dirs:
         raise WorkflowError(
             f'workflow "{workflow.name}" uses a library module but names no module library. '
@@ -239,7 +256,18 @@ def resolve_workflow(workflow):
             resolved[step.id] = ResolvedStep(step=step, model=None, vessel_map=None,
                                              parameters=[], target=target)
             continue
-        model = _resolve_model(step.model, components, supermodules, where)
+        selection = None
+        if step.model.kind == 'selection':
+            selection = resolve_selection(step, target, components, supermodules)
+            if selection.vessel:
+                model = _resolve_model(selection.model, components, supermodules, where)
+                vessel_map = naming.Placed(selection.vessel, model.vessels)
+            else:
+                model = ResolvedArray(model=selection.model, records=selection.model.records,
+                                      supermodules=supermodules)
+                vessel_map = naming.Renamed({}, model.vessels)
+        else:
+            model = _resolve_model(step.model, components, supermodules, where)
         # a calibration fitting a reduction's choice is checked against every candidate: the
         # params_for_id of the sensitivity step the reduction reads
         params_for_id = step.params_for_id or workflow.step(
@@ -247,10 +275,14 @@ def resolve_workflow(workflow):
         for path, what in ((step.obs_data, 'obs_data'), (params_for_id, 'params_for_id')):
             if not os.path.isfile(path):
                 raise WorkflowError(f'{where}: its {what} file {path} does not exist.')
-        vessel_map = _vessel_map(step, model, workflow.target, target, supermodules)
+        if selection is None:
+            vessel_map = _vessel_map(step, model, workflow.target, target, supermodules)
         parameters = read_calibrated_parameters(params_for_id, where)
+        if selection is not None and selection.vessel:
+            parameters = _in_step_naming(parameters, vessel_map, target.vessels, step)
         resolved_step = ResolvedStep(step=step, model=model, vessel_map=vessel_map,
-                                     parameters=parameters, target=target)
+                                     parameters=parameters, target=target,
+                                     selection=selection)
         for parameter in parameters:
             if parameter.vessel not in model.vessels and not naming.is_global(parameter.vessel):
                 raise WorkflowError(
@@ -395,6 +427,22 @@ def read_calibrated_parameters(params_for_id_path, where=''):
                                     f'into vessel and parameter.')
             parameters.append(CalibratedParameter(vessel=vessel, param=param))
     return parameters
+
+
+def _in_step_naming(parameters, vessel_map, target_vessels, step):
+    '''A selection's ``parameters``, written with the target's vessels, named in its model.'''
+    out = []
+    for parameter in parameters:
+        vessel = parameter.vessel
+        if vessel in target_vessels:
+            vessel = vessel_map.from_target(vessel)
+            if vessel is None:
+                raise WorkflowError(
+                    f'step "{step.id}": {step.params_for_id} calibrates '
+                    f'"{parameter.vessel}/{parameter.param}", which is outside its selection '
+                    f'{", ".join(step.model.names)}.')
+        out.append(CalibratedParameter(vessel=vessel, param=parameter.param))
+    return out
 
 
 def _resolve_parameterisation(target, components, supermodules, where):

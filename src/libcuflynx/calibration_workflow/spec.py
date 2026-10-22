@@ -116,6 +116,22 @@ class ModuleArray:
         return {'module_array': self.module_array, 'parameters': self.parameters}
 
 
+@dataclass(frozen=True)
+class Selection:
+    '''Instances of the workflow's module-array target (``names``: record names, or paths into
+    a super instance such as ``heart/lv``), calibrated as they are in the target. The resolver
+    gives the model the step runs (``select.resolve_selection``).'''
+    names: tuple
+
+    kind = 'selection'
+
+    def label(self):
+        return 'selection ' + ', '.join(self.names)
+
+    def as_dict(self):
+        return {'select': list(self.names)}
+
+
 def array_prefix(path):
     '''The file prefix of a module array file (``aorta`` for ``aorta_module_array.csv``).'''
     name = os.path.basename(path)
@@ -142,7 +158,8 @@ class PriorSource:
 @dataclass
 class Step:
     id: str
-    model: object                  # Target (a library module) or ModuleArray; None: reduction
+    model: object                  # Target (a library module), ModuleArray or Selection;
+                                   # None: a reduction
     obs_data: str                  # None for a reduction
     params_for_id: str             # None for a reduction, or a step with params_for_id_from
     kind: str = DEFAULT_KIND
@@ -271,9 +288,12 @@ def _path(value, base_dir):
 
 def _model(value, base_dir):
     '''A ``model`` (or the workflow ``target``): a module array path, ``{"module_array",
-    "parameters"}``, or a library module ``{"module_type", "version", "parameterisation"}``.'''
+    "parameters"}``, a library module ``{"module_type", "version", "parameterisation"}``, or
+    (a step's) a selection of the target's instances ``{"select": [...]}``.'''
     if isinstance(value, str):
         value = {'module_array': value}
+    if 'select' in value:
+        return Selection(tuple(name.strip() for name in value['select']))
     if 'module_array' in value:
         array = _path(value['module_array'], base_dir)
         parameters = (_path(value['parameters'], base_dir) if 'parameters' in value else
@@ -350,6 +370,9 @@ def _step(value, where, base_dir):
                             f'it has no "fixed_from" or "result_from" of its own.')
     model = _model(value['model'], base_dir)
     submodule, vessel = value.get('submodule'), value.get('vessel')
+    if model.kind == 'selection' and (submodule or vessel or value.get('vessel_map')):
+        raise WorkflowError(f'{label}: a selection is calibrated where its instances are in the '
+                            f'target, so it has no "submodule", "vessel" or "vessel_map".')
     if (submodule or vessel) and model.kind != 'library':
         raise WorkflowError(f'{label}: "submodule" and "vessel" place a library module in the '
                             f'target; a module-array model maps its vessels with "vessel_map".')
@@ -390,6 +413,12 @@ def check_workflow(workflow):
             if dep == step.id:
                 raise WorkflowError(f'step "{step.id}" takes from itself.')
     workflow.topological_order()  # raises on a cycle
+    selections = [s.id for s in workflow.steps
+                  if s.model is not None and s.model.kind == 'selection']
+    if selections and workflow.target.kind != 'array':
+        raise WorkflowError(f'steps {selections} select instances of the target, which only a '
+                            f'module-array target has; this target is the library module '
+                            f'{workflow.target.label()}.')
 
     for step in workflow.steps:
         for key, sources in step.sources().items():

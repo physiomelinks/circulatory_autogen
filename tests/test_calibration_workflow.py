@@ -646,6 +646,38 @@ def test_a_tab_shows_each_model_with_the_values_available_so_far(library, tmp_pa
                           work_dir=work)['stale'] == ['fit_a']
 
 
+@pytest.mark.integration
+def test_a_run_made_step_by_step_writes_its_calibrated_parameters_where_asked(library,
+                                                                              tmp_path):
+    from libcuflynx.calibration_workflow import write_calibrated_parameters_to
+
+    out, path = str(tmp_path / 'run'), str(tmp_path / 'send' / 'chain_parameters.json')
+    run_calibration_workflow(library['chain_array'], output_dir=out, only='a-alone')
+    with pytest.raises(WorkflowError, match=r"steps \['chain'\] have no current result"):
+        write_calibrated_parameters_to(library['chain_array'], out, path)
+    run_calibration_workflow(library['chain_array'], output_dir=out, from_step='chain')
+    before = {name: open(os.path.join(library['arrays'], name), 'rb').read()
+              for name in sorted(os.listdir(library['arrays']))
+              if os.path.isfile(os.path.join(library['arrays'], name))}
+    assert write_calibrated_parameters_to(library['chain_array'], out, path) == path
+    rows = {r['variable_name']: r for r in read_parameters(path)}
+    assert float(rows['A/p']['value']) == pytest.approx(np.sqrt(Y_A / 2), rel=1e-4)
+    assert float(rows['C/q']['value']) == pytest.approx(np.sqrt(Z_C - Y_A), rel=1e-4)
+    assert rows['C/k']['value'] == '1.0'                # not calibrated: as in the target
+    assert 'step chain' in rows['C/q']['data_reference']
+    # only path is written: the target's own files are as they were, and nothing is added
+    assert {name: open(os.path.join(library['arrays'], name), 'rb').read()
+            for name in sorted(os.listdir(library['arrays']))
+            if os.path.isfile(os.path.join(library['arrays'], name))} == before
+
+    obs_path = os.path.join(library['arrays'], 'data', 'chain_obs.json')
+    obs = _read_json(obs_path)
+    obs['data_items'][0]['std'] = 0.2
+    _write_json(obs_path, obs)
+    with pytest.raises(WorkflowError, match=r"steps \['chain'\]"):
+        write_calibrated_parameters_to(library['chain_array'], out, path)
+
+
 @pytest.mark.unit
 def test_calibrated_values_replace_their_rows_and_new_ones_are_added(tmp_path):
     from libcuflynx.calibration_workflow.runner import write_calibrated_parameters

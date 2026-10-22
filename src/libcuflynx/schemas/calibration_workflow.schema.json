@@ -63,6 +63,41 @@
         }
       ]
     },
+    "step_model": {
+      "if": {
+        "type": "object",
+        "required": [
+          "select"
+        ]
+      },
+      "then": {
+        "$ref": "#/$defs/selection"
+      },
+      "else": {
+        "$ref": "#/$defs/model"
+      }
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "select"
+      ],
+      "properties": {
+        "select": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^\\s*[^\\s/]+(/[^\\s/]+)*\\s*$",
+            "description": "an instance of the target: a record name, or a path into a super instance (heart/lv)"
+          },
+          "description": "instances of the workflow's module-array target, calibrated as they are in it. One instance is calibrated as its library module, placed at that instance; several (records of the target) as the module array they form, cut from the target"
+        }
+      },
+      "description": "a selection of the target's instances"
+    },
     "module_array": {
       "type": "object",
       "additionalProperties": false,
@@ -227,7 +262,7 @@
           "type": "string"
         },
         "model": {
-          "$ref": "#/$defs/model",
+          "$ref": "#/$defs/step_model",
           "description": "the model this step runs on"
         },
         "obs_data": {
