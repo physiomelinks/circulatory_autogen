@@ -238,7 +238,8 @@ this project.
 !!! danger "AADC is third-party proprietary software and is NOT part of Circulatory Autogen"
     - **Not included, not required.** AADC is **not** shipped with Circulatory Autogen and
       **no** feature of Circulatory Autogen depends on it. The project is fully functional,
-      and fully open source, without it. Nothing installs it for you.
+      and fully open source, without it. Nothing installs it unless you ask for the
+      `[aadc]` extra below, which is in neither `[all]` nor `[dev]`.
     - **Not open source.** [AADC](https://matlogica.com/) is a commercial product of
       **Matlogica**, distributed under **Matlogica's own proprietary licence** — *not* under
       Circulatory Autogen's Apache-2.0 licence, and not under any open-source licence. Its
@@ -258,13 +259,24 @@ this project.
       alternative for licensed academic users; you never need it.
 
 If, and only if, you hold a Matlogica licence and accept their terms, the optional adapter
-is enabled by installing the package:
+is enabled by installing the `aadc` extra:
 
 ```
-python -m pip install aadc
+python -m pip install "libcuflynx[aadc]"
 ```
 
-(Into the same venv you installed the project into — the one `python_path` points at.)
+(Into the same venv you installed the project into — the one `python_path` points at. From a
+checkout, `python -m pip install -e ".[aadc]"`.)
+
+The extra installs two packages from PyPI:
+
+- `aadc>=2.12,<3` — Matlogica's AADC, under the **Matlogica EULA**: non-commercial /
+  academic use only, published as **binary wheels only** (no source), for **Python >= 3.10**.
+  On Python 3.9 the extra does not resolve.
+- `aadc-ode` — ODE integration on top of AADC. The `gradient_strategy: kernel` gradient of
+  `method: semi_implicit_signed` replays its recorded kernel through it. Without it that
+  strategy warns and falls back to `gradient_strategy: tape`, which integrates the same scheme
+  with a slower gradient.
 
 and then selecting it in your `user_inputs.yaml`:
 

@@ -136,9 +136,7 @@ where = ["src"]
 # libcuflynx/utilities/package_resources.py), never by walking up from __file__.
 # Deliberately NOT shipped: src/libcuflynx/coupler/* (C++ sources plus a Makefile for a
 # separately built 1D-0D coupler executable -- nothing in the Python reads them, and
-# building in place would mean writing into site-packages) and
-# src/libcuflynx/param_id/aadc_native/bdf_loop.cpp (source for an optional AADC extension
-# the user compiles themselves; only ever named in a log message).
+# building in place would mean writing into site-packages).
 [tool.setuptools.package-data]
 # The CellML module library and the built-in module configs (~3 MB, ~0.5 MB compressed),
 # plus the C++ templates CVSCppGenerator reads for model_type: cpp.
@@ -206,6 +204,16 @@ emulation = [
 # list. The extra exists so `pip install "libcuflynx[cpp]"` and `[all]` resolve rather than
 # erroring on an undefined extra, and so this note has somewhere to live.
 cpp = []
+# AADC (Matlogica) AD backend -- `model_type: aadc_python` -- and aadc-ode, which the
+# `gradient_strategy: kernel` gradient of `semi_implicit_signed` replays its kernel through.
+# AADC is proprietary: binary wheels only, Python >=3.10, under the Matlogica EULA, which
+# limits it to non-commercial / academic use. That is why this extra is in neither [all] nor
+# [dev]: installing it is an explicit choice to accept those terms. Every import is lazy; without
+# aadc-ode the kernel strategy warns and falls back to the tape strategy.
+aadc = [
+    "aadc>=2.12,<3",
+    "aadc-ode>=0.6.5",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=3.0.0",

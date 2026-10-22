@@ -801,31 +801,32 @@ Before doing calibration, a solver for the model needs to be chosen
     reports how many and which). Tighten `rtol`/`atol` when using FSA so the sensitivities are well
     resolved.
 
-!!! warning "our AADC wrapper is not yet suitable for stiff models or multiple observables"
+!!! warning "our AADC wrapper is not yet suitable for stiff models or general observables"
     The AADC tape backend (`model_type: aadc_python`) records a **fixed-step** integrator, which is
     inaccurate or unstable on stiff models — on the 3compartment cardiovascular model its
     fixed-step implicit solve deviates from CVODE by orders of magnitude. Every AADC run now probes
     the first second of dynamics and prints a loud warning if the model is stiff, pointing you at
     CasADi `bdf` or Myokit CVODES FSA instead.
 
-    **AADC is also not currently suitable for problems with multiple observables.** Its tape cost
-    can only represent an observable whose operand is a **state** with a reimplemented operation
-    (`max`/`min`/`mean`), in a **single** experiment. Any other observable — one whose operand is an
-    **algebraic variable** (e.g. a pressure or flow computed from the states rather than integrated),
-    an operation the tape does not reimplement (e.g. `max_minus_min`), or a `series`/other data type
-    — **cannot be put on the tape**. Rather than silently minimise a reduced cost over only the
-    tapeable subset (which would give a fit that is wrong for the omitted observables), the AADC
-    gradient path **raises an error** as soon as any observable in the set can't be taped, naming
-    the offending observables and pointing at the tracking issue (#258). On the 3compartment model,
-    for instance, only 2 of the 6 observables are tapeable (the `aortic_root/u` features are
-    algebraic and `heart/q_lv` uses `max_minus_min`), so AADC refuses to run there and is left off
-    that benchmark. Full-cost parity needs the algebraic variables recomputed on the tape from the
-    state trajectory and `max_minus_min` support (tracked in issue #258). Until then, use AADC only
-    for non-stiff, single-experiment problems whose observables are all state-operand
-    `max`/`min`/`mean` features (or state series); for other observables use `casadi_python`
-    (`method: bdf`) or a Myokit CVODES FSA run, which the error message also points you to. Future
-    work will get it working for stiff models and general observables so its advantages for large
-    numbers of parameters can be used.
+    **AADC puts only some observables on the tape.** The operand may be a **state** or an
+    **algebraic variable** (a pressure or flow computed from the states, which the tape recomputes
+    from them at each step), and the observable must be one of:
+
+    - a `constant` with operation `mean`, `max`, `min` or `max_minus_min` (or no operation, which
+      takes the final value) — on the tape-consistent methods (`rk4`, `semi_implicit`,
+      `implicit_euler_ift`, `implicit_newton`);
+    - a `series` on a state or algebraic variable — on the tape-consistent methods only;
+    - a `constant` with operation `mean`, `max`, `min` or `max_minus_min` — on
+      `semi_implicit_signed` with `gradient_strategy: kernel` (aadc-ode). A series is not
+      supported there.
+
+    Any other observable — a user operation such as `steady_state_avg`, another data type, or an
+    operand that names neither a state nor a variable — makes the gradient **raise an error** on
+    those paths, naming the observables it cannot tape, rather than silently minimising a reduced
+    cost. The `bdf_newton` method and the `semi_implicit_signed` `tape` strategy do not check yet:
+    they leave such an observable out of the cost, or cost it wrongly, so keep to the observables
+    above there. For
+    other observables use `casadi_python` (`method: bdf`) or a Myokit CVODES FSA run.
 
     **Multiple sub-experiments / experiments are not yet supported by the AADC wrapper.** The tape
     records one straight-line integration, so a protocol with more than one sub-experiment (or more
@@ -938,7 +939,7 @@ L-BFGS-B only ever finds the minimum of the basin it starts in, so on a multi-mo
 !!! note "Parallel multi-start pays off only for many starts"
     The starts are distributed statically round-robin over the MPI ranks (`run_param_id.sh` with `num_processors > 1`). Because individual L-BFGS-B descents vary a lot in length — some converge in a handful of iterations, some take many — the per-rank workloads only even out when **each rank runs many starts**, i.e. when `num_starts` is much larger than the number of ranks. With `num_starts ≤ num_processors` each rank runs a single descent and the wall-clock is bounded by the slowest one, so extra ranks buy little. As a rule of thumb, run with several times as many starts as ranks. Measured on a 20-core host with 100 starts: ~3.8× on 4 ranks, ~4× on 8. Once any start reaches `cost_convergence`, every rank stops launching new starts, so a converged run doesn't keep the other ranks busy needlessly. `run()` reports the achieved speedup in its final log line.
 
-This works for **any** `model_type`. The gradient comes from `get_gradient()`, which has an AD backend for `casadi_python` (symbolic jacobian), `cellml` run through `CVODE_myokit` with `do_ad: true` (Myokit CVODES forward sensitivity), and `aadc_python` (tape reverse pass — non-stiff, state-observable, single-experiment problems only; see the AADC caveat in the Solver section). For every other configuration there is no AD gradient, so the cost is evaluated with the usual simulation cost and the gradient falls back to finite differences.
+This works for **any** `model_type`. The gradient comes from `get_gradient()`, which has an AD backend for `casadi_python` (symbolic jacobian), `cellml` run through `CVODE_myokit` with `do_ad: true` (Myokit CVODES forward sensitivity), and `aadc_python` (tape reverse pass — non-stiff, single-experiment problems with the observables listed in the AADC caveat in the Solver section). For every other configuration there is no AD gradient, so the cost is evaluated with the usual simulation cost and the gradient falls back to finite differences.
 
 Example configuration:
 ```yaml

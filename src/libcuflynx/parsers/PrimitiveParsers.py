@@ -431,8 +431,9 @@ SOLVER_INFO_FIELDS = {
          'choices': ['tape', 'kernel'],
          'description': "How method 'semi_implicit_signed' evaluates its gradient: 'tape' "
                         "records the whole integration on one AADC tape and replays it; "
-                        "'kernel' replays a recorded kernel from C++ (faster, and falls back "
-                        "to 'tape' when the C++ extension is not built). Same integration "
+                        "'kernel' replays compute_rates recorded once as an aadc-ode kernel "
+                        "(faster; needs the [aadc] extra, and falls back to 'tape' with a "
+                        "warning when aadc-ode is not installed). Same integration "
                         "either way -- this chooses where the loop runs, not what it solves. "
                         "Ignored by every other method."},
         # No 'gradient_method' here: nothing reads it. AD vs FD is chosen by the `do_ad` flag

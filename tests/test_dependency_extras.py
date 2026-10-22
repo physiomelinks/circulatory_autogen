@@ -344,7 +344,7 @@ def test_the_heavy_packages_are_not_required():
     """The list a `pip install libcuflynx` resolves. Each of these has a guarded import and a
     message naming its extra; putting any of them back here would undo that."""
     required = ' '.join(_load_pyproject()['project']['dependencies']).lower()
-    for package in ('mpi4py', 'casadi', 'pymc', 'autoemulate', 'schwimmbad'):
+    for package in ('mpi4py', 'casadi', 'pymc', 'autoemulate', 'schwimmbad', 'aadc'):
         assert package not in required, (
             '%s is an optional extra, but it is in [project] dependencies' % package)
 
@@ -363,6 +363,8 @@ def test_every_extra_the_epic_names_exists():
     ('casadi', 'casadi'),
     ('uq', 'pymc'),
     ('emulation', 'autoemulate'),
+    ('aadc', 'aadc>'),
+    ('aadc', 'aadc-ode'),
 ])
 def test_each_extra_carries_its_package(extra, package):
     extras = _load_pyproject()['project']['optional-dependencies']
@@ -397,3 +399,12 @@ def test_all_is_every_runtime_extra():
     referenced = {spec.split('[', 1)[1].rstrip(']') for spec in extras['all']
                   if spec.startswith('libcuflynx[')}
     assert referenced == {'mpi', 'casadi', 'uq', 'emulation', 'cpp'}
+
+
+@pytest.mark.unit
+def test_the_proprietary_aadc_extra_is_opt_in_only():
+    """AADC is under the Matlogica EULA (non-commercial / academic use), so installing it has to
+    be an explicit choice: `[aadc]` is in neither `[all]` nor `[dev]`."""
+    extras = _load_pyproject()['project']['optional-dependencies']
+    for name in ('all', 'dev'):
+        assert not any('aadc' in spec for spec in extras[name]), (name, extras[name])

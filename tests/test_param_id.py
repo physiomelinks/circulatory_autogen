@@ -4784,26 +4784,45 @@ def _aadc_3compartment_config(base_user_inputs, resources_dir, temp_output_dir,
 
 @pytest.mark.integration
 @pytest.mark.slow
-def test_aadc_gradient_rejects_untapeable_observables(
+def test_aadc_gradient_tapes_algebraic_and_max_minus_min_observables(
         aadc_licensed, base_user_inputs, resources_dir, temp_output_dir,
         temp_generated_models_dir):
-    """The current AADC wrapper can only tape an observable whose operand is a state with a
-    max/min/mean operation (or a state series). 3compartment's obs set has algebraic-variable
-    operands (aortic_root/u) and a max_minus_min, so the tape cannot represent them. Taping only
-    the rest would silently minimise a reduced cost, so the wrapper must raise -- and the message
-    must point at the tracking issue (#258) and the working alternatives (CasADi bdf / Myokit
-    FSA)."""
+    """The tape-consistent AADC path puts every 3compartment observable on the tape: the
+    algebraic-variable operands (aortic_root/u, recomputed from the states at each step) and the
+    max_minus_min features as well as the state-operand max/mean ones. None may drop out, so the
+    tape cost must equal the forward-solve cost and the gradient must agree with a finite
+    difference of it. An observable the tape does not re-implement (here a user operation) is
+    refused rather than left out of the cost."""
     inner = _init_aadc_param_id(
         _aadc_3compartment_config(base_user_inputs, resources_dir, temp_output_dir,
                                   temp_generated_models_dir),
         resources_dir)
+    assert 'max_minus_min' in inner.obs_info['operations']
 
-    with pytest.raises(NotImplementedError,
-                       match=r'cannot be represented on the AADC tape'):
-        inner.get_gradient(np.asarray(inner.param_init, dtype=float))
-    # the error must name the tracking issue so users know it is a known limitation
-    with pytest.raises(NotImplementedError, match=r'#258'):
-        inner.get_gradient(np.asarray(inner.param_init, dtype=float))
+    p0 = np.asarray(inner.param_init, dtype=float)
+    tape_cost = float(inner.get_cost_aadc(p0))
+    forward_cost = float(inner.get_cost_from_params(p0))
+    assert tape_cost == pytest.approx(forward_cost, rel=1e-6), (
+        f'the AADC tape cost ({tape_cost}) is not the forward-solve cost ({forward_cost}): an '
+        f'observable has dropped out of the tape cost')
+
+    grad = np.asarray(inner.get_gradient(p0), dtype=float).flatten()
+    assert grad.shape == p0.shape and np.all(np.isfinite(grad))
+    for j in range(len(p0)):
+        step = 1e-6 * abs(p0[j])
+        up, down = p0.copy(), p0.copy()
+        up[j] += step
+        down[j] -= step
+        fd = (float(inner.get_cost(up)) - float(inner.get_cost(down))) / (2 * step)
+        assert grad[j] == pytest.approx(fd, rel=1e-3, abs=1e-12), (
+            f'AADC gradient[{j}] = {grad[j]} disagrees with the finite difference {fd}')
+
+    # steady_state_avg is a user operation the tape does not re-implement
+    untapeable = dict(inner.obs_info)
+    untapeable['operations'] = ['steady_state_avg'] + list(inner.obs_info['operations'][1:])
+    inner.obs_info = untapeable
+    with pytest.raises(NotImplementedError, match=r'cannot be represented on the AADC tape'):
+        inner.get_gradient(p0)
 
 
 def _aadc_fitzhugh_nagumo_config(base_user_inputs, resources_dir, temp_output_dir,
