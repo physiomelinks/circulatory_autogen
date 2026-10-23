@@ -62,7 +62,31 @@ import fcntl
 import io
 import contextlib
 import time
-from mpi4py import MPI
+try:
+    from mpi4py import MPI
+except ModuleNotFoundError:
+    # mpi4py is an optional extra (`libcuflynx[mpi]`). Without it the single-rank suite
+    # (e.g. the AADC and solver tests) must still collect and run, so fall back to a
+    # minimal rank-0/size-1 stub instead of failing collection. Real multi-rank runs
+    # still require `pip install "libcuflynx[mpi]"`; only the stubbed comm is replaced.
+    class _SingleRankComm:
+        def Get_rank(self):
+            return 0
+        def Get_size(self):
+            return 1
+        def Barrier(self):
+            pass
+        def Abort(self, errorcode=0):
+            raise SystemExit(errorcode)
+    class _MPIStub:
+        COMM_WORLD = _SingleRankComm()
+        @staticmethod
+        def Is_initialized():
+            return False
+        @staticmethod
+        def Finalize():
+            pass
+    MPI = _MPIStub()
 
 # Put this worktree's src/ first on sys.path so the suite exercises the libcuflynx in
 # this tree rather than a copy pip happens to have installed elsewhere. This is the
