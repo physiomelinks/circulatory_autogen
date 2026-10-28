@@ -713,7 +713,7 @@ Note:
 Before doing calibration, a solver for the model needs to be chosen
 
 - **solver** defines the solver family. Options depend on `model_type`:
-    - CellML (`model_type: cellml`): `CVODE_myokit` (Myokit, the default) or `CVODE_opencor` (OpenCOR). `CVODE` is read as `CVODE_myokit`.
+    - CellML (`model_type: cellml`): `CVODE_myokit` (Myokit, the default) or `CVODE_opencor` (OpenCOR). `CVODE` is read as `CVODE_myokit`. The batched solvers `BE_batched_c` and `CVODES_batched_c` also take CellML models; see *Choosing a batched solver* below.
     - Python (`model_type: python`): `solve_ivp` with `solver_info.method` set to `RK45`, `BDF`, etc.
     - CasADi Python (`model_type: casadi_python`): `casadi_integrator` with `solver_info.method` set to `cvodes`, `idas`, `collocation`, `rk`, `semi_implicit_euler`, or `bdf`.
     - C++ (`model_type: cpp`): `CVODE`, or the fixed-step `RK4`, `Heun`, `midpoint` or `explEul`.
@@ -722,6 +722,27 @@ Before doing calibration, a solver for the model needs to be chosen
     - **MaximumStep**: maximum step size (`CVODE_myokit`, `CVODE_opencor`)
     - **MaximumNumberOfSteps**: maximum number of substeps before stepping (`CVODE_opencor` and the C++ solvers)
     - **method**: any method for `solve_ivp` or `casadi_integrator`, e.g. `RK45`, `BDF`, `cvodes`, etc.
+
+!!! note "Choosing a batched solver (`BE_batched_c`, `CVODES_batched_c`)"
+    `CVODE_myokit` is the more general-purpose solver, and the one to start with. `BE_batched_c` and
+    `CVODES_batched_c` are good when you have many perturbations through time: inputs that change at
+    many points in a run (a protocol trace with many breakpoints, or a game that changes an input every
+    macro step). CVODE has to stop and restart its adaptive time steps at each of those changes, while
+    the batched solvers integrate the model as independent blocks of states in generated C (one block
+    per unconnected part, such as each cell of a module array) and restart only the blocks whose inputs
+    changed. They are opt-in: they run only when you name them in the config, e.g.
+
+    ```yaml
+    solver_info:
+      solver: BE_batched_c      # or CVODES_batched_c
+      method: trbdf2            # BE_batched_c: backward_euler (default) or trbdf2
+    ```
+
+    They have no sensitivities (no `do_ad` gradient), and do not take models with algebraic loops or
+    external variables. `BE_batched_c` suits moderate tolerances (default `rtol` 1e-4);
+    `CVODES_batched_c` uses CVODE_myokit's tolerances and needs SUNDIALS 6 or later (`SUNDIALS_DIR`).
+    The settings of each are listed in `src/libcuflynx/solver_wrappers/batched_c_helper.py`, and
+    timings are in `benchmarks/README.md` (*Batched CellML solvers*).
 
 !!! note "Automatic differentiation supports `constant` and `series` observables only"
     With `do_ad: true` the cost is built symbolically. `constant` and `series` data items are

@@ -489,7 +489,7 @@ jobs:
         # differ by up to 1.5x on the same commit). tests/ci_shards.json defines the groups,
         # `rest` is every test no group names (so a new test file needs no entry there), and
         # tests/test_ci_shards.py checks that this list covers every group of the suite. `cpp`
-        # holds the C++ generator and external-coupling tests (~4 min on CI).
+        # holds the C++ generator, external-coupling and batched C solver tests (~5 min on CI).
         shard: [rest, autogeneration, module-arrays, simulation, cpp]
         # 3.9 is gone: numpy, scipy, matplotlib, scikit-learn and numdifftools all declare
         # requires-python >=3.10, so a 3.9 job either resolved older pins than any real user

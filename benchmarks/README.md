@@ -12,6 +12,8 @@ global search vs multi-start L-BFGS-B driven by different gradient backends).
 | `docs_results.py` | Format `BenchmarkResult`s as Markdown and splice them into the docs. |
 | `run_benchmarks.py` | CLI runner. |
 | `run_benchmarks.sh` | Local wrapper: runs `run_benchmarks.py` under a Python venv + MPI (see *Interpreter* below). |
+| `batched_solver_scaling.py` | Solver benchmark (no MPI): `BE_batched_c`, `CVODES_batched_c` and `CVODE_myokit` on colonies of 2 to 512 cells, 1 and 8 threads. See *Batched CellML solvers* below. |
+| `resources/fermenter_colony/` | Its model: AdaptOrDeity's fermenter cell as a module library (licence and provenance in its README). |
 
 ## Benchmarks
 
@@ -169,3 +171,29 @@ republishes the tutorial. A direct push/deploy is not used because `master` is b
 (the runner push is rejected) and a one-off `gh-deploy` would be overwritten by the next docs
 deploy from source. Because the numbers depend on the hardware and MPI rank count, treat the
 published table as indicative, not exact.
+
+## Batched CellML solvers
+
+**When to choose them.** `CVODE_myokit` is the more general-purpose solver. `BE_batched_c` and `CVODES_batched_c`
+are good when you have many perturbations through time, because CVODE would have to keep stopping and restarting
+its adaptive time steps at each one; the batched solvers restart only the blocks whose inputs changed. They are
+opt-in: they run only when named in the config (`solver: BE_batched_c` or `solver: CVODES_batched_c`). See the
+*Choosing a batched solver* note in `tutorial/docs/parameter-identification.md`.
+
+`batched_solver_scaling.py` times the solvers of a CellML model made of many unconnected parts. The model is a
+module array of N copies of AdaptOrDeity's fermenter cell (`resources/fermenter_colony`: 23 states per cell, one
+block each), N = 2, 4, ..., 512. Every cell runs the same protocol: membrane glucose 0.1 mM for 60 s, 50 mM for
+120 s, 0.1 mM for 120 s, outputs each second. It reports each solver's wall time and multiple of real time on 1
+and 8 threads, the setup time, and the worst error of one cell's states against CVODES at rtol 1e-10.
+
+```bash
+SUNDIALS_DIR=~/software/sundials-7.1.1 python benchmarks/batched_solver_scaling.py --jobs 4
+python benchmarks/batched_solver_scaling.py --cells 2,16,128 --threads 1,4 --myokit-max-cells 0
+```
+
+Setup, not the run, is what limits N: each solver flattens, analyses and compiles the whole colony, which
+takes about four times as long at each doubling of N (80 s at 64 cells, over 5 minutes at 128). `--jobs` builds
+the libraries several at a time before timing; built libraries are cached in the results folder.
+
+Results go to `benchmarks/_results/batched_solver_scaling/` (`results.json`, `results.md`); the last run's are in
+`results/batched_solver_scaling.md`.

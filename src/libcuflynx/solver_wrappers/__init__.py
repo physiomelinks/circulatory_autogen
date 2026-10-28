@@ -88,6 +88,13 @@ except Exception as _exc:
     _record_import_error('OpenCOR', _exc)
 
 try:
+    from libcuflynx.solver_wrappers.batched_c_helper import SimulationHelper as BatchedCSimulationHelper
+    from libcuflynx.solver_wrappers.batched_c_helper import CVODESSimulationHelper as CVODESBatchedCSimulationHelper
+except Exception as _exc:
+    BatchedCSimulationHelper = CVODESBatchedCSimulationHelper = None
+    _record_import_error('BE_batched_c', _exc)
+
+try:
     from libcuflynx.solver_wrappers.casadi_python_solver_helper import SimulationHelper as CasADiPythonSimulationHelper
 except Exception as _exc:
     CasADiPythonSimulationHelper = None
@@ -142,6 +149,11 @@ def get_simulation_helper(model_path: str = None, solver: str = None,
               install raises `OpenCORUnavailableError` here and points at ``CVODE_myokit``.
             - ``'CVODE_myokit'``: Myokit CVODE for CellML models. Drop-in replacement for
               ``CVODE_opencor``, and what a pip install should use.
+            - ``'BE_batched_c'``: generated C for CellML models, each block of independent
+              states integrated on its own by adaptive backward Euler, on ``solver_info``
+              ``threads`` threads (needs a C compiler and CMake).
+            - ``'CVODES_batched_c'``: as ``'BE_batched_c'``, each block integrated by its own
+              CVODES (also needs SUNDIALS 6 or later).
             - ``'solve_ivp'``: Python/SciPy solver for ``model_type='python'``
               (method set via ``solver_info``, e.g. RK45, BDF).
             - ``'casadi_integrator'``: CasADi integrator for
@@ -181,7 +193,7 @@ def get_simulation_helper(model_path: str = None, solver: str = None,
                                         out_of_bounds=out_of_bounds)
 
     # Define valid solver types
-    cellml_solvers = ['CVODE_opencor', 'CVODE_myokit']
+    cellml_solvers = ['CVODE_opencor', 'CVODE_myokit', 'BE_batched_c', 'CVODES_batched_c']
     python_solvers = ['solve_ivp']
     solve_ivp_methods = ['RK45', 'RK23', 'DOP853', 'Radau', 'BDF', 'LSODA', 'RK4', 'forward_euler']
     casadi_solvers = ['casadi_integrator']
@@ -213,6 +225,14 @@ def get_simulation_helper(model_path: str = None, solver: str = None,
             return MyokitSimulationHelper(model_path, dt, sim_time, solver_info, pre_time=pre_time)
         else:
             raise RuntimeError(_unavailable_message('Myokit', 'CVODE_myokit'))
+    elif solver in ('BE_batched_c', 'CVODES_batched_c'):
+        if is_python_model or is_casadi_python_model or is_aadc_python_model or is_external_model:
+            raise ValueError(f"{solver} solver runs CellML models (model_type 'cellml').")
+        if BatchedCSimulationHelper is None:
+            raise RuntimeError(_unavailable_message('BE_batched_c', solver))
+        if solver == 'BE_batched_c':
+            return BatchedCSimulationHelper(model_path, dt, sim_time, solver_info, pre_time=pre_time)
+        return CVODESBatchedCSimulationHelper(model_path, dt, sim_time, solver_info, pre_time=pre_time)
     elif solver in python_solvers:
         if not is_python_model:
             raise ValueError(f"solve_ivp method {solver} can only be used with Python models. Use CVODE_opencor or CVODE_myokit for CellML models.")
@@ -288,6 +308,8 @@ __all__ = [
     "get_simulation_helper",
     "PythonSimulationHelper",
     "MyokitSimulationHelper",
+    "BatchedCSimulationHelper",
+    "CVODESBatchedCSimulationHelper",
     "OpenCORSimulationHelper",
     "OpenCORUnavailableError",
     "is_opencor_available",

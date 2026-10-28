@@ -38,6 +38,16 @@ def _solver_accepts(solver, key):
     return True if not fields else any(f['name'] == key for f in fields)
 
 
+def _solver_field_defaults(solver):
+    """``solver``'s declared solver_info defaults (PrimitiveParsers.solver_field_defaults), lazily imported as
+    above; empty if unavailable."""
+    try:
+        from libcuflynx.parsers.PrimitiveParsers import solver_field_defaults
+    except Exception:
+        return {}
+    return solver_field_defaults(solver)
+
+
 class ProtocolRunner:
     """Standalone, user-facing runner for model protocols.
 
@@ -85,8 +95,10 @@ class ProtocolRunner:
 
         self.dt = inp_data_dict['dt']
         solver_info = inp_data_dict.get('solver_info', {})
-        self.MaximumStep = solver_info.get('MaximumStep', 0.001)
-        self.MaximumNumberOfSteps = solver_info.get('MaximumNumberOfSteps', 5000)
+        # the solver's own defaults where it declares them (SOLVER_INFO_FIELDS), else CVODE's
+        own = _solver_field_defaults(solver)
+        self.MaximumStep = solver_info.get('MaximumStep', own.get('MaximumStep', 0.001))
+        self.MaximumNumberOfSteps = solver_info.get('MaximumNumberOfSteps', own.get('MaximumNumberOfSteps', 5000))
 
         # Keep every solver_info key (e.g. rtol/atol/method) and fill in the
         # MaximumStep / MaximumNumberOfSteps defaults. MaximumNumberOfSteps is seeded

@@ -23,7 +23,9 @@
     ],
     "cpp": [
       "tests/test_cpp_template_generator.py",
-      "tests/test_external_coupling.py"
+      "tests/test_external_coupling.py",
+      "tests/test_batched_c_solver.py",
+      "tests/test_cvodes_batched_c_solver.py"
     ]
   },
   "param-id": {
