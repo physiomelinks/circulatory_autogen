@@ -5,6 +5,32 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Changed — the study's working dir holds every input; the manifest's paths are all relative
+
+`param_id_output_dir` is the study's working dir: one folder that can be zipped and opened
+anywhere in CUFLynx (see "The study working dir" in the parameter-identification tutorial).
+
+- The study manifest (`<study_name>_cuflynx_study.json`) copies each input from outside the
+  working dir into `inputs/<kind>/` (model with the CellML it imports, obs_data, params_for_id,
+  the user_inputs yaml, user funcs, a generated model's module array and parameters file in
+  `system/`, an emulator), once per content, and records every path relative to the manifest's
+  folder. It no longer writes `study_dir`. New manifest key `system`. Schema 1, unchanged:
+  readers ignore keys they do not know, and resolve relative paths against the manifest's
+  folder.
+- The dated `user_inputs_<yymmdd>.yaml` goes in `<param_id_output_dir>/inputs/user_inputs/`, not
+  `resources_dir`.
+- The default `sa_options` `output_dir` is `<param_id_output_dir>/sensitivity`, not
+  `sensitivity_outputs/<file_prefix>_SA_results`, and a relative one is taken under it. An
+  absolute `output_dir` is unchanged.
+- A calibration workflow run packs its workflow (`pack_workflow`) into
+  `<output_dir>/inputs/workflows/<workflow_name>/`; its manifest and each step's name the
+  packed copies, relative. `pack_workflow` also returns `sources`, each input's packed path.
+- New user_inputs (and workflow settings) key `cuflynx_study_copy_inputs` (default `true`):
+  `false` keeps the previous behaviour: absolute paths for inputs outside the study,
+  `study_dir`, and the previous sensitivity and dated-user_inputs locations.
+- `CVS0DParamID` takes `study_settings` (filled by `init_from_dict` and the param-id script)
+  for the manifest's further keys.
+
 ### Changed — an unconnected multi_port "sum" is a boundary condition; a term counted twice is refused
 
 Decided by Finbar Argus: the duplicate refusal and the boundary-condition rule on 2026-10-28;

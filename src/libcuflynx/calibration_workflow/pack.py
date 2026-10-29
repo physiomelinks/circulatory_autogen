@@ -103,8 +103,12 @@ def pack_workflow(source, dest_dir, module_library_dirs=None):
     run into ``dest_dir`` (see the module docstring), checking it first as a run would.
 
     Returns ``{'workflow': the packed workflow file, 'files': [every file written, relative to
-    dest_dir], 'modules': [the module version directories packed, relative to dest_dir]}``.
-    Running the packed workflow gives what running ``source`` does.
+    dest_dir], 'modules': [the module version directories packed, relative to dest_dir],
+    'sources': {the real path of each input file or settings directory: its path relative to
+    dest_dir}}``. Running the packed workflow gives what running ``source`` does.
+
+    A calibration workflow run packs its workflow into ``<output_dir>/inputs/workflows/<name>/``
+    (``runner.record_study``), so its working dir holds every input it was run from.
     '''
     workflow = load_workflow(source, module_library_dirs)
     resolved = resolve_workflow(workflow)
@@ -187,4 +191,4 @@ def pack_workflow(source, dest_dir, module_library_dirs=None):
     packer.files.add(WORKFLOW_FILE_NAME)
     load_workflow(workflow_path)       # the packed file still parses
     return {'workflow': workflow_path, 'files': sorted(packer.files),
-            'modules': packed_versions}
+            'modules': packed_versions, 'sources': dict(packer.packed)}

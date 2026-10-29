@@ -213,8 +213,11 @@ def test_every_stage_is_recorded_in_the_study_manifest(full_run):
     assert study["schema"] == 1
     assert study["file_prefix"] == pipeline.FILE_PREFIX
     assert os.path.isfile(study["model"])
-    assert study["obs_data"] == os.path.abspath(config["param_id_obs_path"])
-    assert study["params_for_id"] == os.path.abspath(config["params_for_id_path"])
+    # the inputs are copies in the study's working dir, the same files as the ones given
+    for key, given in (("obs_data", "param_id_obs_path"), ("params_for_id", "params_for_id_path")):
+        assert study[key].startswith(os.path.join(config["param_id_output_dir"], "inputs", ""))
+        with open(study[key], "rb") as copy, open(config[given], "rb") as original:
+            assert copy.read() == original.read()
     assert study["solver_info"]["MaximumStep"] == config["solver_info"]["MaximumStep"]
     assert study["solver_info"]["dt"] == config["dt"]
 

@@ -372,6 +372,8 @@ class _Run:
             'param_id_obs_path': obs_data,
             'params_for_id_file': params_for_id,
             'param_id_output_dir': os.path.join(step_dir, 'param_id'),
+            # the step's manifest copies its inputs into the workflow's working dir
+            'cuflynx_working_dir': self.output_dir,
             'do_uq': step.store_distribution,
         })
         inp.update({k: v for k, v in self.resolved.library_inputs.items()})
@@ -587,7 +589,45 @@ class _Run:
 
     def _study_inp(self, directory, name):
         return {'param_id_output_dir': directory, 'study_name': name,
-                'write_cuflynx_study': self._writes_study()}
+                'write_cuflynx_study': self._writes_study(),
+                'cuflynx_study_copy_inputs':
+                    self.workflow.settings.get('cuflynx_study_copy_inputs', True),
+                'cuflynx_working_dir': self.output_dir}
+
+    def packed_inputs(self):
+        '''Rank 0: ``{real path of an input: its copy}`` -- the workflow packed (pack_workflow)
+        into ``<output_dir>/inputs/workflows/<name>/`` once per run, so the working dir holds
+        every input it was run from. Empty when the study does not copy its inputs, or the
+        workflow has no file to pack (a failure to pack is a warning).'''
+        if getattr(self, '_packed', None) is not None:
+            return self._packed
+        self._packed = {}
+        if not cuflynx_study.copies_inputs(self._study_inp(self.output_dir, self.workflow.name)) \
+                or not self.workflow.path:
+            return self._packed
+        from libcuflynx.calibration_workflow.pack import pack_workflow
+        dest = os.path.join(self.output_dir, cuflynx_study.INPUTS_DIR, 'workflows',
+                            self.workflow.name)
+        try:
+            if os.path.isdir(dest):
+                shutil.rmtree(dest)
+            packed = pack_workflow(self.workflow.path, dest, self.workflow.module_library_dirs)
+        except Exception as error:
+            print(f'[cuflynx_study] WARNING: could not pack the workflow into {dest}: {error}')
+            return self._packed
+        self._packed = {real: os.path.join(dest, relative)
+                        for real, relative in packed['sources'].items()}
+        self._packed[os.path.realpath(self.workflow.path)] = packed['workflow']
+        return self._packed
+
+    def _as_packed(self, value):
+        '''A path, or each path in a model's dict, as its packed copy when it has one.'''
+        if isinstance(value, dict):
+            return {k: self._as_packed(v) if k in ('module_array', 'parameters') else v
+                    for k, v in value.items()}
+        if isinstance(value, str) and value:
+            return self.packed_inputs().get(os.path.realpath(value), value)
+        return value
 
     def study_manifest(self):
         '''The workflow's own manifest: ``<output_dir>/<workflow_name>_cuflynx_study.json``.'''
@@ -610,8 +650,10 @@ class _Run:
             result = self.step_result(step.id)
             done = bool(result) and result.get('status') == 'done'
             entry = {
-                'id': step.id, 'kind': step.kind, 'model': _model_files(step.model),
-                'obs_data': rs.obs_data_path, 'params_for_id': step.params_for_id,
+                'id': step.id, 'kind': step.kind,
+                'model': self._as_packed(_model_files(step.model)),
+                'obs_data': self._as_packed(rs.obs_data_path),
+                'params_for_id': self._as_packed(step.params_for_id),
                 'place': rs.place if step.model is not None else '',
                 'status': 'failed' if step.id == failed else ('done' if done else 'not_run'),
                 'run': (result or {}).get('param_id_output_dir') if done else None,
@@ -626,10 +668,10 @@ class _Run:
         target = (workflow_result or {}).get('target_model') or {}
         block = {'name': self.workflow.name,
                  'file': os.path.join(self.output_dir, WORKFLOW_FILE_NAME),
-                 'source': self.workflow.path,
+                 'source': self._as_packed(self.workflow.path),
                  'result': result_path if os.path.isfile(result_path) else None,
                  'complete': all(s['status'] == 'done' for s in steps),
-                 'target': {'model': _model_files(self.workflow.target),
+                 'target': {'model': self._as_packed(_model_files(self.workflow.target)),
                             'generated_model': target.get('model_path'),
                             'calibrated_parameters':
                                 (workflow_result or {}).get('calibrated_parameters_file')},

@@ -20,6 +20,7 @@ whose optima are known in closed form.
 import copy
 import json
 import os
+import shutil
 
 import numpy as np
 import pytest
@@ -825,27 +826,80 @@ def test_a_workflow_records_itself_in_one_study_manifest(library, tmp_path):
     run_calibration_workflow(library['chain_array'], output_dir=out, write_calibrated=True)
     study = read_study(os.path.join(out, 'chain_array_cuflynx_study.json'))
     workflow = study['workflow']
+    # the workflow's inputs are packed into the working dir, and the manifest names the copies
+    packed = os.path.join(out, 'inputs', 'workflows', 'chain_array')
     assert workflow['name'] == 'chain_array' and workflow['complete']
     assert workflow['file'] == os.path.join(out, 'calibration_workflow.json')
-    assert workflow['source'] == library['chain_array']
+    assert workflow['source'] == os.path.join(packed, 'calibration_workflow.json')
     assert workflow['result'] == os.path.join(out, 'workflow_result.json')
     # the target, as the workflow names it and as it was generated with the merged values
     assert workflow['target']['model']['module_array'] == os.path.join(
-        library['arrays'], 'chain_module_array.json')
+        packed, 'inputs', '_target', 'chain_module_array.json')
     assert workflow['target']['generated_model'] == study['model']
     assert os.path.isfile(study['model'])
+    # an output written outside the working dir, beside the target, is named where it is
     assert workflow['target']['calibrated_parameters'] == os.path.join(
         library['arrays'], 'chain_calibrated_parameters.json')
     steps = {s['id']: s for s in workflow['steps']}
     assert [s['id'] for s in workflow['steps']] == ['a-alone', 'chain']
     assert steps['chain']['fixed_from'] == ['a-alone'] and steps['chain']['status'] == 'done'
-    assert steps['a-alone']['obs_data'] == os.path.join(library['arrays'], 'data', 'a_obs.json')
+    assert steps['a-alone']['obs_data'] == os.path.join(packed, 'inputs', 'a-alone', 'a_obs.json')
     # each step's own manifest, a single calibration, links back to the workflow's
     for step_id, step in steps.items():
         own = read_study(step['manifest'])
         assert own['workflow'] == {'manifest': os.path.join(out, 'chain_array_cuflynx_study.json'),
                                    'step': step_id}
         assert own['runs'][0]['dir'] == step['run']
+        # its inputs are the workflow's packed copies, not new ones
+        assert own['obs_data'] == step['obs_data']
+
+    # every input is in the working dir: a second run copies none again, and the folder
+    # zipped and unzipped elsewhere, with the originals gone, resolves inside itself
+    def inputs():
+        return sorted(os.path.join(root, f) for root, _, names in
+                      os.walk(os.path.join(out, 'inputs')) for f in names)
+    first = inputs()
+    run_calibration_workflow(library['chain_array'], output_dir=out)
+    assert inputs() == first
+    archive = shutil.make_archive(str(tmp_path / 'run'), 'zip', out)
+    moved = str(tmp_path / 'moved' / 'run')
+    shutil.unpack_archive(archive, moved)
+    shutil.rmtree(out)
+    aside = str(tmp_path / 'arrays_aside')
+    os.rename(library['arrays'], aside)
+    manifests = [os.path.join(root, f) for root, _, names in os.walk(moved) for f in names
+                 if f.endswith('_cuflynx_study.json')]
+    assert len(manifests) == 3
+    for manifest in manifests:
+        with open(manifest) as handle:
+            text = handle.read()
+        # the one absolute path: the calibrated parameters written beside the target
+        assert text.count('"/') == text.count('chain_calibrated_parameters.json'), \
+            [line for line in text.splitlines() if '"/' in line]
+        moved_study = read_study(manifest)
+        paths = [moved_study[k] for k in ('model', 'obs_data', 'params_for_id')
+                 if moved_study.get(k)]
+        paths += [e['dir'] for e in moved_study['runs']]
+        block = moved_study['workflow']
+        paths += [block['manifest']] if 'manifest' in block else [
+            block['file'], block['source'], block['result'],
+            block['target']['model']['module_array']] + [
+            p for s in block['steps'] for p in (s['obs_data'], s['run'], s['manifest'],
+                                               s['model']['module_array'])]
+        for path in paths:
+            assert os.path.commonpath([path, moved]) == moved and os.path.exists(path), path
+    os.rename(aside, library['arrays'])
+
+    # cuflynx_study_copy_inputs: false packs nothing and names the inputs where they are
+    raw = _read_json(library['chain_array'])
+    raw['settings']['cuflynx_study_copy_inputs'] = False
+    in_place = os.path.join(library['arrays'], 'in_place.json')
+    _write_json(in_place, raw)
+    run_calibration_workflow(in_place, output_dir=str(tmp_path / 'in_place'))
+    assert not os.path.exists(str(tmp_path / 'in_place' / 'inputs'))
+    raw_study = _read_json(str(tmp_path / 'in_place' / 'chain_array_cuflynx_study.json'))
+    assert raw_study['study_dir'] == str(tmp_path / 'in_place')
+    assert raw_study['workflow']['source'] == in_place
 
     # write_cuflynx_study: false writes no manifest, for the workflow or its steps
     raw = _read_json(library['chain_array'])
