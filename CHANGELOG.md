@@ -200,6 +200,14 @@ only `path`) as a copy of the target's parameters file with them set, a value in
 instance under its path; the target's own files and the supermodule version's template are not
 changed.
 
+### Fixed — plotting a data item whose operand is a model constant
+
+- `plot_outputs()` raised `ValueError: x and y must have same first dimension` after a
+  calibration when an obs_data item's operand was a model constant (e.g. `mean` of
+  `heart/clock/T_eff`). The solver does not log constants, so the operand comes back as one value;
+  the reconstruction page now draws it as a flat line over the subexperiment. The MCMC
+  prediction plots pad a constant prediction to its segment's length the same way.
+
 ### Fixed — `CVODE_myokit` on modules in other time units (#604)
 
 - A module whose time variable is in other units than the model's (e.g. `t` in ms in CA's
