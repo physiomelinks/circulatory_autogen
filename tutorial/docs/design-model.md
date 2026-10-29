@@ -228,6 +228,33 @@ The keys are PhLynx's. An entry with the older keys `vessel_type`, `BC_type` or 
         All global_constants are required to be entered in the `[resources_dir]/[file_prefix]_parameters.json` file under `global`.
 
 
+### Connecting vessels at a node
+
+A **node** is a point where `vessel_port` ends meet: the outlet of a vessel, the inlets of the
+vessels it feeds through that port, the outlets of anything else feeding those inlets, and so on.
+A vessel's subtype letters say what each of its ends does at a node: `v` (compliant, it sets the
+pressure there and takes the flows) or `p` (it takes that pressure and gives its flow).
+
+A node of two ends is a plain pair: a `v` end meets a `p` end. At a node of **three or more**
+ends, one side of the node (the upstream outlets, or the downstream inlets) has a single end, and
+**that end must be compliant**: a vessel end with letter `v`, or, for a module that is not a
+vessel, a port that takes several connections (such as a heart chamber's `["sum", "True"]` port). It owns the node: its flow is the sum of the flows of the ends
+on the other side, all of them its direct neighbours, and they all read its pressure.
+
+- A split: the parent's outlet is `v` and the daughters' inlets are `p`, e.g. a `Nout_junction`
+  `pv` feeding `pv` and `pp` vessels.
+- A merge: the child's inlet is `v` and the merging outlets are `p`, e.g. `vp` vessels into a
+  `venous` `vp`.
+
+Generation refuses a node that breaks this, naming the node's ends and the end that must be
+compliant. Fix it by swapping subtypes so the end alone on its side is `v` and the others are `p`
+(for a split, parent `pp -> pv` and a compliant daughter `vv -> pv`, with a module type whose
+port there takes several connections), or by putting a lumped `vv` vessel between the lone end
+and the others, which then owns the node. A node with several ends on **both** sides cannot be
+owned by one end and is refused: join those vessels through a `2in2out_junction` (`vv`), which
+has a port per connection, or through a `vv` vessel they merge into and split from. Nodes with a
+1D (`FV1D_vessel`) end are coupled by the 1D coupler and are not checked. See issue #616.
+
 ### Coupling to other models: the `api` block
 
 A module config entry with `"module_format": "external_api"` and an `api` block is a module
