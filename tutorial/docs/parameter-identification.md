@@ -191,6 +191,13 @@ The entries in the data_item list in the `obs_data.json` file are:
 - **value**: The value of the ground truth, either a scalar for constant data_type, or a list of values for series or frequency data_types.
 - **obs_dt**: required for *series* data types and not needed for constant or frequency. It defines the timestep for the observable series values.
 - **prob_dist_params**: the ground truth when it is a *distribution* rather than a value — see below. An item that sets this needs no **value** or **std**; an item that does not, needs both.
+- **data_reference** (optional): where the data come from, as a string — a citation key, DOI
+  or table reference, as in the `data_reference` column of a parameters file. libcuflynx never
+  requires it, and refuses a value that is not a string. It is saved beside the error vectors
+  (`error_vec_data_references.npy`, in the order of `error_vec_names.npy`, `""` where an item
+  has none), shown as a `Data: ...` line at the top of the item's reconstruction plot and on
+  any `prediction_plots` figure that draws its data, and listed under *Sources* in the methods
+  text. A module library may require it in its own checks.
 
 **Every item is either a scalar or a series, never both**. The same rule applies to
 `prediction_items`, and the parser checks it, naming the item:
@@ -504,6 +511,8 @@ which the calibrated model is then checked against. Give the item:
 - **obs_dt**: the spacing of a series' samples. They start at the start of the item's
   sub-experiment, as a data_item series does. With one sub-experiment, that is the start of the
   experiment.
+- **data_reference** (optional): where the held-out data come from, as for a data_item. It is
+  written with the item's scores in `validation_results.json`.
 
 For example, fit the first 15 years of a series and validate the prediction to year 20, in one
 file with one experiment that runs to 20:

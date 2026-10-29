@@ -57,6 +57,8 @@ OBS_INFO_CONTRACT = {
                                  "max of one trace share it."),
     "operands": (ITEM, "A", "the model variables each item reduces, as a list per item. "
                  "Accessor: obs_operand_lists. Handed to the solver as result variables."),
+    "data_references": (ITEM, "A", "where each datum comes from (the item's optional "
+                        "data_reference), or None. Accessor: obs_item_references."),
     "data_types": (ITEM, "B", "'constant' | 'series' | 'frequency'; decides which compacted "
                    "index space an item also appears in."),
     "units": (ITEM, "B", "each item's unit, for axis labels and error reports."),
@@ -120,6 +122,7 @@ PREDICTION_INFO_CONTRACT = {
     "operation_kwargs": "the operation's keyword arguments, {} when none.",
     "subexperiment_idxs": "the sub-experiment of experiment_idx the item is recorded over; "
                           "its experiment's last one unless the item sets subexperiment_idx.",
+    "data_references": "where the item's held-out data come from (data_reference), else None.",
 }
 
 

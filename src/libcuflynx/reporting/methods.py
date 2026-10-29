@@ -239,7 +239,11 @@ def observables_text(obs, symbols, default_cost):
                      f'{_feature(item, symbols)} & {observed} & '
                      f'{format_number(item.get("weight", 1.0))} & {where} \\\\')
     lines += [r'\bottomrule', r'\end{tabular}', r'\end{center}']
-    sources = sorted({str(i['source']) for i in items if i.get('source')})
+    # free-text sources and data_references, of the fitted and of the held-out items
+    held_out = (obs.get('prediction_items') or []) if isinstance(obs, dict) else []
+    sources = sorted({str(i[key]) for i in items for key in ('source', 'data_reference')
+                      if i.get(key)} |
+                     {str(i['data_reference']) for i in held_out if i.get('data_reference')})
     text = '\n'.join(lines)
     if obs.get('reference_key') if isinstance(obs, dict) else None:
         text = f'Data: {escape(obs["reference_key"])}.\n' + text
