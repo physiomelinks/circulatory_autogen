@@ -284,7 +284,7 @@ class CVS0DCppGenerator(object):
         self.externals = externals
         print(f'C++ files generated in {self.cpp_generated_models_dir}. Build with: '
               f'cmake -S {self.cpp_generated_models_dir} -B {os.path.join(self.cpp_generated_models_dir, "build")} '
-              f'&& cmake --build {os.path.join(self.cpp_generated_models_dir, "build")}')
+              f'&& cmake --build {os.path.join(self.cpp_generated_models_dir, "build")} --config Release')
         return True
 
     # -----------------------------------------------------------------------------------------
