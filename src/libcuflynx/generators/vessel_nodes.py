@@ -11,9 +11,13 @@ outlets, downstream inlets), and one side has a single end. That end must be com
 * for a vessel, its subtype letter at the node is ``v`` (the second letter for its outlet, the
   first for its inlet), e.g. a ``pv`` parent splitting into ``pv``/``pp`` daughters, or ``vp``/
   ``pp`` vessels merging into a ``vp`` vessel;
-* for any other module, its port at the node takes several connections (any ``multi_port``):
-  a heart chamber's ``["sum", "True"]`` port, or a ``"Multiply"`` port that scales one variable
-  into every neighbour. Subtype letters only mean ``v``/``p`` for vessels.
+* for any other module, its port at the node has a ``"sum"`` entry in its ``multi_port`` (a
+  whole-port ``"sum"``, or a list containing ``"sum"``), e.g. a heart chamber's ``[v_in, u]``
+  port with ``["sum", "True"]``. Subtype letters only mean ``v``/``p`` for vessels.
+
+"Compliant owner" means the same for every module: the end that takes the sum and shares the
+pressure. A ``"Multiply"`` or plain ``"True"`` port broadcasts a value and sums nothing, so it
+cannot own a node (decided by Finbar, 2026-10-30).
 
 That end owns the node: its flow is the sum of the flows of every end on the other side, each of
 which is its direct neighbour, and its pressure is shared with them. The generator's pairwise
@@ -27,7 +31,7 @@ too, and neighbours beyond the last port share the last one. General ports are n
 """
 from collections import namedtuple
 
-from libcuflynx.generators.multi_port import is_multi_port
+from libcuflynx.generators.multi_port import MULTI_PORT_SUM, is_multi_port, list_multi_port
 from libcuflynx.utilities.vessel_bc import is_vessel_module
 
 VESSEL_PORT = 'vessel_port'
@@ -102,7 +106,7 @@ def is_compliant(row, end):
     """Whether ``end`` of the module in ``row`` can own its node (see the module docstring)."""
     if is_vessel_module(row):
         return _letter(row, end) == 'v'
-    return is_multi_port(_ports(row, end.side)[end.port])
+    return MULTI_PORT_SUM in (list_multi_port(_ports(row, end.side)[end.port]) or [])
 
 
 def _describe(rows, end):
@@ -149,7 +153,9 @@ def check_vessel_nodes(module_df):
         hint = _swap_hint(rows, lone, others)
         fix_1 = (f'swap subtypes so that end is "v" and the ends on the other side are "p" '
                  f'({hint}), using a module_type whose port there takes several connections'
-                 if hint else 'give that end a port that takes several connections (e.g. multi_port ["sum", "True"])')
+                 if hint else 'give that end a port with a "sum" entry in its multi_port (e.g. '
+                 '["sum", "True"]); a "Multiply" or "True" port broadcasts a value and sums '
+                 'nothing, so it cannot own a node')
         raise ValueError(
             f'At the node joining {node}, {_describe(rows, lone)} is the only end on its side, '
             f'so it must be compliant: it owns the node, summing the flows of the other ends and '

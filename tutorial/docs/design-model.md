@@ -238,8 +238,15 @@ pressure there and takes the flows) or `p` (it takes that pressure and gives its
 A node of two ends is a plain pair: a `v` end meets a `p` end. At a node of **three or more**
 ends, one side of the node (the upstream outlets, or the downstream inlets) has a single end, and
 **that end must be compliant**: a vessel end with letter `v`, or, for a module that is not a
-vessel, a port that takes several connections (such as a heart chamber's `["sum", "True"]` port). It owns the node: its flow is the sum of the flows of the ends
-on the other side, all of them its direct neighbours, and they all read its pressure.
+vessel, a port whose `multi_port` has a `"sum"` entry (a whole-port `"sum"`, or a list containing
+`"sum"`, such as a heart chamber's `[v_in, u]` port with `["sum", "True"]`). It owns the node:
+its flow is the sum of the flows of the ends on the other side, all of them its direct
+neighbours, and they all read its pressure.
+
+"Compliant" means the same for every module: the end that takes the sum and shares the pressure.
+A `"Multiply"` port broadcasts one scaled value and a plain `"True"` port maps one value to every
+neighbour; neither sums anything, so neither can own a node of three or more ends, and such a
+node is refused. Either still connects to a single neighbour (a two-ended node).
 
 - A split: the parent's outlet is `v` and the daughters' inlets are `p`, e.g. a `Nout_junction`
   `pv` feeding `pv` and `pp` vessels.
@@ -249,7 +256,8 @@ on the other side, all of them its direct neighbours, and they all read its pres
 Generation refuses a node that breaks this, naming the node's ends and the end that must be
 compliant. Fix it by swapping subtypes so the end alone on its side is `v` and the others are `p`
 (for a split, parent `pp -> pv` and a compliant daughter `vv -> pv`, with a module type whose
-port there takes several connections), or by putting a lumped `vv` vessel between the lone end
+port there takes several connections), for a module that is not a vessel by giving that port a
+`"sum"` entry, or by putting a lumped `vv` vessel between the lone end
 and the others, which then owns the node. A node with several ends on **both** sides cannot be
 owned by one end and is refused: join those vessels through a `2in2out_junction` (`vv`), which
 has a port per connection, or through a `vv` vessel they merge into and split from. Nodes with a

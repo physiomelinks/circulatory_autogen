@@ -11,15 +11,21 @@ Decided by Finbar Argus on 2026-10-30 (#616, option D of the node-sums design).
 
 - Where three or more `vessel_port` ends meet, the end alone on its side of the node (a split's
   parent outlet, a merge's child inlet) must be compliant: a vessel end with subtype letter `v`,
-  or, for a module that is not a vessel, a `multi_port` port such as a heart chamber's
-  `["sum", "True"]`. A node that breaks this, or that has several ends
+  or, for a module that is not a vessel, a port whose `multi_port` has a `"sum"` entry (a
+  whole-port `"sum"` or a list containing `"sum"`), such as a heart chamber's `[v_in, u]` port
+  with `["sum", "True"]`. A `"Multiply"` or plain `"True"` port on a module that is not a vessel
+  does not own a node: "compliant" means the end that takes the sum and shares the pressure, and
+  those ports broadcast a value and sum nothing (decided by Finbar Argus on 2026-10-30). A
+  Multiply vessel_port feeding several neighbours is therefore refused; feeding one is
+  unchanged. A node that breaks this, or that has several ends
   on both sides, stops generation before any mapping with a `ValueError` that names the node's
   ends and the two fixes (swap subtypes so that end is `v`, or add a lumped `vv` vessel). These
   nodes were already refused, through one connection at a time ("output BC is p, the input BC of
   ... should be v", or an overused port), except where a `Min_`/`MinNout_` junction let a `p`
   outlet feed several daughters; that exemption is removed. Nodes with an `FV1D_vessel` end and
   two-ended nodes are unaffected. See *Connecting vessels at a node* in the design-model docs.
-- Every model in `resources/` generates the same CellML as before, except
+- Every model in `resources/` and every system model of the module library generates the same
+  CellML as before (their non-vessel node owners are all summing heart-chamber ports), except
   `generic_junction_test2_{open,closed}_loop`, whose six such nodes are now refused.
   `generic_junction_test2b_{open,closed}_loop` are the same arrays with the compliance at those
   nodes moved to the parent's outlet (parent `arterial pp` -> `Nout_junction pv`, compliant

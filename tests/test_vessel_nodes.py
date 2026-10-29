@@ -79,17 +79,42 @@ def test_accepts_a_split_and_a_merge_that_follow_the_rule():
     assert sizes == [3, 3]
 
 
-def test_a_non_vessels_multi_port_counts_as_compliant():
-    chamber = {'name': 'la', 'module_type': 'chamber', 'module_subtype': 'Liang2009',
-               'inp_instances': ['pv1', 'pv2'], 'out_instances': [],
-               'entrance_ports': [_port(['v_in', 'u'], SUM)], 'exit_ports': [],
-               'general_ports': []}
-    df = _df(_vessel('pv1', 'pp', out=['la']), _vessel('pv2', 'pp', out=['la']), chamber)
-    check_vessel_nodes(df)
-    chamber['entrance_ports'] = [_port(['v_in', 'u'])]
-    with pytest.raises(ValueError, match='"la" .* is the only end on its side'):
+def _non_vessel(name, entrance=(), exit=(), inp=(), out=()):
+    return {'name': name, 'module_type': 'chamber', 'module_subtype': 'Liang2009',
+            'inp_instances': list(inp), 'out_instances': list(out),
+            'entrance_ports': list(entrance), 'exit_ports': list(exit), 'general_ports': []}
+
+
+# ["sum", "sum"] is a whole-port "sum" as the module config loader normalises it
+@pytest.mark.parametrize('multi_port', [SUM, ['Sum', 'True'], ['sum', 'sum']])
+def test_a_non_vessels_summing_port_owns_the_node(multi_port):
+    # a heart chamber's [v_in, u] port sums the inflows and shares its pressure
+    chamber = _non_vessel('la', entrance=[_port(['v_in', 'u'], multi_port)], inp=['pv1', 'pv2'])
+    check_vessel_nodes(_df(_vessel('pv1', 'pp', out=['la']), _vessel('pv2', 'pp', out=['la']),
+                           chamber))
+
+
+@pytest.mark.parametrize('multi_port', [None, 'True', ['True', 'True']])
+def test_a_non_vessels_port_without_a_sum_is_refused(multi_port):
+    chamber = _non_vessel('la', entrance=[_port(['v_in', 'u'], multi_port)], inp=['pv1', 'pv2'])
+    with pytest.raises(ValueError) as err:
         check_vessel_nodes(_df(_vessel('pv1', 'pp', out=['la']), _vessel('pv2', 'pp', out=['la']),
                                chamber))
+    message = str(err.value)
+    assert 'the inlet of "la" (chamber Liang2009) is the only end on its side' in message
+    assert 'a "sum" entry' in message
+
+
+def test_a_multiply_port_feeding_two_readers_is_refused():
+    # a Multiply port broadcasts one scaled value and sums nothing, so it cannot own a node
+    gain = _non_vessel('g', exit=[_port(['x'], 'Multiply')], out=['rd_a', 'rd_b'])
+    gain['exit_ports'][0]['multiply_factor'] = 3
+    readers = [_non_vessel(n, entrance=[_port(['y'])], inp=['g']) for n in ['rd_a', 'rd_b']]
+    with pytest.raises(ValueError) as err:
+        check_vessel_nodes(_df(gain, *readers))
+    message = str(err.value)
+    assert 'the outlet of "g" (chamber Liang2009) is the only end on its side' in message
+    assert 'a "sum" entry' in message
 
 
 def test_skips_a_node_with_an_fv1d_end():
