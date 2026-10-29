@@ -295,32 +295,13 @@ def test_be_batched_c_is_a_cellml_solver_in_the_schema():
     assert defaults['MaximumNumberOfSteps'] == batched_c_helper.DEFAULT_MAX_STEPS
 
 
-def _compile_options(cmake_text, compiler_id):
-    """The COMPILE_OPTIONS of model0d_core.c with the C compiler ``compiler_id``: the $<C_COMPILER_ID:...> and
-    $<IF:...> generator expressions resolved."""
-    import re
-    line = next(ln for ln in cmake_text.splitlines() if ln.startswith('set_source_files_properties(model0d_core.c'))
-    value = re.search(r'COMPILE_OPTIONS "([^"]*)"', line).group(1)
-    value = re.sub(r'\$<C_COMPILER_ID:([^>]*)>', lambda m: str(int(compiler_id in m.group(1).split(','))), value)
-    value = re.sub(r'\$<IF:([01]),([^,>]*),([^>]*)>', lambda m: m.group(2) if m.group(1) == '1' else m.group(3), value)
-    value = re.sub(r'\$<([01]):([^>]*)>', lambda m: m.group(2) if m.group(1) == '1' else '', value)
-    assert '$<' not in value, value
-    return value
-
-
 @pytest.mark.unit
-@pytest.mark.parametrize('solver', ['BE_batched_c', 'CVODES_batched_c'])
-def test_the_library_builds_release_with_each_compilers_optimisation_flag(tmp_path, solver, monkeypatch):
-    """MSVC gets /O1 for libCellML's code, GCC and Clang -O1, and the build is Release on multi-config generators
-    too (MSVC refuses /O1 with the /RTC1 of their default Debug build)."""
+def test_the_library_builds_release_on_multi_config_generators_too(tmp_path, monkeypatch):
+    """build_library asks for the Release configuration at build time as well as at configure time: Visual Studio
+    ignores CMAKE_BUILD_TYPE and builds Debug, whose /RTC1 MSVC refuses alongside the -O1 (read as /O1) given to
+    model0d_core.c."""
     from libcuflynx.coupling import model0d_lib
     from libcuflynx.generators.cpp import batched
-    am, km = _kernel_model(tmp_path, 'cells', CELLS)
-    cmake_text = batched.sources(am, km, solver=solver)['CMakeLists.txt']
-    assert _compile_options(cmake_text, 'MSVC') == '/O1'
-    for gnu in ('GNU', 'Clang', 'AppleClang'):
-        assert _compile_options(cmake_text, gnu) == '-O1'
-
     commands = []
 
     class Done:

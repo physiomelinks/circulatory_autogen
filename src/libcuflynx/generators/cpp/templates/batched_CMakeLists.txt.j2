@@ -10,8 +10,7 @@ endif()
 add_library({{ target }} SHARED model0d_core.c batched_kernels.c batched_runtime.c)
 set_target_properties({{ target }} PROPERTIES C_STANDARD 99 C_VISIBILITY_PRESET hidden POSITION_INDEPENDENT_CODE ON)
 # libCellML's code is only called at initialisation and for outputs; the kernels are the hot path.
-# MSVC takes /O1, and not with the /RTC1 of a Debug build: build_library builds Release.
-set_source_files_properties(model0d_core.c PROPERTIES COMPILE_OPTIONS "$<IF:$<C_COMPILER_ID:MSVC>,/O1,-O1>")
+set_source_files_properties(model0d_core.c PROPERTIES COMPILE_OPTIONS "-O1")
 target_compile_options({{ target }} PRIVATE $<$<C_COMPILER_ID:GNU,Clang,AppleClang>:-fno-math-errno>)
 
 find_package(OpenMP COMPONENTS C)
