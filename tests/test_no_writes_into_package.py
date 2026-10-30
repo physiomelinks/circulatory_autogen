@@ -174,21 +174,30 @@ def test_save_dated_user_inputs_writes_to_resources_dir_not_the_package(tmp_path
 
 
 @pytest.mark.unit
-def test_parsed_config_archives_into_the_configured_resources_dir(tmp_path):
-    """Going through the parser (not the writer directly) still archives outside the package."""
-    from libcuflynx.utilities.utility_funcs import get_default_inp_data_dict
+@pytest.mark.parametrize('copy_inputs', [True, False])
+def test_parsed_config_archives_into_the_configured_dirs(tmp_path, copy_inputs):
+    """Going through the parser (not the writer directly) still archives outside the package:
+    into the study's working dir, or into resources_dir with ``cuflynx_study_copy_inputs:
+    false``."""
+    from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
 
     before = _sweep_package()
 
     resources_dir = tmp_path / 'resources'
     resources_dir.mkdir()
-    inp = get_default_inp_data_dict('3compartment', '3compartment_parameters.json',
-                                    str(resources_dir))
+    out = tmp_path / 'out'
+    inp = YamlFileParser().parse_user_inputs_file({
+        'file_prefix': '3compartment', 'input_param_file': '3compartment_parameters.json',
+        'resources_dir': str(resources_dir), 'param_id_output_dir': str(out),
+        'generated_models_dir': str(tmp_path / 'generated_models'),
+        'cuflynx_study_copy_inputs': copy_inputs})
 
     assert inp['resources_dir'] == str(resources_dir)
-    dated = resources_dir / f"user_inputs_{date.today().strftime('%y%m%d')}.yaml"
+    name = f"user_inputs_{date.today().strftime('%y%m%d')}.yaml"
+    dated = out / 'inputs' / 'user_inputs' / name if copy_inputs else resources_dir / name
     assert dated.is_file(), \
         f'parse_user_inputs_file should archive its resolved config at {dated}'
+    assert not (resources_dir / name).is_file() if copy_inputs else not (out / 'inputs').exists()
 
     _assert_package_unchanged(before)
 
@@ -328,10 +337,10 @@ def test_generation_and_calibration_never_write_into_the_package(
                                f'genetic_algorithm_{_MODEL_PREFIX}_{_MODEL_PREFIX}_obs_data')
         assert os.path.isfile(os.path.join(out_dir, 'best_cost.npy')), \
             f'expected calibration output under {out_dir}'
-        dated = os.path.join(user_resources_dir,
+        dated = os.path.join(workspace, 'param_id_output', 'inputs', 'user_inputs',
                              f"user_inputs_{date.today().strftime('%y%m%d')}.yaml")
         assert os.path.isfile(dated), \
-            f'the dated config archive belongs in the user resources_dir, expected {dated}'
+            f'the dated config archive belongs in the study working dir, expected {dated}'
 
         _assert_package_unchanged(before)
     mpi_comm.Barrier()

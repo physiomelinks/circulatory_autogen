@@ -2175,14 +2175,22 @@ def user_inputs_as_written(inp_data_dict):
 
 
 def save_dated_user_inputs(inp_data_dict):
-    """Best-effort: archive the resolved run config as ``user_inputs_<yymmdd>.yaml``
-    in ``resources_dir``, so every run keeps a dated, reproducible record of what
-    was run (mirrors the params_for_id / obs_data archival). Never raises — a
+    """Best-effort: archive the resolved run config as ``user_inputs_<yymmdd>.yaml``, so
+    every run keeps a dated, reproducible record of what was run (mirrors the
+    params_for_id / obs_data archival). It goes in the study's working dir,
+    ``<param_id_output_dir>/inputs/user_inputs/``, when the config has a
+    ``param_id_output_dir`` and writes a study manifest that copies its inputs
+    (``cuflynx_study.copies_inputs``); otherwise in ``resources_dir``. Never raises — a
     failure here must not abort a run. Only rank 0 writes (avoids MPI clobber)."""
     if rank != 0:
         return
     try:
-        resources_dir = inp_data_dict.get('resources_dir')
+        from libcuflynx.utilities import cuflynx_study
+        if inp_data_dict.get('param_id_output_dir') and cuflynx_study.copies_inputs(inp_data_dict):
+            resources_dir = cuflynx_study.user_inputs_archive_dir(inp_data_dict)
+            os.makedirs(resources_dir, exist_ok=True)
+        else:
+            resources_dir = inp_data_dict.get('resources_dir')
         if not resources_dir or not os.path.isdir(resources_dir):
             return
         # Keep only yaml-serialisable entries so a stray object never breaks a run.
@@ -2771,19 +2779,28 @@ class YamlFileParser(object):
         if not 'sa_options' in inp_data_dict.keys():
             inp_data_dict['sa_options'] = None
 
+        # Sensitivity output goes in the study's working dir (<param_id_output_dir>/sensitivity,
+        # a relative output_dir under it) when the study manifest copies its inputs there;
+        # otherwise under sensitivity_outputs/. An absolute output_dir is kept as given.
+        from libcuflynx.utilities import cuflynx_study
+        if cuflynx_study.copies_inputs(inp_data_dict):
+            sa_parent = default_sa_dir = cuflynx_study.sensitivity_dir(inp_data_dict)
+        else:
+            sa_parent = default_sensitivity_outputs_dir()
+            default_sa_dir = os.path.join(sa_parent, file_prefix + '_SA_results')
         if inp_data_dict['sa_options'] is None:
             inp_data_dict['sa_options'] = {
                 'method': 'sobol',
                 'num_samples': 32,
                 'sample_type': 'saltelli',
-                'output_dir': os.path.join(default_sensitivity_outputs_dir(), file_prefix + '_SA_results')
+                'output_dir': default_sa_dir
             }
         else:
             if 'output_dir' not in inp_data_dict['sa_options'].keys():
-                inp_data_dict['sa_options']['output_dir'] = os.path.join(default_sensitivity_outputs_dir(), file_prefix + '_SA_results')
+                inp_data_dict['sa_options']['output_dir'] = default_sa_dir
             else:
                 if not os.path.isabs(inp_data_dict['sa_options']['output_dir']):
-                    inp_data_dict['sa_options']['output_dir'] = os.path.join(default_sensitivity_outputs_dir(), inp_data_dict['sa_options']['output_dir'])
+                    inp_data_dict['sa_options']['output_dir'] = os.path.join(sa_parent, inp_data_dict['sa_options']['output_dir'])
             
             if not os.path.exists(inp_data_dict['sa_options']['output_dir']):
                 os.makedirs(inp_data_dict['sa_options']['output_dir'], exist_ok=True)

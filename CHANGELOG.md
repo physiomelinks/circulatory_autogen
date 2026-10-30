@@ -5,6 +5,55 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Changed — the study's working dir holds every input; the manifest's paths are all relative
+
+`param_id_output_dir` is the study's working dir: one folder that can be zipped and opened
+anywhere in CUFLynx (see "The study working dir" in the parameter-identification tutorial).
+
+- The study manifest (`<study_name>_cuflynx_study.json`) copies each input from outside the
+  working dir into `inputs/<kind>/<yyyy-mm-dd_HHMMSS>/`, a folder named for the local date-time
+  it was first used (model with the CellML it imports, obs_data, params_for_id,
+  the user_inputs yaml, user funcs, an emulator, and in `system/` a generated model's module
+  array, parameters file, the module library versions it uses and its `external_modules_dir`),
+  once per content (matched by content hash; `_2`, `_3`... for a second content first used in
+  the same second), and records every path relative to the manifest's folder. No copy sits
+  outside a dated folder, so none looks like the current version: each run's entry names the
+  copies it ran with, and `inputs/index.json` (`cuflynx_study.read_index`) lists every version
+  with its kind, file, folder, content hash, first use and the runs that used it. It no longer
+  writes `study_dir`. New manifest key `system` (with `module_library_dirs`,
+  `external_modules_dir` and `use_builtin_modules`; built-in modules are recorded, not
+  copied), and `cuflynx_study.generation_inputs(read_study(<W>))` gives the user_inputs keys
+  that generate the model again from the working dir alone. Schema 1, unchanged:
+  readers ignore keys they do not know, and resolve relative paths against the manifest's
+  folder.
+- `cuflynx_study.store_input(working_dir, kind, source, name=None)` stores a file, a folder or
+  bytes as an input of `kind` the same way (a new dated folder per content, the same content
+  reused) and returns its path relative to the working dir; `latest_input(working_dir, kind,
+  name=None)` gives the version stored last. An app saving edited inputs (CUFLynx) writes the
+  same layout through them, so an edit never rewrites an earlier version.
+- The dated `user_inputs_<yymmdd>.yaml` goes in `<param_id_output_dir>/inputs/user_inputs/`, not
+  `resources_dir`.
+- The default `sa_options` `output_dir` is `<param_id_output_dir>/sensitivity`, not
+  `sensitivity_outputs/<file_prefix>_SA_results`, and a relative one is taken under it. An
+  absolute `output_dir` is unchanged.
+- A calibration workflow run packs its workflow (`pack_workflow`) into
+  `<output_dir>/inputs/workflows/<workflow_name>/<yyyy-mm-dd_HHMMSS>/`, a new dated folder only
+  when the packed workflow differs from one stored already; its manifest and each step's name the
+  packed copies, relative. `pack_workflow` also returns `sources`, each input's packed path.
+  `calibration_workflow.pack.module_version_files` lists the module version files it packs;
+  the study's `inputs/system/` copies the same files.
+- An output directory outside the working dir (an absolute `sa_options` `output_dir` elsewhere)
+  is allowed, but a zip of the working dir does not hold it: the run prints a warning naming it
+  (rank 0, once per directory), its `runs`/`sensitivity` entry keeps the absolute path with
+  `"outside": true`, and `cuflynx_study.outside_outputs(study)` lists such entries for an app
+  exporting the working dir. Nothing re-runs a study from its manifest, so a study opened
+  elsewhere never writes into the recorded path.
+- New user_inputs (and workflow settings) key `cuflynx_study_copy_inputs` (default `true`):
+  `false` keeps the previous behaviour: absolute paths for inputs outside the study,
+  `study_dir`, and the previous sensitivity and dated-user_inputs locations.
+- `CVS0DParamID` takes `study_settings` (filled by `init_from_dict` and the param-id script)
+  for the manifest's further keys.
+
 ### Changed — at a node of three or more vessel ends, the end alone on its side must be compliant
 
 Decided by Finbar Argus on 2026-10-30 (#616, option D of the node-sums design).

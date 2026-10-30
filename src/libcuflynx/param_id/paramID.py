@@ -257,6 +257,11 @@ class CVS0DParamID():
         resources_dir: Directory holding input resources; defaults to
             ``resources/`` in the repo.
         one_rank: If True, skip the MPI barrier (single-rank usage).
+        study_settings: Further study-manifest keys from the parsed config
+            (``cuflynx_study.STUDY_INP_KEYS``: ``cuflynx_study_copy_inputs``,
+            ``cuflynx_working_dir``, the module array and parameters file paths and
+            the module source keys);
+            ``init_from_dict`` fills it in.
 
     Attributes:
         output_dir: Directory (under ``param_id_output_dir``) where results and
@@ -271,7 +276,8 @@ class CVS0DParamID():
                  operation_funcs_external_path=None, cost_funcs_external_path=None,
                  modifier_funcs_external_path=None,
                  use_emulator=False, emulator_dir=None, emulator_settings=None,
-                 study_name=None, write_cuflynx_study=True, user_inputs_path=None):
+                 study_name=None, write_cuflynx_study=True, user_inputs_path=None,
+                 study_settings=None):
         self.model_path = model_path
         self.param_id_method = param_id_method
         self.mcmc_instead = mcmc_instead
@@ -337,7 +343,9 @@ class CVS0DParamID():
                 cost_funcs_external_path=cost_funcs_external_path,
                 modifier_funcs_external_path=modifier_funcs_external_path,
                 solver_info=self.solver_info, dt=dt, pre_time=pre_time, sim_time=sim_time,
-                use_emulator=self.use_emulator, emulator_dir=emulator_dir)
+                use_emulator=self.use_emulator, emulator_dir=emulator_dir,
+                **{key: value for key, value in (study_settings or {}).items()
+                   if key in cuflynx_study.STUDY_INP_KEYS})
             cuflynx_study.update_study(self._study_inp)
         else:
             self.output_dir = None
@@ -498,6 +506,8 @@ class CVS0DParamID():
             'study_name', 'write_cuflynx_study', 'user_inputs_path',
         ]
         kwargs = {key: inp_data_dict[key] for key in arg_options if key in inp_data_dict}
+        kwargs['study_settings'] = {key: inp_data_dict[key] for key in
+                                    cuflynx_study.STUDY_INP_KEYS if key in inp_data_dict}
 
         # Support common naming used elsewhere
         if 'file_name_prefix' not in kwargs and 'file_prefix' in inp_data_dict:

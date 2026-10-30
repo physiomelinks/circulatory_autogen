@@ -65,9 +65,13 @@ def run_param_id(inp_data_dict=None):
     cost_funcs_external_path = inp_data_dict.get('cost_funcs_external_path', None)
     # Was read nowhere, so a params_for_id naming a user modifier failed in this stage only.
     modifier_funcs_external_path = inp_data_dict.get('modifier_funcs_external_path', None)
-    # The study manifest's name, switch and source yaml (utilities/cuflynx_study.py).
+    # The study manifest's name, switch, source yaml and working-dir settings
+    # (utilities/cuflynx_study.py).
+    from libcuflynx.utilities.cuflynx_study import STUDY_INP_KEYS
     study_kwargs = {key: inp_data_dict[key] for key in
                     ('study_name', 'write_cuflynx_study', 'user_inputs_path') if key in inp_data_dict}
+    study_kwargs['study_settings'] = {key: inp_data_dict[key] for key in STUDY_INP_KEYS
+                                      if key in inp_data_dict}
 
 
     # Resolved once, for both engines below. Neither was given these, so

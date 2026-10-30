@@ -50,7 +50,12 @@ If `sa_options` is omitted, defaults are applied:
 - `method: sobol`
 - `num_samples: 32`
 - `sample_type: saltelli`
-- `output_dir: sensitivity_outputs/<file_prefix>_SA_results`
+- `output_dir: <param_id_output_dir>/sensitivity`, in the study's working dir (see
+  [The study working dir](parameter-identification.md#the-study-working-dir)). A relative
+  `output_dir` is taken under that folder and an absolute one is used as given. With
+  `cuflynx_study_copy_inputs: false` (or `write_cuflynx_study: false`) the default is
+  `sensitivity_outputs/<file_prefix>_SA_results`, and a relative `output_dir` is taken under
+  `sensitivity_outputs/`.
 
 ### Prediction items as extra outputs
 

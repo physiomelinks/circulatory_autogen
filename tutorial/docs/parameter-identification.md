@@ -1107,6 +1107,76 @@ If you already have a model and do not want to run autogeneration, use:
 ./run_param_id_without_autogen.sh <NUM_CORES>
 ```
 
+### The study working dir
+
+`param_id_output_dir` is the study's **working dir**: every calibration, MCMC, sensitivity
+analysis and emulator run from one config records itself in the study manifest
+`<param_id_output_dir>/<study_name>_cuflynx_study.json`, and every input it was run from is
+copied into the same folder. So the one folder holds the whole study: zip it, send it, unzip it
+anywhere and open the manifest (or the folder, as the working dir) in CUFLynx.
+
+```
+<param_id_output_dir>/
+    <study_name>_cuflynx_study.json   the manifest: inputs, solver settings, runs, sensitivity, emulator
+    inputs/
+        index.json                    every version stored below: its kind, file, folder,
+                                      content hash, when it was first used and the runs that used it
+        <kind>/<yyyy-mm-dd_HHMMSS>/   one version of one input, in a folder named for the local
+                                      date-time it was first used. The kinds:
+          model/                      the model, with the CellML files it imports
+          obs_data/, params_for_id/   the obs_data and params_for_id files
+          user_inputs/                the user_inputs.yaml given
+          funcs/                      the *_funcs_external_path files
+          system/                     a generated model's module array and parameters file, with
+                                      modules/ (each module library version it uses) and
+                                      external_modules/ (its external_modules_dir)
+          emulator/                   an emulator trained elsewhere
+          workflows/<workflow_name>/  a calibration workflow, packed (see Calibration workflows)
+        user_inputs/user_inputs_<yymmdd>.yaml  each day's resolved config
+    <method>_<prefix>_<obs_data>/     each calibration (and the MCMC that follows it)
+    sensitivity/                      Sobol and local sensitivity output
+    emulators/                        trained emulators
+```
+
+An input is copied when the manifest is written, once per content, into a folder named for the
+date-time (local time) it was first used, for example `inputs/obs_data/2026-10-31_091502/obs.json`.
+Every copy is in such a folder, so no file under `inputs/` looks like the current version when
+it is an older run's: each run's entry in the manifest names the copies it ran with, and
+`inputs/index.json` lists every version with the runs that used it. A second run from the same
+files copies nothing (copies are matched by content hash), and a changed file goes into a new
+dated folder beside the first (`_2`, `_3`... when two contents are first used in the same
+second). Every path in the manifest is relative to the manifest's folder.
+
+An output written outside the working dir, such as an `sa_options` `output_dir` set to an
+absolute path elsewhere, is allowed but does not travel with the working dir: a zip of the
+working dir does not hold it. The run prints a warning naming the directory, and its entry in
+the manifest keeps the absolute path with `"outside": true`.
+`cuflynx_study.outside_outputs(read_study('<W>'))` lists those entries, so a tool exporting the
+working dir can say what it leaves behind. Opening the study elsewhere never writes into that
+path: nothing re-runs a study from its manifest (`read_study` resolves output directories only to
+read their results, and `generation_inputs` names none). A run of the archived user_inputs yaml
+is an ordinary run of that config, so it writes to the absolute `output_dir` it names and warns
+again; make the `output_dir` relative to keep it in the working dir.
+
+A generated model's `inputs/system/` holds everything generating it again needs, so the model
+can be regenerated from the working dir alone. Built-in modules are not copied: they come with
+libcuflynx, so the manifest records `use_builtin_modules` and `libcuflynx_version` instead.
+
+```python
+from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
+from libcuflynx.utilities.cuflynx_study import generation_inputs, read_study
+
+inp = generation_inputs(read_study('unzipped_study/'))   # resources_dir, file_prefix, module sources
+generate_with_new_architecture(False, dict(inp, model_type='cellml',
+                                           generated_models_dir='regenerated'))
+```
+
+| user_inputs setting | default | what it does |
+|---|---|---|
+| `study_name` | `file_prefix` | names the manifest; two studies can share one working dir |
+| `write_cuflynx_study` | `true` | `false` writes no manifest and copies nothing; sensitivity output and the dated user_inputs go where `cuflynx_study_copy_inputs: false` puts them |
+| `cuflynx_study_copy_inputs` | `true` | `false` copies nothing: the manifest names each input outside the working dir by its absolute path and records the working dir as `study_dir`; sensitivity output defaults to `sensitivity_outputs/<file_prefix>_SA_results` and the dated `user_inputs_<yymmdd>.yaml` goes in `resources_dir` |
+
 ## Calibration workflows
 
 Some parameters can only be calibrated in a larger model, after its parts have been calibrated
@@ -1363,6 +1433,7 @@ prior.
     <step_id>/<step_id>_params_for_id.json a reduction's params_for_id
     _target/model/                    the target generated with every calibrated value
     <workflow_name>_cuflynx_study.json  the study manifest CUFLynx opens (below)
+    inputs/workflows/<workflow_name>/<yyyy-mm-dd_HHMMSS>/   the workflow packed (--pack layout): every input it was run from
 ```
 
 The manifest records the workflow as run, its result, the target and every step (its kind,
@@ -1371,6 +1442,15 @@ outputs). It is
 updated as each step finishes, so CUFLynx can follow a running workflow. Each step's own
 manifest, in `<step_id>/param_id/`, links back to it. `"write_cuflynx_study": false` in the
 settings turns both off.
+
+The output directory is the workflow's working dir (see
+[The study working dir](#the-study-working-dir)): the run packs the workflow into
+`inputs/workflows/<workflow_name>/<yyyy-mm-dd_HHMMSS>/` (a new dated folder only when the
+packed workflow differs from one stored already) and the manifests name the packed copies, by paths relative
+to each manifest's folder, so the output directory can be zipped and opened anywhere. A step's
+manifest names the same copies (`../../inputs/...`). The one path left absolute is the
+`--write-calibrated` file, which is written beside the target. `"cuflynx_study_copy_inputs":
+false` in the settings packs nothing and names the inputs where they are.
 
 `--pack DIR` (or `pack_workflow` in Python) copies every file the workflow needs to run, and
 none of its results, into the new directory `DIR`: `DIR/calibration_workflow.json` runs anywhere
