@@ -677,7 +677,8 @@ def _empty_prediction_info():
     return {'operands': [], 'units': [], 'data_item_names': [],
             'trace_names_for_plotting': [], 'item_names_for_plotting': [],
             'experiment_idxs': [], 'data_types': [], 'values': [], 'stds': [], 'obs_dts': [],
-            'operations': [], 'operation_kwargs': [], 'subexperiment_idxs': []}
+            'operations': [], 'operation_kwargs': [], 'subexperiment_idxs': [],
+            'data_references': []}
 
 
 def cost_experiment_idxs(protocol_info):
@@ -3637,6 +3638,9 @@ class ObsAndParamDataParser(object):
                 # The sub-experiment of experiment_idx the item's operands are recorded over;
                 # defaults to that experiment's last one.
                 "subexperiment_idx": None,
+                # Where the held-out value comes from (a citation, as a parameters file's
+                # data_reference). Optional; reported in validation_results.json.
+                "data_reference": None,
             }
             optional_ground_truth = ("data_type", "value", "std", "obs_dt",
                                      "operation", "operation_kwargs", "subexperiment_idx")
@@ -3710,6 +3714,7 @@ class ObsAndParamDataParser(object):
                 prediction_info['obs_dts'].append(entry['obs_dt'])
                 prediction_info['operations'].append(operation)
                 prediction_info['operation_kwargs'].append(dict(operation_kwargs))
+                prediction_info['data_references'].append(entry['data_reference'])
         else:
             prediction_info = _empty_prediction_info()
 
@@ -3763,6 +3768,10 @@ class ObsAndParamDataParser(object):
                 "species": None,
                 "location": None,
                 "source": None,
+                # Where the datum comes from (a citation, as a parameters file's
+                # data_reference). Optional; reported beside the error vectors and on the
+                # reconstruction plots.
+                "data_reference": None,
                 "t_path": None,
                 "value_path": None,
             }
@@ -3933,6 +3942,10 @@ class ObsAndParamDataParser(object):
             gt_df.iloc[II].get("item_name_for_plotting",
                                obs_info["trace_names_for_plotting"][II])
             for II in range(N)]
+        # a string or None: a hand-built gt_df may leave the column out or hold NaN
+        obs_info["data_references"] = [
+            ref if isinstance(ref, str) else None
+            for ref in (gt_df.iloc[II].get("data_reference") for II in range(N))]
 
         for II in range(N):
             op = gt_df.iloc[II].get("operation")

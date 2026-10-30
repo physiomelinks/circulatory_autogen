@@ -5,6 +5,24 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Added — an optional `data_reference` on obs_data data_items and prediction_items
+
+Where a calibration or validation datum comes from, spelled as the parameters-file column. It is
+optional: no obs_data needs changing, and a value that is not a string is refused.
+
+- Accepted by `obs_data.schema.json` and the parser on both item kinds; published as
+  `obs_info["data_references"]` and `prediction_info["data_references"]` (accessor
+  `obs_data_helpers.obs_item_references`). `ObsDataCreator.add_prediction_item` takes
+  `data_reference=`.
+- Reported in the results: `error_vec_data_references.npy` beside `error_vec_names.npy`, and a
+  `data_reference` per item in `validation_results.json`.
+- Shown on the plots: a `Data: ...` line on each reconstruction page and on `prediction_plots`
+  feature figures that draw data; listed under *Sources* in the methods text, where a BibTeX key
+  in it becomes `\cite{key}` (and goes into the document's `.bib`) as in a parameter's
+  `data_reference`.
+- Each item names its own source: there is no file-level default (decided by Finbar Argus,
+  2026-10-31).
+
 ### Changed — an unconnected multi_port "sum" is a boundary condition; a term counted twice is refused
 
 Decided by Finbar Argus: the duplicate refusal and the boundary-condition rule on 2026-10-28;

@@ -87,6 +87,28 @@ def _column(info, key):
     return [] if value is None else list(value)
 
 
+#: The optional item key naming where a datum comes from, spelled as the parameters-file
+#: column (``utilities.parameterisations.PARAMETER_COLUMNS``). libcuflynx never requires it.
+DATA_REFERENCE_KEY = 'data_reference'
+
+
+def obs_item_references(info):
+    """Each item's ``data_reference`` (a string, or None when the item has none).
+
+    Works on an ``obs_info`` and on a ``prediction_info`` alike; ``[]`` for an info built
+    without the column.
+    """
+    return _column(info, "data_references")
+
+
+def data_reference_line(references):
+    """``'Data: <ref>; <ref>'`` for the distinct references given, in order, or None when
+    there are none. The source line a plot of those items carries."""
+    distinct = list(dict.fromkeys(str(r).strip() for r in references
+                                  if isinstance(r, str) and r.strip()))
+    return 'Data: ' + '; '.join(distinct) if distinct else None
+
+
 def obs_experiment_indices(info):
     """Which experiment each data_item belongs to, one per item.
 
@@ -330,12 +352,13 @@ class ObsDataCreator:
         if offline_pre_time is not None:
             self.obs_data_dict['protocol_info']['offline_pre_time'] = float(offline_pre_time)
 
-    def add_prediction_item(self, variable, unit, experiment_idx):
+    def add_prediction_item(self, variable, unit, experiment_idx, data_reference=None):
         """
         Add a prediction item to the dictionary.
         variable: the model variable to record ("vessel/variable"); it also names the item
         unit: unit of the variable
         experiment_idx: index of the experiment this prediction item belongs to
+        data_reference: optional; where the item's held-out data come from
         """
         # check that experiment_idx is valid
         if experiment_idx < 0 or experiment_idx >= len(self.obs_data_dict['protocol_info']['sim_times']):
@@ -347,6 +370,8 @@ class ObsDataCreator:
             'unit': unit,
             'experiment_idx': experiment_idx
         }
+        if data_reference is not None:
+            prediction_item[DATA_REFERENCE_KEY] = data_reference
         self.obs_data_dict['prediction_items'].append(prediction_item)
 
     #TODO Create functions for adding entries to the data_items
@@ -367,7 +392,7 @@ class ObsDataCreator:
         required_series_keys = ['obs_dt']
         optional_keys = ['trace_name_for_plotting', 'item_name_for_plotting', 'operation',
                          'operation_kwargs', 'cost_kwargs', 'weight', 'std',
-                         'experiment_idx', 'subexperiment_idx']
+                         'experiment_idx', 'subexperiment_idx', DATA_REFERENCE_KEY]
 
         if 'operation_kwargs' in entry and not isinstance(entry['operation_kwargs'], dict):
             raise ValueError(

@@ -385,6 +385,27 @@ def test_methods_of_one_calibration_cite_the_generated_parameters_file(tmp_path)
 
 
 @pytest.mark.unit
+def test_methods_of_one_calibration_cite_an_obs_data_reference(tmp_path):
+    """An obs_data item's data_reference is cited like a parameter's, and its key is written
+    to the document's .bib."""
+    import json
+    with open(os.path.join(RESOURCES, 'Goodwin_obs_data.json')) as f:
+        obs = json.load(f)
+    obs['data_items'][0]['data_reference'] = 'goodwin1965oscillatory, Fig. 2'
+    obs_path = tmp_path / 'Goodwin_obs_data.json'
+    obs_path.write_text(json.dumps(obs))
+    bib = tmp_path / 'refs.bib'
+    bib.write_text('@article{goodwin1965oscillatory, title = {Oscillatory behavior}}\n')
+    bib_out = tmp_path / 'methods.bib'
+    text = calibration_methods_latex(
+        GOODWIN, str(obs_path), os.path.join(RESOURCES, 'Goodwin_params_for_id.json'),
+        parameters_path=GOODWIN_PARAMETERS, bib_files=[str(bib)], bib_out=str(bib_out))
+    assert r'\cite{goodwin1965oscillatory}, Fig. 2' in text
+    assert r'\bibliography{methods}' in text
+    assert 'goodwin1965oscillatory' in bib_out.read_text()
+
+
+@pytest.mark.unit
 def test_methods_of_one_calibration_refuse_a_missing_parameters_file(tmp_path):
     """No parameters file, named or beside the model, is an error naming the path, not a
     methods section that cites no source."""

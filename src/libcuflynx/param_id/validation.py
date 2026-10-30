@@ -38,6 +38,7 @@ Per item the result holds the scores and the series for plotting:
     mean_abs_z    mean |model - data| / std          (None without std)
     within_2std   fraction of points with |model - data| <= 2 std  (None without std)
     t, data, std, model, operation
+    data_reference  where the held-out data come from (the item's ``data_reference``, or None)
 """
 import json
 import os
@@ -59,7 +60,7 @@ def _operand_series(prediction):
 
 
 def _item_result(name, operand, unit, data_type, value, std, obs_dt, t_sim, model,
-                 operation=None, feature=None):
+                 operation=None, feature=None, data_reference=None):
     data = _as_array(value)
     std = _as_array(std)
     t_sim = np.asarray(t_sim, dtype=float)
@@ -88,6 +89,7 @@ def _item_result(name, operand, unit, data_type, value, std, obs_dt, t_sim, mode
     z = np.abs(diff) / std if std is not None else None
     return {
         'data_item_name': name,
+        'data_reference': data_reference,
         'operand': operand,
         'operation': operation,
         'unit': unit,
@@ -182,7 +184,8 @@ def validation_results(prediction_info, time_per_exp, prediction_per_item,
             prediction_info['units'][i], prediction_info['data_types'][i], value,
             (prediction_info.get('stds') or [None] * len(values))[i],
             (prediction_info.get('obs_dts') or [None] * len(values))[i],
-            t_sim, model, operation=operations[i], feature=features.get(i)))
+            t_sim, model, operation=operations[i], feature=features.get(i),
+            data_reference=(prediction_info.get('data_references') or [None] * len(values))[i]))
     return {'items': items}
 
 

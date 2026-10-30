@@ -58,6 +58,8 @@ import warnings
 
 import numpy as np
 
+from libcuflynx.utilities.obs_data_helpers import data_reference_line
+
 #: kinds with one point per experiment, from scalar features
 FEATURE_KINDS = ('feature_vs_feature', 'feature_vs_input')
 #: kinds drawn from an input and a model output over time (record_time_courses)
@@ -77,8 +79,8 @@ class PredictionPlotWarning(UserWarning):
 
 def item_groups(gt_df, prediction_info):
     """``{label: [item]}``, an item being a dict with ``source`` (``data_items`` /
-    ``prediction_items``), ``index``, ``name``, ``experiment_idx``, ``value``, ``std`` and
-    ``data_type``."""
+    ``prediction_items``), ``index``, ``name``, ``experiment_idx``, ``value``, ``std``,
+    ``data_type`` and ``data_reference`` (None when the item has none)."""
     groups = {}
     if gt_df is not None and len(gt_df):
         for i, row in enumerate(gt_df.to_dict('records')):
@@ -86,7 +88,8 @@ def item_groups(gt_df, prediction_info):
                 'source': 'data_items', 'index': i, 'name': str(row['data_item_name']),
                 'experiment_idx': int(row.get('experiment_idx', 0) or 0),
                 'value': row.get('value'), 'std': row.get('std'),
-                'data_type': row.get('data_type')})
+                'data_type': row.get('data_type'),
+                'data_reference': _reference(row.get('data_reference'))})
     info = prediction_info or {}
     names = info.get('data_item_names') or []
     for i, label in enumerate(info.get('item_names_for_plotting') or []):
@@ -95,8 +98,14 @@ def item_groups(gt_df, prediction_info):
             'experiment_idx': int(info['experiment_idxs'][i]),
             'value': (info.get('values') or [None] * len(names))[i],
             'std': (info.get('stds') or [None] * len(names))[i],
-            'data_type': (info.get('data_types') or [None] * len(names))[i]})
+            'data_type': (info.get('data_types') or [None] * len(names))[i],
+            'data_reference': _reference(
+                (info.get('data_references') or [None] * len(names))[i])})
     return groups
+
+
+def _reference(value):
+    return value if isinstance(value, str) else None
 
 
 def _by_experiment(where, label, groups):
@@ -327,7 +336,8 @@ def _skip_message(where, which, ref, exp, protocol_info):
 
 def plot_points(plot, index, groups, protocol_info, model_values, prediction_info=None,
                 funcs=None):
-    """``[{series, x, y, data_x, data, std, experiment_idx}]`` for one feature plot.
+    """``[{series, x, y, data_x, data, std, experiment_idx, data_references}]`` for one
+    feature plot; ``data_references`` are the y item's and, for a feature x, the x item's.
     ``model_values`` is ``{data_item_name: model feature value}``. A data_item without one (no
     calibration to evaluate it) gives a data-only point, ``y`` None; ``data``/``std`` are None
     for an item without a value. An experiment whose x or series input is a trace with no
@@ -352,7 +362,9 @@ def plot_points(plot, index, groups, protocol_info, model_values, prediction_inf
                           PredictionPlotWarning, stacklevel=2)
             continue
         y = model(y_item)
+        references = [y_item['data_reference']]
         if x_items:
+            references.append(x_items[exp]['data_reference'])
             x, data_x = model(x_items[exp]), _number(x_items[exp]['value'])
             x = data_x if x is None else x
             data_x = x if data_x is None else data_x
@@ -360,7 +372,8 @@ def plot_points(plot, index, groups, protocol_info, model_values, prediction_inf
             x = data_x = x_inputs[exp]
         points.append({'series': series[exp] if series else None, 'x': x, 'y': y,
                        'data_x': data_x, 'data': _number(y_item['value']),
-                       'std': _number(y_item['std']), 'experiment_idx': exp})
+                       'std': _number(y_item['std']), 'experiment_idx': exp,
+                       'data_references': references})
     return sorted(points, key=lambda p: (p['series'] is not None, p['series'] or 0, p['x']))
 
 
@@ -647,7 +660,12 @@ def _draw(plot, index, groups, protocol_info, model_values, out_dir, prediction_
     ax.set_title(plot['name'])
     if ax.get_legend_handles_labels()[0]:
         ax.legend()
-    fig.tight_layout()
+    # the source of the data drawn, from the items' data_reference
+    source_line = data_reference_line(r for p in points if p['data'] is not None
+                                      for r in p['data_references'])
+    if source_line:
+        fig.text(0.01, 0.01, source_line, fontsize=7, ha='left', va='bottom')
+    fig.tight_layout(rect=(0, 0.04, 1, 1) if source_line else None)
     path = os.path.join(out_dir, f'{file_stem(plot["name"])}.png')
     fig.savefig(path, dpi=120)
     plt.close(fig)

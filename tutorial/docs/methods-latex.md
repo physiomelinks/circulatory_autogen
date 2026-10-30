@@ -76,7 +76,7 @@ The document has four parts.
 
 ### Citations
 
-A parameter's source is its `data_reference` in the generated model's parameters file, the `<prefix>_parameters.json` beside it (the workflow's target, or the calibrated model). By convention it starts with the BibTeX key of the source, followed by a note: `martin2023modelling; Methods (p. 16): w_inf k = 10 mV`. Every word in it that is a key of the bibliography becomes `\cite{key}`; other words, such as `definitional` or `user_defined`, stay as text.
+A parameter's source is its `data_reference` in the generated model's parameters file, the `<prefix>_parameters.json` beside it (the workflow's target, or the calibrated model). By convention it starts with the BibTeX key of the source, followed by a note: `martin2023modelling; Methods (p. 16): w_inf k = 10 mV`. Every word in it that is a key of the bibliography becomes `\cite{key}`; other words, such as `definitional` or `user_defined`, stay as text. An obs_data item's `data_reference` is cited the same way in the step's *Sources* line.
 
 - **For a workflow,** the bibliography is the `*_references.bib` (and `*_references_proposed.bib`) of every module version in the target, as the module library keeps them. Pass `--bib` to use other files instead.
 - **For one calibration,** pass the `.bib` files with `--bib` (repeatable). The parameters are the `<prefix>_parameters.json` that generation writes beside the generated model, or `--parameters`; when that file does not exist the command stops with an error naming it.
