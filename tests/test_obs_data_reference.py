@@ -184,3 +184,19 @@ def test_the_methods_text_lists_the_references():
 
     text, _ = observables_text(_doc(DATA_REF, PRED_REF), _Symbols(), "gaussian_MLE")
     assert f"Sources: {DATA_REF}; {PRED_REF}." in text
+
+
+@pytest.mark.unit
+def test_the_methods_text_cites_a_data_reference_as_a_parameters_is():
+    """A word of an item's data_reference that is a BibTeX key is cited, as cite() does for a
+    parameter's; the other words, and a free-text source, stay text."""
+    class _Symbols:
+        def variable(self, name):
+            return name
+
+    doc = _doc(DATA_REF, "Jones2019_b, Fig. 3")
+    doc["data_items"][0]["source"] = "Smith2020 lab notes"
+    text, _ = observables_text(doc, _Symbols(), "gaussian_MLE",
+                               {"Smith2020": "@article{Smith2020,}", "Jones2019_b": "@misc{x,}"})
+    assert (r"Sources: \cite{Jones2019_b}, Fig. 3; Smith2020 lab notes; "
+            r"\cite{Smith2020}, Table 2." in text)

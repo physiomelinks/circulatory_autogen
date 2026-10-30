@@ -491,7 +491,7 @@
             "string",
             "null"
           ],
-          "description": "Where this datum comes from: a citation key, DOI or reference, as in the data_reference column of a parameters file. Optional and never required by libcuflynx; it is carried into the results (error_vec_data_references.npy beside error_vec_names.npy) and shown on the plots that draw the item. Default: none."
+          "description": "Where this datum comes from: a citation key, DOI or reference, as in the data_reference column of a parameters file. Optional and never required by libcuflynx; it is carried into the results (error_vec_data_references.npy beside error_vec_names.npy) and shown on the plots that draw the item and in the methods text. Each item names its own source; there is no file-level default. Default: none."
         },
         "comment": {
           "type": [
@@ -831,7 +831,7 @@
             "string",
             "null"
           ],
-          "description": "Where this datum comes from: a citation key, DOI or reference, as in the data_reference column of a parameters file. Optional and never required by libcuflynx; it is carried into the results (validation_results.json) and shown on the plots that draw the item. Default: none."
+          "description": "Where this datum comes from: a citation key, DOI or reference, as in the data_reference column of a parameters file. Optional and never required by libcuflynx; it is carried into the results (validation_results.json) and shown on the plots that draw the item and in the methods text. Each item names its own source; there is no file-level default. Default: none."
         }
       },
       "allOf": [

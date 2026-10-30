@@ -197,7 +197,9 @@ The entries in the data_item list in the `obs_data.json` file are:
   (`error_vec_data_references.npy`, in the order of `error_vec_names.npy`, `""` where an item
   has none), shown as a `Data: ...` line at the top of the item's reconstruction plot and on
   any `prediction_plots` figure that draws its data, and listed under *Sources* in the methods
-  text. A module library may require it in its own checks.
+  text, where a word that is a BibTeX key becomes `\cite{key}` as in a parameter's
+  `data_reference`. Each item names its own source: there is no file-level default, so items
+  from one paper each carry its key. A module library may require it in its own checks.
 
 **Every item is either a scalar or a series, never both**. The same rule applies to
 `prediction_items`, and the parser checks it, naming the item:
