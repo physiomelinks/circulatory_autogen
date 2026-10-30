@@ -114,6 +114,14 @@ quotients with `jacobian: finite_difference`).
 - Both batched libraries also get `bk_solver_name`, and `bk_instances_advance`, which advances many
   instances on OpenMP threads.
 
+### Fixed — the batched C libraries build with MSVC (#615)
+
+`build_library` (`coupling/model0d_lib.py`) builds with `cmake --build <dir> --config Release`.
+Multi-config generators (Visual Studio, Xcode) ignore `CMAKE_BUILD_TYPE` and built Debug, whose
+`/RTC1` MSVC refuses next to the `-O1` (read as `/O1`) given to `model0d_core.c` (D8016).
+Single-config generators (Make, Ninja) ignore `--config`. The printed build hints add
+`--config Release` too.
+
 ### Fixed — libCellML 0.7's C for models with a state set by a computed constant, or with no algebraic variables
 
 The one-`variables`-array rewrite of libCellML 0.7's C now keeps `voi`, `states` and `rates` in
@@ -213,6 +221,14 @@ from the model's values under its path (`heart/lv`). The calibrated values are w
 only `path`) as a copy of the target's parameters file with them set, a value inside a super
 instance under its path; the target's own files and the supermodule version's template are not
 changed.
+
+### Fixed — plotting a data item whose operand is a model constant
+
+- `plot_outputs()` raised `ValueError: x and y must have same first dimension` after a
+  calibration when an obs_data item's operand was a model constant (e.g. `mean` of
+  `heart/clock/T_eff`). The solver does not log constants, so the operand comes back as one value;
+  the reconstruction page now draws it as a flat line over the subexperiment. The MCMC
+  prediction plots pad a constant prediction to its segment's length the same way.
 
 ### Fixed — `CVODE_myokit` on modules in other time units (#604)
 

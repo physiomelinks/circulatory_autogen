@@ -485,12 +485,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Five shards per version, so each job stays under 10 minutes on a slow runner (runners
+        # Six shards per version, so each job stays under 10 minutes on a slow runner (runners
         # differ by up to 1.5x on the same commit). tests/ci_shards.json defines the groups,
         # `rest` is every test no group names (so a new test file needs no entry there), and
         # tests/test_ci_shards.py checks that this list covers every group of the suite. `cpp`
         # holds the C++ generator, external-coupling and batched C solver tests (~5 min on CI).
-        shard: [rest, autogeneration, module-arrays, simulation, cpp]
+        # `misc` takes the slowest files that would otherwise be in `rest`, about half its time.
+        shard: [rest, autogeneration, module-arrays, simulation, cpp, misc]
         # 3.9 is gone: numpy, scipy, matplotlib, scikit-learn and numdifftools all declare
         # requires-python >=3.10, so a 3.9 job either resolved older pins than any real user
         # gets or failed to resolve at all -- testing a configuration the dependency tree no

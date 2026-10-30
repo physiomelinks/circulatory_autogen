@@ -68,7 +68,8 @@ def build_library(model_dir, build_dir=None, cmake_args=(), verbose=False, targe
         args.append(f"-DSUNDIALS_DIR={os.environ['SUNDIALS_DIR']}")
     if os.environ.get('CONDA_PREFIX'):
         args.append(f"-DCMAKE_PREFIX_PATH={os.environ['CONDA_PREFIX']}")
-    for cmd in (args, ['cmake', '--build', build_dir, '--target', target, '-j']):
+    # --config picks Release on multi-config generators (Visual Studio, Xcode), which ignore CMAKE_BUILD_TYPE
+    for cmd in (args, ['cmake', '--build', build_dir, '--config', 'Release', '--target', target, '-j']):
         proc = subprocess.run(cmd, capture_output=True, text=True)
         if verbose or proc.returncode != 0:
             sys.stdout.write(proc.stdout[-6000:])
@@ -96,7 +97,7 @@ class Model0dLibrary:
             path = build_library(self.model_dir, build_dir, verbose=verbose)
         if path is None:
             raise Model0dError(f'No {LIB_TARGET} library in {build_dir}: build it '
-                               f'(cmake -S {self.model_dir} -B {build_dir} && cmake --build {build_dir}).')
+                               f'(cmake -S {self.model_dir} -B {build_dir} && cmake --build {build_dir} --config Release).')
         self.path = path
         try:
             # RTLD_LOCAL (the default): the model's own symbols stay private to this library, so
