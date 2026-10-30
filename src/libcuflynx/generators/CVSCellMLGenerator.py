@@ -15,6 +15,7 @@ from libcuflynx.utilities.paths import default_resources_dir
 from libcuflynx.utilities.module_library import (ModuleSources, ModuleShadowWarning, collect_units,
                                                  CELLML_1_1_NS)
 from libcuflynx.generators.port_order import neighbour_port_index
+from libcuflynx.generators.vessel_nodes import check_vessel_nodes
 from libcuflynx.utilities.vessel_bc import is_vessel_module
 
 generators_dir = os.path.dirname(__file__)
@@ -602,6 +603,9 @@ class CVS0DCellMLGenerator(object):
 
     def __write_module_mappings(self, wf, module_df):
         """This function maps between ports of the modules in a module dataframe."""
+        # a node of three or more vessel ends must have its compliant end alone on its side,
+        # so that the pairwise multi-port sums below are its exact equations
+        check_vessel_nodes(module_df)
         self._multiport_sums = {}
         # one-to-one mapped variable pairs, and BCs computed by a sum, Multiply or junction
         self._plain_links = []
@@ -1631,46 +1635,24 @@ class CVS0DCellMLGenerator(object):
         for a neighbour flowing into the node and -1 for one flowing out of it, and the
         variables are those of the neighbour's vessel_port facing the node. Any module
         with such a port is included -- vessels and boundary conditions alike (#524).
+        The junction is the node's only end on its side (generators/vessel_nodes.py), so
+        every other end is a direct neighbour listed at that node of the junction.
         """
         vess_name = vessel_tup.name
-        if side == 'Min':
-            direct_neighbours = vessel_tup.inp_instances
-            indirect_sign = -1.
-        else:
-            direct_neighbours = vessel_tup.out_instances
-            indirect_sign = 1.
+        direct_neighbours = vessel_tup.inp_instances if side == 'Min' else vessel_tup.out_instances
 
         neighbours = []
-        names = []
-
-        def add(name, sign, via_name):
-            port_variables = self.__junction_facing_port_variables(vessel_df, name, sign, via_name)
-            if port_variables is not None:
-                names.append(name)
-                neighbours.append((name, sign) + port_variables)
-
-        # the vessels listed at this node of the junction itself
         for name in direct_neighbours:
             row = vessel_df.loc[vessel_df["name"] == name].squeeze()
             if vess_name in row["inp_instances"]:
-                add(name, -1., vess_name)
+                sign = -1.
             elif vess_name in row["out_instances"]:
-                add(name, 1., vess_name)
-
-        # vessels at the same node that only a neighbour lists
-        for vessel_tup2 in vessel_df.itertuples():
-            if vessel_tup2.name not in names:
-                continue
-            if vess_name in vessel_tup2.inp_instances:
-                node_vessels = vessel_tup2.inp_instances
-            elif vess_name in vessel_tup2.out_instances:
-                node_vessels = vessel_tup2.out_instances
+                sign = 1.
             else:
                 continue
-            for name in node_vessels:
-                if name != vess_name and name not in names:
-                    add(name, indirect_sign, vessel_tup2.name)
-
+            port_variables = self.__junction_facing_port_variables(vessel_df, name, sign, vess_name)
+            if port_variables is not None:
+                neighbours.append((name, sign) + port_variables)
         return neighbours
 
     def __write_junction_node_mappings(self, wf, vessel_df, vessel_tup, junction_label, side, u_1,
@@ -2166,29 +2148,10 @@ class CVS0DCellMLGenerator(object):
                     ' should be p')
                 exit()
         if temp_main_vessel_module_subtype.endswith('p'):
-            main_out_instances = vessel_df.loc[vessel_df["name"] == main_vessel].out_instances.values[0]
             if not out_vessel_module_subtype.startswith('v'):
-
-                pass_inp_out_check = False
-
-                if (any(vessel_df.loc[vessel_df["name"] == vess, "module_type"].iloc[0].startswith("Min_")
-                            for vess in main_out_instances)
-                    or any(vessel_df.loc[vessel_df["name"] == vess, "module_type"].iloc[0].startswith("MinNout_")
-                            for vess in main_out_instances)): 
-                    pass_inp_out_check = True
-                
-                for temp_out_vess in main_out_instances:
-                    inp_instances = vessel_df.loc[vessel_df["name"] == temp_out_vess].inp_instances.values[0]
-                    for temp_inp_vess in inp_instances:
-                        temp_inp_vess_module_subtype = vessel_df.loc[vessel_df["name"] == temp_inp_vess, "module_type"].iloc[0]
-                        if temp_inp_vess_module_subtype.startswith("Nout_") or temp_inp_vess_module_subtype.startswith("MinNout_"):
-                            pass_inp_out_check = True
-                            break
-
-                if not pass_inp_out_check:
-                    print(f'"{main_vessel}" output BC is p, the input BC of "{out_vessel}"',
+                print(f'"{main_vessel}" output BC is p, the input BC of "{out_vessel}"',
                     ' should be v')
-                    exit()
+                exit()
 
     def __check_input_output_ports(self, exit_ports, output_general_ports, entrance_ports, input_general_ports, upstream_module, downstream_module):
         # check that input and output modules have a matching port
