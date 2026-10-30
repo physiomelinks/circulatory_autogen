@@ -100,6 +100,14 @@ quotients with `jacobian: finite_difference`).
 - Both batched libraries also get `bk_solver_name`, and `bk_instances_advance`, which advances many
   instances on OpenMP threads.
 
+### Fixed — the batched C libraries build with MSVC (#615)
+
+`build_library` (`coupling/model0d_lib.py`) builds with `cmake --build <dir> --config Release`.
+Multi-config generators (Visual Studio, Xcode) ignore `CMAKE_BUILD_TYPE` and built Debug, whose
+`/RTC1` MSVC refuses next to the `-O1` (read as `/O1`) given to `model0d_core.c` (D8016).
+Single-config generators (Make, Ninja) ignore `--config`. The printed build hints add
+`--config Release` too.
+
 ### Fixed — libCellML 0.7's C for models with a state set by a computed constant, or with no algebraic variables
 
 The one-`variables`-array rewrite of libCellML 0.7's C now keeps `voi`, `states` and `rates` in

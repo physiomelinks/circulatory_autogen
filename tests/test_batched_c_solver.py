@@ -296,6 +296,27 @@ def test_be_batched_c_is_a_cellml_solver_in_the_schema():
 
 
 @pytest.mark.unit
+def test_the_library_builds_release_on_multi_config_generators_too(tmp_path, monkeypatch):
+    """build_library asks for the Release configuration at build time as well as at configure time: Visual Studio
+    ignores CMAKE_BUILD_TYPE and builds Debug, whose /RTC1 MSVC refuses alongside the -O1 (read as /O1) given to
+    model0d_core.c."""
+    from libcuflynx.coupling import model0d_lib
+    from libcuflynx.generators.cpp import batched
+    commands = []
+
+    class Done:
+        returncode, stdout, stderr = 0, '', ''
+
+    monkeypatch.setattr(model0d_lib.shutil, 'which', lambda name: '/usr/bin/cmake')
+    monkeypatch.setattr(model0d_lib.subprocess, 'run', lambda cmd, **kw: commands.append(cmd) or Done())
+    monkeypatch.setattr(model0d_lib, '_library_path', lambda *a: 'lib.so')
+    model0d_lib.build_library(str(tmp_path), str(tmp_path / 'build'), target=batched.TARGET)
+    configure, build = commands
+    assert '-DCMAKE_BUILD_TYPE=Release' in configure
+    assert build[build.index('--config') + 1] == 'Release'
+
+
+@pytest.mark.unit
 def test_the_batched_solvers_are_opt_in_and_the_docs_say_when_to_choose_them():
     """Nothing selects a batched solver unless the config names it, and the solver docs say when
     to choose one over CVODE_myokit."""
