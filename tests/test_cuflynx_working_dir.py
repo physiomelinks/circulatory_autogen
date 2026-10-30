@@ -2,9 +2,9 @@
 
 The working dir is ``param_id_output_dir``: the study manifest there records every path
 relative to itself, and each input from elsewhere (model, obs_data, params_for_id, the
-user_inputs yaml, user funcs, the module array and parameters file) is copied into its
-``inputs/`` folder (``utilities/cuflynx_study.py``). So ``zip -r`` of that one folder is the
-whole study: unzipped anywhere, with the originals gone, every path in it still resolves.
+user_inputs yaml, user funcs, the module array, parameters file and module versions) is copied
+into its ``inputs/`` folder (``utilities/cuflynx_study.py``). So ``zip -r`` of that one folder is
+the whole study: unzipped anywhere, with the originals gone, every path in it still resolves.
 """
 import json
 import os
@@ -37,8 +37,9 @@ def _files(directory):
 
 def _resolved_paths(study):
     paths = [study[key] for key in cuflynx_study.PATH_KEYS if study.get(key)]
-    for block in ('user_funcs', 'system'):
-        paths += list((study.get(block) or {}).values())
+    paths += list((study.get('user_funcs') or {}).values())
+    for value in (study.get('system') or {}).values():
+        paths += value if isinstance(value, list) else [value] if isinstance(value, str) else []
     for section in cuflynx_study.ENTRY_SECTIONS:
         paths += [entry[key] for entry in study[section] for key in ('dir', 'obs_data')
                   if entry.get(key)]
@@ -126,6 +127,9 @@ def test_a_calibration_leaves_a_working_dir_that_can_be_moved(base_user_inputs, 
 
         study = cuflynx_study.read_study(moved)
         assert study['runs'] and study['user_funcs'] and study['system']
+        # 3compartment's modules are all built in, so they are recorded, not copied
+        assert study['system']['use_builtin_modules'] is True
+        assert not os.path.exists(os.path.join(moved, 'inputs', 'system', 'modules'))
         for path in _resolved_paths(study):
             assert os.path.commonpath([path, moved]) == moved, path
             assert os.path.exists(path), path
@@ -156,3 +160,55 @@ def test_sensitivity_output_defaults_into_the_working_dir(tmp_path, copy_inputs)
     if copy_inputs:
         assert parsed(sa_options={'output_dir': 'mine'}) == str(tmp_path / 'out' / 'sensitivity'
                                                                  / 'mine')
+
+
+@pytest.mark.integration
+def test_a_generated_models_system_regenerates_it_from_the_working_dir_alone(tmp_path):
+    """``inputs/system/`` holds the module array, its parameters file and each module library
+    version the array uses, so the model generates again, the same, with only the working dir
+    left. Built-in modules are not copied: they come with libcuflynx."""
+    from libcuflynx.external_testing.workflow_library import build_workflow_library
+    from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
+    from libcuflynx.scripts.script_generate_with_new_architecture import (
+        generate_with_new_architecture)
+
+    library = build_workflow_library(str(tmp_path / 'library'))
+    working = tmp_path / 'study'
+    generated = tmp_path / 'generated_models'
+    config = {'file_prefix': 'chain', 'input_param_file': 'chain_parameters.json',
+              'model_type': 'cellml', 'resources_dir': library['arrays'],
+              'generated_models_dir': str(generated),
+              'module_library_dirs': [library['modules']],
+              'param_id_output_dir': str(working), 'DEBUG': False}
+    assert generate_with_new_architecture(False, dict(config))
+    model = generated / 'chain' / 'chain.cellml'
+    original = model.read_text()
+    inp = YamlFileParser().parse_user_inputs_file(dict(config))
+    cuflynx_study.update_study(dict(inp, model_path=str(model)))
+
+    with open(cuflynx_study.manifest_path(inp)) as handle:
+        raw = json.load(handle)
+    system_dir = os.path.join('inputs', 'system')
+    assert raw['system'] == {
+        'module_array': os.path.join(system_dir, 'chain_module_array.json'),
+        'parameters': os.path.join(system_dir, 'chain_parameters.json'),
+        'module_library_dirs': [os.path.join(system_dir, 'modules')],
+        'use_builtin_modules': True}
+    versions = sorted(os.path.relpath(root, working / system_dir / 'modules')
+                      for root, _, names in os.walk(working / system_dir / 'modules')
+                      if any(n.endswith('_modules_config.json') for n in names))
+    # the versions the array uses (lin_a and lin_c), not the rest of the library
+    assert versions == [os.path.join(t, 'versions', 'v1') for t in ('lin_a', 'lin_c')]
+
+    archive = shutil.make_archive(str(tmp_path / 'study'), 'zip', str(working))
+    moved = tmp_path / 'moved'
+    shutil.unpack_archive(archive, str(moved))
+    for original_dir in ('library', 'generated_models', 'study'):
+        shutil.rmtree(tmp_path / original_dir)
+
+    again = cuflynx_study.generation_inputs(cuflynx_study.read_study(str(moved)))
+    assert os.path.commonpath([again['resources_dir'], str(moved)]) == str(moved)
+    regenerated = tmp_path / 'regenerated'
+    assert generate_with_new_architecture(False, dict(again, model_type='cellml',
+                                                      generated_models_dir=str(regenerated)))
+    assert (regenerated / 'chain' / 'chain.cellml').read_text() == original

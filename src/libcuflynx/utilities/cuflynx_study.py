@@ -15,7 +15,8 @@ ignores it.
      "user_inputs": ..., "updated": <iso time>, "libcuflynx_version": ...,
      "model": ..., "base_model": ..., "obs_data": ..., "params_for_id": ...,
      "user_funcs": {"operation": ..., "cost": ..., "modifier": ...},
-     "system": {"module_array": ..., "parameters": ...},
+     "system": {"module_array": ..., "parameters": ..., "module_library_dirs": [...],
+                "external_modules_dir": ..., "use_builtin_modules": ...},
      "solver_info": {..., "solver": ..., "dt": ...}, "pre_time": ..., "sim_time": ...,
      "runs": [{"dir": ..., "method": ..., "analyses": [...], "status": ..., "obs_data": ...,
                "updated": ...}],
@@ -31,8 +32,10 @@ the whole study and it opens wherever it is unzipped::
       inputs/<kind>/            a copy of each input that was outside <W>: model/ (with the
                                 CellML files it imports), obs_data/, params_for_id/,
                                 user_inputs/ (the yaml as given, and the dated
-                                user_inputs_<yymmdd>.yaml archives), funcs/, system/ (the
-                                module array and parameters file of a generated model),
+                                user_inputs_<yymmdd>.yaml archives), funcs/, system/ (a
+                                generated model's module array and parameters file, the
+                                module versions it uses under modules/, and its
+                                external_modules_dir under external_modules/),
                                 emulator/, workflows/<wf>/ (a packed calibration workflow)
       <method>_<prefix>_<obs>/  calibration and UQ runs
       sensitivity/              Sobol and local sensitivity (the default sa_options output_dir)
@@ -44,6 +47,13 @@ manifest's folder. A manifest nested inside a larger working dir (a calibration 
 step) is given that dir as ``cuflynx_working_dir``: its inputs are copied there, and its
 paths may climb (``..``) as far as that dir and no further. An output directory outside the
 working dir (an ``sa_options`` ``output_dir`` set to elsewhere) is recorded absolute.
+
+A generated model's ``system`` holds what generating it again needs: the module array and
+parameters file side by side (generation reads both from one ``resources_dir``), each module
+library version the array uses (``calibration_workflow.pack.module_version_files``, as a packed
+workflow holds them) and the ``external_modules_dir``. Built-in modules are not copied: they
+come with libcuflynx, so ``use_builtin_modules`` and ``libcuflynx_version`` record them.
+:func:`generation_inputs` gives the generation keys from a :func:`read_study` result.
 
 ``cuflynx_study_copy_inputs: false`` copies nothing: inputs outside the study are recorded by
 absolute path, ``study_dir`` records where the study is, and the default sensitivity output
@@ -96,6 +106,7 @@ __all__ = [
     'study_inputs',
     'update_study',
     'read_study',
+    'generation_inputs',
 ]
 
 #: The CUFLynx ``study_manifest`` schema this writes. Keys added since are additive.
@@ -115,9 +126,13 @@ PATH_KEYS = tuple(PATH_KINDS)
 #: The ``system`` block: the files a generated model was built from, by the inp key holding each.
 SYSTEM_KEYS = {'module_array': 'vessels_csv_abs_path', 'parameters': 'parameters_csv_abs_path'}
 
+#: The inp keys that say where a generated model's modules come from, recorded in ``system``.
+MODULE_SOURCE_KEYS = ('module_library_dirs', 'external_modules_dir', 'use_builtin_modules')
+
 #: The user_inputs keys about the manifest itself, beyond the ones ``update_study`` documents,
 #: that a caller holding the parsed config passes on (``CVS0DParamID(study_settings=...)``).
-STUDY_INP_KEYS = ('cuflynx_study_copy_inputs', 'cuflynx_working_dir') + tuple(SYSTEM_KEYS.values())
+STUDY_INP_KEYS = (('cuflynx_study_copy_inputs', 'cuflynx_working_dir')
+                  + tuple(SYSTEM_KEYS.values()) + MODULE_SOURCE_KEYS)
 
 #: Path keys inside the ``workflow`` block (and a step's link back to it), including the
 #: ``outputs`` of each step.
@@ -248,7 +263,7 @@ def _cellml_imports(path, found):
 
 
 def _bundle(path):
-    """``(base, {relative path: sha256}, main)``: the files ``path`` needs, relative to
+    """``(base, {relative path: source file}, main)``: the files ``path`` needs, relative to
     ``base``, and where ``path`` itself is among them. A file brings the CellML it imports;
     a directory brings its files (not hidden ones)."""
     if os.path.isdir(path):
@@ -262,7 +277,7 @@ def _bundle(path):
         if path.endswith('.cellml'):
             _cellml_imports(path, files)
         base = os.path.commonpath([os.path.dirname(f) for f in files])
-    return base, {os.path.relpath(f, base): _sha256(f) for f in files}, os.path.relpath(path, base)
+    return base, {os.path.relpath(f, base): f for f in files}, os.path.relpath(path, base)
 
 
 def _same_file_in(directory, name, digest):
@@ -302,24 +317,110 @@ def bring_in(root, kind, path):
     key = (root, kind, path, status.st_mtime_ns, status.st_size)
     if key in _BROUGHT and os.path.exists(_BROUGHT[key]):
         return _BROUGHT[key]
-    base, files, main = _bundle(path)
+    _, sources, main = _bundle(path)
     inputs = os.path.join(root, INPUTS_DIR)
     copy = None
-    if len(files) == 1 and not os.path.isdir(path) and os.path.isdir(inputs):
-        copy = _same_file_in(inputs, os.path.basename(path), files[main])
+    if len(sources) == 1 and not os.path.isdir(path) and os.path.isdir(inputs):
+        copy = _same_file_in(inputs, os.path.basename(path), _sha256(path))
     if copy is None:
-        target = os.path.join(inputs, kind)
-        if not _fits(target, files):
-            digest = hashlib.sha256(json.dumps(sorted(files.items())).encode()).hexdigest()
-            target = os.path.join(target, digest[:12])
-        for relative in files:
-            destination = os.path.join(target, relative)
-            if not os.path.exists(destination):
-                os.makedirs(os.path.dirname(destination), exist_ok=True)
-                shutil.copyfile(os.path.join(base, relative), destination)
-        copy = os.path.join(target, main)
+        copy = os.path.join(_place(root, kind, sources), main)
     _BROUGHT[key] = copy
     return copy
+
+
+def _place(root, kind, sources):
+    """Copy ``sources`` (``{relative path: source file}``) into ``<root>/inputs/<kind>/``, or
+    into ``inputs/<kind>/<hash>/`` when a different file of one of those names is there; the
+    directory they are in."""
+    files = {relative: _sha256(source) for relative, source in sources.items()}
+    target = os.path.join(root, INPUTS_DIR, kind)
+    if not _fits(target, files):
+        digest = hashlib.sha256(json.dumps(sorted(files.items())).encode()).hexdigest()
+        target = os.path.join(target, digest[:12])
+    for relative, source in sources.items():
+        destination = os.path.join(target, relative)
+        if not os.path.exists(destination):
+            os.makedirs(os.path.dirname(destination), exist_ok=True)
+            shutil.copyfile(source, destination)
+    return target
+
+
+def _module_files(system):
+    """``(homes, files)`` of the module library versions ``system``'s module array uses
+    (``pack.module_version_files``); none when the array cannot be read."""
+    from libcuflynx.calibration_workflow.pack import module_version_files
+    from libcuflynx.calibration_workflow.resolve import ResolvedArray
+    from libcuflynx.utilities.config_schemas import read_module_array_records
+    from libcuflynx.utilities.module_library import ModuleSources
+    libraries = system.get('module_library_dirs') or []
+    try:
+        sources = ModuleSources(system)
+        components = sources.component_registry()
+        supermodules = sources.supermodule_registry()
+        array = ResolvedArray(model=None, records=read_module_array_records(system['module_array']),
+                              supermodules=supermodules)
+        configs = array.config_paths(components, supermodules)
+    except Exception as error:
+        print(f'[cuflynx_study] WARNING: could not find the module versions of '
+              f'{system["module_array"]} ({error}); copying every units file of its libraries '
+              f'but none of their versions')
+        configs = []
+    homes, _, files = module_version_files(configs, libraries)
+    return homes, files
+
+
+def _external_home(externals):
+    return ['external_modules'] if len(externals) == 1 else [
+        os.path.join('external_modules', str(i)) for i in range(len(externals))]
+
+
+def _system_sources(paths, system):
+    """``system`` (the study-level block, absolute paths) with what is outside the working dir
+    copied into ``inputs/system/`` as one directory, laid out as generation reads it: the
+    module array and parameters file side by side, ``modules/`` (the library versions used,
+    as ``module_version_files`` lays them out) and ``external_modules/``."""
+    libraries = [os.path.abspath(d) for d in system.get('module_library_dirs') or []]
+    external = system.get('external_modules_dir')
+    externals = [os.path.abspath(d) for d in
+                 ([] if not external else [external] if isinstance(external, str) else external)]
+    files = (system['module_array'], system['parameters'])
+    outside = [p for p in files + tuple(libraries + externals) if not _inside(p, paths.root)]
+    if not outside:
+        return system
+    key = ('system', paths.root) + tuple(
+        (p, os.stat(p).st_mtime_ns, os.stat(p).st_size) for p in files) + (
+        tuple(libraries), tuple(externals), system.get('use_builtin_modules'))
+    if key in _BROUGHT and os.path.isdir(_BROUGHT[key][0]):
+        target, sources = _BROUGHT[key]
+    else:
+        sources, copied = {}, dict(system)
+        if any(not _inside(p, paths.root) for p in files):
+            for name in SYSTEM_KEYS:
+                sources[os.path.basename(system[name])] = system[name]
+                copied[name] = os.path.basename(system[name])
+        if any(not _inside(d, paths.root) for d in libraries):
+            homes, module_files = _module_files(dict(system, module_library_dirs=libraries))
+            sources.update(module_files)
+            copied['module_library_dirs'] = homes
+        if any(not _inside(d, paths.root) for d in externals):
+            homes = _external_home(externals)
+            for home, directory in zip(homes, externals):
+                for name in os.listdir(directory) if os.path.isdir(directory) else []:
+                    path = os.path.join(directory, name)
+                    if os.path.isfile(path) and not name.startswith('.'):
+                        sources[os.path.join(home, name)] = path
+            copied['external_modules_dir'] = homes[0] if isinstance(external, str) else homes
+        target = _place(paths.root, 'system', sources)
+        sources = copied
+        _BROUGHT[key] = (target, sources)
+    out = dict(sources)
+    for name in ('module_array', 'parameters', 'module_library_dirs', 'external_modules_dir'):
+        value = out.get(name)
+        if isinstance(value, list):
+            out[name] = [v if os.path.isabs(v) else os.path.join(target, v) for v in value]
+        elif value:
+            out[name] = value if os.path.isabs(value) else os.path.join(target, value)
+    return out
 
 
 class _Paths:
@@ -403,6 +504,9 @@ def _study_level(inp, study_dir):
     funcs = {kind: inp[key] for kind, key in USER_FUNC_KEYS.items() if inp.get(key)}
     system = {name: inp[key] for name, key in SYSTEM_KEYS.items()
               if inp.get(key) and os.path.isfile(inp[key])}
+    if system.get('module_array'):
+        system.update({key: inp[key] for key in MODULE_SOURCE_KEYS
+                       if inp.get(key) not in (None, [], '')})
     emulator = None
     if inp.get('use_emulator') and inp.get('emulator_dir'):
         emulator = inp['emulator_dir']
@@ -432,8 +536,25 @@ def _encode(paths, key, value):
     if key == 'user_funcs':
         return {kind: paths.input(path, 'funcs') for kind, path in value.items()}
     if key == 'system':
-        return {name: paths.input(path, 'system') for name, path in value.items()}
+        return _encode_system(paths, value)
     return value
+
+
+def _encode_system(paths, system):
+    """The ``system`` block as stored: copied into ``inputs/system/`` (see
+    :func:`_system_sources`) when it has a module array and parameters file, its paths
+    relative."""
+    if paths.copy and system.get('module_array') and system.get('parameters'):
+        system = _system_sources(paths, system)
+    out = {}
+    for name, value in system.items():
+        if name == 'use_builtin_modules':
+            out[name] = value
+        elif isinstance(value, (list, tuple)):
+            out[name] = [paths.input(v, 'system') for v in value]
+        else:
+            out[name] = paths.input(value, 'system')
+    return out
 
 
 def _encode_workflow(paths, value, key=None):
@@ -517,7 +638,8 @@ def update_study(inp, section=None, entry=None, emulator=None, workflow=None):
             ``file_prefix``, ``write_cuflynx_study``, ``cuflynx_study_copy_inputs``,
             ``cuflynx_working_dir``, ``user_inputs_path``, ``model_path``,
             ``param_id_obs_path``, ``params_for_id_path``, the ``*_funcs_external_path``
-            keys, ``vessels_csv_abs_path``, ``parameters_csv_abs_path``, ``solver``,
+            keys, ``vessels_csv_abs_path``, ``parameters_csv_abs_path``,
+            ``module_library_dirs``, ``external_modules_dir``, ``use_builtin_modules``, ``solver``,
             ``solver_info``, ``dt``, ``pre_time``, ``sim_time``, ``use_emulator`` and
             ``emulator_dir``.
         section: ``'runs'`` or ``'sensitivity'`` to record an output directory.
@@ -606,9 +728,12 @@ def read_study(path):
     for key in PATH_KEYS:
         if out.get(key):
             out[key] = resolve(out[key])
-    for block in ('user_funcs', 'system'):
-        if isinstance(out.get(block), dict):
-            out[block] = {name: resolve(p) for name, p in out[block].items() if p}
+    if isinstance(out.get('user_funcs'), dict):
+        out['user_funcs'] = {name: resolve(p) for name, p in out['user_funcs'].items() if p}
+    if isinstance(out.get('system'), dict):
+        out['system'] = {name: (p if isinstance(p, bool) else
+                                [resolve(v) for v in p] if isinstance(p, list) else resolve(p))
+                         for name, p in out['system'].items() if p is not None}
     for section in ENTRY_SECTIONS:
         out[section] = [{**e, 'dir': resolve(e['dir']),
                          **({'obs_data': resolve(e['obs_data'])} if e.get('obs_data') else {})}
@@ -626,3 +751,18 @@ def read_study(path):
     if isinstance(out.get('workflow'), dict):
         out['workflow'] = resolve_workflow(out['workflow'])
     return out
+
+
+def generation_inputs(study):
+    """The user_inputs keys that generate a study's model again from its ``system``: a
+    :func:`read_study` result in, ``{'file_prefix', 'resources_dir', 'input_param_file'}``
+    and the module source keys out, or None when the study records no generated model."""
+    system = study.get('system') or {}
+    if not system.get('module_array') or not system.get('parameters'):
+        return None
+    inp = {'file_prefix': study.get('file_prefix'),
+           'resources_dir': os.path.dirname(system['module_array']),
+           'input_param_file': os.path.relpath(system['parameters'],
+                                               os.path.dirname(system['module_array']))}
+    inp.update({key: system[key] for key in MODULE_SOURCE_KEYS if key in system})
+    return inp

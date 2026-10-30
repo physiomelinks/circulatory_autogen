@@ -259,7 +259,8 @@ class CVS0DParamID():
         one_rank: If True, skip the MPI barrier (single-rank usage).
         study_settings: Further study-manifest keys from the parsed config
             (``cuflynx_study.STUDY_INP_KEYS``: ``cuflynx_study_copy_inputs``,
-            ``cuflynx_working_dir`` and the module array and parameters file paths);
+            ``cuflynx_working_dir``, the module array and parameters file paths and
+            the module source keys);
             ``init_from_dict`` fills it in.
 
     Attributes:

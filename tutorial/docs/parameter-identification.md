@@ -1124,7 +1124,9 @@ anywhere and open the manifest (or the folder, as the working dir) in CUFLynx.
         user_inputs/                  the user_inputs.yaml given, and user_inputs_<yymmdd>.yaml:
                                       each run's resolved config
         funcs/                        the *_funcs_external_path files
-        system/                       a generated model's module array and parameters file
+        system/                       a generated model's module array and parameters file, with
+                                      modules/ (each module library version it uses) and
+                                      external_modules/ (its external_modules_dir)
         emulator/                     an emulator trained elsewhere
         workflows/<workflow_name>/    a calibration workflow, packed (see Calibration workflows)
     <method>_<prefix>_<obs_data>/     each calibration (and the MCMC that follows it)
@@ -1137,6 +1139,19 @@ files copies nothing, and a changed file with the same name goes into
 `inputs/<kind>/<hash>/` beside the first. Every path in the manifest is relative to the
 manifest's folder. An output written outside the working dir, such as an `sa_options`
 `output_dir` set to an absolute path elsewhere, is recorded by its absolute path.
+
+A generated model's `inputs/system/` holds everything generating it again needs, so the model
+can be regenerated from the working dir alone. Built-in modules are not copied: they come with
+libcuflynx, so the manifest records `use_builtin_modules` and `libcuflynx_version` instead.
+
+```python
+from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
+from libcuflynx.utilities.cuflynx_study import generation_inputs, read_study
+
+inp = generation_inputs(read_study('unzipped_study/'))   # resources_dir, file_prefix, module sources
+generate_with_new_architecture(False, dict(inp, model_type='cellml',
+                                           generated_models_dir='regenerated'))
+```
 
 | user_inputs setting | default | what it does |
 |---|---|---|

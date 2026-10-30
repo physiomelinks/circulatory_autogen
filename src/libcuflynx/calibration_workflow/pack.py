@@ -81,12 +81,6 @@ class _Packer:
         shutil.copyfile(source, destination)
         self.files.add(relative)
 
-    def tree(self, source, relative):
-        destination = os.path.join(self.dest_dir, relative)
-        shutil.copytree(source, destination, ignore=_ignore_hidden, dirs_exist_ok=True)
-        for root, _, names in os.walk(destination):
-            self.files |= {os.path.relpath(os.path.join(root, f), self.dest_dir) for f in names}
-
 
 def _library_of(path, library_dirs):
     '''The index of the library directory ``path`` is in, or None.'''
@@ -96,6 +90,48 @@ def _library_of(path, library_dirs):
         if os.path.commonpath([real, root]) == root:
             return i
     return None
+
+
+def _visible_files(directory):
+    found = []
+    for root, dirs, names in os.walk(directory):
+        dirs[:] = sorted(d for d in dirs if not d.startswith('.'))
+        found += [os.path.join(root, n) for n in sorted(names) if not n.startswith('.')]
+    return found
+
+
+def module_version_files(config_paths, library_dirs):
+    '''The files that hold the module versions whose config files are ``config_paths``, laid
+    out as their libraries ``library_dirs`` lay them out.
+
+    Returns ``(homes, versions, files)``: ``homes`` is where each library goes (``modules``,
+    or ``modules/<n>`` for the n-th of several), ``versions`` the version directories, and
+    ``files`` ``{path relative to the copy: source file}`` -- every file of each version
+    directory, and every units file of each library, since units are looked up across the
+    whole library. A config outside ``library_dirs`` (a built-in or external_modules_dir
+    module) is left out. ``pack_workflow`` and the study manifest's ``inputs/system/``
+    (``utilities/cuflynx_study.py``) both copy these files.
+    '''
+    libraries = list(library_dirs or [])
+    homes = ([MODULES_DIR] if len(libraries) == 1 else
+             [os.path.join(MODULES_DIR, str(i)) for i in range(len(libraries))])
+    versions = set()
+    for config in config_paths:
+        i = _library_of(config, libraries)
+        if i is not None:
+            versions.add((i, os.path.dirname(os.path.realpath(config))))
+    files, packed_versions = {}, []
+    for i, version_dir in sorted(versions):
+        relative = os.path.join(homes[i], os.path.relpath(
+            version_dir, os.path.realpath(libraries[i])))
+        packed_versions.append(relative)
+        for path in _visible_files(version_dir):
+            files[os.path.join(relative, os.path.relpath(path, version_dir))] = path
+    for i, library in enumerate(libraries):
+        for path in _visible_files(library):
+            if path.endswith('units.cellml'):
+                files[os.path.join(homes[i], os.path.relpath(path, library))] = path
+    return homes, packed_versions, files
 
 
 def pack_workflow(source, dest_dir, module_library_dirs=None):
@@ -152,37 +188,16 @@ def pack_workflow(source, dest_dir, module_library_dirs=None):
             settings(raw_step['settings'], step.settings)
 
     libraries = list(workflow.module_library_dirs)
+    configs = set(resolved.module_configs())
+    for step in workflow.steps:
+        if step.model is not None:
+            configs |= set(resolved.steps[step.id].model.config_paths(
+                resolved.components, resolved.supermodules))
+    homes, packed_versions, module_files = module_version_files(configs, libraries)
+    for relative, path in module_files.items():
+        packer._copy(path, relative)
     if libraries:
-        homes = ([MODULES_DIR] if len(libraries) == 1 else
-                 [os.path.join(MODULES_DIR, str(i)) for i in range(len(libraries))])
-        configs = set(resolved.module_configs())
-        for step in workflow.steps:
-            if step.model is not None:
-                configs |= set(resolved.steps[step.id].model.config_paths(
-                    resolved.components, resolved.supermodules))
-        versions = set()
-        for config in configs:
-            i = _library_of(config, libraries)
-            if i is not None:          # not a built-in or external_modules_dir module
-                versions.add((i, os.path.dirname(os.path.realpath(config))))
-        packed_versions = []
-        for i, version_dir in sorted(versions):
-            relative = os.path.join(homes[i], os.path.relpath(
-                version_dir, os.path.realpath(libraries[i])))
-            packer.tree(version_dir, relative)
-            packed_versions.append(relative)
-        # units are looked up across the whole library, so every units file goes
-        for i, library in enumerate(libraries):
-            for root, dirs, names in os.walk(library):
-                dirs[:] = [d for d in dirs if not d.startswith('.')]
-                for name in names:
-                    if name.endswith('units.cellml') and not name.startswith('.'):
-                        path = os.path.join(root, name)
-                        packer._copy(path, os.path.join(homes[i],
-                                                        os.path.relpath(path, library)))
         raw['module_library_dirs'] = homes
-    else:
-        packed_versions = []
 
     workflow_path = os.path.join(packer.dest_dir, WORKFLOW_FILE_NAME)
     with open(workflow_path, 'w') as f:

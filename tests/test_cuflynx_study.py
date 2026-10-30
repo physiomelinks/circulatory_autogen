@@ -175,7 +175,8 @@ def test_a_zipped_and_moved_working_dir_resolves_inside_itself(study, tmp_path):
 def _assert_resolves_inside(read, root):
     paths = [read[k] for k in cuflynx_study.PATH_KEYS if read.get(k)]
     paths += list((read.get('user_funcs') or {}).values())
-    paths += list((read.get('system') or {}).values())
+    for value in (read.get('system') or {}).values():
+        paths += value if isinstance(value, list) else [value] if isinstance(value, str) else []
     paths += [e[k] for s in cuflynx_study.ENTRY_SECTIONS for e in read[s]
               for k in ('dir', 'obs_data') if e.get(k)]
     assert paths

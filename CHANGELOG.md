@@ -12,9 +12,13 @@ anywhere in CUFLynx (see "The study working dir" in the parameter-identification
 
 - The study manifest (`<study_name>_cuflynx_study.json`) copies each input from outside the
   working dir into `inputs/<kind>/` (model with the CellML it imports, obs_data, params_for_id,
-  the user_inputs yaml, user funcs, a generated model's module array and parameters file in
-  `system/`, an emulator), once per content, and records every path relative to the manifest's
-  folder. It no longer writes `study_dir`. New manifest key `system`. Schema 1, unchanged:
+  the user_inputs yaml, user funcs, an emulator, and in `system/` a generated model's module
+  array, parameters file, the module library versions it uses and its `external_modules_dir`),
+  once per content, and records every path relative to the manifest's folder. It no longer
+  writes `study_dir`. New manifest key `system` (with `module_library_dirs`,
+  `external_modules_dir` and `use_builtin_modules`; built-in modules are recorded, not
+  copied), and `cuflynx_study.generation_inputs(read_study(<W>))` gives the user_inputs keys
+  that generate the model again from the working dir alone. Schema 1, unchanged:
   readers ignore keys they do not know, and resolve relative paths against the manifest's
   folder.
 - The dated `user_inputs_<yymmdd>.yaml` goes in `<param_id_output_dir>/inputs/user_inputs/`, not
@@ -25,6 +29,8 @@ anywhere in CUFLynx (see "The study working dir" in the parameter-identification
 - A calibration workflow run packs its workflow (`pack_workflow`) into
   `<output_dir>/inputs/workflows/<workflow_name>/`; its manifest and each step's name the
   packed copies, relative. `pack_workflow` also returns `sources`, each input's packed path.
+  `calibration_workflow.pack.module_version_files` lists the module version files it packs;
+  the study's `inputs/system/` copies the same files.
 - New user_inputs (and workflow settings) key `cuflynx_study_copy_inputs` (default `true`):
   `false` keeps the previous behaviour: absolute paths for inputs outside the study,
   `study_dir`, and the previous sensitivity and dated-user_inputs locations.
