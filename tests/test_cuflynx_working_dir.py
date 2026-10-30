@@ -9,12 +9,10 @@ whole study: unzipped anywhere, with the originals gone, every path in it still 
 import json
 import os
 import shutil
-import tempfile
 from datetime import date
 
 import pytest
 import yaml
-from mpi4py import MPI
 
 from libcuflynx.utilities import cuflynx_study
 
@@ -23,11 +21,10 @@ MODEL_FILES = (f'{PREFIX}_module_array.csv', f'{PREFIX}_parameters.json',
                f'{PREFIX}_params_for_id.json', f'{PREFIX}_obs_data.json')
 
 
-def _workspace(comm, name):
-    """A fresh directory under the temp dir, the same on every rank (``tmp_path`` is not)."""
-    root = os.path.join(tempfile.gettempdir(), 'libcuflynx_working_dir', name)
+def _workspace(comm, tmp_path):
+    """Rank 0's ``tmp_path``, shared by every rank (each rank's own ``tmp_path`` differs)."""
+    root = comm.bcast(str(tmp_path) if comm.Get_rank() == 0 else None, root=0)
     if comm.Get_rank() == 0:
-        shutil.rmtree(root, ignore_errors=True)
         os.makedirs(os.path.join(root, 'resources'))
     comm.Barrier()
     return root
@@ -50,14 +47,17 @@ def _resolved_paths(study):
 
 @pytest.mark.integration
 @pytest.mark.mpi
-def test_a_calibration_leaves_a_working_dir_that_can_be_moved(base_user_inputs, resources_dir):
+def test_a_calibration_leaves_a_working_dir_that_can_be_moved(base_user_inputs, resources_dir,
+                                                               tmp_path):
+    MPI = pytest.importorskip("mpi4py.MPI",
+                              reason='needs mpi4py: pip install "libcuflynx[mpi]"')
     from libcuflynx.scripts.param_id_run_script import run_param_id
     from libcuflynx.scripts.script_generate_with_new_architecture import (
         generate_with_new_architecture)
 
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
-    workspace = _workspace(comm, 'calibration')
+    workspace = _workspace(comm, tmp_path)
     resources = os.path.join(workspace, 'resources')
     working = os.path.join(workspace, 'study')
     funcs = os.path.join(workspace, 'funcs', 'my_ops.py')
