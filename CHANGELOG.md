@@ -26,6 +26,11 @@ anywhere in CUFLynx (see "The study working dir" in the parameter-identification
   that generate the model again from the working dir alone. Schema 1, unchanged:
   readers ignore keys they do not know, and resolve relative paths against the manifest's
   folder.
+- `cuflynx_study.store_input(working_dir, kind, source, name=None)` stores a file, a folder or
+  bytes as an input of `kind` the same way (a new dated folder per content, the same content
+  reused) and returns its path relative to the working dir; `latest_input(working_dir, kind,
+  name=None)` gives the version stored last. An app saving edited inputs (CUFLynx) writes the
+  same layout through them, so an edit never rewrites an earlier version.
 - The dated `user_inputs_<yymmdd>.yaml` goes in `<param_id_output_dir>/inputs/user_inputs/`, not
   `resources_dir`.
 - The default `sa_options` `output_dir` is `<param_id_output_dir>/sensitivity`, not

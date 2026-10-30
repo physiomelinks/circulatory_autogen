@@ -347,6 +347,57 @@ def test_turned_off(study):
     assert not os.path.exists(cuflynx_study.manifest_path(study))
 
 
+def test_store_input_keeps_each_saved_content_in_its_own_dated_folder(tmp_path, clock):
+    """An app saving an edited input: a new content gets a new dated folder and the earlier
+    one stays; saving a content again reuses its folder and makes it the latest."""
+    work = tmp_path / 'work'
+    clock(datetime(2026, 10, 31, 9, 0, 0))
+    first = cuflynx_study.store_input(work, 'obs_data', b'{"a": 1}', 'demo_obs_data.json')
+    assert first == os.path.join('inputs', 'obs_data', '2026-10-31_090000', 'demo_obs_data.json')
+    clock(datetime(2026, 10, 31, 9, 5, 0))
+    second = cuflynx_study.store_input(work, 'obs_data', b'{"a": 2}', 'demo_obs_data.json')
+    assert second == os.path.join('inputs', 'obs_data', '2026-10-31_090500', 'demo_obs_data.json')
+    assert (work / first).read_bytes() == b'{"a": 1}'
+    assert cuflynx_study.latest_input(work, 'obs_data', 'demo_obs_data.json') == str(work / second)
+
+    clock(datetime(2026, 10, 31, 9, 9, 0))
+    again = cuflynx_study.store_input(work, 'obs_data', b'{"a": 1}', 'demo_obs_data.json')
+    assert again == first
+    assert sorted(os.listdir(work / 'inputs' / 'obs_data')) == ['2026-10-31_090000',
+                                                                 '2026-10-31_090500']
+    assert cuflynx_study.latest_input(work, 'obs_data', 'demo_obs_data.json') == str(work / first)
+    assert cuflynx_study.latest_input(work, 'obs_data', 'other.json') is None
+    assert cuflynx_study.latest_input(work, 'params_for_id') is None
+    assert [v['kind'] for v in cuflynx_study.read_index(work)] == ['obs_data', 'obs_data']
+
+
+def test_store_input_takes_a_file_a_renamed_file_or_a_folder(tmp_path, clock):
+    work = tmp_path / 'work'
+    source = tmp_path / 'src'
+    (source / 'sub').mkdir(parents=True)
+    (source / 'calibration_workflow.json').write_text('{}')
+    (source / 'sub' / 'obs.json').write_text('[]')
+    clock(datetime(2026, 10, 31, 9, 0, 0))
+    as_is = cuflynx_study.store_input(work, 'obs_data', source / 'sub' / 'obs.json')
+    assert as_is.endswith(os.path.join('2026-10-31_090000', 'obs.json'))
+    renamed = cuflynx_study.store_input(work, 'obs_data', source / 'sub' / 'obs.json',
+                                        'demo_obs_data.json')
+    assert renamed.endswith(os.path.join('2026-10-31_090000_2', 'demo_obs_data.json'))
+
+    tree = cuflynx_study.store_input(work, 'workflows/wf', source, 'calibration_workflow.json')
+    folder = os.path.join('inputs', 'workflows', 'wf', '2026-10-31_090000')
+    assert tree == os.path.join(folder, 'calibration_workflow.json')
+    assert (work / folder / 'sub' / 'obs.json').read_text() == '[]'
+    assert cuflynx_study.latest_input(work, 'workflows/wf') == str(work / tree)
+
+    # already in the working dir: not copied again
+    assert cuflynx_study.store_input(work, 'obs_data', work / as_is) == as_is
+    with pytest.raises(ValueError):
+        cuflynx_study.store_input(work, '../x', b'', 'a')
+    with pytest.raises(ValueError):
+        cuflynx_study.store_input(work, 'obs_data', b'x')
+
+
 def test_a_corrupt_manifest_is_replaced_not_fatal(study, capsys):
     path = cuflynx_study.manifest_path(study)
     with open(path, 'w') as handle:

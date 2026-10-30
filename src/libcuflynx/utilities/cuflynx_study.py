@@ -49,7 +49,9 @@ named for the local date-time it was first used (``_2``, ``_3``... for a second 
 first used in the same second). No copy sits outside a dated folder, so none looks like the
 current version: the manifest names each run's own copies, and ``inputs/index.json``
 (:func:`read_index`) lists every version. A content already stored (the same content hash)
-is reused, so a rerun with unchanged inputs copies nothing. Every path in the manifest is
+is reused, so a rerun with unchanged inputs copies nothing. An app keeping the inputs it edits
+(CUFLynx) stores them with :func:`store_input` and finds the one saved last with
+:func:`latest_input`. Every path in the manifest is
 relative to the manifest's folder. A manifest nested inside a larger working dir (a calibration workflow's
 step) is given that dir as ``cuflynx_working_dir``: its inputs are copied there, and its
 paths may climb (``..``) as far as that dir and no further. An output directory outside the
@@ -96,6 +98,7 @@ import json
 import os
 import shutil
 import tempfile
+import threading
 import xml.etree.ElementTree as ET
 from datetime import datetime
 
@@ -110,6 +113,8 @@ __all__ = [
     'sensitivity_dir',
     'user_inputs_archive_dir',
     'bring_in',
+    'store_input',
+    'latest_input',
     'read_index',
     'study_inputs',
     'update_study',
@@ -311,7 +316,8 @@ def read_index(root):
     (relative to ``root``) holds one content of ``kind``, ``file`` is the input itself within
     it (None for a ``system`` bundle without one), ``hash`` is the content hash of every file in
     it (``files``: ``{relative path: sha256}``) and ``runs`` the output directories (relative to
-    ``root`` when inside it) of the runs that used it.
+    ``root`` when inside it) of the runs that used it. A version :func:`store_input` returned
+    also has ``stored``, the local time it last did.
     """
     try:
         with open(_index_path(root), encoding='utf-8') as handle:
@@ -404,6 +410,103 @@ def _place(root, kind, sources, main=None):
                      'files': files})
     _write_index(root, versions)
     return target
+
+
+#: Serialises :func:`store_input`'s read-modify-write of ``inputs/index.json`` within a process
+#: (an app saving several inputs at once).
+_INDEX_LOCK = threading.Lock()
+
+
+def _version_holding(versions, root, path):
+    """The version in ``versions`` whose folder holds ``path``, or None."""
+    for version in versions:
+        folder = version.get('folder')
+        if folder and _inside(path, os.path.join(root, folder)):
+            return version
+    return None
+
+
+def store_input(working_dir, kind, source, name=None):
+    """Store ``source`` as an input of ``kind`` in ``working_dir``; its path relative to
+    ``working_dir``.
+
+    ``source`` is a file, a directory or bytes. A file is stored as ``name`` (default: its own
+    name, with the CellML files it imports); a directory's files are stored as they are laid out
+    in it, ``name`` being the file among them the version is of (the folder is returned when
+    there is none); bytes are stored as the file ``name``. Each content is stored once
+    (:func:`_place`): the version of ``kind`` holding the same files is reused, else a new
+    folder ``inputs/<kind>/<yyyy-mm-dd_HHMMSS>/`` holds it and ``inputs/index.json`` lists it.
+    ``kind`` may have subfolders (``workflows/<wf>``).
+
+    The version returned is marked ``stored`` with the time, so :func:`latest_input` gives the
+    content saved last even when it is an earlier one saved again. A file or directory already
+    inside ``working_dir`` is not copied, only marked when it is in a listed version.
+    """
+    root = os.path.abspath(working_dir)
+    kind = str(kind).strip('/')
+    if not kind or os.path.isabs(kind) or os.pardir in kind.split('/'):
+        raise ValueError(f'not an input kind: {kind!r}')
+    staging = None
+    if isinstance(source, (bytes, bytearray)):
+        if not name:
+            raise ValueError('store_input needs a name for bytes')
+        staging = tempfile.mkdtemp(prefix='cuflynx_store_')
+        path = os.path.join(staging, os.path.basename(name))
+        with open(path, 'wb') as handle:
+            handle.write(source)
+        sources, main = {os.path.basename(name): path}, os.path.basename(name)
+    else:
+        path = os.path.abspath(str(source))
+        if os.path.isdir(path):
+            sources = {os.path.relpath(os.path.join(d, n), path): os.path.join(d, n)
+                       for d, dirs, names in os.walk(path)
+                       for n in names if not n.startswith('.')}
+            main = os.path.normpath(name) if name else None
+        elif name and os.path.basename(name) != os.path.basename(path):
+            sources, main = {os.path.basename(name): path}, os.path.basename(name)
+        else:
+            _, sources, main = _bundle(path)
+    try:
+        with _INDEX_LOCK:
+            if staging is None and _inside(path, root):
+                stored = path
+            else:
+                folder = _place(root, kind, sources, main)
+                stored = os.path.join(folder, main) if main else folder
+            versions = read_index(root)
+            version = _version_holding(versions, root, stored)
+            if version is not None:
+                version['stored'] = datetime.now().isoformat()
+                _write_index(root, versions)
+    finally:
+        if staging:
+            shutil.rmtree(staging, ignore_errors=True)
+    return os.path.relpath(stored, root)
+
+
+def latest_input(working_dir, kind, name=None):
+    """The absolute path of the stored input of ``kind`` (called ``name``, when given) that was
+    stored last -- by :func:`store_input`, else by when it was first used -- or None.
+
+    Only versions ``inputs/index.json`` lists are found, and only while their file exists.
+    """
+    root = os.path.abspath(working_dir)
+    kind = str(kind).strip('/')
+    best, best_key = None, None
+    for position, version in enumerate(read_index(root)):
+        if version.get('kind') != kind or not version.get('folder'):
+            continue
+        file = version.get('file')
+        if name is not None and (not file or os.path.basename(file) != os.path.basename(name)):
+            continue
+        path = os.path.join(root, version['folder'], file) if file else \
+            os.path.join(root, version['folder'])
+        if not os.path.exists(path):
+            continue
+        key = (str(version.get('stored') or version.get('first_used') or ''), position)
+        if best_key is None or key > best_key:
+            best, best_key = path, key
+    return best
 
 
 def _record_run(root, used, run):
