@@ -415,6 +415,14 @@ class ParamIDPlotOutputs:
                 # `has_waveform` is what handles.
                 reconstruction = series_per_sub[II] if II < len(series_per_sub) else None
                 has_waveform = reconstruction is not None and np.ndim(reconstruction) > 0
+                if has_waveform and np.size(reconstruction) == 1:
+                    # A model constant as operand: the solver does not log constants, so its
+                    # trace is the one value. It is drawn as a flat line over the subexperiment,
+                    # the way join_segments pads a scalar for the prediction plots.
+                    reconstruction = np.full(
+                        len(tSim_per_sub_count[subexp_count]),
+                        float(np.ravel(reconstruction)[0]),
+                    )
 
                 if subexp_count not in subexps_drawn and (
                         has_waveform or obs_info["data_types"][II] == "frequency"):

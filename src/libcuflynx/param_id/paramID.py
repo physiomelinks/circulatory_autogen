@@ -2946,16 +2946,15 @@ class ParamID():
         # TODO currently we don't allow operands for prediction outputs.
         # TODO but we should in the future
         # TODO here is where we would do the operations on the operands
-        # for now we just concatenate results for subexperiments 
-        pred_output_list = []                           
-        for this_sub_idx in range(self.protocol_info["num_sub_per_exp"][exp_idx]):
-            if this_sub_idx == 0:
-                # the last 3 idxs are, pred_idx, operand_idx, time_idx
-                pred_output_list.append(np.array(pred_operand_outputs[this_sub_idx])[:,0,:])
-            else:
-                pred_output_list.append(np.array(pred_operand_outputs[this_sub_idx])[:,0,1:])
-        pred_outputs = np.concatenate(pred_output_list, axis=1)
-        return pred_outputs
+        # for now we just concatenate results for subexperiments. A model constant comes back
+        # as one value and is padded to its segment's length.
+        from libcuflynx.protocol_runners.predictions import join_segments
+        # pred_operand_outputs[sub] is indexed [pred_idx][operand_idx][time_idx]
+        joined = join_segments(
+            [[operands[0] for operands in pred_operand_outputs[this_sub_idx]]
+             for this_sub_idx in range(self.protocol_info["num_sub_per_exp"][exp_idx])],
+            self.protocol_info["sim_times"][exp_idx], self.dt)
+        return np.array(joined)
 
     def get_cost_from_operands(self, operands_outputs, exp_idx = 0, sub_idx = 0, do_ad=False):
 

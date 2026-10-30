@@ -43,6 +43,32 @@ anywhere in CUFLynx (see "The study working dir" in the parameter-identification
 - `CVS0DParamID` takes `study_settings` (filled by `init_from_dict` and the param-id script)
   for the manifest's further keys.
 
+### Changed — at a node of three or more vessel ends, the end alone on its side must be compliant
+
+Decided by Finbar Argus on 2026-10-30 (#616, option D of the node-sums design).
+
+- Where three or more `vessel_port` ends meet, the end alone on its side of the node (a split's
+  parent outlet, a merge's child inlet) must be compliant: a vessel end with subtype letter `v`,
+  or, for a module that is not a vessel, a port whose `multi_port` has a `"sum"` entry (a
+  whole-port `"sum"` or a list containing `"sum"`), such as a heart chamber's `[v_in, u]` port
+  with `["sum", "True"]`. A `"Multiply"` or plain `"True"` port on a module that is not a vessel
+  does not own a node: "compliant" means the end that takes the sum and shares the pressure, and
+  those ports broadcast a value and sum nothing (decided by Finbar Argus on 2026-10-30). A
+  Multiply vessel_port feeding several neighbours is therefore refused; feeding one is
+  unchanged. A node that breaks this, or that has several ends
+  on both sides, stops generation before any mapping with a `ValueError` that names the node's
+  ends and the two fixes (swap subtypes so that end is `v`, or add a lumped `vv` vessel). These
+  nodes were already refused, through one connection at a time ("output BC is p, the input BC of
+  ... should be v", or an overused port), except where a `Min_`/`MinNout_` junction let a `p`
+  outlet feed several daughters; that exemption is removed. Nodes with an `FV1D_vessel` end and
+  two-ended nodes are unaffected. See *Connecting vessels at a node* in the design-model docs.
+- Every model in `resources/` and every system model of the module library generates the same
+  CellML as before (their non-vessel node owners are all summing heart-chamber ports), except
+  `generic_junction_test2_{open,closed}_loop`, whose six such nodes are now refused; their tests
+  are expected failures. `generic_junction_test_{open,closed}_loop` is the rule-following version
+  of the same network: test2 differs from it only at those six nodes (parent `Nout_junction pv`
+  -> `arterial pp`, one daughter `pv` -> `vv` as a `Min_`/`MinNout_junction`).
+
 ### Changed — an unconnected multi_port "sum" is a boundary condition; a term counted twice is refused
 
 Decided by Finbar Argus: the duplicate refusal and the boundary-condition rule on 2026-10-28;
@@ -137,6 +163,14 @@ quotients with `jacobian: finite_difference`).
   build fails with a message that says so, and its tests skip.
 - Both batched libraries also get `bk_solver_name`, and `bk_instances_advance`, which advances many
   instances on OpenMP threads.
+
+### Fixed — the batched C libraries build with MSVC (#615)
+
+`build_library` (`coupling/model0d_lib.py`) builds with `cmake --build <dir> --config Release`.
+Multi-config generators (Visual Studio, Xcode) ignore `CMAKE_BUILD_TYPE` and built Debug, whose
+`/RTC1` MSVC refuses next to the `-O1` (read as `/O1`) given to `model0d_core.c` (D8016).
+Single-config generators (Make, Ninja) ignore `--config`. The printed build hints add
+`--config Release` too.
 
 ### Fixed — libCellML 0.7's C for models with a state set by a computed constant, or with no algebraic variables
 
@@ -237,6 +271,14 @@ from the model's values under its path (`heart/lv`). The calibrated values are w
 only `path`) as a copy of the target's parameters file with them set, a value inside a super
 instance under its path; the target's own files and the supermodule version's template are not
 changed.
+
+### Fixed — plotting a data item whose operand is a model constant
+
+- `plot_outputs()` raised `ValueError: x and y must have same first dimension` after a
+  calibration when an obs_data item's operand was a model constant (e.g. `mean` of
+  `heart/clock/T_eff`). The solver does not log constants, so the operand comes back as one value;
+  the reconstruction page now draws it as a flat line over the subexperiment. The MCMC
+  prediction plots pad a constant prediction to its segment's length the same way.
 
 ### Fixed — `CVODE_myokit` on modules in other time units (#604)
 
