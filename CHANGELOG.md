@@ -17,7 +17,11 @@ optional: no obs_data needs changing, and a value that is not a string is refuse
 - Reported in the results: `error_vec_data_references.npy` beside `error_vec_names.npy`, and a
   `data_reference` per item in `validation_results.json`.
 - Shown on the plots: a `Data: ...` line on each reconstruction page and on `prediction_plots`
-  feature figures that draw data; listed under *Sources* in the methods text.
+  feature figures that draw data; listed under *Sources* in the methods text, where a BibTeX key
+  in it becomes `\cite{key}` (and goes into the document's `.bib`) as in a parameter's
+  `data_reference`.
+- Each item names its own source: there is no file-level default (decided by Finbar Argus,
+  2026-10-31).
 
 ### Changed — an unconnected multi_port "sum" is a boundary condition; a term counted twice is refused
 
