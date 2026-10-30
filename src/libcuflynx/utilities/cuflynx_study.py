@@ -54,8 +54,16 @@ is reused, so a rerun with unchanged inputs copies nothing. An app keeping the i
 :func:`latest_input`. Every path in the manifest is
 relative to the manifest's folder. A manifest nested inside a larger working dir (a calibration workflow's
 step) is given that dir as ``cuflynx_working_dir``: its inputs are copied there, and its
-paths may climb (``..``) as far as that dir and no further. An output directory outside the
-working dir (an ``sa_options`` ``output_dir`` set to elsewhere) is recorded absolute.
+paths may climb (``..``) as far as that dir and no further.
+
+An output directory outside the working dir (an ``sa_options`` ``output_dir`` set to elsewhere)
+is allowed, but it does not travel with the working dir: a zip of ``<W>`` does not hold it. Its
+``runs`` or ``sensitivity`` entry keeps the absolute path and has ``"outside": true``, the run
+prints a warning naming it (rank 0, once per directory per process), and
+:func:`outside_outputs` lists such entries, for an app exporting the working dir to report.
+Nothing re-runs a study from its manifest: :func:`read_study` resolves output directories only
+to read their results, and :func:`generation_inputs` returns no output directory, so a study
+opened elsewhere never writes into the recorded path.
 
 A generated model's ``system`` holds what generating it again needs: the module array and
 parameters file side by side (generation reads both from one ``resources_dir``), each module
@@ -120,6 +128,7 @@ __all__ = [
     'update_study',
     'read_study',
     'generation_inputs',
+    'outside_outputs',
 ]
 
 #: The CUFLynx ``study_manifest`` schema this writes. Keys added since are additive.
@@ -625,6 +634,10 @@ class _Paths:
         full = os.path.abspath(str(value))
         return os.path.relpath(full, self.here) if _inside(full, self.root) else full
 
+    def outside(self, value):
+        """Whether an output is outside the working dir, so a zip of it does not hold it."""
+        return self.copy and not _inside(os.path.abspath(str(value)), self.root)
+
     def input(self, value, kind):
         """An input: copied into the working dir when it is outside, then relative."""
         if not self.copy:
@@ -638,6 +651,20 @@ class _Paths:
             full = bring_in(self.root, kind, full)
         self.used.append(full)
         return os.path.relpath(full, self.here)
+
+
+#: The outside output directories warned about in this process, so each is warned about once
+#: rather than at every manifest update of a running calibration.
+_WARNED_OUTSIDE = set()
+
+
+def _warn_outside(directory, root):
+    if directory in _WARNED_OUTSIDE:
+        return
+    _WARNED_OUTSIDE.add(directory)
+    print(f'[cuflynx_study] WARNING: the output directory {directory} is outside the working dir '
+          f'{root}, so it will not travel with the working dir (a zip of {root} will not contain '
+          f'it). The manifest records it by absolute path, flagged "outside": true.')
 
 
 # -- the manifest ---------------------------------------------------------------------------
@@ -865,6 +892,9 @@ def update_study(inp, section=None, entry=None, emulator=None, workflow=None):
             if not item.get('dir'):
                 raise ValueError(f'a {section} entry needs a dir')
             item['dir'] = paths.output(item['dir'])
+            if paths.outside(entry['dir']):
+                item['outside'] = True
+                _warn_outside(item['dir'], paths.root)
             obs = item.get('obs_data') or inp.get('param_id_obs_path')
             if obs:
                 item['obs_data'] = paths.input(obs, 'obs_data')
@@ -956,3 +986,14 @@ def generation_inputs(study):
                                                os.path.dirname(system['module_array']))}
     inp.update({key: system[key] for key in MODULE_SOURCE_KEYS if key in system})
     return inp
+
+
+def outside_outputs(study):
+    """The output directories a study records outside its working dir, which a zip of the
+    working dir does not hold: ``[{'section', 'dir', 'method'}]``, newest first in each
+    section, from a :func:`read_study` result (or a manifest's path, read with it)."""
+    if isinstance(study, (str, os.PathLike)):
+        study = read_study(study)
+    return [{'section': section, 'dir': entry['dir'], 'method': entry.get('method')}
+            for section in ENTRY_SECTIONS for entry in study.get(section) or []
+            if isinstance(entry, dict) and entry.get('outside') and entry.get('dir')]

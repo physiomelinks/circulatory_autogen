@@ -42,6 +42,12 @@ anywhere in CUFLynx (see "The study working dir" in the parameter-identification
   packed copies, relative. `pack_workflow` also returns `sources`, each input's packed path.
   `calibration_workflow.pack.module_version_files` lists the module version files it packs;
   the study's `inputs/system/` copies the same files.
+- An output directory outside the working dir (an absolute `sa_options` `output_dir` elsewhere)
+  is allowed, but a zip of the working dir does not hold it: the run prints a warning naming it
+  (rank 0, once per directory), its `runs`/`sensitivity` entry keeps the absolute path with
+  `"outside": true`, and `cuflynx_study.outside_outputs(study)` lists such entries for an app
+  exporting the working dir. Nothing re-runs a study from its manifest, so a study opened
+  elsewhere never writes into the recorded path.
 - New user_inputs (and workflow settings) key `cuflynx_study_copy_inputs` (default `true`):
   `false` keeps the previous behaviour: absolute paths for inputs outside the study,
   `study_dir`, and the previous sensitivity and dated-user_inputs locations.

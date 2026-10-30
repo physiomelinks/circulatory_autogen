@@ -236,11 +236,57 @@ def test_a_nested_study_copies_into_the_larger_working_dir(study, tmp_path):
     assert version['runs'] == [os.path.join('step', 'sensitivity')]
 
 
-def test_an_output_outside_the_working_dir_stays_absolute(study, tmp_path):
+def test_an_output_outside_the_working_dir_is_warned_about_flagged_and_listed(study, tmp_path,
+                                                                             capsys):
+    """An output directory outside the working dir is allowed, but a zip of the working dir does
+    not hold it: the run warns once naming it, its manifest entry keeps the absolute path with
+    ``"outside": true``, and ``outside_outputs`` lists it for an app exporting the working dir."""
     elsewhere = str(tmp_path / 'sa_elsewhere')
-    raw = _raw(cuflynx_study.update_study(study, 'sensitivity',
-                                          {'dir': elsewhere, 'method': 'sobol'}))
-    assert raw['sensitivity'][0]['dir'] == elsewhere
+    inside = os.path.join(study['param_id_output_dir'], 'sensitivity')
+    for _ in range(2):  # a running analysis updates its entry more than once
+        cuflynx_study.update_study(study, 'sensitivity', {'dir': elsewhere, 'method': 'sobol'})
+    location = cuflynx_study.update_study(study, 'sensitivity', {'dir': inside, 'method': 'local'})
+
+    warnings = [line for line in capsys.readouterr().out.splitlines()
+                if 'outside the working dir' in line]
+    assert len(warnings) == 1
+    assert elsewhere in warnings[0] and 'will not travel with the working dir' in warnings[0]
+
+    entries = {e['method']: e for e in _raw(location)['sensitivity']}
+    assert entries['sobol']['dir'] == elsewhere and entries['sobol']['outside'] is True
+    assert entries['local']['dir'] == 'sensitivity' and 'outside' not in entries['local']
+
+    expected = [{'section': 'sensitivity', 'dir': elsewhere, 'method': 'sobol'}]
+    assert cuflynx_study.outside_outputs(cuflynx_study.read_study(location)) == expected
+    assert cuflynx_study.outside_outputs(location) == expected
+
+
+def test_a_moved_study_never_points_a_rerun_at_its_outside_output(study, tmp_path):
+    """Nothing re-runs a study from its manifest into a recorded output directory: moved, the
+    inside output resolves into the new working dir, the outside one stays flagged (so an app
+    can say it is missing), and ``generation_inputs`` -- the manifest's only route back to a
+    run -- names no output directory at all."""
+    import shutil
+    out = study['param_id_output_dir']
+    elsewhere = str(tmp_path / 'sa_elsewhere')
+    os.makedirs(os.path.join(out, 'sensitivity'))
+    cuflynx_study.update_study(study, 'sensitivity', {'dir': elsewhere, 'method': 'sobol'})
+    cuflynx_study.update_study(study, 'sensitivity',
+                               {'dir': os.path.join(out, 'sensitivity'), 'method': 'local'})
+    moved = tmp_path / 'moved'
+    shutil.copytree(out, moved)
+    shutil.rmtree(out)
+
+    read = cuflynx_study.read_study(str(moved))
+    dirs = {e['method']: e['dir'] for e in read['sensitivity']}
+    assert dirs['local'] == str(moved / 'sensitivity')
+    assert [o['dir'] for o in cuflynx_study.outside_outputs(read)] == [elsewhere]
+
+    system = {'module_array': str(moved / 'inputs' / 'system' / 'a.json'),
+              'parameters': str(moved / 'inputs' / 'system' / 'p.json')}
+    again = cuflynx_study.generation_inputs(dict(read, system=system))
+    assert set(again) == {'file_prefix', 'resources_dir', 'input_param_file'}
+    assert not any(elsewhere in str(value) for value in again.values())
 
 
 def test_a_zipped_and_moved_working_dir_resolves_inside_itself(study, tmp_path):

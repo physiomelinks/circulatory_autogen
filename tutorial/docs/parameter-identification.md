@@ -1145,8 +1145,18 @@ it is an older run's: each run's entry in the manifest names the copies it ran w
 `inputs/index.json` lists every version with the runs that used it. A second run from the same
 files copies nothing (copies are matched by content hash), and a changed file goes into a new
 dated folder beside the first (`_2`, `_3`... when two contents are first used in the same
-second). Every path in the manifest is relative to the manifest's folder. An output written outside the working dir, such as an `sa_options`
-`output_dir` set to an absolute path elsewhere, is recorded by its absolute path.
+second). Every path in the manifest is relative to the manifest's folder.
+
+An output written outside the working dir, such as an `sa_options` `output_dir` set to an
+absolute path elsewhere, is allowed but does not travel with the working dir: a zip of the
+working dir does not hold it. The run prints a warning naming the directory, and its entry in
+the manifest keeps the absolute path with `"outside": true`.
+`cuflynx_study.outside_outputs(read_study('<W>'))` lists those entries, so a tool exporting the
+working dir can say what it leaves behind. Opening the study elsewhere never writes into that
+path: nothing re-runs a study from its manifest (`read_study` resolves output directories only to
+read their results, and `generation_inputs` names none). A run of the archived user_inputs yaml
+is an ordinary run of that config, so it writes to the absolute `output_dir` it names and warns
+again; make the `output_dir` relative to keep it in the working dir.
 
 A generated model's `inputs/system/` holds everything generating it again needs, so the model
 can be regenerated from the working dir alone. Built-in modules are not copied: they come with
