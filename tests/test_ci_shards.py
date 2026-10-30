@@ -138,3 +138,14 @@ def test_a_function_entry_does_not_match_a_longer_name():
     assert not ci_shard_entry_matches('tests/t.py::test_one', 'tests/t.py::test_one_more')
     assert ci_shard_entry_matches('tests/t.py', 'tests/t.py::Cls::test_m')
     assert not ci_shard_entry_matches('tests/t.py', 'tests/t.py.bak::test_m')
+
+
+# --- which files the param-id jobs run ------------------------------------------------------
+
+@pytest.mark.parametrize('job', ['test-param-id-mpi', 'test-param-id-serial'])
+def test_the_param_id_jobs_run_the_profile_likelihood_tests(job):
+    """Its integration tests are `mpi`-marked, so the `test` jobs (`not mpi`) never run them."""
+    with open(WORKFLOW) as f:
+        steps = yaml.safe_load(f)['jobs'][job]['steps']
+    commands = '\n'.join(step.get('run', '') for step in steps)
+    assert 'tests/test_profile_likelihood.py' in commands

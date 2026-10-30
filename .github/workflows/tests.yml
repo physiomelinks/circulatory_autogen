@@ -174,7 +174,7 @@ jobs:
         python -m pytest tests/test_heat_fenics_example.py -v -p no:xdist --tb=short
 
   # Sharded like the serial job (tests/ci_shards.json, suite param-id). Only the `mpi`-marked
-  # tests: the others in these two files run in every `test` job already.
+  # tests: the others in these files run in every `test` job already.
   test-param-id-mpi:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -203,6 +203,7 @@ jobs:
     - name: Run param_id and sensitivity analysis tests with MPI
       run: |
         mpiexec -n 2 python -m pytest tests/test_param_id.py tests/test_sensitivity_analysis.py \
+          tests/test_profile_likelihood.py \
           -m "mpi and not full_scale_model" --ci-shard "param-id:${{ matrix.shard }}" -v --with-mpi \
           --tb=short --durations=0 --junitxml=junit-param-id.xml
 
@@ -417,7 +418,7 @@ jobs:
           --tb=short --durations=0 --junitxml=junit-param-id-full-scale.xml
 
   # 13.5 minutes of tests unsharded; two shards of ~5 (tests/ci_shards.json, suite param-id).
-  # Only the `mpi`-marked tests: the others in these two files run in every `test` job already.
+  # Only the `mpi`-marked tests: the others in these files run in every `test` job already.
   test-param-id-serial:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -446,6 +447,7 @@ jobs:
     - name: Run param_id and sensitivity analysis tests in serial mode
       run: |
         python -m pytest tests/test_param_id.py tests/test_sensitivity_analysis.py \
+          tests/test_profile_likelihood.py \
           -m "mpi and not full_scale_model" --ci-shard "param-id:${{ matrix.shard }}" -v --with-mpi \
           --tb=short --durations=0 --junitxml=junit-param-id-serial.xml
 

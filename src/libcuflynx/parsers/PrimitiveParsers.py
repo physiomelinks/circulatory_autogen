@@ -1907,6 +1907,19 @@ ANALYSIS_OPTIONS = {
              'choices': ['parabola_fit', 'numdifftools_finite_diff'],
              'description': 'Finite-difference Hessian method for the Laplace approximation '
                             '(used when gradient_source is FD).'},
+            # The three profile_likelihood settings, read by
+            # ProfileLikelihood.profile_likelihood_options, which takes its defaults from here.
+            {'name': 'num_points', 'type': 'int', 'default': 50, 'required': False,
+             'description': 'Profile likelihood: held values per parameter sweep (>= 2). Each '
+                            'is a full re-calibration of the other parameters.'},
+            {'name': 'range_factor', 'type': 'float', 'default': 0.2, 'required': False,
+             'description': 'Profile likelihood: sweep half-width either side of the best fit, '
+                            'as a fraction of the parameter\'s [min, max] range (0 < x <= 1). '
+                            'The sweep is clipped to [min, max].'},
+            {'name': 'optimiser_options', 'type': 'dict', 'default': None, 'required': False,
+             'description': 'Profile likelihood: optimiser_options merged over the '
+                            'calibration\'s for each re-calibration, e.g. a smaller '
+                            'num_calls_to_function.'},
         ],
     },
     # Emulation is the odd one out among these modes: it has a *train* step and a *use* step,
