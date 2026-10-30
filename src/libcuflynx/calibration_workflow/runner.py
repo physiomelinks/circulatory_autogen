@@ -596,9 +596,10 @@ class _Run:
 
     def packed_inputs(self):
         '''Rank 0: ``{real path of an input: its copy}`` -- the workflow packed (pack_workflow)
-        into ``<output_dir>/inputs/workflows/<name>/`` once per run, so the working dir holds
-        every input it was run from. Empty when the study does not copy its inputs, or the
-        workflow has no file to pack (a failure to pack is a warning).'''
+        into ``<output_dir>/inputs/workflows/<name>/<first used>/`` (``cuflynx_study._place``:
+        one dated folder per content, so a run of an unchanged workflow reuses its folder), so
+        the working dir holds every input it was run from. Empty when the study does not copy
+        its inputs, or the workflow has no file to pack (a failure to pack is a warning).'''
         if getattr(self, '_packed', None) is not None:
             return self._packed
         self._packed = {}
@@ -606,18 +607,24 @@ class _Run:
                 or not self.workflow.path:
             return self._packed
         from libcuflynx.calibration_workflow.pack import pack_workflow
-        dest = os.path.join(self.output_dir, cuflynx_study.INPUTS_DIR, 'workflows',
-                            self.workflow.name)
+        inputs = os.path.join(self.output_dir, cuflynx_study.INPUTS_DIR)
+        os.makedirs(inputs, exist_ok=True)
+        staging = tempfile.mkdtemp(prefix='.packing_', dir=inputs)
         try:
-            if os.path.isdir(dest):
-                shutil.rmtree(dest)
-            packed = pack_workflow(self.workflow.path, dest, self.workflow.module_library_dirs)
+            packed = pack_workflow(self.workflow.path, staging, self.workflow.module_library_dirs)
+            files = {os.path.relpath(os.path.join(root, name), staging): os.path.join(root, name)
+                     for root, _, names in os.walk(staging) for name in names}
+            dest = cuflynx_study._place(self.output_dir,
+                                        os.path.join('workflows', self.workflow.name), files,
+                                        WORKFLOW_FILE_NAME)
         except Exception as error:
-            print(f'[cuflynx_study] WARNING: could not pack the workflow into {dest}: {error}')
+            print(f'[cuflynx_study] WARNING: could not pack the workflow into {inputs}: {error}')
             return self._packed
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
         self._packed = {real: os.path.join(dest, relative)
                         for real, relative in packed['sources'].items()}
-        self._packed[os.path.realpath(self.workflow.path)] = packed['workflow']
+        self._packed[os.path.realpath(self.workflow.path)] = os.path.join(dest, WORKFLOW_FILE_NAME)
         return self._packed
 
     def _as_packed(self, value):

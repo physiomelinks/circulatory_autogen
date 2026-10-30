@@ -143,8 +143,9 @@ def pack_workflow(source, dest_dir, module_library_dirs=None):
     'sources': {the real path of each input file or settings directory: its path relative to
     dest_dir}}``. Running the packed workflow gives what running ``source`` does.
 
-    A calibration workflow run packs its workflow into ``<output_dir>/inputs/workflows/<name>/``
-    (``runner.record_study``), so its working dir holds every input it was run from.
+    A calibration workflow run packs its workflow into
+    ``<output_dir>/inputs/workflows/<name>/<first used>/`` (``runner.packed_inputs``), so its
+    working dir holds every input it was run from.
     '''
     workflow = load_workflow(source, module_library_dirs)
     resolved = resolve_workflow(workflow)

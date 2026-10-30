@@ -1119,25 +1119,33 @@ anywhere and open the manifest (or the folder, as the working dir) in CUFLynx.
 <param_id_output_dir>/
     <study_name>_cuflynx_study.json   the manifest: inputs, solver settings, runs, sensitivity, emulator
     inputs/
-        model/                        the model, with the CellML files it imports
-        obs_data/, params_for_id/     the obs_data and params_for_id files
-        user_inputs/                  the user_inputs.yaml given, and user_inputs_<yymmdd>.yaml:
-                                      each run's resolved config
-        funcs/                        the *_funcs_external_path files
-        system/                       a generated model's module array and parameters file, with
+        index.json                    every version stored below: its kind, file, folder,
+                                      content hash, when it was first used and the runs that used it
+        <kind>/<yyyy-mm-dd_HHMMSS>/   one version of one input, in a folder named for the local
+                                      date-time it was first used. The kinds:
+          model/                      the model, with the CellML files it imports
+          obs_data/, params_for_id/   the obs_data and params_for_id files
+          user_inputs/                the user_inputs.yaml given
+          funcs/                      the *_funcs_external_path files
+          system/                     a generated model's module array and parameters file, with
                                       modules/ (each module library version it uses) and
                                       external_modules/ (its external_modules_dir)
-        emulator/                     an emulator trained elsewhere
-        workflows/<workflow_name>/    a calibration workflow, packed (see Calibration workflows)
+          emulator/                   an emulator trained elsewhere
+          workflows/<workflow_name>/  a calibration workflow, packed (see Calibration workflows)
+        user_inputs/user_inputs_<yymmdd>.yaml  each day's resolved config
     <method>_<prefix>_<obs_data>/     each calibration (and the MCMC that follows it)
     sensitivity/                      Sobol and local sensitivity output
     emulators/                        trained emulators
 ```
 
-An input is copied when the manifest is written, once per content: a second run from the same
-files copies nothing, and a changed file with the same name goes into
-`inputs/<kind>/<hash>/` beside the first. Every path in the manifest is relative to the
-manifest's folder. An output written outside the working dir, such as an `sa_options`
+An input is copied when the manifest is written, once per content, into a folder named for the
+date-time (local time) it was first used, for example `inputs/obs_data/2026-10-31_091502/obs.json`.
+Every copy is in such a folder, so no file under `inputs/` looks like the current version when
+it is an older run's: each run's entry in the manifest names the copies it ran with, and
+`inputs/index.json` lists every version with the runs that used it. A second run from the same
+files copies nothing (copies are matched by content hash), and a changed file goes into a new
+dated folder beside the first (`_2`, `_3`... when two contents are first used in the same
+second). Every path in the manifest is relative to the manifest's folder. An output written outside the working dir, such as an `sa_options`
 `output_dir` set to an absolute path elsewhere, is recorded by its absolute path.
 
 A generated model's `inputs/system/` holds everything generating it again needs, so the model
@@ -1415,7 +1423,7 @@ prior.
     <step_id>/<step_id>_params_for_id.json a reduction's params_for_id
     _target/model/                    the target generated with every calibrated value
     <workflow_name>_cuflynx_study.json  the study manifest CUFLynx opens (below)
-    inputs/workflows/<workflow_name>/   the workflow packed (--pack layout): every input it was run from
+    inputs/workflows/<workflow_name>/<yyyy-mm-dd_HHMMSS>/   the workflow packed (--pack layout): every input it was run from
 ```
 
 The manifest records the workflow as run, its result, the target and every step (its kind,
@@ -1427,7 +1435,8 @@ settings turns both off.
 
 The output directory is the workflow's working dir (see
 [The study working dir](#the-study-working-dir)): the run packs the workflow into
-`inputs/workflows/<workflow_name>/` and the manifests name the packed copies, by paths relative
+`inputs/workflows/<workflow_name>/<yyyy-mm-dd_HHMMSS>/` (a new dated folder only when the
+packed workflow differs from one stored already) and the manifests name the packed copies, by paths relative
 to each manifest's folder, so the output directory can be zipped and opened anywhere. A step's
 manifest names the same copies (`../../inputs/...`). The one path left absolute is the
 `--write-calibrated` file, which is written beside the target. `"cuflynx_study_copy_inputs":

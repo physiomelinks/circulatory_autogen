@@ -821,13 +821,18 @@ def test_a_workflow_of_module_arrays_runs_and_writes_beside_the_target(library, 
 
 @pytest.mark.integration
 def test_a_workflow_records_itself_in_one_study_manifest(library, tmp_path):
-    from libcuflynx.utilities.cuflynx_study import read_study
+    from libcuflynx.utilities.cuflynx_study import read_index, read_study
     out = str(tmp_path / 'run')
     run_calibration_workflow(library['chain_array'], output_dir=out, write_calibrated=True)
     study = read_study(os.path.join(out, 'chain_array_cuflynx_study.json'))
     workflow = study['workflow']
-    # the workflow's inputs are packed into the working dir, and the manifest names the copies
-    packed = os.path.join(out, 'inputs', 'workflows', 'chain_array')
+    # the workflow's inputs are packed into the working dir, in a folder dated when it was
+    # first used, and the manifest names the copies
+    [dated] = os.listdir(os.path.join(out, 'inputs', 'workflows', 'chain_array'))
+    packed = os.path.join(out, 'inputs', 'workflows', 'chain_array', dated)
+    [version] = [v for v in read_index(out) if v['kind'] == os.path.join('workflows', 'chain_array')]
+    assert version['folder'] == os.path.relpath(packed, out)
+    assert version['file'] == 'calibration_workflow.json'
     assert workflow['name'] == 'chain_array' and workflow['complete']
     assert workflow['file'] == os.path.join(out, 'calibration_workflow.json')
     assert workflow['source'] == os.path.join(packed, 'calibration_workflow.json')

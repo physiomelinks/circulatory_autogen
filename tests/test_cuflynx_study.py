@@ -7,6 +7,8 @@ that a broken write never fails the run it describes.
 """
 import json
 import os
+import re
+from datetime import datetime
 
 import pytest
 
@@ -44,6 +46,25 @@ def _raw(path):
         return json.load(handle)
 
 
+STAMP = re.compile(r'^\d{4}-\d{2}-\d{2}_\d{6}(_\d+)?$')
+
+
+def _dated(path, kind):
+    """The ``inputs/<kind>/<yyyy-mm-dd_HHMMSS>`` folder ``path`` (as the manifest stores it)
+    is in, and its path within that folder."""
+    parts = path.split(os.sep)
+    assert parts[:2] == ['inputs', kind] and STAMP.match(parts[2]), path
+    return os.path.join(*parts[:3]), os.path.join(*parts[3:])
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    """Set the time an input is first used: ``clock(datetime(...))``."""
+    def at(when):
+        monkeypatch.setattr(cuflynx_study, '_stamp', lambda: when)
+    return at
+
+
 def test_named_after_the_study_in_its_output_dir(study):
     path = cuflynx_study.update_study(study)
     assert path == os.path.join(study['param_id_output_dir'], 'demo_cuflynx_study.json')
@@ -57,11 +78,14 @@ def test_records_the_inputs_funcs_and_solver(study):
     assert raw['file_prefix'] == 'demo' and raw['study_name'] == 'demo'
     # every input is copied into the working dir and recorded relative to the manifest
     assert 'study_dir' not in raw
-    assert raw['model'] == raw['base_model'] == os.path.join('inputs', 'model', 'model.cellml')
-    assert raw['obs_data'] == os.path.join('inputs', 'obs_data', 'obs.json')
-    assert raw['params_for_id'] == os.path.join('inputs', 'params_for_id', 'params.csv')
-    assert raw['user_inputs'] == os.path.join('inputs', 'user_inputs', 'user_inputs.yaml')
-    assert raw['user_funcs'] == {'operation': os.path.join('inputs', 'funcs', 'ops.py')}
+    # each in a folder named for when it was first used
+    assert raw['model'] == raw['base_model']
+    assert _dated(raw['model'], 'model')[1] == 'model.cellml'
+    assert _dated(raw['obs_data'], 'obs_data')[1] == 'obs.json'
+    assert _dated(raw['params_for_id'], 'params_for_id')[1] == 'params.csv'
+    assert _dated(raw['user_inputs'], 'user_inputs')[1] == 'user_inputs.yaml'
+    assert list(raw['user_funcs']) == ['operation']
+    assert _dated(raw['user_funcs']['operation'], 'funcs')[1] == 'ops.py'
     for relative in (raw['model'], raw['obs_data'], raw['user_funcs']['operation']):
         assert os.path.isfile(os.path.join(study['param_id_output_dir'], relative))
     # dt folded into solver_info, the shape CUFLynx adopts
@@ -94,16 +118,67 @@ def test_inputs_are_copied_once_per_content(study):
     cuflynx_study.update_study(study)
     assert _all_files(os.path.join(out, 'inputs')) == first
 
-    # a different file of the same name goes beside it, the first copy kept
+
+def test_each_version_of_an_input_has_its_own_dated_folder(study, clock):
+    """An edited obs_data goes into a second dated folder; no copy sits outside one, so the
+    file under a plain name is never an earlier run's taken for the current one."""
+    out = study['param_id_output_dir']
+    clock(datetime(2026, 10, 31, 9, 15, 2))
+    cuflynx_study.update_study(study, 'runs', {'dir': os.path.join(out, 'run1'), 'method': 'm'})
     with open(study['param_id_obs_path'], 'w') as handle:
         handle.write('changed')
+    clock(datetime(2026, 10, 31, 9, 40, 0))
+    raw = _raw(cuflynx_study.update_study(study, 'runs',
+                                          {'dir': os.path.join(out, 'run2'), 'method': 'm'}))
+
+    obs = os.path.join(out, 'inputs', 'obs_data')
+    assert sorted(os.listdir(obs)) == ['2026-10-31_091502', '2026-10-31_094000']
+    assert all(os.path.isdir(os.path.join(obs, name)) for name in os.listdir(obs))
+    # each run points at the copy it ran with
+    runs = {run['dir']: run['obs_data'] for run in raw['runs']}
+    assert runs == {'run1': os.path.join('inputs', 'obs_data', '2026-10-31_091502', 'obs.json'),
+                    'run2': os.path.join('inputs', 'obs_data', '2026-10-31_094000', 'obs.json')}
+    for name, content in (('run1', 'x'), ('run2', 'changed')):
+        with open(os.path.join(out, runs[name])) as handle:
+            assert handle.read() == content
+    assert raw['obs_data'] == runs['run2']
+
+    versions = [v for v in cuflynx_study.read_index(out) if v['kind'] == 'obs_data']
+    assert [(v['file'], v['folder'], v['first_used'], v['runs']) for v in versions] == [
+        ('obs.json', os.path.join('inputs', 'obs_data', '2026-10-31_091502'),
+         '2026-10-31T09:15:02', ['run1']),
+        ('obs.json', os.path.join('inputs', 'obs_data', '2026-10-31_094000'),
+         '2026-10-31T09:40:00', ['run2'])]
+    assert versions[0]['hash'] != versions[1]['hash']
+    # an unchanged input both runs used lists both
+    params = [v for v in cuflynx_study.read_index(out) if v['kind'] == 'params_for_id']
+    assert len(params) == 1 and params[0]['runs'] == ['run1', 'run2']
+
+
+def test_a_rerun_with_unchanged_inputs_copies_nothing(study, clock):
+    out = study['param_id_output_dir']
+    clock(datetime(2026, 10, 31, 9, 15, 2))
+    cuflynx_study.update_study(study, 'runs', {'dir': os.path.join(out, 'run1'), 'method': 'm'})
+    first = _all_files(os.path.join(out, 'inputs'))
+    cuflynx_study._BROUGHT.clear()        # as a second process would see it
+    clock(datetime(2026, 11, 2, 8, 0, 0))
+    raw = _raw(cuflynx_study.update_study(study, 'runs',
+                                          {'dir': os.path.join(out, 'run2'), 'method': 'm'}))
+    assert _all_files(os.path.join(out, 'inputs')) == first
+    assert {run['obs_data'] for run in raw['runs']} == {
+        os.path.join('inputs', 'obs_data', '2026-10-31_091502', 'obs.json')}
+    assert all(v['runs'] == ['run1', 'run2'] for v in cuflynx_study.read_index(out))
+
+
+def test_two_versions_first_used_in_one_second_are_told_apart(study, clock, tmp_path):
+    clock(datetime(2026, 10, 31, 9, 15, 2))
     raw = _raw(cuflynx_study.update_study(study))
-    assert raw['obs_data'] != os.path.join('inputs', 'obs_data', 'obs.json')
-    assert os.path.dirname(os.path.dirname(raw['obs_data'])) == os.path.join('inputs', 'obs_data')
-    with open(os.path.join(out, raw['obs_data'])) as handle:
-        assert handle.read() == 'changed'
-    with open(os.path.join(out, 'inputs', 'obs_data', 'obs.json')) as handle:
-        assert handle.read() == 'x'
+    other = tmp_path / 'elsewhere' / 'obs.json'
+    other.parent.mkdir()
+    other.write_text('other')
+    raw2 = _raw(cuflynx_study.update_study(dict(study, param_id_obs_path=str(other))))
+    assert _dated(raw['obs_data'], 'obs_data')[0].endswith('2026-10-31_091502')
+    assert _dated(raw2['obs_data'], 'obs_data')[0].endswith('2026-10-31_091502_2')
 
 
 def test_a_cellml_model_brings_the_files_it_imports(study, tmp_path):
@@ -119,8 +194,9 @@ def test_a_cellml_model_brings_the_files_it_imports(study, tmp_path):
     study['model_path'] = str(models / 'm.cellml')
     raw = _raw(cuflynx_study.update_study(study))
     out = study['param_id_output_dir']
-    assert raw['model'] == os.path.join('inputs', 'model', 'm.cellml')
-    assert os.path.isfile(os.path.join(out, 'inputs', 'model', 'shared', 'units.cellml'))
+    folder, name = _dated(raw['model'], 'model')
+    assert name == 'm.cellml'
+    assert os.path.isfile(os.path.join(out, folder, 'shared', 'units.cellml'))
 
 
 def test_a_generated_models_system_is_copied(study, tmp_path):
@@ -131,9 +207,13 @@ def test_a_generated_models_system_is_copied(study, tmp_path):
     study['vessels_csv_abs_path'] = str(resources / 'demo_module_array.json')
     study['parameters_csv_abs_path'] = str(resources / 'demo_parameters.json')
     raw = _raw(cuflynx_study.update_study(study))
+    folder, name = _dated(raw['system']['module_array'], 'system')
     assert raw['system'] == {
-        'module_array': os.path.join('inputs', 'system', 'demo_module_array.json'),
-        'parameters': os.path.join('inputs', 'system', 'demo_parameters.json')}
+        'module_array': os.path.join(folder, 'demo_module_array.json'),
+        'parameters': os.path.join(folder, 'demo_parameters.json')}
+    [version] = [v for v in cuflynx_study.read_index(study['param_id_output_dir'])
+                 if v['kind'] == 'system']
+    assert version['folder'] == folder and version['file'] == 'demo_module_array.json'
     read = cuflynx_study.read_study(study['param_id_output_dir'])
     assert all(os.path.isfile(p) for p in read['system'].values())
 
@@ -145,9 +225,15 @@ def test_a_nested_study_copies_into_the_larger_working_dir(study, tmp_path):
     elsewhere = working / 'step' / 'sensitivity'
     raw = _raw(cuflynx_study.update_study(study, 'sensitivity',
                                           {'dir': str(elsewhere), 'method': 'sobol'}))
-    assert raw['obs_data'] == os.path.join('..', '..', 'inputs', 'obs_data', 'obs.json')
+    assert raw['obs_data'].startswith(os.path.join('..', '..', 'inputs', 'obs_data', ''))
+    folder, name = _dated(os.path.relpath(raw['obs_data'], os.path.join('..', '..')), 'obs_data')
+    assert name == 'obs.json'
     assert raw['sensitivity'][0]['dir'] == os.path.join('..', 'sensitivity')
-    assert os.path.isfile(working / 'inputs' / 'obs_data' / 'obs.json')
+    assert os.path.isfile(working / folder / 'obs.json')
+    # the index is the working dir's, its paths relative to it
+    [version] = [v for v in cuflynx_study.read_index(str(working)) if v['kind'] == 'obs_data']
+    assert version['folder'] == folder
+    assert version['runs'] == [os.path.join('step', 'sensitivity')]
 
 
 def test_an_output_outside_the_working_dir_stays_absolute(study, tmp_path):
@@ -241,7 +327,7 @@ def test_calibrated_model_is_preferred_once_written(study):
         handle.write('x')
     raw = _raw(cuflynx_study.update_study(study))
     assert raw['model'] == 'demo_calibrated.cellml'
-    assert raw['base_model'] == os.path.join('inputs', 'model', 'model.cellml')
+    assert _dated(raw['base_model'], 'model')[1] == 'model.cellml'
 
 
 def test_emulator_is_declared(study, tmp_path):
@@ -250,7 +336,7 @@ def test_emulator_is_declared(study, tmp_path):
     (bundle / 'emulator_metadata.json').write_text('{}')
     raw = _raw(cuflynx_study.update_study(study, emulator=str(bundle)))
     # a shared emulator outside the working dir is copied in, directory and all
-    assert raw['emulator'] == os.path.join('inputs', 'emulator', 'emulator')
+    assert _dated(raw['emulator'], 'emulator')[1] == 'emulator'
     assert os.path.isfile(os.path.join(study['param_id_output_dir'], raw['emulator'],
                                        'emulator_metadata.json'))
 
@@ -303,8 +389,9 @@ def test_read_resolves_paths(study):
     cuflynx_study.update_study(study, 'runs', {'dir': os.path.join(out, 'a'), 'method': 'm'})
     read = cuflynx_study.read_study(out)
     assert read['runs'][0]['dir'] == os.path.join(os.path.abspath(out), 'a')
-    assert read['user_funcs']['operation'] == os.path.join(os.path.abspath(out), 'inputs',
-                                                           'funcs', 'ops.py')
+    folder, name = _dated(_raw(cuflynx_study.manifest_path(study))['user_funcs']['operation'],
+                          'funcs')
+    assert read['user_funcs']['operation'] == os.path.join(os.path.abspath(out), folder, name)
 
 
 def test_a_moved_copy_resolves_against_study_dir(study, tmp_path):

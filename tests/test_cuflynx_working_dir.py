@@ -8,6 +8,7 @@ the whole study: unzipped anywhere, with the originals gone, every path in it st
 """
 import json
 import os
+import re
 import shutil
 from datetime import date
 
@@ -105,6 +106,14 @@ def test_a_calibration_leaves_a_working_dir_that_can_be_moved(base_user_inputs, 
         inputs = os.path.join(working, 'inputs')
         for kind in ('model', 'obs_data', 'params_for_id', 'user_inputs', 'funcs', 'system'):
             assert os.listdir(os.path.join(inputs, kind)), kind
+            # every copy is in a folder dated when it was first used; the only plain files are
+            # the dated user_inputs archives
+            for name in os.listdir(os.path.join(inputs, kind)):
+                assert re.match(r'\d{4}-\d{2}-\d{2}_\d{6}$', name) or (
+                    kind == 'user_inputs' and name.startswith('user_inputs_')), (kind, name)
+        run_dirs = [os.path.normpath(run['dir']) for run in raw['runs']]
+        for version in cuflynx_study.read_index(working):
+            assert version['runs'] == run_dirs, version
         assert os.path.isfile(os.path.join(
             inputs, 'user_inputs', f"user_inputs_{date.today().strftime('%y%m%d')}.yaml"))
         assert not any(name.startswith('user_inputs_') for name in os.listdir(resources))
@@ -188,7 +197,8 @@ def test_a_generated_models_system_regenerates_it_from_the_working_dir_alone(tmp
 
     with open(cuflynx_study.manifest_path(inp)) as handle:
         raw = json.load(handle)
-    system_dir = os.path.join('inputs', 'system')
+    system_dir = os.path.dirname(raw['system']['module_array'])
+    assert os.path.dirname(system_dir) == os.path.join('inputs', 'system')
     assert raw['system'] == {
         'module_array': os.path.join(system_dir, 'chain_module_array.json'),
         'parameters': os.path.join(system_dir, 'chain_parameters.json'),

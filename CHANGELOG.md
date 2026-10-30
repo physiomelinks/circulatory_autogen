@@ -11,10 +11,15 @@ next release; add to that section as you land a change.
 anywhere in CUFLynx (see "The study working dir" in the parameter-identification tutorial).
 
 - The study manifest (`<study_name>_cuflynx_study.json`) copies each input from outside the
-  working dir into `inputs/<kind>/` (model with the CellML it imports, obs_data, params_for_id,
+  working dir into `inputs/<kind>/<yyyy-mm-dd_HHMMSS>/`, a folder named for the local date-time
+  it was first used (model with the CellML it imports, obs_data, params_for_id,
   the user_inputs yaml, user funcs, an emulator, and in `system/` a generated model's module
   array, parameters file, the module library versions it uses and its `external_modules_dir`),
-  once per content, and records every path relative to the manifest's folder. It no longer
+  once per content (matched by content hash; `_2`, `_3`... for a second content first used in
+  the same second), and records every path relative to the manifest's folder. No copy sits
+  outside a dated folder, so none looks like the current version: each run's entry names the
+  copies it ran with, and `inputs/index.json` (`cuflynx_study.read_index`) lists every version
+  with its kind, file, folder, content hash, first use and the runs that used it. It no longer
   writes `study_dir`. New manifest key `system` (with `module_library_dirs`,
   `external_modules_dir` and `use_builtin_modules`; built-in modules are recorded, not
   copied), and `cuflynx_study.generation_inputs(read_study(<W>))` gives the user_inputs keys
@@ -27,7 +32,8 @@ anywhere in CUFLynx (see "The study working dir" in the parameter-identification
   `sensitivity_outputs/<file_prefix>_SA_results`, and a relative one is taken under it. An
   absolute `output_dir` is unchanged.
 - A calibration workflow run packs its workflow (`pack_workflow`) into
-  `<output_dir>/inputs/workflows/<workflow_name>/`; its manifest and each step's name the
+  `<output_dir>/inputs/workflows/<workflow_name>/<yyyy-mm-dd_HHMMSS>/`, a new dated folder only
+  when the packed workflow differs from one stored already; its manifest and each step's name the
   packed copies, relative. `pack_workflow` also returns `sources`, each input's packed path.
   `calibration_workflow.pack.module_version_files` lists the module version files it packs;
   the study's `inputs/system/` copies the same files.

@@ -29,21 +29,28 @@ the whole study and it opens wherever it is unzipped::
 
     <W>/
       <study>_cuflynx_study.json
-      inputs/<kind>/            a copy of each input that was outside <W>: model/ (with the
-                                CellML files it imports), obs_data/, params_for_id/,
-                                user_inputs/ (the yaml as given, and the dated
-                                user_inputs_<yymmdd>.yaml archives), funcs/, system/ (a
-                                generated model's module array and parameters file, the
-                                module versions it uses under modules/, and its
-                                external_modules_dir under external_modules/),
-                                emulator/, workflows/<wf>/ (a packed calibration workflow)
+      inputs/index.json         every stored input version: its kind, file, folder, content
+                                hash, when it was first used and the runs that used it
+      inputs/<kind>/<yyyy-mm-dd_HHMMSS>/
+                                one version of an input that was outside <W>, by kind:
+                                model (with the CellML files it imports), obs_data,
+                                params_for_id, user_inputs (the yaml as given), funcs,
+                                system (a generated model's module array and parameters
+                                file, the module versions it uses under modules/, and its
+                                external_modules_dir under external_modules/), emulator,
+                                workflows/<wf> (a packed calibration workflow)
+      inputs/user_inputs/user_inputs_<yymmdd>.yaml
+                                the resolved config of each day's runs, dated by its name
       <method>_<prefix>_<obs>/  calibration and UQ runs
       sensitivity/              Sobol and local sensitivity (the default sa_options output_dir)
 
-An input is copied when the manifest is written (rank 0), once per content: a file already
-in ``inputs/`` with the same name and content is reused, and a different file of the same
-name goes into ``inputs/<kind>/<hash>/``. Every path in the manifest is relative to the
-manifest's folder. A manifest nested inside a larger working dir (a calibration workflow's
+An input is copied when the manifest is written (rank 0), once per content, into a folder
+named for the local date-time it was first used (``_2``, ``_3``... for a second content
+first used in the same second). No copy sits outside a dated folder, so none looks like the
+current version: the manifest names each run's own copies, and ``inputs/index.json``
+(:func:`read_index`) lists every version. A content already stored (the same content hash)
+is reused, so a rerun with unchanged inputs copies nothing. Every path in the manifest is
+relative to the manifest's folder. A manifest nested inside a larger working dir (a calibration workflow's
 step) is given that dir as ``cuflynx_working_dir``: its inputs are copied there, and its
 paths may climb (``..``) as far as that dir and no further. An output directory outside the
 working dir (an ``sa_options`` ``output_dir`` set to elsewhere) is recorded absolute.
@@ -103,6 +110,7 @@ __all__ = [
     'sensitivity_dir',
     'user_inputs_archive_dir',
     'bring_in',
+    'read_index',
     'study_inputs',
     'update_study',
     'read_study',
@@ -280,23 +288,64 @@ def _bundle(path):
     return base, {os.path.relpath(f, base): f for f in files}, os.path.relpath(path, base)
 
 
-def _same_file_in(directory, name, digest):
-    """A file called ``name`` with content ``digest`` anywhere under ``directory``, or None."""
-    for root, dirs, names in os.walk(directory):
-        dirs.sort()
-        if name in names and _sha256(os.path.join(root, name)) == digest:
-            return os.path.join(root, name)
-    return None
+#: The working dir's list of the input versions it holds: ``inputs/index.json``.
+INDEX_FILE = 'index.json'
+
+#: A version's folder name: the local date-time it was first used, as the dated
+#: ``user_inputs_<yymmdd>.yaml`` archives are dated in local time.
+STAMP_FORMAT = '%Y-%m-%d_%H%M%S'
 
 
-def _fits(target, files):
-    """Whether ``files`` can go under ``target``: each is absent there or identical."""
+def _stamp():
+    return datetime.now().replace(microsecond=0)
+
+
+def _index_path(root):
+    return os.path.join(root, INPUTS_DIR, INDEX_FILE)
+
+
+def read_index(root):
+    """The versions ``<root>/inputs/index.json`` lists, oldest first, or [] when there is none.
+
+    Each is ``{"kind", "file", "folder", "hash", "first_used", "runs", "files"}``: ``folder``
+    (relative to ``root``) holds one content of ``kind``, ``file`` is the input itself within
+    it (None for a ``system`` bundle without one), ``hash`` is the content hash of every file in
+    it (``files``: ``{relative path: sha256}``) and ``runs`` the output directories (relative to
+    ``root`` when inside it) of the runs that used it.
+    """
+    try:
+        with open(_index_path(root), encoding='utf-8') as handle:
+            versions = json.load(handle).get('versions')
+    except (OSError, ValueError, AttributeError):
+        return []
+    return [v for v in versions if isinstance(v, dict)] if isinstance(versions, list) else []
+
+
+def _write_index(root, versions):
+    _write_atomic(_index_path(root), {'schema': 1, 'versions': versions})
+
+
+def _holds(root, version, files):
+    """Whether ``version``'s folder still holds ``files`` (``{relative path: sha256}``)."""
+    folder = version.get('folder')
+    if not folder:
+        return False
     for relative, digest in files.items():
-        existing = os.path.join(target, relative)
-        if os.path.lexists(existing) and not (os.path.isfile(existing)
-                                              and _sha256(existing) == digest):
+        path = os.path.join(root, folder, relative)
+        if not os.path.isfile(path) or _sha256(path) != digest:
             return False
     return True
+
+
+def _same_file_in(root, name, digest):
+    """A stored file called ``name`` with content ``digest`` in any version the index lists,
+    or None."""
+    for version in read_index(root):
+        for relative, stored in (version.get('files') or {}).items():
+            if (os.path.basename(relative) == name and stored == digest
+                    and _holds(root, version, {relative: digest})):
+                return os.path.join(root, version['folder'], relative)
+    return None
 
 
 #: (working dir, kind, source, mtime, size) -> its copy, so a run's repeated manifest writes
@@ -305,12 +354,13 @@ _BROUGHT = {}
 
 
 def bring_in(root, kind, path):
-    """The copy of the input ``path`` under ``<root>/inputs/<kind>/``, made if need be.
+    """The copy of the input ``path`` under ``<root>/inputs/<kind>/<first used>/``, made if
+    need be.
 
-    One copy per content: a lone file already anywhere under ``<root>/inputs/`` with the same
-    name and content is reused; otherwise the file (with the CellML it imports, or a
-    directory's files) goes into ``inputs/<kind>/``, or into ``inputs/<kind>/<hash>/`` when a
-    different file of the same name is already there.
+    One copy per content: a lone file stored already (any kind) with the same name and
+    content is reused, as is a stored version of ``kind`` with the same content; otherwise the
+    file (with the CellML it imports, or a directory's files) goes into a new dated folder
+    (:func:`_place`).
     """
     path = os.path.abspath(path)
     status = os.stat(path)
@@ -318,31 +368,62 @@ def bring_in(root, kind, path):
     if key in _BROUGHT and os.path.exists(_BROUGHT[key]):
         return _BROUGHT[key]
     _, sources, main = _bundle(path)
-    inputs = os.path.join(root, INPUTS_DIR)
     copy = None
-    if len(sources) == 1 and not os.path.isdir(path) and os.path.isdir(inputs):
-        copy = _same_file_in(inputs, os.path.basename(path), _sha256(path))
+    if len(sources) == 1 and not os.path.isdir(path):
+        copy = _same_file_in(root, os.path.basename(path), _sha256(path))
     if copy is None:
-        copy = os.path.join(_place(root, kind, sources), main)
+        copy = os.path.join(_place(root, kind, sources, main), main)
     _BROUGHT[key] = copy
     return copy
 
 
-def _place(root, kind, sources):
-    """Copy ``sources`` (``{relative path: source file}``) into ``<root>/inputs/<kind>/``, or
-    into ``inputs/<kind>/<hash>/`` when a different file of one of those names is there; the
-    directory they are in."""
+def _place(root, kind, sources, main=None):
+    """The folder holding ``sources`` (``{relative path: source file}``) in ``<root>/inputs/``:
+    the version of ``kind`` the index lists with the same content, or else a new folder
+    ``inputs/<kind>/<yyyy-mm-dd_HHMMSS>/`` (``_2``, ``_3``... when that second is taken) they
+    are copied into and the index lists. ``main`` is the file the version is of."""
     files = {relative: _sha256(source) for relative, source in sources.items()}
-    target = os.path.join(root, INPUTS_DIR, kind)
-    if not _fits(target, files):
-        digest = hashlib.sha256(json.dumps(sorted(files.items())).encode()).hexdigest()
-        target = os.path.join(target, digest[:12])
+    digest = hashlib.sha256(json.dumps(sorted(files.items())).encode()).hexdigest()
+    versions = read_index(root)
+    for version in versions:
+        if (version.get('kind') == kind and version.get('hash') == digest
+                and _holds(root, version, files)):
+            return os.path.join(root, version['folder'])
+    first_used = _stamp()
+    parent = os.path.join(root, INPUTS_DIR, kind)
+    name = first_used.strftime(STAMP_FORMAT)
+    target, n = os.path.join(parent, name), 2
+    while os.path.lexists(target):
+        target, n = os.path.join(parent, f'{name}_{n}'), n + 1
     for relative, source in sources.items():
         destination = os.path.join(target, relative)
-        if not os.path.exists(destination):
-            os.makedirs(os.path.dirname(destination), exist_ok=True)
-            shutil.copyfile(source, destination)
+        os.makedirs(os.path.dirname(destination), exist_ok=True)
+        shutil.copyfile(source, destination)
+    versions.append({'kind': kind, 'file': main, 'folder': os.path.relpath(target, root),
+                     'hash': digest, 'first_used': first_used.isoformat(), 'runs': [],
+                     'files': files})
+    _write_index(root, versions)
     return target
+
+
+def _record_run(root, used, run):
+    """Add ``run`` (an output directory) to the ``runs`` of each version holding a path in
+    ``used``."""
+    versions = read_index(root)
+    if not versions:
+        return
+    run = os.path.abspath(run)
+    run = os.path.relpath(run, root) if _inside(run, root) else run
+    changed = False
+    for version in versions:
+        folder = os.path.join(root, version.get('folder') or '')
+        if version.get('folder') and any(_inside(p, folder) for p in used):
+            runs = version.setdefault('runs', [])
+            if run not in runs:
+                runs.append(run)
+                changed = True
+    if changed:
+        _write_index(root, versions)
 
 
 def _module_files(system):
@@ -410,7 +491,8 @@ def _system_sources(paths, system):
                     if os.path.isfile(path) and not name.startswith('.'):
                         sources[os.path.join(home, name)] = path
             copied['external_modules_dir'] = homes[0] if isinstance(external, str) else homes
-        target = _place(paths.root, 'system', sources)
+        main = copied['module_array'] if copied['module_array'] in sources else None
+        target = _place(paths.root, 'system', sources, main)
         sources = copied
         _BROUGHT[key] = (target, sources)
     out = dict(sources)
@@ -430,6 +512,8 @@ class _Paths:
         self.here = study_dir
         self.copy = copies_inputs(inp)
         self.root = working_dir(inp) if self.copy else study_dir
+        #: Every input path recorded, as it is in the working dir: the versions a run used.
+        self.used = []
 
     def output(self, value):
         """An output: relative inside the working dir, absolute outside it (never copied)."""
@@ -449,6 +533,7 @@ class _Paths:
                       f'by absolute path rather than copied into the working dir')
                 return full
             full = bring_in(self.root, kind, full)
+        self.used.append(full)
         return os.path.relpath(full, self.here)
 
 
@@ -684,6 +769,8 @@ def update_study(inp, section=None, entry=None, emulator=None, workflow=None):
                 item.setdefault('analyses', [item['method']])
             item['updated'] = _now()
             record[section] = _upsert(record.get(section), item)
+            if paths.copy:
+                _record_run(paths.root, paths.used, entry['dir'])
 
         if paths.copy:
             # every path is relative to the manifest's folder, wherever that ends up
