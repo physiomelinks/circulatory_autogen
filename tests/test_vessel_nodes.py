@@ -140,7 +140,7 @@ def test_ports_are_taken_in_order():
 
 def _generate(tmp_path, prefix, resources_dir):
     config = {'file_prefix': prefix,
-              'input_param_file': prefix.replace('test2b_', 'test_').replace('test2_', 'test_')
+              'input_param_file': prefix.replace('test2_', 'test_')
               + '_parameters.json',
               'model_type': 'cellml', 'solver': 'CVODE_myokit', 'DEBUG': False,
               'resources_dir': resources_dir,
@@ -158,10 +158,11 @@ def test_generation_refuses_the_mixed_test2_array(tmp_path, resources_dir):
 
 @pytest.mark.integration
 @pytest.mark.slow
-def test_rule_following_test2b_simulates_with_conserved_node_flow(tmp_path, resources_dir):
-    """generic_junction_test2b_open_loop is test2 with each mixed node's compliance moved to the
-    parent's outlet: the parent's outflow is the sum of its daughters' inflows."""
-    model = _generate(tmp_path, 'generic_junction_test2b_open_loop', resources_dir)
+def test_rule_following_version_simulates_with_conserved_node_flow(tmp_path, resources_dir):
+    """generic_junction_test_open_loop is the rule-following version of test2's network: each
+    split's compliance is at the parent's outlet, so the parent's outflow is the sum of its
+    daughters' inflows."""
+    model = _generate(tmp_path, 'generic_junction_test_open_loop', resources_dir)
     node_sum = 'generic_junction_connection/v_aortic_arch_II_sum_Nout'
     daughters = ['common_carotid_L/v', 'aortic_arch_III/v']
     helper = get_simulation_helper(model_path=str(model), solver='CVODE_myokit',

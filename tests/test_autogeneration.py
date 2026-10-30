@@ -12,9 +12,9 @@ from libcuflynx.scripts.script_generate_with_new_architecture import generate_wi
 
 
 # generic_junction_test2_* have nodes whose compliant end shares its side with another end, which
-# the node rule refuses (#616); generic_junction_test2b_* are the same arrays with those nodes'
-# compliance moved to the end alone on its side.
-_MIXED_NODE_XFAIL = "mixed node, see #616"
+# the node rule refuses (#616); generic_junction_test_* is the rule-following version of the same
+# network.
+_MIXED_NODE_XFAIL = "mixed node, see #616; generic_junction_test is the rule-following version"
 
 
 @pytest.mark.integration
@@ -31,11 +31,9 @@ _MIXED_NODE_XFAIL = "mixed node, see #616"
     ('generic_junction_test_closed_loop', 'generic_junction_test_closed_loop_parameters.json', 'cellml', 'CVODE_myokit'),
     pytest.param('generic_junction_test2_closed_loop', 'generic_junction_test_closed_loop_parameters.json', 'cellml', 'CVODE_myokit',
                  marks=pytest.mark.xfail(strict=True, reason=_MIXED_NODE_XFAIL)),
-    ('generic_junction_test2b_closed_loop', 'generic_junction_test_closed_loop_parameters.json', 'cellml', 'CVODE_myokit'),
     ('generic_junction_test_open_loop', 'generic_junction_test_open_loop_parameters.json', 'cellml', 'CVODE_myokit'),
     pytest.param('generic_junction_test2_open_loop', 'generic_junction_test_open_loop_parameters.json', 'cellml', 'CVODE_myokit',
                  marks=pytest.mark.xfail(strict=True, reason=_MIXED_NODE_XFAIL)),
-    ('generic_junction_test2b_open_loop', 'generic_junction_test_open_loop_parameters.json', 'cellml', 'CVODE_myokit'),
     ('SN_simple', 'SN_simple_parameters.json', 'cellml', 'CVODE_myokit'),
     ('physiological', 'physiological_parameters.json', 'cellml', 'CVODE_myokit'),
     ('control_phys', 'control_phys_parameters.json', 'cellml', 'CVODE_myokit'),

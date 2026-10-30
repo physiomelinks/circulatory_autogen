@@ -26,10 +26,10 @@ Decided by Finbar Argus on 2026-10-30 (#616, option D of the node-sums design).
   two-ended nodes are unaffected. See *Connecting vessels at a node* in the design-model docs.
 - Every model in `resources/` and every system model of the module library generates the same
   CellML as before (their non-vessel node owners are all summing heart-chamber ports), except
-  `generic_junction_test2_{open,closed}_loop`, whose six such nodes are now refused.
-  `generic_junction_test2b_{open,closed}_loop` are the same arrays with the compliance at those
-  nodes moved to the parent's outlet (parent `arterial pp` -> `Nout_junction pv`, compliant
-  daughter `vv` -> `pv`).
+  `generic_junction_test2_{open,closed}_loop`, whose six such nodes are now refused; their tests
+  are expected failures. `generic_junction_test_{open,closed}_loop` is the rule-following version
+  of the same network: test2 differs from it only at those six nodes (parent `Nout_junction pv`
+  -> `arterial pp`, one daughter `pv` -> `vv` as a `Min_`/`MinNout_junction`).
 
 ### Changed — an unconnected multi_port "sum" is a boundary condition; a term counted twice is refused
 

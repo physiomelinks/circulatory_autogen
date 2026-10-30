@@ -262,6 +262,8 @@ and the others, which then owns the node. A node with several ends on **both** s
 owned by one end and is refused: join those vessels through a `2in2out_junction` (`vv`), which
 has a port per connection, or through a `vv` vessel they merge into and split from. Nodes with a
 1D (`FV1D_vessel`) end are coupled by the 1D coupler and are not checked. See issue #616.
+`resources/generic_junction_test_open_loop_module_array.csv` follows the rule at every split;
+`generic_junction_test2_open_loop` is the same network with six splits mixed, and is refused.
 
 ### Coupling to other models: the `api` block
 
