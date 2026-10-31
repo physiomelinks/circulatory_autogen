@@ -22,13 +22,13 @@ from libcuflynx.parsers.PrimitiveParsers import (PARAM_PRIOR_TYPES, PARAMS_FOR_I
                                                  PARAMS_FOR_ID_JSON_VERSION, ObsAndParamDataParser)
 from libcuflynx.generators.multi_port import normalise_port_multi_port, validate_list_multi_port
 from libcuflynx.reporting.variable_mapping import KINDS, variable_mapping_document
-from libcuflynx.schemas import (MODULE_ARRAY_SCHEMA, MODULE_CONFIG_SCHEMA, OBS_DATA_SCHEMA,
-                                PARAMS_FOR_ID_SCHEMA, PARAMETERS_SCHEMA, VARIABLE_MAPPING_SCHEMA,
-                                load_schema)
+from libcuflynx.schemas import (DERIVATIONS_SCHEMA, MODULE_ARRAY_SCHEMA, MODULE_CONFIG_SCHEMA,
+                                OBS_DATA_SCHEMA, PARAMS_FOR_ID_SCHEMA, PARAMETERS_SCHEMA,
+                                VARIABLE_MAPPING_SCHEMA, load_schema)
 from libcuflynx.utilities.config_schemas import (COMPONENT_KEYS, MODULE_ARRAY_COLUMN_ORDER,
                                                  OLD_MODULE_ARRAY_KEYS, OLD_MODULE_CONFIG_KEYS,
                                                  normalise_module_config_entry)
-from libcuflynx.utilities.obs_data_helpers import VALID_DATA_TYPES
+from libcuflynx.utilities.obs_data_helpers import INPUT_ITEM_KEYS, VALID_DATA_TYPES
 from libcuflynx.utilities.protocol_shapes import EVENT_KEYS, SHAPE_KEYS, SHAPE_TYPES
 
 jsonschema = pytest.importorskip('jsonschema')
@@ -38,7 +38,7 @@ pytestmark = pytest.mark.unit
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXAMPLES = os.path.join(ROOT, 'tests', 'test_inputs', 'schema_examples')
 ALL_SCHEMAS = (MODULE_ARRAY_SCHEMA, MODULE_CONFIG_SCHEMA, OBS_DATA_SCHEMA, PARAMS_FOR_ID_SCHEMA,
-               PARAMETERS_SCHEMA, VARIABLE_MAPPING_SCHEMA)
+               PARAMETERS_SCHEMA, VARIABLE_MAPPING_SCHEMA, DERIVATIONS_SCHEMA)
 
 
 def _validator(name):
@@ -92,7 +92,8 @@ def test_the_examples_validate():
              '_obs_data.json': OBS_DATA_SCHEMA,
              '_params_for_id.json': PARAMS_FOR_ID_SCHEMA,
              '_parameters.json': PARAMETERS_SCHEMA,
-             '_variable_mapping.json': VARIABLE_MAPPING_SCHEMA}
+             '_variable_mapping.json': VARIABLE_MAPPING_SCHEMA,
+             '_derivations.json': DERIVATIONS_SCHEMA}
     seen = set()
     for path in sorted(glob.glob(os.path.join(EXAMPLES, '*.json'))):
         name = next(n for suffix, n in kinds.items() if path.endswith(suffix))
@@ -179,6 +180,7 @@ def test_obs_data_keys_match_the_parser():
     assert set(defs['dataItem']['properties']) == _parse_obs_data_rules('item_defaults')
     assert set(defs['predictionItem']['properties']) == \
         _parse_obs_data_rules('prediction_entry_defaults')
+    assert set(defs['inputItem']['properties']) == set(INPUT_ITEM_KEYS)
     # the required keys have no default
     assert set(defs['protocolInfo']['properties']) == \
         _parse_obs_data_rules('protocol_defaults') | set(defs['protocolInfo']['required'])

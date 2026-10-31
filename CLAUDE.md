@@ -30,6 +30,7 @@ Runs are launched via shell scripts in `user_run_files/`. Each one invokes a **c
 | `run_param_id.sh` (arg: `num_processors`, uses `mpiexec`) | `cuflynx-param-id` → `param_id_run_script` | Generate + calibrate |
 | _(no run script)_ | `cuflynx-calibration-workflow <calibration_workflow.json>` → `calibration_workflow_run_script` | Ordered calibrations of module-library parameterisations (submodules, then a supermodule), each against its own obs_data/params_for_id, merged into the target parameterisation; `fixed_from` / `priors_from` pass values or stored posteriors between steps. Takes the workflow path, not the yaml — see `libcuflynx.calibration_workflow` and the "Calibration workflows" docs section. |
 | _(no run script)_ | `cuflynx-variable-mapping` / `cuflynx-methods-latex` → `variable_mapping_script` / `methods_latex_script` | Write-up: a model's `<prefix>_variable_mapping.csv` (LaTeX symbol per canonical variable name; regenerating keeps edits), and a methods `.tex` — equations per module (Myokit's LaTeX writer), a TikZ flow chart of the calibration (workflow steps or single-calibration stages), and per-step methods. `libcuflynx.reporting`; docs `tutorial/docs/methods-latex.md`. |
+| _(no run script)_ | `cuflynx-derive <name>_derivations.json --obs <obs_data.json> [--write]` → `derive_script` | Parameter derivations: parameters calculated from obs_data `input_items` / `data_items` and other parameters by a CellML model (libCellML-generated Python, units checked) or a Python function. Checks the values cached in the parameters file (rtol 1e-9, exit 1 when stale); `--write` updates them. Never runs in a simulation. `libcuflynx.derivations`; docs `tutorial/docs/parameter-derivations.md`. |
 | `run_multiple_param_id.sh` | *(no console command)* → `python -m libcuflynx.scripts.run_multiple_param_id` | Batch calibration over models |
 | `run_sensitivity_analysis.sh` | `cuflynx-sensitivity` → `sensitivity_analysis_run_script` | Sobol SA (`mpiexec`) |
 | `run_identifiability_analysis.sh` | `cuflynx-identifiability` → `identifiability_run_script` | Laplace / profile-likelihood |
@@ -157,9 +158,11 @@ User-extensible (kept outside the package): `module_config_user/` (custom CellML
                                                    "multiplier": 0}]} }
   },
   "data_items": [...],
-  "prediction_items": [...]
+  "prediction_items": [...],
+  "input_items": [...]
 }
 ```
+`input_items` (`{data_item_name, value, unit, std, source, data_reference, ...}`) are numbers only parameter derivations read (`libcuflynx.derivations`, `cuflynx-derive`): `parse_obs_data_json` returns them under `"input_items"` and nothing that scores, plots or validates reads them.
 `protocol_info` with `pre_times` and `sim_times` is required; a bare list of data items is refused (`cuflynx-upgrade obs-data`).
 A `params_to_change` value is a **float** (constant) or a **string** (trace key into `protocol_traces`). Series entries currently must have a `std` set (single-likelihood assumption — see commit history).
 

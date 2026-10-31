@@ -1,0 +1,9 @@
+{
+ "schema_version": 1,
+ "Systemic_T": {
+  "frac": {"value": 0.8, "units": "dimensionless", "data_reference": "assumed"},
+  "Q_T0": {"value": 8e-05, "units": "m3_per_s", "data_reference": "derived; derivation Q_T0", "derivation": "Q_T0"},
+  "R_T0": {"value": 146654199.99999994, "units": "J_s_per_m6", "data_reference": "derived; derivation R_T0", "derivation": "R_T0"},
+  "C_T": {"value": 1e-8, "units": "m3_per_Pa", "data_reference": "Toy2026"}
+ }
+}

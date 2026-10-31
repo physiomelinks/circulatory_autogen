@@ -11,8 +11,11 @@
   ``parameterisations/<name>/<name>_parameters.json`` (a module's): nested instance,
   sub-instance, variable (``utilities/parameters_file.py``).
 * ``obs_data.schema.json`` -- ``<name>_obs_data.json``: the optional ``obs_data_name``, the
-  ``data_items``, ``prediction_items`` and ``protocol_info`` (with ``protocol_traces`` and
-  ``protocol_shapes``).
+  ``data_items``, ``prediction_items``, ``input_items`` and ``protocol_info`` (with
+  ``protocol_traces`` and ``protocol_shapes``).
+* ``derivations.schema.json`` -- ``<name>_derivations.json``: how parameters are calculated from
+  obs_data input items, data items and other parameters, by a CellML model or a Python function
+  (``libcuflynx.derivations``).
 * ``params_for_id.schema.json`` -- ``<prefix>_params_for_id.json``: the parameters a
   calibration identifies, a flat list of entries (version 1; ``utilities/params_for_id_file.py``).
   A params_for_id CSV is refused; ``cuflynx-upgrade params-for-id`` converts it.
@@ -50,6 +53,7 @@ PARAMS_FOR_ID_SCHEMA = 'params_for_id.schema.json'
 CALIBRATION_WORKFLOW_SCHEMA = 'calibration_workflow.schema.json'
 VARIABLE_MAPPING_SCHEMA = 'variable_mapping.schema.json'
 PARAMETERS_SCHEMA = 'parameters.schema.json'
+DERIVATIONS_SCHEMA = 'derivations.schema.json'
 
 
 def schema_file(name):

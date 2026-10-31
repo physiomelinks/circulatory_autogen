@@ -3,13 +3,14 @@
 **This directory is yours.** Nothing in it is touched when you upgrade libcuflynx, so it is
 where your own code belongs.
 
-Three kinds of function can be added here:
+Four kinds of function can be added here:
 
 | What you want | Where it is used |
 |---|---|
 | a **cost** function | `cost_type` on a data item in `obs_data.json` |
 | an **operation** | `operation` on a data item — how a trace becomes one number |
 | a **modifier** | `modifier` on an entry in `params_for_id` |
+| a **derivation** function | `python` on a derivation in a `<name>_derivations.json` (see `tutorial/docs/parameter-derivations.md`) |
 
 ## Adding one
 
@@ -20,6 +21,7 @@ Copy the matching template in this directory, rename it, and write your function
 | `cost_funcs_example.py` | `cost_funcs_external_path` |
 | `operation_funcs_example.py` | `operation_funcs_external_path` |
 | `modifier_funcs_example.py` | `modifier_funcs_external_path` |
+| `derivation_funcs_example.py` | none: a derivation names `file.py:function` in its `<name>_derivations.json` |
 
 Then name your file in `user_run_files/user_inputs.yaml`:
 

@@ -82,6 +82,10 @@
         "data_reference": {
           "type": "string",
           "description": "Where the value comes from. Default: empty."
+        },
+        "derivation": {
+          "type": "string",
+          "description": "The name of the derivation in the <name>_derivations.json beside this file that calculates the value; value is then its cached result, which cuflynx-derive checks and --write refreshes. Default: none."
         }
       },
       "additionalProperties": {

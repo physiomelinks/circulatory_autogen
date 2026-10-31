@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/physiomelinks/circulatory_autogen/schemas/obs_data.schema.json",
   "title": "libcuflynx obs_data file (<name>_obs_data.json)",
-  "description": "The data a calibration is scored against, its protocol, and the outputs to predict: an object with protocol_info (required), data_items and prediction_items, and an optional obs_data_name. Other top-level keys are ignored. Read by ObsAndParamDataParser.parse_obs_data_json (libcuflynx/parsers/PrimitiveParsers.py); vocabularies in libcuflynx/utilities/obs_data_helpers.py. The parser fills the defaults given here and refuses unknown keys in items and protocol_info.",
+  "description": "The data a calibration is scored against, its protocol, and the outputs to predict: an object with protocol_info (required), data_items, prediction_items and input_items, and an optional obs_data_name. Other top-level keys are ignored. Read by ObsAndParamDataParser.parse_obs_data_json (libcuflynx/parsers/PrimitiveParsers.py); vocabularies in libcuflynx/utilities/obs_data_helpers.py. The parser fills the defaults given here and refuses unknown keys in items and protocol_info.",
   "type": "object",
   "properties": {
     "obs_data_name": {
@@ -23,6 +23,13 @@
         "$ref": "#/$defs/predictionItem"
       },
       "description": "Outputs to record and plot, not scored in the calibration; with a value they are held-out validation data. Default: none."
+    },
+    "input_items": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/inputItem"
+      },
+      "description": "Measured or assumed numbers a parameter derivation reads (a <name>_derivations.json names them as {\"input_item\": <data_item_name>}). Never scored, plotted or validated against: nothing that reads data_items or prediction_items reads them. Default: none."
     },
     "protocol_info": {
       "$ref": "#/$defs/protocolInfo"
@@ -923,6 +930,81 @@
         "operands",
         "unit"
       ]
+    },
+    "inputItem": {
+      "type": "object",
+      "description": "One measured or assumed number a parameter derivation reads (libcuflynx.derivations). Unknown keys are refused. Its data_item_name is unique across data_items, prediction_items and input_items.",
+      "additionalProperties": false,
+      "required": [
+        "data_item_name",
+        "value",
+        "unit"
+      ],
+      "properties": {
+        "data_item_name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Required. The name a derivation refers to it by: unique across every data_item, prediction_item and input_item of the file."
+        },
+        "value": {
+          "type": "number",
+          "description": "Required. The number, in unit."
+        },
+        "std": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "exclusiveMinimum": 0,
+          "description": "Its standard deviation, in unit. Default: none."
+        },
+        "unit": {
+          "type": "string",
+          "description": "Required. Its unit (a CellML unit name). A derivation model's variable may be in other units of the same dimension: the value is converted."
+        },
+        "prob_dist_params": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "The number as a distribution, for a later Monte Carlo through the derivation. Not read yet. Default: none."
+        },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Where the number comes from, as free text. Not read otherwise."
+        },
+        "data_reference": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The reference it comes from (a citation key). Not read otherwise."
+        },
+        "comment": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Free text. Not read."
+        },
+        "species": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The species measured. Not read."
+        },
+        "location": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Where in the body it was measured. Not read."
+        }
+      }
     },
     "protocolInfo": {
       "type": "object",

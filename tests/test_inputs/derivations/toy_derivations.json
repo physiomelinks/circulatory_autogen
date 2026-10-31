@@ -1,0 +1,24 @@
+{
+  "derivations": [
+    {
+      "name": "R_T0",
+      "inputs": {
+        "MAP": {"data_item": "MAP"},
+        "CVP": {"input_item": "CVP_toy"},
+        "Q": {"parameter": "Systemic_T/Q_T0"}
+      },
+      "outputs": {"R": "Systemic_T/R_T0"},
+      "cellml": "derivations/systemic_resistance.cellml",
+      "comment": "the bed's resistance from its pressure drop and flow"
+    },
+    {
+      "name": "Q_T0",
+      "inputs": {
+        "CO": {"input_item": "CO_toy"},
+        "frac": {"parameter": "Systemic_T/frac"}
+      },
+      "outputs": {"Q": "Systemic_T/Q_T0"},
+      "python": "derivations/derivation_funcs.py:flow_share"
+    }
+  ]
+}
