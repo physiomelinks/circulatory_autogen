@@ -215,6 +215,25 @@ def resolve_inputs(derivation, doc, obs_items, derived=None):
     return resolved
 
 
+def unresolved_inputs(derivations, doc, obs_data=None):
+    '''Every input of ``derivations`` that does not resolve, as ``[(derivation name, symbol,
+    reason)]`` in file order; empty when all do. Unlike ``resolve_inputs`` it does not stop at
+    the first: each input is resolved on its own. A parameter input another derivation sets
+    resolves, whatever its cached value.'''
+    obs_items = load_obs_items(obs_data)
+    set_by_derivation = {parameter_path(doc, name): 0.0
+                         for d in derivations for name in d.outputs.values()}
+    found = []
+    for d in derivations:
+        for symbol, source in d.inputs.items():
+            one = Derivation(d.name, {symbol: source}, d.outputs, d.method, d.spec, d.base_dir)
+            try:
+                resolve_inputs(one, doc, obs_items, set_by_derivation)
+            except ValueError as e:
+                found.append((d.name, symbol, str(e)))
+    return found
+
+
 @dataclass
 class DerivationResult:
     '''One evaluated derivation: its inputs (``resolve_inputs``) and outputs

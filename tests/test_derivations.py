@@ -16,8 +16,8 @@ import pytest
 from libcuflynx.derivations import (DerivationError, DerivationFunctionError,
                                     DerivationModelError, check_derivations, derivation_files,
                                     derivations_file_for, evaluate_cellml, evaluate_derivations,
-                                    load_derivations, order_derivations, parameters_file_for,
-                                    read_parameters)
+                                    load_derivation_model, load_derivations, order_derivations,
+                                    parameters_file_for, read_parameters, unresolved_inputs)
 from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser
 from libcuflynx.schemas import DERIVATIONS_SCHEMA, OBS_DATA_SCHEMA
 from libcuflynx.schemas.validation import problems
@@ -304,6 +304,38 @@ def test_an_input_or_output_that_does_not_resolve_is_named(toy, change, message)
     _write(toy['derivations'], doc)
     with pytest.raises(DerivationError, match=message):
         _evaluate(toy)
+
+
+@pytest.mark.unit
+def test_every_unresolved_input_is_listed_without_raising(toy):
+    doc = read_parameters(toy['parameters'])
+    assert unresolved_inputs(load_derivations(toy['derivations']), doc, toy['obs']) == []
+    raw = _read(toy['derivations'])
+    raw['derivations'][0]['inputs'].update(MAP={'data_item': 'nope'},
+                                           CVP={'input_item': 'gone'})
+    raw['derivations'][1]['inputs'].update(frac={'parameter': 'Systemic_T/missing'})
+    # an input another derivation sets resolves even when its cache is not a number
+    params = _read(toy['parameters'])
+    params['Systemic_T']['Q_T0']['value'] = 'EMPTY_MUST_BE_FILLED'
+    _write(toy['parameters'], params)
+    found = unresolved_inputs(load_derivations(raw, toy['dir']),
+                              read_parameters(toy['parameters']), toy['obs'])
+    assert [(name, symbol) for name, symbol, _ in found] == \
+        [('R_T0', 'MAP'), ('R_T0', 'CVP'), ('Q_T0', 'frac')]
+    assert "no obs_data has a data_item named 'nope'" in found[0][2]
+    assert "no parameter 'Systemic_T/missing'" in found[2][2]
+
+
+@pytest.mark.unit
+def test_a_derivation_model_is_checked_without_being_evaluated(toy):
+    model, analysed = load_derivation_model(toy['cellml'])
+    assert model.name() == 'systemic_resistance'
+    with open(toy['cellml']) as f:
+        text = f.read()
+    with open(toy['cellml'], 'w') as f:
+        f.write(text.replace('<variable name="CVP" units="Pa"', '<variable name="CVP" units="mmHg"'))
+    with pytest.raises(DerivationModelError, match='analysis found 1 issue'):
+        load_derivation_model(toy['cellml'])
 
 
 @pytest.mark.unit

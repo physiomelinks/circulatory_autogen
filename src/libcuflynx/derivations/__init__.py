@@ -32,14 +32,15 @@ file, compares each output with its cached value (``CACHE_RTOL``) and with ``--w
 them.
 '''
 
-from libcuflynx.derivations.cellml_method import DerivationModelError, evaluate_cellml
+from libcuflynx.derivations.cellml_method import (DerivationModelError, evaluate_cellml,
+                                                  load_derivation_model)
 from libcuflynx.derivations.core import (CACHE_RTOL, DERIVATIONS_SUFFIX, Derivation,
                                          DerivationError, DerivationResult, check_derivations,
                                          derivation_files, derivations_file_for,
                                          evaluate_derivations, load_derivations, load_obs_items,
                                          order_derivations, parameter_path,
                                          parameters_file_for, read_parameters, resolve_inputs,
-                                         write_derived_values)
+                                         unresolved_inputs, write_derived_values)
 from libcuflynx.derivations.python_method import (DerivationFunctionError,
                                                   build_derivation_funcs_dict, evaluate_python)
 
@@ -47,7 +48,8 @@ __all__ = [
     'CACHE_RTOL', 'DERIVATIONS_SUFFIX', 'Derivation', 'DerivationError', 'DerivationFunctionError',
     'DerivationModelError', 'DerivationResult', 'build_derivation_funcs_dict',
     'check_derivations', 'derivation_files', 'derivations_file_for', 'evaluate_cellml',
-    'evaluate_derivations', 'evaluate_python', 'load_derivations', 'load_obs_items',
+    'evaluate_derivations', 'evaluate_python', 'load_derivation_model', 'load_derivations',
+    'load_obs_items',
     'order_derivations', 'parameter_path', 'parameters_file_for', 'read_parameters',
-    'resolve_inputs', 'write_derived_values',
+    'resolve_inputs', 'unresolved_inputs', 'write_derived_values',
 ]
