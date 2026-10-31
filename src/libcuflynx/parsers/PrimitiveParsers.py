@@ -28,7 +28,7 @@ from libcuflynx.schemas import OBS_DATA_SCHEMA, PARAMS_FOR_ID_SCHEMA
 from libcuflynx.schemas.validation import validate as validate_schema
 from libcuflynx.utilities.obs_data_helpers import (check_obs_data_name,
                                         DEFAULT_COST_TYPE, PREVIOUS_DEFAULT_COST_TYPE,
-                                        VALID_DATA_TYPES)
+                                        VALID_DATA_TYPES, parse_input_items)
 from libcuflynx.param_id.prediction_plots import check_prediction_plots
 from libcuflynx.param_id.modifier_funcs import (BUILTIN_MODIFIER_FUNCS, get_modifier_funcs,
                                      probe_affine)
@@ -848,7 +848,7 @@ def _obs_item_label(gt_df, II):
     return f"item {II}"
 
 
-def check_data_item_names_unique(gt_df, prediction_info=None):
+def check_data_item_names_unique(gt_df, prediction_info=None, input_item_names=()):
     """Every item answers to one name, and no name answers to two items.
 
     ``data_item_name`` is what an ``operation_kwargs`` value naming another item resolves
@@ -856,7 +856,7 @@ def check_data_item_names_unique(gt_df, prediction_info=None):
     item was evaluated last. That is exactly how the shipped 3compartment extra-ops example came
     to compute ``max - max`` (a constant 0.0) where it meant ``max - mean``, with every test
     still passing. Checked across data_items *and* prediction_items, since a reference does not
-    care which list an item came from.
+    care which list an item came from, and the input_items, which a derivation names the same way.
     """
     counts = {}
     if gt_df is not None and len(gt_df) and "data_item_name" in gt_df.columns:
@@ -864,6 +864,8 @@ def check_data_item_names_unique(gt_df, prediction_info=None):
             counts.setdefault(str(name), []).append("data_items")
     for name in ((prediction_info or {}).get("data_item_names") or []):
         counts.setdefault(str(name), []).append("prediction_items")
+    for name in input_item_names:
+        counts.setdefault(str(name), []).append("input_items")
 
     duplicated = {name: where for name, where in counts.items() if len(where) > 1}
     if duplicated:
@@ -3857,7 +3859,10 @@ class ObsAndParamDataParser(object):
             method=method,
         )
 
-        check_data_item_names_unique(gt_df, prediction_info)
+        # Numbers parameter derivations read (libcuflynx.derivations): returned for them, and
+        # read by nothing that scores, plots or validates.
+        input_items = parse_input_items(json_obj)
+        check_data_item_names_unique(gt_df, prediction_info, input_items)
         check_prediction_operation_references(gt_df, prediction_info)
         # Figures across experiments (#568): checked structurally here; that each item is a
         # scalar feature needs the operation funcs, so plot_prediction_plots checks it.
@@ -3871,6 +3876,7 @@ class ObsAndParamDataParser(object):
             "prediction_info": prediction_info,
             "obs_data_name": obs_data_name,
             "prediction_plots": prediction_plots,
+            "input_items": input_items,
         }
 
     def process_obs_info(self, gt_df, output_dir, dt):

@@ -5,6 +5,27 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Added — parameter derivations and obs_data `input_items`
+
+Decided by Finbar Argus on 2026-10-31.
+
+- obs_data has a third list, `input_items`: numbers (`data_item_name`, `value`, `unit`, with an
+  optional `std`, `source`, `data_reference`, `comment`, `species`, `location` and
+  `prob_dist_params`) that parameter derivations read. They are never scored, plotted or
+  validated; `parse_obs_data_json` returns them under `"input_items"`, and their names share the
+  uniqueness rule of data and prediction items. `ObsDataCreator.add_input_item` adds one.
+- A `<name>_derivations.json` beside a parameters file (`schemas/derivations.schema.json`) says
+  how parameters are calculated: inputs from parameters, `input_items` or constant `data_items`,
+  outputs naming parameters, and a CellML derivation model (evaluated once through libCellML's
+  generated Python, units checked and converted) or a Python function (`file.py:function`, called
+  `f(inputs, units)`). Derivations chain in the order their inputs need; a loop or a parameter set
+  twice is an error. `libcuflynx.derivations` has the API.
+- A parameter leaf may name its derivation (`"derivation": "R_T0"`); its `value` is the cached
+  result. `cuflynx-derive <derivations.json> --obs <obs_data.json>` checks every cached value
+  (rtol 1e-9; exit 1 when one is stale) and `--write` updates them.
+- `pack_workflow` copies the derivations file beside each parameters file it packs, with its CellML
+  and Python files. Docs: `tutorial/docs/parameter-derivations.md`.
+
 ### Changed — at a node of three or more vessel ends, the end alone on its side must be compliant
 
 Decided by Finbar Argus on 2026-10-30 (#616, option D of the node-sums design).

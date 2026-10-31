@@ -103,6 +103,9 @@ cuflynx-calibration-workflow = "libcuflynx.scripts.calibration_workflow_run_scri
 # Writing a model and its calibration up: LaTeX symbols per variable, then a methods section.
 cuflynx-variable-mapping = "libcuflynx.scripts.variable_mapping_script:main"
 cuflynx-methods-latex = "libcuflynx.scripts.methods_latex_script:main"
+# Parameters calculated from experimental data: evaluates a <name>_derivations.json and checks
+# (or with --write updates) the values cached in its parameters file.
+cuflynx-derive = "libcuflynx.scripts.derive_script:main"
 cuflynx-sensitivity = "libcuflynx.scripts.sensitivity_analysis_run_script:main"
 cuflynx-identifiability = "libcuflynx.scripts.identifiability_run_script:main"
 # Not a pipeline stage: converts, once, files in a form libcuflynx no longer reads.

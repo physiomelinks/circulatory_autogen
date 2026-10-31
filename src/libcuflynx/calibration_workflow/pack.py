@@ -7,7 +7,9 @@ Layout of the packed directory::
     calibration_workflow.json     the workflow, its paths rewritten to the files below
     inputs/<step_id>/             each step's obs_data, params_for_id, and module array with
                                   its parameters file (a file several steps share is packed
-                                  once, under the first)
+                                  once, under the first), and the parameters file's
+                                  <name>_derivations.json with the CellML and Python files it
+                                  reads, at their paths relative to it
     inputs/_target/               the target's module array and parameters file, with its
                                   variable_mapping.csv if it has one
     modules/                      each module version the workflow uses, laid out as in its
@@ -43,6 +45,7 @@ class _Packer:
         self.dest_dir = os.path.abspath(dest_dir)
         self.packed = {}           # realpath of a source -> its path in the pack
         self.files = set()         # paths written, relative to dest_dir
+        self.origins = {}          # path written -> realpath of its source
 
     def file(self, source, owner):
         '''Copy ``source`` into ``inputs/<owner>/`` (once); its path in the pack.'''
@@ -75,7 +78,29 @@ class _Packer:
         self.packed[real] = relative
         return relative
 
+    def derivations(self, parameters_source, packed_parameters):
+        '''Copy the derivations file beside ``parameters_source``, if there is one, beside its
+        packed copy ``packed_parameters`` and named to match it, with the files it reads at
+        their paths relative to it.'''
+        from libcuflynx.derivations import derivation_files, derivations_file_for
+        source = derivations_file_for(parameters_source)
+        if not os.path.isfile(source):
+            return
+        self._copy(source, derivations_file_for(packed_parameters))
+        here, there = os.path.dirname(os.path.abspath(source)), os.path.dirname(packed_parameters)
+        for path in derivation_files(source):
+            relative = os.path.relpath(path, here)
+            if relative.startswith(os.pardir):
+                raise ValueError(f'{source} reads {path}, outside its directory; keep the files '
+                                 f'a derivation reads in its directory or below.')
+            self._copy(path, os.path.join(there, relative))
+
     def _copy(self, source, relative):
+        real = os.path.realpath(source)
+        if self.origins.get(relative, real) != real:
+            raise ValueError(f'{source} and {self.origins[relative]} would both be packed as '
+                             f'{relative}.')
+        self.origins[relative] = real
         destination = os.path.join(self.dest_dir, relative)
         os.makedirs(os.path.dirname(destination), exist_ok=True)
         shutil.copyfile(source, destination)
@@ -122,6 +147,7 @@ def pack_workflow(source, dest_dir, module_library_dirs=None):
         array = packer.file(spec_model.module_array, owner)
         packed = {'module_array': array,
                   'parameters': packer.file(spec_model.parameters, owner)}
+        packer.derivations(spec_model.parameters, packed['parameters'])
         return packed
 
     def settings(raw_settings, spec_settings):

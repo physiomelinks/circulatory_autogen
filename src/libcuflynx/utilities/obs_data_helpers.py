@@ -259,6 +259,29 @@ def get_valid_plot_types():
     return list(VALID_PLOT_TYPES)
 
 
+# The keys of an obs_data ``input_items`` entry: a number a parameter derivation reads
+# (libcuflynx.derivations), never scored. Required keys first; the rest default to None.
+INPUT_ITEM_REQUIRED_KEYS = ('data_item_name', 'value', 'unit')
+INPUT_ITEM_KEYS = INPUT_ITEM_REQUIRED_KEYS + (
+    'std', 'prob_dist_params', 'source', 'data_reference', 'comment', 'species', 'location')
+
+
+def parse_input_items(json_obj):
+    """An obs_data's ``input_items`` as ``{data_item_name: item}``, each item with every key of
+    ``INPUT_ITEM_KEYS`` (None where it is not given). The schema has checked their keys and
+    types; a name given twice is a ValueError."""
+    items = {}
+    for idx, raw in enumerate((json_obj or {}).get('input_items') or []):
+        missing = [k for k in INPUT_ITEM_REQUIRED_KEYS if raw.get(k) is None]
+        if missing:
+            raise ValueError(f'input_items[{idx}] is missing {missing}.')
+        name = str(raw['data_item_name'])
+        if name in items:
+            raise ValueError(f"input_items: data_item_name {name!r} is given twice.")
+        items[name] = {key: raw.get(key) for key in INPUT_ITEM_KEYS}
+    return items
+
+
 class ObsDataCreator:
     """Builder for the observation-data structure used by calibration and SA.
 
@@ -442,7 +465,27 @@ class ObsDataCreator:
                 entry[key] = entry[key].item()
 
         self.obs_data_dict['data_items'].append(entry)
-    
+
+    def add_input_item(self, entry):
+        """Add an input item: a number a parameter derivation reads, never scored.
+
+        entry: dict with ``data_item_name``, ``value`` and ``unit``, and optionally ``std``,
+        ``source``, ``data_reference``, ``comment``, ``species``, ``location`` and
+        ``prob_dist_params``.
+        """
+        unknown = sorted(set(entry) - set(INPUT_ITEM_KEYS))
+        if unknown:
+            raise ValueError(f"input item keys {unknown} are not input item keys "
+                             f"({list(INPUT_ITEM_KEYS)}).")
+        names = {i.get('data_item_name') for key in ('data_items', 'prediction_items',
+                                                     'input_items')
+                 for i in self.obs_data_dict.get(key, [])}
+        if entry.get('data_item_name') in names:
+            raise ValueError(f"data_item_name {entry.get('data_item_name')!r} is already used "
+                             f"by another item.")
+        parse_input_items({'input_items': [entry]})
+        self.obs_data_dict.setdefault('input_items', []).append(dict(entry))
+
     def get_obs_data_dict(self):
         """
         Returns the observation data dictionary.
