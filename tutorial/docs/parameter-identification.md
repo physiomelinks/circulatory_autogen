@@ -1163,21 +1163,40 @@ from libcuflynx.utilities.cuflynx_study import export_working_dir
 left_behind = export_working_dir('<W>', 'my_study.zip')
 ```
 
-Your working dir is not changed; these changes are only in the zip, so that nothing run from it
-writes outside the recipient's working dir:
+Your working dir is not changed; these changes are only in the zip, so that a yaml run from it
+reads and writes only in the recipient's working dir, with no edits:
 
 - Each archived user_inputs yaml names its output directories relative to where it is unzipped:
   `param_id_output_dir` is the unzipped working dir, and an outside `sa_options` `output_dir`
   such as `/scratch/sa_runs` becomes `sensitivity/sa_runs` in the working dir (`output_dir: sa_runs`
   in the yaml). An outside `generated_models_dir` becomes `generated_models`, and an outside
   `emulator_dir` the default under `emulators/`.
+- Each archived user_inputs yaml names its inputs by their copies under `inputs/`, the versions
+  that yaml's own run used (the manifest's `yaml_inputs` records them), not simply the latest:
+  `resources_dir` is the `inputs/system/<date>/` folder (module array and parameters file),
+  `module_library_dirs` and `external_modules_dir` are the folders in it, and
+  `param_id_obs_path`, `params_for_id_file`, the `*_funcs_external_path` keys and, with
+  `use_emulator`, `emulator_dir` name their own copies. The model the run used goes in
+  `generated_model_path` (`external_model_path` for `external_python`).
 - The manifests and `inputs/index.json` drop the outside entries and every absolute path.
 
 Each outside path gets a warning naming it and its new relative path, and the results there are
-not in the zip; `left_behind` lists the same paths. To run an unzipped yaml, point
-`user_inputs_path_override` at it: that is what makes its relative paths resolve from its own
-folder. Only output directories are rewritten, so input paths the yaml names (`resources_dir`,
-`param_id_obs_path`) stay as they were; their copies are under `inputs/`.
+not in the zip. Each input rewritten gets a warning naming its copy. `left_behind` lists the same
+paths, the inputs marked `'input': True`.
+
+An input with no copy in the working dir, such as an `external_modules_dir` added by hand or a
+yaml whose run the manifest does not record, keeps the path it had, with a warning: the run then
+stops at that path on another machine rather than silently using a default in its place.
+`left_behind` lists it with `relative` None. Paths the yaml derives (`model_path`,
+`vessels_csv_abs_path` and so on) are left out, since the parser works them out again.
+
+To run an unzipped yaml, point `user_inputs_path_override` at it in your `user_inputs.yaml`: that
+is what makes its relative paths resolve from its own folder. `--user-inputs` does not: it takes
+relative paths from the current directory. Nothing else is needed, and the originals need not
+exist. `generated_model_path` makes the run use the model the study ran; to run a model generated
+again from `inputs/system/`, delete that key from the yaml first. A calibration workflow's step
+yamls (in its step folders) and a packed `calibration_workflow.json` are not rewritten: rerun a
+workflow from its packed copy.
 
 A generated model's `inputs/system/` holds everything generating it again needs, so the model
 can be regenerated from the working dir alone. Built-in modules are not copied: they come with

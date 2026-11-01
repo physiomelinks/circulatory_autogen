@@ -455,15 +455,262 @@ def test_a_run_of_the_unzipped_yaml_writes_inside_the_unzipped_working_dir(expor
     assert entry['dir'] == os.path.join('sensitivity', 'sa_runs') and 'outside' not in entry
 
 
+def _rewrite_given_yaml(study, **values):
+    """Give ``study``'s yaml the content ``values`` (a new version of it)."""
+    with open(study['user_inputs_path'], 'w') as handle:
+        yaml.safe_dump({'file_prefix': 'demo', 'input_param_file': 'demo_parameters.json',
+                        **values}, handle)
+
+
+def _export(study, tmp_path):
+    """``(the unzipped folder, what export_working_dir returned)``."""
+    target, unzipped = tmp_path / 'w.zip', tmp_path / 'w_unzipped'
+    left = cuflynx_study.export_working_dir(study['param_id_output_dir'], str(target))
+    with zipfile.ZipFile(target) as archive:
+        archive.extractall(unzipped)
+    return str(unzipped), left
+
+
+def _stored(root, kind, copy):
+    """The stored file of ``kind`` a yaml in ``inputs/user_inputs/...`` names as ``copy``."""
+    version = next(v for v in cuflynx_study.read_index(root) if v['kind'] == kind
+                   and copy.endswith(os.path.join(v['folder'], v['file'])))
+    return os.path.join(version['folder'], version['file'])
+
+
+def test_the_zips_yamls_name_their_inputs_by_their_stored_copies(exported):
+    """Each input a yaml reads is a path to its copy from the yaml's own folder, as the parser
+    takes it, so nothing points back at this machine."""
+    root = exported['unzipped']
+    given = _given_yaml(root)
+    data = yaml.safe_load(open(given).read())
+    folder = os.path.dirname(given)
+    for key, kind in (('param_id_obs_path', 'obs_data'), ('generated_model_path', 'model'),
+                      ('operation_funcs_external_path', 'funcs')):
+        path = os.path.normpath(os.path.join(folder, data[key]))
+        assert os.path.isfile(path) and not os.path.isabs(data[key])
+        assert _stored(root, kind, path), key
+    resources = os.path.join(folder, data['resources_dir'])
+    assert os.path.isfile(os.path.join(resources, data['params_for_id_file']))
+    assert '/tmp' not in str(data) and str(exported['w']) not in str(data)
+
+
+def test_the_zips_yaml_keeps_nothing_the_parser_works_out_again():
+    raw = {'model_path': '/a/m.cellml', 'uncalibrated_model_path': '/a/m.cellml',
+           'vessels_csv_abs_path': '/a/v', 'parameters_csv_abs_path': '/a/p',
+           'params_for_id_path': '/a/pfi.json', 'param_id_output_dir': '/w'}
+    out = cuflynx_study._portable_user_inputs(raw, os.path.join('inputs', 'user_inputs'), '/w',
+                                              {}, {'base_model': 'inputs/model/d/m.cellml'}, set())
+    assert sorted(out) == ['generated_model_path', 'generated_models_dir', 'param_id_output_dir']
+
+
+def test_export_points_each_yaml_at_the_version_its_own_run_used(study, tmp_path, clock,
+                                                                 monkeypatch):
+    """An edited obs_data gives a second version, and going back to the first content a third
+    run: each dated yaml and each given yaml names what its own run read, not the latest, even
+    when the run directory and the file name are the same for all three."""
+    w = study['param_id_output_dir']
+    obs = tmp_path / 'inputs' / 'obs.json'
+    archive = os.path.join(w, 'inputs', 'user_inputs')
+    os.makedirs(archive, exist_ok=True)
+    for day, (when, content) in enumerate([(datetime(2026, 11, 1, 9), 'first'),
+                                           (datetime(2026, 11, 2, 9), 'second'),
+                                           (datetime(2026, 11, 3, 9), 'first')]):
+        clock(when)
+        obs.write_text(content)
+        _rewrite_given_yaml(study, param_id_obs_path=str(obs), run=day)
+        name = f'user_inputs_26110{day + 1}.yaml'
+        monkeypatch.setattr(cuflynx_study, 'dated_user_inputs_name', lambda: name)
+        with open(os.path.join(archive, name), 'w') as handle:
+            yaml.safe_dump({'file_prefix': 'demo', 'param_id_obs_path': str(obs)}, handle)
+        cuflynx_study.update_study(study, 'runs', {'dir': os.path.join(w, 'run'), 'method': 'ga'})
+
+    root, _ = _export(study, tmp_path)
+
+    def read_obs(path):
+        folder = os.path.dirname(path)
+        relative = yaml.safe_load(open(path).read())['param_id_obs_path']
+        assert not os.path.isabs(relative)
+        return open(os.path.join(folder, relative)).read()
+
+    dated = os.path.join(root, 'inputs', 'user_inputs')
+    assert [read_obs(os.path.join(dated, f'user_inputs_26110{n}.yaml')) for n in (1, 2, 3)] == [
+        'first', 'second', 'first']
+    yamls = [v for v in cuflynx_study.read_index(root) if v['kind'] == 'user_inputs']
+    assert [read_obs(os.path.join(root, v['folder'], v['file'])) for v in yamls] == [
+        'first', 'second', 'first']
+
+
+def test_export_warns_about_each_rewritten_input(exported):
+    rewritten = [item for item in exported['left'] if item.get('input')]
+    assert rewritten and all(item['relative'].startswith('inputs') for item in rewritten)
+    resources = next(item for item in rewritten if item['original'].endswith('inputs'))
+    assert f"copy {resources['relative']} " in exported['out']
+
+
+def test_an_input_with_no_copy_keeps_its_path_and_is_warned_about(study, tmp_path, capsys):
+    """Left out, it would fall back on a default without a word, so it stays absolute and a run
+    elsewhere stops at it. A path only 1D coupling reads is not warned about without it."""
+    cost = str(tmp_path / 'elsewhere' / 'cost.py')
+    _rewrite_given_yaml(study, cost_funcs_external_path=cost, some_table='/data/table.csv',
+                        cpp_1d_model_config_path='/data/input1d.dat',
+                        solver_info={'build_dir': '/tmp/build'})
+    cuflynx_study.update_study(study)
+    capsys.readouterr()
+
+    root, left = _export(study, tmp_path)
+
+    data = yaml.safe_load(open(_given_yaml(root)).read())
+    assert data['cost_funcs_external_path'] == cost and data['some_table'] == '/data/table.csv'
+    out = capsys.readouterr().out
+    missing = {item['original'] for item in left if item.get('input') and not item['relative']}
+    assert missing == {cost, '/data/table.csv'}
+    assert any(f'input {cost} has no copy' in line for line in out.splitlines())
+
+
+def test_a_yaml_no_run_recorded_keeps_its_input_paths(study, tmp_path, capsys):
+    cuflynx_study.update_study(study)
+    archive = os.path.join(study['param_id_output_dir'], 'inputs', 'user_inputs')
+    os.makedirs(archive, exist_ok=True)
+    with open(os.path.join(archive, 'user_inputs_250101.yaml'), 'w') as handle:
+        yaml.safe_dump({'file_prefix': 'demo', 'resources_dir': '/old/resources',
+                        'model_path': '/old/demo.cellml'}, handle)
+    root, _ = _export(study, tmp_path)
+    data = yaml.safe_load(open(os.path.join(root, 'inputs', 'user_inputs',
+                                            'user_inputs_250101.yaml')).read())
+    assert data['resources_dir'] == '/old/resources'
+    assert data['generated_model_path'] == '/old/demo.cellml'
+    assert 'input /old/resources has no copy' in capsys.readouterr().out
+
+
+def test_the_zips_yaml_finds_the_system_and_its_module_dirs(study, tmp_path):
+    resources = tmp_path / 'resources'
+    (resources / 'sub').mkdir(parents=True)
+    (resources / 'demo_module_array.json').write_text('{}')
+    (resources / 'sub' / 'demo_parameters.json').write_text('{}')
+    library = tmp_path / 'library'
+    library.mkdir()
+    (library / 'demo_units.cellml').write_text('<model/>')
+    external = tmp_path / 'external'
+    external.mkdir()
+    (external / 'mine_modules_config.json').write_text('[]')
+    study.update({'vessels_csv_abs_path': str(resources / 'demo_module_array.json'),
+                  'parameters_csv_abs_path': str(resources / 'sub' / 'demo_parameters.json'),
+                  'module_library_dirs': [str(library)], 'external_modules_dir': str(external),
+                  'use_builtin_modules': True})
+    _rewrite_given_yaml(study, input_param_file='sub/demo_parameters.json',
+                        resources_dir=str(resources), module_library_dirs=[str(library)],
+                        external_modules_dir=str(external))
+    cuflynx_study.update_study(study)
+
+    root, _ = _export(study, tmp_path)
+
+    given = _given_yaml(root)
+    data = yaml.safe_load(open(given).read())
+    folder = os.path.dirname(given)
+    system = os.path.normpath(os.path.join(folder, data['resources_dir']))
+    assert os.path.dirname(system) == os.path.join(root, 'inputs', 'system')
+    assert os.path.isfile(os.path.join(system, 'demo_module_array.json'))
+    assert data['input_param_file'] == 'demo_parameters.json'
+    assert os.path.isfile(os.path.join(system, data['input_param_file']))
+    assert [os.path.normpath(os.path.join(folder, d)) for d in data['module_library_dirs']] == [
+        os.path.join(system, 'modules')]
+    assert os.path.normpath(os.path.join(folder, data['external_modules_dir'])) == os.path.join(
+        system, 'external_modules')
+
+
+@pytest.mark.parametrize('use_emulator', [True, False])
+def test_the_zips_yaml_uses_the_stored_emulator_only_with_use_emulator(study, tmp_path, monkeypatch,
+                                                                       use_emulator):
+    """With ``use_emulator`` the emulator is an input, so the yaml reads its copy, relative to
+    the yaml; without, ``emulator_dir`` is where a training run writes, so it takes the default
+    in the working dir."""
+    from libcuflynx.parsers import PrimitiveParsers
+    emulator = tmp_path / 'trained' / 'demo_emulator'
+    emulator.mkdir(parents=True)
+    (emulator / 'bundle.json').write_text('{}')
+    study.update({'use_emulator': use_emulator, 'emulator_dir': str(emulator)})
+    _rewrite_given_yaml(study, use_emulator=use_emulator,
+                        emulator_settings={'emulator_dir': str(emulator), 'min_r2': 0.9})
+    cuflynx_study.update_study(study)
+
+    root, _ = _export(study, tmp_path)
+
+    given = _given_yaml(root)
+    settings = yaml.safe_load(open(given).read())['emulator_settings']
+    assert settings['min_r2'] == 0.9
+    if not use_emulator:
+        assert 'emulator_dir' not in settings
+        return
+    assert not os.path.isabs(settings['emulator_dir'])
+    runner = tmp_path / 'user_run_files'
+    runner.mkdir()
+    (runner / 'user_inputs.yaml').write_text(yaml.safe_dump({'user_inputs_path_override': given}))
+    monkeypatch.setattr(PrimitiveParsers, 'user_inputs_dir', str(runner))
+    inp = PrimitiveParsers.YamlFileParser().parse_user_inputs_file(None)
+    resolved = os.path.normpath(inp['emulator_settings']['emulator_dir'])
+    assert resolved.startswith(os.path.join(root, 'inputs', 'emulator') + os.sep)
+    assert os.path.isfile(os.path.join(resolved, 'bundle.json'))
+
+
+@pytest.mark.parametrize('model_type, key', [('cellml', 'generated_model_path'),
+                                             ('external_python', 'external_model_path')])
+def test_the_zips_yaml_names_the_model_it_ran(study, tmp_path, model_type, key):
+    _rewrite_given_yaml(study, model_type=model_type)
+    cuflynx_study.update_study(study)
+    root, _ = _export(study, tmp_path)
+    given = _given_yaml(root)
+    data = yaml.safe_load(open(given).read())
+    assert os.path.isfile(os.path.join(os.path.dirname(given), data[key]))
+
+
+def test_generation_from_a_yaml_archives_its_obs_data_path_resolved(exported, tmp_path, monkeypatch):
+    """Generation does not read obs_data, but the dated archive it writes names it, and that
+    file sits in another folder from the yaml it was parsed from."""
+    from libcuflynx.parsers import PrimitiveParsers
+    root = exported['unzipped']
+    given = _given_yaml(root)
+    runner = tmp_path / 'user_run_files'
+    runner.mkdir()
+    (runner / 'user_inputs.yaml').write_text(yaml.safe_dump({'user_inputs_path_override': given}))
+    monkeypatch.setattr(PrimitiveParsers, 'user_inputs_dir', str(runner))
+    PrimitiveParsers.YamlFileParser().parse_user_inputs_file(None)
+    archive = os.path.join(root, 'inputs', 'user_inputs', cuflynx_study.dated_user_inputs_name())
+    obs = yaml.safe_load(open(archive).read())['param_id_obs_path']
+    assert os.path.isfile(obs) and os.path.isabs(obs)
+
+
+@pytest.mark.parametrize('fit_parameters', [False, True])
+def test_the_parser_runs_the_generated_model_path_it_is_given(tmp_path, fit_parameters):
+    """A model kept elsewhere is run in place of the generated one; generating with fitted
+    parameters still writes the generated one, from the model kept elsewhere."""
+    from libcuflynx.parsers.PrimitiveParsers import YamlFileParser
+    kept = str(tmp_path / 'kept' / 'demo.cellml')
+    obs = tmp_path / 'demo_obs.json'
+    obs.write_text('{}')
+    generated = tmp_path / 'generated'
+    inp = YamlFileParser().parse_user_inputs_file(
+        {'file_prefix': 'demo', 'input_param_file': 'demo_parameters.json',
+         'resources_dir': str(tmp_path), 'param_id_output_dir': str(tmp_path / 'out'),
+         'generated_models_dir': str(generated), 'param_id_obs_path': str(obs),
+         'cuflynx_study_copy_inputs': False, 'generated_model_path': kept},
+        do_generation_with_fit_parameters=fit_parameters)
+    assert inp['uncalibrated_model_path'] == kept
+    assert inp['model_path'] == (str(generated / 'demo_demo_obs' / 'demo.cellml')
+                                 if fit_parameters else kept)
+
+
 def test_export_warns_once_for_each_rewritten_path(exported):
     warnings = [line for line in exported['out'].splitlines() if 'WARNING' in line]
-    assert len(warnings) == 2    # the yaml, the dated yaml and the manifest name these two
+    outputs = [line for line in warnings if 'output directory' in line]
+    assert len(outputs) == 2    # the yaml, the dated yaml and the manifest name these two
     expected = {exported['models']: 'generated_models',
                 exported['sa_runs']: os.path.join('sensitivity', 'sa_runs')}
     for original, relative in expected.items():
-        line = next(w for w in warnings if original in w)
+        line = next(w for w in outputs if original in w)
         assert f'relative path {relative} ' in line and 'not in the zip' in line
-    assert exported['left'] == [{'original': o, 'relative': r} for o, r in sorted(expected.items())]
+    assert [item for item in exported['left'] if not item.get('input')] == [
+        {'original': o, 'relative': r} for o, r in sorted(expected.items())]
 
 
 def test_export_rewrites_nested_manifests_and_drops_a_written_file(study, tmp_path, capsys):
@@ -485,8 +732,9 @@ def test_export_rewrites_nested_manifests_and_drops_a_written_file(study, tmp_pa
         nested = json.loads(archive.read('step/demo_cuflynx_study.json'))
     assert top['workflow'] == {'result': 'result.json'}
     assert nested['sensitivity'] == []
-    assert left == [{'original': elsewhere, 'relative': os.path.join('sensitivity', 'sa_elsewhere')},
-                    {'original': target, 'relative': None}]
+    assert [item for item in left if not item.get('input')] == [
+        {'original': elsewhere, 'relative': os.path.join('sensitivity', 'sa_elsewhere')},
+        {'original': target, 'relative': None}]
     assert sum(target in line for line in capsys.readouterr().out.splitlines()) == 1
 
 

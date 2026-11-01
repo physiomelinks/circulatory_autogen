@@ -22,7 +22,8 @@ ignores it.
                "updated": ...}],
      "sensitivity": [{"dir": ..., "method": ..., "obs_data": ..., "updated": ...}],
      "emulator": ...,
-     "workflow": {...}}
+     "workflow": {...},
+     "yaml_inputs": {<archived yaml>: {"base_model": ..., "obs_data": ..., ...}}}
 
 The working dir holds every input of the study as well as its outputs, so a zip of it
 (:func:`export_working_dir`) is the whole study and it opens wherever it is unzipped::
@@ -67,9 +68,10 @@ opened elsewhere never writes into the recorded path.
 
 :func:`export_working_dir` is how a working dir is shared. ``<W>`` itself is not changed; in the
 zip, the archived user_inputs yamls name relative output directories (an outside one in the home
-the working dir has for that output, with a warning), and the manifests and ``inputs/index.json``
-hold no outside entry or absolute path. So a run of an unzipped yaml, through
-``user_inputs_path_override``, writes inside the recipient's working dir.
+the working dir has for that output, with a warning) and name each input by its stored copy, the
+version that yaml's run used (``yaml_inputs`` in the manifest), and the manifests and
+``inputs/index.json`` hold no outside entry or absolute path. So a run of an unzipped yaml, through
+``user_inputs_path_override``, reads and writes only inside the recipient's working dir.
 
 A generated model's ``system`` holds what generating it again needs: the module array and
 parameters file side by side (generation reads both from one ``resources_dir``), each module
@@ -115,7 +117,7 @@ import tempfile
 import threading
 import xml.etree.ElementTree as ET
 import zipfile
-from datetime import datetime
+from datetime import date, datetime
 
 import yaml
 
@@ -175,6 +177,9 @@ WORKFLOW_PATH_KEYS = ('file', 'source', 'result', 'manifest', 'run', 'module_arr
 #: The ones naming the workflow's inputs, copied in when they are outside the working dir.
 WORKFLOW_INPUT_KEYS = ('file', 'source', 'module_array', 'parameters', 'obs_data',
                        'params_for_id')
+
+#: The study-level keys ``yaml_inputs`` records for each archived yaml: the inputs its run read.
+YAML_INPUT_KEYS = ('base_model', 'obs_data', 'params_for_id', 'user_funcs', 'system', 'emulator')
 
 #: Sections holding one entry per output directory.
 ENTRY_SECTIONS = ('runs', 'sensitivity')
@@ -245,6 +250,11 @@ def sensitivity_dir(inp):
 def user_inputs_archive_dir(inp):
     """``<param_id_output_dir>/inputs/user_inputs``: where the dated user_inputs go."""
     return os.path.join(study_dir_for(inp), INPUTS_DIR, 'user_inputs')
+
+
+def dated_user_inputs_name():
+    """The name of today's archive of the resolved config: ``user_inputs_<yymmdd>.yaml``."""
+    return f"user_inputs_{date.today().strftime('%y%m%d')}.yaml"
 
 
 def _inside(path, base):
@@ -859,6 +869,22 @@ def _write_atomic(location, record):
         raise
 
 
+def _note_yaml_inputs(record, current, inp, paths):
+    """Record in ``yaml_inputs`` the stored inputs this run read, for the yaml it was given and
+    for today's archive of its resolved config, so an export can point each yaml at that run's
+    versions rather than the latest. An archive names the last run of its day, as its content
+    does. ``current`` holds the study-level keys of this run, as stored."""
+    used = {key: current[key] for key in YAML_INPUT_KEYS if key in current}
+    archive = os.path.join(user_inputs_archive_dir(inp), dated_user_inputs_name())
+    names = [current.get('user_inputs')]
+    if os.path.isfile(archive):
+        names.append(os.path.relpath(archive, paths.here))
+    noted = record.setdefault('yaml_inputs', {})
+    for name in names:
+        if name and not os.path.isabs(name):
+            noted[name] = {**noted.get(name, {}), **used}
+
+
 def update_study(inp, section=None, entry=None, emulator=None, workflow=None):
     """Record this config's study, and optionally one analysis output, in its manifest.
 
@@ -892,9 +918,10 @@ def update_study(inp, section=None, entry=None, emulator=None, workflow=None):
         record = _read_raw(location)
         record['schema'] = SCHEMA
 
+        current = {}
         for key, value in _study_level(inp, study_dir).items():
             if value is not None:
-                record[key] = _encode(paths, key, value)
+                current[key] = record[key] = _encode(paths, key, value)
         if emulator:
             record['emulator'] = paths.input(emulator, 'emulator')
         if workflow is not None:
@@ -921,6 +948,7 @@ def update_study(inp, section=None, entry=None, emulator=None, workflow=None):
                 _record_run(paths.root, paths.used, entry['dir'])
 
         if paths.copy:
+            _note_yaml_inputs(record, current, inp, paths)
             # every path is relative to the manifest's folder, wherever that ends up
             record.pop('study_dir', None)
         else:
@@ -1019,7 +1047,13 @@ def outside_outputs(study):
 #: Keys an archived user_inputs yaml loses in a zip: what the parser works out again, and what
 #: only points back at this machine.
 _EXPORT_DROPPED_KEYS = ('generated_models_subdir', 'param_id_output_dir_abs_path',
-                        'user_inputs_path', 'user_inputs_path_override', 'cuflynx_working_dir')
+                        'user_inputs_path', 'user_inputs_path_override', 'cuflynx_working_dir',
+                        'model_path', 'uncalibrated_model_path', 'params_for_id_path',
+                        'vessels_csv_abs_path', 'parameters_csv_abs_path',
+                        'vessels_0d_csv_abs_path', 'vessels_1d_csv_abs_path')
+
+#: Keys with an absolute path that is not an input: caches and pipes in the system temp folder.
+_EXPORT_MACHINE_KEYS = ('solver_info', 'coupler_pipe_dir')
 
 #: Output keys a yaml cannot give relative to itself (the parser leaves them to the cwd), so a
 #: zip's copy leaves them out, and the default in the working dir applies (``{}``: file_prefix).
@@ -1033,12 +1067,85 @@ def _is_absolute(value):
     return isinstance(value, str) and os.path.isabs(value)
 
 
-def _portable_user_inputs(data, folder, root, moved):
+def _absolute_values(value, found):
+    """Add to ``found`` every absolute path in ``value``, a parsed yaml, at any depth."""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key not in _EXPORT_MACHINE_KEYS:
+                _absolute_values(item, found)
+    elif isinstance(value, list):
+        for item in value:
+            _absolute_values(item, found)
+    elif _is_absolute(value):
+        found.add((value, None))
+
+
+def _portable_inputs(out, data, used, folder, inputs):
+    """Point ``out``, a yaml in ``folder`` of the working dir, at the stored inputs of its run.
+
+    ``used`` holds them relative to the working dir, None for one not in it. An input with no
+    copy keeps the path it had, so a run elsewhere stops at it rather than falling back on a
+    default. ``inputs`` gets ``(path as the yaml had it, its copy or None)``. The parser takes
+    ``resources_dir`` and ``param_id_obs_path`` relative to the yaml, as it does the funcs, the
+    model, the module dirs and ``emulator_dir``, and ``input_param_file`` and
+    ``params_for_id_file`` relative to ``resources_dir``.
+    """
+    def point(key, copy, holder=out, original=None):
+        given = holder.get(key)
+        names = [given] if isinstance(given, str) else list(given or [])
+        names = names or ([original] if original else [])
+        copies = copy if isinstance(copy, list) else [copy]
+        if None in copies:
+            inputs.update((name, None) for name in names)
+            if original and not given:
+                holder[key] = original
+            return
+        relative = [os.path.relpath(path, folder) for path in copies]
+        holder[key] = relative if isinstance(copy, list) else relative[0]
+        if names != relative:
+            names = names if len(names) == len(copies) else [key] * len(copies)
+            inputs.update(zip(names, copies))
+
+    system = used.get('system') or {}
+    params_for_id = used.get('params_for_id')
+    resources = next((os.path.dirname(path) for path in (
+        system.get('module_array'), system.get('parameters'), params_for_id) if path), None)
+    point('resources_dir', resources)
+    if resources and system.get('parameters'):
+        out['input_param_file'] = os.path.relpath(system['parameters'], resources)
+    if resources and params_for_id:
+        out['params_for_id_file'] = os.path.relpath(params_for_id, resources)
+    for key in ('module_library_dirs', 'external_modules_dir'):
+        if key in system or out.get(key):
+            point(key, system.get(key))
+    point('param_id_obs_path', used.get('obs_data'))
+    funcs = used.get('user_funcs') or {}
+    for kind, key in USER_FUNC_KEYS.items():
+        if kind in funcs or out.get(key):
+            point(key, funcs.get(kind))
+    model_key = ('external_model_path' if out.get('model_type') == 'external_python'
+                 else 'generated_model_path')
+    if 'base_model' in used or data.get('model_path'):
+        point(model_key, used.get('base_model'), original=data.get('model_path'))
+    if out.get('use_emulator'):
+        settings = dict(out.get('emulator_settings') or {})
+        if 'emulator' in used or settings.get('emulator_dir'):
+            point('emulator_dir', used.get('emulator'), holder=settings)
+        out['emulator_settings'] = settings
+
+    left = set()
+    _absolute_values({key: value for key, value in out.items() if out.get('couple_to_1d')
+                      or key != 'cpp_1d_model_config_path'}, left)
+    inputs.update(left)
+
+
+def _portable_user_inputs(data, folder, root, moved, used, inputs):
     """A parsed archived yaml, held in ``folder`` of the working dir ``root``, as a zip holds it.
 
     The parser takes ``param_id_output_dir`` and ``generated_models_dir`` relative to the yaml
     and ``sa_options`` ``output_dir`` relative to ``<W>/sensitivity``. ``moved`` gets
-    ``{outside directory: its path relative to the working dir}``.
+    ``{outside directory: its path relative to the working dir}``; ``used`` and ``inputs`` are
+    those of :func:`_portable_inputs`.
     """
     def place(original, default):
         original = os.path.normpath(original)
@@ -1062,7 +1169,8 @@ def _portable_user_inputs(data, folder, root, moved):
         out['sa_options'] = dict(sa_options, output_dir=os.path.relpath(relative, 'sensitivity'))
 
     settings = out.get('emulator_settings')
-    if isinstance(settings, dict) and _is_absolute(settings.get('emulator_dir')):
+    if (isinstance(settings, dict) and _is_absolute(settings.get('emulator_dir'))
+            and not out.get('use_emulator')):
         from libcuflynx.emulators.emulator_trainer import resolve_emulator_dir
         kept = {key: value for key, value in settings.items() if key != 'emulator_dir'}
         default = resolve_emulator_dir(dict(out, emulator_settings=kept, param_id_output_dir=root))
@@ -1072,17 +1180,18 @@ def _portable_user_inputs(data, folder, root, moved):
     for key, default in _EXPORT_DEFAULTED_OUTPUTS.items():
         if _is_absolute(out.get(key)):
             place(out.pop(key), default.format(out.get('file_prefix')))
+    _portable_inputs(out, data, used, folder, inputs)
     return out
 
 
-def _portable_yaml(path, relative, root, moved):
+def _portable_yaml(path, relative, root, moved, used, inputs):
     """The text of the archived yaml at ``path`` as a zip holds it, or None to copy it as it is."""
     try:
         with open(path, encoding='utf-8') as handle:
             data = yaml.load(handle, Loader=yaml.FullLoader)
         if not isinstance(data, dict):
             return None
-        out = _portable_user_inputs(data, os.path.dirname(relative), root, moved)
+        out = _portable_user_inputs(data, os.path.dirname(relative), root, moved, used, inputs)
         return yaml.safe_dump(out, default_flow_style=False, sort_keys=False)
     except (yaml.YAMLError, UnicodeDecodeError) as error:
         print(f'[cuflynx_study] WARNING: could not read {path} ({error}), so it goes in the zip '
@@ -1125,6 +1234,25 @@ def _portable_manifest(raw, location, moved, found):
                     'sensitivity' if section == 'sensitivity' else '',
                     os.path.basename(directory)))
     return _drop_absolute(out, found)
+
+
+def _held_inputs(raw, location, root):
+    """A manifest's ``yaml_inputs``, its yamls and inputs relative to the working dir ``root``,
+    an input that is not there being None."""
+    here = os.path.dirname(location)
+
+    def held(value):
+        if isinstance(value, dict):
+            return {key: held(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [held(item) for item in value]
+        if not isinstance(value, str):
+            return value
+        full = os.path.normpath(os.path.join(here, value))
+        return os.path.relpath(full, root) if _inside(full, root) and os.path.exists(full) else None
+
+    return {os.path.relpath(os.path.normpath(os.path.join(here, name)), root): held(used)
+            for name, used in (raw.get('yaml_inputs') or {}).items()}
 
 
 def _portable_index(raw, changed):
@@ -1175,24 +1303,28 @@ def export_working_dir(working_dir, zip_path):
 
     The zip's paths are relative to the working dir, in sorted order, without hidden files; an
     empty folder (a run's output directory that nothing has been written to) stays. Only
-    in the zip, so that nothing run from it writes outside the recipient's working dir:
+    in the zip, so that a run from it reads and writes only in the recipient's working dir:
 
     - every archived user_inputs yaml (``inputs/user_inputs/``) names its output directories
       relative to where it is unzipped. ``param_id_output_dir`` is the unzipped working dir. An
       outside ``sa_options`` ``output_dir`` becomes ``sensitivity/<its name>``,
       ``generated_models_dir`` ``generated_models`` and ``emulator_dir`` the default under
-      ``emulators/``, and a yaml the parser cannot read is kept as it is, with a warning.
-      The other inputs it names stay as they are;
+      ``emulators/``, and a yaml the parser cannot read is kept as it is, with a warning;
+    - every such yaml names its inputs by their stored copies, the versions its own run used
+      (``yaml_inputs`` in the manifest). The model goes in ``generated_model_path``, or
+      ``external_model_path`` for ``external_python``. An input with no copy keeps its absolute
+      path, with a warning, so a run elsewhere stops at it;
     - every manifest drops its ``"outside"`` entries and any absolute path;
     - ``inputs/index.json`` drops absolute ``runs`` and has the hashes of the rewritten files.
 
     Each outside directory gets one warning (rank 0) naming it and its relative path, and saying
-    the results there are not in the zip.
+    the results there are not in the zip, and each rewritten input one naming its copy.
 
     Returns:
         ``[{'original', 'relative'}]``, one per path left behind, ``relative`` (to the working
-        dir) being None for one with no output home, such as a ``--write-calibrated`` file; []
-        on ranks other than 0, which write nothing.
+        dir) being None for one with no output home, such as a ``--write-calibrated`` file, then
+        one per input rewritten or left absolute, ``{'original', 'relative', 'input': True}``,
+        ``relative`` being its copy or None; [] on ranks other than 0, which write nothing.
 
     Raises:
         FileNotFoundError: ``working_dir`` holds no manifest.
@@ -1213,17 +1345,24 @@ def export_working_dir(working_dir, zip_path):
     if not manifests:
         raise FileNotFoundError(f'{root} holds no *{MANIFEST_SUFFIX}')
 
-    changed, moved, found = {}, {}, set()
+    records = {}
+    for relative in manifests:
+        with open(os.path.join(root, relative), encoding='utf-8') as handle:
+            records[relative] = json.load(handle)
+    used = {}
+    for relative in sorted(manifests, key=lambda name: str(records[name].get('updated'))):
+        used.update(_held_inputs(records[relative], os.path.join(root, relative), root))
+
+    changed, moved, found, inputs = {}, {}, set(), set()
     archive = os.path.join(INPUTS_DIR, 'user_inputs') + os.sep
     for relative in files:
         if relative.startswith(archive) and relative.endswith(('.yaml', '.yml')):
-            text = _portable_yaml(os.path.join(root, relative), relative, root, moved)
+            text = _portable_yaml(os.path.join(root, relative), relative, root, moved,
+                                  used.get(relative, {}), inputs)
             if text is not None:
                 changed[relative] = text.encode('utf-8')
     for relative in manifests:
-        location = os.path.join(root, relative)
-        with open(location, encoding='utf-8') as handle:
-            record = _portable_manifest(json.load(handle), location, moved, found)
+        record = _portable_manifest(records[relative], os.path.join(root, relative), moved, found)
         changed[relative] = (json.dumps(record, indent=2) + '\n').encode('utf-8')
     index = os.path.relpath(_index_path(root), root)
     if index in files:
@@ -1244,4 +1383,14 @@ def export_working_dir(working_dir, zip_path):
               f'manifests in {zip_path} leave it out and it is not in the zip. Your own files '
               f'are unchanged.')
         left_behind.append({'original': path, 'relative': None})
+    for path, copy in sorted(inputs, key=lambda item: (item[0], item[1] or '')):
+        if copy is None:
+            print(f'[cuflynx_study] WARNING: the input {path} has no copy in the working dir '
+                  f'{root}, so the yamls in {zip_path} that name it keep that path, and a run of '
+                  f'them on another machine stops there. Your own files are unchanged.')
+        else:
+            print(f'[cuflynx_study] WARNING: the yamls in {zip_path} name the input {path} by its '
+                  f'copy {copy} (relative to the working dir) instead. Your own files are '
+                  f'unchanged.')
+        left_behind.append({'original': path, 'relative': copy, 'input': True})
     return left_behind

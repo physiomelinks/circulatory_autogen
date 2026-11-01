@@ -34,10 +34,20 @@ anywhere in CUFLynx (see "The study working dir" in the parameter-identification
 - `cuflynx_study.export_working_dir(working_dir, zip_path)` writes a zip to share a working dir
   and leaves the working dir as it is. In the zip only, the archived user_inputs yamls name
   relative output directories (an outside `sa_options` `output_dir` becomes
-  `sensitivity/<its name>`), and the manifests and `inputs/index.json` hold no `"outside"` entry
-  or absolute path, so nothing run from the zip writes outside the recipient's working dir. Each
-  outside path gets a warning naming its new relative path and saying its results are not in the
-  zip, and the function returns them.
+  `sensitivity/<its name>`) and name each input by its copy under `inputs/`, the version that
+  yaml's run used, and the manifests and `inputs/index.json` hold no `"outside"` entry or
+  absolute path. So a zip's yaml, run through `user_inputs_path_override`, runs on any machine
+  with no edits and reads and writes only in the unzipped folder. Each outside path gets a
+  warning naming its new relative path and saying its results are not in the zip, each rewritten
+  input a warning naming its copy, and the function returns them. An input with no copy keeps its
+  absolute path, with a warning.
+- New user_inputs key `generated_model_path`: a generated model to run from elsewhere, in place of
+  `<generated_models_dir>/<file_prefix>/<file_prefix>.<ext>`, taken relative to the yaml as
+  `external_model_path` is.
+- A relative `emulator_settings` `emulator_dir` in a yaml named by `user_inputs_path_override` is
+  taken from that yaml's folder, not the current directory.
+- The study manifest's `yaml_inputs` records, for each archived yaml, the stored inputs its run
+  read.
 - The dated `user_inputs_<yymmdd>.yaml` goes in `<param_id_output_dir>/inputs/user_inputs/`, not
   `resources_dir`.
 - The default `sa_options` `output_dir` is `<param_id_output_dir>/sensitivity`, not
