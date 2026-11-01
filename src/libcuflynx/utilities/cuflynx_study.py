@@ -24,8 +24,8 @@ ignores it.
      "emulator": ...,
      "workflow": {...}}
 
-The working dir holds every input of the study as well as its outputs, so ``zip -r <W>`` is
-the whole study and it opens wherever it is unzipped::
+The working dir holds every input of the study as well as its outputs, so a zip of it
+(:func:`export_working_dir`) is the whole study and it opens wherever it is unzipped::
 
     <W>/
       <study>_cuflynx_study.json
@@ -60,10 +60,16 @@ An output directory outside the working dir (an ``sa_options`` ``output_dir`` se
 is allowed, but it does not travel with the working dir: a zip of ``<W>`` does not hold it. Its
 ``runs`` or ``sensitivity`` entry keeps the absolute path and has ``"outside": true``, the run
 prints a warning naming it (rank 0, once per directory per process), and
-:func:`outside_outputs` lists such entries, for an app exporting the working dir to report.
-Nothing re-runs a study from its manifest: :func:`read_study` resolves output directories only
-to read their results, and :func:`generation_inputs` returns no output directory, so a study
+:func:`outside_outputs` lists such entries, also for a zip made by hand, which holds them as they
+are. Nothing re-runs a study from its manifest: :func:`read_study` resolves output directories
+only to read their results, and :func:`generation_inputs` returns no output directory, so a study
 opened elsewhere never writes into the recorded path.
+
+:func:`export_working_dir` is how a working dir is shared. ``<W>`` itself is not changed; in the
+zip, the archived user_inputs yamls name relative output directories (an outside one in the home
+the working dir has for that output, with a warning), and the manifests and ``inputs/index.json``
+hold no outside entry or absolute path. So a run of an unzipped yaml, through
+``user_inputs_path_override``, writes inside the recipient's working dir.
 
 A generated model's ``system`` holds what generating it again needs: the module array and
 parameters file side by side (generation reads both from one ``resources_dir``), each module
@@ -108,7 +114,10 @@ import shutil
 import tempfile
 import threading
 import xml.etree.ElementTree as ET
+import zipfile
 from datetime import datetime
+
+import yaml
 
 __all__ = [
     'SCHEMA',
@@ -129,6 +138,7 @@ __all__ = [
     'read_study',
     'generation_inputs',
     'outside_outputs',
+    'export_working_dir',
 ]
 
 #: The CUFLynx ``study_manifest`` schema this writes. Keys added since are additive.
@@ -392,13 +402,18 @@ def bring_in(root, kind, path):
     return copy
 
 
+def _content_hash(files):
+    """A version's ``hash``, from its ``files`` (``{relative path: sha256}``)."""
+    return hashlib.sha256(json.dumps(sorted(files.items())).encode()).hexdigest()
+
+
 def _place(root, kind, sources, main=None):
     """The folder holding ``sources`` (``{relative path: source file}``) in ``<root>/inputs/``:
     the version of ``kind`` the index lists with the same content, or else a new folder
     ``inputs/<kind>/<yyyy-mm-dd_HHMMSS>/`` (``_2``, ``_3``... when that second is taken) they
     are copied into and the index lists. ``main`` is the file the version is of."""
     files = {relative: _sha256(source) for relative, source in sources.items()}
-    digest = hashlib.sha256(json.dumps(sorted(files.items())).encode()).hexdigest()
+    digest = _content_hash(files)
     versions = read_index(root)
     for version in versions:
         if (version.get('kind') == kind and version.get('hash') == digest
@@ -997,3 +1012,236 @@ def outside_outputs(study):
     return [{'section': section, 'dir': entry['dir'], 'method': entry.get('method')}
             for section in ENTRY_SECTIONS for entry in study.get(section) or []
             if isinstance(entry, dict) and entry.get('outside') and entry.get('dir')]
+
+
+# -- sharing a working dir --------------------------------------------------------------------
+
+#: Keys an archived user_inputs yaml loses in a zip: what the parser works out again, and what
+#: only points back at this machine.
+_EXPORT_DROPPED_KEYS = ('generated_models_subdir', 'param_id_output_dir_abs_path',
+                        'user_inputs_path', 'user_inputs_path_override', 'cuflynx_working_dir')
+
+#: Output keys a yaml cannot give relative to itself (the parser leaves them to the cwd), so a
+#: zip's copy leaves them out, and the default in the working dir applies (``{}``: file_prefix).
+_EXPORT_DEFAULTED_OUTPUTS = {
+    'cpp_generated_models_dir': os.path.join('generated_models', '{}_cpp'),
+    'cpp_output_dir': os.path.join('generated_models', '{}_cpp', 'simulation_outputs_cpp'),
+}
+
+
+def _is_absolute(value):
+    return isinstance(value, str) and os.path.isabs(value)
+
+
+def _portable_user_inputs(data, folder, root, moved):
+    """A parsed archived yaml, held in ``folder`` of the working dir ``root``, as a zip holds it.
+
+    The parser takes ``param_id_output_dir`` and ``generated_models_dir`` relative to the yaml
+    and ``sa_options`` ``output_dir`` relative to ``<W>/sensitivity``. ``moved`` gets
+    ``{outside directory: its path relative to the working dir}``.
+    """
+    def place(original, default):
+        original = os.path.normpath(original)
+        if _inside(original, root):
+            return os.path.relpath(original, root)
+        return moved.setdefault(original, default)
+
+    up = os.path.relpath(root, os.path.join(root, folder))
+    out = {key: value for key, value in data.items() if key not in _EXPORT_DROPPED_KEYS}
+    out['param_id_output_dir'] = up
+
+    generated = out.get('generated_models_dir')
+    if not generated or _is_absolute(generated):
+        relative = place(generated, 'generated_models') if generated else 'generated_models'
+        out['generated_models_dir'] = os.path.join(up, relative)
+
+    sa_options = out.get('sa_options')
+    if isinstance(sa_options, dict) and _is_absolute(sa_options.get('output_dir')):
+        original = os.path.normpath(sa_options['output_dir'])
+        relative = place(original, os.path.join('sensitivity', os.path.basename(original)))
+        out['sa_options'] = dict(sa_options, output_dir=os.path.relpath(relative, 'sensitivity'))
+
+    settings = out.get('emulator_settings')
+    if isinstance(settings, dict) and _is_absolute(settings.get('emulator_dir')):
+        from libcuflynx.emulators.emulator_trainer import resolve_emulator_dir
+        kept = {key: value for key, value in settings.items() if key != 'emulator_dir'}
+        default = resolve_emulator_dir(dict(out, emulator_settings=kept, param_id_output_dir=root))
+        place(settings['emulator_dir'], os.path.relpath(default, root))
+        out['emulator_settings'] = kept
+
+    for key, default in _EXPORT_DEFAULTED_OUTPUTS.items():
+        if _is_absolute(out.get(key)):
+            place(out.pop(key), default.format(out.get('file_prefix')))
+    return out
+
+
+def _portable_yaml(path, relative, root, moved):
+    """The text of the archived yaml at ``path`` as a zip holds it, or None to copy it as it is."""
+    try:
+        with open(path, encoding='utf-8') as handle:
+            data = yaml.load(handle, Loader=yaml.FullLoader)
+        if not isinstance(data, dict):
+            return None
+        out = _portable_user_inputs(data, os.path.dirname(relative), root, moved)
+        return yaml.safe_dump(out, default_flow_style=False, sort_keys=False)
+    except (yaml.YAMLError, UnicodeDecodeError) as error:
+        print(f'[cuflynx_study] WARNING: could not read {path} ({error}), so it goes in the zip '
+              f'as it is and may name folders outside the working dir')
+        return None
+
+
+def _drop_absolute(value, found):
+    """``value`` without the absolute paths in it, at any depth, which are added to ``found``."""
+    def absolute(item):
+        if _is_absolute(item):
+            found.add(item)
+            return True
+        return False
+
+    if isinstance(value, dict):
+        return {k: _drop_absolute(v, found) for k, v in value.items() if not absolute(v)}
+    if isinstance(value, list):
+        return [_drop_absolute(v, found) for v in value if not absolute(v)]
+    return value
+
+
+def _portable_manifest(raw, location, moved, found):
+    """A manifest as a zip holds it: no outside entry and no absolute path."""
+    if raw.get('study_dir'):
+        raise ValueError(f'{location} records its study_dir, so its inputs are not in the working '
+                         f'dir (cuflynx_study_copy_inputs: false) and a zip would not hold them')
+    out = dict(raw)
+    for section in ENTRY_SECTIONS:
+        if section not in raw:
+            continue
+        out[section] = []
+        for entry in raw[section]:
+            directory = entry.get('dir') if isinstance(entry, dict) else None
+            if not (isinstance(entry, dict) and (entry.get('outside') or _is_absolute(directory))):
+                out[section].append(entry)
+            elif directory:
+                directory = os.path.normpath(directory)
+                moved.setdefault(directory, os.path.join(
+                    'sensitivity' if section == 'sensitivity' else '',
+                    os.path.basename(directory)))
+    return _drop_absolute(out, found)
+
+
+def _portable_index(raw, changed):
+    """``inputs/index.json`` as a zip holds it: no absolute run, and the hash of each file
+    ``changed`` (``{path relative to the working dir: bytes}``) as the zip holds it."""
+    for version in raw.get('versions') or []:
+        if not isinstance(version, dict):
+            continue
+        version['runs'] = [run for run in version.get('runs') or [] if not _is_absolute(run)]
+        files = version.get('files') or {}
+        stored = {relative: os.path.join(version.get('folder') or '', relative)
+                  for relative in files}
+        rewritten = {r: p for r, p in stored.items() if p in changed}
+        for relative, path in rewritten.items():
+            files[relative] = hashlib.sha256(changed[path]).hexdigest()
+        if rewritten:
+            version['hash'] = _content_hash(files)
+    return raw
+
+
+def _write_zip(zip_path, root, files, changed):
+    """Write ``files`` (relative to ``root``) to ``zip_path`` atomically, in their order, with
+    the content in ``changed`` in place of the file's own."""
+    directory = os.path.dirname(zip_path)
+    os.makedirs(directory, exist_ok=True)
+    handle, tmp = tempfile.mkstemp(prefix='.cuflynx_study_', suffix='.zip', dir=directory)
+    os.close(handle)
+    try:
+        with zipfile.ZipFile(tmp, 'w', zipfile.ZIP_DEFLATED, strict_timestamps=False) as archive:
+            for relative in files:
+                path, name = os.path.join(root, relative), relative.replace(os.sep, '/')
+                if relative in changed:
+                    info = zipfile.ZipInfo.from_file(path, name, strict_timestamps=False)
+                    info.compress_type = zipfile.ZIP_DEFLATED
+                    archive.writestr(info, changed[relative])
+                else:
+                    archive.write(path, name)
+        os.chmod(tmp, 0o666 & ~_umask())
+        os.replace(tmp, zip_path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
+
+
+def export_working_dir(working_dir, zip_path):
+    """Write a zip of ``working_dir`` to ``zip_path`` to share it; ``working_dir`` is not changed.
+
+    The zip's paths are relative to the working dir, in sorted order, without hidden files; an
+    empty folder (a run's output directory that nothing has been written to) stays. Only
+    in the zip, so that nothing run from it writes outside the recipient's working dir:
+
+    - every archived user_inputs yaml (``inputs/user_inputs/``) names its output directories
+      relative to where it is unzipped. ``param_id_output_dir`` is the unzipped working dir. An
+      outside ``sa_options`` ``output_dir`` becomes ``sensitivity/<its name>``,
+      ``generated_models_dir`` ``generated_models`` and ``emulator_dir`` the default under
+      ``emulators/``, and a yaml the parser cannot read is kept as it is, with a warning.
+      The other inputs it names stay as they are;
+    - every manifest drops its ``"outside"`` entries and any absolute path;
+    - ``inputs/index.json`` drops absolute ``runs`` and has the hashes of the rewritten files.
+
+    Each outside directory gets one warning (rank 0) naming it and its relative path, and saying
+    the results there are not in the zip.
+
+    Returns:
+        ``[{'original', 'relative'}]``, one per path left behind, ``relative`` (to the working
+        dir) being None for one with no output home, such as a ``--write-calibrated`` file; []
+        on ranks other than 0, which write nothing.
+
+    Raises:
+        FileNotFoundError: ``working_dir`` holds no manifest.
+        ValueError: a manifest records ``study_dir`` (``cuflynx_study_copy_inputs: false``).
+    """
+    if _rank() != 0:
+        return []
+    root = os.path.abspath(working_dir)
+    zip_path = os.path.abspath(zip_path)
+    files = []
+    for folder, dirs, names in os.walk(root):
+        dirs[:] = [d for d in dirs if not d.startswith('.')]
+        held = [os.path.join(folder, name) for name in names
+                if not name.startswith('.') and os.path.join(folder, name) != zip_path]
+        files += [os.path.relpath(path, root) for path in held or ([folder] * (not dirs))]
+    files.sort()
+    manifests = [f for f in files if f.endswith(MANIFEST_SUFFIX)]
+    if not manifests:
+        raise FileNotFoundError(f'{root} holds no *{MANIFEST_SUFFIX}')
+
+    changed, moved, found = {}, {}, set()
+    archive = os.path.join(INPUTS_DIR, 'user_inputs') + os.sep
+    for relative in files:
+        if relative.startswith(archive) and relative.endswith(('.yaml', '.yml')):
+            text = _portable_yaml(os.path.join(root, relative), relative, root, moved)
+            if text is not None:
+                changed[relative] = text.encode('utf-8')
+    for relative in manifests:
+        location = os.path.join(root, relative)
+        with open(location, encoding='utf-8') as handle:
+            record = _portable_manifest(json.load(handle), location, moved, found)
+        changed[relative] = (json.dumps(record, indent=2) + '\n').encode('utf-8')
+    index = os.path.relpath(_index_path(root), root)
+    if index in files:
+        with open(_index_path(root), encoding='utf-8') as handle:
+            record = _portable_index(json.load(handle), changed)
+        changed[index] = (json.dumps(record, indent=2) + '\n').encode('utf-8')
+    _write_zip(zip_path, root, files, changed)
+
+    left_behind = [{'original': original, 'relative': relative}
+                   for original, relative in sorted(moved.items())]
+    for item in left_behind:
+        print(f'[cuflynx_study] WARNING: the output directory {item["original"]} is outside the '
+              f'working dir {root}, so {zip_path} names it by the relative path '
+              f'{item["relative"]} (relative to the working dir) instead, and the results there '
+              f'are not in the zip. Your own files are unchanged.')
+    for path in sorted(found - set(moved)):
+        print(f'[cuflynx_study] WARNING: {path} is outside the working dir {root}, so the '
+              f'manifests in {zip_path} leave it out and it is not in the zip. Your own files '
+              f'are unchanged.')
+        left_behind.append({'original': path, 'relative': None})
+    return left_behind

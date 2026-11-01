@@ -1151,12 +1151,33 @@ An output written outside the working dir, such as an `sa_options` `output_dir` 
 absolute path elsewhere, is allowed but does not travel with the working dir: a zip of the
 working dir does not hold it. The run prints a warning naming the directory, and its entry in
 the manifest keeps the absolute path with `"outside": true`.
-`cuflynx_study.outside_outputs(read_study('<W>'))` lists those entries, so a tool exporting the
-working dir can say what it leaves behind. Opening the study elsewhere never writes into that
-path: nothing re-runs a study from its manifest (`read_study` resolves output directories only to
-read their results, and `generation_inputs` names none). A run of the archived user_inputs yaml
-is an ordinary run of that config, so it writes to the absolute `output_dir` it names and warns
-again; make the `output_dir` relative to keep it in the working dir.
+`cuflynx_study.outside_outputs(read_study('<W>'))` lists those entries. Opening the study
+elsewhere never writes into that path: nothing re-runs a study from its manifest (`read_study`
+resolves output directories only to read their results, and `generation_inputs` names none).
+
+To share a working dir, export it:
+
+```python
+from libcuflynx.utilities.cuflynx_study import export_working_dir
+
+left_behind = export_working_dir('<W>', 'my_study.zip')
+```
+
+Your working dir is not changed; these changes are only in the zip, so that nothing run from it
+writes outside the recipient's working dir:
+
+- Each archived user_inputs yaml names its output directories relative to where it is unzipped:
+  `param_id_output_dir` is the unzipped working dir, and an outside `sa_options` `output_dir`
+  such as `/scratch/sa_runs` becomes `sensitivity/sa_runs` in the working dir (`output_dir: sa_runs`
+  in the yaml). An outside `generated_models_dir` becomes `generated_models`, and an outside
+  `emulator_dir` the default under `emulators/`.
+- The manifests and `inputs/index.json` drop the outside entries and every absolute path.
+
+Each outside path gets a warning naming it and its new relative path, and the results there are
+not in the zip; `left_behind` lists the same paths. To run an unzipped yaml, point
+`user_inputs_path_override` at it: that is what makes its relative paths resolve from its own
+folder. Only output directories are rewritten, so input paths the yaml names (`resources_dir`,
+`param_id_obs_path`) stay as they were; their copies are under `inputs/`.
 
 A generated model's `inputs/system/` holds everything generating it again needs, so the model
 can be regenerated from the working dir alone. Built-in modules are not copied: they come with

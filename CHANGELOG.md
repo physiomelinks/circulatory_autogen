@@ -31,6 +31,13 @@ anywhere in CUFLynx (see "The study working dir" in the parameter-identification
   reused) and returns its path relative to the working dir; `latest_input(working_dir, kind,
   name=None)` gives the version stored last. An app saving edited inputs (CUFLynx) writes the
   same layout through them, so an edit never rewrites an earlier version.
+- `cuflynx_study.export_working_dir(working_dir, zip_path)` writes a zip to share a working dir
+  and leaves the working dir as it is. In the zip only, the archived user_inputs yamls name
+  relative output directories (an outside `sa_options` `output_dir` becomes
+  `sensitivity/<its name>`), and the manifests and `inputs/index.json` hold no `"outside"` entry
+  or absolute path, so nothing run from the zip writes outside the recipient's working dir. Each
+  outside path gets a warning naming its new relative path and saying its results are not in the
+  zip, and the function returns them.
 - The dated `user_inputs_<yymmdd>.yaml` goes in `<param_id_output_dir>/inputs/user_inputs/`, not
   `resources_dir`.
 - The default `sa_options` `output_dir` is `<param_id_output_dir>/sensitivity`, not

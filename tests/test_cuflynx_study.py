@@ -8,9 +8,11 @@ that a broken write never fails the run it describes.
 import json
 import os
 import re
+import zipfile
 from datetime import datetime
 
 import pytest
+import yaml
 
 from libcuflynx.utilities import cuflynx_study
 
@@ -315,6 +317,208 @@ def _assert_resolves_inside(read, root):
     for path in paths:
         assert os.path.commonpath([path, root]) == root, path
         assert os.path.exists(path), path
+
+
+# -- export_working_dir ---------------------------------------------------------------------
+
+def _snapshot(directory):
+    return {path: open(os.path.join(directory, path), 'rb').read()
+            for path in _all_files(directory)}
+
+
+@pytest.fixture
+def exported(study, tmp_path, capsys):
+    """A working dir whose user_inputs yaml sends Sobol output and generated models outside it,
+    with a dated resolved yaml, exported: ``{w, before, zip, unzipped, left, out}``."""
+    w = study['param_id_output_dir']
+    sa_runs, models = str(tmp_path / 'scratch' / 'sa_runs'), str(tmp_path / 'scratch' / 'models')
+    with open(study['user_inputs_path'], 'w') as handle:
+        handle.write(f"""# my study
+file_prefix: demo
+input_param_file: demo_parameters.json
+resources_dir: {tmp_path / 'inputs'}
+param_id_output_dir: {w}
+generated_models_dir: {models}
+sa_options:
+  method: sobol
+  output_dir: {sa_runs}
+""")
+    cuflynx_study.update_study(study, 'sensitivity', {'dir': sa_runs, 'method': 'sobol'})
+    inside = os.path.join(w, 'sensitivity')
+    os.makedirs(inside)
+    cuflynx_study.update_study(study, 'sensitivity', {'dir': inside, 'method': 'local'})
+    (tmp_path / 'out' / 'inputs' / 'user_inputs' / 'user_inputs_261102.yaml').write_text(
+        yaml.safe_dump({'file_prefix': 'demo', 'param_id_output_dir': w,
+                        'generated_models_dir': models,
+                        'generated_models_subdir': os.path.join(models, 'demo'),
+                        'user_inputs_path': study['user_inputs_path'],
+                        'sa_options': {'output_dir': inside}}))
+    capsys.readouterr()
+
+    before = _snapshot(w)
+    target = str(tmp_path / 'shared' / 'study.zip')
+    left = cuflynx_study.export_working_dir(w, target)
+    unzipped = tmp_path / 'unzipped'
+    with zipfile.ZipFile(target) as archive:
+        archive.extractall(unzipped)
+    return {'w': w, 'before': before, 'zip': target, 'unzipped': str(unzipped), 'left': left,
+            'out': capsys.readouterr().out, 'sa_runs': sa_runs, 'models': models}
+
+
+def _given_yaml(root):
+    versions = [v for v in cuflynx_study.read_index(root) if v['kind'] == 'user_inputs']
+    assert len(versions) == 1
+    return os.path.join(root, versions[0]['folder'], versions[0]['file'])
+
+
+def test_export_leaves_the_working_dir_as_it_is(exported):
+    """The rewrite is in the zip only: the yaml, manifest and index keep the outside path, so
+    the user's own runs and a zip made by hand are as they were."""
+    w = exported['w']
+    assert _snapshot(w) == exported['before']
+    entries = {e['method']: e for e in _raw(cuflynx_study.manifest_path(
+        {'param_id_output_dir': w, 'file_prefix': 'demo'}))['sensitivity']}
+    assert entries['sobol']['dir'] == exported['sa_runs'] and entries['sobol']['outside'] is True
+    assert exported['sa_runs'] in open(_given_yaml(w)).read()
+    assert [o['dir'] for o in cuflynx_study.outside_outputs(w)] == [exported['sa_runs']]
+
+
+def test_the_zip_holds_the_working_dir_in_sorted_relative_paths(exported):
+    with zipfile.ZipFile(exported['zip']) as archive:
+        names = archive.namelist()
+    assert names == sorted(names) and not any(n.startswith('/') or '..' in n for n in names)
+    assert 'demo_cuflynx_study.json' in names and 'inputs/index.json' in names
+    assert set(_all_files(exported['unzipped'])) == set(exported['before'])
+
+
+def test_the_zips_yamls_name_relative_output_dirs(exported):
+    root = exported['unzipped']
+    given = _given_yaml(root)
+    data = yaml.safe_load(open(given).read())
+    assert data['sa_options'] == {'method': 'sobol', 'output_dir': 'sa_runs'}
+    assert data['param_id_output_dir'] == os.path.join('..', '..', '..')
+    assert data['generated_models_dir'] == os.path.join('..', '..', '..', 'generated_models')
+    assert data['input_param_file'] == 'demo_parameters.json'    # the rest is untouched
+
+    dated = yaml.safe_load(
+        open(os.path.join(root, 'inputs', 'user_inputs', 'user_inputs_261102.yaml')).read())
+    assert dated['param_id_output_dir'] == os.path.join('..', '..')
+    assert dated['generated_models_dir'] == os.path.join('..', '..', 'generated_models')
+    assert dated['sa_options']['output_dir'] == '.'    # already in sensitivity/, so no warning
+    assert 'generated_models_subdir' not in dated and 'user_inputs_path' not in dated
+
+
+def test_the_zips_manifest_and_index_hold_no_outside_entry_or_absolute_path(exported):
+    root = exported['unzipped']
+    manifest = os.path.join(root, 'demo_cuflynx_study.json')
+    text = open(manifest).read()
+    assert '"/' not in text and 'outside' not in text and exported['sa_runs'] not in text
+    assert [e['method'] for e in _raw(manifest)['sensitivity']] == ['local']
+
+    index = open(os.path.join(root, 'inputs', 'index.json')).read()
+    assert exported['sa_runs'] not in index
+    # the hashes are of the files the zip holds, so a same content is still found in it
+    version = next(v for v in cuflynx_study.read_index(root) if v['kind'] == 'user_inputs')
+    assert version['files'] == {version['file']: cuflynx_study._sha256(_given_yaml(root))}
+    assert version['hash'] == cuflynx_study._content_hash(version['files'])
+
+
+def test_read_study_works_on_the_unzipped_archive(exported):
+    read = cuflynx_study.read_study(exported['unzipped'])
+    _assert_resolves_inside(read, exported['unzipped'])
+    assert cuflynx_study.outside_outputs(read) == []
+
+
+def test_a_run_of_the_unzipped_yaml_writes_inside_the_unzipped_working_dir(exported, tmp_path,
+                                                                           monkeypatch):
+    """Through the route a yaml is run by, ``user_inputs_path_override``, every output goes in
+    the recipient's working dir, and the run's own manifest entry is not outside it."""
+    from libcuflynx.parsers import PrimitiveParsers
+    root = exported['unzipped']
+    runner = tmp_path / 'user_run_files'
+    runner.mkdir()
+    (runner / 'user_inputs.yaml').write_text(
+        yaml.safe_dump({'user_inputs_path_override': _given_yaml(root)}))
+    monkeypatch.setattr(PrimitiveParsers, 'user_inputs_dir', str(runner))
+    (tmp_path / 'inputs' / 'demo_parameters.json').write_text('{}')
+
+    inp = PrimitiveParsers.YamlFileParser().parse_user_inputs_file(None)
+
+    output_dir = os.path.abspath(inp['sa_options']['output_dir'])
+    assert output_dir == os.path.join(root, 'sensitivity', 'sa_runs')
+    assert os.path.abspath(inp['generated_models_subdir']).startswith(root + os.sep)
+    assert cuflynx_study.working_dir(inp) == root
+    assert not os.path.exists(exported['sa_runs'])
+    location = cuflynx_study.update_study(inp, 'sensitivity', {'dir': output_dir, 'method': 'sobol'})
+    assert location == os.path.join(root, 'demo_cuflynx_study.json')
+    entry = next(e for e in _raw(location)['sensitivity'] if e['method'] == 'sobol')
+    assert entry['dir'] == os.path.join('sensitivity', 'sa_runs') and 'outside' not in entry
+
+
+def test_export_warns_once_for_each_rewritten_path(exported):
+    warnings = [line for line in exported['out'].splitlines() if 'WARNING' in line]
+    assert len(warnings) == 2    # the yaml, the dated yaml and the manifest name these two
+    expected = {exported['models']: 'generated_models',
+                exported['sa_runs']: os.path.join('sensitivity', 'sa_runs')}
+    for original, relative in expected.items():
+        line = next(w for w in warnings if original in w)
+        assert f'relative path {relative} ' in line and 'not in the zip' in line
+    assert exported['left'] == [{'original': o, 'relative': r} for o, r in sorted(expected.items())]
+
+
+def test_export_rewrites_nested_manifests_and_drops_a_written_file(study, tmp_path, capsys):
+    """A workflow's step has its own manifest, and the ``--write-calibrated`` file beside the
+    target is an absolute path in the workflow block."""
+    w = study['param_id_output_dir']
+    target = str(tmp_path / 'library' / 'calibrated.json')
+    cuflynx_study.update_study(study, workflow={'result': os.path.join(w, 'result.json'),
+                                                'calibrated_parameters': target})
+    elsewhere = str(tmp_path / 'sa_elsewhere')
+    step = dict(study, param_id_output_dir=os.path.join(w, 'step'), cuflynx_working_dir=w)
+    cuflynx_study.update_study(step, 'sensitivity', {'dir': elsewhere, 'method': 'sobol'})
+    capsys.readouterr()
+
+    left = cuflynx_study.export_working_dir(w, str(tmp_path / 'w.zip'))
+
+    with zipfile.ZipFile(tmp_path / 'w.zip') as archive:
+        top = json.loads(archive.read('demo_cuflynx_study.json'))
+        nested = json.loads(archive.read('step/demo_cuflynx_study.json'))
+    assert top['workflow'] == {'result': 'result.json'}
+    assert nested['sensitivity'] == []
+    assert left == [{'original': elsewhere, 'relative': os.path.join('sensitivity', 'sa_elsewhere')},
+                    {'original': target, 'relative': None}]
+    assert sum(target in line for line in capsys.readouterr().out.splitlines()) == 1
+
+
+def test_export_can_write_into_the_working_dir_it_zips(study):
+    cuflynx_study.update_study(study)
+    target = os.path.join(study['param_id_output_dir'], 'study.zip')
+    for _ in range(2):    # the second run must not hold the first zip
+        cuflynx_study.export_working_dir(study['param_id_output_dir'], target)
+    with zipfile.ZipFile(target) as archive:
+        assert 'study.zip' not in archive.namelist()
+
+
+def test_export_leaves_a_yaml_it_cannot_read_as_it_is(study, tmp_path, capsys):
+    with open(study['user_inputs_path'], 'w') as handle:
+        handle.write('a: [unclosed\n')
+    cuflynx_study.update_study(study)
+    cuflynx_study.export_working_dir(study['param_id_output_dir'], str(tmp_path / 'w.zip'))
+    assert 'could not read' in capsys.readouterr().out
+    with zipfile.ZipFile(tmp_path / 'w.zip') as archive:
+        name = next(n for n in archive.namelist() if n.endswith('user_inputs.yaml'))
+        assert archive.read(name) == b'a: [unclosed\n'
+
+
+def test_export_refuses_what_is_not_a_self_contained_working_dir(study, tmp_path):
+    empty = tmp_path / 'empty'
+    empty.mkdir()
+    with pytest.raises(FileNotFoundError):
+        cuflynx_study.export_working_dir(str(empty), str(tmp_path / 'w.zip'))
+    cuflynx_study.update_study(dict(study, cuflynx_study_copy_inputs=False))
+    with pytest.raises(ValueError, match='cuflynx_study_copy_inputs'):
+        cuflynx_study.export_working_dir(study['param_id_output_dir'], str(tmp_path / 'w.zip'))
+    assert not (tmp_path / 'w.zip').exists()
 
 
 def test_paths_inside_the_study_are_relative(study):
