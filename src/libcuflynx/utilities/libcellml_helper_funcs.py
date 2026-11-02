@@ -28,7 +28,7 @@ def require_libcellml_version(version=None):
         version = versionString()
     if _version_tuple(version) < _version_tuple(MIN_LIBCELLML_VERSION):
         raise RuntimeError(
-            f'libCellML {version} is too old: flattening needs {MIN_LIBCELLML_VERSION} or later, '
+            f'libCellML {version} is too old: generation needs {MIN_LIBCELLML_VERSION} or later, '
             f'because older versions rewrite the units of variables. Run: '
             f'pip install "libcellml>={MIN_LIBCELLML_VERSION}"')
 
@@ -75,7 +75,6 @@ def resolve_imports(model, base_dir, strict_mode):
     return importer
 
 def flatten_model(model, importer):
-    require_libcellml_version()
     flat_model = importer.flattenModel(model)
     return flat_model
 

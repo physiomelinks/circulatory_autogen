@@ -102,6 +102,9 @@ class CVS0DCellMLGenerator(object):
             print("Error: The model should be a CVS0DModel representation")
             return
 
+        if LIBCELLML_available:
+            cellml.require_libcellml_version()
+
         print("Generating model files at {}".format(self.output_dir))
 
         #    Code to generate model files
@@ -2223,7 +2226,8 @@ class CVS0DCellMLGenerator(object):
             pair = (v_2, v_1) if swapped else (v_1, v_2)
             if pair not in entry["pairs"]:
                 entry["pairs"].append(pair)
-                self._mapped_variables.append((comp_1, v_1, comp_2, v_2))
+                self.__dict__.setdefault('_mapped_variables', []).append(
+                    (comp_1, v_1, comp_2, v_2))
 
     def __is_computed(self, component, variable):
         """Whether a module's own equations set ``variable`` of ``component``."""

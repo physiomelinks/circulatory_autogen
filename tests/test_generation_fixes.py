@@ -577,7 +577,7 @@ def test_signal_through_a_hub_avoids_the_shared_port(tmp_path):
     assert res['b/x'][-1] == pytest.approx(1.0, rel=1e-6)
 
 
-def test_old_libcellml_is_refused_before_flattening():
+def test_old_libcellml_is_refused():
     with pytest.raises(RuntimeError, match=r'0\.6\.3 is too old'):
         cellml_helpers.require_libcellml_version('0.6.3')
     cellml_helpers.require_libcellml_version(cellml_helpers.MIN_LIBCELLML_VERSION)

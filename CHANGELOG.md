@@ -7,7 +7,7 @@ next release; add to that section as you land a change.
 
 ### Added — generation stops on an old libCellML and names an edge that joins two computed variables
 
-- Flattening raises an error on libCellML below 0.7.2, whose unit scaling rewrites variables:
+- Generation raises an error on libCellML below 0.7.2, whose unit scaling rewrites variables:
   `milliV_per_kiloV` compared equal to `dimensionless`, so `dim` variables took its 1e-6 scale.
 - When the analyser finds an over-constrained variable, generation raises a `ValueError` naming
   the two computed variables a port mapping joined. Modules sharing a port type are joined on it
