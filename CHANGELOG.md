@@ -9,8 +9,11 @@ next release; add to that section as you land a change.
 
 Myokit 1.40 (myokit#1203) puts the CVODES sensitivities in the local error test, so a tight
 `rtol` (below 1e-9) now improves `do_ad` FSA gradients instead of degrading them (#387), and
-CA warns about it only on older Myokit (Python 3.9 installs cannot get 1.40). Expect slower
-FSA solves at very tight tolerances on 1.40: the steps now have to resolve the sensitivities too.
+CA warns about it only on older Myokit (`myokit>=1.39.1` still allows an installed 1.39.x).
+FSA solves can be slower on 1.40, because the steps now have to resolve the sensitivities too:
+myokit#1203 measured about 40% slower on one 27-state CA cardiovascular model at CA's default
+FSA tolerance (1e-8; a single measurement), and with sensitivities on, rtol=atol=1e-14 did
+not finish in practice.
 
 ### Changed — the study's working dir holds every input; the manifest's paths are all relative
 

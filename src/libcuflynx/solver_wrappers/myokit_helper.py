@@ -216,7 +216,8 @@ def apply_cvodes_tolerances(simulation, solver_info, fsa_enabled):
 FSA_MIN_SAFE_REL_TOL = 1e-9
 
 # Myokit 1.40 (myokit#1203) calls CVodeSetSensErrCon, so the sensitivities are in the local error
-# test and tightening rtol improves them. Older Myokit (all that Python 3.9 can install) does not.
+# test and tightening rtol improves them. Older Myokit does not, and `myokit>=1.39.1` still lets
+# an install keep 1.39.x.
 MYOKIT_ERROR_CONTROLS_SENSITIVITIES = (
     tuple(int(p) for p in re.findall(r"\d+", myokit.__version__)[:2]) >= (1, 40))
 
