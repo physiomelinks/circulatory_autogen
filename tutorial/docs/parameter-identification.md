@@ -1598,7 +1598,9 @@ names the target's as `target_model.parameters_path`.
 A run writes `provenance_graph.json` and `provenance.svg` when it finishes. The diagram opens a
 report: paste the SVG into the page, where it takes the page's text colour. `cuflynx-provenance
 <output_dir>` writes both again, and it needs only the output directory, not the module library.
-The graph's schema is `libcuflynx/schemas/provenance_graph.schema.json`.
+The graph's schema is `libcuflynx/schemas/provenance_graph.schema.json`. It is closed, so its
+`schema_version` goes up whenever it gains or changes a node kind, edge style or key, and a
+reader (`read_provenance_graph`, `provenance_svg`) refuses a version it does not know.
 
 One box stands for each step, in order, with the model source, the measured values, the values
 set by hand and the target. Each value the target uses is marked with what set it:

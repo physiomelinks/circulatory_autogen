@@ -24,6 +24,11 @@ next release; add to that section as you land a change.
   runs them. The provenance diagram draws each as a dashed box with its files, current, stale or
   not run by file times. A run's recorded workflow digest leaves `external_figures` out, so
   declaring them after a run keeps it current.
+- The provenance graph is `schema_version` 2, for the new `figure` and `external` node kinds and
+  `writes` and `reads` edge styles. The schema is closed, so the version goes up whenever it gains
+  or changes a kind, style or key. `read_provenance_graph` and `provenance_svg` refuse a version
+  they don't know, naming the version found and the versions they read; write an older run's
+  graph again with `cuflynx-provenance <output_dir>`.
 
 ### Added — a calibration workflow run writes its provenance
 

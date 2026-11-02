@@ -15,7 +15,8 @@
   ],
   "properties": {
     "schema_version": {
-      "const": 1
+      "const": 2,
+      "description": "The schema is closed (additionalProperties false; enums for a node's kind and an edge's style), so schema_version goes up whenever it gains or changes a kind, style or key, and a reader refuses a version it does not know. 2 added the figure and external node kinds and the writes and reads edge styles."
     },
     "workflow": {
       "type": "object",

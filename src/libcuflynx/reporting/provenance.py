@@ -27,7 +27,13 @@ from libcuflynx.calibration_workflow.spec import INHERITED_BASE, scale_sources
 from libcuflynx.reporting import flowchart
 from libcuflynx.utilities import parameters_file
 
-SCHEMA_VERSION = 1
+#: The graph's schema is closed (no unknown keys; enums for a node's kind and an edge's style), so
+#: SCHEMA_VERSION goes up whenever the schema gains or changes a kind, style or key. A reader
+#: refuses a version it does not know rather than misdraw it. 2 added the figure and external
+#: node kinds and the writes and reads edge styles.
+SCHEMA_VERSION = 2
+#: the schema versions this module reads
+SUPPORTED_SCHEMA_VERSIONS = (SCHEMA_VERSION,)
 GRAPH_FILE = 'provenance_graph.json'
 SVG_FILE = 'provenance.svg'
 SOURCE_NODE = '__source__'
@@ -638,9 +644,37 @@ def _summary(counts):
                       if counts.get(mark) or mark == UNCLASSIFIED)
 
 
+class ProvenanceVersionError(ValueError):
+    '''A provenance graph has a ``schema_version`` this libcuflynx does not read.'''
+
+
+def check_schema_version(graph, source='provenance graph'):
+    '''Refuse a graph whose ``schema_version`` is not one of ``SUPPORTED_SCHEMA_VERSIONS``.'''
+    version = graph.get('schema_version') if isinstance(graph, dict) else None
+    if version not in SUPPORTED_SCHEMA_VERSIONS:
+        supported = ', '.join(str(v) for v in SUPPORTED_SCHEMA_VERSIONS)
+        raise ProvenanceVersionError(
+            f'{source} has schema_version {version!r}; this libcuflynx reads provenance graph '
+            f'schema_version {supported} only. Write it again with `cuflynx-provenance '
+            f'<output_dir>`, or read it with the libcuflynx that wrote it.')
+
+
+def read_provenance_graph(path):
+    '''The provenance graph in the file at ``path``, after checking its version and schema.'''
+    from libcuflynx.schemas import PROVENANCE_GRAPH_SCHEMA
+    from libcuflynx.schemas.validation import validate
+    with open(path, encoding='utf-8') as f:
+        graph = json.load(f)
+    check_schema_version(graph, source=path)
+    validate(PROVENANCE_GRAPH_SCHEMA, graph, source=path, what='provenance graph')
+    return graph
+
+
 def provenance_svg(graph):
     '''``graph`` (:func:`provenance_graph`) as a self-contained ``<svg>`` to place inline in a
-    page: no scripts or styles, text and lines in the page's ``currentColor``.'''
+    page: no scripts or ``<style>`` element, text and lines in the page's ``currentColor``.
+    Refuses a graph of a ``schema_version`` it does not read.'''
+    check_schema_version(graph)
     places, lanes, width, height = _layout(graph)
     footer = [f'Values of the target: {_summary(graph["counts"])}',
               f'Output directory: {graph["workflow"]["output_dir"]}',
