@@ -80,6 +80,23 @@ def test_each_sharded_job_runs_every_group_once(job, suite, matrix):
         f'{job} runs {groups}; suite {suite} is {sorted(SHARDS[suite])} plus rest'
 
 
+def _github_yaml_files():
+    found = []
+    for folder, _, names in os.walk(os.path.join(ROOT, '.github')):
+        found += [os.path.join(folder, n) for n in names if n.endswith(('.yml', '.yaml'))]
+    return sorted(found)
+
+
+def test_no_workflow_uses_ubuntu_latest():
+    """The PyPI libcellml wheel needs libxml2.so.2, which ubuntu-latest (26.04) does not have."""
+    assert _github_yaml_files()
+    for path in _github_yaml_files():
+        with open(path) as f:
+            for number, line in enumerate(f, 1):
+                code = line.split('#')[0]
+                assert 'ubuntu-latest' not in code, f'{path}:{number} uses ubuntu-latest'
+
+
 # --- select_ci_shard -----------------------------------------------------------------------
 
 class _Item:
