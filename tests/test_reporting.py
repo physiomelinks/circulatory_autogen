@@ -385,13 +385,15 @@ def test_methods_of_one_calibration_cite_the_generated_parameters_file(tmp_path)
 
 
 @pytest.mark.unit
-def test_methods_of_one_calibration_cite_an_obs_data_reference(tmp_path):
-    """An obs_data item's data_reference is cited like a parameter's, and its key is written
-    to the document's .bib."""
+@pytest.mark.filterwarnings("ignore:.*has been replaced by 'data_reference'")
+@pytest.mark.parametrize('key', ['data_reference', 'source'])
+def test_methods_of_one_calibration_cite_an_obs_data_reference(tmp_path, key):
+    """An obs_data item's data_reference, or its source read as one, is cited like a
+    parameter's, and its key is written to the document's .bib."""
     import json
     with open(os.path.join(RESOURCES, 'Goodwin_obs_data.json')) as f:
         obs = json.load(f)
-    obs['data_items'][0]['data_reference'] = 'goodwin1965oscillatory, Fig. 2'
+    obs['data_items'][0][key] = 'goodwin1965oscillatory, Fig. 2'
     obs_path = tmp_path / 'Goodwin_obs_data.json'
     obs_path.write_text(json.dumps(obs))
     bib = tmp_path / 'refs.bib'

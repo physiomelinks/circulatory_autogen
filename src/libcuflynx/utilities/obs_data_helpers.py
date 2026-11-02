@@ -180,7 +180,7 @@ def check_obs_data_name(json_obj, path=None):
 
 
 #: Superseded keys of the parsed ``obs_info`` dict the parser hands the engine (not of the
-#: obs_data file, whose schema has only the current keys).
+#: obs_data file, whose schema has its own keys).
 LEGACY_OBS_INFO_KEYS = {
     'obs_names': 'data_item_names',
     'names_for_plotting': 'item_names_for_plotting',

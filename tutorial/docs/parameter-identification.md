@@ -192,8 +192,9 @@ The entries in the data_item list in the `obs_data.json` file are:
 - **obs_dt**: required for *series* data types and not needed for constant or frequency. It defines the timestep for the observable series values.
 - **prob_dist_params**: the ground truth when it is a *distribution* rather than a value — see below. An item that sets this needs no **value** or **std**; an item that does not, needs both.
 - **data_reference** (optional): where the data come from, as a string — a citation key, DOI
-  or table reference, as in the `data_reference` column of a parameters file. It is the only key
-  that names a datum's origin; a `source` key is refused. libcuflynx never
+  or table reference, as in the `data_reference` column of a parameters file. `source` has been
+  replaced by this key: an item's `source` is read as its `data_reference`, which wins if the
+  item has both, with one warning per file giving the number of items. libcuflynx never
   requires it, and refuses a value that is not a string. It is saved beside the error vectors
   (`error_vec_data_references.npy`, in the order of `error_vec_names.npy`, `""` where an item
   has none), shown as a `Data: ...` line at the top of the item's reconstruction plot and on

@@ -26,7 +26,7 @@ from datetime import date
 from libcuflynx.utilities.protocol_shapes import materialise_shapes, validate_trace_references
 from libcuflynx.schemas import OBS_DATA_SCHEMA, PARAMS_FOR_ID_SCHEMA
 from libcuflynx.schemas.validation import validate as validate_schema
-from libcuflynx.utilities.obs_data_helpers import (check_obs_data_name,
+from libcuflynx.utilities.obs_data_helpers import (check_obs_data_name, DATA_REFERENCE_KEY,
                                         DEFAULT_COST_TYPE, PREVIOUS_DEFAULT_COST_TYPE,
                                         VALID_DATA_TYPES)
 from libcuflynx.param_id.prediction_plots import check_prediction_plots
@@ -3383,6 +3383,35 @@ def _held_out_std(entry, entry_idx):
     return float(stds[0]) if entry['data_type'] == 'constant' else stds.tolist()
 
 
+def read_source_as_data_reference(obs_data, where='obs_data'):
+    """``obs_data`` with the ``source`` of each data_item and prediction_item read as its
+    ``data_reference``, which it replaces; an item with both keeps its ``data_reference``.
+
+    The only reader of that key: everything downstream reads ``data_reference``. ``obs_data``
+    itself is left as it is. Warns once per call, on rank 0, giving the number of items;
+    ``where`` names the file in the warning.
+    """
+    read, count = dict(obs_data), 0
+    for kind in ('data_items', 'prediction_items'):
+        if not obs_data.get(kind):
+            continue
+        read[kind] = []
+        for item in obs_data[kind]:
+            if 'source' in item:
+                count += 1
+                item = dict(item)
+                source = item.pop('source')
+                if item.get(DATA_REFERENCE_KEY) is None:
+                    item[DATA_REFERENCE_KEY] = source
+            read[kind].append(item)
+    if count and rank == 0:
+        warnings.warn(
+            f"{where}: {count} item(s) use 'source', which has been replaced by "
+            f"'{DATA_REFERENCE_KEY}'. Each is read as the item's {DATA_REFERENCE_KEY} (one with "
+            f"both keeps its {DATA_REFERENCE_KEY}); rename the key in the file.", UserWarning)
+    return read
+
+
 class ObsAndParamDataParser(object):
     def __init__(self, modifier_funcs_external_path=None):
         # Optional external file of user modifier functions (issue #383), threaded from the
@@ -3431,6 +3460,7 @@ class ObsAndParamDataParser(object):
         # to); warns when a file filed under parameterisations/<name>/ names another
         # parameterisation.
         obs_data_name = check_obs_data_name(json_obj, param_id_obs_path)
+        json_obj = read_source_as_data_reference(json_obj, param_id_obs_path or 'obs_data')
 
         gt_df, protocol_info, prediction_info = None, None, None
         REQUIRED = "REQUIRED"

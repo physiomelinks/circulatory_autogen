@@ -19,6 +19,7 @@ import json
 import os
 import tempfile
 
+from libcuflynx.parsers.PrimitiveParsers import read_source_as_data_reference
 from libcuflynx.reporting import flowchart
 from libcuflynx.reporting.bibliography import cite, cited_keys, module_bib_files, read_bib, write_bib
 from libcuflynx.reporting.latex_names import escape
@@ -159,6 +160,10 @@ def read_params_for_id(path):
 def _load_json(path):
     with open(path, encoding='utf-8-sig') as f:
         return json.load(f)
+
+
+def _load_obs_data(path):
+    return read_source_as_data_reference(_load_json(path), path)
 
 
 # --------------------------------------------------------------------------------------------
@@ -643,7 +648,7 @@ def workflow_methods_latex(workflow_path, run_dir=None, mapping=None, module_lib
                                             .sensitivity_from).params_for_id)
             entry.update({
                 'model': step.model.as_dict(), 'place': rs.place, 'to_target': rs.to_target,
-                'obs_path': rs.obs_data_path, 'obs': _load_json(rs.obs_data_path),
+                'obs_path': rs.obs_data_path, 'obs': _load_obs_data(rs.obs_data_path),
                 'params': read_params_for_id(params_path)})
         else:
             entry.update({'model': None, 'place': '', 'to_target': None, 'obs_path': None,
@@ -785,7 +790,7 @@ def calibration_methods_latex(model_path, obs_data_path, params_for_id_path, set
         candidate = default_mapping_path(model_path)
         mapping = candidate if os.path.isfile(candidate) else None
     rows = variable_mapping(model, mapping)
-    obs = _load_json(obs_data_path)
+    obs = _load_obs_data(obs_data_path)
     params = read_params_for_id(params_for_id_path)
     result = _param_id_result(run_dir, params) if run_dir else None
     step = {'id': 'calibration', 'model': {'module_array': model_path}, 'place': '',

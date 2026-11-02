@@ -3,11 +3,12 @@
 Spelled as the parameters-file column. libcuflynx accepts it as a string, never requires it,
 and carries it to the results (``error_vec_data_references.npy``, ``validation_results.json``),
 the plots that draw the item and the methods text. Requiring it is left to the module library's
-own checks.
+own checks. An item's ``source`` is read as its ``data_reference``, with a warning.
 """
 import copy
 import json
 import os
+import warnings
 
 import matplotlib
 import numpy as np
@@ -17,8 +18,9 @@ matplotlib.use("Agg")
 
 from libcuflynx.param_id import prediction_plots, validation
 from libcuflynx.param_id.plot_outputs import ParamIDPlotOutputs
+from libcuflynx.parsers import PrimitiveParsers
 from libcuflynx.parsers.PrimitiveParsers import ObsAndParamDataParser
-from libcuflynx.reporting.methods import observables_text
+from libcuflynx.reporting.methods import _load_obs_data, _obs_cited_keys, observables_text
 from libcuflynx.utilities.obs_data_helpers import (ObsDataCreator, data_reference_line,
                                                    obs_item_references)
 
@@ -79,15 +81,115 @@ def test_a_reference_that_is_not_a_string_is_refused(where, bad):
         _parse(doc)
 
 
+def _source_warnings(caught):
+    return [w for w in caught if "'source'" in str(w.message)]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("data,pred", [("Smith2020 lab notes", "Jones2019 notes"), (None, None)])
+def test_source_is_read_as_the_data_reference_on_both_item_kinds(tmp_path, data, pred):
+    doc = _doc()
+    doc["data_items"][0]["source"] = data
+    doc["prediction_items"][0]["source"] = pred
+    with pytest.warns(UserWarning, match="has been replaced by 'data_reference'"):
+        parsed = _parse(doc)
+    assert obs_item_references(_obs_info(parsed, tmp_path)) == [data]
+    assert obs_item_references(parsed["prediction_info"]) == [pred]
+    assert "source" not in parsed["gt_df"].columns
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("where,ref", [("data_items", DATA_REF), ("prediction_items", PRED_REF)])
+def test_the_data_reference_wins_over_source(tmp_path, where, ref):
+    doc = _doc(DATA_REF, PRED_REF)
+    doc[where][0]["source"] = "lab notes"
+    with pytest.warns(UserWarning, match="has been replaced by 'data_reference'"):
+        parsed = _parse(doc)
+    assert obs_item_references(_obs_info(parsed, tmp_path)) == [DATA_REF]
+    assert obs_item_references(parsed["prediction_info"]) == [PRED_REF]
+
+
+@pytest.mark.unit
+def test_a_null_data_reference_does_not_hide_a_source(tmp_path):
+    doc = _doc()
+    doc["data_items"][0].update(data_reference=None, source="lab notes")
+    with pytest.warns(UserWarning, match="has been replaced by 'data_reference'"):
+        assert obs_item_references(_obs_info(_parse(doc), tmp_path)) == ["lab notes"]
+
+
+@pytest.mark.unit
+def test_reading_source_leaves_the_given_document_alone():
+    doc = _doc()
+    doc["data_items"][0]["source"] = "lab notes"
+    original = copy.deepcopy(doc)
+    with pytest.warns(UserWarning):
+        ObsAndParamDataParser().parse_obs_data_json(obs_data_dict=doc)
+    assert doc == original
+
+
+@pytest.mark.unit
+def test_source_warns_once_per_file_with_the_number_of_items(tmp_path):
+    def _write(name, data_items, prediction_items):
+        doc = _doc()
+        doc["data_items"] = [dict(doc["data_items"][0], data_item_name=f"c{i}", source="notes")
+                             for i in range(data_items)]
+        doc["prediction_items"] = [dict(doc["prediction_items"][0], data_item_name=f"p{i}",
+                                        source="notes") for i in range(prediction_items)]
+        path = tmp_path / name
+        path.write_text(json.dumps(doc))
+        return str(path)
+
+    first, second = _write("a_obs_data.json", 3, 2), _write("b_obs_data.json", 1, 0)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        for path in (first, second):
+            ObsAndParamDataParser().parse_obs_data_json(param_id_obs_path=path)
+    messages = [str(w.message) for w in _source_warnings(caught)]
+    assert len(messages) == 2
+    assert messages[0].startswith(f"{first}: 5 item(s) use 'source'")
+    assert messages[1].startswith(f"{second}: 1 item(s) use 'source'")
+    assert all("replaced by 'data_reference'" in message for message in messages)
+
+
+@pytest.mark.unit
+def test_source_warns_on_rank_0_only(monkeypatch):
+    doc = _doc()
+    doc["data_items"][0]["source"] = "lab notes"
+    monkeypatch.setattr(PrimitiveParsers, "rank", 1)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        parsed = _parse(doc)
+    assert _source_warnings(caught) == []
+    assert parsed["gt_df"]["data_reference"].tolist() == ["lab notes"]
+
+
+@pytest.mark.unit
+def test_an_item_without_source_does_not_warn():
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        _parse(_doc(DATA_REF, PRED_REF))
+    assert _source_warnings(caught) == []
+
+
 @pytest.mark.unit
 @pytest.mark.parametrize("where", ["data_items", "prediction_items"])
-def test_a_source_key_is_refused(where):
-    """data_reference is the only key naming an item's origin, and the refusal says so."""
+@pytest.mark.parametrize("bad", [3, ["Smith2020"], {"key": "Smith2020"}])
+def test_a_source_that_is_not_a_string_is_refused(where, bad):
     doc = _doc()
-    doc[where][0]["source"] = "Smith2020 lab notes"
-    with pytest.raises(ValueError, match="'source' was unexpected") as refused:
+    doc[where][0]["source"] = bad
+    with pytest.raises(ValueError, match="source"):
         _parse(doc)
-    assert "data_reference" in str(refused.value)
+
+
+@pytest.mark.unit
+def test_source_does_not_stand_in_for_a_series_value():
+    """source names an origin, as data_reference does; the samples are still needed."""
+    doc = _doc()
+    item = doc["data_items"][0]
+    del item["value"]
+    item.update(data_type="series", obs_dt=0.1, std=[0.1], source="lab notes")
+    with pytest.raises(ValueError, match="'value' is a required property"):
+        _parse(doc)
 
 
 @pytest.mark.unit
@@ -209,15 +311,23 @@ def test_the_methods_text_lists_the_references():
 
 
 @pytest.mark.unit
-def test_the_methods_text_reads_only_the_data_reference():
+def test_the_methods_text_cites_a_source_as_a_data_reference(tmp_path):
+    """The methods document reads the file directly; a source reaches it as a data_reference,
+    so a BibTeX key in it is cited."""
     class _Symbols:
         def variable(self, name):
             return name
 
-    doc = _doc(DATA_REF)
-    doc["data_items"][0]["source"] = "lab notes"
-    text, _ = observables_text(doc, _Symbols(), "gaussian_MLE")
-    assert f"Sources: {DATA_REF}." in text
+    doc = _doc(pred_ref=PRED_REF)
+    doc["data_items"][0]["source"] = DATA_REF
+    path = tmp_path / "x_obs_data.json"
+    path.write_text(json.dumps(doc))
+    with pytest.warns(UserWarning, match="has been replaced by 'data_reference'"):
+        obs = _load_obs_data(str(path))
+    entries = {"Smith2020": "@article{Smith2020,}"}
+    text, _ = observables_text(obs, _Symbols(), "gaussian_MLE", entries)
+    assert rf"Sources: \cite{{Smith2020}}, Table 2; {PRED_REF}." in text
+    assert _obs_cited_keys(obs, entries) == {"Smith2020"}
 
 
 @pytest.mark.unit

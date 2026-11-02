@@ -479,6 +479,13 @@
           ],
           "description": "A series' values as a .npy file, used with t_path instead of an embedded value (not both)."
         },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Replaced by data_reference: read as this item's data_reference (an item with both keeps its data_reference), with a warning per obs_data file giving the number of items. Default: none."
+        },
         "data_reference": {
           "type": [
             "string",
@@ -820,6 +827,13 @@
             "null"
           ],
           "description": "Where this datum comes from: a citation key, DOI or reference, as in the data_reference column of a parameters file. Optional and never required by libcuflynx; it is carried into the results (validation_results.json) and shown on the plots that draw the item and in the methods text. Each item names its own source; there is no file-level default. Default: none."
+        },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Replaced by data_reference: read as this item's data_reference (an item with both keeps its data_reference), with a warning per obs_data file giving the number of items. Default: none."
         }
       },
       "allOf": [
