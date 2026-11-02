@@ -13,6 +13,16 @@ next release; add to that section as you land a change.
   the two computed variables a port mapping joined. Modules sharing a port type are joined on it
   by any edge between them; pass a single signal through a variable on a node both connect to.
 
+### Changed — no rtol warning for FSA gradients on Myokit 1.40 and later
+
+Myokit 1.40 (myokit#1203) puts the CVODES sensitivities in the local error test, so a tight
+`rtol` (below 1e-9) now improves `do_ad` FSA gradients instead of degrading them (#387), and
+CA warns about it only on older Myokit (`myokit>=1.39.1` still allows an installed 1.39.x).
+FSA solves can be slower on 1.40, because the steps now have to resolve the sensitivities too:
+myokit#1203 measured about 40% slower on one 27-state CA cardiovascular model at CA's default
+FSA tolerance (1e-8; a single measurement), and with sensitivities on, rtol=atol=1e-14 did
+not finish in practice.
+
 ### Changed — the study's working dir holds every input; the manifest's paths are all relative
 
 `param_id_output_dir` is the study's working dir: one folder that can be zipped and opened
