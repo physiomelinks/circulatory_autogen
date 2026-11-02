@@ -270,8 +270,10 @@
             "step",
             "analysis",
             "values",
-            "target"
-          ]
+            "target",
+            "figure"
+          ],
+          "description": "figure: a file a sweep step wrote, its title the file name and its line the path in the output directory"
         },
         "title": {
           "type": "string"
@@ -345,7 +347,8 @@
             "fixed",
             "prior",
             "merge",
-            "given"
+            "given",
+            "writes"
           ]
         }
       }

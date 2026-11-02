@@ -99,6 +99,50 @@ def test_one_at_a_time_holds_the_others_at_the_models_values():
 
 
 @pytest.mark.unit
+def test_zipped_parameters_move_together_as_one_axis():
+    sweep = {'design': 'grid', 'zip': [['apical', 'basolateral']],
+             'parameters': {'apical': {'values': [0.0, 0.1, 1.0]},
+                            'glucose': {'values': [15.0, 40.0]},
+                            'basolateral': {'values': [1.0, 1.0, 10.0]}}}
+    names, points = sweep_points(sweep, {'apical': 9.0, 'glucose': 9.0, 'basolateral': 9.0})
+    assert names == ['apical', 'glucose', 'basolateral']
+    assert points.tolist() == [[0, 15, 1], [0, 40, 1], [0.1, 15, 1], [0.1, 40, 1],
+                               [1, 15, 10], [1, 40, 10]]
+    sweep['design'] = 'one_at_a_time'
+    _, points = sweep_points(sweep, {'apical': 9.0, 'glucose': 5.0, 'basolateral': 8.0})
+    assert points.tolist() == [[0, 5, 1], [0.1, 5, 1], [1, 5, 10], [9, 15, 8], [9, 40, 8]]
+
+
+@pytest.mark.unit
+def test_a_sweep_of_nothing_is_one_run_of_the_protocol():
+    names, points = sweep_points({'design': 'grid', 'parameters': {}}, {})
+    assert names == [] and points.shape == (1, 0)
+
+
+@pytest.mark.unit
+def test_a_sweep_on_the_target_takes_every_calibration_and_set_step(library):
+    raw = _raw(library)
+    raw['steps'] = [{'id': 'scan', 'kind': 'sweep', 'on_target': True,
+                     'settings': {'sim_time': 1.0},
+                     'sweep': {'outputs': ['mod__C/z'], 'parameters': {}}}] + raw['steps'] + \
+        [_set_step()]
+    workflow = _parse(library, raw)
+    scan = workflow.step('scan')
+    assert scan.model == workflow.target
+    # in the order the steps run, so a later step wins as it does in the target
+    assert scan.fixed_from == scan.depends_on[:0] + ['fit_a', 'rest', 'hand']
+    assert [s.id for s in workflow.topological_order()][-1] == 'scan'
+
+
+@pytest.mark.unit
+def test_on_target_is_for_a_sweep(library):
+    raw = _raw(library)
+    raw['steps'][1]['on_target'] = True
+    with pytest.raises(WorkflowError, match='"on_target" is for a sweep step'):
+        _parse(library, raw)
+
+
+@pytest.mark.unit
 def test_the_range_forms_match_cams():
     assert parameter_values([0.0, 1.0]).tolist() == [0, 0.25, 0.5, 0.75, 1]
     np.testing.assert_allclose(
@@ -192,7 +236,13 @@ def test_a_sweep_cannot_pass_values_on(library):
 @pytest.mark.parametrize('edit, message', [
     (lambda s: s.update(params_for_id='p.json'), 'this combination of keys is not allowed'),
     (lambda s: s['sweep'].update(design='random'), 'not one of'),
-    (lambda s: s['sweep'].update(parameters={}), 'non-empty|too few|should be non-empty'),
+    (lambda s: s['sweep'].update(zip=[['mod__C/q', 'mod__C/k']]),
+     r"\"zip\" names \['mod__C/k'\], which it does not sweep"),
+    (lambda s: s['sweep'].update(parameters={'mod__C/q': {'values': [1.0, 2.0]},
+                                             'mod__C/k': {'values': [1.0]}},
+                                 zip=[['mod__C/q', 'mod__C/k']]),
+     'take different numbers of values'),
+    (lambda s: s.update(on_target=True), r"names no \['model'\]"),
     (lambda s: s['sweep'].update(outputs=[]), 'records nothing'),
     (lambda s: s['sweep']['parameters'].update({'mod__C/q': {'min': 2.0, 'max': 1.0}}),
      'not below max'),
@@ -353,9 +403,59 @@ def test_a_sweep_records_every_point_and_feeds_nothing_forward(library, tmp_path
     scan = next(n for n in graph['nodes'] if n['id'] == 'scan')
     assert scan['kind'] == 'analysis' and scan['mark'] is None
     assert '3 points, 0 failed' in scan['lines']
-    assert 'feeds nothing forward' in scan['lines']
-    assert not [e for e in graph['edges'] if e['from'] == 'scan']
+    assert '`mod__C/q` {1, 2, 3}' in scan['lines']
+    # it passes no values on: its only edges out are to the files it wrote
+    assert {(e['to'], e['style']) for e in graph['edges'] if e['from'] == 'scan'} == {
+        ('scan/sweep_results.npz', 'writes')}
+    figure = next(n for n in graph['nodes'] if n['id'] == 'scan/sweep_results.npz')
+    assert (figure['kind'], figure['status']) == ('figure', 'done')
+    assert figure['lines'] == ['`scan/sweep/sweep_results.npz`']
     assert [e['label'] for e in graph['edges'] if e['to'] == 'scan'] == ['fixed']
+
+
+@pytest.mark.integration
+def test_a_sweep_on_the_target_runs_with_the_merged_values(library, tmp_path):
+    """fit_a and the later set step both give A's p; on the target the set step's 1.5 wins, as
+    it does in the merged target, so z = 2 * 1.5^2 + q^2 (k = 1)."""
+    raw = _raw(library)
+    raw['steps'] += [_set_step(), {
+        'id': 'scan', 'kind': 'sweep', 'on_target': True, 'settings': {'sim_time': 1.0},
+        'sweep': {'outputs': ['mod__C/z'], 'parameters': {'mod__C/q': {'values': [1.0, 2.0]}}}}]
+    out = str(tmp_path / 'out')
+    with pytest.warns(UserWarning, match='calibrated by more than one step'):
+        result = run_calibration_workflow(_write(library, raw), output_dir=out)
+    assert _merged(result)['A/p']['value'] == 1.5
+
+    step = _read_json(os.path.join(out, 'scan', 'step_result.json'))
+    by_name = {f['model_name']: f for f in step['fixed']}
+    assert (by_name['p_mod__A']['value'], by_name['p_mod__A']['from_step']) == (1.5, 'hand')
+    with np.load(step['sweep_results']) as results:
+        np.testing.assert_allclose(results['trace_0'][:, 0, -1], 2 * 1.5 ** 2 + np.array([1.0, 4.0]),
+                                   rtol=1e-6)
+
+    graph = provenance_graph(out)
+    scan = next(n for n in graph['nodes'] if n['id'] == 'scan')
+    assert scan['lines'][:2] == ['the merged target', '`mod__C/q` {1, 2}']
+    # drawn below the merged box, not from each step it took values from
+    assert [(e['from'], e['label']) for e in graph['edges'] if e['to'] == 'scan'] == [
+        ('__target__', 'runs on')]
+    assert ('scan', 'scan/sweep_results.npz') in {(e['from'], e['to']) for e in graph['edges']}
+    assert 'the merged target' in provenance_svg(graph)
+
+
+@pytest.mark.integration
+def test_a_protocol_run_with_nothing_swept(library, tmp_path):
+    raw = _raw(library)
+    raw['steps'].append(dict(_sweep_step(raw, parameters={}), fixed_from=['fit_a']))
+    out = str(tmp_path / 'out')
+    run_calibration_workflow(_write(library, raw), output_dir=out)
+    step = _read_json(os.path.join(out, 'scan', 'step_result.json'))
+    assert (step['n_points'], step['n_failed'], step['parameters']) == (1, 0, [])
+    with np.load(step['sweep_results']) as results:
+        assert results['points'].shape == (1, 0)
+        np.testing.assert_allclose(results['trace_0'][0, 0, -1], Y_A + 1.0, rtol=1e-6)
+    scan = next(n for n in provenance_graph(out)['nodes'] if n['id'] == 'scan')
+    assert 'the protocol, nothing swept' in scan['lines']
 
 
 @pytest.mark.integration

@@ -18,7 +18,9 @@ one of :data:`STEP_KINDS` (default ``calibration``):
 * ``set`` -- declares values or scales by hand, each with a ``reason``. It runs nothing: later
   steps take its values with ``fixed_from``, and they reach the target as calibrated values do;
 * ``sweep`` -- runs a model across chosen parameter values (``sweep``) and keeps every run. Its
-  values go no further: no step takes from it and it does not reach the target.
+  values go no further: no step takes from it and it does not reach the target. With
+  ``"on_target": true`` it runs on the target, given every calibration's and set step's values
+  as the target merges them (a later step wins), after all of those steps.
 
 Every kind but ``reduction``, ``set`` and ``sweep`` names the three inputs of an ordinary run: a
 ``model``, an ``obs_data`` file and a ``params_for_id`` file. A sweep names a ``model``, and an
@@ -188,7 +190,8 @@ class Step:
     params_for_id_from: str = None  # (calibration, emulation) the reduction whose params it uses
     reduction: dict = field(default_factory=dict)
     set_values: list = field(default_factory=list)   # (set) the entries it declares
-    sweep: dict = field(default_factory=dict)        # (sweep) design, outputs, parameters
+    sweep: dict = field(default_factory=dict)        # (sweep) design, outputs, parameters, zip
+    on_target: bool = False        # (sweep) runs on the target with the merged values
     settings: dict = field(default_factory=dict)
     description: str = ''
 
@@ -300,8 +303,27 @@ def parse_workflow(raw, path=None, module_library_dirs=None):
                         settings=_settings(raw.get('settings', {}), base_dir),
                         module_library_dirs=library_dirs,
                         description=raw.get('description', '') or '', path=path, raw=raw)
+    _place_target_sweeps(workflow)
     check_workflow(workflow)
+    order = [s.id for s in workflow.topological_order()]
+    for step in workflow.steps:
+        if step.on_target:
+            step.fixed_from.sort(key=order.index)
     return workflow
+
+
+#: the kinds whose values an on_target sweep is given, as the target merges them
+TARGET_SOURCE_KINDS = ('calibration', 'set')
+
+
+def _place_target_sweeps(workflow):
+    '''An on_target sweep runs on the target, taking every calibration's and set step's values.'''
+    sources = [s.id for s in workflow.steps if s.kind in TARGET_SOURCE_KINDS]
+    for step in workflow.steps:
+        if step.on_target:
+            step.model = workflow.target
+            step.fixed_from = list(sources)
+            step.depends_on = list(sources)
 
 
 def _path(value, base_dir):
@@ -395,6 +417,19 @@ def _step(value, where, base_dir):
                                'threshold': options.get('threshold')},
                     description=value.get('description', '') or '')
 
+    if value.get('on_target'):
+        if kind != 'sweep':
+            raise WorkflowError(f'{label}: "on_target" is for a sweep step, not a {kind} step.')
+        named = sorted(k for k in ('model', 'fixed_from', 'result_from', 'submodule', 'vessel',
+                                   'vessel_map') if k in value)
+        if named:
+            raise WorkflowError(f'{label}: a sweep "on_target" runs on the target with every '
+                                f'calibration\'s and set step\'s values, so it names no {named}.')
+        return Step(id=step_id, model=None,
+                    obs_data=_path(value['obs_data'], base_dir) if 'obs_data' in value else None,
+                    params_for_id=None, kind=kind, on_target=True, sweep=_sweep(value['sweep']),
+                    settings=_settings(value.get('settings', {}), base_dir),
+                    description=value.get('description', '') or '')
     if refs['emulator_from'] and (fixed_from or refs['result_from']):
         raise WorkflowError(f'{label}: a step that uses an emulator ("emulator_from") runs on '
                             f'the emulation step\'s model, with the values that step was given; '
@@ -448,7 +483,8 @@ def _sweep(value):
     return {'design': value.get('design', 'grid'),
             'outputs': [name.strip() for name in value.get('outputs', [])],
             'parameters': {name.strip(): copy.deepcopy(spec)
-                           for name, spec in value['parameters'].items()}}
+                           for name, spec in value['parameters'].items()},
+            'zip': [[name.strip() for name in group] for group in value.get('zip', [])]}
 
 
 # --------------------------------------------------------------------------------------------

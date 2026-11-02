@@ -460,6 +460,11 @@
           "default": false,
           "description": "after the fit, sample the posterior by MCMC (needs UQ_options) and store it (chain, samples, stats) for later steps and tools"
         },
+        "on_target": {
+          "type": "boolean",
+          "default": false,
+          "description": "(sweep) run on the target with every calibration's and set step's values merged as the target merges them, a later step winning; such a step names no model, fixed_from or result_from, and runs after every calibration and set step"
+        },
         "settings": {
           "$ref": "#/$defs/settings"
         },
@@ -552,11 +557,22 @@
             },
             "parameters": {
               "type": "object",
-              "minProperties": 1,
               "additionalProperties": {
                 "$ref": "#/$defs/sweep_range"
               },
-              "description": "<vessel>/<parameter>, as a params_for_id names it, and the values it takes"
+              "description": "<vessel>/<parameter>, as a params_for_id names it, and the values it takes. Empty: one run of the protocol as the model has it"
+            },
+            "zip": {
+              "type": "array",
+              "items": {
+                "type": "array",
+                "minItems": 2,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "description": "groups of parameters that move together: the i-th point of the group takes each one's i-th value, so their value lists have one length; the design treats a group as one parameter"
             }
           },
           "description": "a sweep step: its points, and what each records. An obs_data gives the protocol, and its prediction items a feature per point; without one, settings give dt and sim_time"
@@ -611,8 +627,24 @@
           },
           "then": {
             "required": [
-              "model",
               "sweep"
+            ],
+            "anyOf": [
+              {
+                "required": [
+                  "model"
+                ]
+              },
+              {
+                "required": [
+                  "on_target"
+                ],
+                "properties": {
+                  "on_target": {
+                    "const": true
+                  }
+                }
+              }
             ],
             "not": {
               "anyOf": [

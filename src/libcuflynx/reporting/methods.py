@@ -522,11 +522,17 @@ def _analysis_method(step):
     settings, kind = step['settings'], _kind(step)
     if kind == 'sweep':
         sweep = step['sweep']
+        model = ('The merged target, with every calibrated and hand-set value,'
+                 if step.get('on_target') else 'The model')
+        if not sweep['parameters']:
+            return f'{model} was run through the protocol once. Its values were passed to no other step.'
         design = ('each in turn, with the others at the model\'s values'
                   if sweep['design'] == 'one_at_a_time' else 'in every combination')
-        return ('The model was run at each value of '
-                + _join([_tt(name) for name in sweep['parameters']]) + f', {design}. '
-                'Its values were passed to no other step.')
+        together = ''.join(f' {_join([_tt(name) for name in group])} moved together.'
+                           for group in sweep.get('zip') or [])
+        return (f'{model} was run at each value of '
+                + _join([_tt(name) for name in sweep['parameters']]) + f', {design}.'
+                + together + ' Its values were passed to no other step.')
     if kind == 'sensitivity':
         sa = settings.get('sa_options') or {}
         if sa.get('method', 'sobol') == 'sobol':
@@ -648,7 +654,7 @@ def workflow_methods_latex(workflow_path, run_dir=None, mapping=None, module_lib
             'emulator_from': step.emulator_from, 'result_from': step.result_from,
             'sensitivity_from': step.sensitivity_from,
             'params_for_id_from': step.params_for_id_from, 'reduction': step.reduction,
-            'set': step.set_values, 'sweep': step.sweep,
+            'set': step.set_values, 'sweep': step.sweep, 'on_target': step.on_target,
             'hand_sources': [s for s in step.fixed_from if workflow.step(s).kind == 'set'],
         }
         if step.kind == 'sweep':

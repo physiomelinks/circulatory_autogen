@@ -1274,7 +1274,7 @@ of calibrations and `set` steps are merged into the target.
 | `emulation` | trains an emulator of the observables | `emulator_settings` (optional) | `fixed_from`, `params_for_id_from` |
 | `identifiability` | Laplace identifiability analysis at a calibration's result | `ia_options`, `result_from` | `fixed_from` |
 | `set` | declares values or scales by hand, each with a reason | `set`; no model or files | the calibration or set steps it scales |
-| `sweep` | runs a model across chosen parameter values and keeps every run | `model`, `sweep`, `dt`, and `sim_time` or an `obs_data`; no `params_for_id` | `fixed_from`, `result_from` |
+| `sweep` | runs a model across chosen parameter values and keeps every run | `model` (or `"on_target": true`), `sweep`, `dt`, and `sim_time` or an `obs_data`; no `params_for_id` | `fixed_from`, `result_from` |
 
 The keys that pass something on, each naming one step of the kind shown:
 
@@ -1326,6 +1326,23 @@ combination, or `one_at_a_time`, each parameter's values with the others at the 
 `sim_time` and `pre_time`, and its `prediction_items` with an operation give one feature per point.
 Each feature is drawn against the swept parameters as a `feature_vs_input` plot, for
 `one_at_a_time` or a grid of at most two parameters. A sweep does not read `data_items`.
+
+A prediction run on the calibrated model takes `"on_target": true` in place of `model` and
+`fixed_from`. It runs on the target, given every calibration's and set step's values as the target
+merges them (a later step wins), after all of them. In the diagram it sits below the merged box,
+with a box for each file it wrote. Parameters that move together go in a `zip` group: the i-th
+point takes each member's i-th value, so their lists have one length, and the design treats the
+group as one parameter. With `"parameters": {}` the sweep is one run of its protocol. A long rest
+before a run, or the same run at several levels of an input, is the `obs_data` protocol: every
+point runs all its experiments and sub-experiments.
+
+```json
+{"id": "energy_cost", "kind": "sweep", "on_target": true,
+ "obs_data": "protocols/rest_then_glucose_15_40_obs_data.json", "settings": {"dt": 1.0},
+ "sweep": {"outputs": ["enterocyte/v_NKA"], "zip": [["GLUT2_api/Scale_GLUT2", "GLUT2_bas/Scale_GLUT2"]],
+           "parameters": {"GLUT2_api/Scale_GLUT2": {"values": [0, 0.1, 1, 10]},
+                          "GLUT2_bas/Scale_GLUT2": {"values": [1, 1, 10, 100]}}}}
+```
 
 The runs are in `<step_id>/sweep/`: `sweep_results.npz` has `points`, `failed`, `parameters`,
 `outputs`, `features` and `feature_values`, and for each experiment `time_<e>` and `trace_<e>`

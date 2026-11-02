@@ -176,12 +176,42 @@ def set_line(entry):
     return f'`{entry["parameter"]}` {how}: {entry["reason"]}'
 
 
+def _number_text(value):
+    return f'{value:g}' if isinstance(value, (int, float)) else str(value)
+
+
+def sweep_values_text(spec):
+    '''The values one sweep range gives, in a few words: listed, as factors, or as a range.'''
+    if isinstance(spec, list):
+        spec = {'min': spec[0], 'max': spec[1]}
+    if 'values' in spec:
+        return '{' + ', '.join(_number_text(v) for v in spec['values']) + '}'
+    if 'factors' in spec:
+        return '× {' + ', '.join(_number_text(v) for v in spec['factors']) + '}'
+    scale = ', log' if spec.get('scale') == 'log' else ''
+    return (f'{_number_text(spec["min"])} to {_number_text(spec["max"])}, '
+            f'{spec.get("points", 5)} points{scale}')
+
+
 def _sweep_lines(s):
     sweep = s.get('sweep') or {}
-    design = 'one at a time' if sweep.get('design') == 'one_at_a_time' else 'grid'
-    return [model_line(s['model']),
-            f'{_count(len(sweep.get("parameters") or {}), "parameter")} swept, {design}',
-            'feeds nothing forward']
+    parameters = sweep.get('parameters') or {}
+    first = 'the merged target' if s.get('on_target') else model_line(s['model'])
+    if not parameters:
+        return [first, 'the protocol, nothing swept']
+    zipped = {name: group for group in sweep.get('zip') or [] for name in group}
+    design = 'one at a time' if sweep.get('design') == 'one_at_a_time' else 'every combination'
+    lines, seen = [first], set()
+    for name, spec in parameters.items():
+        if name in seen:
+            continue
+        group = zipped.get(name, [name])
+        seen.update(group)
+        lines.append(' with '.join(f'`{member}` {sweep_values_text(parameters[member])}'
+                                   for member in group))
+    if len(lines) > 2:
+        lines.append(design)
+    return lines
 
 
 def workflow_graph(steps):
@@ -219,6 +249,11 @@ def workflow_graph(steps):
             lines.append('then MCMC: posterior stored')
         nodes.append({'id': s['id'], 'title': s['id'], 'lines': lines,
                       'kind': {'calibration': 'step', 'set': 'values'}.get(kind, 'analysis')})
+        if s.get('on_target'):
+            # it runs on the merged target, which the merge edges already draw
+            edges.append({'from': '__target__', 'to': s['id'], 'label': 'runs on',
+                          'style': 'order'})
+            continue
         for dep in s['depends_on']:
             kinds = [label for key, label in _SOURCE_LABELS.items()
                      if dep in (s.get(key) or []) or dep == s.get(key)]

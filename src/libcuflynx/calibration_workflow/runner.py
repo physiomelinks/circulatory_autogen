@@ -410,9 +410,15 @@ class _Run:
             own = [CalibratedParameter(resolved.vessel_map.from_target(p.vessel) or p.vessel,
                                        p.param) for p in own]
         own = {p.model_name for p in own}
-        # a parameter the step calibrates itself is not fixed: the later calibration wins
-        fixed = {n: row for n, row in self.fixed_values(step, step.fixed_from).items()
-                 if n not in own}
+        if step.on_target:
+            # the values the target is generated with: a later step wins, as in merge()
+            fixed = {}
+            for source in step.fixed_from:
+                fixed.update(self.fixed_values(step, [source]))
+        else:
+            # a parameter the step calibrates itself is not fixed: the later calibration wins
+            fixed = {n: row for n, row in self.fixed_values(step, step.fixed_from).items()
+                     if n not in own}
         if step.result_from:
             fixed.update(self.fixed_values(step, [step.result_from]))
         priors = self.priors(step)

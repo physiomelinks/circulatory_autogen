@@ -34,6 +34,8 @@ SOURCE_NODE = '__source__'
 MEASURED_NODE = '__measured__'
 HAND_NODE = '__set_by_hand__'
 TARGET_NODE = '__target__'
+#: the kind of a box for a file a sweep wrote
+FIGURE = 'figure'
 CALIBRATED = 'calibrated'
 MEASURED, INHERITED, SET_BY_HAND = parameters_file.ORIGINS
 UNCLASSIFIED = 'unclassified'
@@ -51,7 +53,7 @@ _MARK_LABELS = {CALIBRATED: 'calibrated', MEASURED: 'measured', INHERITED: 'inhe
 _MARK_COLOURS = {CALIBRATED: '#3b7dd8', MEASURED: '#2e9e6b', INHERITED: '#8a8f98',
                  SET_BY_HAND: '#d98a1f', UNCLASSIFIED: '#b45cc4', MIXED: '#8a8f98'}
 _STALE_COLOUR = '#d9483b'
-_EDGE_DASHES = {'prior': '7 4', 'merge': '2 4', 'given': '7 4'}
+_EDGE_DASHES = {'prior': '7 4', 'merge': '2 4', 'given': '7 4', 'writes': '2 3'}
 
 
 def _sources(raw_step):
@@ -113,6 +115,10 @@ def _graph_steps(run):
     for raw in workflow.get('steps', []):
         result = run['steps'].get(raw.get('id'))
         sources = _sources(raw)
+        if raw.get('on_target'):
+            # given every calibration's and set step's values, as the target is
+            sources['fixed_from'] = [s['id'] for s in workflow.get('steps', [])
+                                     if s.get('kind', 'calibration') in flowchart.MERGED_KINDS]
         depends = list(dict.fromkeys(i for ids in sources.values() for i in ids))
         observables, helpers = _data_item_counts(result) if _done(result) else (0, 0)
         steps.append({
@@ -127,8 +133,17 @@ def _graph_steps(run):
             'priors_from': sources.get('priors_from', []),
             'store_distribution': bool(raw.get('store_distribution')),
             'reduction': raw.get('reduction'), 'set': raw.get('set'),
-            'sweep': raw.get('sweep')})
+            'sweep': raw.get('sweep'), 'on_target': bool(raw.get('on_target'))})
     return steps
+
+
+def _figure_node(step_id, path, output_dir, stale):
+    '''A file a sweep step wrote, as a box below it.'''
+    name = os.path.basename(path)
+    shown = os.path.relpath(path, output_dir) if os.path.isabs(path) else path
+    return {'id': f'{step_id}/{name}', 'kind': FIGURE, 'title': name, 'lines': [f'`{shown}`'],
+            'mark': None, 'status': 'done' if os.path.isfile(path) else 'not_run',
+            'stale': stale, 'counts': {}, 'parameters': [], 'inputs': []}
 
 
 def _target_model(run):
@@ -305,6 +320,7 @@ def provenance_graph(output_dir):
     inputs = {s['id']: _input_entries(run['steps'].get(s['id']), file_status) for s in steps}
     stale = _stale_steps(steps, inputs, run['steps'])
     by_id = {s['id']: s for s in steps}
+    figures = []
 
     by_name = {r['model_name']: r for r in merged}
 
@@ -336,8 +352,13 @@ def provenance_graph(output_dir):
         if done and node['kind'] == 'values':
             node['lines'] = [_described(v) for v in node['parameters']]
         if done and 'n_points' in step_result:
-            node['lines'].insert(-1, f'{step_result["n_points"]} points, '
-                                     f'{step_result["n_failed"]} failed')
+            node['lines'].append(f'{step_result["n_points"]} points, '
+                                 f'{step_result["n_failed"]} failed')
+            for path in [step_result.get('sweep_results')] + list(step_result.get('plots') or []):
+                if path:
+                    figures.append(_figure_node(step_id, path, run['output_dir'], node['stale']))
+                    edges.append({'from': step_id, 'to': figures[-1]['id'], 'label': 'writes',
+                                  'style': 'writes'})
         observables = by_id[step_id].get('n_data_items', 0)
         helpers = by_id[step_id].get('n_helper_items', 0)
         if done and observables + helpers:
@@ -383,7 +404,7 @@ def provenance_graph(output_dir):
                      'stale': any(stale.values())},
         'code': {key: (result or {}).get(key) for key in
                  ('libcuflynx_version', 'libcuflynx_git', 'project_git', 'libcellml_version')},
-        'counts': target_counts, 'nodes': extra + nodes, 'edges': edges}
+        'counts': target_counts, 'nodes': extra + nodes + figures, 'edges': edges}
 
 
 # -- drawing -----------------------------------------------------------------------------------

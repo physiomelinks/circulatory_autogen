@@ -15,6 +15,10 @@ next release; add to that section as you land a change.
   keeps every run in `<step_id>/sweep/`, spread across MPI ranks. A failed point stays as a NaN row.
   An obs_data's `prediction_items` give a feature per point, drawn as `feature_vs_input` plots. A
   sweep feeds nothing forward, so no step can take from it and it does not reach the target.
+- A sweep with `"on_target": true` runs on the target with every calibration's and set step's
+  values merged as the target merges them, after all of them. Its `zip` groups move parameters
+  together as one axis, and a sweep with no parameters is one run of its protocol. The provenance
+  diagram draws it below the merged box, with a box for each file it wrote.
 
 ### Added — a calibration workflow run writes its provenance
 

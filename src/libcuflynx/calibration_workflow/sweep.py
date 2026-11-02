@@ -10,7 +10,10 @@ A step's ``sweep`` is ``{"design", "outputs", "parameters"}``. ``parameters`` ma
 * ``{"factors": [...]}``: these multiples of the value the step's model gives it.
 
 ``design`` is ``grid`` (every combination) or ``one_at_a_time`` (each parameter's values with
-the others at the model's values). ``outputs`` are variables recorded over time.
+the others at the model's values). ``zip`` lists groups of parameters that move together: the
+i-th point of a group takes each member's i-th value, and the design treats the group as one
+parameter. With no parameters the sweep is one run of the protocol. ``outputs`` are variables
+recorded over time.
 
 Each point sets the parameters at the start of every experiment of the protocol, which is the
 step's ``obs_data`` protocol, or one run of ``sim_time`` after ``pre_time``. Under MPI each rank
@@ -67,25 +70,77 @@ def parameter_values(spec, nominal=None, where=''):
     return np.linspace(low, high, points)
 
 
+def axis_groups(sweep):
+    '''The sweep's axes: each a list of the parameters that move together, in the order the
+    parameters are listed (a ``zip`` group sits where its first member is).'''
+    zipped = {name: group for group in sweep.get('zip', []) for name in group}
+    groups, seen = [], set()
+    for name in sweep['parameters']:
+        if name in seen:
+            continue
+        group = zipped.get(name, [name])
+        groups.append(group)
+        seen.update(group)
+    return groups
+
+
+def _check_zip(sweep, where):
+    names = [name for group in sweep.get('zip', []) for name in group]
+    unknown = sorted(set(names) - set(sweep['parameters']))
+    if unknown:
+        raise WorkflowError(f'{where}: "zip" names {unknown}, which it does not sweep.')
+    twice = sorted({name for name in names if names.count(name) > 1})
+    if twice:
+        raise WorkflowError(f'{where}: "zip" puts {twice} in more than one group.')
+
+
+def _zipped_axis(group, axes, where):
+    lengths = {name: len(axes[name]) for name in group}
+    if len(set(lengths.values())) > 1:
+        raise WorkflowError(f'{where}: the parameters zipped together take different numbers of '
+                            f'values: {lengths}.')
+    return np.column_stack([axes[name] for name in group])
+
+
 def check_sweep(sweep, where):
     '''Check what can be checked of a ``sweep`` without the model.'''
+    _check_zip(sweep, where)
+    known = {}
     for name, spec in sweep['parameters'].items():
-        parameter_values(spec, where=f'{where}: "{name}"')
+        values = parameter_values(spec, where=f'{where}: "{name}"')
+        if values is not None:
+            known[name] = values
+    for group in sweep.get('zip', []):
+        if all(name in known for name in group):
+            _zipped_axis(group, known, where)
 
 
 def sweep_points(sweep, nominal, where=''):
     '''``(names, points)``: the swept parameters and the ``(points, parameters)`` array of
-    values, by the sweep's design. ``nominal`` is ``{parameter: its value in the model}``.'''
+    values, by the sweep's design. ``nominal`` is ``{parameter: its value in the model}``. With
+    no parameters it is one point with no values.'''
     names = list(sweep['parameters'])
-    axes = [parameter_values(sweep['parameters'][name], nominal[name], f'{where}: "{name}"')
-            for name in names]
-    if sweep['design'] == 'grid':
-        return names, np.array(list(itertools.product(*axes)), dtype=float)
+    if not names:
+        return names, np.zeros((1, 0))
+    values = {name: parameter_values(sweep['parameters'][name], nominal[name], f'{where}: "{name}"')
+              for name in names}
+    groups = axis_groups(sweep)
+    axes = [_zipped_axis(group, values, where) for group in groups]
+    column = {name: names.index(name) for name in names}
     rows = []
-    for index, axis in enumerate(axes):
-        for value in axis:
+    if sweep['design'] == 'grid':
+        for combination in itertools.product(*axes):
+            row = [0.0] * len(names)
+            for group, group_values in zip(groups, combination):
+                for name, value in zip(group, group_values):
+                    row[column[name]] = value
+            rows.append(row)
+        return names, np.array(rows, dtype=float)
+    for group, axis in zip(groups, axes):
+        for group_values in axis:
             row = [nominal[name] for name in names]
-            row[index] = value
+            for name, value in zip(group, group_values):
+                row[column[name]] = value
             rows.append(row)
     return names, np.array(rows, dtype=float)
 
@@ -186,17 +241,21 @@ def _results_arrays(names, points, outputs, by_point):
 def _plot_groups(sweep, names, points, nominal):
     '''``[(x parameter index, series parameter index or None, point indices)]``, a figure's
     points by the design: one parameter at a time, or a grid of at most two parameters.'''
+    axes = axis_groups(sweep)
+    if not names:
+        return []
     if sweep['design'] == 'one_at_a_time':
         groups = []
         start = 0
-        for index, name in enumerate(names):
-            size = len(parameter_values(sweep['parameters'][name], nominal[name]))
-            groups.append((index, None, list(range(start, start + size))))
+        for group in axes:
+            size = len(parameter_values(sweep['parameters'][group[0]], nominal[group[0]]))
+            groups.append((names.index(group[0]), None, list(range(start, start + size))))
             start += size
         return groups
-    if len(names) > 2:
+    if len(axes) > 2:
         return []
-    return [(0, 1 if len(names) == 2 else None, list(range(len(points))))]
+    return [(names.index(axes[0][0]), names.index(axes[1][0]) if len(axes) == 2 else None,
+             list(range(len(points))))]
 
 
 def plot_features(sweep, names, points, nominal, arrays, out_dir):
@@ -261,7 +320,8 @@ def write_results(sweep, names, points, by_point, nominal, units, out_dir, where
     features = [str(name) for name in arrays['features']]
     plots = plot_features(sweep, names, points, nominal, arrays, out_dir) if features else []
     manifest = {
-        'design': sweep['design'], 'n_points': len(points), 'n_failed': len(errors),
+        'design': sweep['design'], 'zip': sweep.get('zip', []),
+        'n_points': len(points), 'n_failed': len(errors),
         'parameters': [{'name': name, 'units': units.get(name, ''), 'nominal': nominal[name],
                         'values': sorted({float(v) for v in points[:, column]})}
                        for column, name in enumerate(names)],
