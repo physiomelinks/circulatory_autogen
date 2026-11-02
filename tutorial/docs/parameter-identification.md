@@ -1467,8 +1467,28 @@ Each step's inputs show as `current`, `stale` or `missing`. A step's result is s
 files or settings changed since it ran, or when a step it took something from is stale or ran
 again after it, and a later step refuses to reuse it (`Run the workflow from ...`). A changed
 module library is shown and warned about but does not make a step stale, because a library holds
-far more than one model uses. Steps outside the workflow, such as a build before it or plots after
-it, are not tracked.
+far more than one model uses. A build before the workflow is not tracked.
+
+Figure scripts that run after the workflow and read its results are declared, never run, in the
+optional top-level `external_figures`:
+
+```json
+"external_figures": [
+  {"id": "paper_plots", "command": "make paper-plots WF_OUT=<run>", "from": "target",
+   "description": "the authors' figure scripts on the calibrated model",
+   "reads": ["paper_plots/calibrated_parameters.json"],
+   "writes": ["paper_plots/calibrated/Fig9/fig9.png", "~/papers/enterocyte/fig15.png"]}
+]
+```
+
+`from` is the step whose results the script reads, or `"target"` for the merged model. A path in
+`reads` or `writes` is absolute (`~` allowed) or relative to the run's output directory. Each
+script is a dashed box, outside the workflow, with an arrow from `from` and a box for each file it
+writes. It is `stale` when a file it reads, or the result of `from`, is newer than the oldest file
+it writes, or when `from` is stale; it is not run while a file it writes is missing. The files and
+their status are in the box's `inputs` in the graph. `external_figures` can be added after a run:
+the graph reads them from the workflow file as it is now, and adding them does not make the run
+stale.
 
 `--pack DIR` (or `pack_workflow` in Python) copies every file the workflow needs to run, and
 none of its results, into the new directory `DIR`: `DIR/calibration_workflow.json` runs anywhere

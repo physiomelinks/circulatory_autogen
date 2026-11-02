@@ -282,9 +282,10 @@
             "analysis",
             "values",
             "target",
-            "figure"
+            "figure",
+            "external"
           ],
-          "description": "figure: a file a sweep step wrote, its title the file name and its line the path in the output directory"
+          "description": "figure: a file a sweep step or an external script wrote, its title the file name and its line the path in the output directory. external: a script outside the workflow (external_figures) that reads a step's or the target's results; its inputs list the files it reads and writes, and it is stale when one it reads is newer than the oldest it writes."
         },
         "title": {
           "type": "string"
@@ -359,7 +360,8 @@
             "prior",
             "merge",
             "given",
-            "writes"
+            "writes",
+            "reads"
           ]
         }
       }

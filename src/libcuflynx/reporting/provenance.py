@@ -36,6 +36,8 @@ HAND_NODE = '__set_by_hand__'
 TARGET_NODE = '__target__'
 #: the kind of a box for a file a sweep wrote
 FIGURE = 'figure'
+#: a script outside the workflow that reads its results (``external_figures``)
+EXTERNAL = 'external'
 CALIBRATED = 'calibrated'
 MEASURED, INHERITED, SET_BY_HAND = parameters_file.ORIGINS
 UNCLASSIFIED = 'unclassified'
@@ -53,7 +55,8 @@ _MARK_LABELS = {CALIBRATED: 'calibrated', MEASURED: 'measured', INHERITED: 'inhe
 _MARK_COLOURS = {CALIBRATED: '#3b7dd8', MEASURED: '#2e9e6b', INHERITED: '#8a8f98',
                  SET_BY_HAND: '#d98a1f', UNCLASSIFIED: '#b45cc4', MIXED: '#8a8f98'}
 _STALE_COLOUR = '#d9483b'
-_EDGE_DASHES = {'prior': '7 4', 'merge': '2 4', 'given': '7 4', 'writes': '2 3'}
+_EDGE_DASHES = {'prior': '7 4', 'merge': '2 4', 'given': '7 4', 'writes': '2 3',
+                'reads': '2 3'}
 
 
 def _sources(raw_step):
@@ -221,13 +224,78 @@ def _input_entries(result, workflow_file_status):
 
 
 def _workflow_file_status(result):
-    from libcuflynx.calibration_workflow.runner import sha256
+    from libcuflynx.calibration_workflow.runner import sha256, workflow_digest
     path = (result or {}).get('workflow_file')
     if not path:
         return CURRENT
     if not os.path.isfile(path):
         return MISSING
-    return CURRENT if sha256(path) == result.get('workflow_sha256') else STALE
+    recorded = result.get('workflow_sha256')
+    # a run recorded either the digest that ignores external_figures or the file's own sha256
+    try:
+        same = recorded in (workflow_digest(path), sha256(path))
+    except (OSError, ValueError):
+        same = recorded == sha256(path)
+    return CURRENT if same else STALE
+
+
+def _external_figures(run, result):
+    '''The ``external_figures`` the workflow declares: from its file as it is now, so they can
+    be declared after a run, or else from the run's copy.'''
+    path = (result or {}).get('workflow_file')
+    if path and os.path.isfile(path):
+        try:
+            with open(path, encoding='utf-8-sig') as f:
+                return json.load(f).get('external_figures') or []
+        except ValueError:
+            pass
+    return run['workflow'].get('external_figures') or []
+
+
+def _external_node(entry, run, from_node, from_stale):
+    '''A declared figure script: its box, its files as ``inputs``, and its figure boxes.
+
+    It is ``stale`` when a file it reads, or the result of the step it reads from, is newer than
+    the oldest file it writes, or that step is stale; a written file that is absent leaves it
+    not run.'''
+    from libcuflynx.calibration_workflow.spec import external_path
+    output_dir = run['output_dir']
+    writes = [external_path(p, output_dir) for p in entry['writes']]
+    reads = [external_path(p, output_dir) for p in entry.get('reads') or []]
+    present = [p for p in writes if os.path.isfile(p)]
+    oldest = min((os.path.getmtime(p) for p in present), default=None)
+    from_file = os.path.join(output_dir, entry['from'], 'step_result.json') \
+        if from_node != TARGET_NODE else os.path.join(output_dir, 'workflow_result.json')
+
+    def read_status(path):
+        if not os.path.isfile(path):
+            return MISSING
+        return STALE if oldest is not None and os.path.getmtime(path) > oldest else CURRENT
+
+    files = [{'key': 'reads', 'path': p, 'sha256': None, 'status': read_status(p)}
+             for p in reads]
+    files += [{'key': 'writes', 'path': p, 'sha256': None,
+               'status': CURRENT if os.path.isfile(p) else MISSING} for p in writes]
+    complete = len(present) == len(writes)
+    stale = complete and (from_stale or any(f['status'] == STALE for f in files)
+                          or read_status(from_file) == STALE)
+    lines = [f'`{entry["command"]}`']
+    if entry.get('description'):
+        lines.append(entry['description'])
+    missing = len(writes) - len(present)
+    if missing:
+        lines.append(f'{missing} of {len(writes)} files not written')
+    node = {'id': entry['id'], 'kind': EXTERNAL, 'title': entry['id'], 'lines': lines,
+            'mark': None, 'status': 'done' if complete else 'not_run', 'stale': stale,
+            'counts': {}, 'parameters': [], 'inputs': files}
+    figures = [_figure_node(entry['id'], p, output_dir, stale) for p in writes]
+    for figure in figures:
+        # by path: a script's files can share a name in different folders
+        figure['id'] = f'{entry["id"]}/{figure["lines"][0].strip("`")}'
+    edges = [{'from': from_node, 'to': entry['id'], 'label': 'reads', 'style': 'reads'}]
+    edges += [{'from': entry['id'], 'to': f['id'], 'label': 'writes', 'style': 'writes'}
+              for f in figures]
+    return node, figures, edges
 
 
 def _stale_steps(steps, inputs, results):
@@ -395,6 +463,14 @@ def provenance_graph(output_dir):
             extra.append(_values_node(node_id, title, origin, given))
             edges.append({'from': node_id, 'to': TARGET_NODE, 'label': _MARK_LABELS[origin],
                           'style': 'given'})
+    for entry in _external_figures(run, result):
+        from_node = TARGET_NODE if entry['from'] == 'target' else entry['from']
+        if from_node != TARGET_NODE and from_node not in stale:
+            continue                                 # names a step this run does not have
+        from_stale = any(stale.values()) if from_node == TARGET_NODE else stale[from_node]
+        node, written, external_edges = _external_node(entry, run, from_node, from_stale)
+        figures += [node] + written
+        edges += external_edges
     return {
         'schema_version': SCHEMA_VERSION,
         'workflow': {'name': run['workflow'].get('workflow_name'), 'output_dir': run['output_dir'],
@@ -474,11 +550,15 @@ def _layout(graph):
 
 def _draw_node(node, x, y, height, _row):
     colour = _STALE_COLOUR if node['stale'] else _MARK_COLOURS.get(node['mark'], 'currentColor')
-    dash = ' stroke-dasharray="6 4"' if node['stale'] else ''
+    external = node['kind'] == EXTERNAL
+    dash = ' stroke-dasharray="6 4"' if node['stale'] else \
+        ' stroke-dasharray="2 4"' if external else ''
     parts = [f'<rect x="{x:.0f}" y="{y:.0f}" width="{_BOX_WIDTH}" height="{height:.0f}" rx="5" '
              f'fill="currentColor" fill-opacity="0.04" stroke="{colour}" stroke-width="2"{dash}/>']
-    label = _MARK_LABELS.get(node['mark'], '')
-    if node['stale']:
+    label = 'outside the workflow' if external else _MARK_LABELS.get(node['mark'], '')
+    if external and node['status'] == 'not_run':
+        label = f'{label}, files missing'
+    elif node['stale']:
         label = f'{label}, stale' if label else 'stale'
     elif node['status'] == 'not_run':
         label = 'not run'

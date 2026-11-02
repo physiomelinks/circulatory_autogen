@@ -19,6 +19,11 @@ next release; add to that section as you land a change.
   values merged as the target merges them, after all of them. Its `zip` groups move parameters
   together as one axis, and a sweep with no parameters is one run of its protocol. The provenance
   diagram draws it below the merged box, with a box for each file it wrote.
+- A workflow's optional `external_figures` declares figure scripts that run outside it: the
+  command, the step or target they read from, and the files they read and write. libcuflynx never
+  runs them. The provenance diagram draws each as a dashed box with its files, current, stale or
+  not run by file times. A run's recorded workflow digest leaves `external_figures` out, so
+  declaring them after a run keeps it current.
 
 ### Added — a calibration workflow run writes its provenance
 

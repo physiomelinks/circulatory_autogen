@@ -224,6 +224,8 @@ class Workflow:
     description: str = ''
     path: str = None
     raw: dict = None
+    #: scripts outside the workflow that read its results (``external_figures``), as written
+    external_figures: list = field(default_factory=list)
 
     def step(self, step_id):
         for step in self.steps:
@@ -302,14 +304,42 @@ def parse_workflow(raw, path=None, module_library_dirs=None):
                         steps=[_step(s, where, base_dir) for s in raw['steps']],
                         settings=_settings(raw.get('settings', {}), base_dir),
                         module_library_dirs=library_dirs,
-                        description=raw.get('description', '') or '', path=path, raw=raw)
+                        description=raw.get('description', '') or '', path=path, raw=raw,
+                        external_figures=copy.deepcopy(raw.get('external_figures', [])))
     _place_target_sweeps(workflow)
     check_workflow(workflow)
+    _check_external_figures(workflow, where)
     order = [s.id for s in workflow.topological_order()]
     for step in workflow.steps:
         if step.on_target:
             step.fixed_from.sort(key=order.index)
     return workflow
+
+
+#: what an external figure's ``from`` names when it reads the merged model
+EXTERNAL_FROM_TARGET = 'target'
+
+
+def external_path(path, output_dir):
+    '''An external figure's ``reads`` or ``writes`` path: absolute (``~`` expanded), or
+    relative to the run's output directory.'''
+    path = os.path.expanduser(path)
+    return path if os.path.isabs(path) else os.path.join(output_dir, path)
+
+
+def _check_external_figures(workflow, where):
+    step_ids = {s.id for s in workflow.steps}
+    seen = set()
+    for entry in workflow.external_figures:
+        name = entry['id']
+        if name in step_ids or name in seen:
+            raise WorkflowError(f'{where}: external figure "{name}" has the id of '
+                                f'{"a step" if name in step_ids else "another external figure"};'
+                                f' ids must be unique.')
+        seen.add(name)
+        if entry['from'] != EXTERNAL_FROM_TARGET and entry['from'] not in step_ids:
+            raise WorkflowError(f'{where}: external figure "{name}" reads from "{entry["from"]}",'
+                                f' which is neither a step nor "{EXTERNAL_FROM_TARGET}".')
 
 
 #: the kinds whose values an on_target sweep is given, as the target merges them

@@ -593,3 +593,96 @@ def test_a_sweep_spreads_over_ranks_and_keeps_its_order(library, tmp_path):
         q = results['points'].ravel()
         np.testing.assert_allclose(results['trace_0'][:, 0, -1], 2.0 + q ** 2, rtol=1e-6)
     assert q.tolist() == [1.0, 1.5, 2.0, 2.5, 3.0]
+
+
+# --------------------------------------------------------------------------------------------
+# figure scripts outside the workflow
+# --------------------------------------------------------------------------------------------
+
+def _external(**entry):
+    return dict({'id': 'paper_plots', 'command': 'python tools/paper_plots.py {run}',
+                 'from': 'target', 'writes': ['plots/fig1.png']}, **entry)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('entry, message', [
+    (_external(id='rest'), 'has the id of a step'),
+    (_external(**{'from': 'nowhere'}), 'neither a step nor "target"'),
+    (_external(writes=[]), 'writes'),
+    (_external(command=''), 'command'),
+])
+def test_invalid_external_figures_say_why(library, entry, message):
+    raw = _raw(library)
+    raw['external_figures'] = [entry]
+    with pytest.raises(WorkflowError, match=message):
+        _parse(library, raw)
+
+
+@pytest.mark.unit
+def test_two_external_figures_need_their_own_ids(library):
+    raw = _raw(library)
+    raw['external_figures'] = [_external(), _external()]
+    with pytest.raises(WorkflowError, match='another external figure'):
+        _parse(library, raw)
+
+
+@pytest.mark.unit
+def test_an_external_path_is_absolute_or_in_the_output_directory(tmp_path):
+    from libcuflynx.calibration_workflow.spec import external_path
+    assert external_path('plots/a.png', '/runs/w') == '/runs/w/plots/a.png'
+    assert external_path(str(tmp_path / 'a.png'), '/runs/w') == str(tmp_path / 'a.png')
+    assert external_path('~/a.png', '/runs/w') == os.path.expanduser('~/a.png')
+
+
+@pytest.mark.integration
+def test_a_declared_figure_script_is_current_then_stale_then_missing(library, tmp_path):
+    """Declared after the run, the script leaves the run current; touching a file it reads makes
+    it stale, and deleting a file it writes leaves it not run."""
+    from libcuflynx.schemas import PROVENANCE_GRAPH_SCHEMA
+    from libcuflynx.schemas.validation import validate
+    out = str(tmp_path / 'out')
+    path = _write(library, _raw(library))
+    run_calibration_workflow(path, output_dir=out)
+
+    data = os.path.join(out, 'plots', 'data.csv')
+    figure = os.path.join(out, 'plots', 'Fig1', 'a.png')
+    elsewhere = tmp_path / 'paper' / 'Fig2' / 'a.png'
+    for file in (data, figure, str(elsewhere)):
+        os.makedirs(os.path.dirname(file), exist_ok=True)
+        with open(file, 'w') as f:
+            f.write('x')
+    now = os.path.getmtime(os.path.join(out, 'workflow_result.json'))
+    os.utime(data, (now + 10, now + 10))
+    os.utime(figure, (now + 20, now + 20))
+    os.utime(elsewhere, (now + 20, now + 20))
+    raw = _raw(library)
+    raw['external_figures'] = [_external(reads=['plots/data.csv'],
+                                         writes=['plots/Fig1/a.png', str(elsewhere)],
+                                         description='the paper figures')]
+    _write(library, raw)
+
+    graph = provenance_graph(out)
+    validate(PROVENANCE_GRAPH_SCHEMA, graph, source='graph', what='provenance graph')
+    assert graph['workflow']['file_status'] == 'current' and not graph['workflow']['stale']
+    script = next(n for n in graph['nodes'] if n['id'] == 'paper_plots')
+    assert (script['kind'], script['status'], script['stale']) == ('external', 'done', False)
+    assert script['lines'] == ['`python tools/paper_plots.py {run}`', 'the paper figures']
+    assert [(e['key'], e['status']) for e in script['inputs']] == [
+        ('reads', 'current'), ('writes', 'current'), ('writes', 'current')]
+    edges = {(e['from'], e['to'], e['style']) for e in graph['edges']}
+    assert ('__target__', 'paper_plots', 'reads') in edges
+    written = [e['to'] for e in graph['edges'] if e['from'] == 'paper_plots']
+    assert len(written) == len(set(written)) == 2      # both files are a.png
+    assert 'OUTSIDE THE WORKFLOW' in provenance_svg(graph)
+
+    os.utime(data, (now + 30, now + 30))
+    script = next(n for n in provenance_graph(out)['nodes'] if n['id'] == 'paper_plots')
+    assert script['stale'] and script['inputs'][0]['status'] == 'stale'
+
+    os.remove(figure)
+    graph = provenance_graph(out)
+    script = next(n for n in graph['nodes'] if n['id'] == 'paper_plots')
+    assert (script['status'], script['stale']) == ('not_run', False)
+    assert script['inputs'][1]['status'] == 'missing'
+    assert '1 of 2 files not written' in script['lines']
+    assert 'FILES MISSING' in provenance_svg(graph)

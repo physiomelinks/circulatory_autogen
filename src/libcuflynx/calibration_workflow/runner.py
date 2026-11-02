@@ -112,6 +112,15 @@ def sha256(path):
     return digest.hexdigest()
 
 
+def workflow_digest(path):
+    '''The sha256 of a workflow file's content without its ``external_figures``, whatever the
+    key order: declaring figure scripts after a run leaves the run current.'''
+    with open(path, encoding='utf-8-sig') as f:
+        raw = json.load(f)
+    raw.pop('external_figures', None)
+    return settings_digest(raw)
+
+
 def settings_digest(settings):
     '''The sha256 of a step's settings, whatever their key order.'''
     text = json.dumps(settings, sort_keys=True, default=str)
@@ -878,7 +887,7 @@ class _Run:
         workflow_result = {
             'workflow_name': self.workflow.name,
             'workflow_file': self.workflow.path,
-            'workflow_sha256': sha256(self.workflow.path) if self.workflow.path else None,
+            'workflow_sha256': workflow_digest(self.workflow.path) if self.workflow.path else None,
             'target': self.workflow.target.as_dict(),
             'order': [s.id for s in order],
             'complete': complete,
