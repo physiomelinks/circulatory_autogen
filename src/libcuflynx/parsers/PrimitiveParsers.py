@@ -21,7 +21,6 @@ try:
 except Exception:
     ScalarFloat = None
 import re
-from datetime import date
 
 from libcuflynx.utilities.protocol_shapes import materialise_shapes, validate_trace_references
 from libcuflynx.schemas import OBS_DATA_SCHEMA, PARAMS_FOR_ID_SCHEMA
@@ -1923,7 +1922,9 @@ ANALYSIS_OPTIONS = {
         'options': [
             {'name': 'emulator_dir', 'type': 'str', 'default': None, 'required': False,
              'description': ('Directory holding the trained emulator. Defaults to '
-                             '<param_id_output_dir>/emulators/<file_prefix>_<obs_prefix>.')},
+                             '<param_id_output_dir>/emulators/<file_prefix>_<obs_prefix>. A '
+                             'relative one is taken from the folder of the yaml '
+                             'user_inputs_path_override names.')},
             # Not a preference so much as an escape hatch. joblib is what autoemulate
             # itself writes and reads, but some fitted emulators hold an uninitialised
             # C-extension descriptor (`_abc._abc_data`) that pickle cannot take apart,
@@ -2176,14 +2177,22 @@ def user_inputs_as_written(inp_data_dict):
 
 
 def save_dated_user_inputs(inp_data_dict):
-    """Best-effort: archive the resolved run config as ``user_inputs_<yymmdd>.yaml``
-    in ``resources_dir``, so every run keeps a dated, reproducible record of what
-    was run (mirrors the params_for_id / obs_data archival). Never raises — a
+    """Best-effort: archive the resolved run config as ``user_inputs_<yymmdd>.yaml``, so
+    every run keeps a dated, reproducible record of what was run (mirrors the
+    params_for_id / obs_data archival). It goes in the study's working dir,
+    ``<param_id_output_dir>/inputs/user_inputs/``, when the config has a
+    ``param_id_output_dir`` and writes a study manifest that copies its inputs
+    (``cuflynx_study.copies_inputs``); otherwise in ``resources_dir``. Never raises — a
     failure here must not abort a run. Only rank 0 writes (avoids MPI clobber)."""
     if rank != 0:
         return
     try:
-        resources_dir = inp_data_dict.get('resources_dir')
+        from libcuflynx.utilities import cuflynx_study
+        if inp_data_dict.get('param_id_output_dir') and cuflynx_study.copies_inputs(inp_data_dict):
+            resources_dir = cuflynx_study.user_inputs_archive_dir(inp_data_dict)
+            os.makedirs(resources_dir, exist_ok=True)
+        else:
+            resources_dir = inp_data_dict.get('resources_dir')
         if not resources_dir or not os.path.isdir(resources_dir):
             return
         # Keep only yaml-serialisable entries so a stray object never breaks a run.
@@ -2194,9 +2203,7 @@ def save_dated_user_inputs(inp_data_dict):
             except Exception:
                 continue
             safe[key] = value
-        out_path = os.path.join(
-            resources_dir, f"user_inputs_{date.today().strftime('%y%m%d')}.yaml"
-        )
+        out_path = os.path.join(resources_dir, cuflynx_study.dated_user_inputs_name())
         with open(out_path, 'w') as f:
             yaml.safe_dump(safe, f, default_flow_style=False, sort_keys=False)
     except Exception:
@@ -2390,7 +2397,8 @@ class YamlFileParser(object):
         # workflow is the wrong directory, so the README's own example raised
         # FileNotFoundError.
         for _key in ('cost_funcs_external_path', 'operation_funcs_external_path',
-                     'modifier_funcs_external_path', 'external_model_path'):
+                     'modifier_funcs_external_path', 'external_model_path',
+                     'generated_model_path'):
             if inp_data_dict.get(_key):
                 inp_data_dict[_key] = resolve_user_path(inp_data_dict[_key], user_files_dir)
 
@@ -2408,9 +2416,12 @@ class YamlFileParser(object):
         else:
             inp_data_dict['generated_models_dir'] = default_generated_models_dir()
         
+        if inp_data_dict.get('param_id_obs_path'):
+            # Resolved for every stage, since the dated archive of this config names it too.
+            inp_data_dict['param_id_obs_path'] = os.path.join(user_files_dir, inp_data_dict['param_id_obs_path'])
+
         if obs_path_needed:
             if 'param_id_obs_path' in inp_data_dict.keys():
-                inp_data_dict['param_id_obs_path'] = os.path.join(user_files_dir, inp_data_dict['param_id_obs_path'])
                 if not os.path.exists(inp_data_dict['param_id_obs_path']):
                     print(f'param_id_obs_path={inp_data_dict["param_id_obs_path"]} does not exist')
                     exit()
@@ -2477,12 +2488,17 @@ class YamlFileParser(object):
             exit()
 
         if model_ext is not None:
-            inp_data_dict['model_path'] = os.path.join(inp_data_dict['generated_models_subdir'], f'{file_prefix}{model_ext}')
+            # generated_model_path names a model to run that is kept somewhere else, such as the
+            # copy in a study's working dir (cuflynx_study.export_working_dir).
+            generated_path = os.path.join(inp_data_dict['generated_models_subdir'], f'{file_prefix}{model_ext}')
+            kept_path = inp_data_dict.get('generated_model_path')
 
             if do_generation_with_fit_parameters:
-                inp_data_dict['uncalibrated_model_path'] = os.path.join(inp_data_dict["generated_models_dir"], file_prefix,
-                                                   file_prefix + model_ext)
+                inp_data_dict['model_path'] = generated_path
+                inp_data_dict['uncalibrated_model_path'] = kept_path or os.path.join(
+                    inp_data_dict["generated_models_dir"], file_prefix, file_prefix + model_ext)
             else:
+                inp_data_dict['model_path'] = kept_path or generated_path
                 inp_data_dict['uncalibrated_model_path'] = inp_data_dict['model_path']
 
 
@@ -2772,19 +2788,28 @@ class YamlFileParser(object):
         if not 'sa_options' in inp_data_dict.keys():
             inp_data_dict['sa_options'] = None
 
+        # Sensitivity output goes in the study's working dir (<param_id_output_dir>/sensitivity,
+        # a relative output_dir under it) when the study manifest copies its inputs there;
+        # otherwise under sensitivity_outputs/. An absolute output_dir is kept as given.
+        from libcuflynx.utilities import cuflynx_study
+        if cuflynx_study.copies_inputs(inp_data_dict):
+            sa_parent = default_sa_dir = cuflynx_study.sensitivity_dir(inp_data_dict)
+        else:
+            sa_parent = default_sensitivity_outputs_dir()
+            default_sa_dir = os.path.join(sa_parent, file_prefix + '_SA_results')
         if inp_data_dict['sa_options'] is None:
             inp_data_dict['sa_options'] = {
                 'method': 'sobol',
                 'num_samples': 32,
                 'sample_type': 'saltelli',
-                'output_dir': os.path.join(default_sensitivity_outputs_dir(), file_prefix + '_SA_results')
+                'output_dir': default_sa_dir
             }
         else:
             if 'output_dir' not in inp_data_dict['sa_options'].keys():
-                inp_data_dict['sa_options']['output_dir'] = os.path.join(default_sensitivity_outputs_dir(), file_prefix + '_SA_results')
+                inp_data_dict['sa_options']['output_dir'] = default_sa_dir
             else:
                 if not os.path.isabs(inp_data_dict['sa_options']['output_dir']):
-                    inp_data_dict['sa_options']['output_dir'] = os.path.join(default_sensitivity_outputs_dir(), inp_data_dict['sa_options']['output_dir'])
+                    inp_data_dict['sa_options']['output_dir'] = os.path.join(sa_parent, inp_data_dict['sa_options']['output_dir'])
             
             if not os.path.exists(inp_data_dict['sa_options']['output_dir']):
                 os.makedirs(inp_data_dict['sa_options']['output_dir'], exist_ok=True)
@@ -2823,6 +2848,10 @@ class YamlFileParser(object):
             inp_data_dict['emulator_settings'] = {}
         emulator_settings = inp_data_dict['emulator_settings']
         emulator_settings.setdefault('emulator_dir', None)
+        if user_files_dir and emulator_settings['emulator_dir'] \
+                and not os.path.isabs(emulator_settings['emulator_dir']):
+            emulator_settings['emulator_dir'] = os.path.join(user_files_dir,
+                                                             emulator_settings['emulator_dir'])
         emulator_settings.setdefault('model_serialiser', 'auto')
         emulator_settings.setdefault('models', 'default')
         emulator_settings.setdefault('num_train_samples', 128)

@@ -1673,9 +1673,11 @@ def test_the_dated_user_inputs_keep_cvode(tmp_path):
     import yaml
     from datetime import date
     inp = _cvode_inputs(tmp_path, solver_info={'solver': 'CVODE'})
+    inp['param_id_output_dir'] = str(tmp_path / 'out')
     YamlFileParser().parse_user_inputs_file(inp, obs_path_needed=False,
                                             do_generation_with_fit_parameters=False)
-    dated = tmp_path / 'resources' / f"user_inputs_{date.today().strftime('%y%m%d')}.yaml"
+    dated = (tmp_path / 'out' / 'inputs' / 'user_inputs'
+             / f"user_inputs_{date.today().strftime('%y%m%d')}.yaml")
     saved = yaml.safe_load(dated.read_text())
     assert saved['solver_info']['solver'] == 'CVODE'
     assert not any(key.startswith('_') for key in saved)

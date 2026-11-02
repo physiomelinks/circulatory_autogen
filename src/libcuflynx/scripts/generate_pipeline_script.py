@@ -1836,7 +1836,7 @@ _MACHINE_PATH_KEYS = (
     'generated_models_dir', 'param_id_output_dir', 'external_modules_dir',
     'generated_models_subdir', 'param_id_output_dir_abs_path',
     'uncalibrated_model_path', 'vessels_csv_abs_path', 'parameters_csv_abs_path',
-    'cpp_generated_models_dir', 'cpp_1d_model_config_path',
+    'cpp_generated_models_dir', 'cpp_1d_model_config_path', 'generated_model_path',
 )
 
 
