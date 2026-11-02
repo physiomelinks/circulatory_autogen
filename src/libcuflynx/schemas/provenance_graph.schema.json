@@ -165,7 +165,7 @@
       "additionalProperties": {
         "type": "integer"
       },
-      "description": "How many values each origin set; a step also has fixed, those given by earlier steps."
+      "description": "How many values each origin set; a step also has fixed, those given by earlier steps, and, when it has obs_data, observables (data_items scored in the cost) and helper_items (data_items with weight 0 or std of at least 1e14, which only feed other items)."
     },
     "value": {
       "type": "object",
