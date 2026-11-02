@@ -96,7 +96,7 @@ def tikz(nodes, edges, x_gap=5.2, y_gap=2.6, text_width='4.2cm'):
 def width_cm(nodes, edges, x_gap=5.2, node_cm=4.6):
     '''Roughly how wide :func:`tikz` draws ``nodes``: its widest row.'''
     level = levels(nodes, edges)
-    widest =max(list(level.values()).count(d) for d in set(level.values()))
+    widest = max(list(level.values()).count(d) for d in set(level.values()))
     return (widest - 1) * x_gap + node_cm
 
 

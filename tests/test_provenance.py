@@ -144,6 +144,46 @@ def test_the_graph_says_which_input_went_stale(library, tmp_path):
 
 
 @pytest.mark.integration
+def test_settings_are_stale_only_where_a_step_s_own_settings_changed(library, tmp_path):
+    """The graph judges settings per step, as workflow_status does, not by the file's bytes."""
+    out = str(tmp_path / 'run')
+    run_calibration_workflow(library['chain_rest'], output_dir=out)
+    raw = _read_json(library['chain_rest'])
+
+    def stale_steps():
+        graph = provenance_graph(out)
+        nodes = _nodes(graph)
+        drawn = {s: nodes[s]['stale'] for s in ('fit_a', 'rest')}
+        settings = {s: {e['key']: e['status'] for e in nodes[s]['inputs']}['settings']
+                    for s in ('fit_a', 'rest')}
+        status = workflow_status(library['chain_rest'], out)['steps']
+        assert drawn == {s: status[s]['stale'] for s in drawn}
+        assert graph['workflow']['stale'] == any(drawn.values())
+        return {s for s, stale in drawn.items() if stale}, settings, graph
+
+    # the same workflow, re-saved with other formatting: nothing is stale
+    with open(library['chain_rest'], 'w') as f:
+        json.dump(raw, f, indent=4)
+    stale, settings, graph = stale_steps()
+    assert stale == set() and set(settings.values()) == {'current'}
+    assert 'STALE' not in provenance_svg(graph)
+
+    # rest's own settings change: rest is stale, fit_a before it is not
+    steps = {s['id']: s for s in raw['steps']}
+    steps['rest']['settings'] = {'optimiser_options': {'num_calls_to_function': 401}}
+    _write_json(library['chain_rest'], raw)
+    stale, settings, _ = stale_steps()
+    assert stale == {'rest'} and settings == {'fit_a': 'current', 'rest': 'stale'}
+
+    # fit_a's change reaches rest, which takes its value; only fit_a's settings changed
+    del steps['rest']['settings']
+    steps['fit_a']['settings'] = {'optimiser_options': {'num_calls_to_function': 401}}
+    _write_json(library['chain_rest'], raw)
+    stale, settings, _ = stale_steps()
+    assert stale == {'fit_a', 'rest'} and settings == {'fit_a': 'stale', 'rest': 'current'}
+
+
+@pytest.mark.integration
 def test_a_changed_module_library_is_reported_and_warned_about(library, tmp_path):
     out = str(tmp_path / 'run')
     run_calibration_workflow(library['chain_rest'], output_dir=out)

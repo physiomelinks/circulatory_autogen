@@ -110,6 +110,12 @@ def settings_digest(settings):
     return hashlib.sha256(text.encode('utf-8')).hexdigest()
 
 
+def step_settings_digest(workflow, step):
+    '''The digest a step's ``settings`` input records: a reduction's options, or the workflow's
+    settings with the step's on top. Formatting and key order of the file do not change it.'''
+    return settings_digest(step.reduction if step.model is None else workflow.step_settings(step))
+
+
 def module_library_digest(library_dirs):
     '''The sha256 of the module files under ``library_dirs``: their paths within each directory
     and their contents.'''
@@ -220,12 +226,11 @@ class _Run:
 
     def inputs(self, step_id):
         rs = self.resolved.steps[step_id]
+        settings = {'path': self.workflow.path,
+                    'sha256': step_settings_digest(self.workflow, rs.step)}
         if rs.model is None:
             # a reduction: its other inputs are its sensitivity step's
-            return {SETTINGS_INPUT: {'path': self.workflow.path,
-                                     'sha256': settings_digest(rs.step.reduction)}}
-        settings = {'path': self.workflow.path,
-                    'sha256': settings_digest(self.workflow.step_settings(rs.step))}
+            return {SETTINGS_INPUT: settings}
         files = {'obs_data': rs.obs_data_path,
                  'params_for_id': self.params_for_id_of(rs.step)}
         if not os.path.isfile(files['params_for_id']):

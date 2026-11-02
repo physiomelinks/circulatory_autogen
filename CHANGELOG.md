@@ -23,6 +23,10 @@ next release; add to that section as you land a change.
 - A step's recorded inputs now include its settings and the module library. Changed settings
   stop a later step reusing its result. A changed library is a warning and `library_changed` in
   `workflow_status`, since a library holds far more than one model uses.
+- The provenance graph judges a step's settings as the runner does, by that step's settings
+  alone: re-saving the workflow file with other formatting leaves every step current, and a
+  change to one step's settings makes that step and the steps after it stale, not the others.
+  `file_status` still says whether the file itself changed.
 - `--from-step` and `--only` now check the whole chain of steps a result came from, not only the
   direct source, and refuse a result whose source ran again after it.
 
