@@ -61,12 +61,29 @@ def _sources(raw_step):
     return out
 
 
-def _n_data_items(result):
+# A data_item with an std at least this large carries no data: it is a term other items use.
+HELPER_STD = 1e14
+
+
+def _is_helper_item(item):
+    '''Whether a data_item scores nothing: its weight is 0, or its std is at least HELPER_STD
+    (a list counts only when every entry does). Such items feed ratios or differences.'''
+    def every(values, test):
+        values = values if isinstance(values, list) else [values]
+        return bool(values) and all(isinstance(v, (int, float)) and test(v) for v in values)
+    return (every(item.get('weight', 1.0), lambda w: w == 0)
+            or every(item.get('std'), lambda s: s >= HELPER_STD))
+
+
+def _data_item_counts(result):
+    '''(observables, helper items) of a step's obs_data: helper items are not observables.'''
     path = ((result or {}).get('inputs', {}).get('obs_data') or {}).get('path')
     if not path or not os.path.isfile(path):
-        return 0
+        return 0, 0
     with open(path, encoding='utf-8') as f:
-        return len(json.load(f).get('data_items') or [])
+        items = json.load(f).get('data_items') or []
+    helpers = sum(1 for item in items if _is_helper_item(item))
+    return len(items) - helpers, helpers
 
 
 def _n_parameters(result):
@@ -90,13 +107,14 @@ def _graph_steps(run):
         result = run['steps'].get(raw.get('id'))
         sources = _sources(raw)
         depends = list(dict.fromkeys(i for ids in sources.values() for i in ids))
+        observables, helpers = _data_item_counts(result) if _done(result) else (0, 0)
         steps.append({
             **{key: (ids if key in ('fixed_from', 'priors_from') else ids[0])
                for key, ids in sources.items()},
             'id': raw['id'], 'kind': raw.get('kind', 'calibration'),
             'model': result.get('model') if _done(result) else None,
             'n_parameters': _n_parameters(result) if _done(result) else 0,
-            'n_data_items': _n_data_items(result) if _done(result) else 0,
+            'n_data_items': observables, 'n_helper_items': helpers,
             'settings': {**(workflow.get('settings') or {}), **(raw.get('settings') or {})},
             'depends_on': depends, 'fixed_from': sources.get('fixed_from', []),
             'priors_from': sources.get('priors_from', []),
@@ -270,6 +288,7 @@ def provenance_graph(output_dir):
     file_status = _workflow_file_status(result)
     inputs = {s['id']: _input_entries(run['steps'].get(s['id']), file_status) for s in steps}
     stale = _stale_steps(steps, inputs, run['steps'])
+    by_id = {s['id']: s for s in steps}
 
     calibrated = {r['model_name']: r['from_step'] for r in merged}
     values = [_value(row, CALIBRATED, calibrated[row['variable_name']])
@@ -292,6 +311,9 @@ def provenance_graph(output_dir):
                     counts=_step_counts(step_result) if done else {},
                     parameters=_step_values(step_id, step_result) if done else [],
                     inputs=inputs[step_id])
+        if done and by_id[step_id]['n_data_items'] + by_id[step_id]['n_helper_items']:
+            node['counts'].update(observables=by_id[step_id]['n_data_items'],
+                                  helper_items=by_id[step_id]['n_helper_items'])
         obs_data = next((e for e in inputs[step_id] if e['key'] == 'obs_data'), None)
         if obs_data:
             node['lines'].append(f'data `{os.path.basename(obs_data["path"])}`')

@@ -11,6 +11,8 @@ next release; add to that section as you land a change.
   self-contained diagram for reports. `cuflynx-provenance <output_dir>` writes them again from the
   output directory alone. Each box says what set its values: calibrated, measured, inherited or
   set by hand. A value nothing describes counts as unclassified, never as inherited.
+- A step box counts only scored data_items as observables. Helper items, with weight 0 or an
+  std of at least 1e14, only feed other items, so they appear as `helper_items` in the graph.
 - `workflow_result.json` records `libcuflynx_git` and `project_git` (`commit`, `dirty`) and
   `libcellml_version`.
 - A parameter may carry `origin` (`measured`, `inherited` or `set_by_hand`) and `reason`, which
