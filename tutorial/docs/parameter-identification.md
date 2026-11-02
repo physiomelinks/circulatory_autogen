@@ -191,6 +191,17 @@ The entries in the data_item list in the `obs_data.json` file are:
 - **value**: The value of the ground truth, either a scalar for constant data_type, or a list of values for series or frequency data_types.
 - **obs_dt**: required for *series* data types and not needed for constant or frequency. It defines the timestep for the observable series values.
 - **prob_dist_params**: the ground truth when it is a *distribution* rather than a value — see below. An item that sets this needs no **value** or **std**; an item that does not, needs both.
+- **data_reference** (optional): where the data come from, as a string — a citation key, DOI
+  or table reference, as in the `data_reference` column of a parameters file. `source` has been
+  replaced by this key: an item's `source` is read as its `data_reference`, which wins if the
+  item has both, with one warning per file giving the number of items. libcuflynx never
+  requires it, and refuses a value that is not a string. It is saved beside the error vectors
+  (`error_vec_data_references.npy`, in the order of `error_vec_names.npy`, `""` where an item
+  has none), shown as a `Data: ...` line at the top of the item's reconstruction plot and on
+  any `prediction_plots` figure that draws its data, and listed under *Sources* in the methods
+  text, where a word that is a BibTeX key becomes `\cite{key}` as in a parameter's
+  `data_reference`. Each item names its own source: there is no file-level default, so items
+  from one paper each carry its key. A module library may require it in its own checks.
 
 **Every item is either a scalar or a series, never both**. The same rule applies to
 `prediction_items`, and the parser checks it, naming the item:
@@ -504,6 +515,8 @@ which the calibrated model is then checked against. Give the item:
 - **obs_dt**: the spacing of a series' samples. They start at the start of the item's
   sub-experiment, as a data_item series does. With one sub-experiment, that is the start of the
   experiment.
+- **data_reference** (optional): where the held-out data come from, as for a data_item. It is
+  written with the item's scores in `validation_results.json`.
 
 For example, fit the first 15 years of a series and validate the prediction to year 20, in one
 file with one experiment that runs to 20:
@@ -1107,6 +1120,116 @@ If you already have a model and do not want to run autogeneration, use:
 ./run_param_id_without_autogen.sh <NUM_CORES>
 ```
 
+### The study working dir
+
+`param_id_output_dir` is the study's **working dir**: every calibration, MCMC, sensitivity
+analysis and emulator run from one config records itself in the study manifest
+`<param_id_output_dir>/<study_name>_cuflynx_study.json`, and every input it was run from is
+copied into the same folder. So the one folder holds the whole study: zip it, send it, unzip it
+anywhere and open the manifest (or the folder, as the working dir) in CUFLynx.
+
+```
+<param_id_output_dir>/
+    <study_name>_cuflynx_study.json   the manifest: inputs, solver settings, runs, sensitivity, emulator
+    inputs/
+        index.json                    every version stored below: its kind, file, folder,
+                                      content hash, when it was first used and the runs that used it
+        <kind>/<yyyy-mm-dd_HHMMSS>/   one version of one input, in a folder named for the local
+                                      date-time it was first used. The kinds:
+          model/                      the model, with the CellML files it imports
+          obs_data/, params_for_id/   the obs_data and params_for_id files
+          user_inputs/                the user_inputs.yaml given
+          funcs/                      the *_funcs_external_path files
+          system/                     a generated model's module array and parameters file, with
+                                      modules/ (each module library version it uses) and
+                                      external_modules/ (its external_modules_dir)
+          emulator/                   an emulator trained elsewhere
+          workflows/<workflow_name>/  a calibration workflow, packed (see Calibration workflows)
+        user_inputs/user_inputs_<yymmdd>.yaml  each day's resolved config
+    <method>_<prefix>_<obs_data>/     each calibration (and the MCMC that follows it)
+    sensitivity/                      Sobol and local sensitivity output
+    emulators/                        trained emulators
+```
+
+An input is copied when the manifest is written, once per content, into a folder named for the
+date-time (local time) it was first used, for example `inputs/obs_data/2026-10-31_091502/obs.json`.
+Every copy is in such a folder, so no file under `inputs/` looks like the current version when
+it is an older run's: each run's entry in the manifest names the copies it ran with, and
+`inputs/index.json` lists every version with the runs that used it. A second run from the same
+files copies nothing (copies are matched by content hash), and a changed file goes into a new
+dated folder beside the first (`_2`, `_3`... when two contents are first used in the same
+second). Every path in the manifest is relative to the manifest's folder.
+
+An output written outside the working dir, such as an `sa_options` `output_dir` set to an
+absolute path elsewhere, is allowed but does not travel with the working dir: a zip of the
+working dir does not hold it. The run prints a warning naming the directory, and its entry in
+the manifest keeps the absolute path with `"outside": true`.
+`cuflynx_study.outside_outputs(read_study('<W>'))` lists those entries. Opening the study
+elsewhere never writes into that path: nothing re-runs a study from its manifest (`read_study`
+resolves output directories only to read their results, and `generation_inputs` names none).
+
+To share a working dir, export it:
+
+```python
+from libcuflynx.utilities.cuflynx_study import export_working_dir
+
+left_behind = export_working_dir('<W>', 'my_study.zip')
+```
+
+Your working dir is not changed; these changes are only in the zip, so that a yaml run from it
+reads and writes only in the recipient's working dir, with no edits:
+
+- Each archived user_inputs yaml names its output directories relative to where it is unzipped:
+  `param_id_output_dir` is the unzipped working dir, and an outside `sa_options` `output_dir`
+  such as `/scratch/sa_runs` becomes `sensitivity/sa_runs` in the working dir (`output_dir: sa_runs`
+  in the yaml). An outside `generated_models_dir` becomes `generated_models`, and an outside
+  `emulator_dir` the default under `emulators/`.
+- Each archived user_inputs yaml names its inputs by their copies under `inputs/`, the versions
+  that yaml's own run used (the manifest's `yaml_inputs` records them), not simply the latest:
+  `resources_dir` is the `inputs/system/<date>/` folder (module array and parameters file),
+  `module_library_dirs` and `external_modules_dir` are the folders in it, and
+  `param_id_obs_path`, `params_for_id_file`, the `*_funcs_external_path` keys and, with
+  `use_emulator`, `emulator_dir` name their own copies. The model the run used goes in
+  `generated_model_path` (`external_model_path` for `external_python`).
+- The manifests and `inputs/index.json` drop the outside entries and every absolute path.
+
+Each outside path gets a warning naming it and its new relative path, and the results there are
+not in the zip. Each input rewritten gets a warning naming its copy. `left_behind` lists the same
+paths, the inputs marked `'input': True`.
+
+An input with no copy in the working dir, such as an `external_modules_dir` added by hand or a
+yaml whose run the manifest does not record, keeps the path it had, with a warning: the run then
+stops at that path on another machine rather than silently using a default in its place.
+`left_behind` lists it with `relative` None. Paths the yaml derives (`model_path`,
+`vessels_csv_abs_path` and so on) are left out, since the parser works them out again.
+
+To run an unzipped yaml, point `user_inputs_path_override` at it in your `user_inputs.yaml`: that
+is what makes its relative paths resolve from its own folder. `--user-inputs` does not: it takes
+relative paths from the current directory. Nothing else is needed, and the originals need not
+exist. `generated_model_path` makes the run use the model the study ran; to run a model generated
+again from `inputs/system/`, delete that key from the yaml first. A calibration workflow's step
+yamls (in its step folders) and a packed `calibration_workflow.json` are not rewritten: rerun a
+workflow from its packed copy.
+
+A generated model's `inputs/system/` holds everything generating it again needs, so the model
+can be regenerated from the working dir alone. Built-in modules are not copied: they come with
+libcuflynx, so the manifest records `use_builtin_modules` and `libcuflynx_version` instead.
+
+```python
+from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
+from libcuflynx.utilities.cuflynx_study import generation_inputs, read_study
+
+inp = generation_inputs(read_study('unzipped_study/'))   # resources_dir, file_prefix, module sources
+generate_with_new_architecture(False, dict(inp, model_type='cellml',
+                                           generated_models_dir='regenerated'))
+```
+
+| user_inputs setting | default | what it does |
+|---|---|---|
+| `study_name` | `file_prefix` | names the manifest; two studies can share one working dir |
+| `write_cuflynx_study` | `true` | `false` writes no manifest and copies nothing; sensitivity output and the dated user_inputs go where `cuflynx_study_copy_inputs: false` puts them |
+| `cuflynx_study_copy_inputs` | `true` | `false` copies nothing: the manifest names each input outside the working dir by its absolute path and records the working dir as `study_dir`; sensitivity output defaults to `sensitivity_outputs/<file_prefix>_SA_results` and the dated `user_inputs_<yymmdd>.yaml` goes in `resources_dir` |
+
 ## Calibration workflows
 
 Some parameters can only be calibrated in a larger model, after its parts have been calibrated
@@ -1363,6 +1486,7 @@ prior.
     <step_id>/<step_id>_params_for_id.json a reduction's params_for_id
     _target/model/                    the target generated with every calibrated value
     <workflow_name>_cuflynx_study.json  the study manifest CUFLynx opens (below)
+    inputs/workflows/<workflow_name>/<yyyy-mm-dd_HHMMSS>/   the workflow packed (--pack layout): every input it was run from
 ```
 
 The manifest records the workflow as run, its result, the target and every step (its kind,
@@ -1371,6 +1495,15 @@ outputs). It is
 updated as each step finishes, so CUFLynx can follow a running workflow. Each step's own
 manifest, in `<step_id>/param_id/`, links back to it. `"write_cuflynx_study": false` in the
 settings turns both off.
+
+The output directory is the workflow's working dir (see
+[The study working dir](#the-study-working-dir)): the run packs the workflow into
+`inputs/workflows/<workflow_name>/<yyyy-mm-dd_HHMMSS>/` (a new dated folder only when the
+packed workflow differs from one stored already) and the manifests name the packed copies, by paths relative
+to each manifest's folder, so the output directory can be zipped and opened anywhere. A step's
+manifest names the same copies (`../../inputs/...`). The one path left absolute is the
+`--write-calibrated` file, which is written beside the target. `"cuflynx_study_copy_inputs":
+false` in the settings packs nothing and names the inputs where they are.
 
 `--pack DIR` (or `pack_workflow` in Python) copies every file the workflow needs to run, and
 none of its results, into the new directory `DIR`: `DIR/calibration_workflow.json` runs anywhere
