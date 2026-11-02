@@ -49,7 +49,7 @@
         },
         "file_status": {
           "$ref": "#/$defs/status",
-          "description": "Whether that file still has the content it ran with."
+          "description": "Whether that file still has the content it ran with, whatever its formatting, key order or external_figures. A step's settings input is judged by that step's settings alone, so a re-formatted file leaves it current."
         },
         "order": {
           "type": "array",

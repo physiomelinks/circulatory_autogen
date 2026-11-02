@@ -204,14 +204,34 @@ def _mark(counts):
     return present[0] if len(present) == 1 else MIXED
 
 
-def _input_entries(result, workflow_file_status):
+def _settings_status(step_id, path, recorded, workflows):
+    '''Whether a step's settings in the workflow file at ``path`` still have the digest its
+    result recorded, computed as the runner computes it (so a re-formatted file, or a change to
+    another step's settings, leaves it current). ``workflows`` caches each file's parse.'''
+    from libcuflynx.calibration_workflow.runner import step_settings_digest
+    from libcuflynx.calibration_workflow.spec import WorkflowError, load_workflow
+    if not path or not os.path.isfile(path):
+        return MISSING
+    if path not in workflows:
+        try:
+            workflows[path] = load_workflow(path)
+        except (WorkflowError, OSError):
+            workflows[path] = None
+    workflow = workflows[path]
+    step = next((s for s in workflow.steps if s.id == step_id), None) if workflow else None
+    if step is None:
+        return STALE
+    return CURRENT if step_settings_digest(workflow, step) == recorded else STALE
+
+
+def _input_entries(step_id, result, workflows):
     from libcuflynx.calibration_workflow.runner import (LIBRARY_INPUT, SETTINGS_INPUT,
                                                         module_library_digest, sha256)
     entries = []
     for key, info in (result or {}).get('inputs', {}).items():
         path, recorded = info.get('path'), info.get('sha256')
         if key == SETTINGS_INPUT:
-            status = workflow_file_status
+            status = _settings_status(step_id, path, recorded, workflows)
         elif key == LIBRARY_INPUT:
             status = CURRENT if module_library_digest(path.split(os.pathsep)) == recorded \
                 else STALE
@@ -386,7 +406,9 @@ def provenance_graph(output_dir):
         'n_set': sum(1 for r in merged if r.get('origin')),
         'merged_from': {r['from_step'] for r in merged} if result else None}])
     file_status = _workflow_file_status(result)
-    inputs = {s['id']: _input_entries(run['steps'].get(s['id']), file_status) for s in steps}
+    workflows = {}
+    inputs = {s['id']: _input_entries(s['id'], run['steps'].get(s['id']), workflows)
+              for s in steps}
     stale = _stale_steps(steps, inputs, run['steps'])
     by_id = {s['id']: s for s in steps}
     figures = []
