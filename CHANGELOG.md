@@ -71,6 +71,30 @@ anywhere in CUFLynx (see "The study working dir" in the parameter-identification
 - `CVS0DParamID` takes `study_settings` (filled by `init_from_dict` and the param-id script)
   for the manifest's further keys.
 
+### Changed — obs_data items name their origin in an optional `data_reference`, which replaces `source`
+
+`data_reference` says where a calibration or validation datum comes from, spelled as the
+parameters-file column. It is optional, and a value that is not a string is refused.
+
+- The free-text `source` key is replaced by `data_reference` and still accepted, on data_items
+  and prediction_items (string or null). The parser reads it as the item's `data_reference`, so it
+  reaches everything below; an item with both keeps its `data_reference`. A file that uses it gets
+  one warning, giving the number of items: rename the key. A series item now needs `value` or
+  `value_path`: `source` no longer satisfies that rule (the parser already refused such an item
+  for having a `std` and no data).
+- Accepted by `obs_data.schema.json` and the parser on both item kinds; published as
+  `obs_info["data_references"]` and `prediction_info["data_references"]` (accessor
+  `obs_data_helpers.obs_item_references`). `ObsDataCreator.add_prediction_item` takes
+  `data_reference=`.
+- Reported in the results: `error_vec_data_references.npy` beside `error_vec_names.npy`, and a
+  `data_reference` per item in `validation_results.json`.
+- Shown on the plots: a `Data: ...` line on each reconstruction page and on `prediction_plots`
+  feature figures that draw data; listed under *Sources* in the methods text, where a BibTeX key
+  in it becomes `\cite{key}` (and goes into the document's `.bib`) as in a parameter's
+  `data_reference`.
+- Each item names its own source: there is no file-level default (decided by Finbar Argus,
+  2026-10-31).
+
 ### Changed — at a node of three or more vessel ends, the end alone on its side must be compliant
 
 Decided by Finbar Argus on 2026-10-30 (#616, option D of the node-sums design).

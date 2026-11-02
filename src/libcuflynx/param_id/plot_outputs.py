@@ -15,7 +15,8 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 import matplotlib.pyplot as plt
 import numpy as np
 from libcuflynx.utilities.obs_data_helpers import (obs_item_names, obs_item_labels,
-                                                    obs_trace_labels)
+                                                    obs_trace_labels, obs_item_references,
+                                                    data_reference_line)
 
 
 def distribution_reference_lines(prob_dist_params):
@@ -337,6 +338,7 @@ class ParamIDPlotOutputs:
             # subexperiment, so several features measured on the same segment share one line.
             subexps_drawn = set()
             trace_x_window = []
+            page_references = []
             const_idx = -1
             series_idx = -1
             freq_idx = -1
@@ -355,6 +357,8 @@ class ParamIDPlotOutputs:
                 ) != obs_tuples_unique[unique_obs_count]:
                     continue
 
+                if II < len(obs_item_references(obs_info)):
+                    page_references.append(obs_item_references(obs_info)[II])
                 exp_idx = obs_info["experiment_idxs"][II]
                 this_sub_idx = obs_info["subexperiment_idxs"][II]
                 subexp_count = int(
@@ -721,6 +725,10 @@ class ParamIDPlotOutputs:
 
             plot_saved = False
 
+            # the source of the data drawn on this page, from the items' data_reference
+            source_line = data_reference_line(page_references)
+            if source_line:
+                axs.set_title(source_line, fontsize=8, loc="left")
             axs.legend(fontsize=10)
             if phase:
                 axs_phase.legend(loc="upper right", fontsize=10)
@@ -827,6 +835,11 @@ class ParamIDPlotOutputs:
         # wanting the plain name could not reliably strip them, since a name may
         # legitimately contain '$'.
         np.save(os.path.join(out, "error_vec_names.npy"), self.observable_names())
+        # Each observable's data_reference, in the same order ('' where an item has none).
+        references = obs_item_references(self.client.obs_info)
+        np.save(os.path.join(out, "error_vec_data_references.npy"),
+                np.array([str(references[II]) if II < len(references) and references[II]
+                          else "" for II in range(self.client.obs_info["num_obs"])]))
 
     def observable_names(self) -> np.ndarray:
         """The per-observable labels, in the order the error vectors use.
