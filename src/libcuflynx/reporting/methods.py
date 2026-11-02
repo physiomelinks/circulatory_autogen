@@ -235,9 +235,8 @@ def _obs_cited_keys(obs, entries):
 
 
 def observables_text(obs, symbols, default_cost, entries=()):
-    '''The observables table and its sources: each item's free-text ``source`` as text and its
-    ``data_reference`` as a parameter's is, with the words that are keys of ``entries`` (the
-    BibTeX entries) cited.'''
+    '''The observables table and its sources: each item's ``data_reference`` as a parameter's
+    is, with the words that are keys of ``entries`` (the BibTeX entries) cited.'''
     items = obs.get('data_items') or []
     if not items:
         return 'No data items.'
@@ -255,9 +254,8 @@ def observables_text(obs, symbols, default_cost, entries=()):
                      f'{_feature(item, symbols)} & {observed} & '
                      f'{format_number(item.get("weight", 1.0))} & {where} \\\\')
     lines += [r'\bottomrule', r'\end{tabular}', r'\end{center}']
-    # free-text sources and data_references, of the fitted and of the held-out items
-    sources = {str(i['source']): escape(str(i['source'])) for i in items if i.get('source')}
-    sources.update({r: cite(r, entries) for r in _obs_references(obs)})
+    # the data_references of the fitted and of the held-out items
+    sources = {r: cite(r, entries) for r in _obs_references(obs)}
     text = '\n'.join(lines)
     if obs.get('reference_key') if isinstance(obs, dict) else None:
         text = f'Data: {escape(obs["reference_key"])}.\n' + text

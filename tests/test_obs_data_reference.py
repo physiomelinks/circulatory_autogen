@@ -80,6 +80,28 @@ def test_a_reference_that_is_not_a_string_is_refused(where, bad):
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize("where", ["data_items", "prediction_items"])
+def test_a_source_key_is_refused(where):
+    """data_reference is the only key naming an item's origin, and the refusal says so."""
+    doc = _doc()
+    doc[where][0]["source"] = "Smith2020 lab notes"
+    with pytest.raises(ValueError, match="'source' was unexpected") as refused:
+        _parse(doc)
+    assert "data_reference" in str(refused.value)
+
+
+@pytest.mark.unit
+def test_a_reference_does_not_stand_in_for_a_series_value():
+    """A series needs its samples, in value or value_path; naming their origin is not enough."""
+    doc = _doc(DATA_REF)
+    item = doc["data_items"][0]
+    del item["value"]
+    item.update(data_type="series", obs_dt=0.1, std=[0.1])
+    with pytest.raises(ValueError, match="'value' is a required property"):
+        _parse(doc)
+
+
+@pytest.mark.unit
 def test_the_schema_accepts_the_reference():
     jsonschema = pytest.importorskip("jsonschema")
     from libcuflynx.schemas import OBS_DATA_SCHEMA, load_schema
@@ -187,16 +209,26 @@ def test_the_methods_text_lists_the_references():
 
 
 @pytest.mark.unit
+def test_the_methods_text_reads_only_the_data_reference():
+    class _Symbols:
+        def variable(self, name):
+            return name
+
+    doc = _doc(DATA_REF)
+    doc["data_items"][0]["source"] = "lab notes"
+    text, _ = observables_text(doc, _Symbols(), "gaussian_MLE")
+    assert f"Sources: {DATA_REF}." in text
+
+
+@pytest.mark.unit
 def test_the_methods_text_cites_a_data_reference_as_a_parameters_is():
     """A word of an item's data_reference that is a BibTeX key is cited, as cite() does for a
-    parameter's; the other words, and a free-text source, stay text."""
+    parameter's; the other words stay text."""
     class _Symbols:
         def variable(self, name):
             return name
 
     doc = _doc(DATA_REF, "Jones2019_b, Fig. 3")
-    doc["data_items"][0]["source"] = "Smith2020 lab notes"
     text, _ = observables_text(doc, _Symbols(), "gaussian_MLE",
                                {"Smith2020": "@article{Smith2020,}", "Jones2019_b": "@misc{x,}"})
-    assert (r"Sources: \cite{Jones2019_b}, Fig. 3; Smith2020 lab notes; "
-            r"\cite{Smith2020}, Table 2." in text)
+    assert r"Sources: \cite{Jones2019_b}, Fig. 3; \cite{Smith2020}, Table 2." in text

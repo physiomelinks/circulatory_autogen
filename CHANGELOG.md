@@ -5,11 +5,15 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
-### Added — an optional `data_reference` on obs_data data_items and prediction_items
+### Changed — obs_data items name their origin in an optional `data_reference`; `source` is removed
 
-Where a calibration or validation datum comes from, spelled as the parameters-file column. It is
-optional: no obs_data needs changing, and a value that is not a string is refused.
+`data_reference` says where a calibration or validation datum comes from, spelled as the
+parameters-file column. It is optional, and a value that is not a string is refused.
 
+- The free-text `source` key on data_items is removed, so the schema refuses it ("'source' was
+  unexpected"): rename it to `data_reference`. No file in `resources/` or the module library used
+  it. A series item now needs `value` or `value_path`: `source` no longer satisfies that rule (the
+  parser already refused such an item for having a `std` and no data).
 - Accepted by `obs_data.schema.json` and the parser on both item kinds; published as
   `obs_info["data_references"]` and `prediction_info["data_references"]` (accessor
   `obs_data_helpers.obs_item_references`). `ObsDataCreator.add_prediction_item` takes

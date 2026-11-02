@@ -226,7 +226,7 @@
     },
     "dataItem": {
       "type": "object",
-      "description": "One observation the model is scored against. Unknown keys are refused. Checked by ObsAndParamDataParser.parse_obs_data_json (libcuflynx/parsers/PrimitiveParsers.py); it also checks what JSON Schema cannot: names unique across data_items and prediction_items, operation_kwargs references, a series std as long as its value, experiment indices in range.",
+      "description": "One observation the model is scored against. Unknown keys are refused. A datum's origin goes in data_reference. Checked by ObsAndParamDataParser.parse_obs_data_json (libcuflynx/parsers/PrimitiveParsers.py); it also checks what JSON Schema cannot: names unique across data_items and prediction_items, operation_kwargs references, a series std as long as its value, experiment indices in range.",
       "additionalProperties": false,
       "properties": {
         "data_item_name": {
@@ -479,13 +479,6 @@
           ],
           "description": "A series' values as a .npy file, used with t_path instead of an embedded value (not both)."
         },
-        "source": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "Where the data come from, as free text. Not read otherwise."
-        },
         "data_reference": {
           "type": [
             "string",
@@ -621,11 +614,6 @@
                     "required": [
                       "im_path"
                     ]
-                  },
-                  {
-                    "required": [
-                      "source"
-                    ]
                   }
                 ]
               }
@@ -700,7 +688,7 @@
     },
     "predictionItem": {
       "type": "object",
-      "description": "A model output to record and plot, not scored in the calibration. It takes a data_item's vocabulary; with value (plus data_type, std, and obs_dt for a series) it is held-out data, checked after calibration (libcuflynx.param_id.validation, validation_results.json). Unknown keys are refused.",
+      "description": "A model output to record and plot, not scored in the calibration. A datum's origin goes in data_reference. It takes a data_item's vocabulary; with value (plus data_type, std, and obs_dt for a series) it is held-out data, checked after calibration (libcuflynx.param_id.validation, validation_results.json). Unknown keys are refused.",
       "additionalProperties": false,
       "properties": {
         "data_item_name": {

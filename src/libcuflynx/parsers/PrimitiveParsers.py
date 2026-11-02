@@ -3767,7 +3767,6 @@ class ObsAndParamDataParser(object):
                 "sample_rate": None,
                 "species": None,
                 "location": None,
-                "source": None,
                 # Where the datum comes from (a citation, as a parameters file's
                 # data_reference). Optional; reported beside the error vectors and on the
                 # reconstruction plots.
