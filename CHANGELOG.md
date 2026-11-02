@@ -28,7 +28,8 @@ anywhere in CUFLynx (see "The study working dir" in the parameter-identification
   folder.
 - `cuflynx_study.store_input(working_dir, kind, source, name=None)` stores a file, a folder or
   bytes as an input of `kind` the same way (a new dated folder per content, the same content
-  reused; a folder's `.git`, `.hg` and `.svn` are neither copied nor hashed) and returns its path relative to the working dir; `latest_input(working_dir, kind,
+  reused; a folder's hidden files and folders, such as `.git`, are neither copied nor hashed,
+  as the working dir's zip leaves them out) and returns its path relative to the working dir; `latest_input(working_dir, kind,
   name=None)` gives the version stored last. An app saving edited inputs (CUFLynx) writes the
   same layout through them, so an edit never rewrites an earlier version.
 - `cuflynx_study.export_working_dir(working_dir, zip_path)` writes a zip to share a working dir

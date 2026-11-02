@@ -896,32 +896,55 @@ def test_store_input_takes_a_file_a_renamed_file_or_a_folder(tmp_path, clock):
         cuflynx_study.store_input(work, 'obs_data', b'x')
 
 
-@pytest.mark.parametrize('vcs', sorted(cuflynx_study.VCS_DIRS))
-def test_store_input_leaves_out_a_folders_version_control_metadata(tmp_path, clock, vcs):
-    """A workflow folder that is a checkout is stored without its repository, and a change
-    only inside the repository reuses the stored version."""
+def test_store_input_leaves_out_a_folders_hidden_files_and_folders(tmp_path, clock):
+    """A workflow folder is stored without its hidden folders (a checkout's ``.git``, an
+    editor's ``.settings``) and files, and a change only inside them reuses the stored version."""
     work = tmp_path / 'work'
     source = tmp_path / 'wf'
-    (source / vcs / 'objects').mkdir(parents=True)
-    (source / vcs / 'HEAD').write_text('ref: refs/heads/main')
-    (source / vcs / 'objects' / 'ab').write_text('history')
+    (source / '.git' / 'objects').mkdir(parents=True)
+    (source / '.git' / 'HEAD').write_text('ref: refs/heads/main')
+    (source / '.git' / 'objects' / 'ab').write_text('history')
     (source / '.settings').mkdir()
     (source / '.settings' / 'solver.json').write_text('{}')
+    (source / '.hidden').write_text('x')
     (source / 'calibration_workflow.json').write_text('{}')
     clock(datetime(2026, 10, 31, 9, 0, 0))
     stored = cuflynx_study.store_input(work, 'workflows/wf', source, 'calibration_workflow.json')
     folder = work / os.path.dirname(stored)
-    assert not (folder / vcs).exists()
-    assert (folder / '.settings' / 'solver.json').read_text() == '{}'
+    assert _all_files(folder) == ['calibration_workflow.json']
     [version] = cuflynx_study.read_index(work)
-    assert sorted(version['files']) == [os.path.join('.settings', 'solver.json'),
-                                        'calibration_workflow.json']
+    assert sorted(version['files']) == ['calibration_workflow.json']
 
-    (source / vcs / 'HEAD').write_text('ref: refs/heads/other')
+    (source / '.git' / 'HEAD').write_text('ref: refs/heads/other')
+    (source / '.settings' / 'solver.json').write_text('{"changed": true}')
     clock(datetime(2026, 10, 31, 9, 5, 0))
     again = cuflynx_study.store_input(work, 'workflows/wf', source, 'calibration_workflow.json')
     assert again == stored
     assert os.listdir(work / 'inputs' / 'workflows' / 'wf') == ['2026-10-31_090000']
+
+
+def test_a_stored_folder_is_in_the_zip_as_it_is_in_inputs(study, tmp_path):
+    """store_input and export_working_dir leave out the same names, so the zip of a working dir
+    holds every stored input file and the index lists no file the zip lacks."""
+    cuflynx_study.update_study(study)
+    w = study['param_id_output_dir']
+    source = tmp_path / 'wf'
+    (source / '.settings').mkdir(parents=True)
+    (source / '.settings' / 'solver.json').write_text('{}')
+    (source / '.git').mkdir()
+    (source / '.git' / 'HEAD').write_text('ref: refs/heads/main')
+    (source / 'sub').mkdir()
+    (source / 'sub' / 'obs.json').write_text('[]')
+    (source / 'calibration_workflow.json').write_text('{}')
+    stored = cuflynx_study.store_input(w, 'workflows/wf', source, 'calibration_workflow.json')
+    folder = os.path.dirname(stored)
+    on_disk = _all_files(os.path.join(w, folder))
+    [version] = [v for v in cuflynx_study.read_index(w) if v['kind'] == 'workflows/wf']
+
+    unzipped, _ = _export(study, tmp_path)
+    in_zip = _all_files(os.path.join(unzipped, folder))
+    assert in_zip == on_disk == sorted(version['files'])
+    assert on_disk == ['calibration_workflow.json', os.path.join('sub', 'obs.json')]
 
 
 def test_a_corrupt_manifest_is_replaced_not_fatal(study, capsys):
