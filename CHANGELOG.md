@@ -5,6 +5,17 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Added — `set` and `sweep` workflow steps
+
+- A `set` step declares values or scales by hand, each with a required `reason`. A scale multiplies
+  a calibration or set step's value, or the target's own (`"of": "inherited"`). Later steps take
+  the values with `fixed_from`, and they are merged into the target. Reports, the target's
+  parameters, the calibrated parameters file and the provenance diagram mark them `set_by_hand`.
+- A `sweep` step runs a model across chosen parameter values, by `grid` or `one_at_a_time`, and
+  keeps every run in `<step_id>/sweep/`, spread across MPI ranks. A failed point stays as a NaN row.
+  An obs_data's `prediction_items` give a feature per point, drawn as `feature_vs_input` plots. A
+  sweep feeds nothing forward, so no step can take from it and it does not reach the target.
+
 ### Added — a calibration workflow run writes its provenance
 
 - A run writes `provenance_graph.json`, with a schema and a version, and `provenance.svg`, a

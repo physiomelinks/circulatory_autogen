@@ -79,7 +79,7 @@ PATH_KEYS = ('model', 'base_model', 'obs_data', 'params_for_id', 'emulator', 'us
 #: Path keys inside the ``workflow`` block (and a step's link back to it).
 WORKFLOW_PATH_KEYS = ('file', 'source', 'result', 'manifest', 'run', 'module_array',
                       'parameters', 'obs_data', 'params_for_id', 'generated_model',
-                      'calibrated_parameters')
+                      'calibrated_parameters', 'sweep_dir', 'sweep_results')
 
 #: Sections holding one entry per output directory.
 ENTRY_SECTIONS = ('runs', 'sensitivity')

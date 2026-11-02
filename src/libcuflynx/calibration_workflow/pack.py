@@ -139,9 +139,10 @@ def pack_workflow(source, dest_dir, module_library_dirs=None):
         del raw['settings']
     for raw_step, step in zip(raw['steps'], workflow.steps):
         if step.model is None:
-            continue                   # a reduction names no files
+            continue                   # a reduction or set step names no files
         raw_step['model'] = model(step.model, step.id)
-        raw_step['obs_data'] = packer.file(step.obs_data, step.id)
+        if step.obs_data:
+            raw_step['obs_data'] = packer.file(step.obs_data, step.id)
         if step.params_for_id:
             raw_step['params_for_id'] = packer.file(step.params_for_id, step.id)
         if raw_step.get('settings'):

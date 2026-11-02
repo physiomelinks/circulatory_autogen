@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/physiomelinks/circulatory_autogen/schemas/calibration_workflow.schema.json",
   "title": "libcuflynx calibration workflow (calibration_workflow.json)",
-  "description": "Ordered calibrations, and the analyses around them, whose calibrated values are merged into one model, the target. A step's kind is calibration (the default), sensitivity, reduction, emulation or identifiability; every kind but reduction names the three inputs of an ordinary run: a model (a CA module array, or a module of a module library), an obs_data file and a params_for_id file; paths are relative to this file. Run with cuflynx-calibration-workflow or libcuflynx.calibration_workflow.run_calibration_workflow. The checks that need the files and the module library (they exist, each step's model sits in the target) are in libcuflynx/calibration_workflow/resolve.py; the rest are in spec.py as well as here.",
+  "description": "Ordered calibrations, and the analyses around them, whose calibrated values are merged into one model, the target. A step's kind is calibration (the default), sensitivity, reduction, emulation, identifiability, set or sweep; every kind but reduction, set and sweep names the three inputs of an ordinary run: a model (a CA module array, or a module of a module library), an obs_data file and a params_for_id file; paths are relative to this file. Run with cuflynx-calibration-workflow or libcuflynx.calibration_workflow.run_calibration_workflow. The checks that need the files and the module library (they exist, each step's model sits in the target) are in libcuflynx/calibration_workflow/resolve.py; the rest are in spec.py as well as here.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -226,6 +226,152 @@
         }
       ]
     },
+    "set_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "parameter",
+        "reason"
+      ],
+      "properties": {
+        "parameter": {
+          "type": "string",
+          "pattern": "^\\s*\\S.*/\\S+\\s*$",
+          "description": "the parameter, <vessel>/<parameter> as the target names it (global/<parameter> for a global)"
+        },
+        "value": {
+          "type": "number",
+          "description": "the value it is set to"
+        },
+        "scale": {
+          "type": "number",
+          "description": "multiplies the value named by \"of\""
+        },
+        "of": {
+          "type": "string",
+          "minLength": 1,
+          "description": "what \"scale\" multiplies: a calibration or set step, whose value of this parameter is used, or \"inherited\", the value the target gives it"
+        },
+        "units": {
+          "type": "string",
+          "description": "its units; by default those the target or the \"of\" step gives it"
+        },
+        "reason": {
+          "type": "string",
+          "pattern": "\\S",
+          "description": "why it has this value: shown beside it wherever the value is reported"
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "value"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "scale"
+                ]
+              },
+              {
+                "required": [
+                  "of"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "required": [
+            "scale",
+            "of"
+          ],
+          "not": {
+            "required": [
+              "value"
+            ]
+          }
+        }
+      ],
+      "description": "one value set by hand: a value, or a scale of an existing value"
+    },
+    "sweep_range": {
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "[min, max]: evenly spaced points"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "min",
+            "max"
+          ],
+          "properties": {
+            "min": {
+              "type": "number"
+            },
+            "max": {
+              "type": "number"
+            },
+            "points": {
+              "type": "integer",
+              "minimum": 2,
+              "default": 5
+            },
+            "scale": {
+              "enum": [
+                "linear",
+                "log"
+              ],
+              "default": "linear",
+              "description": "log spaces the points by ratio"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "values"
+          ],
+          "properties": {
+            "values": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 1,
+              "description": "these values"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "factors"
+          ],
+          "properties": {
+            "factors": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 1,
+              "description": "these multiples of the value the step's model gives it"
+            }
+          }
+        }
+      ]
+    },
     "step": {
       "type": "object",
       "additionalProperties": false,
@@ -250,10 +396,12 @@
             "sensitivity",
             "reduction",
             "emulation",
-            "identifiability"
+            "identifiability",
+            "set",
+            "sweep"
           ],
           "default": "calibration",
-          "description": "calibration: a param_id run (MCMC with store_distribution). sensitivity: sensitivity analysis (settings.sa_options). reduction: keeps the parameters a Sobol sensitivity step found most influential (sensitivity_from, reduction), for a calibration's or emulation's params_for_id_from. emulation: trains an emulator (settings.emulator_settings) for steps with emulator_from. identifiability: identifiability analysis (settings.ia_options) at the result of result_from. Every kind but reduction needs model, obs_data and params_for_id (a calibration or emulation may give params_for_id_from instead)."
+          "description": "calibration: a param_id run (MCMC with store_distribution). sensitivity: sensitivity analysis (settings.sa_options). reduction: keeps the parameters a Sobol sensitivity step found most influential (sensitivity_from, reduction), for a calibration's or emulation's params_for_id_from. emulation: trains an emulator (settings.emulator_settings) for steps with emulator_from. identifiability: identifiability analysis (settings.ia_options) at the result of result_from. set: declares values or scales by hand (set), for fixed_from and the target. sweep: runs a model across chosen parameter values (sweep), feeding nothing forward. A step of any other kind than reduction, set or sweep needs model, obs_data and params_for_id (a calibration or emulation may give params_for_id_from instead)."
         },
         "description": {
           "type": "string"
@@ -298,7 +446,7 @@
             "type": "string"
           },
           "uniqueItems": true,
-          "description": "calibration steps whose calibrated values, and the values they were given as fixed, are fixed in this step's model; this step runs after them"
+          "description": "calibration or set steps whose values, and the values they were given as fixed, are fixed in this step's model; this step runs after them"
         },
         "priors_from": {
           "type": "array",
@@ -323,7 +471,7 @@
         "result_from": {
           "type": "string",
           "minLength": 1,
-          "description": "a calibration step whose values, including those of the parameters this step analyses, this step's model is generated with (sensitivity or identifiability: the analysis is at that result)"
+          "description": "a calibration step whose values, including those of the parameters this step analyses, this step's model is generated with (sensitivity, identifiability or sweep: the analysis is at that result)"
         },
         "sensitivity_from": {
           "type": "string",
@@ -370,6 +518,48 @@
             }
           },
           "description": "a reduction step: which parameters to keep"
+        },
+        "set": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/set_entry"
+          },
+          "description": "a set step: the values it declares"
+        },
+        "sweep": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "parameters"
+          ],
+          "properties": {
+            "design": {
+              "enum": [
+                "grid",
+                "one_at_a_time"
+              ],
+              "default": "grid",
+              "description": "grid: every combination. one_at_a_time: each parameter's values with the others at the model's values"
+            },
+            "outputs": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "description": "variables recorded over time at each point"
+            },
+            "parameters": {
+              "type": "object",
+              "minProperties": 1,
+              "additionalProperties": {
+                "$ref": "#/$defs/sweep_range"
+              },
+              "description": "<vessel>/<parameter>, as a params_for_id names it, and the values it takes"
+            }
+          },
+          "description": "a sweep step: its points, and what each records. An obs_data gives the protocol, and its prediction items a feature per point; without one, settings give dt and sim_time"
         }
       },
       "allOf": [
@@ -388,6 +578,71 @@
             "required": [
               "sensitivity_from",
               "reduction"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "set"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "set"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "sweep"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "model",
+              "sweep"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "params_for_id"
+                  ]
+                },
+                {
+                  "required": [
+                    "params_for_id_from"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "reduction",
+                  "set",
+                  "sweep"
+                ]
+              }
+            },
+            "required": [
+              "kind"
             ]
           },
           "else": {
@@ -413,7 +668,7 @@
                 "params_for_id_from"
               ]
             },
-            "description": "A step that is not a reduction names its model, obs_data and params_for_id (a calibration or emulation may take params_for_id from a reduction instead: params_for_id_from, not both)."
+            "description": "A step that is not a reduction, set or sweep names its model, obs_data and params_for_id (a calibration or emulation may take params_for_id from a reduction instead: params_for_id_from, not both)."
           }
         }
       ]

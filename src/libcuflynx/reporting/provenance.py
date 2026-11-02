@@ -3,11 +3,14 @@ How a calibration workflow run's values were set: a graph of the run, and that g
 
 :func:`provenance_graph` reads a run's output directory alone, so it needs no module library.
 Its nodes are the model source, one node for each step, a node for the measured values and one
-for the values set by hand (when there are any), and the merged target the simulation runs. Each
-value the target uses is marked with what set it:
+for the values set by hand in the parameters files (when there are any), and the merged target
+the simulation runs. A sweep's node has no arrow onward: nothing takes its values. Each value the
+target uses is marked with what set it:
 
 * **calibrated**: a step fitted it (the step's results and the run's merged parameters say so).
-* **measured**, **inherited**, **set_by_hand**: the ``origin`` of its entry in the parameters.
+* **set_by_hand**: a set step declared it, with its reason, or the ``origin`` of its entry in the
+  parameters says so.
+* **measured**, **inherited**: the ``origin`` of its entry in the parameters.
 * **unclassified**: nothing says. A value is never counted as inherited by default.
 
 :func:`write_provenance` writes ``provenance_graph.json``, checked against
@@ -20,6 +23,7 @@ import os
 import textwrap
 from xml.sax.saxutils import escape, quoteattr
 
+from libcuflynx.calibration_workflow.spec import INHERITED_BASE, scale_sources
 from libcuflynx.reporting import flowchart
 from libcuflynx.utilities import parameters_file
 
@@ -58,6 +62,9 @@ def _sources(raw_step):
         if value:
             items = value if isinstance(value, list) else [value]
             out[key] = [item['step'] if isinstance(item, dict) else item for item in items]
+    scaled = scale_sources(raw_step.get('set') or [])
+    if scaled:
+        out['scale_from'] = scaled
     return out
 
 
@@ -91,7 +98,7 @@ def _graph_steps(run):
         sources = _sources(raw)
         depends = list(dict.fromkeys(i for ids in sources.values() for i in ids))
         steps.append({
-            **{key: (ids if key in ('fixed_from', 'priors_from') else ids[0])
+            **{key: (ids if key in ('fixed_from', 'priors_from', 'scale_from') else ids[0])
                for key, ids in sources.items()},
             'id': raw['id'], 'kind': raw.get('kind', 'calibration'),
             'model': result.get('model') if _done(result) else None,
@@ -101,7 +108,8 @@ def _graph_steps(run):
             'depends_on': depends, 'fixed_from': sources.get('fixed_from', []),
             'priors_from': sources.get('priors_from', []),
             'store_distribution': bool(raw.get('store_distribution')),
-            'reduction': raw.get('reduction')})
+            'reduction': raw.get('reduction'), 'set': raw.get('set'),
+            'sweep': raw.get('sweep')})
     return steps
 
 
@@ -216,15 +224,20 @@ def _stale_steps(steps, inputs, results):
     return stale
 
 
+def _record_value(record, from_step):
+    '''A step result's record as a graph value: set by hand if it says so, else calibrated.'''
+    return _value({'variable_name': record.get('model_name'), 'value': record.get('value'),
+                   'units': record.get('units', ''), 'reason': record.get('reason', '')},
+                  record.get('origin', CALIBRATED), from_step)
+
+
 def _step_values(step_id, result):
-    '''The values a step fitted and those it was given by earlier steps, as graph values.'''
-    values = [dict(_value({'variable_name': r.get('model_name'), 'value': r.get('value'),
-                           'units': r.get('units', '')}, CALIBRATED, step_id))
-              for r in (result or {}).get('calibrated', [])]
-    values += [dict(_value({'variable_name': r.get('model_name'), 'value': r.get('value'),
-                            'units': r.get('units', '')}, CALIBRATED, r.get('from_step')))
-               for r in (result or {}).get('fixed', [])]
-    return values
+    '''The values a step fitted or set by hand, and those it was given by earlier steps, as graph
+    values.'''
+    result = result or {}
+    return ([_record_value(r, step_id) for r in result.get('calibrated', [])]
+            + [_record_value(r, step_id) for r in result.get('set', [])]
+            + [_record_value(r, r.get('from_step')) for r in result.get('fixed', [])])
 
 
 def _step_counts(result):
@@ -235,7 +248,9 @@ def _step_counts(result):
     rows = _rows(((result or {}).get('generated') or {}).get('parameters_path'))
     others = [_value(r, _classified(r)) for r in rows
               if r['variable_name'] not in calibrated | fixed]
-    return dict(_counts(others), calibrated=len(calibrated), fixed=len(fixed))
+    counts = dict(_counts(others), calibrated=len(calibrated), fixed=len(fixed))
+    counts[SET_BY_HAND] += len((result or {}).get('set', []))
+    return counts
 
 
 def _described(value):
@@ -266,15 +281,22 @@ def provenance_graph(output_dir):
     merged = (result or {}).get('merged_parameters', [])
     nodes, edges = flowchart.workflow_graph(steps + [{
         'id': None, 'model': _target_model(run), 'n_merged': len(merged),
+        'n_set': sum(1 for r in merged if r.get('origin')),
         'merged_from': {r['from_step'] for r in merged} if result else None}])
     file_status = _workflow_file_status(result)
     inputs = {s['id']: _input_entries(run['steps'].get(s['id']), file_status) for s in steps}
     stale = _stale_steps(steps, inputs, run['steps'])
 
-    calibrated = {r['model_name']: r['from_step'] for r in merged}
-    values = [_value(row, CALIBRATED, calibrated[row['variable_name']])
-              if row['variable_name'] in calibrated else _value(row, _classified(row))
-              for row in _target_rows(run)]
+    by_name = {r['model_name']: r for r in merged}
+
+    def target_value(row):
+        record = by_name.get(row['variable_name'])
+        if record is None:
+            return _value(row, _classified(row))
+        return _value(dict(row, reason=record.get('reason', '')),
+                      record.get('origin', CALIBRATED), record['from_step'])
+
+    values = [target_value(row) for row in _target_rows(run)]
     target_counts = _counts(values)
 
     for node in nodes:
@@ -286,12 +308,17 @@ def provenance_graph(output_dir):
             continue
         step_result = run['steps'].get(step_id)
         done = _done(step_result)
-        is_calibration = node['kind'] == 'step'
-        node.update(mark=CALIBRATED if is_calibration and done else None,
+        mark = {'step': CALIBRATED, 'values': SET_BY_HAND}.get(node['kind'])
+        node.update(mark=mark if done else None,
                     status='done' if done else 'not_run', stale=stale[step_id],
                     counts=_step_counts(step_result) if done else {},
                     parameters=_step_values(step_id, step_result) if done else [],
                     inputs=inputs[step_id])
+        if done and node['kind'] == 'values':
+            node['lines'] = [_described(v) for v in node['parameters']]
+        if done and 'n_points' in step_result:
+            node['lines'].insert(-1, f'{step_result["n_points"]} points, '
+                                     f'{step_result["n_failed"]} failed')
         obs_data = next((e for e in inputs[step_id] if e['key'] == 'obs_data'), None)
         if obs_data:
             node['lines'].append(f'data `{os.path.basename(obs_data["path"])}`')
@@ -311,10 +338,14 @@ def provenance_graph(output_dir):
               'parameters': source_values, 'inputs': []}
     extra = [source]
     edges = [{'from': SOURCE_NODE, 'to': s['id'], 'label': 'generates', 'style': 'order'}
-             for s in steps if not s['depends_on']] + edges
+             for s in steps if not s['depends_on'] and s['kind'] != 'set'] + edges
+    edges += [{'from': SOURCE_NODE, 'to': s['id'], 'label': 'scaled from', 'style': 'order'}
+              for s in steps if any(entry.get('of') == INHERITED_BASE
+                                    for entry in s.get('set') or [])]
     for node_id, title, origin in ((MEASURED_NODE, 'Measured values', MEASURED),
                                    (HAND_NODE, 'Values set by hand', SET_BY_HAND)):
-        given = [v for v in values if v['origin'] == origin]
+        # a set step's values are in its own box
+        given = [v for v in values if v['origin'] == origin and not v['from_step']]
         if given:
             extra.append(_values_node(node_id, title, origin, given))
             edges.append({'from': node_id, 'to': TARGET_NODE, 'label': _MARK_LABELS[origin],
