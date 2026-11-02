@@ -1,0 +1,354 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/physiomelinks/circulatory_autogen/schemas/provenance_graph.schema.json",
+  "title": "Provenance graph of a calibration workflow run",
+  "description": "How the values of a workflow run were set: provenance_graph.json in its output directory (libcuflynx.reporting.provenance). Text in a node's title and lines, and an edge's label, is plain with code between backticks.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "workflow",
+    "code",
+    "counts",
+    "nodes",
+    "edges"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "output_dir",
+        "file",
+        "file_status",
+        "order",
+        "complete",
+        "finished",
+        "stale"
+      ],
+      "properties": {
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "output_dir": {
+          "type": "string"
+        },
+        "file": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The workflow file the run was started from."
+        },
+        "file_status": {
+          "$ref": "#/$defs/status",
+          "description": "Whether that file still has the content it ran with."
+        },
+        "order": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "finished": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stale": {
+          "type": "boolean",
+          "description": "Whether any step's result is out of date."
+        }
+      }
+    },
+    "code": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "libcuflynx_version",
+        "libcuflynx_git",
+        "project_git",
+        "libcellml_version"
+      ],
+      "properties": {
+        "libcuflynx_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "libcuflynx_git": {
+          "$ref": "#/$defs/git"
+        },
+        "project_git": {
+          "$ref": "#/$defs/git",
+          "description": "The repository holding the workflow file."
+        },
+        "libcellml_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "counts": {
+      "$ref": "#/$defs/counts",
+      "description": "How the values of the target were set."
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/node"
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/edge"
+      }
+    }
+  },
+  "$defs": {
+    "status": {
+      "enum": [
+        "current",
+        "stale",
+        "missing"
+      ]
+    },
+    "origin": {
+      "enum": [
+        "calibrated",
+        "measured",
+        "inherited",
+        "set_by_hand",
+        "unclassified"
+      ]
+    },
+    "git": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "commit": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "HEAD, or null without a repository."
+        },
+        "dirty": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "Whether tracked files had changed."
+        }
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "description": "How many values each origin set; a step also has fixed, those given by earlier steps."
+    },
+    "value": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "value",
+        "units",
+        "origin",
+        "from_step",
+        "data_reference",
+        "reason"
+      ],
+      "properties": {
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "As the model names it."
+        },
+        "value": {
+          "type": [
+            "number",
+            "string",
+            "null"
+          ]
+        },
+        "units": {
+          "type": "string"
+        },
+        "origin": {
+          "$ref": "#/$defs/origin"
+        },
+        "from_step": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The step that calibrated it."
+        },
+        "data_reference": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "path",
+        "sha256",
+        "status"
+      ],
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/status"
+        }
+      }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "title",
+        "lines",
+        "mark",
+        "status",
+        "stale",
+        "counts",
+        "parameters",
+        "inputs"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "source",
+            "step",
+            "analysis",
+            "values",
+            "target"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "mark": {
+          "enum": [
+            "calibrated",
+            "measured",
+            "inherited",
+            "set_by_hand",
+            "unclassified",
+            "mixed",
+            null
+          ],
+          "description": "What set this box's values; null for a box that sets none."
+        },
+        "status": {
+          "enum": [
+            "done",
+            "not_run"
+          ]
+        },
+        "stale": {
+          "type": "boolean"
+        },
+        "counts": {
+          "$ref": "#/$defs/counts"
+        },
+        "parameters": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/value"
+          }
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/input"
+          }
+        }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to",
+        "label",
+        "style"
+      ],
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "style": {
+          "enum": [
+            "order",
+            "fixed",
+            "prior",
+            "merge",
+            "given"
+          ]
+        }
+      }
+    }
+  }
+}

@@ -5,6 +5,32 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Added — a calibration workflow run writes its provenance
+
+- A run writes `provenance_graph.json`, with a schema and a version, and `provenance.svg`, a
+  self-contained diagram for reports. `cuflynx-provenance <output_dir>` writes them again from the
+  output directory alone. Each box says what set its values: calibrated, measured, inherited or
+  set by hand. A value nothing describes counts as unclassified, never as inherited.
+- `workflow_result.json` records `libcuflynx_git` and `project_git` (`commit`, `dirty`) and
+  `libcellml_version`.
+- A parameter may carry `origin` (`measured`, `inherited` or `set_by_hand`) and `reason`, which
+  `set_by_hand` requires. Generation carries both into its parameters file.
+
+### Changed — a step's result stays current only if everything before it does
+
+- A step's recorded inputs now include its settings and the module library. Changed settings
+  stop a later step reusing its result. A changed library is a warning and `library_changed` in
+  `workflow_status`, since a library holds far more than one model uses.
+- `--from-step` and `--only` now check the whole chain of steps a result came from, not only the
+  direct source, and refuse a result whose source ran again after it.
+
+### Changed — every calibration has a merge arrow in the methods flow chart
+
+- The chart drew merge arrows only for calibrations no other step took values from, though every
+  calibration reaches the target. It now draws one for each calibration with a value in the
+  target. `flowchart.workflow_graph` holds plain text, with code between backticks, and `tikz`
+  writes the LaTeX, so the SVG diagram draws the same graph.
+
 ### Changed — at a node of three or more vessel ends, the end alone on its side must be compliant
 
 Decided by Finbar Argus on 2026-10-30 (#616, option D of the node-sums design).

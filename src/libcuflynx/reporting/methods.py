@@ -638,8 +638,11 @@ def workflow_methods_latex(workflow_path, run_dir=None, mapping=None, module_lib
     calibrations = [s for s in steps if s['kind'] == 'calibration']
     n_merged = sum(len(results[s['id']]['calibrated']) for s in calibrations
                    if results[s['id']]) or sum(len(s['params']) for s in calibrations)
+    latest = {record['target_model_name']: s['id'] for s in calibrations
+              for record in (results[s['id']] or {}).get('calibrated', [])}
     nodes, edges = flowchart.workflow_graph(
-        graph_steps + [{'id': None, 'model': workflow.target.as_dict(), 'n_merged': n_merged}])
+        graph_steps + [{'id': None, 'model': workflow.target.as_dict(), 'n_merged': n_merged,
+                        'merged_from': set(latest.values()) or None}])
     figure = flowchart.figure(
         flowchart.tikz(nodes, edges),
         f'Calibration workflow {escape(workflow.name)}: each step calibrates one model against '
@@ -779,7 +782,7 @@ def calibration_methods_latex(model_path, obs_data_path, params_for_id_path, set
     nodes, edges = flowchart.single_calibration_graph(
         len(params), len(obs.get('data_items') or []) if isinstance(obs, dict) else len(obs),
         len(info.get('sim_times') or [1]), settings, do_uq=do_uq, do_ia=do_ia,
-        use_emulator=use_emulator, model_label=_tt(os.path.basename(model_path)))
+        use_emulator=use_emulator, model_label=f'`{os.path.basename(model_path)}`')
     figure = flowchart.figure(flowchart.tikz(nodes, edges),
                               'The calibration: the model is fitted to the observations by '
                               'varying the calibrated parameters.', 'fig:calibration-flowchart',

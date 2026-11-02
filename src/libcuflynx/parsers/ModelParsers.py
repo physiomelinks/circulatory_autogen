@@ -10,7 +10,8 @@ from libcuflynx.utilities.config_schemas import (load_expanded_vessel_records, l
                                                  vessel_records_to_string_frame)
 from libcuflynx.models.LumpedModels import CVS0DModel
 from libcuflynx.utilities.parameter_names import host_model_names
-from libcuflynx.utilities.parameters_file import (parameters_array as rows_to_parameters_array,
+from libcuflynx.utilities.parameters_file import (PROVENANCE_KEYS,
+                                                  parameters_array as rows_to_parameters_array,
                                                   read_parameter_rows, sourced_reference)
 from libcuflynx.checks.LumpedModelChecks import LumpedCompositeCheck, LumpedBCVesselCheck, LumpedIDParamsCheck, LumpedPortVariableCheck
 from libcuflynx.generators.cpp.api import validate_module_config_apis
@@ -686,7 +687,7 @@ class CSV0DModelParser(object):
             if len(matches) == 0:
                 # the other entries apart from name in this row are left empty
                 parameters_list.append([param_tuple[0], param_tuple[1], param_tuple[2],
-                                        'EMPTY_MUST_BE_FILLED', 'EMPTY_MUST_BE_FILLED'])
+                                        'EMPTY_MUST_BE_FILLED', 'EMPTY_MUST_BE_FILLED', '', ''])
                 continue
 
             row = matches[0]
@@ -700,12 +701,15 @@ class CSV0DModelParser(object):
 
             # const_type comes from the module config (local or global), not from the CSV.
             parameters_list.append([row['variable_name'], row['units'], param_tuple[2],
-                                    row['value'], row['data_reference']])
+                                    row['value'], row['data_reference'],
+                                    *(row[key] if key in row.dtype.names else ''
+                                      for key in PROVENANCE_KEYS)])
         # each field at least 80 wide (a value identified by parameter id is written into it),
         # and wide enough for its longest text
         width = max([80] + [len(str(cell)) for row in parameters_list for cell in row])
         dtype = [(field, f'U{width}') for field in
-                 ('variable_name', 'units', 'const_type', 'value', 'data_reference')]
+                 ('variable_name', 'units', 'const_type', 'value', 'data_reference',
+                  *PROVENANCE_KEYS)]
         if len(parameters_list) == 0:
             return np.empty((len(parameters_list)), dtype=dtype)
         elif len(set([len(a) for a in parameters_list])) != 1:
@@ -717,6 +721,8 @@ class CSV0DModelParser(object):
         parameters_array['const_type'] = np.array(parameters_list)[:,2]
         parameters_array['value'] = np.array(parameters_list)[:,3]
         parameters_array['data_reference'] = np.array(parameters_list)[:,4]
+        for column, key in enumerate(PROVENANCE_KEYS, start=5):
+            parameters_array[key] = np.array(parameters_list)[:,column]
         return parameters_array
 
 

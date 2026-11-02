@@ -133,7 +133,7 @@ def test_an_empty_supermodule_instance_generates_and_its_generated_parameters_fi
     assert e_a['data_reference'].startswith('from chamber/')
     assert ' parameterisation lv: liang2009multi; ' in e_a['data_reference']
     # no key but a parameter's own, and the host's own values name no source
-    assert all(set(leaf) <= {'value', 'units', 'data_reference'}
+    assert all(set(leaf) <= {'value', 'units', 'data_reference', 'origin', 'reason'}
                for _, leaf in parameters_file.leaves(doc))
     assert not any(r['data_reference'].startswith('from ')
                    for n, r in used.items() if n not in heart)
@@ -146,6 +146,33 @@ def test_a_host_only_model_s_generated_parameters_file_has_every_value(tmp_path)
     used = _assert_every_value_generated_file(model_dir)
     assert 'T' in used and not any(r['data_reference'].startswith('from ')
                                    for r in used.values())
+
+
+@pytest.mark.integration
+def test_a_values_origin_and_reason_reach_the_generated_parameters_file(tmp_path):
+    with open(os.path.join(RESOURCES_DIR, '3compartment_parameters.json')) as f:
+        doc = json.load(f)
+    doc['global']['T'].update(origin='set_by_hand', reason='a one second cycle')
+    model_dir = _generate(tmp_path, os.path.join(RESOURCES_DIR, '3compartment_module_array.csv'),
+                          doc)
+    generated = parameters_file.read_parameters_file(_generated_file(model_dir))
+    assert generated['global']['T']['origin'] == 'set_by_hand'
+    assert generated['global']['T']['reason'] == 'a one second cycle'
+    others = [leaf for path, leaf in parameters_file.leaves(generated) if path != ['global', 'T']]
+    assert others and not any('origin' in leaf or 'reason' in leaf for leaf in others)
+
+
+@pytest.mark.unit
+def test_a_value_set_by_hand_must_give_its_reason(tmp_path):
+    path = tmp_path / 'm_parameters.json'
+    leaf = {'value': 1, 'units': 'second', 'origin': 'set_by_hand'}
+    path.write_text(json.dumps({'schema_version': 1, 'global': {'T': leaf}}))
+    with pytest.raises(ValueError, match='reason'):
+        parameters_file.read_parameters_file(str(path))
+    leaf['origin'] = 'guessed'
+    path.write_text(json.dumps({'schema_version': 1, 'global': {'T': leaf}}))
+    with pytest.raises(ValueError, match='origin'):
+        parameters_file.read_parameters_file(str(path))
 
 
 @pytest.mark.integration

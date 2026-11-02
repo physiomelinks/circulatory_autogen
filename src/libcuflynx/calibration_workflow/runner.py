@@ -6,7 +6,10 @@ merging the calibrations' results into the workflow's target.
 Output layout (``output_dir``)::
 
     calibration_workflow.json      the workflow as run
-    workflow_result.json           order, per-step provenance, the merged parameter set
+    workflow_result.json           order, per-step provenance, the merged parameter set, the
+                                   commits and libCellML version it ran with
+    provenance_graph.json          how every value was set (reporting/provenance.py)
+    provenance.svg                 that graph as a diagram
     <step_id>/
         step_result.json           calibrated values, fixed values and priors used, input hashes
         model/                     the generated step model (resources/, generated_models/)
@@ -55,8 +58,14 @@ from libcuflynx.calibration_workflow.select import (UnsetParametersError, protoc
 from libcuflynx.sensitivity_analysis.parameter_reduction import SobolReduction
 from libcuflynx.calibration_workflow.spec import (WORKFLOW_FILE_NAME, WorkflowError, load_workflow,
                                                   uses_log_posterior)
+from libcuflynx.utilities.paths import git_state, repo_root
 
 STEP_RESULT = 'step_result.json'
+# the inputs of a step that are not one file: their digests are in its recorded inputs
+SETTINGS_INPUT = 'settings'
+LIBRARY_INPUT = 'module_library'
+#: the files of a module library a model is generated from
+LIBRARY_FILE_SUFFIXES = ('.cellml', '_modules_config.json', '_parameters.json')
 # where a step's calibrated values come from
 POINT_BEST_FIT = 'best_fit'
 POINT_POSTERIOR_MEDIAN = 'posterior_median'
@@ -95,6 +104,27 @@ def sha256(path):
     return digest.hexdigest()
 
 
+def settings_digest(settings):
+    '''The sha256 of a step's settings, whatever their key order.'''
+    text = json.dumps(settings, sort_keys=True, default=str)
+    return hashlib.sha256(text.encode('utf-8')).hexdigest()
+
+
+def module_library_digest(library_dirs):
+    '''The sha256 of the module files under ``library_dirs``: their paths within each directory
+    and their contents.'''
+    digest = hashlib.sha256()
+    for directory in library_dirs:
+        for root, dirs, files in os.walk(directory):
+            dirs.sort()
+            for name in sorted(files):
+                if name.endswith(LIBRARY_FILE_SUFFIXES):
+                    path = os.path.join(root, name)
+                    digest.update(os.path.relpath(path, directory).encode('utf-8'))
+                    digest.update(sha256(path).encode('ascii'))
+    return digest.hexdigest()
+
+
 def _now():
     return datetime.datetime.now().isoformat(timespec='seconds')
 
@@ -111,6 +141,14 @@ def _libcuflynx_version():
         from importlib.metadata import version
         return version('libcuflynx')
     except Exception:
+        return None
+
+
+def _libcellml_version():
+    try:
+        from libcellml import versionString
+        return versionString()
+    except ImportError:
         return None
 
 
@@ -141,6 +179,7 @@ class _Run:
         self.comm = comm
         self.rank = comm.Get_rank()
         self.progress = progress
+        self._library_digest = None
 
     # -- helpers -------------------------------------------------------------------------
 
@@ -170,10 +209,23 @@ class _Run:
             return None
         return _read_json(path)
 
+    def library_input(self):
+        '''The ``module_library`` entry of a step's inputs, read once a run.'''
+        dirs = self.workflow.module_library_dirs
+        if not dirs:
+            return {}
+        if self._library_digest is None:
+            self._library_digest = module_library_digest(dirs)
+        return {LIBRARY_INPUT: {'path': os.pathsep.join(dirs), 'sha256': self._library_digest}}
+
     def inputs(self, step_id):
         rs = self.resolved.steps[step_id]
         if rs.model is None:
-            return {}       # a reduction: its inputs are its sensitivity step's
+            # a reduction: its other inputs are its sensitivity step's
+            return {SETTINGS_INPUT: {'path': self.workflow.path,
+                                     'sha256': settings_digest(rs.step.reduction)}}
+        settings = {'path': self.workflow.path,
+                    'sha256': settings_digest(self.workflow.step_settings(rs.step))}
         files = {'obs_data': rs.obs_data_path,
                  'params_for_id': self.params_for_id_of(rs.step)}
         if not os.path.isfile(files['params_for_id']):
@@ -186,22 +238,42 @@ class _Run:
             # a selection starts from the target's values
             files['target_parameters'] = self.workflow.target.parameters
             files['target_module_array'] = self.workflow.target.module_array
-        return {key: {'path': path, 'sha256': sha256(path)} for key, path in files.items()}
+        return {**{key: {'path': path, 'sha256': sha256(path)} for key, path in files.items()},
+                SETTINGS_INPUT: settings, **self.library_input()}
+
+    def changed_inputs(self, step_id, result):
+        '''The keys of the inputs in ``result`` that differ from the step's inputs now.'''
+        current = self.inputs(step_id)
+        return [key for key, info in result.get('inputs', {}).items()
+                if key in current and current[key]['sha256'] != info.get('sha256')]
 
     def require_current(self, step_id, needed_by):
+        '''The result of ``step_id``, which ``needed_by`` takes something from. A WorkflowError
+        when it has not run, when its inputs changed since it ran, or when any of that holds
+        for a step it took something from, or such a step ran again after it. A change in the
+        module library is a warning: a library holds far more than the model uses.'''
         result = self.step_result(step_id)
         if result is None or result.get('status') != 'done':
             raise WorkflowError(
                 f'step "{needed_by}" needs the result of "{step_id}", which has not been run '
                 f'into {self.output_dir}. Run the workflow from "{step_id}" (or without '
                 f'--from-step/--only).')
-        current = self.inputs(step_id)
-        for key, info in result.get('inputs', {}).items():
-            if key in current and current[key]['sha256'] != info.get('sha256'):
+        for key in self.changed_inputs(step_id, result):
+            if key == LIBRARY_INPUT:
+                warnings.warn(f'the module library has changed since "{step_id}" ran; its result '
+                              f'may no longer match it.', UserWarning, stacklevel=2)
+                continue
+            changed = 'its settings' if key == SETTINGS_INPUT else result['inputs'][key]['path']
+            raise WorkflowError(
+                f'step "{needed_by}" needs the result of "{step_id}", but {changed} has changed '
+                f'since "{step_id}" ran. Run the workflow from "{step_id}".')
+        for source in self.workflow.step(step_id).depends_on:
+            upstream = self.require_current(source, needed_by)
+            if (upstream.get('finished') or '') > (result.get('started') or ''):
                 raise WorkflowError(
-                    f'step "{needed_by}" needs the result of "{step_id}", but '
-                    f'{current[key]["path"]} has changed since "{step_id}" ran. Run the '
-                    f'workflow from "{step_id}".')
+                    f'step "{needed_by}" needs the result of "{step_id}", but "{source}", which '
+                    f'it took something from, ran again after it. Run the workflow from '
+                    f'"{step_id}".')
         return result
 
     # -- what a step gets from earlier steps ---------------------------------------------
@@ -644,6 +716,16 @@ class _Run:
                     self._study_inp(os.path.dirname(entry['manifest']), entry['id']),
                     workflow={'manifest': manifest, 'step': entry['id']})
 
+    def write_provenance(self):
+        '''Write the run's provenance graph and diagram. A failure is a warning, as for any
+        manifest.'''
+        from libcuflynx.reporting.provenance import write_provenance
+        try:
+            write_provenance(self.output_dir)
+        except Exception as exc:
+            warnings.warn(f'the provenance of {self.output_dir} was not written: {exc}',
+                          UserWarning, stacklevel=2)
+
     def merge(self, order, generate_target=True, write_calibrated=False):
         results = {s.id: self.step_result(s.id) for s in self.workflow.steps}
         merged = {}
@@ -669,6 +751,9 @@ class _Run:
             'complete': complete,
             'finished': _now(),
             'libcuflynx_version': _libcuflynx_version(),
+            'libcuflynx_git': git_state(repo_root()),
+            'project_git': git_state(os.path.dirname(self.workflow.path or '')),
+            'libcellml_version': _libcellml_version(),
             'module_library_dirs': self.workflow.module_library_dirs,
             'steps': {sid: (None if r is None else {
                 'status': r.get('status'), 'model': r.get('model'),
@@ -1018,6 +1103,7 @@ def run_calibration_workflow(source, *, output_dir=None, module_library_dirs=Non
         run.record_study(order)
     result = run.on_root(lambda: run.merge(order, write_calibrated=write_calibrated))
     run.record_study(order, workflow_result=result)
+    run.on_root(run.write_provenance)
     run.emit('workflow_finished', complete=result['complete'], output_dir=output_dir)
     return result
 
@@ -1026,9 +1112,11 @@ def workflow_status(source, output_dir, module_library_dirs=None):
     """Where each step of a workflow stands in ``output_dir``, cheaply (no generation).
 
     Returns ``{'workflow_name', 'order', 'complete', 'steps': {id: {'status', 'stale',
-    'best_cost', 'finished', 'point_estimate'}}}`` with ``status`` ``'done'`` or
-    ``'not_run'``; ``stale`` is True when the step's obs_data, params_for_id or parameters
-    changed since it ran, or a step it takes values from is stale or was rerun after it.
+    'library_changed', 'best_cost', 'finished', 'point_estimate'}}}`` with ``status`` ``'done'``
+    or ``'not_run'``; ``stale`` is True when the step's obs_data, params_for_id, parameters or
+    settings changed since it ran, or a step it takes values from is stale or was rerun after
+    it. ``library_changed`` says the module library changed; a library holds far more than a
+    model uses, so that alone does not make a step stale.
     """
     workflow = source if hasattr(source, 'steps') else load_workflow(source, module_library_dirs)
     resolved = resolve_workflow(workflow)
@@ -1037,17 +1125,18 @@ def workflow_status(source, output_dir, module_library_dirs=None):
     for step in workflow.topological_order():
         result = run.step_result(step.id)
         done = bool(result) and result.get('status') == 'done'
-        stale = False
+        stale = library_changed = False
         if done:
-            current = run.inputs(step.id)
-            stale = any(key in current and current[key]['sha256'] != info.get('sha256')
-                        for key, info in result.get('inputs', {}).items())
+            changed = run.changed_inputs(step.id, result)
+            library_changed = LIBRARY_INPUT in changed
+            stale = bool(set(changed) - {LIBRARY_INPUT})
             for source_id in step.depends_on:
                 upstream = steps.get(source_id, {})
                 if upstream.get('stale') or upstream.get('status') != 'done' or \
                         (upstream.get('finished') or '') > (result.get('started') or ''):
                     stale = True
         steps[step.id] = {'status': 'done' if done else 'not_run', 'stale': stale,
+                          'library_changed': library_changed,
                           'best_cost': (result or {}).get('best_cost') if done else None,
                           'finished': (result or {}).get('finished') if done else None,
                           'point_estimate': (result or {}).get('point_estimate') if done else None}
@@ -1087,9 +1176,7 @@ def workflow_model(source, view, *, output_dir, work_dir, module_library_dirs=No
         if result is None or result.get('status') != 'done':
             waiting.append(step_id)
             return None
-        current = run.inputs(step_id)
-        if any(key in current and current[key]['sha256'] != info.get('sha256')
-               for key, info in result.get('inputs', {}).items()):
+        if set(run.changed_inputs(step_id, result)) - {LIBRARY_INPUT}:
             stale.append(step_id)
         return result
 

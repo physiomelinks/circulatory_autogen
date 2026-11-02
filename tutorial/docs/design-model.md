@@ -113,7 +113,7 @@ These parameters go in the model's parameters file, `[resources_dir]/[file_prefi
  "heart": {"lv": {"E_A": {"value": 366575000, "units": "J_per_m6", "data_reference": "Liang_2009_Table_2"}}}}
 ```
 
-- A parameter is an object with **value** (a number, or text such as `EMPTY_MUST_BE_FILLED`), **units** (as in CellML's units file) and **data_reference** (where the value comes from, typically `[last_name][date][first_word_of_paper]`). Any other string key, such as a library's `sourced`, is kept and not read.
+- A parameter is an object with **value** (a number, or text such as `EMPTY_MUST_BE_FILLED`), **units** (as in CellML's units file) and **data_reference** (where the value comes from, typically `[last_name][date][first_word_of_paper]`). An optional **origin** says what set the value (`measured`, `inherited` or `set_by_hand`), and **reason** says why, which `set_by_hand` requires; generation carries both into its parameters file for a calibration workflow's provenance diagram. Any other string key, such as a library's `sourced`, is kept and not read.
 - Every other object is an instance (a module-array record) or a sub-instance of a supermodule instance. `global` holds the global constants.
 - `global`, `value` and `schema_version` are reserved: no module-array record, submodule or variable may have those names.
 - Numbers keep the text they are written with (`1.2e-8` stays `1.2e-8` in the generated model).
