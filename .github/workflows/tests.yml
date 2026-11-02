@@ -13,6 +13,8 @@ env:
   # shared memory and TCP.
   UCX_TLS: self,sm,tcp
 
+# All workflows pin ubuntu-24.04: the PyPI libcellml wheel needs libxml2.so.2, which ubuntu-latest
+# (26.04) does not have.
 jobs:
   # Jobs are listed fastest first (measured on CI), so with few runners free the quick checks
   # start, and report a failure, before the long ones.
@@ -25,7 +27,7 @@ jobs:
   # its own bundle, CA tests its own source, and "the app people have downloaded can still
   # run this engine" is asserted nowhere. This is that assertion, from CA's side.
   test-cuflynx-executable:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # The five analyses take ~10 minutes on Lotka-Volterra; the rest is the one-off 645 MB
     # download on a cache miss. Generous enough to survive a slow release download, tight
     # enough that a hang is reported rather than run to GitHub's 360-minute default.
@@ -127,7 +129,7 @@ jobs:
   # tested this against, and a finite-element API break reads as a physics failure. Bump the
   # pin deliberately, with the example, and the version named in its docstring.
   test-fenics-emulator:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     # micromamba activates the environment through the shell profile, so every step needs a
     # *login* shell. Without this the steps run against the runner's system python and
@@ -176,7 +178,7 @@ jobs:
   # Sharded like the serial job (tests/ci_shards.json, suite param-id). Only the `mpi`-marked
   # tests: the others in these two files run in every `test` job already.
   test-param-id-mpi:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -220,7 +222,7 @@ jobs:
   # would have them overwrite each other. The quoting matters: OMPI_COMM_WORLD_RANK must be
   # expanded by each rank's own shell, not by the shell that launches mpiexec.
   test-uq-mpi:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
     - uses: actions/checkout@v4
@@ -293,7 +295,7 @@ jobs:
   # It is its own job rather than extra cases on test-param-id-*, because it needs two optional
   # extras those jobs have no use for.
   test-uq:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # ~5 minutes of tests plus ~3 of installs. Deliberately not generous: this job used to take
     # 89 minutes against the real model, and a timeout close to the real cost is what makes a
     # regression back to that visible instead of merely slow.
@@ -392,7 +394,7 @@ jobs:
   # Each half is ~10-13 minutes and they run in parallel, so the wall clock is halved rather
   # than the work reduced.
   test-param-id-mpi-full-scale:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
     - uses: actions/checkout@v4
@@ -419,7 +421,7 @@ jobs:
   # 13.5 minutes of tests unsharded; two shards of ~5 (tests/ci_shards.json, suite param-id).
   # Only the `mpi`-marked tests: the others in these two files run in every `test` job already.
   test-param-id-serial:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -452,7 +454,7 @@ jobs:
   # Split on the same marker as the MPI jobs, for the same reason -- see the note on
   # test-param-id-mpi-full-scale.
   test-param-id-serial-full-scale:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
     - uses: actions/checkout@v4
@@ -477,7 +479,7 @@ jobs:
           --durations=0 --junitxml=junit-param-id-serial-full-scale.xml
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Each shard is meant to take under ~10 minutes. The timeout is a backstop, not a budget:
     # without one, `test (3.11)` sat in the apt step for 45 minutes and had to be cancelled
     # by hand, because the job would otherwise have run to GitHub's 360-minute default.
@@ -640,7 +642,7 @@ jobs:
         fi
 
   test-with-opencor:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     if: false  # Disabled by default - enable if OpenCOR is available in CI
     steps:
