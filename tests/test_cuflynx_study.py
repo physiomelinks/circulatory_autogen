@@ -896,6 +896,34 @@ def test_store_input_takes_a_file_a_renamed_file_or_a_folder(tmp_path, clock):
         cuflynx_study.store_input(work, 'obs_data', b'x')
 
 
+@pytest.mark.parametrize('vcs', sorted(cuflynx_study.VCS_DIRS))
+def test_store_input_leaves_out_a_folders_version_control_metadata(tmp_path, clock, vcs):
+    """A workflow folder that is a checkout is stored without its repository, and a change
+    only inside the repository reuses the stored version."""
+    work = tmp_path / 'work'
+    source = tmp_path / 'wf'
+    (source / vcs / 'objects').mkdir(parents=True)
+    (source / vcs / 'HEAD').write_text('ref: refs/heads/main')
+    (source / vcs / 'objects' / 'ab').write_text('history')
+    (source / '.settings').mkdir()
+    (source / '.settings' / 'solver.json').write_text('{}')
+    (source / 'calibration_workflow.json').write_text('{}')
+    clock(datetime(2026, 10, 31, 9, 0, 0))
+    stored = cuflynx_study.store_input(work, 'workflows/wf', source, 'calibration_workflow.json')
+    folder = work / os.path.dirname(stored)
+    assert not (folder / vcs).exists()
+    assert (folder / '.settings' / 'solver.json').read_text() == '{}'
+    [version] = cuflynx_study.read_index(work)
+    assert sorted(version['files']) == [os.path.join('.settings', 'solver.json'),
+                                        'calibration_workflow.json']
+
+    (source / vcs / 'HEAD').write_text('ref: refs/heads/other')
+    clock(datetime(2026, 10, 31, 9, 5, 0))
+    again = cuflynx_study.store_input(work, 'workflows/wf', source, 'calibration_workflow.json')
+    assert again == stored
+    assert os.listdir(work / 'inputs' / 'workflows' / 'wf') == ['2026-10-31_090000']
+
+
 def test_a_corrupt_manifest_is_replaced_not_fatal(study, capsys):
     path = cuflynx_study.manifest_path(study)
     with open(path, 'w') as handle:

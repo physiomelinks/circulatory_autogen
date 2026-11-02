@@ -446,6 +446,10 @@ def _place(root, kind, sources, main=None):
     return target
 
 
+#: Version-control metadata folders a stored folder leaves out, so a workflow folder that is a
+#: checkout does not carry its repository's history into the working dir or its zip.
+VCS_DIRS = frozenset({'.git', '.hg', '.svn'})
+
 #: Serialises :func:`store_input`'s read-modify-write of ``inputs/index.json`` within a process
 #: (an app saving several inputs at once).
 _INDEX_LOCK = threading.Lock()
@@ -466,11 +470,11 @@ def store_input(working_dir, kind, source, name=None):
 
     ``source`` is a file, a directory or bytes. A file is stored as ``name`` (default: its own
     name, with the CellML files it imports); a directory's files are stored as they are laid out
-    in it, ``name`` being the file among them the version is of (the folder is returned when
-    there is none); bytes are stored as the file ``name``. Each content is stored once
-    (:func:`_place`): the version of ``kind`` holding the same files is reused, else a new
-    folder ``inputs/<kind>/<yyyy-mm-dd_HHMMSS>/`` holds it and ``inputs/index.json`` lists it.
-    ``kind`` may have subfolders (``workflows/<wf>``).
+    in it (leaving out hidden files and the :data:`VCS_DIRS` folders), ``name`` being the file
+    among them the version is of (the folder is returned when there is none); bytes are stored
+    as the file ``name``. Each content is stored once (:func:`_place`): the version of ``kind``
+    holding the same files is reused, else a new folder ``inputs/<kind>/<yyyy-mm-dd_HHMMSS>/``
+    holds it and ``inputs/index.json`` lists it. ``kind`` may have subfolders (``workflows/<wf>``).
 
     The version returned is marked ``stored`` with the time, so :func:`latest_input` gives the
     content saved last even when it is an earlier one saved again. A file or directory already
@@ -492,9 +496,11 @@ def store_input(working_dir, kind, source, name=None):
     else:
         path = os.path.abspath(str(source))
         if os.path.isdir(path):
-            sources = {os.path.relpath(os.path.join(d, n), path): os.path.join(d, n)
-                       for d, dirs, names in os.walk(path)
-                       for n in names if not n.startswith('.')}
+            sources = {}
+            for d, dirs, names in os.walk(path):
+                dirs[:] = [x for x in dirs if x not in VCS_DIRS]
+                sources.update({os.path.relpath(os.path.join(d, n), path): os.path.join(d, n)
+                                for n in names if not n.startswith('.')})
             main = os.path.normpath(name) if name else None
         elif name and os.path.basename(name) != os.path.basename(path):
             sources, main = {os.path.basename(name): path}, os.path.basename(name)
