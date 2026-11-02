@@ -209,17 +209,26 @@ def apply_cvodes_tolerances(simulation, solver_info, fsa_enabled):
     return abs_tol, rel_tol
 
 
-# Below this relative tolerance the CVODES *sensitivities* get worse, not better -- see
-# warn_if_sensitivities_are_under_resolved. Measured on an analytically-solvable model
-# (tests/test_fsa_analytic_accuracy.py): rel 1e-8 gives a cost gradient accurate to ~1e-7,
+# Below this relative tolerance the CVODES *sensitivities* get worse, not better, on Myokit
+# < 1.40 -- see warn_if_sensitivities_are_under_resolved. Measured on an analytically-solvable
+# model (tests/test_fsa_analytic_accuracy.py): rel 1e-8 gives a cost gradient accurate to ~1e-7,
 # rel 1e-12 to only ~3e-3.
 FSA_MIN_SAFE_REL_TOL = 1e-9
+
+# Myokit 1.40 (myokit#1203) calls CVodeSetSensErrCon, so the sensitivities are in the local error
+# test and tightening rtol improves them. Older Myokit does not, and `myokit>=1.39.1` still lets
+# an install keep 1.39.x.
+MYOKIT_ERROR_CONTROLS_SENSITIVITIES = (
+    tuple(int(p) for p in re.findall(r"\d+", myokit.__version__)[:2]) >= (1, 40))
 
 
 def warn_if_sensitivities_are_under_resolved(rel_tol):
     """Warn when a tightened `rtol` will *degrade* the FSA gradient (issue #387).
 
-    Myokit configures CVODES with a finite-difference (DQ) sensitivity right-hand side
+    Only on Myokit < 1.40 (``MYOKIT_ERROR_CONTROLS_SENSITIVITIES`` is False); from 1.40 the
+    sensitivities are error-controlled and there is nothing to warn about.
+
+    Myokit < 1.40 configures CVODES with a finite-difference (DQ) sensitivity right-hand side
     (``CVodeSensInit(..., NULL, ...)``) and never calls ``CVodeSetSensErrCon``, so the
     sensitivity variables are **excluded from the local error test**: the step size is chosen
     to control the states alone, and nothing controls the sensitivities. CVODES sizes the DQ
@@ -237,13 +246,16 @@ def warn_if_sensitivities_are_under_resolved(rel_tol):
     much of the loss when a tight tolerance is genuinely needed (1e-12 with MaximumStep 1e-3
     measured 1.7e-5).
     """
+    if MYOKIT_ERROR_CONTROLS_SENSITIVITIES:
+        return
     if rel_tol is not None and rel_tol < FSA_MIN_SAFE_REL_TOL:
         warnings.warn(
             f"FSA (do_ad) gradients with solver_info rtol={rel_tol:g}: below "
             f"{FSA_MIN_SAFE_REL_TOL:g} the CVODES sensitivities get *less* accurate as rtol "
-            f"tightens, because Myokit excludes them from the local error test and sizes its "
-            f"finite-difference sensitivity RHS by sqrt(rtol). The states stay accurate, so "
-            f"this is invisible in the trajectory. Prefer rtol >= "
+            f"tightens, because Myokit {myokit.__version__} excludes them from the local error "
+            f"test and sizes its finite-difference sensitivity RHS by sqrt(rtol). The states "
+            f"stay accurate, so this is invisible in the trajectory. Upgrade to Myokit >= 1.40 "
+            f"(Python >= 3.10), which error-controls the sensitivities; or prefer rtol >= "
             f"{FSA_MIN_SAFE_REL_TOL:g} for gradient-based calibration, or bound "
             f"solver_info MaximumStep to compensate (issue #387).")
 
