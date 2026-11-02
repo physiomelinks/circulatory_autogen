@@ -19,6 +19,7 @@ import json
 import os
 import tempfile
 
+from libcuflynx.parsers.PrimitiveParsers import read_source_as_data_reference
 from libcuflynx.reporting import flowchart
 from libcuflynx.reporting.bibliography import cite, cited_keys, module_bib_files, read_bib, write_bib
 from libcuflynx.reporting.latex_names import escape
@@ -161,6 +162,10 @@ def _load_json(path):
         return json.load(f)
 
 
+def _load_obs_data(path):
+    return read_source_as_data_reference(_load_json(path), path)
+
+
 # --------------------------------------------------------------------------------------------
 # the parts of a step's subsection
 # --------------------------------------------------------------------------------------------
@@ -221,7 +226,22 @@ def _observed(item):
     return _math(text)
 
 
-def observables_text(obs, symbols, default_cost):
+def _obs_references(obs):
+    '''The data_references of the data items and prediction items of ``obs``.'''
+    if not isinstance(obs, dict):
+        return []
+    return [str(i['data_reference'])
+            for i in (obs.get('data_items') or []) + (obs.get('prediction_items') or [])
+            if i.get('data_reference')]
+
+
+def _obs_cited_keys(obs, entries):
+    return {key for reference in _obs_references(obs) for key in cited_keys(reference, entries)}
+
+
+def observables_text(obs, symbols, default_cost, entries=()):
+    '''The observables table and its sources: each item's ``data_reference`` as a parameter's
+    is, with the words that are keys of ``entries`` (the BibTeX entries) cited.'''
     items = obs.get('data_items') or []
     if not items:
         return 'No data items.'
@@ -239,12 +259,13 @@ def observables_text(obs, symbols, default_cost):
                      f'{_feature(item, symbols)} & {observed} & '
                      f'{format_number(item.get("weight", 1.0))} & {where} \\\\')
     lines += [r'\bottomrule', r'\end{tabular}', r'\end{center}']
-    sources = sorted({str(i['source']) for i in items if i.get('source')})
+    # the data_references of the fitted and of the held-out items
+    sources = {r: cite(r, entries) for r in _obs_references(obs)}
     text = '\n'.join(lines)
     if obs.get('reference_key') if isinstance(obs, dict) else None:
         text = f'Data: {escape(obs["reference_key"])}.\n' + text
     if sources:
-        text += '\nSources: ' + '; '.join(escape(s) for s in sources) + '.'
+        text += '\nSources: ' + '; '.join(sources[s] for s in sorted(sources)) + '.'
     predictions = obs.get('prediction_items') if isinstance(obs, dict) else None
     if predictions:
         text += (f'\n{len(predictions)} further item'
@@ -443,7 +464,7 @@ def _kind(step):
     return step.get('kind', 'calibration')
 
 
-def _step_section(step, symbols):
+def _step_section(step, symbols, entries=()):
     out = [f'\\subsection{{Step {escape(step["id"])}}}', r'\label{sec:step:'
            + step['id'].replace('_', '-') + '}']
     out.append(step.get('intro') or _step_intro(step))
@@ -488,7 +509,7 @@ def _step_section(step, symbols):
     out.append(r'\paragraph{Protocol.} ' + protocol_text(step['obs']))
     observables, costs = observables_text(step['obs'], symbols['step'],
                                           (step['settings'].get('optimiser_options') or {})
-                                          .get('cost_type') or 'gaussian_MLE')
+                                          .get('cost_type') or 'gaussian_MLE', entries)
     out.append(r'\paragraph{Observables.} ' + observables)
     if _kind(step) == 'calibration':
         out.append(r'\paragraph{Parameters.} The calibrated parameters, their ranges and '
@@ -615,7 +636,8 @@ def workflow_methods_latex(workflow_path, run_dir=None, mapping=None, module_lib
     CSV for the *target* model; by default ``<target parameterisation>_variable_mapping.csv``
     in the target parameterisation's directory, if it exists, else the default symbols.
 
-    The parameters table cites the BibTeX keys in each parameter's data_reference, from
+    The parameters table cites the BibTeX keys in each parameter's data_reference, and each
+    step's Sources line those in its obs_data items' data_references, from
     ``bib_files`` (default: the ``*_references*.bib`` of every module version in the target).
     ``bib_out`` is a .bib file to write the cited entries to, for ``\\bibliography``.
     '''
@@ -669,7 +691,7 @@ def workflow_methods_latex(workflow_path, run_dir=None, mapping=None, module_lib
                                             .sensitivity_from).params_for_id)
             entry.update({
                 'model': step.model.as_dict(), 'place': rs.place, 'to_target': rs.to_target,
-                'obs_path': rs.obs_data_path, 'obs': _load_json(rs.obs_data_path),
+                'obs_path': rs.obs_data_path, 'obs': _load_obs_data(rs.obs_data_path),
                 'params': read_params_for_id(params_path)})
         else:
             entry.update({'model': None, 'place': '', 'to_target': None, 'obs_path': None,
@@ -740,7 +762,8 @@ def workflow_methods_latex(workflow_path, run_dir=None, mapping=None, module_lib
                 + overview + _tt(workflow.target.label()) + '.' + hand + '\n\n' + figure)
     for step in steps:
         symbols = {'step': Symbols(rows, step['to_target']), 'target': Symbols(rows)}
-        body.append(_step_section(step, symbols))
+        body.append(_step_section(step, symbols, entries))
+        keys |= _obs_cited_keys(step['obs'], entries)
     return _document('\n\n'.join(body), title or f'Methods: {workflow.name}', standalone,
                      _bibliography(entries, keys, bib_files, bib_out))
 
@@ -813,7 +836,8 @@ def calibration_methods_latex(model_path, obs_data_path, params_for_id_path, set
     ``<prefix>_variable_mapping.csv`` beside the model, if it exists. ``parameters_path`` is the
     generated model's parameters file, whose data_references give each parameter's source
     (default: the ``<prefix>_parameters.json`` generation writes beside the model); its BibTeX
-    keys are cited from ``bib_files``, and the cited entries written to ``bib_out`` when given.
+    keys, and those in the obs_data items' data_references, are cited from ``bib_files``, and
+    the cited entries written to ``bib_out`` when given.
     '''
     settings = dict(settings or {})
     model = load_model(model_path)
@@ -821,7 +845,7 @@ def calibration_methods_latex(model_path, obs_data_path, params_for_id_path, set
         candidate = default_mapping_path(model_path)
         mapping = candidate if os.path.isfile(candidate) else None
     rows = variable_mapping(model, mapping)
-    obs = _load_json(obs_data_path)
+    obs = _load_obs_data(obs_data_path)
     params = read_params_for_id(params_for_id_path)
     result = _param_id_result(run_dir, params) if run_dir else None
     step = {'id': 'calibration', 'model': {'module_array': model_path}, 'place': '',
@@ -840,17 +864,18 @@ def calibration_methods_latex(model_path, obs_data_path, params_for_id_path, set
                               'varying the calibrated parameters.', 'fig:calibration-flowchart',
                               natural_width_cm=flowchart.width_cm(nodes, edges))
     symbols = {'step': Symbols(rows), 'target': Symbols(rows)}
-    section = _step_section(step, symbols).replace(
+    entries = read_bib(list(bib_files or ()))
+    section = _step_section(step, symbols, entries).replace(
         '\\subsection{Step calibration}', '\\subsection{Calibration details}')
     if parameters_path is None:
         prefix = os.path.splitext(os.path.basename(model_path))[0]
         prefix = prefix[:-len('_flat')] if prefix.endswith('_flat') else prefix
         parameters_path = os.path.join(os.path.dirname(model_path), parameters_file_name(prefix))
-    entries = read_bib(list(bib_files or ()))
     from libcuflynx.parsers.PrimitiveParsers import param_name_for_gen
     calibrated = {param_name_for_gen(v, p): 'calibration' for row in params
                   for v, p in row['targets']}
     sources, keys = _parameter_sources(_read_parameters(parameters_path), entries, calibrated)
+    keys |= _obs_cited_keys(obs, entries)
     body = [_model_section(model, rows, None, mapping),
             parameter_sources_section(model, {r['variable_name']: r for r in rows}, sources),
             '\\section{Calibration}\nFigure~\\ref{fig:calibration-flowchart} shows the '
