@@ -72,6 +72,17 @@
         }
       }
     },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "description": "The program that wrote this graph: libcuflynx for a calibration workflow, or another library that writes the same format.",
+      "properties": {
+        "name": {"type": "string"},
+        "version": {"type": ["string", "null"]},
+        "git": {"$ref": "#/$defs/git"}
+      }
+    },
     "code": {
       "type": "object",
       "additionalProperties": false,

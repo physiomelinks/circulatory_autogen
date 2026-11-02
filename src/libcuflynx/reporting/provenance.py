@@ -272,7 +272,8 @@ def provenance_graph(output_dir):
     '''The provenance graph of the workflow run in ``output_dir``, as a JSON-ready dict:
 
     ``{schema_version, workflow: {name, output_dir, file, file_status, order, complete, finished,
-    stale}, code: {libcuflynx_version, libcuflynx_git, project_git, libcellml_version}, counts,
+    stale}, producer: {name, version, git}, code: {libcuflynx_version, libcuflynx_git,
+    project_git, libcellml_version}, counts,
     nodes, edges}``. ``counts`` says how the values of the target were set (``MARKS``). A node is
     ``{id, kind, title, lines, mark, status, stale, counts, parameters, inputs}``, with ``kind``
     source, step, analysis, values or target; an edge is ``{from, to, label, style}``.
@@ -349,6 +350,10 @@ def provenance_graph(output_dir):
                      'complete': bool((result or {}).get('complete')),
                      'finished': (result or {}).get('finished'),
                      'stale': any(stale.values())},
+        'producer': {'name': 'libcuflynx',
+                     'version': (result or {}).get('libcuflynx_version'),
+                     'git': (result or {}).get('libcuflynx_git') or {'commit': None,
+                                                                     'dirty': None}},
         'code': {key: (result or {}).get(key) for key in
                  ('libcuflynx_version', 'libcuflynx_git', 'project_git', 'libcellml_version')},
         'counts': target_counts, 'nodes': extra + nodes, 'edges': edges}
@@ -487,6 +492,10 @@ def provenance_svg(graph):
               _git_text('libcuflynx', graph['code'].get('libcuflynx_git')),
               _git_text('project', graph['code'].get('project_git')),
               f'libCellML {graph["code"].get("libcellml_version")}']
+    producer = graph.get('producer') or {}
+    if producer.get('name') and producer['name'] != 'libcuflynx':
+        footer.insert(2, _git_text(f'{producer["name"]} {producer.get("version") or ""}'.strip(),
+                                   producer.get('git')))
     characters = int((width - 2 * _MARGIN) * _FOOTER_CHARS_PER_UNIT)
     footer = [piece for line in footer
               for piece in textwrap.wrap(line, characters, break_long_words=True,
