@@ -5,6 +5,13 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Changed — no rtol warning for FSA gradients on Myokit 1.40 and later
+
+Myokit 1.40 (myokit#1203) puts the CVODES sensitivities in the local error test, so a tight
+`rtol` (below 1e-9) now improves `do_ad` FSA gradients instead of degrading them (#387), and
+CA warns about it only on older Myokit (Python 3.9 installs cannot get 1.40). Expect slower
+FSA solves at very tight tolerances on 1.40: the steps now have to resolve the sensitivities too.
+
 ### Changed — the study's working dir holds every input; the manifest's paths are all relative
 
 `param_id_output_dir` is the study's working dir: one folder that can be zipped and opened
