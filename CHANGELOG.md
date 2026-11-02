@@ -235,6 +235,13 @@ Multi-config generators (Visual Studio, Xcode) ignore `CMAKE_BUILD_TYPE` and bui
 Single-config generators (Make, Ninja) ignore `--config`. The printed build hints add
 `--config Release` too.
 
+### Fixed — the generated `BE_batched_c` / `CVODES_batched_c` C compiles with MSVC (#627)
+
+MSVC's OpenMP 2.0 rejects a declaration in a `#pragma omp parallel for` loop's initialisation
+(C3015), so the batched runtime declares each loop index as an `int` before the loop. MSVC's
+`stdlib.h` defines `min` and `max` as macros (C2059), so the generated model C names libCellML's
+min/max helpers `cellml_min` and `cellml_max` (`model_type: cpp` too). Results are unchanged.
+
 ### Fixed — libCellML 0.7's C for models with a state set by a computed constant, or with no algebraic variables
 
 The one-`variables`-array rewrite of libCellML 0.7's C now keeps `voi`, `states` and `rates` in
