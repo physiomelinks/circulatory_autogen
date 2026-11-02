@@ -83,6 +83,7 @@ def test_a_run_writes_its_provenance_and_says_what_set_each_value(library, tmp_p
     graph = _read_json(os.path.join(out, GRAPH_FILE))
     validate(PROVENANCE_GRAPH_SCHEMA, graph, source='graph', what='provenance graph')
     assert graph['schema_version'] == 1
+    assert graph['producer']['name'] == 'libcuflynx'
     assert graph['workflow']['output_dir'] == out
     assert graph['workflow']['order'] == ['fit_a', 'rest']
     assert graph['code']['libcellml_version'] == result['libcellml_version']
@@ -201,6 +202,22 @@ def test_the_command_writes_both_files_and_a_partial_run_still_has_a_graph(libra
 def _box(node_id, kind='step'):
     return {'id': node_id, 'kind': kind, 'title': node_id, 'lines': [], 'mark': None,
             'status': 'done', 'stale': False, 'counts': {}, 'parameters': [], 'inputs': []}
+
+
+@pytest.mark.unit
+def test_another_producer_validates_and_is_named_in_the_footer():
+    git = {'commit': 'abcdef1234567890', 'dirty': False}
+    graph = {'schema_version': 1,
+             'workflow': {'name': 'w', 'output_dir': '/runs/w', 'file': None, 'file_status': 'current',
+                          'order': ['a'], 'complete': True, 'finished': None, 'stale': False},
+             'producer': {'name': 'opinf', 'version': '0.1', 'git': git},
+             'code': {'libcuflynx_version': None, 'libcuflynx_git': git, 'project_git': git,
+                      'libcellml_version': None},
+             'counts': {'calibrated': 0, 'measured': 0, 'inherited': 0, 'set_by_hand': 0,
+                        'unclassified': 0},
+             'nodes': [_box('a')], 'edges': []}
+    validate(PROVENANCE_GRAPH_SCHEMA, graph, source='graph', what='provenance graph')
+    assert 'opinf 0.1: abcdef1234' in provenance_svg(graph)
 
 
 @pytest.mark.unit
