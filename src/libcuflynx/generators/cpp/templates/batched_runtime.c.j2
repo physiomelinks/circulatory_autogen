@@ -783,10 +783,11 @@ BK_API int bk_run(BkSim *sim, double *states, const double *variables, double t0
                   double *out, int threads)
 {
     int failed = 0;
+    int b;   /* declared before the loop: MSVC's OpenMP 2.0 takes no declaration in a parallel for (C3015) */
 #ifdef _OPENMP
     #pragma omp parallel for schedule(dynamic, 1) num_threads(threads > 0 ? threads : 1) reduction(+:failed)
 #endif
-    for (int b = 0; b < sim->n_blocks; ++b) {
+    for (b = 0; b < sim->n_blocks; ++b) {
         bk_run_block(&sim->opt, &sim->blocks[b], states, variables, t0, n_out, t_out, out, sim->n_states);
         failed += sim->blocks[b].status != BK_OK;
     }
@@ -840,10 +841,11 @@ BK_API void bk_compute_computed_constants(double *states, double *rates, double 
 BK_API void bk_sim_outputs(BkSim *sim, int n_rows, const double *t, const double *states_rows,
                            const double *variables, double *variables_rows, int threads)
 {
+    int r;   /* declared before the loop, as in bk_run */
 #ifdef _OPENMP
     #pragma omp parallel for schedule(static) num_threads(threads > 0 ? threads : 1)
 #endif
-    for (int r = 0; r < n_rows; ++r) {
+    for (r = 0; r < n_rows; ++r) {
         double *s = (double *) malloc(sizeof(double) * (STATE_COUNT > 0 ? STATE_COUNT : 1));
         double *rt = (double *) malloc(sizeof(double) * (STATE_COUNT > 0 ? STATE_COUNT : 1));
         double *v = variables_rows + (size_t) r * VARIABLE_COUNT;
@@ -868,10 +870,11 @@ BK_API void bk_sim_outputs(BkSim *sim, int n_rows, const double *t, const double
 BK_API void bk_outputs(int n_rows, const double *t, const double *states_rows, const double *variables,
                        double *variables_rows, int threads)
 {
+    int r;   /* declared before the loop, as in bk_run */
 #ifdef _OPENMP
     #pragma omp parallel for schedule(static) num_threads(threads > 0 ? threads : 1)
 #endif
-    for (int r = 0; r < n_rows; ++r) {
+    for (r = 0; r < n_rows; ++r) {
         double *s = (double *) malloc(sizeof(double) * (STATE_COUNT > 0 ? STATE_COUNT : 1));
         double *rt = (double *) malloc(sizeof(double) * (STATE_COUNT > 0 ? STATE_COUNT : 1));
         double *v = variables_rows + (size_t) r * VARIABLE_COUNT;
@@ -1036,10 +1039,11 @@ BK_API int bk_instance_advance(BkInstance *I, double dt)
 BK_API int bk_instances_advance(int n, BkInstance **instances, double dt, int threads)
 {
     int failed = 0;
+    int i;   /* declared before the loop, as in bk_run */
 #ifdef _OPENMP
     #pragma omp parallel for schedule(dynamic, 1) num_threads(threads > 0 ? threads : 1) reduction(+:failed)
 #endif
-    for (int i = 0; i < n; ++i)
+    for (i = 0; i < n; ++i)
         failed += bk_instance_advance(instances[i], dt) != 0;
     (void) threads;
     return failed;
