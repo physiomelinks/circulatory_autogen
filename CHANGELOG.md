@@ -33,6 +33,97 @@ next release; add to that section as you land a change.
   target. `flowchart.workflow_graph` holds plain text, with code between backticks, and `tikz`
   writes the LaTeX, so the SVG diagram draws the same graph.
 
+### Changed — the study's working dir holds every input; the manifest's paths are all relative
+
+`param_id_output_dir` is the study's working dir: one folder that can be zipped and opened
+anywhere in CUFLynx (see "The study working dir" in the parameter-identification tutorial).
+
+- The study manifest (`<study_name>_cuflynx_study.json`) copies each input from outside the
+  working dir into `inputs/<kind>/<yyyy-mm-dd_HHMMSS>/`, a folder named for the local date-time
+  it was first used (model with the CellML it imports, obs_data, params_for_id,
+  the user_inputs yaml, user funcs, an emulator, and in `system/` a generated model's module
+  array, parameters file, the module library versions it uses and its `external_modules_dir`),
+  once per content (matched by content hash; `_2`, `_3`... for a second content first used in
+  the same second), and records every path relative to the manifest's folder. No copy sits
+  outside a dated folder, so none looks like the current version: each run's entry names the
+  copies it ran with, and `inputs/index.json` (`cuflynx_study.read_index`) lists every version
+  with its kind, file, folder, content hash, first use and the runs that used it. It no longer
+  writes `study_dir`. New manifest key `system` (with `module_library_dirs`,
+  `external_modules_dir` and `use_builtin_modules`; built-in modules are recorded, not
+  copied), and `cuflynx_study.generation_inputs(read_study(<W>))` gives the user_inputs keys
+  that generate the model again from the working dir alone. Schema 1, unchanged:
+  readers ignore keys they do not know, and resolve relative paths against the manifest's
+  folder.
+- `cuflynx_study.store_input(working_dir, kind, source, name=None)` stores a file, a folder or
+  bytes as an input of `kind` the same way (a new dated folder per content, the same content
+  reused; a folder's hidden files and folders, such as `.git`, are neither copied nor hashed,
+  as the working dir's zip leaves them out) and returns its path relative to the working dir; `latest_input(working_dir, kind,
+  name=None)` gives the version stored last. An app saving edited inputs (CUFLynx) writes the
+  same layout through them, so an edit never rewrites an earlier version.
+- `cuflynx_study.export_working_dir(working_dir, zip_path)` writes a zip to share a working dir
+  and leaves the working dir as it is. In the zip only, the archived user_inputs yamls name
+  relative output directories (an outside `sa_options` `output_dir` becomes
+  `sensitivity/<its name>`) and name each input by its copy under `inputs/`, the version that
+  yaml's run used, and the manifests and `inputs/index.json` hold no `"outside"` entry or
+  absolute path. So a zip's yaml, run through `user_inputs_path_override`, runs on any machine
+  with no edits and reads and writes only in the unzipped folder. Each outside path gets a
+  warning naming its new relative path and saying its results are not in the zip, each rewritten
+  input a warning naming its copy, and the function returns them. An input with no copy keeps its
+  absolute path, with a warning.
+- New user_inputs key `generated_model_path`: a generated model to run from elsewhere, in place of
+  `<generated_models_dir>/<file_prefix>/<file_prefix>.<ext>`, taken relative to the yaml as
+  `external_model_path` is.
+- A relative `emulator_settings` `emulator_dir` in a yaml named by `user_inputs_path_override` is
+  taken from that yaml's folder, not the current directory.
+- The study manifest's `yaml_inputs` records, for each archived yaml, the stored inputs its run
+  read.
+- The dated `user_inputs_<yymmdd>.yaml` goes in `<param_id_output_dir>/inputs/user_inputs/`, not
+  `resources_dir`.
+- The default `sa_options` `output_dir` is `<param_id_output_dir>/sensitivity`, not
+  `sensitivity_outputs/<file_prefix>_SA_results`, and a relative one is taken under it. An
+  absolute `output_dir` is unchanged.
+- A calibration workflow run packs its workflow (`pack_workflow`) into
+  `<output_dir>/inputs/workflows/<workflow_name>/<yyyy-mm-dd_HHMMSS>/`, a new dated folder only
+  when the packed workflow differs from one stored already; its manifest and each step's name the
+  packed copies, relative. `pack_workflow` also returns `sources`, each input's packed path.
+  `calibration_workflow.pack.module_version_files` lists the module version files it packs;
+  the study's `inputs/system/` copies the same files.
+- An output directory outside the working dir (an absolute `sa_options` `output_dir` elsewhere)
+  is allowed, but a zip of the working dir does not hold it: the run prints a warning naming it
+  (rank 0, once per directory), its `runs`/`sensitivity` entry keeps the absolute path with
+  `"outside": true`, and `cuflynx_study.outside_outputs(study)` lists such entries for an app
+  exporting the working dir. Nothing re-runs a study from its manifest, so a study opened
+  elsewhere never writes into the recorded path.
+- New user_inputs (and workflow settings) key `cuflynx_study_copy_inputs` (default `true`):
+  `false` keeps the previous behaviour: absolute paths for inputs outside the study,
+  `study_dir`, and the previous sensitivity and dated-user_inputs locations.
+- `CVS0DParamID` takes `study_settings` (filled by `init_from_dict` and the param-id script)
+  for the manifest's further keys.
+
+### Changed — obs_data items name their origin in an optional `data_reference`, which replaces `source`
+
+`data_reference` says where a calibration or validation datum comes from, spelled as the
+parameters-file column. It is optional, and a value that is not a string is refused.
+
+- The free-text `source` key is replaced by `data_reference` and still accepted, on data_items
+  and prediction_items (string or null). The parser reads it as the item's `data_reference`, so it
+  reaches everything below; an item with both keeps its `data_reference`. A file that uses it gets
+  one warning, giving the number of items: rename the key. A series item now needs `value` or
+  `value_path`: `source` no longer satisfies that rule (the parser already refused such an item
+  for having a `std` and no data).
+- Accepted by `obs_data.schema.json` and the parser on both item kinds; published as
+  `obs_info["data_references"]` and `prediction_info["data_references"]` (accessor
+  `obs_data_helpers.obs_item_references`). `ObsDataCreator.add_prediction_item` takes
+  `data_reference=`.
+- Reported in the results: `error_vec_data_references.npy` beside `error_vec_names.npy`, and a
+  `data_reference` per item in `validation_results.json`.
+- Shown on the plots: a `Data: ...` line on each reconstruction page and on `prediction_plots`
+  feature figures that draw data; listed under *Sources* in the methods text, where a BibTeX key
+  in it becomes `\cite{key}` (and goes into the document's `.bib`) as in a parameter's
+  `data_reference`.
+- Each item names its own source: there is no file-level default (decided by Finbar Argus,
+  2026-10-31).
+
 ### Changed — at a node of three or more vessel ends, the end alone on its side must be compliant
 
 Decided by Finbar Argus on 2026-10-30 (#616, option D of the node-sums design).
