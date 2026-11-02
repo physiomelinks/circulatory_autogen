@@ -686,3 +686,54 @@ def test_a_declared_figure_script_is_current_then_stale_then_missing(library, tm
     assert script['inputs'][1]['status'] == 'missing'
     assert '1 of 2 files not written' in script['lines']
     assert 'FILES MISSING' in provenance_svg(graph)
+
+
+_DECAY_CELLML = '''<?xml version="1.0" encoding="UTF-8"?>
+<model xmlns="http://www.cellml.org/cellml/2.0#" name="decay">
+  <component name="mod">
+    <variable name="t" units="dimensionless" interface="public_and_private"/>
+    <variable name="x" units="dimensionless" initial_value="1" interface="public_and_private"/>
+    <variable name="k" units="dimensionless" initial_value="0.001" interface="public_and_private"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML"
+          xmlns:cellml="http://www.cellml.org/cellml/2.0#">
+      <apply><eq/><apply><diff/><bvar><ci>t</ci></bvar><ci>x</ci></apply>
+        <apply><times/><apply><minus/><ci>k</ci></apply><ci>x</ci></apply></apply>
+    </math>
+  </component>
+</model>
+'''
+
+
+@pytest.mark.integration
+def test_a_sweep_point_runs_as_fast_as_a_calibration_evaluation(tmp_path):
+    '''With no MaximumStep given, a point runs uncapped as the calibration does; a 1e-3 cap
+    over this 5000 s pre_time would cost 5e6 CVODE steps.'''
+    import time
+    from libcuflynx.protocol_runners.protocol_executor import ProtocolExecutor
+    from libcuflynx.solver_wrappers import get_simulation_helper
+
+    model = tmp_path / 'decay.cellml'
+    model.write_text(_DECAY_CELLML)
+    obs = tmp_path / 'obs.json'
+    obs.write_text(json.dumps({
+        'protocol_info': {'pre_times': [5000.0], 'sim_times': [[10.0]]}, 'data_items': [],
+        'prediction_items': [{'data_item_name': 'x_max', 'operands': ['mod/x'],
+                              'unit': 'dimensionless', 'operation': 'max',
+                              'data_type': 'constant'}]}))
+    solver_info = {'rtol': 1e-8, 'atol': 1e-10}
+    runner = sweep_module.PointRunner(str(model), {'dt': 1.0, 'solver_info': solver_info},
+                                      str(obs), [])
+    assert runner.runner.sim_helper.simulation._dtmax == 0
+
+    calibration = get_simulation_helper(
+        solver='CVODE_myokit', model_type='cellml', model_path=str(model), dt=1.0, sim_time=1.0,
+        solver_info=dict(solver_info, solver='CVODE_myokit'), pre_time=0.0)
+    start = time.perf_counter()
+    ProtocolExecutor(calibration).run_protocol(runner.protocol)
+    one_evaluation = time.perf_counter() - start
+
+    start = time.perf_counter()
+    _, _, features = runner(['mod/k'], [0.001])
+    one_point = time.perf_counter() - start
+    np.testing.assert_allclose(features['x_max'], np.exp(-5.0), rtol=1e-5)
+    assert one_point < 10 * one_evaluation + 0.5, (one_point, one_evaluation)
