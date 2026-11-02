@@ -19,6 +19,7 @@ import pytest
 from libcuflynx.generators.PythonGenerator import PythonGenerator
 from libcuflynx.scripts.script_generate_with_new_architecture import generate_with_new_architecture
 from libcuflynx.solver_wrappers import get_simulation_helper
+from libcuflynx.utilities import libcellml_helper_funcs as cellml_helpers
 
 REPO_RESOURCES_DIR = os.path.join(os.path.dirname(__file__), '..', 'resources')
 
@@ -478,3 +479,148 @@ def test_min_junction_fed_by_boundary_conditions(tmp_path):
     np.testing.assert_allclose(res['junc/R'], R, rtol=1e-10)
     assert R * v_sum > 100.0  # the drop is well above the tolerance below
     assert res['junc/u'][-1] == pytest.approx(12665.6 + R * v_sum, abs=0.1)
+
+
+# ---------------------------------------------------------------------------------------
+# Guards: an edge joining two computed variables, and a libCellML that rewrites units
+# ---------------------------------------------------------------------------------------
+
+JOIN_MODULES_CELLML = """\
+<?xml version='1.0' encoding='UTF-8'?>
+<model name="modules" xmlns="http://www.cellml.org/cellml/1.1#" xmlns:cellml="http://www.cellml.org/cellml/1.1#">
+    <component name="transporter_a_type">
+        <variable name="flux_a" public_interface="out" units="per_s"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply><eq/><ci>flux_a</ci><cn cellml:units="per_s">1</cn></apply>
+        </math>
+    </component>
+    <component name="transporter_b_type">
+        <variable name="t" public_interface="in" units="second"/>
+        <variable name="flux_b" public_interface="out" units="per_s"/>
+        <variable name="signal" public_interface="in" units="per_s"/>
+        <variable initial_value="0" name="x" public_interface="out" units="dimensionless"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply><eq/><ci>flux_b</ci><cn cellml:units="per_s">2</cn></apply>
+            <apply><eq/>
+                <apply><diff/><bvar><ci>t</ci></bvar><ci>x</ci></apply>
+                <ci>signal</ci>
+            </apply>
+        </math>
+    </component>
+    <component name="hub_type">
+        <variable name="signal_in" public_interface="in" units="per_s"/>
+        <variable name="signal_out" public_interface="out" units="per_s"/>
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply><eq/><ci>signal_out</ci><ci>signal_in</ci></apply>
+        </math>
+    </component>
+</model>
+"""
+
+
+def _port(port_type, variable):
+    return {'port_type': port_type, 'variables': [variable]}
+
+
+def _join_module(module_type, ports, variables):
+    return {'module_type': module_type, 'module_subtype': 'nn', 'module_format': 'cellml',
+            'component_file': 'join_modules.cellml', 'component_type': f'{module_type}_type',
+            'entrance_ports': [], 'exit_ports': [], 'general_ports': ports,
+            'variables_and_units': [[name, units, 'access', kind] for name, units, kind in variables]}
+
+
+def _join_modules_dir(tmp_path):
+    """Two transporters that compute flux_total and take part in a signal, with a hub."""
+    configs = [
+        _join_module('transporter_a', [_port('flux_total', 'flux_a'), _port('signal_a', 'flux_a')],
+                     [('flux_a', 'per_s', 'variable')]),
+        _join_module('transporter_b', [_port('flux_total', 'flux_b'), _port('signal_b', 'signal')],
+                     [('flux_b', 'per_s', 'variable'), ('signal', 'per_s', 'boundary_condition'),
+                      ('x', 'dimensionless', 'variable')]),
+        _join_module('hub', [_port('signal_a', 'signal_in'), _port('signal_b', 'signal_out')],
+                     [('signal_in', 'per_s', 'boundary_condition'),
+                      ('signal_out', 'per_s', 'variable')]),
+    ]
+    modules_dir = tmp_path / 'external_modules'
+    modules_dir.mkdir()
+    (modules_dir / 'join_modules.cellml').write_text(JOIN_MODULES_CELLML)
+    (modules_dir / 'join_modules_config.json').write_text(json.dumps(configs))
+    return str(modules_dir)
+
+
+NO_PARAMETERS = 'variable_name,units,value,data_reference\n'
+
+
+@pytest.mark.integration
+def test_edge_joining_two_computed_variables_names_them(tmp_path):
+    """A direct edge joins the shared flux_total ports, so generation stops and names both
+    variables, where the analyser alone names one variable and no edge."""
+    with pytest.raises(ValueError, match=r"both computed: 'a'\.flux_a and 'b'\.flux_b"):
+        _generate(tmp_path, 'join_clash', """\
+            name,module_subtype,module_type,inp_instances,out_instances
+            a,nn,transporter_a,,b
+            b,nn,transporter_b,a,
+            """, NO_PARAMETERS + 'b/signal,per_s,1.0,test\n',
+                  external_modules_dir=_join_modules_dir(tmp_path))
+
+
+@pytest.mark.integration
+def test_signal_through_a_hub_avoids_the_shared_port(tmp_path):
+    """The same two modules with the signal passed through a hub generate and carry it."""
+    generated_dir = _generate(tmp_path, 'join_hub', """\
+        name,module_subtype,module_type,inp_instances,out_instances
+        a,nn,transporter_a,,hub
+        hub,nn,hub,a,b
+        b,nn,transporter_b,hub,
+        """, NO_PARAMETERS, external_modules_dir=_join_modules_dir(tmp_path))
+    _, res = _run(generated_dir / 'join_hub.cellml', ['b/x'])
+    assert res['b/x'][-1] == pytest.approx(1.0, rel=1e-6)
+
+
+def test_old_libcellml_is_refused_before_flattening():
+    with pytest.raises(RuntimeError, match=r'0\.6\.3 is too old'):
+        cellml_helpers.require_libcellml_version('0.6.3')
+    cellml_helpers.require_libcellml_version(cellml_helpers.MIN_LIBCELLML_VERSION)
+    cellml_helpers.require_libcellml_version('0.10.0')
+
+
+def test_minimum_libcellml_matches_the_package_requirement():
+    with open(os.path.join(REPO_RESOURCES_DIR, '..', 'pyproject.toml')) as f:
+        assert f'"libcellml>={cellml_helpers.MIN_LIBCELLML_VERSION}"' in f.read()
+
+
+def test_flattening_keeps_units_and_one_definition_of_each(tmp_path):
+    """milliV_per_kiloV (1e-6) must not replace dim, which is listed after it, and a unit built
+    from custom units keeps one definition however many files import it."""
+    units = ('<units name="milliV_per_kiloV"><unit prefix="milli" units="volt"/>'
+             '<unit exponent="-1" prefix="kilo" units="volt"/></units>'
+             '<units name="dim"><unit units="dimensionless"/></units>'
+             '<units name="fmol"><unit prefix="femto" units="mole"/></units>'
+             '<units name="mm2"><unit exponent="2" prefix="milli" units="metre"/></units>'
+             '<units name="flux"><unit units="fmol"/><unit exponent="-1" units="mm2"/></units>')
+    head = ('<?xml version="1.0" encoding="UTF-8"?>\n<model xmlns="http://www.cellml.org/cellml/1.1#" '
+            'xmlns:xlink="http://www.w3.org/1999/xlink"')
+    imports = '<import xlink:href="units.cellml">' + ''.join(
+        f'<units name="{name}" units_ref="{name}"/>'
+        for name in ('milliV_per_kiloV', 'dim', 'fmol', 'mm2', 'flux')) + '</import>'
+    (tmp_path / 'units.cellml').write_text(f'{head} name="units">{units}</model>')
+    (tmp_path / 'params.cellml').write_text(
+        f'{head} name="params">{imports}<component name="params">'
+        '<variable name="f" units="flux" public_interface="out" initial_value="1"/></component></model>')
+    (tmp_path / 'module.cellml').write_text(
+        f'{head} name="module">{imports}<component name="module">'
+        '<variable name="a" units="dim" public_interface="out" initial_value="1"/>'
+        '<variable name="f" units="flux" public_interface="in"/></component></model>')
+    (tmp_path / 'top.cellml').write_text(
+        f'{head} name="top">{imports}'
+        '<import xlink:href="params.cellml"><component name="params" component_ref="params"/></import>'
+        '<import xlink:href="module.cellml"><component name="module" component_ref="module"/></import>'
+        '<connection><map_components component_1="params" component_2="module"/>'
+        '<map_variables variable_1="f" variable_2="f"/></connection></model>')
+    model = cellml_helpers.parse_model(str(tmp_path / 'top.cellml'), False)
+    importer = cellml_helpers.resolve_imports(model, str(tmp_path), False)
+    flat = cellml_helpers.flatten_model(model, importer)
+    assert flat.component('module').variable('a').units().name() == 'dim'
+    names = [flat.units(index).name() for index in range(flat.unitsCount())]
+    assert names.count('flux') == 1
+    assert not [name for name in names if name.startswith('flux_')]

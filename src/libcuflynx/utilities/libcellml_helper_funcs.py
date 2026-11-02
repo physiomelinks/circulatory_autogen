@@ -3,7 +3,7 @@ import re
 
 try:
     from libcellml import Analyser, AnalyserModel, AnalyserExternalVariable, Component, Generator, GeneratorProfile, \
-                          Parser, Importer, Model, Printer, Validator
+                          Parser, Importer, Model, Printer, Validator, versionString
     LIBCELLML_available = True
 except ImportError as e:
     print("Error -> ", e)
@@ -11,6 +11,26 @@ except ImportError as e:
           'You will need to open generated models in OpenCOR to check for errors.')
     LIBCELLML_available = False
 import libcuflynx.utilities.libcellml_utilities as libcellml_utils
+
+# Below this version Units::scalingFactor leaves the exponent off a unit's prefix, so flattening
+# treats units such as milliV_per_kiloV (1e-6) as equal to dimensionless and rewrites variables.
+MIN_LIBCELLML_VERSION = '0.7.2'
+
+
+def _version_tuple(version):
+    """The leading numbers of a version string: '0.7.1.post' gives (0, 7, 1)."""
+    return tuple(int(part) for part in re.findall(r'\d+', version)[:3])
+
+
+def require_libcellml_version(version=None):
+    """Raise RuntimeError when libCellML is older than MIN_LIBCELLML_VERSION."""
+    if version is None:
+        version = versionString()
+    if _version_tuple(version) < _version_tuple(MIN_LIBCELLML_VERSION):
+        raise RuntimeError(
+            f'libCellML {version} is too old: flattening needs {MIN_LIBCELLML_VERSION} or later, '
+            f'because older versions rewrite the units of variables. Run: '
+            f'pip install "libcellml>={MIN_LIBCELLML_VERSION}"')
 
 
 # Wrappers for the libCellML python API to give some convenient methods.
@@ -55,6 +75,7 @@ def resolve_imports(model, base_dir, strict_mode):
     return importer
 
 def flatten_model(model, importer):
+    require_libcellml_version()
     flat_model = importer.flattenModel(model)
     return flat_model
 

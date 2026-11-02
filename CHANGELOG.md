@@ -5,6 +5,14 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Added — generation stops on an old libCellML and names an edge that joins two computed variables
+
+- Flattening raises an error on libCellML below 0.7.2, whose unit scaling rewrites variables:
+  `milliV_per_kiloV` compared equal to `dimensionless`, so `dim` variables took its 1e-6 scale.
+- When the analyser finds an over-constrained variable, generation raises a `ValueError` naming
+  the two computed variables a port mapping joined. Modules sharing a port type are joined on it
+  by any edge between them; pass a single signal through a variable on a node both connect to.
+
 ### Changed — at a node of three or more vessel ends, the end alone on its side must be compliant
 
 Decided by Finbar Argus on 2026-10-30 (#616, option D of the node-sums design).
