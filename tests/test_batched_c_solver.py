@@ -316,6 +316,47 @@ def test_the_library_builds_release_on_multi_config_generators_too(tmp_path, mon
     assert build[build.index('--config') + 1] == 'Release'
 
 
+def _library_sources(tmp_path, solver):
+    from libcuflynx.generators.cpp import batched
+    flat, am = kernel_ir.analyse_cellml(_write(tmp_path, 'ops', OPS))
+    km = kernel_ir.build_kernel_model(am)
+    return batched.sources(am, km, 'ops', (), batched.describe(flat, am, km)['state_init_ref'], solver)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('solver', ['BE_batched_c', 'CVODES_batched_c'])
+def test_openmp_loops_have_the_form_msvc_takes(tmp_path, solver):
+    """MSVC's OpenMP 2.0 refuses a declaration in a parallel for's initialisation (C3015): each such loop's index
+    is a signed int declared before it."""
+    import re
+    runtime = _library_sources(tmp_path, solver)['batched_runtime.c']
+    loops = re.findall(r'#pragma omp parallel for[^\n]*\n(?:#endif\n)?\s*(for \([^;]*;)', runtime)
+    assert len(loops) == 4
+    for loop in loops:
+        index = re.fullmatch(r'for \((\w+) = 0;', loop)
+        assert index, f'{loop!r} declares its index in the loop'
+        assert re.search(rf'\n    int {index[1]};', runtime)
+
+
+@pytest.mark.unit
+@pytest.mark.skipif((shutil.which('cc') or shutil.which('gcc')) is None, reason='needs a C compiler')
+@pytest.mark.parametrize('solver', ['BE_batched_c', 'CVODES_batched_c'])
+def test_the_model_c_compiles_where_min_and_max_are_macros(tmp_path, solver):
+    """MSVC's stdlib.h defines min and max as macros in C, so libCellML's functions of those names fail to compile
+    there (C2059); the model's C (OPS uses both) compiles with the same macros defined."""
+    import subprocess
+    files = _library_sources(tmp_path, solver)
+    for name in ('model0d_core.c', 'model0d_core.h'):
+        (tmp_path / name).write_text(files[name])
+    (tmp_path / 'msvc_stdlib.h').write_text('#include <stdlib.h>\n'
+                                            '#define max(a, b) (((a) > (b)) ? (a) : (b))\n'
+                                            '#define min(a, b) (((a) < (b)) ? (a) : (b))\n')
+    done = subprocess.run([shutil.which('cc') or shutil.which('gcc'), '-fsyntax-only', '-I', str(tmp_path),
+                           '-include', str(tmp_path / 'msvc_stdlib.h'), str(tmp_path / 'model0d_core.c')],
+                          capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+
+
 @pytest.mark.unit
 def test_the_batched_solvers_are_opt_in_and_the_docs_say_when_to_choose_them():
     """Nothing selects a batched solver unless the config names it, and the solver docs say when
