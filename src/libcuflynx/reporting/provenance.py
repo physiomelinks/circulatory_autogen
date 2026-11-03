@@ -146,12 +146,24 @@ def _graph_steps(run):
     return steps
 
 
-def _figure_node(step_id, path, output_dir, stale):
-    '''A file a sweep step wrote, as a box below it.'''
-    name = os.path.basename(path)
-    shown = os.path.relpath(path, output_dir) if os.path.isabs(path) else path
-    return {'id': f'{step_id}/{name}', 'kind': FIGURE, 'title': name, 'lines': [f'`{shown}`'],
-            'mark': None, 'status': 'done' if os.path.isfile(path) else 'not_run',
+FILES_SUFFIX = '/files'
+
+
+def _figure_node(parent_id, paths, output_dir, stale):
+    '''The files a sweep step or a figure script wrote, named in one box below it: their common
+    folder once, then each file. Done when every file exists; a missing one is marked.'''
+    shown = [os.path.relpath(p, output_dir) if os.path.isabs(p) else p for p in paths]
+    folder = os.path.commonpath(shown) if len(shown) > 1 else ''
+    if folder in shown:                          # one file, or a file named as the folder
+        folder = os.path.dirname(folder)
+    lines = [f'in `{folder}/`'] if folder else []
+    for path, name in zip(paths, shown):
+        name = os.path.relpath(name, folder) if folder else name
+        lines.append(f'`{name}`' + ('' if os.path.isfile(path) else ' (missing)'))
+    count = len(paths)
+    return {'id': parent_id + FILES_SUFFIX, 'kind': FIGURE,
+            'title': f'{count} file{"s" if count != 1 else ""} written', 'lines': lines,
+            'mark': None, 'status': 'done' if all(os.path.isfile(p) for p in paths) else 'not_run',
             'stale': stale, 'counts': {}, 'parameters': [], 'inputs': []}
 
 
@@ -314,10 +326,7 @@ def _external_node(entry, run, from_node, from_stale):
     node = {'id': entry['id'], 'kind': EXTERNAL, 'title': entry['id'], 'lines': lines,
             'mark': None, 'status': 'done' if complete else 'not_run', 'stale': stale,
             'counts': {}, 'parameters': [], 'inputs': files}
-    figures = [_figure_node(entry['id'], p, output_dir, stale) for p in writes]
-    for figure in figures:
-        # by path: a script's files can share a name in different folders
-        figure['id'] = f'{entry["id"]}/{figure["lines"][0].strip("`")}'
+    figures = [_figure_node(entry['id'], writes, output_dir, stale)] if writes else []
     edges = [{'from': from_node, 'to': entry['id'], 'label': 'reads', 'style': 'reads'}]
     edges += [{'from': entry['id'], 'to': f['id'], 'label': 'writes', 'style': 'writes'}
               for f in figures]
@@ -449,13 +458,15 @@ def provenance_graph(output_dir):
         if done and node['kind'] == 'values':
             node['lines'] = [_described(v) for v in node['parameters']]
         if done and 'n_points' in step_result:
-            node['lines'].append(f'{step_result["n_points"]} points, '
+            points = step_result['n_points']
+            node['lines'].append(f'{points} point{"" if points == 1 else "s"}, '
                                  f'{step_result["n_failed"]} failed')
-            for path in [step_result.get('sweep_results')] + list(step_result.get('plots') or []):
-                if path:
-                    figures.append(_figure_node(step_id, path, run['output_dir'], node['stale']))
-                    edges.append({'from': step_id, 'to': figures[-1]['id'], 'label': 'writes',
-                                  'style': 'writes'})
+            written = [p for p in [step_result.get('sweep_results')]
+                       + list(step_result.get('plots') or []) if p]
+            if written:
+                figures.append(_figure_node(step_id, written, run['output_dir'], node['stale']))
+                edges.append({'from': step_id, 'to': figures[-1]['id'], 'label': 'writes',
+                              'style': 'writes'})
         observables = by_id[step_id].get('n_data_items', 0)
         helpers = by_id[step_id].get('n_helper_items', 0)
         if done and observables + helpers:
@@ -570,7 +581,9 @@ def _layout(graph):
         x = (boxes_width - len(row) * _BOX_WIDTH - (len(row) - 1) * _GAP_X) / 2
         height = max(_box_height(node) for node in row)
         for node in row:
-            places[node['id']] = (x, y, height, depth)
+            # a box of files has nothing below it, so it takes its own height, not the row's
+            own = _box_height(node) if node['kind'] == FIGURE else height
+            places[node['id']] = (x, y, own, depth)
             x += _BOX_WIDTH + _GAP_X
         y += height + _GAP_Y
     return places, lanes, width, y - _GAP_Y
