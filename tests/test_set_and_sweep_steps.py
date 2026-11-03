@@ -444,6 +444,30 @@ def test_a_sweep_on_the_target_runs_with_the_merged_values(library, tmp_path):
 
 
 @pytest.mark.integration
+def test_a_sweep_on_the_target_ignores_values_a_step_was_only_given(library, tmp_path):
+    """rest is fixed from fit_a (p = 2) and runs after the set step (p = 1.5). The merged target
+    takes only each step's own values, so p is 1.5 there, and the sweep on the target runs with
+    1.5 too, not the 2 that rest was given: z = 2 * 1.5^2 + q^2."""
+    raw = _raw(library)
+    fit_a, rest = raw['steps']
+    raw['steps'] = [fit_a, _set_step(), rest, {
+        'id': 'scan', 'kind': 'sweep', 'on_target': True, 'settings': {'sim_time': 1.0},
+        'sweep': {'outputs': ['mod__C/z'], 'parameters': {'mod__C/q': {'values': [1.0, 2.0]}}}}]
+    out = str(tmp_path / 'out')
+    with pytest.warns(UserWarning, match='calibrated by more than one step'):
+        result = run_calibration_workflow(_write(library, raw), output_dir=out)
+    assert result['order'] == ['fit_a', 'hand', 'rest', 'scan']
+    assert _merged(result)['A/p']['value'] == 1.5
+
+    step = _read_json(os.path.join(out, 'scan', 'step_result.json'))
+    by_name = {f['model_name']: f for f in step['fixed']}
+    assert (by_name['p_mod__A']['value'], by_name['p_mod__A']['from_step']) == (1.5, 'hand')
+    with np.load(step['sweep_results']) as results:
+        np.testing.assert_allclose(results['trace_0'][:, 0, -1], 2 * 1.5 ** 2 + np.array([1.0, 4.0]),
+                                   rtol=1e-6)
+
+
+@pytest.mark.integration
 def test_a_protocol_run_with_nothing_swept(library, tmp_path):
     raw = _raw(library)
     raw['steps'].append(dict(_sweep_step(raw, parameters={}), fixed_from=['fit_a']))

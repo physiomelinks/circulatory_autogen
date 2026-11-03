@@ -328,15 +328,17 @@ class _Run:
 
     # -- what a step gets from earlier steps ---------------------------------------------
 
-    def fixed_values(self, step, sources):
+    def fixed_values(self, step, sources, own_only=False):
         '''``{model name in this step: row}`` from every step in ``sources``: its calibrated
-        values, those it set by hand and the values it was itself given as fixed.'''
+        values, those it set by hand and, unless ``own_only``, the values it was itself given
+        as fixed.'''
         values = {}
         for source in sources:
             result = self.require_current(source, step.id)
             vessel_of = self.resolved.map_between(source, step.id)
             left_out = []
-            for record in given_values(result) + result['fixed']:
+            records = given_values(result) + ([] if own_only else result['fixed'])
+            for record in records:
                 vessel = vessel_of(record['vessel'])
                 if vessel is None:
                     left_out.append(record['model_name'])
@@ -430,10 +432,12 @@ class _Run:
                                        p.param) for p in own]
         own = {p.model_name for p in own}
         if step.on_target:
-            # the values the target is generated with: a later step wins, as in merge()
+            # the values merge() gives the target: each source's own values, in run order, a
+            # later step winning
             fixed = {}
-            for source in step.fixed_from:
-                fixed.update(self.fixed_values(step, [source]))
+            for source in self.workflow.topological_order():
+                if source.id in step.fixed_from:
+                    fixed.update(self.fixed_values(step, [source.id], own_only=True))
         else:
             # a parameter the step calibrates itself is not fixed: the later calibration wins
             fixed = {n: row for n, row in self.fixed_values(step, step.fixed_from).items()

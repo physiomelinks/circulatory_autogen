@@ -15,8 +15,11 @@ next release; add to that section as you land a change.
   keeps every run in `<step_id>/sweep/`, spread across MPI ranks. A failed point stays as a NaN row.
   An obs_data's `prediction_items` give a feature per point, drawn as `feature_vs_input` plots. A
   sweep feeds nothing forward, so no step can take from it and it does not reach the target.
+  On `CVODE_myokit` a point runs with no `MaximumStep` unless the step's `solver_info` gives one,
+  as a calibration evaluation does, so a long `pre_time` costs no more per point than per evaluation.
 - A sweep with `"on_target": true` runs on the target with every calibration's and set step's
-  values merged as the target merges them, after all of them. Its `zip` groups move parameters
+  values merged as the target merges them, after all of them: each step's own values, in run
+  order, so a value a step was only given as fixed never overrides a later set step. Its `zip` groups move parameters
   together as one axis, and a sweep with no parameters is one run of its protocol. The provenance
   diagram draws it below the merged box, with a box for each file it wrote.
 - A workflow's optional `external_figures` declares figure scripts that run outside it: the
