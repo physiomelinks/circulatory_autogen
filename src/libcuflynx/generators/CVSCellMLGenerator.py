@@ -36,6 +36,12 @@ from libcuflynx.generators.multi_port import (MULTI_PORT_SUM, MULTI_PORT_MULTIPL
                                               multiply_factor)
 
 
+# How the analyser reports a variable with two defining equations.
+OVERCONSTRAINED_ERROR = re.compile(
+    r"Variable '(?P<variable>[^']+)' in component '(?P<component>[^']+)' is "
+    r"(?:overconstrained|computed more than once)")
+
+
 class CVS0DCellMLGenerator(object):
     '''
     Generates CellML files for the 0D model represented in @
@@ -88,10 +94,16 @@ class CVS0DCellMLGenerator(object):
         # factor is None, or the multiply_factor of a Multiply port the term comes through.
         self._multiport_sums = {}
 
+        # Every mapping written to the model: (component_1, variable_1, component_2, variable_2).
+        self._mapped_variables = []
+
     def generate_files(self):
         if type(self.model).__name__ != "CVS0DModel":
             print("Error: The model should be a CVS0DModel representation")
             return
+
+        if LIBCELLML_available:
+            cellml.require_libcellml_version()
 
         print("Generating model files at {}".format(self.output_dir))
 
@@ -130,6 +142,7 @@ class CVS0DCellMLGenerator(object):
             analysed_model = cellml.get_analysed_model(a)
 
             libcellml_utils.print_issues(a)
+            self.__check_overconstrained_variables(a)
 
             print(f"analysed model has type {analysed_model.type()} . Is it ODE type? {analysed_model.type()==AnalyserModel.Type.ODE}")
             # print(analysed_model.type())
@@ -2213,6 +2226,50 @@ class CVS0DCellMLGenerator(object):
             pair = (v_2, v_1) if swapped else (v_1, v_2)
             if pair not in entry["pairs"]:
                 entry["pairs"].append(pair)
+                self.__dict__.setdefault('_mapped_variables', []).append(
+                    (comp_1, v_1, comp_2, v_2))
+
+    def __is_computed(self, component, variable):
+        """Whether a module's own equations set ``variable`` of ``component``."""
+        module = component.removesuffix('_module')
+        rows = self.model.vessels_df.loc[self.model.vessels_df["name"] == module]
+        if rows.empty:
+            return False
+        return any(entry[0] == variable and entry[3] in ('variable', 'state_variable')
+                   for entry in rows.iloc[0]["variables_and_units"])
+
+    def __check_overconstrained_variables(self, analyser):
+        """Raise ValueError, naming the edge, when a mapping joined two computed variables.
+
+        Runs on what the analyser reports, so a model it accepts is never refused.
+        """
+        clashes = []
+        for index in range(analyser.errorCount()):
+            match = OVERCONSTRAINED_ERROR.search(analyser.error(index).description())
+            if match is None:
+                continue
+            group = {(match.group('component'), match.group('variable'))}
+            grown = True
+            while grown:
+                grown = False
+                for comp_1, v_1, comp_2, v_2 in self._mapped_variables:
+                    ends = {(comp_1, v_1), (comp_2, v_2)}
+                    if ends & group and not ends <= group:
+                        group |= ends
+                        grown = True
+            for comp_1, v_1, comp_2, v_2 in self._mapped_variables:
+                if ({(comp_1, v_1), (comp_2, v_2)} <= group
+                        and self.__is_computed(comp_1, v_1) and self.__is_computed(comp_2, v_2)):
+                    clash = (f"'{comp_1.removesuffix('_module')}'.{v_1} and "
+                             f"'{comp_2.removesuffix('_module')}'.{v_2}")
+                    if clash not in clashes:
+                        clashes.append(clash)
+        if clashes:
+            raise ValueError(
+                'An edge joins two variables that are both computed: ' + '; '.join(clashes) + '. '
+                'Modules that share a port type are joined on it by any edge between them. To '
+                'carry one signal between such modules, pass it through a variable on a node '
+                'they both connect to.')
 
     def __flush_connections(self, wf):
         """Emit one <connection> per component pair, then clear the accumulator."""
