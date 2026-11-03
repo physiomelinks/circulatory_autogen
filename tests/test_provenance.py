@@ -326,8 +326,8 @@ def test_write_provenance_refuses_a_folder_that_is_no_run(tmp_path):
 
 
 def test_helper_items_are_not_counted_as_observables(tmp_path):
-    """A data_item with weight 0 or an std of 1e14 or more only feeds other items, so a step's
-    observable count leaves it out."""
+    """A data_item with weight 0 only feeds other items, so a step's observable count leaves it
+    out. A large std does not make an item a helper."""
     from libcuflynx.reporting.provenance import _data_item_counts
     path = tmp_path / 'obs_data.json'
     _write_json(path, {'data_items': [
@@ -340,5 +340,17 @@ def test_helper_items_are_not_counted_as_observables(tmp_path):
         {'variable': 'zero_weights', 'value': [1.0, 2.0], 'std': 0.1, 'weight': [0, 0]},
     ]})
     result = {'inputs': {'obs_data': {'path': str(path)}}}
-    assert _data_item_counts(result) == (3, 4)
+    assert _data_item_counts(result) == (5, 2)
     assert _data_item_counts({'inputs': {}}) == (0, 0)
+
+
+def test_only_weight_zero_makes_a_helper_item(tmp_path):
+    """An item may have a value and std of very large order and still be scored: only weight 0
+    marks a helper."""
+    from libcuflynx.reporting.provenance import _data_item_counts
+    path = tmp_path / 'obs_data.json'
+    _write_json(path, {'data_items': [
+        {'variable': 'huge', 'value': 1e20, 'std': 1e20, 'weight': 1},
+        {'variable': 'unscored', 'value': 1.0, 'std': 0.1, 'weight': 0},
+    ]})
+    assert _data_item_counts({'inputs': {'obs_data': {'path': str(path)}}}) == (1, 1)
