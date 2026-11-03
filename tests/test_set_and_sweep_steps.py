@@ -406,9 +406,9 @@ def test_a_sweep_records_every_point_and_feeds_nothing_forward(library, tmp_path
     assert '`mod__C/q` {1, 2, 3}' in scan['lines']
     # it passes no values on: its only edges out are to the files it wrote
     assert {(e['to'], e['style']) for e in graph['edges'] if e['from'] == 'scan'} == {
-        ('scan/sweep_results.npz', 'writes')}
-    figure = next(n for n in graph['nodes'] if n['id'] == 'scan/sweep_results.npz')
-    assert (figure['kind'], figure['status']) == ('figure', 'done')
+        ('scan/files', 'writes')}
+    figure = next(n for n in graph['nodes'] if n['id'] == 'scan/files')
+    assert (figure['kind'], figure['status'], figure['title']) == ('figure', 'done', '1 file written')
     assert figure['lines'] == ['`scan/sweep/sweep_results.npz`']
     assert [e['label'] for e in graph['edges'] if e['to'] == 'scan'] == ['fixed']
 
@@ -439,7 +439,7 @@ def test_a_sweep_on_the_target_runs_with_the_merged_values(library, tmp_path):
     # drawn below the merged box, not from each step it took values from
     assert [(e['from'], e['label']) for e in graph['edges'] if e['to'] == 'scan'] == [
         ('__target__', 'runs on')]
-    assert ('scan', 'scan/sweep_results.npz') in {(e['from'], e['to']) for e in graph['edges']}
+    assert ('scan', 'scan/files') in {(e['from'], e['to']) for e in graph['edges']}
     assert 'the merged target' in provenance_svg(graph)
 
 
@@ -671,8 +671,12 @@ def test_a_declared_figure_script_is_current_then_stale_then_missing(library, tm
         ('reads', 'current'), ('writes', 'current'), ('writes', 'current')]
     edges = {(e['from'], e['to'], e['style']) for e in graph['edges']}
     assert ('__target__', 'paper_plots', 'reads') in edges
-    written = [e['to'] for e in graph['edges'] if e['from'] == 'paper_plots']
-    assert len(written) == len(set(written)) == 2      # both files are a.png
+    # one box names both files, which share the name a.png in different folders
+    assert [e['to'] for e in graph['edges'] if e['from'] == 'paper_plots'] == ['paper_plots/files']
+    files = next(n for n in graph['nodes'] if n['id'] == 'paper_plots/files')
+    assert files['title'] == '2 files written' and files['status'] == 'done'
+    shown = ' '.join(files['lines'])
+    assert 'Fig1/a.png' in shown and 'Fig2/a.png' in shown
     assert 'OUTSIDE THE WORKFLOW' in provenance_svg(graph)
 
     os.utime(data, (now + 30, now + 30))
@@ -686,6 +690,39 @@ def test_a_declared_figure_script_is_current_then_stale_then_missing(library, tm
     assert script['inputs'][1]['status'] == 'missing'
     assert '1 of 2 files not written' in script['lines']
     assert 'FILES MISSING' in provenance_svg(graph)
+    files = next(n for n in graph['nodes'] if n['id'] == 'paper_plots/files')
+    assert files['status'] == 'not_run' and any('a.png` (missing)' in line for line in files['lines'])
+
+
+def test_a_producer_s_files_are_named_in_one_box(tmp_path):
+    """However many files a sweep or a figure script writes, they are one box under it, named
+    there, so the drawing keeps its width as the file count grows."""
+    from libcuflynx.reporting import provenance as prov
+    folder = tmp_path / 'scan' / 'sweep'
+    folder.mkdir(parents=True)
+    paths = []
+    for i in range(20):
+        path = folder / f'feature_{i}_vs_q.png'
+        path.write_text('x')
+        paths.append(str(path))
+    node = prov._figure_node('scan', paths, str(tmp_path), stale=False)
+    assert node['id'] == 'scan/files' and node['title'] == '20 files written'
+    assert node['lines'][0] == 'in `scan/sweep/`' and node['lines'][1:] == [
+        f'`feature_{i}_vs_q.png`' for i in range(20)]
+
+    def width(n):
+        nodes = [{'id': 'scan', 'kind': 'analysis', 'title': 'scan', 'lines': [], 'mark': None,
+                  'status': 'done', 'stale': False, 'counts': {}, 'parameters': [], 'inputs': []},
+                 prov._figure_node('scan', paths[:n], str(tmp_path), stale=False)]
+        edges = [{'from': 'scan', 'to': 'scan/files', 'label': 'writes', 'style': 'writes'}]
+        return prov._layout({'nodes': nodes, 'edges': edges})[2]
+    assert width(20) == width(2)
+
+    # beside a long list, a short one keeps its own height rather than the row's
+    short = prov._figure_node('other', paths[:2], str(tmp_path), stale=False)
+    long_ = prov._figure_node('scan', paths, str(tmp_path), stale=False)
+    places = prov._layout({'nodes': [short, long_], 'edges': []})[0]
+    assert places['other/files'][2] == prov._box_height(short) < places['scan/files'][2]
 
 
 _DECAY_CELLML = '''<?xml version="1.0" encoding="UTF-8"?>
