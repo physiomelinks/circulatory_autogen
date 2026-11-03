@@ -248,13 +248,52 @@ def test_a_workflow_flow_chart_follows_its_dependencies():
     by_edge = {(e['from'], e['to']): e for e in edges}
     assert by_edge[('a', 'c')]['style'] == 'fixed' and by_edge[('a', 'c')]['label'] == 'fixed'
     assert by_edge[('b', 'c')]['style'] == 'prior'
-    assert ('c', '__target__') in by_edge and ('a', '__target__') not in by_edge
+    # every calibration reaches the target, also one a later step takes values from
+    assert {('a', '__target__'), ('b', '__target__'), ('c', '__target__')} <= set(by_edge)
     picture = flowchart.tikz(nodes, edges)
     # a and b side by side on the first row, c below them, the target last
     assert '(na) at (0.00,0.00)' in picture and '(nb) at (5.20,0.00)' in picture
     assert '(nc) at (2.60,-2.60)' in picture
     assert flowchart.width_cm(nodes, edges) == pytest.approx(5.2 + 4.6)
     assert 'CMA-ES' in picture
+
+
+@pytest.mark.unit
+def test_a_calibration_a_later_step_replaced_has_no_merge_arrow():
+    target = {'id': None, 'n_merged': 1, 'merged_from': {'b'},
+              'model': {'module_type': 'soma', 'version': 'v', 'parameterisation': 'r'}}
+    _, edges = flowchart.workflow_graph([_step('a'), _step('b', depends=['a']), target])
+    assert [e['from'] for e in edges if e['to'] == '__target__'] == ['b']
+
+
+@pytest.mark.unit
+def test_a_flow_chart_holds_plain_text_and_tikz_writes_the_latex():
+    target = {'id': None, 'n_merged': 1,
+              'model': {'module_type': 'soma_x', 'version': 'v', 'parameterisation': 'r_1'}}
+    nodes, edges = flowchart.workflow_graph([_step('fit_a'), target])
+    by_id = {n['id']: n for n in nodes}
+    assert by_id['fit_a']['title'] == 'fit_a'
+    assert by_id['__target__']['lines'][0] == 'parameterisation `r_1`'
+    assert flowchart.plain_text('parameterisation `r_1`') == 'parameterisation r_1'
+    picture = flowchart.tikz(nodes, edges)
+    assert r'\textbf{fit\_a}' in picture and r'\texttt{r\_1}' in picture
+
+
+@pytest.mark.unit
+def test_a_flow_chart_names_a_selected_part_of_the_target():
+    target = {'id': None, 'n_merged': 1,
+              'model': {'module_type': 'soma', 'version': 'v', 'parameterisation': 'r'}}
+    step = dict(_step('part'), model={'select': ['heart/lv', 'aorta']})
+    nodes, _ = flowchart.workflow_graph([step, target])
+    assert nodes[0]['lines'][0] == 'selection `heart/lv, aorta` of the target'
+
+
+@pytest.mark.unit
+def test_a_step_that_has_not_run_is_still_a_box():
+    target = {'id': None, 'n_merged': 0,
+              'model': {'module_type': 'soma', 'version': 'v', 'parameterisation': 'r'}}
+    nodes, _ = flowchart.workflow_graph([dict(_step('later'), model=None), target])
+    assert nodes[0]['lines'] == ['not run']
 
 
 @pytest.mark.unit

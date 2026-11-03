@@ -5,6 +5,38 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Added — a calibration workflow run writes its provenance
+
+- A run writes `provenance_graph.json`, with a schema and a version, and `provenance.svg`, a
+  self-contained diagram for reports. `cuflynx-provenance <output_dir>` writes them again from the
+  output directory alone. Each box says what set its values: calibrated, measured, inherited or
+  set by hand. A value nothing describes counts as unclassified, never as inherited.
+- A step box counts only scored data_items as observables. Helper items, with weight 0, only
+  feed other items, so they appear as `helper_items` in the graph.
+- `workflow_result.json` records `libcuflynx_git` and `project_git` (`commit`, `dirty`) and
+  `libcellml_version`.
+- A parameter may carry `origin` (`measured`, `inherited` or `set_by_hand`) and `reason`, which
+  `set_by_hand` requires. Generation carries both into its parameters file.
+
+### Changed — a step's result stays current only if everything before it does
+
+- A step's recorded inputs now include its settings and the module library. Changed settings
+  stop a later step reusing its result. A changed library is a warning and `library_changed` in
+  `workflow_status`, since a library holds far more than one model uses.
+- The provenance graph judges a step's settings as the runner does, by that step's settings
+  alone: re-saving the workflow file with other formatting leaves every step current, and a
+  change to one step's settings makes that step and the steps after it stale, not the others.
+  `file_status` still says whether the file itself changed.
+- `--from-step` and `--only` now check the whole chain of steps a result came from, not only the
+  direct source, and refuse a result whose source ran again after it.
+
+### Changed — every calibration has a merge arrow in the methods flow chart
+
+- The chart drew merge arrows only for calibrations no other step took values from, though every
+  calibration reaches the target. It now draws one for each calibration with a value in the
+  target. `flowchart.workflow_graph` holds plain text, with code between backticks, and `tikz`
+  writes the LaTeX, so the SVG diagram draws the same graph.
+
 ### Added — generation stops on an old libCellML and names an edge that joins two computed variables
 
 - Generation raises an error on libCellML below 0.7.2, whose unit scaling rewrites variables:

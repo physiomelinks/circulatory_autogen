@@ -21,9 +21,11 @@ each parameter named as the model names it.
 The rules (``schemas/parameters.schema.json``):
 
 * A *leaf* is one parameter: an object with ``value`` (a number, or a string such as
-  ``EMPTY_MUST_BE_FILLED``), ``units`` and ``data_reference``; any other key (a library's
-  ``sourced``) is a string, kept and not read. Every other object is a *node*: an instance or
-  sub-instance, whose keys are its sub-instances and variables.
+  ``EMPTY_MUST_BE_FILLED``), ``units`` and ``data_reference``, and optionally ``origin`` (what
+  set the value: ``ORIGINS``) and ``reason`` (required for ``set_by_hand``), which generation
+  carries into the file it writes; any other key (a library's ``sourced``) is a string, kept and
+  not read. Every other object is a *node*: an instance or sub-instance, whose keys are its
+  sub-instances and variables.
 * ``global`` at the top holds the global constants, as leaves. ``schema_version`` is 1.
 * So a node never has a key ``value``, and nothing below the top is named ``global`` or
   ``schema_version``: no instance, sub-instance or variable may have these names
@@ -49,6 +51,10 @@ SCHEMA_VERSION_KEY = 'schema_version'
 RESERVED_NAMES = (GLOBAL, VALUE, SCHEMA_VERSION_KEY)
 #: a leaf's keys, in the order they are written; any other key follows them
 LEAF_KEYS = ('value', 'units', 'data_reference')
+#: what can set a value in a parameters file; calibrated comes from a workflow's step results
+ORIGINS = ('measured', 'inherited', 'set_by_hand')
+#: the optional leaf keys generation carries into the file it writes
+PROVENANCE_KEYS = ('origin', 'reason')
 #: how a data_reference starts when it names the parameterisation its value came from
 SOURCE_PREFIX = 'from '
 SOURCE_SEPARATOR = ': '
@@ -381,11 +387,11 @@ def write_parameter_rows(path, rows, kind=MODEL):
 
 def parameters_array(rows, width=80):
     '''``rows`` as the structured array of strings a parameters table was read into: the fields
-    ``variable_name``, ``units``, ``value``, ``data_reference`` and the other keys rows have, in
-    that order, each ``<U{n}``, ``n`` the longest text of any field and at least ``width``, so no
-    text is cut.'''
+    ``variable_name``, ``units``, ``value``, ``data_reference``, ``origin``, ``reason`` and the
+    other keys rows have, in that order, each ``<U{n}``, ``n`` the longest text of any field and
+    at least ``width``, so no text is cut.'''
     import numpy as np
-    fields = ['variable_name', 'units', 'value', 'data_reference']
+    fields = ['variable_name', 'units', 'value', 'data_reference', *PROVENANCE_KEYS]
     for row in rows:
         fields += [k for k in row if k not in fields]
     cells = [tuple(str(row.get(f, '')) for f in fields) for row in rows]

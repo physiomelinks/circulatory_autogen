@@ -15,8 +15,8 @@ import os
 import sys
 
 from libcuflynx.schemas import (CALIBRATION_WORKFLOW_SCHEMA, MODULE_CONFIG_SCHEMA,
-                                OBS_DATA_SCHEMA, PARAMS_FOR_ID_SCHEMA, VARIABLE_MAPPING_SCHEMA,
-                                load_schema, schema_file)
+                                OBS_DATA_SCHEMA, PARAMETERS_SCHEMA, PARAMS_FOR_ID_SCHEMA,
+                                VARIABLE_MAPPING_SCHEMA, load_schema, schema_file)
 
 
 def _registries():
@@ -29,8 +29,10 @@ def _registries():
     from libcuflynx.sensitivity_analysis.sobol_ranking import CRITERIA
     from libcuflynx.utilities.config_schemas import VARIABLE_ACCESS, VARIABLE_KINDS
     from libcuflynx.utilities.obs_data_helpers import VALID_DATA_TYPES
+    from libcuflynx.utilities.parameters_file import ORIGINS
     from libcuflynx.utilities.protocol_shapes import SHAPE_TYPES
     return {
+        (PARAMETERS_SCHEMA, '/$defs/parameter/properties/origin/enum'): list(ORIGINS),
         # (schema, JSON Pointer to the enum) -> values
         (OBS_DATA_SCHEMA, '/$defs/dataItem/properties/data_type/enum'): list(VALID_DATA_TYPES),
         (OBS_DATA_SCHEMA, '/$defs/shape/oneOf/1/properties/type/enum'): list(SHAPE_TYPES),

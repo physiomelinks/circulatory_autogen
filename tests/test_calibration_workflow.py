@@ -809,7 +809,8 @@ def test_a_workflow_of_module_arrays_runs_and_writes_beside_the_target(library, 
     assert merged['C/q'] == pytest.approx(np.sqrt(Z_C - Y_A), rel=1e-4)
     chain = _read_json(str(tmp_path / 'run' / 'chain' / 'step_result.json'))
     assert [(f['model_name'], f['from_step']) for f in chain['fixed']] == [('p_A', 'a-alone')]
-    assert set(chain['inputs']) == {'obs_data', 'params_for_id', 'parameters', 'module_array'}
+    assert set(chain['inputs']) == {'obs_data', 'params_for_id', 'parameters', 'module_array',
+                                    'settings', 'module_library'}
     assert result['calibrated_parameters_file'] == os.path.join(
         library['arrays'], 'chain_calibrated_parameters.json')
     written = {r['variable_name']: r for r in read_parameters(result['calibrated_parameters_file'])}

@@ -1475,7 +1475,9 @@ prior.
 ```
 <output_dir>/                         --output-dir; default ./workflow_output/<workflow_name>
     calibration_workflow.json         the workflow as run
-    workflow_result.json              order, provenance (obs_data/params_for_id hashes, times), merged parameters
+    workflow_result.json              order, provenance (input hashes, times, commits, libCellML version), merged parameters
+    provenance_graph.json             how every value was set, for reports and CUFLynx (below)
+    provenance.svg                    that graph as a diagram to place in a report
     <step_id>/step_result.json        its kind; calibrated values, the fixed values and priors it was given, input hashes; an analysis's outputs
     <step_id>/model/                  the generated step model
     <step_id>/param_id/               the usual param_id outputs
@@ -1524,6 +1526,36 @@ parameterisation's). So the result reproduces the run without the module library
 files are not changed. Each step's generated model, and the target's (`_target/`), has its own
 generated `<prefix>_parameters.json`: the values that model ran with. `workflow_result.json`
 names the target's as `target_model.parameters_path`.
+
+### Provenance
+
+A run writes `provenance_graph.json` and `provenance.svg` when it finishes. The diagram opens a
+report: paste the SVG into the page, where it takes the page's text colour. `cuflynx-provenance
+<output_dir>` writes both again, and it needs only the output directory, not the module library.
+The graph's schema is `libcuflynx/schemas/provenance_graph.schema.json`.
+
+One box stands for each step, in order, with the model source, the measured values, the values
+set by hand and the target. Each value the target uses is marked with what set it:
+
+| Mark | What set it | Where it comes from |
+|---|---|---|
+| calibrated | a step fitted it | the step's results |
+| measured | a cited source | `"origin": "measured"`, with the source in `data_reference` |
+| inherited | the original model; nothing constrains it | `"origin": "inherited"` |
+| set by hand | us, with a reason | `"origin": "set_by_hand"` and a required `"reason"` |
+| unclassified | nothing says | no `origin` |
+
+A value is never counted as inherited by default, so an unclassified count above zero says which
+values still need describing. `workflow_result.json` records the libcuflynx commit, the commit of
+the repository holding the workflow file, whether tracked files had changed in each, and the
+libCellML version. A commit is null outside a repository.
+
+Each step's inputs show as `current`, `stale` or `missing`. A step's result is stale when its
+files or settings changed since it ran, or when a step it took something from is stale or ran
+again after it, and a later step refuses to reuse it (`Run the workflow from ...`). A changed
+module library is shown and warned about but does not make a step stale, because a library holds
+far more than one model uses. Steps outside the workflow, such as a build before it or plots after
+it, are not tracked.
 
 ### Distributions and priors
 
