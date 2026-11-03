@@ -37,6 +37,14 @@ next release; add to that section as you land a change.
   target. `flowchart.workflow_graph` holds plain text, with code between backticks, and `tikz`
   writes the LaTeX, so the SVG diagram draws the same graph.
 
+### Added — generation stops on an old libCellML and names an edge that joins two computed variables
+
+- Generation raises an error on libCellML below 0.7.2, whose unit scaling rewrites variables:
+  `milliV_per_kiloV` compared equal to `dimensionless`, so `dim` variables took its 1e-6 scale.
+- When the analyser finds an over-constrained variable, generation raises a `ValueError` naming
+  the two computed variables a port mapping joined. Modules sharing a port type are joined on it
+  by any edge between them; pass a single signal through a variable on a node both connect to.
+
 ### Changed — no rtol warning for FSA gradients on Myokit 1.40 and later
 
 Myokit 1.40 (myokit#1203) puts the CVODES sensitivities in the local error test, so a tight
@@ -266,6 +274,13 @@ Multi-config generators (Visual Studio, Xcode) ignore `CMAKE_BUILD_TYPE` and bui
 `/RTC1` MSVC refuses next to the `-O1` (read as `/O1`) given to `model0d_core.c` (D8016).
 Single-config generators (Make, Ninja) ignore `--config`. The printed build hints add
 `--config Release` too.
+
+### Fixed — the generated `BE_batched_c` / `CVODES_batched_c` C compiles with MSVC (#627)
+
+MSVC's OpenMP 2.0 rejects a declaration in a `#pragma omp parallel for` loop's initialisation
+(C3015), so the batched runtime declares each loop index as an `int` before the loop. MSVC's
+`stdlib.h` defines `min` and `max` as macros (C2059), so the generated model C names libCellML's
+min/max helpers `cellml_min` and `cellml_max` (`model_type: cpp` too). Results are unchanged.
 
 ### Fixed — libCellML 0.7's C for models with a state set by a computed constant, or with no algebraic variables
 
