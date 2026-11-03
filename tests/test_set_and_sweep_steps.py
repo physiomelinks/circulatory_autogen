@@ -594,6 +594,22 @@ def test_a_packed_workflow_with_both_kinds_runs(library, tmp_path):
     assert load_workflow_run(str(tmp_path / 'out'))['steps']['scan']['n_points'] == 3
 
 
+@pytest.mark.integration
+def test_a_packed_sweep_on_the_target_runs(library, tmp_path):
+    """A sweep on the target names no model, packed or not: it runs on the packed target."""
+    raw = _raw(library)
+    raw['steps'] += [{'id': 'scan', 'kind': 'sweep', 'on_target': True, 'settings': {'sim_time': 1.0},
+                      'sweep': {'outputs': ['mod__C/z'],
+                                'parameters': {'mod__C/q': {'values': [1.0, 2.0]}}}}]
+    packed = pack_workflow(_write(library, raw), str(tmp_path / 'pack'))
+    with open(packed['workflow']) as f:
+        scan = next(s for s in json.load(f)['steps'] if s['id'] == 'scan')
+    assert 'model' not in scan and scan['on_target']
+    shutil.rmtree(library['modules'])
+    run_calibration_workflow(packed['workflow'], output_dir=str(tmp_path / 'out'))
+    assert load_workflow_run(str(tmp_path / 'out'))['steps']['scan']['n_points'] == 2
+
+
 _MPI_SCRIPT = """
 import sys
 from libcuflynx.calibration_workflow import run_calibration_workflow
