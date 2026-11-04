@@ -5,6 +5,28 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Added — a smooth copy of a CellML model, for gradient-based solvers and Operator Inference
+
+- `cuflynx-smooth model.cellml --runs runs.json` (or `--ranges ranges.json`) writes
+  `<name>_smooth.cellml` and `smoothing_report.json`. In Python: `libcuflynx.utilities.smooth_cellml`'s
+  `probe`, `smooth` and `smooth_cellml_file`.
+- `abs`, `max`, `min` and piecewise comparisons (with `and`, `or`, `not`) are replaced by forms
+  built from square roots, reciprocals, products and sums only, so the model lifts exactly to
+  quadratic form. Each site k adds algebraic variables `sm<k>_x`, `sm<k>_w = sqrt(x^2+eps^2)`,
+  `sm<k>_z = 1/sm<k>_w` (and `sm<k>_H` for a comparison) and a constant `eps_sm<k>`, in its
+  component and in the units of x.
+- `eps_sm<k>` is `rel` (default 1e-3) times the range of x over reference runs of the probed model
+  (CVODE_myokit). `collapse` replaces a site that never switches in those runs by its active branch;
+  `collapse=True` leaves a site whose x reaches zero, which must be named to be collapsed.
+- `floor` and conditions with `eq`, `neq`, `xor` or `floor` are left as written and reported. The
+  report flags sites downstream of a floor (`floor_upstream`) and piecewise branches that may be
+  undefined off their condition (`branch_domain`) and arguments that reach zero only at one end of
+  their range (`one_sided`); a site whose units cannot be inferred is skipped.
+
+### Fixed — `libcellml_helper_funcs.analyse_model` returns the analysed model
+
+It returned `None`, the result of `Analyser.analyseModel`; it now returns `analyserModel()`.
+
 ### Added — a calibration workflow run writes its provenance
 
 - A run writes `provenance_graph.json`, with a schema and a version, and `provenance.svg`, a

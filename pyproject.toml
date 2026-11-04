@@ -119,6 +119,8 @@ cuflynx-generate-pipeline = "libcuflynx.scripts.generate_pipeline_script:main"
 cuflynx-run-predictions = "libcuflynx.scripts.run_predictions_script:main"
 # Runs a generated C++ model coupled to external Python models (api transport "python").
 cuflynx-couple = "libcuflynx.coupling.runner:main"
+# A smooth copy of a flat CellML model (abs, max, min, piecewise) and its smoothing_report.json.
+cuflynx-smooth = "libcuflynx.utilities.smooth_cellml:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

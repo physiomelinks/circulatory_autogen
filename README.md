@@ -110,6 +110,7 @@ Each pipeline stage also has a console command, all configured from
 | `cuflynx-generate-pipeline` | write a self-contained, movable bundle that reruns the study |
 | `cuflynx-couple` | run a generated C++ model coupled to its external Python models (e.g. FEniCS); `--check` lists what is exchanged |
 | `cuflynx-run-predictions` | run an obs_data's prediction items on a model with no calibration: traces, features and validation (`run_prediction_items`) |
+| `cuflynx-smooth` | write a smooth copy of a flat CellML model (`abs`, `max`, `min`, piecewise as square-root forms) and `smoothing_report.json`, with eps from reference runs (`--runs`) or given ranges (`--ranges`) |
 | `cuflynx-calibration-workflow` | run a `calibration_workflow.json`: ordered calibrations of module-library parameterisations merged into a supermodule (takes the workflow path) |
 | `cuflynx-variable-mapping` | write a model's `<prefix>_variable_mapping.csv`: the LaTeX symbol of every variable (takes the model or a workflow) |
 | `cuflynx-methods-latex` | write a methods section in LaTeX: equations per module, a flow chart of the calibration, and the methods of each step |
