@@ -29,9 +29,11 @@ here exist only for the case where the config supplies nothing.
 """
 
 import os
+import subprocess
 
 __all__ = [
     'CUFLYNX_USER_DIR_ENV_VAR',
+    'git_state',
     'package_dir',
     'repo_root',
     'user_data_root',
@@ -61,6 +63,25 @@ _REPO_MARKERS = ('pyproject.toml', 'user_run_files')
 def package_dir():
     """The installed ``libcuflynx`` package directory. For reading package data only."""
     return _PACKAGE_DIR
+
+
+def git_state(path):
+    """``{'commit', 'dirty'}`` of the git repository holding ``path``: its HEAD, and whether
+    tracked files have changed. Both are None without a repository (or without git)."""
+    unknown = {'commit': None, 'dirty': None}
+    if not path or not os.path.isdir(path):
+        return unknown
+    try:
+        commit = subprocess.run(['git', '-C', path, 'rev-parse', 'HEAD'], capture_output=True,
+                                text=True, timeout=30)
+        if commit.returncode != 0:
+            return unknown
+        status = subprocess.run(['git', '-C', path, 'status', '--porcelain', '--untracked-files=no'],
+                                capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return unknown
+    return {'commit': commit.stdout.strip(),
+            'dirty': bool(status.stdout.strip()) if status.returncode == 0 else None}
 
 
 def repo_root():

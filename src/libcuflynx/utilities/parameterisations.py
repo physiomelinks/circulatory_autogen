@@ -53,7 +53,8 @@ import os
 import warnings
 
 from libcuflynx.utilities.parameters_file import (CONVERT_COMMAND, GLOBAL, MODULE,
-                                                    SEPARATOR, read_parameter_rows as _read_rows)
+                                                    PROVENANCE_KEYS, SEPARATOR,
+                                                    read_parameter_rows as _read_rows)
 
 PARAMETERISATIONS_DIR = 'parameterisations'
 # the name PARAMETERISATIONS_DIR had before; a version directory with only it is refused
@@ -143,12 +144,12 @@ def _refuse_csv_parameterisation(path, where):
 def read_parameter_rows(path, where, what='parameters file'):
     '''
     The rows of the parameterisation's parameters file at ``path`` as ``{variable_name, units,
-    value, data_reference}`` dicts of strings, in file order: its own variables named as they
-    are (``C``, ``lv/E_A``), its globals ``global/<variable>``. Other keys (``sourced``...) are
-    dropped.
+    value, data_reference}`` dicts of strings, with ``origin`` and ``reason`` where a row has
+    them, in file order: its own variables named as they are (``C``, ``lv/E_A``), its globals
+    ``global/<variable>``. Other keys (``sourced``...) are dropped.
     '''
     _refuse_csv_parameterisation(path, f'{where}: {what}')
-    return [{c: row[c] for c in PARAMETER_COLUMNS}
+    return [{c: row[c] for c in PARAMETER_COLUMNS + PROVENANCE_KEYS if c in row}
             for row in _read_rows(path, f'{where}: {what} ', MODULE)]
 
 

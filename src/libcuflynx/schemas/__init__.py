@@ -24,6 +24,9 @@
   of module parameterisations merged into a supermodule parameterisation
   (``libcuflynx.calibration_workflow``, whose ``spec.py`` and ``resolve.py`` check the same
   rules and those that need the library).
+* ``provenance_graph.schema.json`` -- ``provenance_graph.json``, an output rather than an input:
+  how a workflow run's values were set, as nodes and edges (``libcuflynx.reporting.provenance``,
+  which checks what it writes against the schema). CUFLynx draws the same file.
 
 Every reader checks its file against its schema when it loads it
 (:mod:`libcuflynx.schemas.validation`), so a schema is the definition of its file's structure:
@@ -50,6 +53,7 @@ PARAMS_FOR_ID_SCHEMA = 'params_for_id.schema.json'
 CALIBRATION_WORKFLOW_SCHEMA = 'calibration_workflow.schema.json'
 VARIABLE_MAPPING_SCHEMA = 'variable_mapping.schema.json'
 PARAMETERS_SCHEMA = 'parameters.schema.json'
+PROVENANCE_GRAPH_SCHEMA = 'provenance_graph.schema.json'
 
 
 def schema_file(name):

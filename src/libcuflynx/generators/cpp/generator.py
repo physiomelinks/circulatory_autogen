@@ -41,6 +41,8 @@ TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), 'templates')
 SUPPORTED_SOLVERS = tuple(SOLVER_SCHEMA['solvers_by_model_type']['cpp'])
 
 CORE_NAME = 'model0d_core'
+#: The names libCellML's min and max functions take in model0d_core.c.
+C_MIN, C_MAX = 'cellml_min', 'cellml_max'
 
 
 def template_environment():
@@ -70,6 +72,11 @@ def core_code(am):
     one ``variables`` array (#271)."""
     profile = GeneratorProfile(GeneratorProfile.Profile.C)
     profile.setInterfaceFileNameString(CORE_NAME + '.h')
+    # MSVC's stdlib.h defines min and max as macros in C, which break libCellML's functions of those names (C2059)
+    profile.setMinString(C_MIN)
+    profile.setMinFunctionString(profile.minFunctionString().replace('double min(', f'double {C_MIN}(', 1))
+    profile.setMaxString(C_MAX)
+    profile.setMaxFunctionString(profile.maxFunctionString().replace('double max(', f'double {C_MAX}(', 1))
     gen = Generator()
     interface = cellml.c_code_with_one_variables_array(
         cellml.generate_interface_code(gen, am, profile), header=True)
@@ -284,7 +291,7 @@ class CVS0DCppGenerator(object):
         self.externals = externals
         print(f'C++ files generated in {self.cpp_generated_models_dir}. Build with: '
               f'cmake -S {self.cpp_generated_models_dir} -B {os.path.join(self.cpp_generated_models_dir, "build")} '
-              f'&& cmake --build {os.path.join(self.cpp_generated_models_dir, "build")}')
+              f'&& cmake --build {os.path.join(self.cpp_generated_models_dir, "build")} --config Release')
         return True
 
     # -----------------------------------------------------------------------------------------

@@ -26,6 +26,17 @@
       "tests/test_external_coupling.py",
       "tests/test_batched_c_solver.py",
       "tests/test_cvodes_batched_c_solver.py"
+    ],
+    "misc": [
+      "tests/test_generated_parameters_file.py",
+      "tests/test_multiport_per_variable.py",
+      "tests/test_config_schemas.py",
+      "tests/test_reporting.py",
+      "tests/test_modifier_backend_equivalence.py",
+      "tests/test_fsa_analytic_accuracy.py",
+      "tests/test_import_races.py",
+      "tests/test_param_id.py",
+      "tests/test_dependency_extras.py"
     ]
   },
   "param-id": {

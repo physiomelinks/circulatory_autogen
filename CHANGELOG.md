@@ -5,6 +5,173 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Added — a calibration workflow run writes its provenance
+
+- A run writes `provenance_graph.json`, with a schema and a version, and `provenance.svg`, a
+  self-contained diagram for reports. `cuflynx-provenance <output_dir>` writes them again from the
+  output directory alone. Each box says what set its values: calibrated, measured, inherited or
+  set by hand. A value nothing describes counts as unclassified, never as inherited.
+- A step box counts only scored data_items as observables. Helper items, with weight 0, only
+  feed other items, so they appear as `helper_items` in the graph.
+- `workflow_result.json` records `libcuflynx_git` and `project_git` (`commit`, `dirty`) and
+  `libcellml_version`.
+- A parameter may carry `origin` (`measured`, `inherited` or `set_by_hand`) and `reason`, which
+  `set_by_hand` requires. Generation carries both into its parameters file.
+
+### Changed — a step's result stays current only if everything before it does
+
+- A step's recorded inputs now include its settings and the module library. Changed settings
+  stop a later step reusing its result. A changed library is a warning and `library_changed` in
+  `workflow_status`, since a library holds far more than one model uses.
+- The provenance graph judges a step's settings as the runner does, by that step's settings
+  alone: re-saving the workflow file with other formatting leaves every step current, and a
+  change to one step's settings makes that step and the steps after it stale, not the others.
+  `file_status` still says whether the file itself changed.
+- `--from-step` and `--only` now check the whole chain of steps a result came from, not only the
+  direct source, and refuse a result whose source ran again after it.
+
+### Changed — every calibration has a merge arrow in the methods flow chart
+
+- The chart drew merge arrows only for calibrations no other step took values from, though every
+  calibration reaches the target. It now draws one for each calibration with a value in the
+  target. `flowchart.workflow_graph` holds plain text, with code between backticks, and `tikz`
+  writes the LaTeX, so the SVG diagram draws the same graph.
+
+### Added — generation stops on an old libCellML and names an edge that joins two computed variables
+
+- Generation raises an error on libCellML below 0.7.2, whose unit scaling rewrites variables:
+  `milliV_per_kiloV` compared equal to `dimensionless`, so `dim` variables took its 1e-6 scale.
+- When the analyser finds an over-constrained variable, generation raises a `ValueError` naming
+  the two computed variables a port mapping joined. Modules sharing a port type are joined on it
+  by any edge between them; pass a single signal through a variable on a node both connect to.
+
+### Changed — no rtol warning for FSA gradients on Myokit 1.40 and later
+
+Myokit 1.40 (myokit#1203) puts the CVODES sensitivities in the local error test, so a tight
+`rtol` (below 1e-9) now improves `do_ad` FSA gradients instead of degrading them (#387), and
+CA warns about it only on older Myokit (`myokit>=1.39.1` still allows an installed 1.39.x).
+FSA solves can be slower on 1.40, because the steps now have to resolve the sensitivities too:
+myokit#1203 measured about 40% slower on one 27-state CA cardiovascular model at CA's default
+FSA tolerance (1e-8; a single measurement), and with sensitivities on, rtol=atol=1e-14 did
+not finish in practice.
+
+### Changed — the study's working dir holds every input; the manifest's paths are all relative
+
+`param_id_output_dir` is the study's working dir: one folder that can be zipped and opened
+anywhere in CUFLynx (see "The study working dir" in the parameter-identification tutorial).
+
+- The study manifest (`<study_name>_cuflynx_study.json`) copies each input from outside the
+  working dir into `inputs/<kind>/<yyyy-mm-dd_HHMMSS>/`, a folder named for the local date-time
+  it was first used (model with the CellML it imports, obs_data, params_for_id,
+  the user_inputs yaml, user funcs, an emulator, and in `system/` a generated model's module
+  array, parameters file, the module library versions it uses and its `external_modules_dir`),
+  once per content (matched by content hash; `_2`, `_3`... for a second content first used in
+  the same second), and records every path relative to the manifest's folder. No copy sits
+  outside a dated folder, so none looks like the current version: each run's entry names the
+  copies it ran with, and `inputs/index.json` (`cuflynx_study.read_index`) lists every version
+  with its kind, file, folder, content hash, first use and the runs that used it. It no longer
+  writes `study_dir`. New manifest key `system` (with `module_library_dirs`,
+  `external_modules_dir` and `use_builtin_modules`; built-in modules are recorded, not
+  copied), and `cuflynx_study.generation_inputs(read_study(<W>))` gives the user_inputs keys
+  that generate the model again from the working dir alone. Schema 1, unchanged:
+  readers ignore keys they do not know, and resolve relative paths against the manifest's
+  folder.
+- `cuflynx_study.store_input(working_dir, kind, source, name=None)` stores a file, a folder or
+  bytes as an input of `kind` the same way (a new dated folder per content, the same content
+  reused; a folder's hidden files and folders, such as `.git`, are neither copied nor hashed,
+  as the working dir's zip leaves them out) and returns its path relative to the working dir; `latest_input(working_dir, kind,
+  name=None)` gives the version stored last. An app saving edited inputs (CUFLynx) writes the
+  same layout through them, so an edit never rewrites an earlier version.
+- `cuflynx_study.export_working_dir(working_dir, zip_path)` writes a zip to share a working dir
+  and leaves the working dir as it is. In the zip only, the archived user_inputs yamls name
+  relative output directories (an outside `sa_options` `output_dir` becomes
+  `sensitivity/<its name>`) and name each input by its copy under `inputs/`, the version that
+  yaml's run used, and the manifests and `inputs/index.json` hold no `"outside"` entry or
+  absolute path. So a zip's yaml, run through `user_inputs_path_override`, runs on any machine
+  with no edits and reads and writes only in the unzipped folder. Each outside path gets a
+  warning naming its new relative path and saying its results are not in the zip, each rewritten
+  input a warning naming its copy, and the function returns them. An input with no copy keeps its
+  absolute path, with a warning.
+- New user_inputs key `generated_model_path`: a generated model to run from elsewhere, in place of
+  `<generated_models_dir>/<file_prefix>/<file_prefix>.<ext>`, taken relative to the yaml as
+  `external_model_path` is.
+- A relative `emulator_settings` `emulator_dir` in a yaml named by `user_inputs_path_override` is
+  taken from that yaml's folder, not the current directory.
+- The study manifest's `yaml_inputs` records, for each archived yaml, the stored inputs its run
+  read.
+- The dated `user_inputs_<yymmdd>.yaml` goes in `<param_id_output_dir>/inputs/user_inputs/`, not
+  `resources_dir`.
+- The default `sa_options` `output_dir` is `<param_id_output_dir>/sensitivity`, not
+  `sensitivity_outputs/<file_prefix>_SA_results`, and a relative one is taken under it. An
+  absolute `output_dir` is unchanged.
+- A calibration workflow run packs its workflow (`pack_workflow`) into
+  `<output_dir>/inputs/workflows/<workflow_name>/<yyyy-mm-dd_HHMMSS>/`, a new dated folder only
+  when the packed workflow differs from one stored already; its manifest and each step's name the
+  packed copies, relative. `pack_workflow` also returns `sources`, each input's packed path.
+  `calibration_workflow.pack.module_version_files` lists the module version files it packs;
+  the study's `inputs/system/` copies the same files.
+- An output directory outside the working dir (an absolute `sa_options` `output_dir` elsewhere)
+  is allowed, but a zip of the working dir does not hold it: the run prints a warning naming it
+  (rank 0, once per directory), its `runs`/`sensitivity` entry keeps the absolute path with
+  `"outside": true`, and `cuflynx_study.outside_outputs(study)` lists such entries for an app
+  exporting the working dir. Nothing re-runs a study from its manifest, so a study opened
+  elsewhere never writes into the recorded path.
+- New user_inputs (and workflow settings) key `cuflynx_study_copy_inputs` (default `true`):
+  `false` keeps the previous behaviour: absolute paths for inputs outside the study,
+  `study_dir`, and the previous sensitivity and dated-user_inputs locations.
+- `CVS0DParamID` takes `study_settings` (filled by `init_from_dict` and the param-id script)
+  for the manifest's further keys.
+
+### Changed — obs_data items name their origin in an optional `data_reference`, which replaces `source`
+
+`data_reference` says where a calibration or validation datum comes from, spelled as the
+parameters-file column. It is optional, and a value that is not a string is refused.
+
+- The free-text `source` key is replaced by `data_reference` and still accepted, on data_items
+  and prediction_items (string or null). The parser reads it as the item's `data_reference`, so it
+  reaches everything below; an item with both keeps its `data_reference`. A file that uses it gets
+  one warning, giving the number of items: rename the key. A series item now needs `value` or
+  `value_path`: `source` no longer satisfies that rule (the parser already refused such an item
+  for having a `std` and no data).
+- Accepted by `obs_data.schema.json` and the parser on both item kinds; published as
+  `obs_info["data_references"]` and `prediction_info["data_references"]` (accessor
+  `obs_data_helpers.obs_item_references`). `ObsDataCreator.add_prediction_item` takes
+  `data_reference=`.
+- Reported in the results: `error_vec_data_references.npy` beside `error_vec_names.npy`, and a
+  `data_reference` per item in `validation_results.json`.
+- Shown on the plots: a `Data: ...` line on each reconstruction page and on `prediction_plots`
+  feature figures that draw data; listed under *Sources* in the methods text, where a BibTeX key
+  in it becomes `\cite{key}` (and goes into the document's `.bib`) as in a parameter's
+  `data_reference`.
+- Each item names its own source: there is no file-level default (decided by Finbar Argus,
+  2026-10-31).
+
+### Changed — at a node of three or more vessel ends, the end alone on its side must be compliant
+
+Decided by Finbar Argus on 2026-10-30 (#616, option D of the node-sums design).
+
+- Where three or more `vessel_port` ends meet, the end alone on its side of the node (a split's
+  parent outlet, a merge's child inlet) must be compliant: a vessel end with subtype letter `v`,
+  or, for a module that is not a vessel, a port whose `multi_port` has a `"sum"` entry (a
+  whole-port `"sum"` or a list containing `"sum"`), such as a heart chamber's `[v_in, u]` port
+  with `["sum", "True"]`. A `"Multiply"` or plain `"True"` port on a module that is not a vessel
+  does not own a node: "compliant" means the end that takes the sum and shares the pressure, and
+  those ports broadcast a value and sum nothing (decided by Finbar Argus on 2026-10-30). A
+  Multiply vessel_port feeding several neighbours is therefore refused; feeding one is
+  unchanged. A node that breaks this, or that has several ends
+  on both sides, stops generation before any mapping with a `ValueError` that names the node's
+  ends and the two fixes (swap subtypes so that end is `v`, or add a lumped `vv` vessel). These
+  nodes were already refused, through one connection at a time ("output BC is p, the input BC of
+  ... should be v", or an overused port), except where a `Min_`/`MinNout_` junction let a `p`
+  outlet feed several daughters; that exemption is removed. Nodes with an `FV1D_vessel` end and
+  two-ended nodes are unaffected. See *Connecting vessels at a node* in the design-model docs.
+- Every model in `resources/` and every system model of the module library generates the same
+  CellML as before (their non-vessel node owners are all summing heart-chamber ports), except
+  `generic_junction_test2_{open,closed}_loop`, whose six such nodes are now refused; their tests
+  are expected failures. `generic_junction_test_{open,closed}_loop` is the rule-following version
+  of the same network: test2 differs from it only at those six nodes (parent `Nout_junction pv`
+  -> `arterial pp`, one daughter `pv` -> `vv` as a `Min_`/`MinNout_junction`).
+
 ### Changed — an unconnected multi_port "sum" is a boundary condition; a term counted twice is refused
 
 Decided by Finbar Argus: the duplicate refusal and the boundary-condition rule on 2026-10-28;
@@ -99,6 +266,21 @@ quotients with `jacobian: finite_difference`).
   build fails with a message that says so, and its tests skip.
 - Both batched libraries also get `bk_solver_name`, and `bk_instances_advance`, which advances many
   instances on OpenMP threads.
+
+### Fixed — the batched C libraries build with MSVC (#615)
+
+`build_library` (`coupling/model0d_lib.py`) builds with `cmake --build <dir> --config Release`.
+Multi-config generators (Visual Studio, Xcode) ignore `CMAKE_BUILD_TYPE` and built Debug, whose
+`/RTC1` MSVC refuses next to the `-O1` (read as `/O1`) given to `model0d_core.c` (D8016).
+Single-config generators (Make, Ninja) ignore `--config`. The printed build hints add
+`--config Release` too.
+
+### Fixed — the generated `BE_batched_c` / `CVODES_batched_c` C compiles with MSVC (#627)
+
+MSVC's OpenMP 2.0 rejects a declaration in a `#pragma omp parallel for` loop's initialisation
+(C3015), so the batched runtime declares each loop index as an `int` before the loop. MSVC's
+`stdlib.h` defines `min` and `max` as macros (C2059), so the generated model C names libCellML's
+min/max helpers `cellml_min` and `cellml_max` (`model_type: cpp` too). Results are unchanged.
 
 ### Fixed — libCellML 0.7's C for models with a state set by a computed constant, or with no algebraic variables
 
@@ -199,6 +381,14 @@ from the model's values under its path (`heart/lv`). The calibrated values are w
 only `path`) as a copy of the target's parameters file with them set, a value inside a super
 instance under its path; the target's own files and the supermodule version's template are not
 changed.
+
+### Fixed — plotting a data item whose operand is a model constant
+
+- `plot_outputs()` raised `ValueError: x and y must have same first dimension` after a
+  calibration when an obs_data item's operand was a model constant (e.g. `mean` of
+  `heart/clock/T_eff`). The solver does not log constants, so the operand comes back as one value;
+  the reconstruction page now draws it as a flat line over the subexperiment. The MCMC
+  prediction plots pad a constant prediction to its segment's length the same way.
 
 ### Fixed — `CVODE_myokit` on modules in other time units (#604)
 

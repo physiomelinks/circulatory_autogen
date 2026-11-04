@@ -558,13 +558,13 @@ def test_multiply(tmp_path, gain_factor, expected):
 
 @pytest.mark.integration
 def test_multiply_on_vessel_ports(tmp_path, library_dir):
-    rows = [("g", "gain_vp", [], ["rd_a", "rd_b"]),
-            ("rd_a", "reader_vp", ["g"], []), ("rd_b", "reader_vp", ["g"], [])]
+    """A Multiply vessel_port scales its variable into its neighbour. With one reader the node
+    has two ends; feeding two readers is refused by the node rule (tests/test_vessel_nodes.py)."""
+    rows = [("g", "gain_vp", [], ["rd"]), ("rd", "reader_vp", ["g"], [])]
     path = _generate(str(tmp_path), library_dir, "schema_mul_vp", rows,
                      _prescribed_params("g", 1.0e-5, 0.5, 3.0))
-    res = _simulate(path, ["g/x", "rd_a/v_seen", "rd_b/v_seen"])
-    for reader in ["rd_a", "rd_b"]:
-        np.testing.assert_allclose(res[f"{reader}/v_seen"], 3.0 * res["g/x"], **EXACT)
+    res = _simulate(path, ["g/x", "rd/v_seen"])
+    np.testing.assert_allclose(res["rd/v_seen"], 3.0 * res["g/x"], **EXACT)
     assert np.ptp(res["g/x"]) > 0
 
 

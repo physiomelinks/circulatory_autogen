@@ -1,10 +1,12 @@
 '''
-TikZ flow charts of a calibration: the steps of a calibration workflow, or the stages of a
-single calibration.
+Flow charts of a calibration: the steps of a calibration workflow, or the stages of a single
+calibration.
 
 Each node is a dict ``{'id', 'title', 'lines', 'kind'}``; each edge ``{'from', 'to',
-'label', 'style'}``. :func:`tikz` lays them out top to bottom by dependency depth, side by
-side within a depth, and needs only ``\\usetikzlibrary{arrows.meta}`` in the preamble.
+'label', 'style'}``. Their text is plain, with code between backticks, so any renderer can draw
+them. :func:`tikz` lays them out top to bottom by dependency depth, side by side within a depth,
+and needs only ``\\usetikzlibrary{arrows.meta}`` in the preamble;
+:mod:`libcuflynx.reporting.provenance` draws the same graph as SVG.
 '''
 
 from libcuflynx.reporting.latex_names import escape
@@ -24,7 +26,19 @@ EDGE_STYLES = {
 }
 
 
-def _levels(nodes, edges):
+def _latex(text):
+    '''A graph's plain ``text`` as LaTeX: escaped, with what is between backticks in ``\\texttt``.'''
+    parts = str(text).split('`')
+    return ''.join(r'\texttt{' + escape(part) + '}' if i % 2 else escape(part)
+                   for i, part in enumerate(parts))
+
+
+def plain_text(text):
+    '''A graph's ``text`` without its code marks.'''
+    return str(text).replace('`', '')
+
+
+def levels(nodes, edges):
     '''Depth of each node: 0 for a node nothing points to, else one more than its deepest
     predecessor.'''
     incoming = {n['id']: [e['from'] for e in edges if e['to'] == n['id']] for n in nodes}
@@ -50,7 +64,7 @@ def _tikz_id(node_id):
 
 def tikz(nodes, edges, x_gap=5.2, y_gap=2.6, text_width='4.2cm'):
     '''The ``tikzpicture`` for ``nodes`` and ``edges``.'''
-    level = _levels(nodes, edges)
+    level = levels(nodes, edges)
     rows = {}
     for n in nodes:
         rows.setdefault(level[n['id']], []).append(n)
@@ -63,16 +77,16 @@ def tikz(nodes, edges, x_gap=5.2, y_gap=2.6, text_width='4.2cm'):
         for i, n in enumerate(row):
             x = (offset + i) * x_gap
             y = -depth * y_gap
-            body = r'\textbf{' + n['title'] + '}'
+            body = r'\textbf{' + _latex(n['title']) + '}'
             if n.get('lines'):
-                body += r'\\ ' + r'\\ '.join(n['lines'])
+                body += r'\\ ' + r'\\ '.join(_latex(line) for line in n['lines'])
             style = NODE_STYLES.get(n.get('kind', 'step'), NODE_STYLES['step'])
             lines.append(f'  \\node[box, {style}] ({_tikz_id(n["id"])}) at ({x:.2f},{y:.2f}) '
                          f'{{{body}}};')
     for e in edges:
         style = EDGE_STYLES.get(e.get('style', 'order'), EDGE_STYLES['order'])
         label = (f' node[midway, fill=white, inner sep=1pt, font=\\scriptsize] '
-                 f'{{{e["label"]}}}') if e.get('label') else ''
+                 f'{{{_latex(e["label"])}}}') if e.get('label') else ''
         lines.append(f'  \\draw[{style}] ({_tikz_id(e["from"])}) -- '
                      f'({_tikz_id(e["to"])}){label};')
     lines.append(r'\end{tikzpicture}')
@@ -81,7 +95,7 @@ def tikz(nodes, edges, x_gap=5.2, y_gap=2.6, text_width='4.2cm'):
 
 def width_cm(nodes, edges, x_gap=5.2, node_cm=4.6):
     '''Roughly how wide :func:`tikz` draws ``nodes``: its widest row.'''
-    level = _levels(nodes, edges)
+    level = levels(nodes, edges)
     widest = max(list(level.values()).count(d) for d in set(level.values()))
     return (widest - 1) * x_gap + node_cm
 
@@ -121,14 +135,16 @@ def _model_name(model):
 def _model_detail(model):
     if 'module_array' in model:
         return 'module array'
-    return r'parameterisation \texttt{' + escape(model['parameterisation']) + '}'
+    return f'parameterisation `{model["parameterisation"]}`'
 
 
-def _model_line(model):
+def model_line(model):
+    '''A workflow model in one line.'''
+    if 'select' in model:
+        return f'selection `{", ".join(model["select"])}` of the target'
     if 'module_array' in model:
-        return r'model \texttt{' + escape(_model_name(model)) + '}'
-    return (r'\texttt{' + escape(model['module_type']) + r'}, parameterisation \texttt{'
-            + escape(model['parameterisation']) + '}')
+        return f'model `{_model_name(model)}`'
+    return f'`{model["module_type"]}`, parameterisation `{model["parameterisation"]}`'
 
 
 #: what an edge from each source key is labelled
@@ -147,9 +163,8 @@ def _kind_line(s):
         return 'emulator trained'
     if kind == 'identifiability':
         method = (settings.get('ia_options') or {}).get('method', 'Laplace')
-        return f'{escape(method)} identifiability analysis'
-    return escape(_method_label(settings)) + (' on the emulator' if s.get('emulator_from')
-                                              else '')
+        return f'{method} identifiability analysis'
+    return _method_label(settings) + (' on the emulator' if s.get('emulator_from') else '')
 
 
 def workflow_graph(steps):
@@ -157,9 +172,11 @@ def workflow_graph(steps):
     'n_parameters', 'n_data_items', 'settings', 'depends_on', 'fixed_from', 'priors_from' (step
     ids), 'store_distribution'}``, with ``emulator_from``, ``result_from``,
     ``sensitivity_from``, ``params_for_id_from`` and (a reduction) ``reduction`` where a step
-    has them, plus ``model`` (the workflow's target) and ``n_merged`` in a final dict with
-    ``'id': None``. A model is a library module ``{module_type, version, parameterisation}`` or
-    ``{module_array}``; a reduction has none.'''
+    has them, plus ``model`` (the workflow's target), ``n_merged`` and optionally ``merged_from``
+    (the steps whose values reached the target, by default every calibration) in a final dict
+    with ``'id': None``. A model is a library module ``{module_type, version,
+    parameterisation}``, ``{module_array}`` or ``{select}``; a reduction has none, and a step
+    given ``'model': None`` has not run.'''
     *step_list, target = steps
     nodes, edges = [], []
     for s in step_list:
@@ -168,14 +185,16 @@ def workflow_graph(steps):
             options = s.get('reduction') or {}
             lines = [f'keeps the top {options.get("top_n")} by Sobol '
                      f'{options.get("index_type", "ST")}']
+        elif s.get('model') is None:
+            lines = ['not run']
         else:
-            lines = [_model_line(s['model']),
+            lines = [model_line(s['model']),
                      f'{_count(s["n_parameters"], "parameter")}, '
                      f'{_count(s["n_data_items"], "observable")}',
                      _kind_line(s)]
         if s.get('store_distribution'):
             lines.append('then MCMC: posterior stored')
-        nodes.append({'id': s['id'], 'title': escape(s['id']), 'lines': lines,
+        nodes.append({'id': s['id'], 'title': s['id'], 'lines': lines,
                       'kind': 'step' if kind == 'calibration' else 'analysis'})
         for dep in s['depends_on']:
             kinds = [label for key, label in _SOURCE_LABELS.items()
@@ -184,15 +203,15 @@ def workflow_graph(steps):
                           'style': 'prior' if 'prior' in kinds else
                           ('fixed' if 'fixed' in kinds else 'order')})
     t = target['model']
-    nodes.append({'id': '__target__', 'title': 'Merged: ' + escape(_model_name(t)),
+    nodes.append({'id': '__target__', 'title': 'Merged: ' + _model_name(t),
                   'lines': [_model_detail(t),
                             f'{_count(target["n_merged"], "calibrated value")}'],
                   'kind': 'target'})
-    # the calibrations whose values no later calibration takes are merged into the target
-    calibrations = [s for s in step_list if s.get('kind', 'calibration') == 'calibration']
-    referenced = {d for s in calibrations for d in s['fixed_from'] + list(s['priors_from'])}
-    for s in calibrations:
-        if s['id'] not in referenced:
+    # every calibration is merged into the target; a later one wins a parameter they share
+    merged_from = target.get('merged_from')
+    for s in step_list:
+        if s.get('kind', 'calibration') == 'calibration' and \
+                (merged_from is None or s['id'] in merged_from):
             edges.append({'from': s['id'], 'to': '__target__', 'label': '',
                           'style': 'merge'})
     return nodes, edges
@@ -210,7 +229,7 @@ def single_calibration_graph(n_parameters, n_data_items, n_experiments, settings
         {'id': 'params', 'title': 'Parameters', 'kind': 'data',
          'lines': [_count(n_parameters, 'calibrated parameter')]},
         {'id': 'fit', 'title': 'Optimisation', 'kind': 'step',
-         'lines': [escape(_method_label(settings))]},
+         'lines': [_method_label(settings)]},
     ]
     edges = [{'from': 'model', 'to': 'fit'}, {'from': 'data', 'to': 'fit'},
              {'from': 'params', 'to': 'fit'}]

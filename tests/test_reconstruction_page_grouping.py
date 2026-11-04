@@ -40,10 +40,11 @@ class _Client:
         self.dt = DT
 
 
-def _obs_info(items):
+def _obs_info(items, data_references=None):
     """``items`` are ``(data_item_name, trace_name_for_plotting, subexperiment_idx)``."""
     num_obs = len(items)
     return {
+        "data_references": list(data_references or [None] * num_obs),
         "num_obs": num_obs,
         "data_item_names": [name for name, _, _ in items],
         "trace_names_for_plotting": [trace for _, trace, _ in items],
@@ -76,9 +77,9 @@ def _protocol_info(num_sub):
     }
 
 
-def _run(tmp_path, items, num_sub, monkeypatch):
+def _run(tmp_path, items, num_sub, monkeypatch, data_references=None):
     """Drive ``plot_reconstruction_pages`` and capture each page's axes before it closes."""
-    obs_info = _obs_info(items)
+    obs_info = _obs_info(items, data_references)
     protocol_info = _protocol_info(num_sub)
 
     plotter = ParamIDPlotOutputs.__new__(ParamIDPlotOutputs)
@@ -93,6 +94,7 @@ def _run(tmp_path, items, num_sub, monkeypatch):
                 "labels": [line.get_label() for line in axs.get_lines()],
                 "ylabel": axs.get_ylabel(),
                 "n_lines": len(axs.get_lines()),
+                "source_line": axs.get_title(loc="left"),
             }
         )
 
