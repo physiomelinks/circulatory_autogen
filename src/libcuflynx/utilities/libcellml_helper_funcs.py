@@ -188,10 +188,11 @@ def c_code_with_one_variables_array(code, header):
 
 
 def analyse_model(model):
+    """The AnalyserModel of ``model``; its issues are printed."""
     analyser = Analyser()
-    a = analyser.analyseModel(model)
+    analyser.analyseModel(model)
     _dump_issues("analyse_model", analyser)
-    return a
+    return analyser.analyserModel()
 
 def _get_component_node(component):
     node = {
