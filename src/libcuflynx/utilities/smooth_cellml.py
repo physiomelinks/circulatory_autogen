@@ -25,8 +25,8 @@ and reported as not smoothed. Rewrites go bottom-up, so nested operations become
 
 The report flags a site downstream of a floor (``floor_upstream``, through algebraic equations
 and connections), a piecewise branch that may be undefined where it is not active
-(``branch_domain``, e.g. ln), and an x that reaches zero only at one end of its range
-(``one_sided``).
+(``branch_domain``, e.g. ln), an x that reaches zero only at one end of its range
+(``one_sided``), and an x that is NaN in a reference run (``nan_in_runs``).
 
 Use in two stages: :func:`probe` adds only the ``sm<k>_x`` variables, so reference runs of the
 probed model give each argument's range; :func:`smooth` then sets ``eps_sm<k> = rel * range`` and
@@ -377,6 +377,8 @@ class _Pass:
         if min_abs is None:
             min_abs = 0.0 if lo <= 0.0 <= hi else min(abs(lo), abs(hi))
         site.lo, site.hi, site.min_abs = lo, hi, float(min_abs)
+        if isinstance(r, dict) and r.get('nan'):
+            record['flags'].append('nan_in_runs')
         record['range'] = [lo, hi]
         record['margin'] = float(min_abs)
         if (lo == 0.0 < hi) or (lo < hi == 0.0):
@@ -710,7 +712,8 @@ def libcellml_issues(model_text):
 def reference_ranges(probed_path, runs):
     """Each ``sm<k>_x``'s min, max and smallest |x| over the reference runs of a probed model.
 
-    Each run is a dict with ``sim_time`` and optionally ``pre_time``, ``dt``, ``solver_info`` and
+    ``nan`` records a NaN in x, which the original operation may have hidden (``max(NaN, 0)`` is 0)
+    but the smooth form passes on. Each run is a dict with ``sim_time`` and optionally ``pre_time``, ``dt``, ``solver_info`` and
     ``param_vals`` (``{"component/variable": value}``), simulated with CVODE_myokit.
     """
     from libcuflynx.solver_wrappers import get_simulation_helper
@@ -727,11 +730,13 @@ def reference_ranges(probed_path, runs):
         for name, values in zip(names, helper.get_results([[n] for n in names], flatten=True)):
             values = np.asarray(values, dtype=float).ravel()
             key = name.split('/')[-1]
-            lo, hi, m = float(values.min()), float(values.max()), float(np.abs(values).min())
+            nan = bool(np.isnan(values).any())
+            lo, hi, m = float(np.nanmin(values)), float(np.nanmax(values)), float(np.nanmin(np.abs(values)))
             if key in ranges:
                 r = ranges[key]
                 lo, hi, m = min(lo, r['min']), max(hi, r['max']), min(m, r['min_abs'])
-            ranges[key] = {'min': lo, 'max': hi, 'min_abs': m}
+                nan = nan or r['nan']
+            ranges[key] = {'min': lo, 'max': hi, 'min_abs': m, 'nan': nan}
         helper.close_simulation()
     return ranges
 
@@ -739,7 +744,8 @@ def reference_ranges(probed_path, runs):
 def smooth_cellml_file(model_path, runs=None, output_dir=None, ranges=None, rel=None, collapse=None,
                        abs_eps=DEFAULT_ABS_EPS):
     """Probe, run the reference runs (unless ``ranges`` is given), smooth, and write
-    ``<name>_smooth.cellml`` and ``smoothing_report.json`` into ``output_dir``.
+    ``<name>_smooth.cellml`` and ``smoothing_report.json`` into ``output_dir``, with the ranges from
+    the runs in ``smoothing_ranges.json`` (for ``--ranges``).
 
     Returns the paths of the smoothed model and of the report.
     """
@@ -755,6 +761,8 @@ def smooth_cellml_file(model_path, runs=None, output_dir=None, ranges=None, rel=
         with open(probed_path, 'w', encoding='utf-8') as f:
             f.write(probe(original))
         ranges = reference_ranges(probed_path, runs)
+        with open(os.path.join(output_dir, 'smoothing_ranges.json'), 'w', encoding='utf-8') as f:
+            json.dump(ranges, f, indent=2)
     smoothed, report = smooth(original, ranges, rel=rel, collapse=collapse, abs_eps=abs_eps)
     before, after = libcellml_issues(original), libcellml_issues(smoothed)
     report['model'] = os.path.abspath(model_path)

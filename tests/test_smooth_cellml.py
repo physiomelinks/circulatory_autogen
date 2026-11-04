@@ -366,6 +366,14 @@ def test_smooth_cellml_file_writes_the_model_and_report(tmp_path):
     assert report['new_issues'] == {'validator': [], 'analyser': []}
     assert report['sites'][0]['range'] == pytest.approx([-1.5, 0.5])
     assert report['sites'][1]['range'][0] == pytest.approx(-1.0, abs=1e-2)
+    ranges = json.loads((tmp_path / 'out' / 'smoothing_ranges.json').read_text())
+    assert ranges['sm1_x']['min'] == pytest.approx(-1.5) and ranges['sm1_x']['nan'] is False
+
+
+def test_a_nan_in_the_runs_is_flagged():
+    """max(NaN, 0) is 0 in the original, but NaN in the smooth form (e.g. 0/0 at t = 0)."""
+    _, report = sc.smooth(_model(MAX), {'sm1_x': {'min': -1.0, 'max': 1.0, 'min_abs': 0.0, 'nan': True}})
+    assert report['sites'][0]['flags'] == ['nan_in_runs']
 
 
 def test_the_command_smooths_from_a_ranges_file(tmp_path):

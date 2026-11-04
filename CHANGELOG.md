@@ -21,7 +21,9 @@ next release; add to that section as you land a change.
 - `floor` and conditions with `eq`, `neq`, `xor` or `floor` are left as written and reported. The
   report flags sites downstream of a floor (`floor_upstream`) and piecewise branches that may be
   undefined off their condition (`branch_domain`) and arguments that reach zero only at one end of
-  their range (`one_sided`); a site whose units cannot be inferred is skipped.
+  their range (`one_sided`) or are NaN in a run (`nan_in_runs`: `max(NaN, 0)` is 0, its smooth form
+  NaN); a site whose units cannot be inferred is skipped. The ranges from the runs are written to
+  `smoothing_ranges.json`, for `--ranges`.
 
 ### Fixed — `libcellml_helper_funcs.analyse_model` returns the analysed model
 
