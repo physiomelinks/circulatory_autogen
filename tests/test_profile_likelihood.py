@@ -16,6 +16,8 @@ from libcuflynx.identifiabilty_analysis.ProfileLikelihood import (
     NLL_THRESHOLD_95,
     ProfileLikelihood,
     _HeldEntry,
+    _file_stem,
+    _optimum_row,
     profile_likelihood_options,
 )
 from libcuflynx.param_id.optimisers import SciPyMinimizeOptimiser
@@ -215,6 +217,20 @@ def test_no_rank_gives_the_optimiser_an_output_dir(tmp_path, monkeypatch, rank):
     assert not os.path.exists(os.path.join(str(tmp_path), "profile_likelihood"))
 
 
+def _hashes_outside(root, skip_dir):
+    """sha256 of every file under ``root`` outside ``root/skip_dir``, keyed by relative path."""
+    import hashlib
+
+    hashes = {}
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if os.path.join(dirpath, d) != os.path.join(root, skip_dir)]
+        for name in filenames:
+            path = os.path.join(dirpath, name)
+            with open(path, "rb") as f:
+                hashes[os.path.relpath(path, root)] = hashlib.sha256(f.read()).hexdigest()
+    return hashes
+
+
 def _files_under(root):
     return sorted(os.path.relpath(os.path.join(d, f), root)
                   for d, _, files in os.walk(root) for f in files)
@@ -320,6 +336,43 @@ def test_the_model_is_left_at_the_best_fit_after_each_parameter(tmp_path, monkey
     assert [pid.calls[i] for i in done] == [("done", 0), ("done", 1), ("done", 2)]
     for i in done:
         np.testing.assert_allclose(pid.calls[i + 1], [5.0, 1.0, 5.0])
+
+
+@pytest.mark.unit
+def test_each_profile_json_has_one_optimum_row_per_point(tmp_path, monkeypatch):
+    """Each point's re-calibrated values are written in order, a null row where it failed."""
+    pid = _stub_param_id(tmp_path)
+
+    def optimum(held):
+        if held.idx == 2 and held.value < 5.0:
+            return [np.nan, np.nan]  # a failed point: its cost is not finite
+        return [held.value, held.value + 100.0]
+
+    monkeypatch.setattr(pid, "make_optimiser", _FakeOptimiser(optimum=optimum), raising=False)
+    profile = _profile_for(pid)
+    profile.run()
+
+    results_dir = os.path.join(str(tmp_path), "profile_likelihood")
+    names = pid.param_id_info["param_names"]
+    stems = ["param_0_g_A__g_B", "param_1_m_C__m_D", "param_2_p_E"]
+    for idx, stem in enumerate(stems):
+        with open(os.path.join(results_dir, stem + ".json")) as f:
+            data = json.load(f)
+        assert data["param_name"] == names[idx]
+        assert data["other_param_names"] == [n for i, n in enumerate(names) if i != idx]
+        assert len(data["optima"]) == len(data["param_values"]) == 3
+        for value, cost, row in zip(data["param_values"], data["costs"], data["optima"]):
+            if idx == 2 and value < 5.0:
+                assert not np.isfinite(cost) and row is None
+            else:
+                assert row == pytest.approx([value, value + 100.0])
+
+
+@pytest.mark.unit
+def test_a_non_finite_optimum_value_is_written_as_null():
+    assert _optimum_row(1.0, np.array([1.0, np.inf, 2.0])) == [1.0, None, 2.0]
+    assert _optimum_row(np.inf, np.array([1.0, 2.0])) is None
+    assert _optimum_row(1.0, np.empty(0)) == []
 
 
 # ---- remove_params_by_idx (plot_param_id_script, MCMC) -------------------------------------
@@ -533,12 +586,16 @@ def _mock_results(names, costs_1=(2.0, 1.0, 0.5, 1.0, 2.0)):
             "costs": np.array(costs_1),
             "param_name": names[0],
             "best_val": 0.3,
+            "other_param_names": [names[1]],
+            "optima": [[0.1], [0.2], [0.3], [0.4], [0.5]],
         },
         1: {
             "param_values": values,
             "costs": np.array([3.0, 1.5, 0.8, 1.5, 3.0]),
             "param_name": names[1],
             "best_val": 0.3,
+            "other_param_names": [names[0]],
+            "optima": [[0.1], [0.2], [0.3], [0.4], [0.5]],
         },
     }
 
@@ -563,6 +620,8 @@ def test_profile_likelihood_save_results():
             with open(os.path.join(results_dir, param_files[0])) as f:
                 data = json.load(f)
             assert {"param_values", "costs", "param_name", "best_val", "ci_95"} <= set(data)
+            assert data["other_param_names"] == [["param1", "param2"][1 - param_idx]]
+            assert data["optima"] == [[0.1], [0.2], [0.3], [0.4], [0.5]]
 
 
 @pytest.mark.unit
@@ -682,6 +741,16 @@ def test_profile_points_warm_start_through_the_optimiser(
         return optimiser
 
     monkeypatch.setattr(ParamID, "make_optimiser", spy)
+    # Every file the calibration wrote, hashed just before and just after the profile runs.
+    snapshots = []
+    real_profile_run = ProfileLikelihood.run
+
+    def profile_run(self):
+        snapshots.append(_hashes_outside(temp_output_dir, "profile_likelihood"))
+        real_profile_run(self)
+        snapshots.append(_hashes_outside(temp_output_dir, "profile_likelihood"))
+
+    monkeypatch.setattr(ProfileLikelihood, "run", profile_run)
     result = run_param_id(config)
 
     best = np.asarray(result["best_param_vals"], dtype=float)
@@ -707,6 +776,31 @@ def test_profile_points_warm_start_through_the_optimiser(
         assert "summary.json" in written and "profile_likelihood_plots.pdf" in written
         assert len([f for f in written if f.startswith("param_") and f.endswith(".json")]) == 2
         assert not [f for f in written if f.startswith("best_") or f.startswith("multi_start")]
+
+        # The calibration's best-fit files are byte-identical before and after the profile.
+        before, after = snapshots
+        assert any(os.path.basename(path) == "best_param_vals.npy" for path in before)
+        assert before == after
+
+        # Each point's optimum is saved, in the order of other_param_names. At the held value
+        # nearest the best fit, the re-fit starts at the best fit and keeps the lowest cost it
+        # finds: at least as good as the best fit, and within 5% of each other entry's range
+        # of it.
+        info = result["param_id"].param_id.param_id_info
+        names = info["param_names"]
+        widths = np.asarray(info["param_maxs"], dtype=float) - np.asarray(info["param_mins"])
+        for param_idx, stem in enumerate(_file_stem(i, n) for i, n in enumerate(names)):
+            with open(os.path.join(results_dir, stem + ".json")) as f:
+                data = json.load(f)
+            assert data["other_param_names"] == [n for i, n in enumerate(names) if i != param_idx]
+            assert len(data["optima"]) == len(data["param_values"]) == 3
+            assert all(len(row) == 1 for row in data["optima"])
+            centre = int(np.argmin(np.abs(np.array(data["param_values"]) - best[param_idx])))
+            assert data["param_values"][centre] == pytest.approx(best[param_idx])
+            assert data["costs"][centre] <= data["best_cost"] * (1 + 1e-9)
+            row, others = np.array(data["optima"][centre]), np.delete(best, param_idx)
+            assert np.all(np.abs(row - others) <= 0.05 * np.delete(widths, param_idx)), (
+                row, others)
 
 
 # ---- on real models ------------------------------------------------------------------------

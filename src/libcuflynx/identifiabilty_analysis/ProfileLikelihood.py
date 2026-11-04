@@ -87,6 +87,14 @@ def _file_stem(param_idx, param_name):
     return f"param_{param_idx}_" + param_label(param_name).replace("/", "_").replace("+", "__")
 
 
+def _optimum_row(cost, optimum):
+    """A profile point's optimum as a JSON row: ``None`` where the point's cost is not finite,
+    and ``None`` for each value that is not finite."""
+    if optimum is None or not np.isfinite(cost):
+        return None
+    return [float(v) if np.isfinite(v) else None for v in np.asarray(optimum, dtype=float)]
+
+
 class _HeldEntry:
     """The param_id's cost with entry ``idx`` held at ``value``, over the other entries.
 
@@ -139,7 +147,7 @@ class ProfileLikelihood:
        range either side of the best fit;
     2. re-calibrate the other entries at each held value, warm-started from the optimum at the
        neighbouring held value (the sweep runs outwards from the best fit);
-    3. record the cost at each re-calibrated optimum.
+    3. record the cost and the other entries' values at each re-calibrated optimum.
 
     A grouped entry is held as a whole (every target takes the value) and a modifier entry is
     held at theta, applied through its modifier function, as in calibration.
@@ -332,12 +340,14 @@ class ProfileLikelihood:
                 if np.isfinite(costs[i]) and np.all(np.isfinite(optima[i])):
                     x0 = optima[i]
 
-        param_name = self.param_id.param_id_info["param_names"][param_idx]
+        param_names = self.param_id.param_id_info["param_names"]
         ci_95 = self.confidence_interval_95(param_values, costs, best_val, self.best_cost)
         return {
             "param_values": param_values,
             "costs": costs,
-            "param_name": param_name,
+            "param_name": param_names[param_idx],
+            "other_param_names": [n for i, n in enumerate(param_names) if i != param_idx],
+            "optima": [_optimum_row(cost, optimum) for cost, optimum in zip(costs, optima)],
             "best_val": best_val,
             "best_cost": self.best_cost,
             "ci_95": ci_95,
@@ -346,7 +356,15 @@ class ProfileLikelihood:
     # ---- output -------------------------------------------------------------------------------
 
     def _save_results(self):
-        """Write one JSON per entry and ``summary.json`` under ``profile_likelihood/``."""
+        """Write one JSON per entry and ``summary.json`` under ``profile_likelihood/``.
+
+        Each entry's JSON holds the sweep (``param_values``, ``costs``), ``param_name``,
+        ``best_val``, ``best_cost``, ``nll_per_cost`` and ``ci_95``, plus each point's optimum:
+        ``other_param_names`` (the re-calibrated entries, in order) and ``optima`` (one row per
+        point of those entries' values, ``null`` where the point's cost is not finite). Nothing
+        is written outside ``profile_likelihood/``, so the calibration's best-fit files are left
+        as they were.
+        """
         results_dir = os.path.join(self.output_dir, "profile_likelihood")
         os.makedirs(results_dir, exist_ok=True)
 
@@ -365,6 +383,8 @@ class ProfileLikelihood:
                         "best_cost": None if best_cost is None else float(best_cost),
                         "nll_per_cost": self._nll_per_cost(),
                         "ci_95": profile.get("ci_95"),
+                        "other_param_names": profile["other_param_names"],
+                        "optima": profile["optima"],
                     },
                     f,
                     indent=2,

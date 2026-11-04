@@ -62,7 +62,26 @@ ia_options:
     num_calls_to_function: 200
 ```
 
-Results go to `<param_id_output_dir>/profile_likelihood/`: one JSON and one PDF per parameter, `profile_likelihood_plots.pdf` with every profile, and `summary.json`. The re-fits' optimisers write no files of their own (no `best_cost.npy` or history CSVs).
+Results go to `<param_id_output_dir>/profile_likelihood/`: one JSON and one PDF per parameter, `profile_likelihood_plots.pdf` with every profile, and `summary.json`. The re-fits' optimisers write no files of their own (no `best_cost.npy` or history CSVs), so the calibration's `best_param_vals.npy` and other outputs are left as they were.
+
+Each parameter's JSON holds:
+
+- `param_name`, `best_val`, `best_cost`: the profiled entry and the best fit;
+- `param_values`, `costs`: the held values and the cost at each re-calibrated optimum;
+- `other_param_names` and `optima`: the re-calibrated entries, in order, and one row per held value with their values at that point's optimum (`null` where the point's cost is not finite), in the same name form as `param_name`;
+- `nll_per_cost` and `ci_95`: the cost-to-`-ln L` factor and the 95% interval.
+
+```json
+{
+  "param_values": [0.6, 0.8, 1.0],
+  "costs": [3.1, 2.9, 3.4],
+  "param_name": ["oscillator/c"],
+  "best_val": 0.8,
+  "other_param_names": [["oscillator/k"]],
+  "optima": [[5.1], [5.4], [5.7]],
+  ...
+}
+```
 
 ## Running identifiability analysis
 
