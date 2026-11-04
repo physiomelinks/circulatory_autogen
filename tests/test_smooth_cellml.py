@@ -387,6 +387,46 @@ def test_the_command_smooths_from_a_ranges_file(tmp_path):
     assert (tmp_path / 'abs_smooth.cellml').exists()
 
 
+def test_reference_ranges_start_at_t0_and_include_pre_time(tmp_path):
+    path = tmp_path / 'p.cellml'
+    path.write_text(sc.probe(_model(ABS)))
+    ranges, each = sc.reference_ranges(str(path), [{'pre_time': 2.0, 'sim_time': 1.0, 'dt': 0.01},
+                                                   {'pre_time': 0.0, 'sim_time': 1.0, 'dt': 0.01,
+                                                    'param_vals': {'c/r': 3.0}}], per_run=True)
+    assert each[0]['sm1_x']['min'] == pytest.approx(-1.0) and each[0]['sm1_x']['max'] == pytest.approx(2.0)
+    assert each[1]['sm1_x']['max'] == pytest.approx(2.0)          # r = 3 for 1 s from v = -1
+    assert ranges['sm1_x'] == {'min': pytest.approx(-1.0), 'max': pytest.approx(2.0), 'min_abs': pytest.approx(0.0),
+                               'nan': False}
+
+
+def test_a_division_by_zero_at_t0_is_flagged_in_the_runs_and_at_init(tmp_path):
+    """max(v/w, 0) with w(0) = 0: the original gives 0 at t = 0, x is -Inf there (the CVS-ANS
+    C_O2_a case, with its 0/0 hidden by max)."""
+    variables = '<variable name="w" units="second" initial_value="0"/><variable name="q" units="dimensionless"/>'
+    equations = ('<apply><eq/><apply><diff/><bvar><ci>t</ci></bvar><ci>w</ci></apply>'
+                 '<cn cellml:units="dimensionless">1</cn></apply>'
+                 '<apply><eq/><ci>q</ci><apply><max/><apply><divide/><ci>v</ci><apply><times/><ci>w</ci>'
+                 '<ci>r</ci></apply></apply><cn cellml:units="dimensionless">0</cn></apply></apply>')
+    path = tmp_path / 'm.cellml'
+    path.write_text(_model(equations, variables))
+    _, report_path = sc.smooth_cellml_file(str(path), runs=[{'pre_time': 1.0, 'sim_time': 1.0, 'dt': 0.01}],
+                                           output_dir=str(tmp_path / 'out'))
+    report = json.loads(open(report_path).read())
+    site = report['sites'][0]
+    assert 'nan_in_runs' in site['flags'] and 'nan_at_init' in site['flags']
+    assert report['nan_at_init'] == [{'k': 1, 'probed': ['sm1_x'], 'smoothed': ['sm1_x', 'sm1_w', 'sm1_z', 'q']}]
+
+
+def test_only_smooths_the_named_sites():
+    smoothed, report = sc.smooth(_model(CLAMP), _ranges(), only=[1])
+    assert _equation(smoothed, 'y') == 'max((0.5*((v+half)-sm1_w)), zero)'
+    assert [s['status'] for s in report['sites']] == ['smoothed', 'left']
+    assert report['counts'] == {'maxmin': 1}
+    smoothed, report = sc.smooth(_model(PIECEWISE_AND), _ranges(), only=[1])
+    assert _equation(smoothed, 'y').startswith('{v if')
+    assert [s['piecewise_k'] for s in report['sites']] == [1, 1]
+
+
 # ---------------------------------------------------------------------------------------------
 
 def test_analyse_model_returns_the_analyser_model():

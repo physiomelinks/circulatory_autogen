@@ -24,6 +24,10 @@ next release; add to that section as you land a change.
   their range (`one_sided`) or are NaN in a run (`nan_in_runs`: `max(NaN, 0)` is 0, its smooth form
   NaN); a site whose units cannot be inferred is skipped. The ranges from the runs are written to
   `smoothing_ranges.json`, for `--ranges`.
+- The reference runs are read from t = 0, through `pre_time`, so a value at the initial state counts
+  (e.g. a 0/0 that `max` hides at t = 0). `nan_at_init` flags a site whose x (probed model) or
+  auxiliaries and result (smoothed model) are NaN or Inf at the initial state.
+- `smooth(..., only=[k, ...])` smooths only the named sites, to attribute an error to sites.
 
 ### Fixed — `libcellml_helper_funcs.analyse_model` returns the analysed model
 

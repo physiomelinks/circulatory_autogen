@@ -26,7 +26,9 @@ and reported as not smoothed. Rewrites go bottom-up, so nested operations become
 The report flags a site downstream of a floor (``floor_upstream``, through algebraic equations
 and connections), a piecewise branch that may be undefined where it is not active
 (``branch_domain``, e.g. ln), an x that reaches zero only at one end of its range
-(``one_sided``), and an x that is NaN in a reference run (``nan_in_runs``).
+(``one_sided``), an x that is NaN or Inf in a reference run (``nan_in_runs``; the runs are
+read from t = 0, through ``pre_time``), and a site NaN or Inf at the initial state in the probed or
+smoothed model (``nan_at_init``, :func:`flag_nan_at_init`).
 
 Use in two stages: :func:`probe` adds only the ``sm<k>_x`` variables, so reference runs of the
 probed model give each argument's range; :func:`smooth` then sets ``eps_sm<k> = rel * range`` and
@@ -209,8 +211,9 @@ class _Site:
 
 
 class _Pass:
-    def __init__(self, root, mode, ranges=None, rel=None, collapse=None, abs_eps=DEFAULT_ABS_EPS):
+    def __init__(self, root, mode, ranges=None, rel=None, collapse=None, abs_eps=DEFAULT_ABS_EPS, only=None):
         self.root, self.mode = root, mode
+        self.only = None if only is None else set(only)
         self.ranges = ranges or {}
         self.rel = dict(DEFAULT_REL)
         if isinstance(rel, (int, float)):
@@ -327,6 +330,10 @@ class _Pass:
         if self._floor_upstream(x):
             site.record['flags'].append('floor_upstream')
         self.sites.append(site)
+        if self.mode == 'smooth' and self.only is not None and k not in self.only:
+            site.record['status'] = 'left'
+            site.record['reason'] = 'not in only'
+            return None
         u = _units_of(x, self.var_units)
         if u is None:
             site.record['status'] = 'skipped'
@@ -471,6 +478,7 @@ class _Pass:
         conditions = [self._condition(p[1], original) for p in pieces]
         for site in self.sites[first_site - 1:]:
             site.record['piecewise'] = original
+            site.record['piecewise_k'] = first_site
             if branch_domain:
                 site.record['flags'].append('branch_domain')
         if self.mode == 'probe' or any(c is None for c in conditions):
@@ -648,7 +656,7 @@ def probe(model):
     return _write(root)
 
 
-def smooth(model, ranges, rel=None, collapse=None, abs_eps=DEFAULT_ABS_EPS):
+def smooth(model, ranges, rel=None, collapse=None, abs_eps=DEFAULT_ABS_EPS, only=None):
     """The smoothed model and its report.
 
     Args:
@@ -663,12 +671,14 @@ def smooth(model, ranges, rel=None, collapse=None, abs_eps=DEFAULT_ABS_EPS):
             numbers k: those sites, also when x reaches zero without changing sign (flagged
             ``one_sided``, e.g. a phase just after a floor wraps).
         abs_eps: eps of a site whose argument is zero throughout, or that has no range.
+        only: the site numbers k to smooth; the others are left as written (status ``left``). A
+            piecewise is smoothed only when all its comparisons are (``piecewise_k`` groups them).
 
     Returns:
         (CellML text, report dict)
     """
     root = _read(model)
-    p = _Pass(root, 'smooth', ranges, rel, collapse, abs_eps)
+    p = _Pass(root, 'smooth', ranges, rel, collapse, abs_eps, only)
     p.run()
     report = {'settings': {'rel': p.rel, 'collapse': collapse if collapse in (None, True, False)
                            else sorted(collapse), 'abs_eps': abs_eps},
@@ -682,6 +692,8 @@ def _counts(p):
     counts = {}
     for s in p.sites:
         key = s.kind if s.record['status'] == 'smoothed' else f'{s.kind}_{s.record["status"]}'
+        if s.record['status'] == 'left':
+            continue
         if s.record.get('collapsed'):
             key += '_collapsed'
         counts[key] = counts.get(key, 0) + 1
@@ -709,36 +721,103 @@ def libcellml_issues(model_text):
             'analyser': [analyser.issue(i).description() for i in range(analyser.issueCount())]}
 
 
-def reference_ranges(probed_path, runs):
-    """Each ``sm<k>_x``'s min, max and smallest |x| over the reference runs of a probed model.
+def reference_ranges(probed_path, runs, per_run=False):
+    """Each ``sm<k>_x``'s min, max and smallest |x| over the reference runs of a probed model,
+    from t = 0: the run is logged through ``pre_time`` too, where a value such as 0/0 at the
+    initial state shows.
 
-    ``nan`` records a NaN in x, which the original operation may have hidden (``max(NaN, 0)`` is 0)
-    but the smooth form passes on. Each run is a dict with ``sim_time`` and optionally ``pre_time``, ``dt``, ``solver_info`` and
-    ``param_vals`` (``{"component/variable": value}``), simulated with CVODE_myokit.
+    ``nan`` records a NaN or Inf in x, which the original operation may have hidden (``max(NaN, 0)``
+    is 0) but the smooth form passes on. Each run is a dict with ``sim_time`` and optionally
+    ``pre_time``, ``dt``, ``solver_info`` and ``param_vals`` (``{"component/variable": value}``),
+    simulated with CVODE_myokit; runs with the same times and solver settings share one compiled
+    simulation. With ``per_run``, also returns the ranges of each run, in order.
     """
     from libcuflynx.solver_wrappers import get_simulation_helper
     names = [f'{c}/{v}' for c, v in probe_variables(probed_path)]
-    ranges = {}
+    param_names = sorted({n for run in runs for n in (run.get('param_vals') or {})})
+    helpers, merged, each = {}, {}, []
     for run in runs:
-        helper = get_simulation_helper(model_path=probed_path, solver='CVODE_myokit', model_type='cellml',
-                                       dt=run.get('dt', 0.01), sim_time=run['sim_time'],
-                                       solver_info=run.get('solver_info'), pre_time=run.get('pre_time', 0.0))
-        if run.get('param_vals'):
-            helper.set_param_vals(list(run['param_vals']), list(run['param_vals'].values()))
+        dt, total = run.get('dt', 0.01), run.get('pre_time', 0.0) + run['sim_time']
+        key = json.dumps([dt, total, run.get('solver_info')], sort_keys=True, default=str)
+        if key not in helpers:
+            helper = get_simulation_helper(model_path=probed_path, solver='CVODE_myokit', model_type='cellml',
+                                           dt=dt, sim_time=total, solver_info=run.get('solver_info'), pre_time=0.0)
+            defaults = helper.get_init_param_vals(param_names) if param_names else []
+            helpers[key] = (helper, [d[0] if isinstance(d, list) else d for d in defaults])
+        helper, defaults = helpers[key]
+        if hasattr(helper, 'reset_states'):
+            helper.reset_states()
+        if param_names:
+            values = dict(zip(param_names, defaults))
+            values.update(run.get('param_vals') or {})
+            helper.set_param_vals(param_names, [values[n] for n in param_names])
         if not helper.run():
             raise RuntimeError(f'reference run {run} failed')
+        ranges = {}
         for name, values in zip(names, helper.get_results([[n] for n in names], flatten=True)):
             values = np.asarray(values, dtype=float).ravel()
-            key = name.split('/')[-1]
-            nan = bool(np.isnan(values).any())
-            lo, hi, m = float(np.nanmin(values)), float(np.nanmax(values)), float(np.nanmin(np.abs(values)))
-            if key in ranges:
-                r = ranges[key]
-                lo, hi, m = min(lo, r['min']), max(hi, r['max']), min(m, r['min_abs'])
-                nan = nan or r['nan']
-            ranges[key] = {'min': lo, 'max': hi, 'min_abs': m, 'nan': nan}
+            finite = values[np.isfinite(values)]
+            if finite.size == 0:
+                finite = np.zeros(1)
+            ranges[name.split('/')[-1]] = {'min': float(finite.min()), 'max': float(finite.max()),
+                                           'min_abs': float(np.abs(finite).min()),
+                                           'nan': bool(finite.size < values.size)}
+        each.append(ranges)
+        for key_x, r in ranges.items():
+            if key_x in merged:
+                m = merged[key_x]
+                r = {'min': min(r['min'], m['min']), 'max': max(r['max'], m['max']),
+                     'min_abs': min(r['min_abs'], m['min_abs']), 'nan': r['nan'] or m['nan']}
+            merged[key_x] = dict(r)
+    for helper, _ in helpers.values():
         helper.close_simulation()
-    return ranges
+    return (merged, each) if per_run else merged
+
+
+def nan_at_init(model_path, report, probed=False):
+    """``{k: [variable, ...]}``: the variables of each site that are NaN or Inf at the model's initial
+    state (t = 0, default parameters). For a probed model (``probed``) that is ``sm<k>_x``; for a
+    smoothed one, also ``sm<k>_w``, ``sm<k>_z``, ``sm<k>_H`` and the variable the site's equation
+    defines. myokit evaluates in Python, where a division by zero is an error even inside a max, so
+    the probed model's own variables are not checked."""
+    import warnings
+    import myokit.formats
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        model = myokit.formats.importer('cellml').model(model_path)
+    bad = {}
+    for site in report['sites']:
+        if probed:
+            names = [f'sm{site["k"]}_x']
+        else:
+            names = [n for n in site.get('aux') or [] if not n.startswith('eps_')] + [site['variable']]
+        for name in names:
+            qname = f'{site["component"]}.{name}'
+            if not model.has_variable(qname):
+                continue
+            try:
+                with np.errstate(all='ignore'):
+                    value = float(model.get(qname).eval())
+            except Exception:      # myokit raises its NumericalError for 0/0, log(-1), ...
+                value = math.nan
+            if not math.isfinite(value):
+                bad.setdefault(site['k'], []).append(name)
+    return bad
+
+
+def flag_nan_at_init(report, probed_path, smooth_path):
+    """Flags ``nan_at_init`` on each site with a NaN or Inf at t = 0 in the probed or smoothed model,
+    and lists them in ``report["nan_at_init"]``."""
+    found = {}
+    for which, path in (('probed', probed_path), ('smoothed', smooth_path)):
+        if path:
+            for k, names in nan_at_init(path, report, probed=which == 'probed').items():
+                found.setdefault(k, {})[which] = names
+    for site in report['sites']:
+        if site['k'] in found and 'nan_at_init' not in site['flags']:
+            site['flags'].append('nan_at_init')
+    report['nan_at_init'] = [{'k': k, **v} for k, v in sorted(found.items())]
+    return report
 
 
 def smooth_cellml_file(model_path, runs=None, output_dir=None, ranges=None, rel=None, collapse=None,
@@ -756,6 +835,7 @@ def smooth_cellml_file(model_path, runs=None, output_dir=None, ranges=None, rel=
     os.makedirs(output_dir, exist_ok=True)
     with open(model_path, encoding='utf-8') as f:
         original = f.read()
+    probed_path = None
     if ranges is None:
         probed_path = os.path.join(output_dir, f'{name}_probe.cellml')
         with open(probed_path, 'w', encoding='utf-8') as f:
@@ -772,6 +852,7 @@ def smooth_cellml_file(model_path, runs=None, output_dir=None, ranges=None, rel=
     report_path = os.path.join(output_dir, 'smoothing_report.json')
     with open(smooth_path, 'w', encoding='utf-8') as f:
         f.write(smoothed)
+    flag_nan_at_init(report, probed_path, smooth_path)
     with open(report_path, 'w', encoding='utf-8') as f:
         json.dump(report, f, indent=2)
     return smooth_path, report_path
