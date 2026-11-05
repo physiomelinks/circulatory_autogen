@@ -28,6 +28,12 @@ next release; add to that section as you land a change.
   (e.g. a 0/0 that `max` hides at t = 0). `nan_at_init` flags a site whose x (probed model) or
   auxiliaries and result (smoothed model) are NaN or Inf at the initial state.
 - `smooth(..., only=[k, ...])` smooths only the named sites, to attribute an error to sites.
+- A table of rules, one per kind of operation (`tutorial/docs/smoothing.md` and the module docstring):
+  each report record names its `rule` and its `lifted` count, and the report sums them as
+  `lifted_estimate`. New rules: a division whose denominator reaches or crosses 0 in a reference run is
+  guarded, `num den/(den^2 + eps_d^2)`, with eps_d = `rel["division"]` × the denominator's range;
+  `maxmin_form="xH"` writes max and min as `b + (a - b) H`. An argument that keeps one sign in every run
+  takes eps = rel × min(range, smallest |x|).
 - Each site's range, and so its eps, comes from the nominal (first) reference run; one outlying run
   can no longer set eps for every point. `reference_ranges(..., over="union")` (`--ranges-over
   union`) takes the range over all the runs. A NaN or Inf in any run is still flagged.

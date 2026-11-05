@@ -118,6 +118,38 @@ def _value(text, name, **values):
     return eval(_equation(text, name).replace('^', '**'), {}, values)      # noqa: S307 - our own infix
 
 
+def test_the_rectifier_in_xh_form_is_b_plus_x_times_h():
+    smoothed, report = sc.smooth(_model(MAX + MIN.replace('<ci>y</ci>', '<ci>q</ci>'), '<variable name="q" units="mmHg"/>'),
+                                 _ranges(), maxmin_form='xH')
+    assert _equation(smoothed, 'y') == '(zero+(sm1_x*sm1_H))'
+    assert _equation(smoothed, 'q') == '(v-(sm2_x*sm2_H))'
+    assert _equation(smoothed, 'sm1_H') == '(0.5*(1+(sm1_x*sm1_z)))'
+    assert [s['rule'] for s in report['sites']] == ['maxmin', 'maxmin']
+    assert [s['lifted'] for s in report['sites']] == [4, 4] and report['lifted_estimate'] == 8
+    for h, v in ((1.0, 2.0), (0.0, -2.0), (0.5, 0.0)):
+        assert _value(smoothed, 'y', sm1_x=v, sm1_H=h, zero=0.0) == pytest.approx(v * h)
+
+
+def test_every_record_names_its_rule_and_lifted_count():
+    text = _model(ABS + PIECEWISE_GEQ.replace('<ci>y</ci>', '<ci>q</ci>')
+                  + _y('<apply><max/><ci>v</ci><cn cellml:units="mmHg">0</cn></apply>').replace('<ci>y</ci>', '<ci>p</ci>'),
+                  '<variable name="q" units="mmHg"/><variable name="p" units="mmHg"/>')
+    _, report = sc.smooth(text, _ranges())
+    assert [(s['rule'], s['lifted']) for s in report['sites']] == [('abs', 2), ('piecewise', 2), ('rectifier', 2)]
+    assert report['lifted_estimate'] == 6
+    _, report = sc.smooth(text, _ranges(), exempt=[{'variable': 'q'}])
+    assert [s['rule'] for s in report['sites']] == ['abs', 'exempt', 'rectifier']
+
+
+def test_eps_of_an_argument_that_keeps_one_sign_stays_below_its_smallest_value():
+    """abs(tau_h_Na1_6/1000) in SN_simple: x in [1.5e-4, 0.245]. rel x range (2.45e-4) would exceed the
+    smallest x and slow inactivation 2x during each spike; rel x min(range, smallest |x|) is 1.5e-7."""
+    _, report = sc.smooth(_model(ABS), {'sm1_x': {'min': 1.5e-4, 'max': 0.245, 'min_abs': 1.5e-4}})
+    assert report['sites'][0]['eps'] == pytest.approx(1.5e-7)
+    _, report = sc.smooth(_model(ABS), {'sm1_x': {'min': -1.0, 'max': 1.0, 'min_abs': 0.0}})
+    assert report['sites'][0]['eps'] == pytest.approx(2e-3)
+
+
 def test_less_than_swaps_the_sign_of_x_and_and_is_a_product():
     smoothed, report = sc.smooth(_model(PIECEWISE_AND), _ranges())
     assert _equation(smoothed, 'sm1_x') == '(v-zero)'
@@ -508,8 +540,8 @@ def test_reference_ranges_start_at_t0_and_include_pre_time(tmp_path):
                                                     'param_vals': {'c/r': 3.0}}], per_run=True)
     assert each[0]['sm1_x']['min'] == pytest.approx(-1.0) and each[0]['sm1_x']['max'] == pytest.approx(2.0)
     assert each[1]['sm1_x']['max'] == pytest.approx(2.0)          # r = 3 for 1 s from v = -1
-    assert ranges['sm1_x'] == {'min': pytest.approx(-1.0), 'max': pytest.approx(2.0), 'min_abs': pytest.approx(0.0),
-                               'nan': False}
+    assert ranges['sm1_x'] == {'min': pytest.approx(-1.0), 'max': pytest.approx(2.0), 'min_abs': pytest.approx(0.0, abs=1e-12),
+                               'nan': False, 'any_min_abs': pytest.approx(0.0, abs=1e-12), 'any_sign_change': True}
 
 
 def test_eps_comes_from_the_nominal_run_unless_union_is_asked_for(tmp_path):
@@ -525,9 +557,10 @@ def test_eps_comes_from_the_nominal_run_unless_union_is_asked_for(tmp_path):
     assert report['sites'][0]['eps'] == pytest.approx(2e-3)
 
 
-def test_a_division_by_zero_at_t0_is_flagged_in_the_runs_and_at_init(tmp_path):
-    """max(v/w, 0) with w(0) = 0: the original gives 0 at t = 0, x is -Inf there (the CVS-ANS
-    C_O2_a case, with its 0/0 hidden by max)."""
+def test_a_division_by_zero_at_t0_is_guarded_and_the_nan_it_hid_is_flagged(tmp_path):
+    """max(v/(w r), 0) with w(0) = 0: the original gives 0 at t = 0 (max hides the -Inf), the probe records
+    x = -Inf there (nan_in_runs), and the division is guarded, num den/(den^2 + eps_d^2), so the smoothed
+    model is finite at t = 0 (no nan_at_init). The CVS-ANS C_O2_a case."""
     variables = '<variable name="w" units="second" initial_value="0"/><variable name="q" units="dimensionless"/>'
     equations = ('<apply><eq/><apply><diff/><bvar><ci>t</ci></bvar><ci>w</ci></apply>'
                  '<cn cellml:units="dimensionless">1</cn></apply>'
@@ -538,9 +571,21 @@ def test_a_division_by_zero_at_t0_is_flagged_in_the_runs_and_at_init(tmp_path):
     _, report_path = sc.smooth_cellml_file(str(path), runs=[{'pre_time': 1.0, 'sim_time': 1.0, 'dt': 0.01}],
                                            output_dir=str(tmp_path / 'out'))
     report = json.loads(open(report_path).read())
-    site = report['sites'][0]
-    assert 'nan_in_runs' in site['flags'] and 'nan_at_init' in site['flags']
-    assert report['nan_at_init'] == [{'k': 1, 'probed': ['sm1_x'], 'smoothed': ['sm1_x', 'sm1_w', 'sm1_z', 'q']}]
+    division, rectifier = report['sites']
+    assert division['rule'] == 'division' and division['status'] == 'smoothed'
+    assert division['eps'] == pytest.approx(1e-3 * 2.0)              # rel_div x the range of w r over [0, 2]
+    assert rectifier['rule'] == 'rectifier' and 'nan_in_runs' in rectifier['flags']
+    assert report['nan_at_init'] == [{'k': 2, 'probed': ['sm2_x']}]
+
+
+def test_a_division_whose_denominator_stays_away_from_zero_is_left():
+    equations = _y('<apply><divide/><ci>half</ci><apply><plus/><ci>v</ci><cn cellml:units="mmHg">3</cn></apply></apply>'
+                   '').replace('<ci>half</ci>', '<apply><times/><ci>half</ci><ci>half</ci></apply>')
+    text = _model(equations)
+    smoothed, report = sc.smooth(text, {'sm1_x': {'min': 2.0, 'max': 4.0, 'min_abs': 2.0}})
+    assert report['sites'][0]['status'] == 'not_needed'
+    assert report['counts'] == {}
+    assert 'sm1' not in smoothed
 
 
 def test_only_smooths_the_named_sites():
@@ -588,9 +633,9 @@ def test_3compartment_smoothed_simulates_close_to_the_original(generated_cellml_
     smooth_path, report_path = sc.smooth_cellml_file(flat, runs=[run], output_dir=str(tmp_path), rel=1e-4)
     report = json.loads(open(report_path).read())
     assert report['new_issues'] == {'validator': [], 'analyser': []}
-    assert all(s['status'] == 'smoothed' for s in report['sites'])
+    assert all(s['status'] in ('smoothed', 'not_needed') for s in report['sites'])
     assert {'abs', 'maxmin', 'piecewise', 'floor_not_smoothed'} <= set(report['counts'])
-    ranges = {s['aux'][0]: dict(zip(('min', 'max'), s['range'])) for s in report['sites']}
+    ranges = json.loads((tmp_path / 'smoothing_ranges.json').read_text())
 
     def volume_error(smoothed_text):
         (tmp_path / 's.cellml').write_text(smoothed_text)

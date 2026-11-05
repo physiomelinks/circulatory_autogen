@@ -3,28 +3,35 @@
 Every replacement uses only square roots, reciprocals, products and sums, so the smoothed model
 lifts exactly to quadratic form. Each site ``k`` gets named algebraic variables in its component:
 
-- ``sm<k>_x``: the site's argument
+- ``sm<k>_x``: the site's argument (the denominator of a guarded division)
 - ``eps_sm<k>``: a constant in the units of x
-- ``sm<k>_w = sqrt(x^2 + eps^2)`` and ``sm<k>_z = 1/sm<k>_w``
-- ``sm<k>_H = (1 + x*z)/2`` for a comparison in a piecewise condition
+- ``sm<k>_w = sqrt(x^2 + eps^2)`` and ``sm<k>_z = 1/sm<k>_w``; ``sm<k>_H = (1 + x*z)/2`` where a rule
+  needs a step; ``sm<k>_q = 1/(x^2 + eps^2)`` for a guarded division
 
-========================================  ===========================================
-original                                  replacement
-========================================  ===========================================
-``abs(x)``                                ``sm_w``
-``max(a, b)``                             ``(a + b + sm_w)/2``, x = a - b
-``min(a, b)``                             ``(a + b - sm_w)/2``, x = a - b
-``f if a >= b (or >) else g``             ``g + sm_H*(f - g)``, x = a - b
-``f if a <= b (or <) else g``             as above with x = b - a
-``and`` / ``or`` / ``not``, several pieces  split on one comparison at a time (below)
-========================================  ===========================================
+The rules, one per kind of operation (the report's ``rule``). "Lifted" counts the variables a site adds
+to the quadratic lift of the smoothed model (the report sums them as ``lifted_estimate``):
 
-A piecewise is blended by splitting on its comparisons one at a time, ``g + H*(f - g)`` with f the
-blend where the comparison holds and g where it does not, until the first piece that holds is known.
-The weights of the pieces sum to 1 everywhere: ``c1 and c2`` gives ``H1*H2``, the second piece
-``(1 - H1)*H2``, and so on. Comparisons of the same two operands in one piecewise, either way round
-(``x <= 0.25`` and ``x > 0.25``), are one site, H for one side and 1 - H for the other: with two sites
-the boundary would get weights H and (1 - H)^2, which sum to 0.75 there.
+===============  ==========================  ==========================================  ======================  ===============================================
+rule             pattern (example)           smooth form                                 lifted (per use)        eps (rel kind)
+===============  ==========================  ==========================================  ======================  ===============================================
+abs              abs(x), x changes sign      w                                           w, z: 2                 rel x range (abs)
+maxmin           max/min(a, b), a - b        (a + b +- w)/2  (form "w", the default)     w, z: 2                 rel x range (maxmin)
+                 changes sign (max(v, 0))    or b + (a - b) H, a - (a - b) H (form "xH")  z, x z, z^2, w: ~4
+rectifier        max(x, 0), min(x, 0)        as maxmin, with b = 0: (x + w)/2, x H        as maxmin              as maxmin
+piecewise        f if a >= b else g; and,    g + H (f - g), split on one comparison at  per comparison z, x z,  rel x range (piecewise)
+                 or, not; several pieces     a time; weights sum to 1; a comparison     plus products with the
+                                             repeated either way round is one H         branches
+division         num/den, den reaches or     num den q, q = 1/(den^2 + eps_d^2)          q, den q, q^2: ~3       rel x range of den (division)
+                 crosses 0 in a run
+exempt           named in ``exempt``         left as written (switch_variables, phase)   0                       -
+left as written  floor, eq, neq, xor         left as written                             0                       -
+===============  ==========================  ==========================================  ======================  ===============================================
+
+eps: ``rel`` (per kind, ``rel["division"]`` is rel_div, ``rel["variables"]`` per equation) times the
+range of x in the nominal reference run. An argument that keeps one sign in every run (an
+``abs(tau)`` guard) takes ``rel x min(range, smallest |x|)`` instead, so eps stays below its smallest
+value. A division is guarded only when its denominator reaches or crosses 0 in some reference run;
+denominators of constants alone are not probed. No site is collapsed unless ``collapse`` says so.
 
 ``floor`` and piecewise conditions using ``eq``, ``neq``, ``xor`` or ``floor`` are left as written
 and reported as not smoothed. Rewrites go bottom-up, so nested operations become separate sites.
@@ -62,7 +69,10 @@ MATHML_NS = 'http://www.w3.org/1998/Math/MathML'
 _C = '{' + CELLML_NS + '}'
 _M = '{' + MATHML_NS + '}'
 
-DEFAULT_REL = {'abs': 1e-3, 'maxmin': 1e-3, 'piecewise': 1e-3}
+DEFAULT_REL = {'abs': 1e-3, 'maxmin': 1e-3, 'piecewise': 1e-3, 'division': 1e-3}
+#: lifted variables per site, by rule and form (estimates for the size of the quadratic lift)
+LIFTED = {('abs', 'w'): 2, ('maxmin', 'w'): 2, ('maxmin', 'xH'): 4, ('rectifier', 'w'): 2, ('rectifier', 'xH'): 4,
+          ('piecewise', 'H'): 2, ('division', 'q'): 3}
 #: eps of a site whose argument is zero throughout the reference runs, in the units of x
 DEFAULT_ABS_EPS = 1e-6
 
@@ -222,8 +232,11 @@ class _Site:
 
 class _Pass:
     def __init__(self, root, mode, ranges=None, rel=None, collapse=None, abs_eps=DEFAULT_ABS_EPS, only=None,
-                 exempt=None):
+                 exempt=None, maxmin_form='w'):
         self.root, self.mode = root, mode
+        if maxmin_form not in ('w', 'xH'):
+            raise ValueError(f"maxmin_form: 'w' or 'xH', not {maxmin_form!r}")
+        self.maxmin_form = maxmin_form
         self.exempt = [(e['variable'], e.get('reason', '')) for e in exempt or []]
         self.graph = _ModelGraph(root)
         self.jump_candidates = []
@@ -320,6 +333,8 @@ class _Pass:
             return self._abs(e, original)
         if op in ('max', 'min'):
             return self._maxmin(e, op, original)
+        if op == 'divide' and len(_args(e)) == 2 and self._varies(_args(e)[1]):
+            return self._division(e)
         if op in ('floor', 'ceiling'):
             self._not_smoothed(op, infix(e), f'{op} is left as written')
         if _tag(e) == 'piecewise':
@@ -350,20 +365,30 @@ class _Pass:
         return None
 
     def _not_smoothed(self, kind, original, reason):
-        self.not_smoothed.append({'kind': kind, 'component': self.component.get('name'),
+        self.not_smoothed.append({'kind': kind, 'rule': 'left_as_written', 'component': self.component.get('name'),
                                   'variable': self.variable, 'original': original, 'reason': reason})
 
     # -- sites ------------------------------------------------------------------------------
-    def _new_site(self, kind, x, original, strict=None):
+    def _varies(self, e):
+        """Whether an expression can change during a run: it names a state, an algebraic variable, the
+        time or a variable this pass added (not only constants)."""
+        comp = self.component.get('name')
+        return any(_tag(n) == 'ci' and not self.graph.is_constant(comp, (n.text or '').strip())
+                   for n in e.iter())
+
+    def _new_site(self, kind, x, original, strict=None, rule=None):
         """Create site k for argument x. Returns the site, or None when it is skipped.
         ``strict`` is True for a > or < comparison, False for >= or <=, None otherwise."""
         self.k += 1
         k = self.k
         site = _Site(k, kind, self.component.get('name'), self.variable, original)
         site.strict = strict
+        site.record['rule'] = rule or kind
         site.x = copy.deepcopy(x)
-        names = {s: f'sm{k}_{s}' for s in ('x', 'w', 'z')}
-        if kind == 'piecewise':
+        site.form = {'maxmin': self.maxmin_form, 'piecewise': 'H', 'division': 'q'}.get(kind, 'w')
+        site.needs_H = kind == 'piecewise' or (kind == 'maxmin' and self.maxmin_form == 'xH')
+        names = {s: f'sm{k}_{s}' for s in (('x', 'q') if kind == 'division' else ('x', 'w', 'z'))}
+        if site.needs_H:
             names['H'] = f'sm{k}_H'
         site.names, site.eps_name = names, f'eps_sm{k}'
         if self._floor_upstream(x):
@@ -372,6 +397,7 @@ class _Pass:
         reason = self._exempt_reason()
         if reason is not None:
             site.record['status'] = 'exempt'
+            site.record['rule'] = 'exempt'
             site.record['reason'] = reason
             site.record['switch_variables'] = self.graph.switch_variables(site.component, x)
             return None
@@ -391,6 +417,10 @@ class _Pass:
             self.floor_tainted.update((site.component, n) for n in names.values())
         if self.mode == 'smooth':
             self._set_eps(site)
+            if kind == 'division' and not self._reaches_zero(site):
+                site.record['status'] = 'not_needed'
+                site.record['reason'] = 'the denominator does not reach 0 in any reference run'
+                return None
             if self._collapses(site):
                 return site
         self._add_variable(names['x'], u)
@@ -398,17 +428,24 @@ class _Pass:
         if self.mode == 'probe':
             return site
         self._add_variable(site.eps_name, u, initial_value=site.record['eps'])
+        site.record['lifted'] = LIFTED[(site.record['rule'], site.form)]
+        if kind == 'division':
+            self._add_variable(names['q'], _combine({}, u, -2))
+            self._add_equation(names['q'], _apply('divide', _cn(1), _apply(
+                'plus', _apply('power', _ci(names['x']), _cn(2)), _apply('power', _ci(site.eps_name), _cn(2)))))
+            site.record['aux'] = [names['x'], site.eps_name, names['q']]
+            return site
         self._add_variable(names['w'], u)
         self._add_variable(names['z'], _combine({}, u, -1))
         self._add_equation(names['w'], _apply('root', _apply(
             'plus', _apply('power', _ci(names['x']), _cn(2)), _apply('power', _ci(site.eps_name), _cn(2)))))
         self._add_equation(names['z'], _apply('divide', _cn(1), _ci(names['w'])))
-        if kind == 'piecewise':
+        if site.needs_H:
             self._add_variable(names['H'], {})
             self._add_equation(names['H'], _apply('times', _cn(0.5), _apply(
                 'plus', _cn(1), _apply('times', _ci(names['x']), _ci(names['z'])))))
         site.record['aux'] = [names['x'], site.eps_name, names['w'], names['z']] + (
-            [names['H']] if kind == 'piecewise' else [])
+            [names['H']] if site.needs_H else [])
         return site
 
     def _set_eps(self, site):
@@ -438,14 +475,21 @@ class _Pass:
             # x reaches the switch only at one end of its range, e.g. where a floor wraps
             record['flags'].append('one_sided')
         span = hi - lo
-        if span > 0.0:
+        one_sign = lo * hi > 0.0 and not (isinstance(r, dict) and r.get('any_sign_change'))
+        if span > 0.0 and one_sign and site.kind != 'division':
+            # keeps one sign: eps below its smallest |x| (an abs(tau) guard over three decades)
+            record['eps'] = rel * min(span, float(min_abs))
+            record['eps_rule'] = 'rel x min(range, smallest |x|): x keeps one sign'
+        elif span > 0.0:
             record['eps'] = rel * span
+            record['eps_rule'] = 'rel x range'
         else:
             record['flags'].append('zero_range')
             record['eps'] = rel * abs(lo) if lo != 0.0 else self.abs_eps
+            record['eps_rule'] = 'rel x |x| (x constant)'
         eps, m = record['eps'], float(min_abs)
         w_dev = math.hypot(m, eps) - m
-        record['max_deviation'] = {'abs': w_dev, 'maxmin': 0.5 * w_dev,
+        record['max_deviation'] = {'abs': w_dev, 'maxmin': 0.5 * w_dev, 'division': None,
                                    'piecewise': 0.5 * (1.0 - m / math.hypot(m, eps))}[site.kind]
         record['deviation_of'] = 'sm_H' if site.kind == 'piecewise' else 'value'
 
@@ -472,6 +516,24 @@ class _Pass:
         record['max_deviation'] = 0.0
         return True
 
+    def _reaches_zero(self, site):
+        """Whether the denominator reaches 0 (is 0 at a sample) or crosses it in some reference run. A
+        denominator that only gets small (an inertance over a closing valve's area) is left alone."""
+        r = self.ranges.get(site.names['x'])
+        if not isinstance(r, dict):
+            return False
+        min_abs = float(r.get('any_min_abs', r.get('min_abs', 1.0)))
+        return bool(r.get('any_sign_change')) or float(r['min']) * float(r['max']) <= 0.0 or min_abs == 0.0
+
+    def _division(self, e):
+        num, den = _args(e)
+        site = self._new_site('division', den, infix(e))
+        if site is None or self.mode == 'probe':
+            return e
+        new = _apply('times', num, _ci(site.names['x']), _ci(site.names['q']))
+        site.record['replacement'] = infix(new)
+        return new
+
     def _abs(self, e, original):
         x = _args(e)[0]
         site = self._new_site('abs', x, original)
@@ -490,12 +552,17 @@ class _Pass:
         for b in args[1:]:
             a = result
             x = _apply('minus', copy.deepcopy(a), copy.deepcopy(b))
-            site = self._new_site('maxmin', x, original)
+            zero = any(_tag(v) == 'cn' and float(v.text) == 0.0 for v in (a, b))
+            site = self._new_site('maxmin', x, original, rule='rectifier' if zero else 'maxmin')
             if site is None or self.mode == 'probe':
                 result = _apply(op, a, b)
                 continue
             if site.record['collapsed']:
                 result = a if (site.record['sign'] > 0) == (op == 'max') else b
+            elif site.form == 'xH':
+                # max = b + (a - b) H, min = a - (a - b) H
+                xh = _apply('times', _ci(site.names['x']), _ci(site.names['H']))
+                result = _apply('plus', b, xh) if op == 'max' else _apply('minus', a, xh)
             else:
                 result = _apply('times', _cn(0.5), _apply(
                     'plus' if op == 'max' else 'minus', _apply('plus', a, b), _ci(site.names['w'])))
@@ -675,7 +742,14 @@ class _ModelGraph:
                 a, b = self.find((c1, mv.get('variable_1'))), self.find((c2, mv.get('variable_2')))
                 if a != b:
                     self.parent[a] = b
-        self.defs, self._uses = {}, {}
+        self.defs, self._uses, self.initialised = {}, {}, set()
+        for comp in root.findall(_C + 'component'):
+            for v in comp.findall(_C + 'variable'):
+                try:
+                    float(v.get('initial_value'))
+                    self.initialised.add(self.find((comp.get('name'), v.get('name'))))
+                except (TypeError, ValueError):
+                    pass
         for comp in root.findall(_C + 'component'):
             name = comp.get('name')
             for m in comp.findall(_M + 'math'):
@@ -691,6 +765,12 @@ class _ModelGraph:
                     self.defs[key] = ('state', name, target.text.strip()) if rate else \
                         self._algebraic(name, target.text.strip(), rhs)
                     self._collect_uses(name, rhs, False)
+
+    def is_constant(self, comp, var):
+        """Whether a variable is a constant: no equation defines it and it has a numeric initial value
+        (a variable this pass added, the time or an unset input is not)."""
+        key = self.find((comp, var))
+        return key not in self.defs and key in self.initialised
 
     def find(self, a):
         while self.parent.get(a, a) != a:
@@ -830,7 +910,7 @@ def probe(model):
     return _write(root)
 
 
-def smooth(model, ranges, rel=None, collapse=None, abs_eps=DEFAULT_ABS_EPS, only=None, exempt=None):
+def smooth(model, ranges, rel=None, collapse=None, abs_eps=DEFAULT_ABS_EPS, only=None, exempt=None, maxmin_form='w'):
     """The smoothed model and its report.
 
     Args:
@@ -838,7 +918,8 @@ def smooth(model, ranges, rel=None, collapse=None, abs_eps=DEFAULT_ABS_EPS, only
         ranges: ``{"sm<k>_x": {"min": .., "max": .., "min_abs": ..}}`` over the reference runs
             (``[min, max]`` also accepted). ``min_abs``, the smallest |x| seen, sets the largest
             deviation; without it the deviation is the worst case for the range.
-        rel: ``{"abs", "maxmin", "piecewise"}`` -> eps relative to each argument's range, or one
+        maxmin_form: ``"w"``, max/min as (a + b +- w)/2, or ``"xH"``, b + (a - b) H.
+        rel: ``{"abs", "maxmin", "piecewise", "division"}`` -> eps relative to each argument's range, or one
             float for all. Defaults to 1e-3. ``rel["variables"]``: ``{variable or "component/variable":
             rel}`` for the sites in the equation of that variable, over their kind's.
         collapse: replace a site that never switches in the reference runs by its active branch.
@@ -856,14 +937,16 @@ def smooth(model, ranges, rel=None, collapse=None, abs_eps=DEFAULT_ABS_EPS, only
         (CellML text, report dict)
     """
     root = _read(model)
-    p = _Pass(root, 'smooth', ranges, rel, collapse, abs_eps, only, exempt)
+    p = _Pass(root, 'smooth', ranges, rel, collapse, abs_eps, only, exempt, maxmin_form)
     p.run()
-    report = {'settings': {'rel': p.rel, 'collapse': collapse if collapse in (None, True, False)
+    report = {'settings': {'rel': p.rel, 'maxmin_form': maxmin_form, 'collapse': collapse if collapse in (None, True, False)
                            else sorted(collapse), 'abs_eps': abs_eps},
               'counts': _counts(p),
               'sites': [s.record for s in p.sites],
               'not_smoothed': p.not_smoothed, 'exempt': exempt or [],
-              'jump_candidates': p.jump_candidates}
+              'jump_candidates': p.jump_candidates,
+              'lifted_estimate': sum(s.record.get('lifted', 0) for s in p.sites
+                                     if s.record['status'] == 'smoothed' and not s.record.get('collapsed'))}
     return _write(root), report
 
 
@@ -871,7 +954,7 @@ def _counts(p):
     counts = {}
     for s in p.sites:
         key = s.kind if s.record['status'] == 'smoothed' else f'{s.kind}_{s.record["status"]}'
-        if s.record['status'] == 'left':
+        if s.record['status'] in ('left', 'not_needed'):
             continue
         if s.record['status'] == 'exempt':
             counts[f'{s.kind}_exempt'] = counts.get(f'{s.kind}_exempt', 0) + 1
@@ -954,9 +1037,14 @@ def reference_ranges(probed_path, runs, per_run=False, over='nominal'):
             merged[key_x] = dict(r)
     for helper, _ in helpers.values():
         helper.close_simulation()
+    for k, m in merged.items():
+        # over all runs, whatever ``over``: where x reaches or crosses 0 (a division's guard)
+        m['any_min_abs'] = min(r[k]['min_abs'] for r in each if k in r)
+        m['any_sign_change'] = any(r[k]['min'] < 0.0 < r[k]['max'] for r in each if k in r)
     if over == 'nominal':
         # a NaN or Inf in any run is still recorded
-        merged = {k: dict(r, nan=merged[k]['nan']) for k, r in each[0].items()}
+        merged = {k: dict(r, nan=merged[k]['nan'], any_min_abs=merged[k]['any_min_abs'],
+                          any_sign_change=merged[k]['any_sign_change']) for k, r in each[0].items()}
     elif over != 'union':
         raise ValueError(f"over: 'nominal' or 'union', not {over!r}")
     return (merged, each) if per_run else merged
@@ -1009,7 +1097,7 @@ def flag_nan_at_init(report, probed_path, smooth_path):
 
 
 def smooth_cellml_file(model_path, runs=None, output_dir=None, ranges=None, rel=None, collapse=None,
-                       abs_eps=DEFAULT_ABS_EPS, exempt=None, over='nominal'):
+                       abs_eps=DEFAULT_ABS_EPS, exempt=None, over='nominal', maxmin_form='w'):
     """Probe, run the reference runs (unless ``ranges`` is given), smooth, and write
     ``<name>_smooth.cellml`` and ``smoothing_report.json`` into ``output_dir``, with the ranges from
     the runs in ``smoothing_ranges.json`` (for ``--ranges``).
@@ -1031,7 +1119,8 @@ def smooth_cellml_file(model_path, runs=None, output_dir=None, ranges=None, rel=
         ranges = reference_ranges(probed_path, runs, over=over)
         with open(os.path.join(output_dir, 'smoothing_ranges.json'), 'w', encoding='utf-8') as f:
             json.dump(ranges, f, indent=2)
-    smoothed, report = smooth(original, ranges, rel=rel, collapse=collapse, abs_eps=abs_eps, exempt=exempt)
+    smoothed, report = smooth(original, ranges, rel=rel, collapse=collapse, abs_eps=abs_eps, exempt=exempt,
+                              maxmin_form=maxmin_form)
     before, after = libcellml_issues(original), libcellml_issues(smoothed)
     report['model'] = os.path.abspath(model_path)
     report['runs'] = runs
@@ -1062,6 +1151,8 @@ def main(argv=None):
     parser.add_argument('--exempt', help='JSON [{"variable": "[component/]glob", "reason": ...}]: sites left as written')
     parser.add_argument('--ranges-over', choices=('nominal', 'union'), default='nominal',
                         help='each range from the first run (nominal, default) or over all the runs')
+    parser.add_argument('--maxmin-form', choices=('w', 'xH'), default='w',
+                        help='max/min as (a + b +- w)/2 (w, default) or b + (a - b) H (xH)')
     parser.add_argument('--collapse', action='store_true',
                         help='replace sites that never switch in the runs by their active branch')
     args = parser.parse_args(argv)
@@ -1074,7 +1165,7 @@ def main(argv=None):
         args.model, runs=load(args.runs) if args.runs else None,
         ranges=load(args.ranges) if args.ranges else None, output_dir=args.output_dir,
         rel=args.rel, collapse=True if args.collapse else None, exempt=load(args.exempt) if args.exempt else None,
-        over=args.ranges_over)
+        over=args.ranges_over, maxmin_form=args.maxmin_form)
     print(smooth_path)
     print(report_path)
     return 0
