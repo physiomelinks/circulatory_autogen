@@ -11,9 +11,9 @@ from libcuflynx.calibration_workflow import (WorkflowError, run_calibration_work
                                              workflow_status)
 from libcuflynx.calibration_workflow.runner import module_library_digest, settings_digest
 from libcuflynx.external_testing.workflow_library import build_workflow_library
-from libcuflynx.reporting.provenance import (GRAPH_FILE, HAND_NODE, MEASURED_NODE, SOURCE_NODE,
-                                             SVG_FILE, TARGET_NODE, provenance_graph,
-                                             provenance_svg, write_provenance)
+from libcuflynx.reporting.provenance import (DERIVED_NODE, EARLIER_NODE, GRAPH_FILE, HAND_NODE,
+                                             MEASURED_NODE, SOURCE_NODE, SVG_FILE, TARGET_NODE,
+                                             provenance_graph, provenance_svg, write_provenance)
 from libcuflynx.schemas import PROVENANCE_GRAPH_SCHEMA
 from libcuflynx.schemas.validation import validate
 from libcuflynx.scripts import provenance_script
@@ -123,6 +123,49 @@ def test_a_run_writes_its_provenance_and_says_what_set_each_value(library, tmp_p
     assert '<script' not in svg and '<style' not in svg
     for text in ('SET BY HAND', 'CALIBRATED', 'unclassified', out, 'libCellML'):
         assert text in svg
+
+
+@pytest.mark.integration
+def test_derived_values_and_values_calibrated_before_the_run_have_their_own_marks(library,
+                                                                                tmp_path):
+    """A value whose parameters entry a derivation calculates (origin derived) is drawn in its
+    own box, marked derived, not as measured or unclassified; a value calibrated before the run
+    (origin calibrated in its parameters file) is calibrated, in a box of its own."""
+    path = _parameters_path(library)
+    doc = _read_json(path)
+    _leaves(doc)['k'].update(origin='derived', derivation='k_gain',
+                             data_reference='derived; derivation k_gain')
+    _write_json(path, doc)
+    out = str(tmp_path / 'run')
+    result = run_calibration_workflow(library['chain_rest'], output_dir=out)
+
+    graph = _read_json(os.path.join(out, GRAPH_FILE))
+    validate(PROVENANCE_GRAPH_SCHEMA, graph, source='graph', what='provenance graph')
+    nodes = _nodes(graph)
+    derived = nodes[DERIVED_NODE]
+    assert derived['mark'] == 'derived' and derived['title'] == 'Derived values'
+    assert [(v['name'], v['origin']) for v in derived['parameters']] == [('k_mod__C', 'derived')]
+    assert 'derived; derivation k_gain' in derived['lines'][0]
+    assert _edges(graph)[(DERIVED_NODE, TARGET_NODE)]['label'] == 'derived'
+    assert graph['counts']['derived'] == 1 and graph['counts']['unclassified'] == 0
+    assert {HAND_NODE, MEASURED_NODE, EARLIER_NODE}.isdisjoint(nodes)
+    svg = provenance_svg(graph)
+    assert 'DERIVED' in svg and '1 derived' in svg
+
+    # the target's values as a later run sees them, k calibrated by an earlier workflow
+    target = result['target_model']['parameters_path']
+    doc = _read_json(target)
+    _leaves(doc)['k'].update(origin='calibrated', data_reference='calibrated by workflow old')
+    _write_json(target, doc)
+    graph = provenance_graph(out)
+    validate(PROVENANCE_GRAPH_SCHEMA, graph, source='graph', what='provenance graph')
+    nodes = _nodes(graph)
+    assert DERIVED_NODE not in nodes
+    earlier = nodes[EARLIER_NODE]
+    assert earlier['mark'] == 'calibrated'
+    assert [(v['name'], v['from_step']) for v in earlier['parameters']] == [('k_mod__C', None)]
+    assert graph['counts']['calibrated'] == len(result['merged_parameters']) + 1
+    assert all(v['from_step'] for v in nodes[TARGET_NODE]['parameters'])
 
 
 @pytest.mark.integration

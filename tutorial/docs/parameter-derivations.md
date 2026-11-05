@@ -18,9 +18,9 @@ validated against.
 ```json
 "input_items": [
   {"data_item_name": "CVP_Smith2001", "value": 5.0, "std": 1.0, "unit": "mmHg",
-   "source": "Smith 2001, Table 2, supine adults", "data_reference": "Smith2001"},
+   "data_reference": "Smith2001", "comment": "Table 2, supine adults"},
   {"data_item_name": "CO_Rowell1986", "value": 1e-4, "std": 1e-5, "unit": "m3_per_s",
-   "source": "Rowell 1986", "comment": "6 L/min"}
+   "data_reference": "Rowell1986", "comment": "6 L/min"}
 ]
 ```
 
@@ -29,7 +29,8 @@ validated against.
 | `data_item_name` | Required. Unique across the file's data, prediction and input items. |
 | `value`, `unit` | Required. One number and its unit (a CellML unit name). |
 | `std` | Its standard deviation. |
-| `source`, `data_reference`, `comment`, `species`, `location` | Where it comes from; not read. An input item's `source` is kept as written (a data item's `source` is read as its `data_reference`, with a warning). |
+| `data_reference` | Where it comes from (a citation key, DOI or reference); carried into each derivation's inputs. An input item does not take `source`: one with it is refused, naming `data_reference` (a data item's `source` is still read as its `data_reference`, with a warning). |
+| `comment`, `species`, `location` | Free text; not read. |
 | `prob_dist_params` | The number as a distribution; not read yet. |
 
 A derivation may also read a `data_item` with a constant value, when the same number is a
@@ -121,12 +122,32 @@ units: it converts units itself. A template is in `funcs_user/derivation_funcs_e
 ## The parameters file
 
 A derived parameter keeps its value, as a cache every reader of the parameters file uses as it is,
-and names its derivation:
+names its derivation, and has origin `derived` (a leaf with `derivation` and another origin, or
+none, is refused):
 
 ```json
 "R_T0": {"value": 146654199.99999994, "units": "J_s_per_m6",
-         "data_reference": "derived; derivation R_T0", "derivation": "R_T0"}
+         "data_reference": "derived; derivation R_T0", "origin": "derived", "derivation": "R_T0"}
 ```
+
+The provenance diagram of a calibration workflow marks such a value `derived`.
+
+### When a derived parameter is calibrated
+
+A derived value is only a calibration's start value. When a calibration fits the parameter, the
+calibrated leaf has origin `calibrated` and no `derivation`: `write_calibrated_parameters` (a
+workflow's `<name>_calibrated_parameters.json`) and generation with fit parameters
+(`cuflynx-generate True`) both write it so. `cuflynx-derive` prints a calibrated parameter's
+derived value but neither checks nor writes it, so `--write` can never overwrite a calibrated
+value.
+
+The derived value is not lost:
+
+- the parameters file the calibration started from still has it, with its `derivation`: a
+  workflow writes only the calibrated file;
+- the derivations file still calculates it: `cuflynx-derive` prints it beside the calibrated value;
+- each workflow step's generated parameters file (`generated.parameters_path` in its result)
+  holds it as the value that step started from.
 
 ## `cuflynx-derive`
 
@@ -138,8 +159,9 @@ cuflynx-derive BVC_derivations.json --obs BVC_obs_data.json --write
 The first evaluates every derivation and prints each parameter's cached and derived value. It exits
 0 when every cached value matches within a relative tolerance of 1e-9 and 1 otherwise, so a test or
 CI job can run it. A parameter that names a derivation that does not set it is reported too.
-`--write` writes the derived values into the parameters file, and adds `derivation` to each output
-parameter; every other key and parameter is kept. It exits 1 when a parameter still names a
+`--write` writes the derived values into the parameters file, and adds `derivation` and origin
+`derived` to each output parameter; every other key and parameter is kept, and a calibrated
+parameter (origin `calibrated`) is left as it is. It exits 1 when a parameter still names a
 derivation that does not set it, which `--write` cannot fix: remove that `derivation` key. A file or
 derivation that cannot be read or evaluated is an error message and exit 2.
 

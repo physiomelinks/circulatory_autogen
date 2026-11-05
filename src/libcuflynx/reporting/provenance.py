@@ -2,12 +2,16 @@
 How a calibration workflow run's values were set: a graph of the run, and that graph as SVG.
 
 :func:`provenance_graph` reads a run's output directory alone, so it needs no module library.
-Its nodes are the model source, one node for each step, a node for the measured values and one
-for the values set by hand (when there are any), and the merged target the simulation runs. Each
-value the target uses is marked with what set it:
+Its nodes are the model source, one node for each step, a node each for the measured values, the
+derived values, the values set by hand and the values calibrated before the run (when there are
+any), and the merged target the simulation runs. Each value the target uses is marked with what
+set it:
 
-* **calibrated**: a step fitted it (the step's results and the run's merged parameters say so).
-* **measured**, **inherited**, **set_by_hand**: the ``origin`` of its entry in the parameters.
+* **calibrated**: a step fitted it (the step's results and the run's merged parameters say so),
+  or its entry in the parameters has origin ``calibrated`` (fitted before this run; its
+  data_reference says by what).
+* **measured**, **derived**, **inherited**, **set_by_hand**: the ``origin`` of its entry in the
+  parameters (``derived``: a parameter derivation calculated it from data).
 * **unclassified**: nothing says. A value is never counted as inherited by default.
 
 :func:`write_provenance` writes ``provenance_graph.json``, checked against
@@ -22,6 +26,8 @@ from xml.sax.saxutils import escape, quoteattr
 
 from libcuflynx.reporting import flowchart
 from libcuflynx.utilities import parameters_file
+from libcuflynx.utilities.parameters_file import (CALIBRATED, DERIVED, INHERITED, MEASURED,
+                                                  SET_BY_HAND)
 
 SCHEMA_VERSION = 1
 GRAPH_FILE = 'provenance_graph.json'
@@ -29,23 +35,25 @@ SVG_FILE = 'provenance.svg'
 SOURCE_NODE = '__source__'
 MEASURED_NODE = '__measured__'
 HAND_NODE = '__set_by_hand__'
+DERIVED_NODE = '__derived__'
+EARLIER_NODE = '__calibrated_earlier__'
 TARGET_NODE = '__target__'
-CALIBRATED = 'calibrated'
-MEASURED, INHERITED, SET_BY_HAND = parameters_file.ORIGINS
 UNCLASSIFIED = 'unclassified'
 MIXED = 'mixed'
-MARKS = (CALIBRATED, MEASURED, INHERITED, SET_BY_HAND, UNCLASSIFIED)
+MARKS = (CALIBRATED, MEASURED, DERIVED, INHERITED, SET_BY_HAND, UNCLASSIFIED)
 CURRENT, STALE, MISSING = 'current', 'stale', 'missing'
 #: how many values the drawn box of hand-set or measured values lists; the graph has them all
 DRAWN_VALUES = 6
 
 _SOURCE_KEYS = ('fixed_from', 'priors_from', 'emulator_from', 'result_from', 'sensitivity_from',
                 'params_for_id_from')
-_MARK_LABELS = {CALIBRATED: 'calibrated', MEASURED: 'measured', INHERITED: 'inherited',
-                SET_BY_HAND: 'set by hand', UNCLASSIFIED: 'unclassified', MIXED: 'mixed'}
+_MARK_LABELS = {CALIBRATED: 'calibrated', MEASURED: 'measured', DERIVED: 'derived',
+                INHERITED: 'inherited', SET_BY_HAND: 'set by hand', UNCLASSIFIED: 'unclassified',
+                MIXED: 'mixed'}
 # mid-tones that read on a light and on a dark page
-_MARK_COLOURS = {CALIBRATED: '#3b7dd8', MEASURED: '#2e9e6b', INHERITED: '#8a8f98',
-                 SET_BY_HAND: '#d98a1f', UNCLASSIFIED: '#b45cc4', MIXED: '#8a8f98'}
+_MARK_COLOURS = {CALIBRATED: '#3b7dd8', MEASURED: '#2e9e6b', DERIVED: '#1a9aa8',
+                 INHERITED: '#8a8f98', SET_BY_HAND: '#d98a1f', UNCLASSIFIED: '#b45cc4',
+                 MIXED: '#8a8f98'}
 _STALE_COLOUR = '#d9483b'
 _EDGE_DASHES = {'prior': '7 4', 'merge': '2 4', 'given': '7 4'}
 
@@ -318,7 +326,8 @@ def provenance_graph(output_dir):
         if step_id == TARGET_NODE:
             node.update(mark=None, status='done' if (result or {}).get('target_model')
                         else 'not_run', stale=any(stale.values()), counts=target_counts,
-                        parameters=[v for v in values if v['origin'] == CALIBRATED], inputs=[])
+                        parameters=[v for v in values if v['origin'] == CALIBRATED
+                                    and v['from_step'] is not None], inputs=[])
             continue
         step_result = run['steps'].get(step_id)
         done = _done(step_result)
@@ -352,8 +361,12 @@ def provenance_graph(output_dir):
     edges = [{'from': SOURCE_NODE, 'to': s['id'], 'label': 'generates', 'style': 'order'}
              for s in steps if not s['depends_on']] + edges
     for node_id, title, origin in ((MEASURED_NODE, 'Measured values', MEASURED),
-                                   (HAND_NODE, 'Values set by hand', SET_BY_HAND)):
-        given = [v for v in values if v['origin'] == origin]
+                                   (DERIVED_NODE, 'Derived values', DERIVED),
+                                   (HAND_NODE, 'Values set by hand', SET_BY_HAND),
+                                   (EARLIER_NODE, 'Values calibrated before this run',
+                                    CALIBRATED)):
+        given = [v for v in values if v['origin'] == origin
+                 and (origin != CALIBRATED or v['from_step'] is None)]
         if given:
             extra.append(_values_node(node_id, title, origin, given))
             edges.append({'from': node_id, 'to': TARGET_NODE, 'label': _MARK_LABELS[origin],

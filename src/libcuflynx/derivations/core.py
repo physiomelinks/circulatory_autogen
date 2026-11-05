@@ -188,7 +188,7 @@ def load_obs_items(obs_data):
 
 
 def resolve_inputs(derivation, doc, obs_items, derived=None):
-    '''``{symbol: {'kind', 'reference', 'value', 'units', 'std', 'source', 'data_reference'}}``
+    '''``{symbol: {'kind', 'reference', 'value', 'units', 'std', 'data_reference'}}``
     of ``derivation``'s inputs. A parameter's value is ``derived[path]`` when an earlier
     derivation set it, otherwise its value in ``doc``.'''
     derived = derived or {}
@@ -200,7 +200,7 @@ def resolve_inputs(derivation, doc, obs_items, derived=None):
             path = parameter_path(doc, ref)
             value = derived[path] if path in derived else _number(leaf.get('value'), what)
             units = str(leaf.get('units') or '').strip()
-            record = {'value': value, 'units': units, 'std': None, 'source': None,
+            record = {'value': value, 'units': units, 'std': None,
                       'data_reference': leaf.get('data_reference') or None}
         else:
             item = obs_items[kind].get(ref)
@@ -214,7 +214,7 @@ def resolve_inputs(derivation, doc, obs_items, derived=None):
             std = item.get('std')
             record = {'value': value, 'units': units,
                       'std': None if std is None else float(std),
-                      'source': item.get('source'), 'data_reference': item.get('data_reference')}
+                      'data_reference': item.get('data_reference')}
         if not units:
             raise DerivationError(f'{what} has no units.')
         resolved[symbol] = dict(record, kind=kind, reference=ref)
@@ -288,17 +288,33 @@ def evaluate_derivations(derivations, doc, obs_data=None):
     return results
 
 
+def is_calibrated(leaf):
+    '''Whether a parameter leaf holds a calibrated value (origin ``calibrated``), which a
+    derivation's result never overwrites: the derived value was only its start value.'''
+    return (leaf or {}).get('origin') == pf.CALIBRATED
+
+
+def calibrated_outputs(results, doc):
+    '''The outputs of ``results`` whose parameter in ``doc`` is calibrated, as
+    ``[(derivation name, output)]``: ``cuflynx-derive`` neither checks nor writes them.'''
+    return [(result.derivation.name, out) for result in results
+            for out in result.outputs.values()
+            if is_calibrated(pf.get_leaf(doc, list(out['path'])))]
+
+
 def check_derivations(results, doc, rtol=CACHE_RTOL):
     '''The problems with the cached values in ``doc`` of the parameters ``results`` set, as
     messages (none when the file is up to date): a cached value that is not the derived one
     within ``rtol``, a parameter naming another derivation, and a parameter naming a derivation
-    no result has.'''
+    no result has. A calibrated parameter (``is_calibrated``) is not a cache and is skipped.'''
     problems, by_path = [], {}
     for result in results:
         name = result.derivation.name
         for symbol, out in result.outputs.items():
             by_path[out['path']] = name
             leaf = pf.get_leaf(doc, list(out['path']))
+            if is_calibrated(leaf):
+                continue
             try:
                 cached = float(out['cached'])
             except (TypeError, ValueError):
@@ -319,13 +335,16 @@ def check_derivations(results, doc, rtol=CACHE_RTOL):
 
 def write_derived_values(parameters_path, results):
     '''Write each derived value into the parameters file ``parameters_path`` as its cached value,
-    with ``derivation`` naming the derivation; every other key and parameter is kept. Returns
-    the number of values that changed.'''
+    with ``derivation`` naming the derivation and origin ``derived``; every other key and
+    parameter is kept. A calibrated parameter (``is_calibrated``) is left as it is. Returns the
+    number of values that changed.'''
     doc = read_parameters(parameters_path)
     changed = 0
     for result in results:
         for out in result.outputs.values():
             leaf = dict(pf.get_leaf(doc, list(out['path'])))
+            if is_calibrated(leaf):
+                continue
             try:
                 same = float(leaf.get('value')) == out['value']
             except (TypeError, ValueError):
@@ -333,7 +352,8 @@ def write_derived_values(parameters_path, results):
             if not same:
                 leaf['value'] = out['value']
                 changed += 1
-            leaf['derivation'] = result.derivation.name
+            leaf[pf.DERIVATION] = result.derivation.name
+            leaf['origin'] = pf.DERIVED
             pf.set_leaf(doc, list(out['path']), leaf)
     pf.write_parameters_file(parameters_path, doc)
     return changed

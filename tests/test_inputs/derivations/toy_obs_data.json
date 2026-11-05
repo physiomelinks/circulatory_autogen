@@ -21,7 +21,6 @@
       "value": 5.0,
       "std": 1.0,
       "unit": "mmHg",
-      "source": "toy value",
       "data_reference": "Toy2026"
     },
     {
@@ -29,7 +28,7 @@
       "value": 1e-4,
       "std": 1e-5,
       "unit": "m3_per_s",
-      "source": "toy value",
+      "data_reference": "Toy2026",
       "comment": "6 L/min"
     }
   ]

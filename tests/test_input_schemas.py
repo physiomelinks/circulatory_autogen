@@ -182,7 +182,8 @@ def test_obs_data_keys_match_the_parser():
         _parse_obs_data_rules('item_defaults')
     assert set(defs['predictionItem']['properties']) - {'source'} == \
         _parse_obs_data_rules('prediction_entry_defaults')
-    assert set(defs['inputItem']['properties']) == set(INPUT_ITEM_KEYS)
+    # an input item's source is refused, naming data_reference (parse_input_items)
+    assert set(defs['inputItem']['properties']) - {'source'} == set(INPUT_ITEM_KEYS)
     # the required keys have no default
     assert set(defs['protocolInfo']['properties']) == \
         _parse_obs_data_rules('protocol_defaults') | set(defs['protocolInfo']['required'])

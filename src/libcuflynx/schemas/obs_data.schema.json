@@ -986,18 +986,15 @@
           "description": "The number as a distribution, for a later Monte Carlo through the derivation. Not read yet. Default: none."
         },
         "source": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "description": "Where the number comes from, as free text. Not read otherwise."
+          "not": {},
+          "description": "Not accepted in an input item: name where the number comes from in data_reference (a data item's source is still read as its data_reference, with a warning)."
         },
         "data_reference": {
           "type": [
             "string",
             "null"
           ],
-          "description": "The reference it comes from (a citation key). Not read otherwise."
+          "description": "Where the number comes from: a citation key, DOI or reference, as in the data_reference of a parameters file. Carried into each derivation's inputs. Default: none."
         },
         "comment": {
           "type": [

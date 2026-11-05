@@ -4,7 +4,8 @@ with the value cached in the parameters file; ``--write`` updates the cached val
 
 Exits 0 when every cached value matches its derivation (or after ``--write``), 1 when one does
 not (or, after ``--write``, when a parameter names a derivation that does not set it), and 2 with
-the message when a file or derivation cannot be read or evaluated.
+the message when a file or derivation cannot be read or evaluated. A calibrated parameter (origin
+``calibrated``) is printed with its derived value but neither checked nor written.
 '''
 
 import argparse
@@ -37,17 +38,21 @@ def build_parser():
 
 
 def run(args):
-    from libcuflynx.derivations import (CACHE_RTOL, check_derivations, evaluate_derivations,
-                                        load_derivations, parameters_file_for, read_parameters,
+    from libcuflynx.derivations import (CACHE_RTOL, calibrated_outputs, check_derivations,
+                                        evaluate_derivations, load_derivations,
+                                        parameters_file_for, read_parameters,
                                         write_derived_values)
     parameters = args.parameters or parameters_file_for(args.derivations)
     doc = read_parameters(parameters)
     results = evaluate_derivations(load_derivations(args.derivations), doc, args.obs)
+    calibrated = {id(out) for _, out in calibrated_outputs(results, doc)}
     for result in results:
         print(f'{result.derivation.name} ({result.derivation.method})')
         for symbol, out in result.outputs.items():
-            print(f"  {out['parameter']}: cached {out['cached']}, derived {out['value']!r} "
-                  f"{out['units'] or ''}".rstrip())
+            held = 'calibrated' if id(out) in calibrated else 'cached'
+            note = ' (calibrated: neither checked nor written)' if id(out) in calibrated else ''
+            print(f"  {out['parameter']}: {held} {out['cached']}, derived {out['value']!r} "
+                  f"{out['units'] or ''}".rstrip() + note)
     if args.write:
         changed = write_derived_values(parameters, results)
         print(f'wrote {parameters}: {changed} value(s) changed')
@@ -71,7 +76,9 @@ def run(args):
               f'rtol {CACHE_RTOL}; rerun with --write to update {parameters} (a parameter '
               f'naming a derivation that does not set it needs its derivation key removed).')
         return 1
-    print(f'every cached value in {parameters} matches its derivation.')
+    skipped = (f' ({len(calibrated)} calibrated value{"s" if len(calibrated) > 1 else ""} '
+               f'not checked)' if calibrated else '')
+    print(f'every cached value in {parameters} matches its derivation{skipped}.')
     return 0
 
 
