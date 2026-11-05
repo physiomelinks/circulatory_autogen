@@ -595,11 +595,38 @@ def _external_home(externals):
         os.path.join('external_modules', str(i)) for i in range(len(externals))]
 
 
+def _derivation_sources(parameters):
+    """``{path relative to the parameters file's directory: file}``: the
+    ``<name>_derivations.json`` beside ``parameters`` and the files its derivations read (CellML
+    with its imports, Python), as ``pack_workflow`` packs them; empty when there is none. A file
+    outside that directory, or a derivations file that does not load, is warned about."""
+    from libcuflynx.derivations import derivation_files, derivations_file_for
+    source = derivations_file_for(parameters)
+    if not os.path.isfile(source):
+        return {}
+    here, found = os.path.dirname(source), {os.path.basename(source): source}
+    try:
+        files = derivation_files(source)
+    except (ValueError, OSError) as e:
+        print(f'[cuflynx_study] WARNING: {source} does not load ({e}), so only it is copied, '
+              f'not the files its derivations read')
+        return found
+    for path in files:
+        relative = os.path.relpath(path, here)
+        if relative.startswith(os.pardir):
+            print(f'[cuflynx_study] WARNING: {source} reads {path}, outside its directory, so '
+                  f'it is not copied into the working dir')
+        elif os.path.isfile(path):
+            found[relative] = path
+    return found
+
+
 def _system_sources(paths, system):
     """``system`` (the study-level block, absolute paths) with what is outside the working dir
     copied into ``inputs/system/`` as one directory, laid out as generation reads it: the
-    module array and parameters file side by side, ``modules/`` (the library versions used,
-    as ``module_version_files`` lays them out) and ``external_modules/``."""
+    module array and parameters file side by side (with the parameters file's derivations,
+    :func:`_derivation_sources`), ``modules/`` (the library versions used, as
+    ``module_version_files`` lays them out) and ``external_modules/``."""
     libraries = [os.path.abspath(d) for d in system.get('module_library_dirs') or []]
     external = system.get('external_modules_dir')
     externals = [os.path.abspath(d) for d in
@@ -608,8 +635,10 @@ def _system_sources(paths, system):
     outside = [p for p in files + tuple(libraries + externals) if not _inside(p, paths.root)]
     if not outside:
         return system
+    derivations = _derivation_sources(system['parameters'])
     key = ('system', paths.root) + tuple(
-        (p, os.stat(p).st_mtime_ns, os.stat(p).st_size) for p in files) + (
+        (p, os.stat(p).st_mtime_ns, os.stat(p).st_size)
+        for p in files + tuple(derivations.values())) + (
         tuple(libraries), tuple(externals), system.get('use_builtin_modules'))
     if key in _BROUGHT and os.path.isdir(_BROUGHT[key][0]):
         target, sources = _BROUGHT[key]
@@ -619,6 +648,7 @@ def _system_sources(paths, system):
             for name in SYSTEM_KEYS:
                 sources[os.path.basename(system[name])] = system[name]
                 copied[name] = os.path.basename(system[name])
+            sources.update(derivations)
         if any(not _inside(d, paths.root) for d in libraries):
             homes, module_files = _module_files(dict(system, module_library_dirs=libraries))
             sources.update(module_files)

@@ -175,6 +175,31 @@ def test_a_value_set_by_hand_must_give_its_reason(tmp_path):
         parameters_file.read_parameters_file(str(path))
 
 
+@pytest.mark.unit
+def test_a_value_identified_by_parameter_id_is_marked_calibrated():
+    """Generation with fit parameters (cuflynx-generate True) writes an identified value with
+    origin calibrated, so a derived or hand-set origin never stays on a fitted value."""
+    from types import SimpleNamespace
+    from libcuflynx.generators.CVSCellMLGenerator import CVS0DCellMLGenerator
+    fields = ('variable_name', 'units', 'const_type', 'value', 'data_reference', 'origin',
+              'reason')
+    rows = [('R_T0_Systemic_T', 'J_s_per_m6', 'constant', '1.5e8', 'derived', 'derived', ''),
+            ('T', 'second', 'global_constant', '1.0', 't', 'set_by_hand', 'a one second cycle'),
+            ('C_T', 'm3_per_Pa', 'constant', '1e-8', 'c', 'measured', '')]
+    array = np.array(rows, dtype=[(f, 'U80') for f in fields])
+    generator = object.__new__(CVS0DCellMLGenerator)
+    generator.model = SimpleNamespace(parameters_array=array, param_id_date='261106',
+                                      param_id_name_and_vals=[('R_T0_Systemic_T', 2e8),
+                                                              ('T', 0.9)])
+    generator._CVS0DCellMLGenerator__modify_parameters_array_from_param_id()
+    by_name = {r['variable_name']: r for r in array}
+    for name, value in (('R_T0_Systemic_T', 2e8), ('T', 0.9)):
+        row = by_name[name]
+        assert (float(row['value']), row['origin'], row['reason']) == (value, 'calibrated', '')
+        assert row['data_reference'] == '261106_identified'
+    assert (by_name['C_T']['origin'], by_name['C_T']['value']) == ('measured', '1e-8')
+
+
 @pytest.mark.integration
 @pytest.mark.parametrize('model', ['supermodule', 'host_only'])
 def test_generating_from_the_generated_parameters_file_alone_gives_the_same_model(tmp_path, model,
@@ -227,8 +252,12 @@ def _assert_complete_result(path):
     # the value the target's file does not set, with its source
     assert rows['C/k']['value'] == '1.0'
     assert rows['C/k']['data_reference'] == f'from lin_c/v1 parameterisation default: {K_SOURCE}'
-    assert all(set(r) == {'variable_name', 'value', 'units', 'data_reference'}
-               for r in rows.values())
+    # a calibrated value says so in its origin; the value the target's file does not set has none
+    assert {n: set(r) for n, r in rows.items()} == {
+        'A/p': {'variable_name', 'value', 'units', 'data_reference', 'origin'},
+        'C/q': {'variable_name', 'value', 'units', 'data_reference', 'origin'},
+        'C/k': {'variable_name', 'value', 'units', 'data_reference'}}
+    assert rows['A/p']['origin'] == rows['C/q']['origin'] == 'calibrated'
     return rows
 
 
@@ -286,7 +315,8 @@ def test_a_result_written_later_holds_the_values_the_run_generated_file(chain, t
 @pytest.mark.integration
 def test_a_library_module_s_calibrated_result_has_only_a_library_s_keys(tmp_path):
     """A library target's result, in its parameterisation directory, holds every value its model
-    uses with no key a module library refuses (value, units, data_reference and sourced only):
+    uses with only a parameterisation's keys (value, units, data_reference, sourced, and origin
+    calibrated on a calibrated value):
     C/k, which neither the chain's default nor "rest" sets, names lin_c's default in its
     data_reference."""
     library = build_workflow_library(str(tmp_path / 'library'))
@@ -301,8 +331,9 @@ def test_a_library_module_s_calibrated_result_has_only_a_library_s_keys(tmp_path
     assert os.path.dirname(path) == os.path.join(chain_dir, 'rest')
     rows = {r['variable_name']: r for r in read_parameters(path, parameters_file.MODULE)}
     assert sorted(rows) == ['A/p', 'C/k', 'C/q']
-    assert all(set(r) - {'variable_name'} <= {'value', 'units', 'data_reference', 'sourced'}
-               for r in rows.values())
+    assert all(set(r) - {'variable_name'} <= {'value', 'units', 'data_reference', 'sourced',
+                                              'origin'} for r in rows.values())
+    assert rows['C/q']['origin'] == 'calibrated' and 'origin' not in rows['C/k']
     assert rows['C/k']['data_reference'] == f'from lin_c/v1 parameterisation default: {K_SOURCE}'
     assert rows['C/q']['data_reference'].startswith('calibrated by workflow chain_rest, step rest')
 

@@ -23,8 +23,9 @@ The rules (``schemas/parameters.schema.json``):
 * A *leaf* is one parameter: an object with ``value`` (a number, or a string such as
   ``EMPTY_MUST_BE_FILLED``), ``units`` and ``data_reference``, and optionally ``origin`` (what
   set the value: ``ORIGINS``) and ``reason`` (required for ``set_by_hand``), which generation
-  carries into the file it writes; any other key (a library's ``sourced``) is a string, kept and
-  not read. Every other object is a *node*: an instance or sub-instance, whose keys are its
+  carries into the file it writes, and ``derivation`` (the derivation that calculates the
+  value; its origin is then ``derived``); any other key (a library's ``sourced``) is a string,
+  kept and not read. Every other object is a *node*: an instance or sub-instance, whose keys are its
   sub-instances and variables.
 * ``global`` at the top holds the global constants, as leaves. ``schema_version`` is 1.
 * So a node never has a key ``value``, and nothing below the top is named ``global`` or
@@ -51,8 +52,16 @@ SCHEMA_VERSION_KEY = 'schema_version'
 RESERVED_NAMES = (GLOBAL, VALUE, SCHEMA_VERSION_KEY)
 #: a leaf's keys, in the order they are written; any other key follows them
 LEAF_KEYS = ('value', 'units', 'data_reference')
-#: what can set a value in a parameters file; calibrated comes from a workflow's step results
-ORIGINS = ('measured', 'inherited', 'set_by_hand')
+#: what can set a value in a parameters file. ``derived``: a derivation calculates it (a leaf
+#: with ``derivation`` has this origin, and ``cuflynx-derive --write`` sets it); ``calibrated``:
+#: a calibration fitted it (written by ``write_calibrated_parameters`` and by generation from
+#: identified parameters, which drop ``derivation``). Within a workflow run, the values its own
+#: steps fitted are known as calibrated from their results.
+MEASURED, INHERITED, SET_BY_HAND, DERIVED, CALIBRATED = (
+    'measured', 'inherited', 'set_by_hand', 'derived', 'calibrated')
+ORIGINS = (MEASURED, INHERITED, SET_BY_HAND, DERIVED, CALIBRATED)
+#: the leaf key naming the derivation that calculates a value
+DERIVATION = 'derivation'
 #: the optional leaf keys generation carries into the file it writes
 PROVENANCE_KEYS = ('origin', 'reason')
 #: how a data_reference starts when it names the parameterisation its value came from
@@ -92,6 +101,14 @@ def sourced_reference(source, reference):
 def is_leaf(node):
     '''Whether ``node`` is one parameter (an object with ``value``).'''
     return isinstance(node, dict) and VALUE in node
+
+
+def calibrated_leaf(leaf, value, data_reference):
+    '''``leaf`` (a dict, not changed) with a calibrated ``value``: origin ``calibrated``, and
+    without ``derivation`` (so ``cuflynx-derive --write`` never overwrites it) or ``reason``.'''
+    leaf = {k: v for k, v in leaf.items() if k not in (DERIVATION, 'reason')}
+    leaf.update(value=value, data_reference=data_reference, origin=CALIBRATED)
+    return leaf
 
 
 def refuse_csv(path, where=''):

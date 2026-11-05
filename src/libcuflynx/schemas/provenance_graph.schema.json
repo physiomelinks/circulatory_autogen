@@ -143,6 +143,7 @@
       "enum": [
         "calibrated",
         "measured",
+        "derived",
         "inherited",
         "set_by_hand",
         "unclassified"
@@ -216,7 +217,7 @@
             "string",
             "null"
           ],
-          "description": "The step that calibrated it."
+          "description": "The step of this run that calibrated it; null for every other value, including one calibrated before the run (origin calibrated in its parameters file)."
         },
         "data_reference": {
           "type": "string"
@@ -297,6 +298,7 @@
           "enum": [
             "calibrated",
             "measured",
+            "derived",
             "inherited",
             "set_by_hand",
             "unclassified",

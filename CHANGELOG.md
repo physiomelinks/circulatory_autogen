@@ -5,6 +5,59 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Added — parameter derivations and obs_data `input_items`
+
+Decided by Finbar Argus on 2026-10-31.
+
+- obs_data has a third list, `input_items`: numbers (`data_item_name`, `value`, `unit`, with an
+  optional `std`, `data_reference`, `comment`, `species`, `location` and `prob_dist_params`)
+  that parameter derivations read. They are never scored, plotted or
+  validated; `parse_obs_data_json` returns them under `"input_items"`, and their names share the
+  uniqueness rule of data and prediction items. `ObsDataCreator.add_input_item` adds one.
+- A `<name>_derivations.json` beside a parameters file (`schemas/derivations.schema.json`) says
+  how parameters are calculated: inputs from parameters, `input_items` or constant `data_items`,
+  outputs naming parameters, and a CellML derivation model (evaluated once through libCellML's
+  generated Python, units checked and converted) or a Python function (`file.py:function`, called
+  `f(inputs, units)`). Derivations chain in the order their inputs need; a loop or a parameter set
+  twice is an error. `libcuflynx.derivations` has the API.
+- A parameter leaf may name its derivation (`"derivation": "R_T0"`); its `value` is the cached
+  result. `cuflynx-derive <derivations.json> --obs <obs_data.json>` checks every cached value
+  (rtol 1e-9; exit 1 when one is stale) and `--write` updates them.
+- A CellML derivation model must take every constant it has as an input: one the derivation leaves
+  out is an error naming it, not its placeholder initial value. Imported CellML files are among
+  the files a derivation reads. An output that is not finite, or an equation that cannot be
+  evaluated (a zero flow), is an error naming the derivation.
+- `cuflynx-derive --write` exits 1 when a parameter names a derivation that does not set it, and
+  an unreadable file or failing derivation is a message with exit 2, not a traceback.
+- `load_obs_items` reads a data item's `source` as its `data_reference`, as
+  `parse_obs_data_json` does (#618).
+
+Decided by Finbar Argus on 2026-11-06:
+
+- An input item takes `data_reference` only. One with `source` is refused (by the obs_data
+  schema, `parse_input_items` and `ObsDataCreator.add_input_item`), with a message saying to use
+  `data_reference`. Data and prediction items still read `source` as `data_reference`, with a
+  warning (#618).
+- A parameter's `origin` may be `derived` or `calibrated`, beside `measured`, `inherited` and
+  `set_by_hand`. A leaf with `derivation` must have origin `derived` (a schema rule naming the
+  fix), and `cuflynx-derive --write` sets it on each leaf it writes.
+- A calibrated value drops its `derivation`: `write_calibrated_parameters` (and
+  `write_calibrated_parameters_to`) and generation with fit parameters (`cuflynx-generate True`)
+  give a calibrated leaf origin `calibrated` and remove its `derivation` and `reason`.
+  `cuflynx-derive` prints a calibrated parameter's derived value but never checks or writes it.
+  The derived value is not lost: the target's own parameters file keeps it (only the calibrated
+  file is written), the derivations file still calculates it, and the step's generated
+  parameters file (`generated.parameters_path` in its result) holds it as the value the step
+  started from.
+- The provenance diagram marks derived values `derived`, in a "Derived values" box, and a value
+  calibrated before the run (origin `calibrated` in its parameters file) as calibrated, in a
+  "Values calibrated before this run" box. `provenance_graph.schema.json` has `derived` in its
+  origins and marks.
+- `pack_workflow` copies the derivations file beside each parameters file it packs, with its CellML
+  (and the CellML it imports) and Python files. So does a study's working dir, into
+  `inputs/system/` beside the parameters file (#619). Docs:
+  `tutorial/docs/parameter-derivations.md`.
+
 ### Added — profile likelihood for identifiability analysis (#519)
 
 - `ia_options: {method: profile_likelihood, num_points, range_factor, optimiser_options}` holds
