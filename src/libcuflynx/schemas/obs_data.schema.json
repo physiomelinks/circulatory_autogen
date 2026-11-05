@@ -233,7 +233,7 @@
     },
     "dataItem": {
       "type": "object",
-      "description": "One observation the model is scored against. Unknown keys are refused. Checked by ObsAndParamDataParser.parse_obs_data_json (libcuflynx/parsers/PrimitiveParsers.py); it also checks what JSON Schema cannot: names unique across data_items and prediction_items, operation_kwargs references, a series std as long as its value, experiment indices in range.",
+      "description": "One observation the model is scored against. Unknown keys are refused. A datum's origin goes in data_reference. Checked by ObsAndParamDataParser.parse_obs_data_json (libcuflynx/parsers/PrimitiveParsers.py); it also checks what JSON Schema cannot: names unique across data_items and prediction_items, operation_kwargs references, a series std as long as its value, experiment indices in range.",
       "additionalProperties": false,
       "properties": {
         "data_item_name": {
@@ -491,7 +491,14 @@
             "string",
             "null"
           ],
-          "description": "Where the data come from, as free text. Not read otherwise."
+          "description": "Replaced by data_reference: read as this item's data_reference (an item with both keeps its data_reference), with a warning per obs_data file giving the number of items. Default: none."
+        },
+        "data_reference": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Where this datum comes from: a citation key, DOI or reference, as in the data_reference column of a parameters file. Optional and never required by libcuflynx; it is carried into the results (error_vec_data_references.npy beside error_vec_names.npy) and shown on the plots that draw the item and in the methods text. Each item names its own source; there is no file-level default. Default: none."
         },
         "comment": {
           "type": [
@@ -621,11 +628,6 @@
                     "required": [
                       "im_path"
                     ]
-                  },
-                  {
-                    "required": [
-                      "source"
-                    ]
                   }
                 ]
               }
@@ -700,7 +702,7 @@
     },
     "predictionItem": {
       "type": "object",
-      "description": "A model output to record and plot, not scored in the calibration. It takes a data_item's vocabulary; with value (plus data_type, std, and obs_dt for a series) it is held-out data, checked after calibration (libcuflynx.param_id.validation, validation_results.json). Unknown keys are refused.",
+      "description": "A model output to record and plot, not scored in the calibration. A datum's origin goes in data_reference. It takes a data_item's vocabulary; with value (plus data_type, std, and obs_dt for a series) it is held-out data, checked after calibration (libcuflynx.param_id.validation, validation_results.json). Unknown keys are refused.",
       "additionalProperties": false,
       "properties": {
         "data_item_name": {
@@ -825,6 +827,20 @@
             "null"
           ],
           "description": "The spacing of a held-out series' samples, in seconds; required for a series with a value. Default: none."
+        },
+        "data_reference": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Where this datum comes from: a citation key, DOI or reference, as in the data_reference column of a parameters file. Optional and never required by libcuflynx; it is carried into the results (validation_results.json) and shown on the plots that draw the item and in the methods text. Each item names its own source; there is no file-level default. Default: none."
+        },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Replaced by data_reference: read as this item's data_reference (an item with both keeps its data_reference), with a warning per obs_data file giving the number of items. Default: none."
         }
       },
       "allOf": [

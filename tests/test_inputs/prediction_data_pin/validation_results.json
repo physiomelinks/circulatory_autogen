@@ -2,6 +2,7 @@
  "items": [
   {
    "data_item_name": "x_sub0",
+   "data_reference": null,
    "operand": "benchmark/x",
    "operation": null,
    "unit": "dimensionless",
@@ -42,6 +43,7 @@
   },
   {
    "data_item_name": "x_sub1",
+   "data_reference": null,
    "operand": "benchmark/x",
    "operation": null,
    "unit": "dimensionless",
@@ -82,6 +84,7 @@
   },
   {
    "data_item_name": "x_max_sub0",
+   "data_reference": null,
    "operand": "benchmark/x",
    "operation": "max",
    "unit": "dimensionless",
@@ -106,6 +109,7 @@
   },
   {
    "data_item_name": "x_max_sub1",
+   "data_reference": null,
    "operand": "benchmark/x",
    "operation": "max",
    "unit": "dimensionless",

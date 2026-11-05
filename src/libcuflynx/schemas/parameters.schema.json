@@ -83,10 +83,37 @@
           "type": "string",
           "description": "Where the value comes from. Default: empty."
         },
+        "origin": {
+          "enum": [
+            "measured",
+            "inherited",
+            "set_by_hand"
+          ],
+          "description": "What set the value: measured (cite the source in data_reference), inherited (carried from the original model, constrained by nothing) or set_by_hand (chosen by us; give the reason). A provenance diagram shows a value without an origin as unclassified."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Why the value was chosen. Required when origin is set_by_hand."
+        },
         "derivation": {
           "type": "string",
           "description": "The name of the derivation in the <name>_derivations.json beside this file that calculates the value; value is then its cached result, which cuflynx-derive checks and --write refreshes. Default: none."
         }
+      },
+      "if": {
+        "properties": {
+          "origin": {
+            "const": "set_by_hand"
+          }
+        },
+        "required": [
+          "origin"
+        ]
+      },
+      "then": {
+        "required": [
+          "reason"
+        ]
       },
       "additionalProperties": {
         "type": "string"

@@ -36,6 +36,7 @@ EXPECTED_ENTRY_POINTS = {
     "cuflynx-calibration-workflow",
     "cuflynx-variable-mapping",
     "cuflynx-methods-latex",
+    "cuflynx-provenance",
     "cuflynx-sensitivity",
     "cuflynx-identifiability",
     "cuflynx-train-emulator",
@@ -360,6 +361,8 @@ NON_STAGE_COMMANDS = {
     "cuflynx-calibration-workflow",
     "cuflynx-variable-mapping",
     "cuflynx-methods-latex",
+    # reads a finished workflow's output directory
+    "cuflynx-provenance",
     "cuflynx-upgrade",
     "cuflynx-run-predictions",
     # runs a generated model folder; its configuration (external_models.json) was written from

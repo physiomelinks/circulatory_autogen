@@ -119,11 +119,19 @@ def _features(engine, theta):
     return np.asarray(engine.get_obs_output_dict(operands_list[0])['const'], dtype=float)
 
 
-def _cost_fd(engine, theta, h=1e-6):
-    """Central difference of CA's own cost -- the operational truth a calibration descends."""
-    plus = float(engine.get_cost_from_params(np.array([theta + h])))
-    minus = float(engine.get_cost_from_params(np.array([theta - h])))
-    return (plus - minus) / (2.0 * h)
+def _cost_gradient_closed_form(theta):
+    """dJ/dtheta of the gaussian_MLE cost, from the closed-form x(T), y(T).
+
+    J = 0.5 * sum_k ((f_k - gt_k)/std_k)^2 / 2 (two unit-weight items), and df_k/dtheta =
+    -c_k*T*f_k. This, not a finite difference of CA's cost, is the reference: once FSA is on,
+    every cost evaluation runs the sensitivity-enabled simulation, and on Myokit >= 1.40 its step
+    sizes follow the (DQ-noisy) sensitivities too, so the cost is not smooth at the 1e-8 level
+    and a 1e-6 central difference of it is off by percent.
+    """
+    x = _X0 * np.exp(-theta * _C1 * _T_END)
+    y = _Y0 * np.exp(-theta * _C2 * _T_END)
+    return 0.5 * ((x - _GT_X) / _STD_X ** 2 * (-_C1 * _T_END * x)
+                  + (y - _GT_Y) / _STD_Y ** 2 * (-_C2 * _T_END * y))
 
 
 # --------------------------------------------------------------- fixture validation
@@ -181,19 +189,18 @@ def test_output_sensitivities_match_the_closed_form(arm, tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.parametrize('arm', ['native', 'modifier'])
-def test_the_fsa_cost_gradient_matches_a_finite_difference_of_the_cost(
-        arm, tmp_path):
-    """The gradient a do_ad calibration actually descends, against differencing CA's own cost.
+def test_the_fsa_cost_gradient_matches_the_closed_form(arm, tmp_path):
+    """The gradient a do_ad calibration actually descends, against the exact dJ/dtheta.
 
     Issue #387 reported this as wrong by 1e-3..1e-1; at CA's default FSA tolerances it is
-    accurate to ~1e-6. See test_tightening_tolerances_past_the_sensitivity_floor_is_refused
-    for the configuration that does break it, and why.
+    accurate to ~1e-6 (Myokit 1.39: 4e-6, 1.40: 9e-7). See
+    test_tightening_rtol_past_the_floor for the configuration that broke it before Myokit 1.40.
     """
     params = _NATIVE_PARAMS if arm == 'native' else _MODIFIER_PARAMS
     engine = _engine(tmp_path, arm, params)
     theta = 1.0
     _, grad = engine.get_cost_and_jac_fsa(np.array([theta]))
-    assert float(grad[0]) == pytest.approx(_cost_fd(engine, theta), rel=1e-4)
+    assert float(grad[0]) == pytest.approx(_cost_gradient_closed_form(theta), rel=1e-5)
 
 
 @pytest.mark.integration
@@ -245,8 +252,8 @@ def test_the_modifier_reproduces_the_native_gradient(native, modifier):
     _, grad_native = native.get_cost_and_jac_fsa(np.array([theta]))
     _, grad_modifier = modifier.get_cost_and_jac_fsa(np.array([theta]))
     assert float(grad_modifier[0]) == pytest.approx(float(grad_native[0]), rel=1e-5)
-    # ... and both against the operational truth, so agreeing on a wrong value cannot pass.
-    assert float(grad_modifier[0]) == pytest.approx(_cost_fd(modifier, theta), rel=1e-4)
+    # ... and both against the exact value, so agreeing on a wrong value cannot pass.
+    assert float(grad_modifier[0]) == pytest.approx(_cost_gradient_closed_form(theta), rel=1e-5)
 
 
 @pytest.mark.integration
@@ -274,29 +281,37 @@ def test_the_modifier_gradient_sums_both_targets(tmp_path):
 
 
 @pytest.mark.integration
-def test_tightening_rtol_past_the_floor_degrades_the_gradient_and_warns(
-        tmp_path):
-    """The configuration issue #387 was actually measured under, pinned as known behaviour.
+def test_tightening_rtol_past_the_floor(tmp_path):
+    """The configuration issue #387 was actually measured under: rtol=1e-12 with FSA.
 
-    Myokit excludes the CVODES sensitivity variables from the local error test and uses a
-    finite-difference sensitivity RHS sized by sqrt(rtol), so rtol=1e-12 makes the *gradient*
-    worse while the *states* stay exact. CA warns; this asserts both the warning and the
-    degradation it is warning about, so the day Myokit fixes its side, this test fails and
-    the guard can be dropped.
+    Myokit < 1.40 excludes the CVODES sensitivity variables from the local error test and uses
+    a finite-difference sensitivity RHS sized by sqrt(rtol), so rtol=1e-12 makes the *gradient*
+    worse while the *states* stay exact; CA warns, and this asserts both the warning and the
+    degradation it warns about. Myokit 1.40 (myokit#1203) error-controls the sensitivities, so
+    there the gradient is accurate and CA must not warn. Whichever Myokit is installed, the
+    warning has to match what the solver actually does.
     """
-    from libcuflynx.solver_wrappers.myokit_helper import FSA_MIN_SAFE_REL_TOL
+    import warnings as _warnings
+    from libcuflynx.solver_wrappers.myokit_helper import MYOKIT_ERROR_CONTROLS_SENSITIVITIES
 
     tight = {'solver': 'CVODE_myokit', 'rtol': 1e-12, 'atol': 1e-12}
     engine = _engine(tmp_path, 'native', _NATIVE_PARAMS, solver_info=tight)
     # The warning belongs to enabling FSA, which happens on the first gradient call (the
     # simulation is rebuilt with sensitivities then), not to constructing the helper.
-    with pytest.warns(UserWarning, match='less. accurate as rtol'):
+    with _warnings.catch_warnings(record=True) as caught:
+        _warnings.simplefilter('always')
         _, grad = engine.get_cost_and_jac_fsa(np.array([1.0]))
-    rel_err = abs(float(grad[0]) - _cost_fd(engine, 1.0)) / abs(_cost_fd(engine, 1.0))
-    assert rel_err > 1e-4, (
-        f'rtol=1e-12 no longer degrades the FSA gradient (rel err {rel_err:.2e}) -- if Myokit '
-        f'now error-controls its sensitivities, drop the rtol < {FSA_MIN_SAFE_REL_TOL:g} '
-        f'warning and this test')
+    warned = any('less* accurate as rtol' in str(w.message) for w in caught)
+    rel_err = abs(float(grad[0]) - _cost_gradient_closed_form(1.0)) / abs(
+        _cost_gradient_closed_form(1.0))
+    if MYOKIT_ERROR_CONTROLS_SENSITIVITIES:
+        assert not warned
+        assert rel_err < 1e-5, f'rtol=1e-12 FSA gradient rel err {rel_err:.2e}'
+    else:
+        assert warned
+        assert rel_err > 1e-4, (
+            f'rtol=1e-12 no longer degrades the FSA gradient on this Myokit (rel err '
+            f'{rel_err:.2e}); MYOKIT_ERROR_CONTROLS_SENSITIVITIES has the wrong version bound')
 
 
 @pytest.mark.integration
@@ -308,4 +323,4 @@ def test_the_default_tolerances_do_not_warn_and_are_accurate(tmp_path):
     with _warnings.catch_warnings():
         _warnings.simplefilter('error', UserWarning)
         _, grad = engine.get_cost_and_jac_fsa(np.array([1.0]))
-    assert float(grad[0]) == pytest.approx(_cost_fd(engine, 1.0), rel=1e-4)
+    assert float(grad[0]) == pytest.approx(_cost_gradient_closed_form(1.0), rel=1e-5)

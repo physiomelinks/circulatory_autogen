@@ -177,8 +177,10 @@ def _parse_obs_data_rules(variable):
 
 def test_obs_data_keys_match_the_parser():
     defs = load_schema(OBS_DATA_SCHEMA)['$defs']
-    assert set(defs['dataItem']['properties']) == _parse_obs_data_rules('item_defaults')
-    assert set(defs['predictionItem']['properties']) == \
+    # source has no default: read_source_as_data_reference moves it to data_reference
+    assert set(defs['dataItem']['properties']) - {'source'} == \
+        _parse_obs_data_rules('item_defaults')
+    assert set(defs['predictionItem']['properties']) - {'source'} == \
         _parse_obs_data_rules('prediction_entry_defaults')
     assert set(defs['inputItem']['properties']) == set(INPUT_ITEM_KEYS)
     # the required keys have no default

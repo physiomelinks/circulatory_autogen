@@ -80,6 +80,23 @@ def test_each_sharded_job_runs_every_group_once(job, suite, matrix):
         f'{job} runs {groups}; suite {suite} is {sorted(SHARDS[suite])} plus rest'
 
 
+def _github_yaml_files():
+    found = []
+    for folder, _, names in os.walk(os.path.join(ROOT, '.github')):
+        found += [os.path.join(folder, n) for n in names if n.endswith(('.yml', '.yaml'))]
+    return sorted(found)
+
+
+def test_no_workflow_uses_ubuntu_latest():
+    """The PyPI libcellml wheel needs libxml2.so.2, which ubuntu-latest (26.04) does not have."""
+    assert _github_yaml_files()
+    for path in _github_yaml_files():
+        with open(path) as f:
+            for number, line in enumerate(f, 1):
+                code = line.split('#')[0]
+                assert 'ubuntu-latest' not in code, f'{path}:{number} uses ubuntu-latest'
+
+
 # --- select_ci_shard -----------------------------------------------------------------------
 
 class _Item:
@@ -138,3 +155,14 @@ def test_a_function_entry_does_not_match_a_longer_name():
     assert not ci_shard_entry_matches('tests/t.py::test_one', 'tests/t.py::test_one_more')
     assert ci_shard_entry_matches('tests/t.py', 'tests/t.py::Cls::test_m')
     assert not ci_shard_entry_matches('tests/t.py', 'tests/t.py.bak::test_m')
+
+
+# --- which files the param-id jobs run ------------------------------------------------------
+
+@pytest.mark.parametrize('job', ['test-param-id-mpi', 'test-param-id-serial'])
+def test_the_param_id_jobs_run_the_profile_likelihood_tests(job):
+    """Its integration tests are `mpi`-marked, so the `test` jobs (`not mpi`) never run them."""
+    with open(WORKFLOW) as f:
+        steps = yaml.safe_load(f)['jobs'][job]['steps']
+    commands = '\n'.join(step.get('run', '') for step in steps)
+    assert 'tests/test_profile_likelihood.py' in commands
