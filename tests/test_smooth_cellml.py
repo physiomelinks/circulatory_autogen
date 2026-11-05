@@ -512,6 +512,19 @@ def test_reference_ranges_start_at_t0_and_include_pre_time(tmp_path):
                                'nan': False}
 
 
+def test_eps_comes_from_the_nominal_run_unless_union_is_asked_for(tmp_path):
+    """An outlying run (here r = 1000, as one chemoreceptor sweep point drove its x to -3.8e9) does
+    not set eps for every point: the default range is the nominal (first) run's."""
+    path = tmp_path / 'p.cellml'
+    path.write_text(sc.probe(_model(ABS)))
+    runs = [{'sim_time': 2.0, 'dt': 0.01}, {'sim_time': 2.0, 'dt': 0.01, 'param_vals': {'c/r': 1000.0}}]
+    nominal = sc.reference_ranges(str(path), runs)
+    union = sc.reference_ranges(str(path), runs, over='union')
+    assert nominal['sm1_x']['max'] == pytest.approx(1.0) and union['sm1_x']['max'] == pytest.approx(1999.0)
+    _, report = sc.smooth(_model(ABS), nominal)
+    assert report['sites'][0]['eps'] == pytest.approx(2e-3)
+
+
 def test_a_division_by_zero_at_t0_is_flagged_in_the_runs_and_at_init(tmp_path):
     """max(v/w, 0) with w(0) = 0: the original gives 0 at t = 0, x is -Inf there (the CVS-ANS
     C_O2_a case, with its 0/0 hidden by max)."""

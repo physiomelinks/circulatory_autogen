@@ -28,6 +28,9 @@ next release; add to that section as you land a change.
   (e.g. a 0/0 that `max` hides at t = 0). `nan_at_init` flags a site whose x (probed model) or
   auxiliaries and result (smoothed model) are NaN or Inf at the initial state.
 - `smooth(..., only=[k, ...])` smooths only the named sites, to attribute an error to sites.
+- Each site's range, and so its eps, comes from the nominal (first) reference run; one outlying run
+  can no longer set eps for every point. `reference_ranges(..., over="union")` (`--ranges-over
+  union`) takes the range over all the runs. A NaN or Inf in any run is still flagged.
 - `rel={"variables": {"component/variable": rel}}` sets eps for the sites of one equation, over their
   kind's `rel`.
 - `exempt=[{"variable": "[component/]glob", "reason": ...}]` (`cuflynx-smooth --exempt file.json`)

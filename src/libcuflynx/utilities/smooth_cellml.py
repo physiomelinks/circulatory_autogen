@@ -34,7 +34,7 @@ and connections), a piecewise branch that may be undefined where it is not activ
 (``branch_domain``, e.g. ln), an x that reaches zero only at one end of its range
 (``one_sided``), an x that is NaN or Inf in a reference run (``nan_in_runs``; the runs are
 read from t = 0, through ``pre_time``), and a site NaN or Inf at the initial state in the probed or
-smoothed model (``nan_at_init``, :func:`flag_nan_at_init`).
+smoothed model (``nan_at_init``, :func:`flag_nan_at_init`). Each range is the nominal (first) reference run's.
 
 ``exempt`` leaves the sites of named equations as written (a switch meant to stay, such as a phase
 gate). ``jump_candidates`` in the report suggest such sites, and exempt sites and candidates carry
@@ -903,10 +903,11 @@ def libcellml_issues(model_text):
             'analyser': [analyser.issue(i).description() for i in range(analyser.issueCount())]}
 
 
-def reference_ranges(probed_path, runs, per_run=False):
-    """Each ``sm<k>_x``'s min, max and smallest |x| over the reference runs of a probed model,
-    from t = 0: the run is logged through ``pre_time`` too, where a value such as 0/0 at the
-    initial state shows.
+def reference_ranges(probed_path, runs, per_run=False, over='nominal'):
+    """Each ``sm<k>_x``'s min, max and smallest |x| in the reference runs of a probed model, from
+    t = 0: the run is logged through ``pre_time`` too, where a value such as 0/0 at the initial state
+    shows. ``over='nominal'`` (default) takes them from the first run, the nominal point, so one
+    outlying run cannot set eps for every point; ``over='union'`` takes them over all the runs.
 
     ``nan`` records a NaN or Inf in x, which the original operation may have hidden (``max(NaN, 0)``
     is 0) but the smooth form passes on. Each run is a dict with ``sim_time`` and optionally
@@ -953,6 +954,11 @@ def reference_ranges(probed_path, runs, per_run=False):
             merged[key_x] = dict(r)
     for helper, _ in helpers.values():
         helper.close_simulation()
+    if over == 'nominal':
+        # a NaN or Inf in any run is still recorded
+        merged = {k: dict(r, nan=merged[k]['nan']) for k, r in each[0].items()}
+    elif over != 'union':
+        raise ValueError(f"over: 'nominal' or 'union', not {over!r}")
     return (merged, each) if per_run else merged
 
 
@@ -1003,7 +1009,7 @@ def flag_nan_at_init(report, probed_path, smooth_path):
 
 
 def smooth_cellml_file(model_path, runs=None, output_dir=None, ranges=None, rel=None, collapse=None,
-                       abs_eps=DEFAULT_ABS_EPS, exempt=None):
+                       abs_eps=DEFAULT_ABS_EPS, exempt=None, over='nominal'):
     """Probe, run the reference runs (unless ``ranges`` is given), smooth, and write
     ``<name>_smooth.cellml`` and ``smoothing_report.json`` into ``output_dir``, with the ranges from
     the runs in ``smoothing_ranges.json`` (for ``--ranges``).
@@ -1022,7 +1028,7 @@ def smooth_cellml_file(model_path, runs=None, output_dir=None, ranges=None, rel=
         probed_path = os.path.join(output_dir, f'{name}_probe.cellml')
         with open(probed_path, 'w', encoding='utf-8') as f:
             f.write(probe(original))
-        ranges = reference_ranges(probed_path, runs)
+        ranges = reference_ranges(probed_path, runs, over=over)
         with open(os.path.join(output_dir, 'smoothing_ranges.json'), 'w', encoding='utf-8') as f:
             json.dump(ranges, f, indent=2)
     smoothed, report = smooth(original, ranges, rel=rel, collapse=collapse, abs_eps=abs_eps, exempt=exempt)
@@ -1054,6 +1060,8 @@ def main(argv=None):
     parser.add_argument('--output-dir', help='where to write (default: next to the model)')
     parser.add_argument('--rel', type=float, help='eps relative to each range, for every kind (default 1e-3)')
     parser.add_argument('--exempt', help='JSON [{"variable": "[component/]glob", "reason": ...}]: sites left as written')
+    parser.add_argument('--ranges-over', choices=('nominal', 'union'), default='nominal',
+                        help='each range from the first run (nominal, default) or over all the runs')
     parser.add_argument('--collapse', action='store_true',
                         help='replace sites that never switch in the runs by their active branch')
     args = parser.parse_args(argv)
@@ -1065,7 +1073,8 @@ def main(argv=None):
     smooth_path, report_path = smooth_cellml_file(
         args.model, runs=load(args.runs) if args.runs else None,
         ranges=load(args.ranges) if args.ranges else None, output_dir=args.output_dir,
-        rel=args.rel, collapse=True if args.collapse else None, exempt=load(args.exempt) if args.exempt else None)
+        rel=args.rel, collapse=True if args.collapse else None, exempt=load(args.exempt) if args.exempt else None,
+        over=args.ranges_over)
     print(smooth_path)
     print(report_path)
     return 0
