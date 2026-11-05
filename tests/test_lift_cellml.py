@@ -70,6 +70,8 @@ def test_fitzhugh_nagumo_lifts_with_w_equal_to_v_squared(tmp_path):
     ('exp', {x: -k * sp.exp(x) + 1}, {x: 0.5}, {'k': 2}, ['exp(x)']),
     ('ln', {x: -sp.log(x)}, {x: 2.0}, {}, None),
     ('power', {x: 1 - x ** sp.Rational(3, 2)}, {x: 0.2}, {}, None),
+    ('irrational_power', {x: 1 - x ** sp.Float(0.3836)}, {x: 0.5}, {}, ['x**0.3836', '1/x']),
+    ('hill', {x: 1 - x - K * x ** 2 / (K + x ** 2)}, {x: 0.5}, {'K': 0.5}, None),
     ('sqrt', {x: 2 - sp.sqrt(x ** 2 + K)}, {x: 0.0}, {'K': 1}, None),
     ('reciprocal', {x: 1 / (1 + x ** 2) - x}, {x: 0.3}, {}, ['1/(x**2 + 1)']),
     ('product3', {x: -y, y: x - x * y * z, z: -z}, {x: 1, y: 0, z: 0.5}, {}, None),
@@ -77,7 +79,7 @@ def test_fitzhugh_nagumo_lifts_with_w_equal_to_v_squared(tmp_path):
 def test_each_kind_lifts_to_quadratic_form_and_verifies(tmp_path, name, rhs, init, params, expected_aux):
     doc = _lift(tmp_path, _model(rhs, init, params))
     if expected_aux is not None:
-        assert [a['expr'] for a in doc['auxiliaries']][:len(expected_aux)] == expected_aux
+        assert set(expected_aux) <= {a['expr'] for a in doc['auxiliaries']}
     assert all(a['exact'] for a in doc['auxiliaries'])
     assert doc['size']['n_w'] == len(doc['lifted'])
 

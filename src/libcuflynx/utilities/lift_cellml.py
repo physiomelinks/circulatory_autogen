@@ -590,8 +590,12 @@ class _Polynomializer:
                 if g.is_Symbol or not (g.free_symbols & set(self.m.input_symbols)):
                     return self._pow_aux(g, p)
                 return self._mixed(e)
-            # a symbolic exponent: g^(c + r), with c rational
+            if g.free_symbols & set(self.m.input_symbols):
+                return self._mixed(e)
+            # a symbolic or irrational exponent: g^(c + r) = g^c g^r with c rational; w = g^r, dw/dt = r w z dg/dt
             c, rest = p.as_coeff_Add()
+            if rest == 0 or not c.is_Rational:
+                c, rest = sp.Integer(0), p
             w = self._new(('pow', g, rest), g ** rest, 'power')
             self._pow_aux(g, -1)
             return w * (self.rewrite(g ** c) if c != 0 else 1)
