@@ -28,6 +28,10 @@ next release; add to that section as you land a change.
   (e.g. a 0/0 that `max` hides at t = 0). `nan_at_init` flags a site whose x (probed model) or
   auxiliaries and result (smoothed model) are NaN or Inf at the initial state.
 - `smooth(..., only=[k, ...])` smooths only the named sites, to attribute an error to sites.
+- A piecewise is blended by splitting on one comparison at a time, so the weights of its pieces sum
+  to 1, and comparisons of the same operands either way round (`x <= 0.25`, `x > 0.25`) share one
+  site. Written as two sites, a phase-rate boundary got weights H and (1 - H)^2, summing to 0.75: the
+  rate dipped at every boundary, and the heart's activation phase lagged a little more each beat.
 
 ### Fixed — `libcellml_helper_funcs.analyse_model` returns the analysed model
 

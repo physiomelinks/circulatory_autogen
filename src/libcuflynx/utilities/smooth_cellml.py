@@ -16,9 +16,15 @@ original                                  replacement
 ``min(a, b)``                             ``(a + b - sm_w)/2``, x = a - b
 ``f if a >= b (or >) else g``             ``g + sm_H*(f - g)``, x = a - b
 ``f if a <= b (or <) else g``             as above with x = b - a
-``c1 and c2`` / ``c1 or c2`` / ``not c``  ``H1*H2`` / ``1 - (1-H1)(1-H2)`` / ``1 - H``
-several pieces                            blended from the last piece back to the first
+``and`` / ``or`` / ``not``, several pieces  split on one comparison at a time (below)
 ========================================  ===========================================
+
+A piecewise is blended by splitting on its comparisons one at a time, ``g + H*(f - g)`` with f the
+blend where the comparison holds and g where it does not, until the first piece that holds is known.
+The weights of the pieces sum to 1 everywhere: ``c1 and c2`` gives ``H1*H2``, the second piece
+``(1 - H1)*H2``, and so on. Comparisons of the same two operands in one piecewise, either way round
+(``x <= 0.25`` and ``x > 0.25``), are one site, H for one side and 1 - H for the other: with two sites
+the boundary would get weights H and (1 - H)^2, which sum to 0.75 there.
 
 ``floor`` and piecewise conditions using ``eq``, ``neq``, ``xor`` or ``floor`` are left as written
 and reported as not smoothed. Rewrites go bottom-up, so nested operations become separate sites.
@@ -475,26 +481,39 @@ class _Pass:
         branch_domain = any(self._domain_limited(b) for p in pieces for b in (p[0],)) or \
             self._domain_limited(otherwise[0][0])
         first_site = self.k + 1
-        conditions = [self._condition(p[1], original) for p in pieces]
+        atoms = {}      # (A, B) -> atom index: the comparison "A over B", sm<k>_x = A - B
+        values = []     # per atom: the sm<k>_H element, True / False (collapsed), or None (skipped)
+        conditions = [self._condition(p[1], atoms, values) for p in pieces]
         for site in self.sites[first_site - 1:]:
             site.record['piecewise'] = original
             site.record['piecewise_k'] = first_site
             if branch_domain:
                 site.record['flags'].append('branch_domain')
-        if self.mode == 'probe' or any(c is None for c in conditions):
+        if self.mode == 'probe' or any(v is None for v in values):
             return e
-        result = otherwise[0][0]
-        for piece, h in reversed(list(zip(pieces, conditions))):
-            f = piece[0]
-            if h is True:
-                result = f
-            elif h is False:
-                continue
-            else:
-                result = _apply('plus', result, _apply('times', h, _apply('minus', f, copy.deepcopy(result))))
+        fixed = {i: v for i, v in enumerate(values) if isinstance(v, bool)}
+        result = self._blend(pieces, conditions, otherwise[0][0], values, fixed)
         for site in self.sites[first_site - 1:]:
             site.record['replacement'] = infix(result)
         return result
+
+    def _blend(self, pieces, conditions, otherwise, values, assigned):
+        """The pieces blended so the weights sum to 1: split on one comparison at a time (an atom shared
+        by several conditions is split on once), ``g + H*(f - g)`` with f the value where it holds and g
+        where it does not, down to where the first piece whose condition holds is known."""
+        for piece, condition in zip(pieces, conditions):
+            known = _evaluate(condition, assigned)
+            if known is False:
+                continue
+            if known is True:
+                return copy.deepcopy(piece[0])
+            atom = next(i for i in _atoms_of(condition) if i not in assigned)
+            f = self._blend(pieces, conditions, otherwise, values, {**assigned, atom: True})
+            g = self._blend(pieces, conditions, otherwise, values, {**assigned, atom: False})
+            if infix(f) == infix(g):
+                return f
+            return _apply('plus', g, _apply('times', copy.deepcopy(values[atom]), _apply('minus', f, copy.deepcopy(g))))
+        return copy.deepcopy(otherwise)
 
     def _condition_supported(self, c):
         op = _op(c)
@@ -506,42 +525,32 @@ class _Pass:
             return all(self._condition_supported(a) for a in _args(c))
         return False
 
-    def _condition(self, c, original):
-        """The smooth indicator of a condition: an expression, True or False (a collapsed
-        or constant condition), or None in probe mode or when a site is skipped."""
+    def _condition(self, c, atoms, values):
+        """A condition as a boolean tree over the piecewise's comparisons: ('atom', i), ('not', t),
+        ('and', [t, ...]), ('or', [t, ...]) or ('const', bool). A comparison of the same two operands
+        as an earlier one (either way round) is that atom, or its negation: one site, H and 1 - H."""
         if _tag(c) in ('true', 'false'):
-            return _tag(c) == 'true'
+            return ('const', _tag(c) == 'true')
         op, args = _op(c), _args(c)
         if op in _COMPARISONS:
-            a, b = args
-            x = _apply('minus', copy.deepcopy(a), copy.deepcopy(b)) if op in ('gt', 'geq') else \
-                _apply('minus', copy.deepcopy(b), copy.deepcopy(a))
-            site = self._new_site('piecewise', x, infix(c), strict=op in ('gt', 'lt'))
+            a, b = args if op in ('gt', 'geq') else (args[1], args[0])
+            key, flipped = (infix(a), infix(b)), (infix(b), infix(a))
+            if key in atoms:
+                return ('atom', atoms[key])
+            if flipped in atoms:
+                return ('not', ('atom', atoms[flipped]))
+            atoms[key] = len(values)
+            site = self._new_site('piecewise', _apply('minus', copy.deepcopy(a), copy.deepcopy(b)), infix(c),
+                                  strict=op in ('gt', 'lt'))
             if site is None or self.mode == 'probe':
-                return None
-            if site.record['collapsed']:
-                return site.record['sign'] > 0
-            return _ci(site.names['H'])
-        parts = [self._condition(a, original) for a in args]
-        if any(p is None for p in parts):
-            return None
-        if op == 'not':
-            p = parts[0]
-            return (not p) if isinstance(p, bool) else _apply('minus', _cn(1), p)
-        if op == 'and':
-            if any(p is False for p in parts):
-                return False
-            parts = [p for p in parts if p is not True]
-            return True if not parts else (parts[0] if len(parts) == 1 else _apply('times', *parts))
-        # or
-        if any(p is True for p in parts):
-            return True
-        parts = [p for p in parts if p is not False]
-        if not parts:
-            return False
-        if len(parts) == 1:
-            return parts[0]
-        return _apply('minus', _cn(1), _apply('times', *[_apply('minus', _cn(1), p) for p in parts]))
+                values.append(None if site is None else _ci(site.names['H']))
+            elif site.record['collapsed']:
+                values.append(site.record['sign'] > 0)
+            else:
+                values.append(_ci(site.names['H']))
+            return ('atom', atoms[key])
+        parts = [self._condition(x, atoms, values) for x in args]
+        return ('not', parts[0]) if op == 'not' else (op, parts)
 
     def _domain_limited(self, e):
         for node in e.iter():
@@ -561,6 +570,33 @@ class _Pass:
             if _tag(node) == 'ci' and (self.component.get('name'), (node.text or '').strip()) in self.floor_tainted:
                 return True
         return False
+
+
+def _evaluate(tree, assigned):
+    """A condition tree's value under ``assigned`` {atom: bool}: True, False, or None (not yet known)."""
+    kind = tree[0]
+    if kind == 'const':
+        return tree[1]
+    if kind == 'atom':
+        return assigned.get(tree[1])
+    if kind == 'not':
+        v = _evaluate(tree[1], assigned)
+        return None if v is None else not v
+    vs = [_evaluate(t, assigned) for t in tree[1]]
+    if kind == 'and':
+        return False if False in vs else (None if None in vs else True)
+    return True if True in vs else (None if None in vs else False)
+
+
+def _atoms_of(tree):
+    """The atoms of a condition tree, in order of appearance."""
+    if tree[0] == 'atom':
+        return [tree[1]]
+    if tree[0] == 'const':
+        return []
+    if tree[0] == 'not':
+        return _atoms_of(tree[1])
+    return [i for t in tree[1] for i in _atoms_of(t)]
 
 
 def _fmt(value):

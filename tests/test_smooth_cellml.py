@@ -72,7 +72,12 @@ def _root(text):
 def _equation(text, name):
     """The right-hand side of ``name = ...`` in the model text."""
     for eq in _root(text).iter(_M + 'apply'):
-        if sc._op(eq) == 'eq' and sc._tag(sc._args(eq)[0]) == 'ci' and sc._args(eq)[0].text.strip() == name:
+        if sc._op(eq) != 'eq':
+            continue
+        lhs = sc._args(eq)[0]
+        if sc._op(lhs) == 'diff':
+            lhs = sc._args(lhs)[0]
+        if sc._tag(lhs) == 'ci' and lhs.text.strip() == name:
             return sc.infix(sc._args(eq)[1])
     raise KeyError(name)
 
@@ -108,17 +113,60 @@ def test_each_kind_is_rewritten_as_in_the_table(equations, replacement, x):
     _no_new_issues(text, smoothed)
 
 
+def _value(text, name, **values):
+    """``name``'s right-hand side in the model text, evaluated at ``values``."""
+    return eval(_equation(text, name).replace('^', '**'), {}, values)      # noqa: S307 - our own infix
+
+
 def test_less_than_swaps_the_sign_of_x_and_and_is_a_product():
     smoothed, report = sc.smooth(_model(PIECEWISE_AND), _ranges())
     assert _equation(smoothed, 'sm1_x') == '(v-zero)'
     assert _equation(smoothed, 'sm2_x') == '(half-v)'
-    assert _equation(smoothed, 'y') == '(zero+((sm1_H*sm2_H)*(v-zero)))'
+    assert _value(smoothed, 'y', sm1_H=0.3, sm2_H=0.6, v=1.0, zero=0.0) == pytest.approx(0.3 * 0.6)
     assert [s['kind'] for s in report['sites']] == ['piecewise', 'piecewise']
 
 
 def test_or_and_not():
     smoothed, _ = sc.smooth(_model(PIECEWISE_OR_NOT), _ranges())
-    assert _equation(smoothed, 'y') == '(zero+((1-((1-sm1_H)*(1-(1-sm2_H))))*(v-zero)))'
+    # (v <= zero) or not (v < half): H1 for zero - v >= 0, H2 for half - v > 0
+    assert _value(smoothed, 'y', sm1_H=0.3, sm2_H=0.6, v=1.0, zero=0.0) == pytest.approx(1 - 0.7 * 0.6)
+
+
+COMPLEMENTARY_RATE = ('<apply><eq/><apply><diff/><bvar><ci>t</ci></bvar><ci>z</ci></apply><piecewise>'
+                      '<piece><ci>p1</ci><apply><leq/><ci>v</ci><ci>zero</ci></apply></piece>'
+                      '<piece><ci>p2</ci><apply><and/><apply><gt/><ci>v</ci><ci>zero</ci></apply>'
+                      '<apply><lt/><ci>v</ci><ci>big</ci></apply></apply></piece>'
+                      '<otherwise><cn cellml:units="per_s">0</cn></otherwise></piecewise></apply>')
+COMPLEMENTARY_VARIABLES = ('<variable name="z" units="dimensionless" initial_value="0"/>'
+                           '<variable name="p1" units="per_s" initial_value="1"/>'
+                           '<variable name="p2" units="per_s" initial_value="1"/>'
+                           '<variable name="big" units="mmHg" initial_value="100"/>')
+
+
+def _complementary_model():
+    text = _model(COMPLEMENTARY_RATE, COMPLEMENTARY_VARIABLES)
+    return text.replace('<units name="mmHg">', '<units name="per_s"><unit units="second" exponent="-1"/></units>\n'
+                                               '  <units name="mmHg">')
+
+
+def test_complementary_conditions_share_one_site_and_the_weights_sum_to_1():
+    """f1 if v <= zero, f2 if v > zero and v < big, else 0: v > zero is the complement of v <= zero, so
+    it is the same site, and at the boundary the weights are H and 1 - H (not H and (1 - H)^2)."""
+    smoothed, report = sc.smooth(_complementary_model(), _ranges())
+    assert [s['original'] for s in report['sites']] == ['(v<=zero)', '(v<big)']
+    for h1 in (0.0, 0.25, 0.5, 0.9):
+        assert _value(smoothed, 'z', sm1_H=h1, sm2_H=1.0, p1=1.0, p2=1.0) == pytest.approx(1.0)
+    assert _value(smoothed, 'z', sm1_H=0.5, sm2_H=1.0, p1=1.0, p2=0.0) == pytest.approx(0.5)
+
+
+def test_complementary_conditions_reproduce_the_rate_across_the_boundary(tmp_path):
+    """The rate is p1 = p2 = 1 on both sides of v = 0 (crossed at t = 1), so z = t exactly."""
+    text = _complementary_model()
+    smoothed, _ = sc.smooth(text, {'sm1_x': {'min': -1.0, 'max': 1.0}, 'sm2_x': {'min': 99.9, 'max': 100.1}}, rel=0.1)
+    z0, = _simulate(text, tmp_path, 'o', ['z'])
+    z1, = _simulate(smoothed, tmp_path, 's', ['z'])
+    assert np.max(np.abs(z1 - z0)) < 1e-6
+    assert z0[-1] == pytest.approx(2.0, rel=1e-6)
 
 
 def test_several_pieces_blend_from_the_last_back():
