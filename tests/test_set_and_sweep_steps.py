@@ -266,6 +266,20 @@ def test_a_set_step_names_a_vessel_of_the_target(library):
 
 
 @pytest.mark.unit
+def test_a_set_step_marks_set_by_hand_whatever_other_origins_exist(monkeypatch):
+    """Loads a fresh copy of the runner with more origins after set_by_hand."""
+    import importlib.util
+    from libcuflynx.calibration_workflow import runner
+    from libcuflynx.utilities import parameters_file
+    monkeypatch.setattr(parameters_file, 'ORIGINS',
+                        parameters_file.ORIGINS + ('derived', 'calibrated'))
+    spec = importlib.util.spec_from_file_location('runner_with_more_origins', runner.__file__)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.SET_BY_HAND == 'set_by_hand'
+
+
+@pytest.mark.unit
 def test_the_plan_shows_what_each_new_kind_does(library):
     raw = _raw(library)
     raw['steps'] += [_sweep_step(raw), _set_step()]
