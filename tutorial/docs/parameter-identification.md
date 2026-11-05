@@ -1453,7 +1453,8 @@ Each feature is drawn against the swept parameters as a `feature_vs_input` plot,
 A prediction run on the calibrated model takes `"on_target": true` in place of `model` and
 `fixed_from`. It runs on the target, given every calibration's and set step's values as the target
 merges them (a later step wins), after all of them. In the diagram it sits below the merged box,
-with a box for each file it wrote. Parameters that move together go in a `zip` group: the i-th
+with one box under it naming the files it wrote: their folder once, then each file, done only when
+every file exists. Parameters that move together go in a `zip` group: the i-th
 point takes each member's i-th value, so their lists have one length, and the design treats the
 group as one parameter. With `"parameters": {}` the sweep is one run of its protocol. A long rest
 before a run, or the same run at several levels of an input, is the `obs_data` protocol: every
@@ -1638,12 +1639,12 @@ optional top-level `external_figures`:
 
 `from` is the step whose results the script reads, or `"target"` for the merged model. A path in
 `reads` or `writes` is absolute (`~` allowed) or relative to the run's output directory. Each
-script is a dashed box, outside the workflow, with an arrow from `from` and a box for each file it
-writes. It is `stale` when a file it reads, or the result of `from`, is newer than the oldest file
-it writes, or when `from` is stale; it is not run while a file it writes is missing. The files and
-their status are in the box's `inputs` in the graph. `external_figures` can be added after a run:
-the graph reads them from the workflow file as it is now, and adding them does not make the run
-stale.
+script is a dashed box, outside the workflow, with an arrow from `from` and one box under it naming
+the files it writes (their folder once, then each file). It is `stale` when a file it reads, or the
+result of `from`, is newer than the oldest file it writes, or when `from` is stale; it is not run
+while a file it writes is missing. The files and their status are in the box's `inputs` in the
+graph. `external_figures` can be added after a run: the graph reads them from the workflow file
+as it is now, and adding them does not make the run stale.
 
 ### Distributions and priors
 

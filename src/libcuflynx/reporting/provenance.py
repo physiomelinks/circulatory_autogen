@@ -40,7 +40,7 @@ SOURCE_NODE = '__source__'
 MEASURED_NODE = '__measured__'
 HAND_NODE = '__set_by_hand__'
 TARGET_NODE = '__target__'
-#: the kind of a box for a file a sweep wrote
+#: the kind of the one box naming the files a sweep step or a figure script wrote
 FIGURE = 'figure'
 #: a script outside the workflow that reads its results (``external_figures``)
 EXTERNAL = 'external'
@@ -285,7 +285,8 @@ def _external_figures(run, result):
 
 
 def _external_node(entry, run, from_node, from_stale):
-    '''A declared figure script: its box, its files as ``inputs``, and its figure boxes.
+    '''A declared figure script: its box, its files as ``inputs``, and the one figure box naming
+    the files it writes.
 
     It is ``stale`` when a file it reads, or the result of the step it reads from, is newer than
     the oldest file it writes, or that step is stale; a written file that is absent leaves it

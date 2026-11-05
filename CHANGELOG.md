@@ -21,7 +21,8 @@ next release; add to that section as you land a change.
   values merged as the target merges them, after all of them: each step's own values, in run
   order, so a value a step was only given as fixed never overrides a later set step. Its `zip` groups move parameters
   together as one axis, and a sweep with no parameters is one run of its protocol. The provenance
-  diagram draws it below the merged box, with a box for each file it wrote.
+  diagram draws it below the merged box, with one box under it naming the files it wrote (their
+  folder once, then each file), done only when every file exists.
 - A workflow's optional `external_figures` declares figure scripts that run outside it: the
   command, the step or target they read from, and the files they read and write. libcuflynx never
   runs them. The provenance diagram draws each as a dashed box with its files, current, stale or
@@ -32,6 +33,10 @@ next release; add to that section as you land a change.
   or changes a kind, style or key. `read_provenance_graph` and `provenance_svg` refuse a version
   they don't know, naming the version found and the versions they read; write an older run's
   graph again with `cuflynx-provenance <output_dir>`.
+- `pack_workflow` gives an on-target sweep no model of its own: it runs on the packed target.
+- The workflow's study manifest (`cuflynx_study`) stores a sweep step's `sweep_dir` and
+  `sweep_results` relative to the working directory and resolves them on read, as it does every
+  step's other outputs.
 
 ### Added — profile likelihood for identifiability analysis (#519)
 
