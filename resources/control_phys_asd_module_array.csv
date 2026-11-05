@@ -88,21 +88,22 @@ venous_lb,               vp_wCont, venous,             leg_L_T leg_R_T trunk_C_T
 venous_ub,               vp_wCont, venous,             arm_L_T arm_R_T external_carotid_L_T external_carotid_R_T posterior_cerebral_L_T posterior_cerebral_R_T middle_cerebral_L_T middle_cerebral_R_T anterior_cerebral_L_T anterior_cerebral_R_T venous_constriction_effector,           venous_svc
 venous_ivc,              vp_wCont, venous,             venous_lb venous_constriction_effector ,  heart                 
 venous_svc,              vp_wCont, venous,             venous_ub venous_constriction_effector ,  heart                
-middle_cerebral_L_GE,    nn, tissue_GE_simple,   middle_cerebral_L_T arterial_gas_transport , venous_gas_transport middle_cerebral_L_LC   
-middle_cerebral_R_GE,    nn, tissue_GE_simple,   middle_cerebral_R_T arterial_gas_transport , venous_gas_transport middle_cerebral_R_LC       
-anterior_cerebral_L_GE,  nn, tissue_GE_simple,   anterior_cerebral_L_T arterial_gas_transport , venous_gas_transport anterior_cerebral_L_LC       
-anterior_cerebral_R_GE,  nn, tissue_GE_simple,   anterior_cerebral_R_T arterial_gas_transport , venous_gas_transport anterior_cerebral_R_LC       
-posterior_cerebral_L_GE, nn, tissue_GE_simple,   posterior_cerebral_L_T arterial_gas_transport , venous_gas_transport posterior_cerebral_L_LC       
-posterior_cerebral_R_GE, nn, tissue_GE_simple,   posterior_cerebral_R_T arterial_gas_transport , venous_gas_transport posterior_cerebral_R_LC       
-external_carotid_L_GE,   nn, tissue_GE_simple,   external_carotid_L_T arterial_gas_transport , venous_gas_transport external_carotid_L_LC       
-external_carotid_R_GE,   nn, tissue_GE_simple,   external_carotid_R_T arterial_gas_transport , venous_gas_transport external_carotid_R_LC       
-arm_L_GE,                nn, tissue_GE_simple,   arm_L_T arterial_gas_transport , venous_gas_transport arm_L_LC   
-arm_R_GE,                nn, tissue_GE_simple,   arm_R_T arterial_gas_transport , venous_gas_transport arm_R_LC      
-leg_L_GE,                nn, tissue_GE_simple,   leg_L_T arterial_gas_transport , venous_gas_transport leg_L_LC      
-leg_R_GE,                nn, tissue_GE_simple,   leg_R_T arterial_gas_transport , venous_gas_transport leg_R_LC      
-trunk_C_GE,              nn, tissue_GE_simple,   trunk_C_T arterial_gas_transport , venous_gas_transport
+middle_cerebral_L_GE,    nn, tissue_GE_simple,   middle_cerebral_L_T arterial_gas_transport , venous_gas_mixing middle_cerebral_L_LC   
+middle_cerebral_R_GE,    nn, tissue_GE_simple,   middle_cerebral_R_T arterial_gas_transport , venous_gas_mixing middle_cerebral_R_LC       
+anterior_cerebral_L_GE,  nn, tissue_GE_simple,   anterior_cerebral_L_T arterial_gas_transport , venous_gas_mixing anterior_cerebral_L_LC       
+anterior_cerebral_R_GE,  nn, tissue_GE_simple,   anterior_cerebral_R_T arterial_gas_transport , venous_gas_mixing anterior_cerebral_R_LC       
+posterior_cerebral_L_GE, nn, tissue_GE_simple,   posterior_cerebral_L_T arterial_gas_transport , venous_gas_mixing posterior_cerebral_L_LC       
+posterior_cerebral_R_GE, nn, tissue_GE_simple,   posterior_cerebral_R_T arterial_gas_transport , venous_gas_mixing posterior_cerebral_R_LC       
+external_carotid_L_GE,   nn, tissue_GE_simple,   external_carotid_L_T arterial_gas_transport , venous_gas_mixing external_carotid_L_LC       
+external_carotid_R_GE,   nn, tissue_GE_simple,   external_carotid_R_T arterial_gas_transport , venous_gas_mixing external_carotid_R_LC       
+arm_L_GE,                nn, tissue_GE_simple,   arm_L_T arterial_gas_transport , venous_gas_mixing arm_L_LC   
+arm_R_GE,                nn, tissue_GE_simple,   arm_R_T arterial_gas_transport , venous_gas_mixing arm_R_LC      
+leg_L_GE,                nn, tissue_GE_simple,   leg_L_T arterial_gas_transport , venous_gas_mixing leg_L_LC      
+leg_R_GE,                nn, tissue_GE_simple,   leg_R_T arterial_gas_transport , venous_gas_mixing leg_R_LC      
+trunk_C_GE,              nn, tissue_GE_simple,   trunk_C_T arterial_gas_transport , venous_gas_mixing
 arterial_gas_transport,  nn, gas_transport_simple, pulmonary_GE ascending_aorta_C, arm_L_GE arm_R_GE leg_L_GE leg_R_GE trunk_C_GE middle_cerebral_L_GE middle_cerebral_R_GE posterior_cerebral_L_GE posterior_cerebral_R_GE anterior_cerebral_L_GE anterior_cerebral_R_GE external_carotid_L_GE external_carotid_R_GE arm_L_LC arm_R_LC leg_L_LC leg_R_LC middle_cerebral_L_LC middle_cerebral_R_LC posterior_cerebral_L_LC posterior_cerebral_R_LC anterior_cerebral_L_LC anterior_cerebral_R_LC external_carotid_L_LC external_carotid_R_LC arterial_chemoreceptor
-venous_gas_transport,    nn, gas_transport_simple, middle_cerebral_L_GE middle_cerebral_R_GE anterior_cerebral_L_GE anterior_cerebral_R_GE posterior_cerebral_L_GE posterior_cerebral_R_GE external_carotid_L_GE external_carotid_R_GE arm_L_GE arm_R_GE leg_L_GE leg_R_GE trunk_C_GE,  pulmonary_GE 
+venous_gas_mixing,       nn, venous_gas_mixing,     middle_cerebral_L_GE middle_cerebral_R_GE anterior_cerebral_L_GE anterior_cerebral_R_GE posterior_cerebral_L_GE posterior_cerebral_R_GE external_carotid_L_GE external_carotid_R_GE arm_L_GE arm_R_GE leg_L_GE leg_R_GE trunk_C_GE,  venous_gas_transport
+venous_gas_transport,    nn, gas_transport_simple, venous_gas_mixing,  pulmonary_GE 
 common_carotid_L_baro,   nn, baroreceptor,       common_carotid_L48_D, vagal_efferent sympathetic_efferent
 arterial_chemoreceptor,  nn, chemoreceptor,         arterial_gas_transport, vagal_efferent sympathetic_efferent 
 vagal_efferent,          nn, afferent_to_vagal_efferent, arterial_chemoreceptor common_carotid_L_baro, heart_period_effector

@@ -42,6 +42,48 @@ OVERCONSTRAINED_ERROR = re.compile(
     r"(?:overconstrained|computed more than once)")
 
 
+def check_tissue_gas_mixing(module_df):
+    """Raise ValueError for a tissue_GE_simple connected straight to a gas_transport_simple, or
+    a venous_gas_mixing connected to a module through no port.
+
+    A gas_transport_simple takes one content and one flow. Several regions' venous blood is
+    mixed by a venous_gas_mixing module: each tissue_GE_simple gives it its flow and the gas that
+    flow carries on a gas_flux_port, and it gives the flow-weighted contents to the
+    gas_transport_simple. A neighbour of the mixer that shares no port with it would be left out
+    of the mix without a word (and with no region connected the sums would take their parameter
+    values), so that is an error too."""
+    rows = {row.name: row for row in module_df.itertuples()}
+    for row in rows.values():
+        if row.module_type != 'tissue_GE_simple':
+            continue
+        for out_name in row.out_instances:
+            if out_name in rows and rows[out_name].module_type == 'gas_transport_simple':
+                raise ValueError(
+                    f'tissue_GE_simple "{row.name}" is connected straight to gas_transport_simple '
+                    f'"{out_name}". Mix the regions\' venous blood with a venous_gas_mixing module: '
+                    f'connect each tissue_GE_simple (a version with a gas_flux_port) to it, and it '
+                    f'to "{out_name}".')
+
+    def port_types(row, sides):
+        return {port['port_type'] for side in sides for port in getattr(row, side)}
+
+    for mixer in rows.values():
+        if mixer.module_type != 'venous_gas_mixing':
+            continue
+        edges = [(rows[name], mixer) for name in mixer.inp_instances if name in rows]
+        edges += [(mixer, rows[name]) for name in mixer.out_instances if name in rows]
+        for upstream, downstream in edges:
+            shared = (port_types(upstream, ['exit_ports', 'general_ports']) &
+                      port_types(downstream, ['entrance_ports', 'general_ports']))
+            if not shared:
+                raise ValueError(
+                    f'"{upstream.name}" ({upstream.module_type} {upstream.module_subtype}) is '
+                    f'connected to "{downstream.name}" ({downstream.module_type} '
+                    f'{downstream.module_subtype}), but no exit port of "{upstream.name}" matches '
+                    f'an entrance port of "{downstream.name}", so nothing would pass between them. '
+                    f'A venous_gas_mixing takes each region through a gas_flux_port: use a '
+                    f'tissue_GE_simple version that has one.')
+
 class CVS0DCellMLGenerator(object):
     '''
     Generates CellML files for the 0D model represented in @
@@ -619,6 +661,7 @@ class CVS0DCellMLGenerator(object):
         # a node of three or more vessel ends must have its compliant end alone on its side,
         # so that the pairwise multi-port sums below are its exact equations
         check_vessel_nodes(module_df)
+        check_tissue_gas_mixing(module_df)
         self._multiport_sums = {}
         # one-to-one mapped variable pairs, and BCs computed by a sum, Multiply or junction
         self._plain_links = []
@@ -1091,14 +1134,6 @@ class CVS0DCellMLGenerator(object):
                                         out_module_entrance_general_ports[entrance_port_idx],
                                         variables_1, variables_2, pending_mappings)
 
-                            # TODO make this more general. Have a entry in module_config.json entrance and exit 
-                            # types that specify a certain operation, like averaging wrt flow, like this gas port.
-                            elif main_component_type == 'tissue_GE_simple_type' and out_component_type == "gas_transport_simple_type":
-                                # this connection is done through the terminal_venous_connection
-                                # TODO after this if loop I set that this connection is done. It is actually done later on
-                                # when doing the venous_terminal_connection. Fine for now.
-                                self.__set_bcs_supplied(main_module, variables_1, out_module, variables_2)
-
                             else:
                                 self.__map_plain_pair(main_module, out_module, variables_1, variables_2,
                                                       pending_mappings,
@@ -1449,7 +1484,6 @@ class CVS0DCellMLGenerator(object):
 
     def __write_terminal_venous_connection_comp(self, wf, vessel_df, flow_units='m3_per_s'):
         first_venous_names = []  # stores name of venous compartments that take flow from terminals
-        tissue_GE_names = []  # stores name of venous compartments that take flow from terminals
         for vessel_tup in vessel_df.itertuples():
             if vessel_tup.module_format != 'cellml':
                 # if not cellml then don't do anything for this vessel/module
@@ -1504,29 +1538,8 @@ class CVS0DCellMLGenerator(object):
                 self.__write_mapping(wf, 'terminal_venous_connection', vessel_name + '_module',
                                      v_1, v_2)
 
-            if vessel_tup.module_type == 'gas_transport_simple' and \
-                    vessel_df.loc[vessel_df['name'].isin(vessel_tup.inp_instances)
-                    ]['module_type'].str.contains('tissue_GE_simple').any():
-                vessel_name = vessel_tup.name
-
-                vars_1 = ['v_venous_total', f'C_O2_p_venous_ave', f'C_CO2_p_venous_ave']
-                vars_2 = ['v', 'C_O2_in', 'C_CO2_in']
-                self.__write_mapping(wf, 'terminal_venous_connection', vessel_name + '_module',
-                                     vars_1, vars_2)
-
-            if vessel_tup.module_type == 'tissue_GE_simple':
-                vessel_name = vessel_tup.name
-                tissue_GE_names.append(vessel_name)
-
-                C_1 = [f'C_O2_p_{vessel_name}', f'C_CO2_p_{vessel_name}']
-                C_2 = ['C_O2_p', 'C_CO2_p']
-
-                self.__write_mapping(wf, 'terminal_venous_connection', vessel_name + '_module',
-                                     C_1, C_2)
-
         # loop through vessels to get the terminals to add up for each first venous section
         terminal_names_for_first_venous = [[] for i in range(len(first_venous_names))]
-        terminal_names_with_GE = []
         terminal_names = []
         for vessel_tup in vessel_df.itertuples():
             if vessel_tup.module_type.endswith('terminal'):
@@ -1540,10 +1553,6 @@ class CVS0DCellMLGenerator(object):
                                       f'not including terminal names as input has been deprecated')
                                 exit()
                             terminal_names_for_first_venous[idx].append(vessel_name)
-                for idx, tissue_GE_name in enumerate(tissue_GE_names):
-                    for II in range(len(vessel_tup.out_instances)):
-                        if vessel_tup.out_instances[II] == tissue_GE_name:
-                            terminal_names_with_GE.append(vessel_name)
                 terminal_names.append(vessel_name)
 
         # create computation environment for connection and write the
@@ -1565,26 +1574,6 @@ class CVS0DCellMLGenerator(object):
             # in_outs.append('priv_in_pub_out')
             in_outs.append('out')
 
-        for GE_name in tissue_GE_names:
-            variables.append(f'C_O2_p_{GE_name}')
-            variables.append(f'C_CO2_p_{GE_name}')
-            units.append('dimensionless')
-            units.append('dimensionless')
-            in_outs.append('in')
-            in_outs.append('in')
-
-        if len(tissue_GE_names) > 0:
-            variables.append(f'C_O2_p_venous_ave')
-            variables.append(f'C_CO2_p_venous_ave')
-            units.append('dimensionless')
-            units.append('dimensionless')
-            in_outs.append('out')
-            in_outs.append('out')
-
-            variables.append(f'v_venous_total')
-            units.append(flow_units) # ('m3_per_s')
-            in_outs.append('out')
-
         self.__write_variable_declarations(wf, variables, units, in_outs)
         for idx, venous_name in enumerate(first_venous_names):
             rhs_variables = []
@@ -1593,24 +1582,6 @@ class CVS0DCellMLGenerator(object):
                 rhs_variables.append(f'v_{terminal_name}')
 
             self.__write_variable_sum(wf, lhs_variable, rhs_variables)
-
-        if len(tissue_GE_names) > 0:
-
-            rhs_variables_to_average = []
-            rhs_variables_weightings = []
-            rhs_variables_to_average_CO2 = []
-            # sum all venous components to get a total flow to use for gas transport
-            lhs_variable_flow = 'v_venous_total'
-            lhs_variable = f'C_O2_p_venous_ave'
-            lhs_variable_CO2 = f'C_CO2_p_venous_ave'
-            for terminal_name, GE_name in zip(terminal_names_with_GE, tissue_GE_names):
-                rhs_variables_to_average.append(f'C_O2_p_{GE_name}')
-                rhs_variables_to_average_CO2.append(f'C_CO2_p_{GE_name}')
-                rhs_variables_weightings.append(f'v_{terminal_name}')
-
-            self.__write_variable_sum(wf, lhs_variable_flow, rhs_variables_weightings)
-            self.__write_variable_average(wf, lhs_variable, rhs_variables_to_average, rhs_variables_weightings)
-            self.__write_variable_average(wf, lhs_variable_CO2, rhs_variables_to_average_CO2, rhs_variables_weightings)
 
         wf.write('</component>\n')
 
@@ -2330,52 +2301,6 @@ class CVS0DCellMLGenerator(object):
             wf.write('       </apply>\n')
         else:
             wf.write(f'            <ci>{rhs_variables[0]}</ci>\n')
-
-        wf.write('   </apply>\n')
-        wf.write('</math>\n')
-
-    def __write_variable_average(self, wf, lhs_variable, rhs_variables_to_average, rhs_variables_weighting):
-        """ writes the cellml code for averaging variables with weighting. Designed for getting an equivalent
-        concentration
-
-        C = (C_1*v_1 + C_2*v_2)/(v_1 + v_2)
-        """
-        if len(rhs_variables_to_average) != len(rhs_variables_weighting):
-            print('rhs_variables_to_average and rhs_variables_weighting must be the same length, exiting')
-            exit()
-
-        wf.writelines('<math xmlns="http://www.w3.org/1998/Math/MathML">\n'
-                      '   <apply>\n'
-                      '       <eq/>\n'
-                      f'       <ci>{lhs_variable}</ci>\n')
-        if len(rhs_variables_to_average) > 1:
-            wf.write('      <apply>\n')
-            wf.write('          <divide/>\n')
-            wf.write('          <apply>\n')
-            wf.write('              <plus/>\n')
-            for variable, weight in zip(rhs_variables_to_average, rhs_variables_weighting):
-                wf.write('          <apply>\n')
-                wf.write('              <times/>\n')
-                wf.write(f'             <ci>{variable}</ci>\n')
-                wf.write(f'             <ci>{weight}</ci>\n')
-                wf.write('          </apply>\n')
-            wf.write('          </apply>\n')
-            wf.write('          <apply>\n')
-            wf.write('              <plus/>\n')
-            wf.write('              <apply>\n')
-            wf.write('                  <abs/>\n')
-            wf.write('                  <apply>\n')
-            wf.write('                      <plus/>\n')
-            for weight in rhs_variables_weighting:
-                wf.write(f'                     <ci>{weight}</ci>\n')
-            wf.write('                  </apply>\n')
-            wf.write('              </apply>\n')
-            wf.write('              <cn cellml:units="m3_per_s" type="e-notation">1<sep/>-10</cn>\n')
-            wf.write('          </apply>\n')
-            wf.write('      </apply>\n')
-
-        else:
-            wf.write(f'            <ci>{rhs_variables_to_average[0]}</ci>\n')
 
         wf.write('   </apply>\n')
         wf.write('</math>\n')

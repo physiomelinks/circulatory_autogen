@@ -49,6 +49,28 @@ Decided by Finbar Argus on 2026-10-31.
 - `ParamID.make_optimiser` builds the optimiser for a cost object; `ParamID.run` uses it.
   `remove_params_by_idx` re-indexes modifiers and per-entry lists.
 
+### Fixed — the mixed venous O2 and CO2 contents weight each region by its own flow
+
+- The venous blood of several `tissue_GE_simple` regions is now mixed by a `venous_gas_mixing`
+  module. Each region gives its outflow and the gas it carries (`v_out`, `j_O2 = v C_O2_p`,
+  `j_CO2 = v C_CO2_p`) on a `gas_flux_port`; the module sums them through a multi_port "sum"
+  port and gives `C_O2_mix`, `C_CO2_mix` and `v_mix` to the venous `gas_transport_simple`.
+  Each mixed content is `C_mix = J v / (v^2 + eps^2)`, eps = 1e-12 m3/s: `J / v` to within
+  `(eps / v)^2` at any real flow, 0 at zero flow (t = 0) instead of 0/0, the right sign when
+  the total flow reverses, and smooth, so the solver sees no switch. The generated
+  `terminal_venous_connection` averaged the contents itself, pairing contents with terminal
+  flows by their order in the module array, so whenever the terminals and the gas-exchange
+  modules were listed in different orders each content was weighted by another region's flow.
+- **Breaking:** a `tissue_GE_simple` connected straight to a `gas_transport_simple` is now a
+  ValueError, and so is a `venous_gas_mixing` connected to a module through no port (e.g. a
+  `tissue_GE_simple` version without the `gas_flux_port`), which would leave that region out of
+  the mix. Migrate a module array by adding a `venous_gas_mixing` record whose
+  `inp_instances` are the gas-exchange modules and whose `out_instances` is the venous gas
+  transport, and pointing those at it (as `resources/control_parasymp_module_array.csv` does).
+  The built-in `tissue_GE_simple/nn` has the `gas_flux_port`, and `venous_gas_mixing/nn` is
+  built in; in the module library they are `tissue_GE_simple/Ursino2001_v02` and
+  `venous_gas_mixing/ArgusUNPUBLISHED_v01`.
+
 ### Added — a calibration workflow run writes its provenance
 
 - A run writes `provenance_graph.json`, with a schema and a version, and `provenance.svg`, a
