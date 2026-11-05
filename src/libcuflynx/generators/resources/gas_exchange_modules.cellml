@@ -81,6 +81,8 @@
         <!-- Constitutive parameters-->
         <variable name="q_0" public_interface="in" units="m3"/>
         <variable name="v" public_interface="in" units="m3_per_s"/>
+        <!-- a flow small against the capillary flow (mean 5.7e-5 m3/s in CVS-ANS): C = num*v/(v^2 + v_eps^2) is num/v to a relative 1e-12 there, and 0 instead of 0/0 at v = 0 -->
+        <variable name="v_eps" units="m3_per_s" initial_value="1e-10"/>
         <variable name="M_O2" public_interface="out" units="m3_per_s"/>
         <variable name="M_CO2" public_interface="out" units="m3_per_s"/>
         <variable name="C_O2_v" public_interface="in" units="dimensionless"/>
@@ -277,19 +279,35 @@
                     <apply>
                         <divide/>
                         <apply>
+                            <times/>
+                            <apply>
+                                <plus/>
+                                <apply>
+                                    <times/>
+                                    <ci>v_p</ci>
+                                    <ci>C_O2_p</ci>
+                                </apply>
+                                <apply>
+                                    <times/>
+                                    <ci>v_sh</ci>
+                                    <ci>C_O2_v</ci>
+                                </apply>
+                            </apply>
+                            <ci>v</ci>
+                        </apply>
+                        <apply>
                             <plus/>
                             <apply>
-                                <times/>
-                                <ci>v_p</ci>
-                                <ci>C_O2_p</ci>
+                                <power/>
+                                <ci>v</ci>
+                                <cn cellml:units="dimensionless">2</cn>
                             </apply>
                             <apply>
-                                <times/>
-                                <ci>v_sh</ci>
-                                <ci>C_O2_v</ci>
+                                <power/>
+                                <ci>v_eps</ci>
+                                <cn cellml:units="dimensionless">2</cn>
                             </apply>
                         </apply>
-                        <ci>v</ci>
                     </apply>
                     <cn cellml:units="dimensionless">0</cn>
                 </apply>
@@ -302,19 +320,35 @@
                     <apply>
                         <divide/>
                         <apply>
+                            <times/>
+                            <apply>
+                                <plus/>
+                                <apply>
+                                    <times/>
+                                    <ci>v_p</ci>
+                                    <ci>C_CO2_p</ci>
+                                </apply>
+                                <apply>
+                                    <times/>
+                                    <ci>v_sh</ci>
+                                    <ci>C_CO2_v</ci>
+                                </apply>
+                            </apply>
+                            <ci>v</ci>
+                        </apply>
+                        <apply>
                             <plus/>
                             <apply>
-                                <times/>
-                                <ci>v_p</ci>
-                                <ci>C_CO2_p</ci>
+                                <power/>
+                                <ci>v</ci>
+                                <cn cellml:units="dimensionless">2</cn>
                             </apply>
                             <apply>
-                                <times/>
-                                <ci>v_sh</ci>
-                                <ci>C_CO2_v</ci>
+                                <power/>
+                                <ci>v_eps</ci>
+                                <cn cellml:units="dimensionless">2</cn>
                             </apply>
                         </apply>
-                        <ci>v</ci>
                     </apply>
                     <cn cellml:units="dimensionless">0</cn>
                 </apply>
@@ -621,6 +655,8 @@
         <variable name="v_4" public_interface="in" units="m3_per_s"/>
         <variable name="v_5" public_interface="in" units="m3_per_s"/>
         <variable name="v" public_interface="out" units="m3_per_s"/>
+        <!-- a flow small against the capillary flow (mean 5.7e-5 m3/s in CVS-ANS): C = num*v/(v^2 + v_eps^2) is num/v to a relative 1e-12 there, and 0 instead of 0/0 at v = 0 -->
+        <variable name="v_eps" units="m3_per_s" initial_value="1e-10"/>
         <variable name="M_O2" public_interface="out" units="m3_per_s"/>
         <variable name="M_CO2" public_interface="out" units="m3_per_s"/>
         <variable name="C_O2_v" public_interface="in" units="dimensionless"/>
@@ -818,19 +854,35 @@
                     <apply>
                         <divide/>
                         <apply>
+                            <times/>
+                            <apply>
+                                <plus/>
+                                <apply>
+                                    <times/>
+                                    <ci>v_p</ci>
+                                    <ci>C_O2_p</ci>
+                                </apply>
+                                <apply>
+                                    <times/>
+                                    <ci>v_sh</ci>
+                                    <ci>C_O2_v</ci>
+                                </apply>
+                            </apply>
+                            <ci>v</ci>
+                        </apply>
+                        <apply>
                             <plus/>
                             <apply>
-                                <times/>
-                                <ci>v_p</ci>
-                                <ci>C_O2_p</ci>
+                                <power/>
+                                <ci>v</ci>
+                                <cn cellml:units="dimensionless">2</cn>
                             </apply>
                             <apply>
-                                <times/>
-                                <ci>v_sh</ci>
-                                <ci>C_O2_v</ci>
+                                <power/>
+                                <ci>v_eps</ci>
+                                <cn cellml:units="dimensionless">2</cn>
                             </apply>
                         </apply>
-                        <ci>v</ci>
                     </apply>
                     <cn cellml:units="m3_per_s">0</cn>
                 </apply>
@@ -843,19 +895,35 @@
                     <apply>
                         <divide/>
                         <apply>
+                            <times/>
+                            <apply>
+                                <plus/>
+                                <apply>
+                                    <times/>
+                                    <ci>v_p</ci>
+                                    <ci>C_CO2_p</ci>
+                                </apply>
+                                <apply>
+                                    <times/>
+                                    <ci>v_sh</ci>
+                                    <ci>C_CO2_v</ci>
+                                </apply>
+                            </apply>
+                            <ci>v</ci>
+                        </apply>
+                        <apply>
                             <plus/>
                             <apply>
-                                <times/>
-                                <ci>v_p</ci>
-                                <ci>C_CO2_p</ci>
+                                <power/>
+                                <ci>v</ci>
+                                <cn cellml:units="dimensionless">2</cn>
                             </apply>
                             <apply>
-                                <times/>
-                                <ci>v_sh</ci>
-                                <ci>C_CO2_v</ci>
+                                <power/>
+                                <ci>v_eps</ci>
+                                <cn cellml:units="dimensionless">2</cn>
                             </apply>
                         </apply>
-                        <ci>v</ci>
                     </apply>
                     <cn cellml:units="m3_per_s">0</cn>
                 </apply>

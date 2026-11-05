@@ -5,6 +5,13 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Fixed — pulmonary_GE's arterial concentrations at zero capillary flow
+
+`C_O2_a` and `C_CO2_a` in the built-in `pulmonary_GE` modules were `max(num/v, 0)`, 0/0 at v = 0
+(the capillary flow starting from rest), which only `max(NaN, 0) = 0` hid. They are now
+`max(num*v/(v^2 + v_eps^2), 0)` with `v_eps = 1e-10` m3/s: num/v to a relative 3e-12 at a typical
+capillary flow (5.7e-5 m3/s), for either sign of v, and 0 at v = 0.
+
 ### Added — profile likelihood for identifiability analysis (#519)
 
 - `ia_options: {method: profile_likelihood, num_points, range_factor, optimiser_options}` holds
