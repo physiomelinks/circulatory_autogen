@@ -79,18 +79,12 @@ def _sources(raw_step):
     return out
 
 
-# A data_item with an std at least this large carries no data: it is a term other items use.
-HELPER_STD = 1e14
-
-
 def _is_helper_item(item):
-    '''Whether a data_item scores nothing: its weight is 0, or its std is at least HELPER_STD
-    (a list counts only when every entry does). Such items feed ratios or differences.'''
-    def every(values, test):
-        values = values if isinstance(values, list) else [values]
-        return bool(values) and all(isinstance(v, (int, float)) and test(v) for v in values)
-    return (every(item.get('weight', 1.0), lambda w: w == 0)
-            or every(item.get('std'), lambda s: s >= HELPER_STD))
+    '''Whether a data_item scores nothing: its weight is 0 (a list counts only when every entry
+    is). Such items feed ratios or differences. The std never makes an item a helper.'''
+    weights = item.get('weight', 1.0)
+    weights = weights if isinstance(weights, list) else [weights]
+    return bool(weights) and all(isinstance(w, (int, float)) and w == 0 for w in weights)
 
 
 def _data_item_counts(result):

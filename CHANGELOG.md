@@ -33,14 +33,49 @@ next release; add to that section as you land a change.
   they don't know, naming the version found and the versions they read; write an older run's
   graph again with `cuflynx-provenance <output_dir>`.
 
+### Added — profile likelihood for identifiability analysis (#519)
+
+- `ia_options: {method: profile_likelihood, num_points, range_factor, optimiser_options}` holds
+  each calibrated entry at a sweep of values around the best fit and re-calibrates the others at
+  each one, on `@is_MLE` costs (`MSE` becomes `gaussian_MLE` with a warning; a cost with no MLE
+  form is an error). The 95% interval is where `-ln L` stays within 1.92 of its minimum.
+- `<param_id_output_dir>/profile_likelihood/` gets one JSON and PDF per entry and `summary.json`.
+  Each JSON holds `param_values`, `costs` and `ci_95`, and each point's optimum:
+  `other_param_names` and `optima`, one row of the other entries' values per point. The points'
+  optimisers write no files, so the calibration's best-fit files are never overwritten.
+- `ParamID.make_optimiser` builds the optimiser for a cost object; `ParamID.run` uses it.
+  `remove_params_by_idx` re-indexes modifiers and per-entry lists.
+
+### Fixed — the mixed venous O2 and CO2 contents weight each region by its own flow
+
+- The venous blood of several `tissue_GE_simple` regions is now mixed by a `venous_gas_mixing`
+  module. Each region gives its outflow and the gas it carries (`v_out`, `j_O2 = v C_O2_p`,
+  `j_CO2 = v C_CO2_p`) on a `gas_flux_port`; the module sums them through a multi_port "sum"
+  port and gives `C_O2_mix`, `C_CO2_mix` and `v_mix` to the venous `gas_transport_simple`.
+  Each mixed content is `C_mix = J v / (v^2 + eps^2)`, eps = 1e-12 m3/s: `J / v` to within
+  `(eps / v)^2` at any real flow, 0 at zero flow (t = 0) instead of 0/0, the right sign when
+  the total flow reverses, and smooth, so the solver sees no switch. The generated
+  `terminal_venous_connection` averaged the contents itself, pairing contents with terminal
+  flows by their order in the module array, so whenever the terminals and the gas-exchange
+  modules were listed in different orders each content was weighted by another region's flow.
+- **Breaking:** a `tissue_GE_simple` connected straight to a `gas_transport_simple` is now a
+  ValueError, and so is a `venous_gas_mixing` connected to a module through no port (e.g. a
+  `tissue_GE_simple` version without the `gas_flux_port`), which would leave that region out of
+  the mix. Migrate a module array by adding a `venous_gas_mixing` record whose
+  `inp_instances` are the gas-exchange modules and whose `out_instances` is the venous gas
+  transport, and pointing those at it (as `resources/control_parasymp_module_array.csv` does).
+  The built-in `tissue_GE_simple/nn` has the `gas_flux_port`, and `venous_gas_mixing/nn` is
+  built in; in the module library they are `tissue_GE_simple/Ursino2001_v02` and
+  `venous_gas_mixing/ArgusUNPUBLISHED_v01`.
+
 ### Added — a calibration workflow run writes its provenance
 
 - A run writes `provenance_graph.json`, with a schema and a version, and `provenance.svg`, a
   self-contained diagram for reports. `cuflynx-provenance <output_dir>` writes them again from the
   output directory alone. Each box says what set its values: calibrated, measured, inherited or
   set by hand. A value nothing describes counts as unclassified, never as inherited.
-- A step box counts only scored data_items as observables. Helper items, with weight 0 or an
-  std of at least 1e14, only feed other items, so they appear as `helper_items` in the graph.
+- A step box counts only scored data_items as observables. Helper items, with weight 0, only
+  feed other items, so they appear as `helper_items` in the graph.
 - `workflow_result.json` records `libcuflynx_git` and `project_git` (`commit`, `dirty`) and
   `libcellml_version`.
 - A parameter may carry `origin` (`measured`, `inherited` or `set_by_hand`) and `reason`, which
@@ -64,6 +99,14 @@ next release; add to that section as you land a change.
   calibration reaches the target. It now draws one for each calibration with a value in the
   target. `flowchart.workflow_graph` holds plain text, with code between backticks, and `tikz`
   writes the LaTeX, so the SVG diagram draws the same graph.
+
+### Added — generation stops on an old libCellML and names an edge that joins two computed variables
+
+- Generation raises an error on libCellML below 0.7.2, whose unit scaling rewrites variables:
+  `milliV_per_kiloV` compared equal to `dimensionless`, so `dim` variables took its 1e-6 scale.
+- When the analyser finds an over-constrained variable, generation raises a `ValueError` naming
+  the two computed variables a port mapping joined. Modules sharing a port type are joined on it
+  by any edge between them; pass a single signal through a variable on a node both connect to.
 
 ### Changed — no rtol warning for FSA gradients on Myokit 1.40 and later
 
@@ -294,6 +337,13 @@ Multi-config generators (Visual Studio, Xcode) ignore `CMAKE_BUILD_TYPE` and bui
 `/RTC1` MSVC refuses next to the `-O1` (read as `/O1`) given to `model0d_core.c` (D8016).
 Single-config generators (Make, Ninja) ignore `--config`. The printed build hints add
 `--config Release` too.
+
+### Fixed — the generated `BE_batched_c` / `CVODES_batched_c` C compiles with MSVC (#627)
+
+MSVC's OpenMP 2.0 rejects a declaration in a `#pragma omp parallel for` loop's initialisation
+(C3015), so the batched runtime declares each loop index as an `int` before the loop. MSVC's
+`stdlib.h` defines `min` and `max` as macros (C2059), so the generated model C names libCellML's
+min/max helpers `cellml_min` and `cellml_max` (`model_type: cpp` too). Results are unchanged.
 
 ### Fixed — libCellML 0.7's C for models with a state set by a computed constant, or with no algebraic variables
 
