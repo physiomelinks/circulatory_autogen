@@ -228,12 +228,23 @@ class PythonGenerator:
                      + [info(e, "ALGEBRAIC") for e in namespace["ALGEBRAIC_VARIABLE_INFO"]])
         header = code[:code.index("STATE_COUNT =")]
         helpers = code[code.index("\ndef ") + 1:code.index("def create_states_array")]
-        functions = []
-        for name, signature in cls._SIGNATURES.items():
+        bodies = {}
+        for name in cls._SIGNATURES:
             body = cls._extract_function_block(code, name).split("\n", 1)[1]
-            body = re.sub(rf"\b({'|'.join(cls._ARRAYS)})\[(\d+)\]",
-                          lambda m: f"variables[{offsets[m.group(1)] + int(m.group(2))}]", body)
-            functions.append(signature + "\n" + body.rstrip() + "\n")
+            bodies[name] = re.sub(rf"\b({'|'.join(cls._ARRAYS)})\[(\d+)\]",
+                                  lambda m: f"variables[{offsets[m.group(1)] + int(m.group(2))}]", body)
+        # libCellML 0.7 sets a state whose initial value is a computed constant (m = m_init) in
+        # computeComputedConstants, which here takes no states: those assignments move to the end of
+        # initialise_variables, after it computes the computed constants they read.
+        lines = bodies["compute_computed_constants"].splitlines()
+        state_init = [line for line in lines if re.match(r"\s*states\[\d+\]\s*=", line)]
+        if state_init:
+            bodies["compute_computed_constants"] = "\n".join(l for l in lines if l not in state_init) + "\n"
+            indent = re.match(r"\s*", state_init[0]).group(0)
+            bodies["initialise_arrays"] = (bodies["initialise_arrays"].rstrip() + "\n"
+                                           + f"{indent}compute_computed_constants(variables)\n"
+                                           + "\n".join(state_init) + "\n")
+        functions = [signature + "\n" + bodies[name].rstrip() + "\n" for name, signature in cls._SIGNATURES.items()]
         return "\n".join([
             header + f"STATE_COUNT = {namespace['STATE_COUNT']}",
             f"VARIABLE_COUNT = {sum(counts)}",

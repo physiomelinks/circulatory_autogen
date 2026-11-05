@@ -5,6 +5,13 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Fixed — Python, CasADi and AADC models of a state initialised from a computed constant load
+
+libCellML 0.7 sets a state whose initial value is a computed constant (a gate starting at its steady state,
+`m = m_init`) in `computeComputedConstants`, and the generated Python wrote it there as `state.m = ...`
+without a states argument, so the model failed to load (`NameError`). Those assignments now end
+`initialise_variables`, after it computes the computed constants.
+
 ### Added — profile likelihood for identifiability analysis (#519)
 
 - `ia_options: {method: profile_likelihood, num_points, range_factor, optimiser_options}` holds
