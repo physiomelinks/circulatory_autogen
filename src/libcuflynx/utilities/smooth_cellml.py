@@ -28,9 +28,10 @@ left as written  floor, eq, neq, xor         left as written                    
 ===============  ==========================  ==========================================  ======================  ===============================================
 
 eps: ``rel`` (per kind, ``rel["division"]`` is rel_div, ``rel["variables"]`` per equation) times the
-range of x in the nominal reference run. An argument that keeps one sign in every run (an
-``abs(tau)`` guard) takes ``rel x min(range, smallest |x|)`` instead, so eps stays below its smallest
-value. A division is guarded only when its denominator reaches or crosses 0 in some reference run;
+range of x in the nominal reference run. An abs or max/min argument that keeps one sign in every
+run (an ``abs(tau)`` guard) takes ``rel x min(range, smallest |x|)`` instead, so eps stays below its
+smallest value. A comparison keeps the range rule: one never seen to switch in the sampled runs may
+still switch between samples. A division is guarded only when its denominator reaches or crosses 0 in some reference run;
 denominators of constants alone are not probed. No site is collapsed unless ``collapse`` says so.
 
 ``floor`` and piecewise conditions using ``eq``, ``neq``, ``xor`` or ``floor`` are left as written
@@ -476,8 +477,10 @@ class _Pass:
             record['flags'].append('one_sided')
         span = hi - lo
         one_sign = lo * hi > 0.0 and not (isinstance(r, dict) and r.get('any_sign_change'))
-        if span > 0.0 and one_sign and site.kind != 'division':
-            # keeps one sign: eps below its smallest |x| (an abs(tau) guard over three decades)
+        if span > 0.0 and one_sign and site.kind in ('abs', 'maxmin'):
+            # keeps one sign: eps below its smallest |x| (an abs(tau) guard over three decades). Not for a
+            # comparison: sampled on one side, it may still be crossed between samples (a spike's upstroke
+            # crosses |V| = 1 within 0.2 ms), and a tiny eps there is a near-step.
             record['eps'] = rel * min(span, float(min_abs))
             record['eps_rule'] = 'rel x min(range, smallest |x|): x keeps one sign'
         elif span > 0.0:

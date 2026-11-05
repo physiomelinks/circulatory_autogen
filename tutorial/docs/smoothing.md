@@ -32,8 +32,10 @@ the report sums them as `lifted_estimate`.
 
 **eps.** `rel` (one number, or per kind `{"abs", "maxmin", "piecewise", "division"}`, and per equation
 `{"variables": {"[component/]variable": rel}}`) times the range of x in the nominal (first) reference run.
-An argument that keeps one sign in every run, such as an `abs(tau)` guard, takes `rel × min(range, smallest |x|)`,
-so eps stays below its smallest value. No site is collapsed (replaced by its branch) unless `collapse` asks.
+An `abs` or `max`/`min` argument that keeps one sign in every run, such as an `abs(tau)` guard, takes
+`rel × min(range, smallest |x|)`, so eps stays below its smallest value. A comparison keeps the range rule: one that
+the sampled runs never see switch may still switch between samples (a spike's upstroke crosses |V| = 1 within
+0.2 ms), and a tiny eps there is a near-step. No site is collapsed (replaced by its branch) unless `collapse` asks.
 
 **Report flags.** `floor_upstream`, `branch_domain`, `one_sided`, `nan_in_runs`, `nan_at_init`, `zero_range`, and
 `jump_candidate` (a piecewise with a constant branch that differs from another, whose result is only a state
