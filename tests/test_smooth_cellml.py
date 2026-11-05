@@ -137,6 +137,8 @@ def test_every_record_names_its_rule_and_lifted_count():
     _, report = sc.smooth(text, _ranges())
     assert [(s['rule'], s['lifted']) for s in report['sites']] == [('abs', 2), ('piecewise', 2), ('rectifier', 2)]
     assert report['lifted_estimate'] == 6
+    # auto: xH for a rectifier only
+    assert _equation(sc.smooth(text, _ranges(), maxmin_form='auto')[0], 'p') == '(0+(sm3_x*sm3_H))'
     _, report = sc.smooth(text, _ranges(), exempt=[{'variable': 'q'}])
     assert [s['rule'] for s in report['sites']] == ['abs', 'exempt', 'rectifier']
 

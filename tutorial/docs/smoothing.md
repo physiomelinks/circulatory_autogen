@@ -23,8 +23,8 @@ the report sums them as `lifted_estimate`.
 | rule | pattern | example | smooth form | lifted (per use) | eps | when it is not smoothed |
 |---|---|---|---|---|---|---|
 | `abs` | `abs(x)` | `abs(v)` in a valve flow | `w` | w, z: 2 | `rel["abs"]` × range | exempt |
-| `maxmin` | `max(a, b)`, `min(a, b)`, a − b changes sign | `max(T + ΔT, T_min)` | form `w` (default): `(a + b ± w)/2`; form `xH`: `b + (a − b)H`, `a − (a − b)H` | w: w, z: 2; xH: z, x z, z², w: about 4 | `rel["maxmin"]` × range | exempt |
-| `rectifier` | `max(x, 0)`, `min(x, 0)` | `max(Cai − Cai_NE_base, 0)` | as `maxmin` with b = 0: `(x + w)/2` or `x H` | as `maxmin` | as `maxmin` | exempt |
+| `maxmin` | `max(a, b)`, `min(a, b)`, a − b changes sign | `max(T + ΔT, T_min)` | form `w` (default for maxmin): `(a + b ± w)/2`; form `xH`: `b + (a − b)H`, `a − (a − b)H` | w: w, z: 2; xH: z, x z, z², w: about 4 | `rel["maxmin"]` × range | exempt |
+| `rectifier` | `max(x, 0)`, `min(x, 0)` | `max(Cai − Cai_NE_base, 0)` | form `w` (default): `(x + w)/2`; form `xH`: `x H` | w: 2; xH: about 4 | as `maxmin` | exempt |
 | `piecewise` | `f if a ≥ b else g`; `and`, `or`, `not`; several pieces | valve opening rates | `g + H(f − g)`, split on one comparison at a time; the weights sum to 1; a comparison repeated either way round (`x ≤ 0.25`, `x > 0.25`) is one H | per comparison z, x z, plus products with the branches | `rel["piecewise"]` × range | exempt; a condition with `eq`, `neq`, `xor` or `floor` |
 | `division` | `num/den`, den reaches or crosses 0 in a reference run | the GHK form `V/(1 − exp(−zFV/RT))` | `num den q`, `q = 1/(den² + eps_d²)` | q, den q, q²: about 3 | `rel["division"]` × range of den | den stays away from 0 (`not_needed`); den of constants alone is not probed |
 | `exempt` | named in `exempt` | `chi_vfloor_final` | left as written; the report gives its `switch_variables` and whether each is a floor `phase` | 0 | – | – |
@@ -40,3 +40,9 @@ the sampled runs never see switch may still switch between samples (a spike's up
 **Report flags.** `floor_upstream`, `branch_domain`, `one_sided`, `nan_in_runs`, `nan_at_init`, `zero_range`, and
 `jump_candidate` (a piecewise with a constant branch that differs from another, whose result is only a state
 derivative or is used only inside cos or sin: suggested for `exempt`, never applied).
+
+**Rectifier form.** `maxmin_form` is `"w"` (default), `"xH"`, or `"auto"` (xH for a rectifier, w for any other
+max/min). On the CVS-ANS gas clamps (respiratory_gas_transport) and SN_simple's NE release `x H` had the smaller error
+at each rel and fewer CVODE steps, but it dips below the clamp, to −0.15 eps at x = −0.6 eps, so a clamped quantity
+can go negative: 3compartment's valve states `max(zeta_pre, 0)` in xH form stop the solver at every rel tested (1e-4 to 1e-2). `(x + w)/2`
+never goes below the clamp, so it stays the default.

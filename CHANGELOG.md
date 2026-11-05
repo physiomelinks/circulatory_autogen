@@ -34,6 +34,9 @@ next release; add to that section as you land a change.
   guarded, `num den/(den^2 + eps_d^2)`, with eps_d = `rel["division"]` × the denominator's range;
   `maxmin_form="xH"` writes max and min as `b + (a - b) H`. An argument that keeps one sign in every run
   takes eps = rel × min(range, smallest |x|).
+- `maxmin_form="auto"` writes a rectifier (`max(x, 0)`, `min(x, 0)`) as `x H` and other max/min as
+  `(a + b ± w)/2`. `x H` had the smaller error on the CVS-ANS gas clamps and SN_simple's NE release,
+  but it dips below the clamp (to −0.15 eps), so `"w"` stays the default.
 - Each site's range, and so its eps, comes from the nominal (first) reference run; one outlying run
   can no longer set eps for every point. `reference_ranges(..., over="union")` (`--ranges-over
   union`) takes the range over all the runs. A NaN or Inf in any run is still flagged.

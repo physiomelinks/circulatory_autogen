@@ -17,7 +17,7 @@ rule             pattern (example)           smooth form                        
 abs              abs(x), x changes sign      w                                           w, z: 2                 rel x range (abs)
 maxmin           max/min(a, b), a - b        (a + b +- w)/2  (form "w", the default)     w, z: 2                 rel x range (maxmin)
                  changes sign (max(v, 0))    or b + (a - b) H, a - (a - b) H (form "xH")  z, x z, z^2, w: ~4
-rectifier        max(x, 0), min(x, 0)        as maxmin, with b = 0: (x + w)/2, x H        as maxmin              as maxmin
+rectifier        max(x, 0), min(x, 0)        (x + w)/2 (form "w", the default), or x H    w: 2; xH: ~4            as maxmin
 piecewise        f if a >= b else g; and,    g + H (f - g), split on one comparison at  per comparison z, x z,  rel x range (piecewise)
                  or, not; several pieces     a time; weights sum to 1; a comparison     plus products with the
                                              repeated either way round is one H         branches
@@ -235,8 +235,8 @@ class _Pass:
     def __init__(self, root, mode, ranges=None, rel=None, collapse=None, abs_eps=DEFAULT_ABS_EPS, only=None,
                  exempt=None, maxmin_form='w'):
         self.root, self.mode = root, mode
-        if maxmin_form not in ('w', 'xH'):
-            raise ValueError(f"maxmin_form: 'w' or 'xH', not {maxmin_form!r}")
+        if maxmin_form not in ('auto', 'w', 'xH'):
+            raise ValueError(f"maxmin_form: 'auto', 'w' or 'xH', not {maxmin_form!r}")
         self.maxmin_form = maxmin_form
         self.exempt = [(e['variable'], e.get('reason', '')) for e in exempt or []]
         self.graph = _ModelGraph(root)
@@ -386,8 +386,11 @@ class _Pass:
         site.strict = strict
         site.record['rule'] = rule or kind
         site.x = copy.deepcopy(x)
-        site.form = {'maxmin': self.maxmin_form, 'piecewise': 'H', 'division': 'q'}.get(kind, 'w')
-        site.needs_H = kind == 'piecewise' or (kind == 'maxmin' and self.maxmin_form == 'xH')
+        form = self.maxmin_form
+        if form == 'auto':
+            form = 'xH' if site.record['rule'] == 'rectifier' else 'w'
+        site.form = {'maxmin': form, 'piecewise': 'H', 'division': 'q'}.get(kind, 'w')
+        site.needs_H = kind == 'piecewise' or (kind == 'maxmin' and site.form == 'xH')
         names = {s: f'sm{k}_{s}' for s in (('x', 'q') if kind == 'division' else ('x', 'w', 'z'))}
         if site.needs_H:
             names['H'] = f'sm{k}_H'
@@ -921,7 +924,10 @@ def smooth(model, ranges, rel=None, collapse=None, abs_eps=DEFAULT_ABS_EPS, only
         ranges: ``{"sm<k>_x": {"min": .., "max": .., "min_abs": ..}}`` over the reference runs
             (``[min, max]`` also accepted). ``min_abs``, the smallest |x| seen, sets the largest
             deviation; without it the deviation is the worst case for the range.
-        maxmin_form: ``"w"``, max/min as (a + b +- w)/2, or ``"xH"``, b + (a - b) H.
+        maxmin_form: ``"w"`` (default), max/min as (a + b +- w)/2; ``"xH"``, b + (a - b) H; or
+            ``"auto"``, xH for a rectifier (max(x, 0), min(x, 0)) and w for any other. x H has the smaller
+            error near the switch, but it dips below the clamp, to -0.15 eps at x = -0.6 eps, so a
+            clamped quantity can go negative: (x + w)/2 never does.
         rel: ``{"abs", "maxmin", "piecewise", "division"}`` -> eps relative to each argument's range, or one
             float for all. Defaults to 1e-3. ``rel["variables"]``: ``{variable or "component/variable":
             rel}`` for the sites in the equation of that variable, over their kind's.
@@ -1154,8 +1160,8 @@ def main(argv=None):
     parser.add_argument('--exempt', help='JSON [{"variable": "[component/]glob", "reason": ...}]: sites left as written')
     parser.add_argument('--ranges-over', choices=('nominal', 'union'), default='nominal',
                         help='each range from the first run (nominal, default) or over all the runs')
-    parser.add_argument('--maxmin-form', choices=('w', 'xH'), default='w',
-                        help='max/min as (a + b +- w)/2 (w, default) or b + (a - b) H (xH)')
+    parser.add_argument('--maxmin-form', choices=('w', 'xH', 'auto'), default='w',
+                        help='max/min as (a + b +- w)/2 (w, default) or b + (a - b) H (xH); auto: xH for a rectifier')
     parser.add_argument('--collapse', action='store_true',
                         help='replace sites that never switch in the runs by their active branch')
     args = parser.parse_args(argv)
