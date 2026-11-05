@@ -111,8 +111,10 @@
         <variable name="J_CO2" public_interface="in" units="m3_per_s"/>
         <!-- the total flow as an output, so the downstream compartment can use it (an input can't be passed on) -->
         <variable name="v_mix" public_interface="out" units="m3_per_s"/>
-        <!-- flow-weighted mixed contents: sum(v_i C_i) / sum(v_i); 0 while no blood flows (|v| <= 1e-12 m3/s, e.g. at
-             t = 0), when the downstream transport, which multiplies the content by v, does not use it -->
+        <!-- flow-weighted mixed contents, C_mix = J v / (v^2 + eps^2) with eps = 1e-12 m3/s: equal to J / v to
+             within (eps / v)^2 at any real flow (~1e-16 at a venous return of 1e-4 m3/s), 0 at zero flow (e.g. at
+             t = 0) instead of 0 / 0, the flow-weighted average with the right sign when the total flow reverses,
+             and smooth (no piecewise or abs), so the solver sees no switch -->
         <variable name="C_O2_mix" public_interface="out" units="dimensionless"/>
         <variable name="C_CO2_mix" public_interface="out" units="dimensionless"/>
         <math xmlns="http://www.w3.org/1998/Math/MathML">
@@ -124,50 +126,52 @@
             <apply>
                 <eq/>
                 <ci>C_O2_mix</ci>
-                <piecewise>
-                    <piece>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <ci>J_O2</ci>
+                        <ci>v</ci>
+                    </apply>
+                    <apply>
+                        <plus/>
                         <apply>
-                            <divide/>
-                            <ci>J_O2</ci>
+                            <times/>
+                            <ci>v</ci>
                             <ci>v</ci>
                         </apply>
                         <apply>
-                            <gt/>
-                            <apply>
-                                <abs/>
-                                <ci>v</ci>
-                            </apply>
+                            <times/>
+                            <cn cellml:units="m3_per_s" type="e-notation">1<sep/>-12</cn>
                             <cn cellml:units="m3_per_s" type="e-notation">1<sep/>-12</cn>
                         </apply>
-                    </piece>
-                    <otherwise>
-                        <cn cellml:units="dimensionless">0</cn>
-                    </otherwise>
-                </piecewise>
+                    </apply>
+                </apply>
             </apply>
             <apply>
                 <eq/>
                 <ci>C_CO2_mix</ci>
-                <piecewise>
-                    <piece>
+                <apply>
+                    <divide/>
+                    <apply>
+                        <times/>
+                        <ci>J_CO2</ci>
+                        <ci>v</ci>
+                    </apply>
+                    <apply>
+                        <plus/>
                         <apply>
-                            <divide/>
-                            <ci>J_CO2</ci>
+                            <times/>
+                            <ci>v</ci>
                             <ci>v</ci>
                         </apply>
                         <apply>
-                            <gt/>
-                            <apply>
-                                <abs/>
-                                <ci>v</ci>
-                            </apply>
+                            <times/>
+                            <cn cellml:units="m3_per_s" type="e-notation">1<sep/>-12</cn>
                             <cn cellml:units="m3_per_s" type="e-notation">1<sep/>-12</cn>
                         </apply>
-                    </piece>
-                    <otherwise>
-                        <cn cellml:units="dimensionless">0</cn>
-                    </otherwise>
-                </piecewise>
+                    </apply>
+                </apply>
             </apply>
         </math>
     </component>
