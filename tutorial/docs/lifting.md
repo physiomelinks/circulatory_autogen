@@ -42,6 +42,11 @@ Expressions are sympy strings: parse with `sympy.sympify(expr, locals={name: sym
    monomial removing the most terms of degree > 2. A term with an input may carry one state factor (an N term).
    Auxiliaries whose T is constant or equal to another's are then removed.
 
+The search works on the coefficients' values at two parameter points, so a model's parameter expressions are never
+multiplied out; the symbolic operators are formed once, for the variables kept. A polynomial system of more than
+`--max-terms` terms (20000) is not quadratized: the lift stops with its size (e.g. nested square roots of a smoothed
+dissociation curve give terms of degree 24).
+
 Input-free: the auxiliaries depend on the states only. A non-polynomial term that mixes states and inputs takes
 the inputs' derivatives as further inputs (`d<u>_dt`) when they are known functions of time, and `engine.input_free`
 is false. Some systems have no finite input-affine quadratic lift (u x² needs x³, then u x⁴, ...); the search then

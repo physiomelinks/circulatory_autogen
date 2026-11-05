@@ -65,6 +65,7 @@ CELLML2_NS = 'http://www.cellml.org/cellml/2.0#'
 MATHML_NS = 'http://www.w3.org/1998/Math/MathML'
 DEFAULT_TIME_BUDGET = 60.0          # s for each QBee stage
 DEFAULT_MAX_AUX = 400               # auxiliaries either fallback may add
+DEFAULT_MAX_TERMS = 20000           # terms of the polynomial system beyond which no quadratization is attempted
 #: smoothness class of each smoothing rule's original operation, and of its smooth form
 SMOOTHNESS = {'abs': 'C0 (Lipschitz, kink at x = 0)', 'maxmin': 'C0 (Lipschitz, kink where a = b)',
               'rectifier': 'C0 (Lipschitz, kink at x = 0)',
@@ -681,20 +682,72 @@ class _Polynomializer:
 # ---------------------------------------------------------------------------------------------
 # polynomials as {exponent tuple over (V + U): coefficient}
 
-def _to_dict(e, gens):
-    e = sp.expand(e)
-    if e == 0:
-        return {}
-    try:
-        p = sp.Poly(e, *gens)
-    except sp.PolynomialError as err:
-        raise LiftError(f'not polynomial in the lifted variables: {err}') from None
-    out = {}
-    for mono, c in p.terms():
-        if not all(isinstance(k, int) or k.is_Integer for k in mono):
-            raise LiftError('a non-integer power of a lifted variable')
-        out[tuple(int(k) for k in mono)] = c
-    return out
+class _TooLarge(Exception):
+    pass
+
+
+def _to_dict(e, gens, limit=None):
+    """{exponent tuple over gens: coefficient} of an expression polynomial in gens. Only the generators are
+    expanded: a subexpression free of them (in the parameters) stays one coefficient, so a model's
+    parameter expressions do not multiply out. Coefficients that cancel are dropped later, numerically."""
+    gset = set(gens)
+    n = len(gens)
+    zero = (0,) * n
+    unit = {g: tuple(1 if j == i else 0 for j in range(n)) for i, g in enumerate(gens)}
+    memo = {}
+
+    def mul(a, b):
+        out = {}
+        for ma, ca in a.items():
+            for mb, cb in b.items():
+                _add_to(out, tuple(x + y for x, y in zip(ma, mb)), ca * cb)
+            if limit is not None and len(out) > limit:
+                raise _TooLarge(len(out))
+        return out
+
+    def rec(x):
+        if x in memo:
+            return memo[x]
+        if not (x.free_symbols & gset):
+            out = {zero: x} if x != 0 else {}
+        elif x in unit:
+            out = {unit[x]: sp.Integer(1)}
+        elif isinstance(x, sp.Add):
+            out = {}
+            for a in x.args:
+                for mono, c in rec(a).items():
+                    _add_to(out, mono, c)
+        elif isinstance(x, sp.Mul):
+            out = {zero: sp.Integer(1)}
+            for a in x.args:
+                out = mul(out, rec(a))
+        elif isinstance(x, sp.Pow) and x.args[1].is_Integer and x.args[1] >= 0:
+            out, base = {zero: sp.Integer(1)}, rec(x.args[0])
+            for _ in range(int(x.args[1])):
+                out = mul(out, base)
+        else:
+            raise LiftError(f'not polynomial in the lifted variables: {x}')
+        memo[x] = out
+        return out
+
+    return {k: v for k, v in rec(sp.sympify(e)).items() if v != 0}
+
+
+def _drop_cancelled(d, points, rel=1e-13):
+    """``d`` ({key: coefficient}) without the coefficients that vanish at every parameter point, relative to the
+    largest coefficient of ``d`` there: a term that cancels symbolically is left with rounding residue only."""
+    if not d:
+        return d
+    vals = {k: [_value(c, pt) for pt in points] for k, c in d.items()}
+    scales = [max(abs(v[i]) for v in vals.values()) for i in range(len(points))]
+    return {k: c for k, c in d.items()
+            if any(abs(vals[k][i]) > rel * scales[i] for i in range(len(points)))}
+
+
+def _parameter_points(values, seed=7):
+    """The model's parameter values and a second point with each scaled by a random factor in [0.7, 1.4]."""
+    rng = np.random.default_rng(seed)
+    return [values, {k: v * float(rng.uniform(0.7, 1.4)) for k, v in values.items()}]
 
 
 def _add_to(acc, mono, c):
@@ -703,17 +756,45 @@ def _add_to(acc, mono, c):
 
 class _Quadratic:
     """The search for monomial variables W over the polynomial variables V that make every right-hand
-    side quadratic in W (a term with an input: at most one W factor)."""
+    side quadratic in W (a term with an input: at most one W factor).
 
-    def __init__(self, nV, nU, rhs_V):
+    The search works on the coefficients' values at two parameter points (the model's, and one with each
+    parameter scaled by a random factor), so a term is dropped only when it cancels at both; the symbolic
+    right-hand sides are computed once, for the variables it keeps (:meth:`symbolic_rows`)."""
+
+    def __init__(self, nV, nU, rhs_V, values=None):
         self.nV, self.nU = nV, nU
         self.rhs_V = rhs_V                       # list over V of {mono over V+U: coeff}
+        self.points = _parameter_points(values or {})
+        values, other = self.points
+        num = [{mono: (_value(c, values), _value(c, other)) if sp.sympify(c).free_symbols else
+                (float(c), float(c)) for mono, c in r.items()} for r in rhs_V]
+        self.num_V = [{k: v for k, v in r.items() if v != (0.0, 0.0)} for r in num]
+        self.rhs_V = rhs_V = [{k: c for k, c in r.items() if k in nr} for r, nr in zip(rhs_V, self.num_V)]
         self.W = [tuple(1 if i == j else 0 for i in range(nV)) for j in range(nV)]
         self.Wset = set(self.W)
         self.Widx = {w: i for i, w in enumerate(self.W)}
-        self.rhs_W = list(rhs_V)
+        self.rows = [set(r) for r in self.num_V]   # each W variable's monomials
+        self.bad_set = set()
+        for r in self.rows:
+            self._check(r)
+
+    def _numeric_row(self, m):
+        out = {}
+        for i, e in enumerate(m):
+            if not e:
+                continue
+            base = list(m)
+            base[i] -= 1
+            for mono, (c1, c2) in self.num_V[i].items():
+                shifted = tuple(a + b for a, b in zip(base, mono[:self.nV])) + mono[self.nV:]
+                p = out.get(shifted, (0.0, 0.0))
+                out[shifted] = (p[0] + e * c1, p[1] + e * c2)
+        scale = max([abs(c) for pair in out.values() for c in pair] + [1e-300])
+        return {k for k, (a, b) in out.items() if abs(a) > 1e-13 * scale or abs(b) > 1e-13 * scale}
 
     def rhs_of_monomial(self, m):
+        """The symbolic right-hand side of the monomial m."""
         out = {}
         for i, e in enumerate(m):
             if not e:
@@ -723,7 +804,15 @@ class _Quadratic:
             for mono, c in self.rhs_V[i].items():
                 shifted = tuple(a + b for a, b in zip(base, mono[:self.nV])) + mono[self.nV:]
                 _add_to(out, shifted, e * c)
-        return {k: v for k, v in out.items() if sp.expand(v) != 0}
+        return _drop_cancelled(out, self.points)
+
+    def symbolic_rows(self):
+        return list(self.rhs_V) + [self.rhs_of_monomial(m) for m in self.W[self.nV:]]
+
+    def _check(self, monos):
+        for mono in monos:
+            if self.split(mono) is None:
+                self.bad_set.add(mono)
 
     def add(self, m):
         if m in self.Wset:
@@ -731,7 +820,10 @@ class _Quadratic:
         self.Widx[m] = len(self.W)
         self.W.append(m)
         self.Wset.add(m)
-        self.rhs_W.append(self.rhs_of_monomial(m))
+        row = self._numeric_row(m)
+        self.rows.append(row)
+        self.bad_set = {b for b in self.bad_set if self.split(b) is None}
+        self._check(row)
 
     def split(self, mono):
         """(i,) | (i, j) | () -- indices into W whose product is the state part; None if not quadratic."""
@@ -750,12 +842,7 @@ class _Quadratic:
         return None
 
     def bad(self):
-        out = set()
-        for r in self.rhs_W:
-            for mono in r:
-                if self.split(mono) is None:
-                    out.add((mono[:self.nV], any(mono[self.nV:])))
-        return out
+        return {(mono[:self.nV], any(mono[self.nV:])) for mono in self.bad_set}
 
     def greedy(self, max_new, deadline=None):
         while True:
@@ -802,7 +889,7 @@ class Lifting:
 
 
 def lift(model_text, inputs=(), time_budget=DEFAULT_TIME_BUDGET, engine='auto', max_aux=DEFAULT_MAX_AUX,
-         smoothing_report=None):
+         smoothing_report=None, max_terms=DEFAULT_MAX_TERMS):
     """Lift a flat CellML model (text or path) to quadratic form.
 
     Args:
@@ -812,6 +899,8 @@ def lift(model_text, inputs=(), time_budget=DEFAULT_TIME_BUDGET, engine='auto', 
             ``"rules"`` (the rule table and the greedy search only).
         smoothing_report: the smoothing pass's report (dict or path), for each auxiliary's epsilon and each
             site's smoothness class.
+        max_terms: the largest polynomial system (terms over all right-hand sides) to quadratize; a larger one
+            raises LiftError with its size.
 
     Returns:
         a :class:`Lifting`.
@@ -851,11 +940,23 @@ def lift(model_text, inputs=(), time_budget=DEFAULT_TIME_BUDGET, engine='auto', 
     V = states + [s for s, _, _ in aux_T]
     U = m.input_symbols
     gens = V + U
-    rhs_V = [_to_dict(poly[v], gens) for v in V]
+    rhs_V, n_terms = [], 0
+    for v in V:
+        try:
+            r = _to_dict(poly[v], gens, max_terms - n_terms)
+        except _TooLarge:
+            r = None
+        if r is None or n_terms + len(r) > max_terms:
+            raise LiftError(f'the polynomial system is too large to quadratize: over {max_terms} terms (max_terms) by '
+                            f'{v}, {V.index(v) + 1} of {len(V)} right-hand sides, after {len(aux_T)} auxiliaries from '
+                            f'{engine_report["polynomialize"]}')
+        rhs_V.append(r)
+        n_terms += len(r)
+    degree = max((sum(k[:len(V)]) for r in rhs_V for k in r), default=0)
 
     # 2. quadratize
     t0 = time.perf_counter()
-    q = _Quadratic(len(V), len(U), rhs_V)
+    q = _Quadratic(len(V), len(U), rhs_V, m.param_values())
     done = False
     if engine in ('auto', 'qbee'):
         res = _qbee_quadratize(V, U, params_all(), rhs_V, time_budget)
@@ -896,10 +997,13 @@ def lift(model_text, inputs=(), time_budget=DEFAULT_TIME_BUDGET, engine='auto', 
     # the right-hand side in W: terms (coeff, W indices, input monomial)
     terms = []
     features, feature_index = [], {}
-    for r in q.rhs_W:
+    rows_W = q.symbolic_rows()
+    for r in rows_W:
         row = []
         for mono, c in r.items():
             idx = q.split(mono)
+            if idx is None:
+                raise LiftError(f'a term of degree > 2 left after the search: {mono} (coefficient {c})')
             mu = mono[len(V):]
             f = None
             if any(mu):
@@ -921,7 +1025,8 @@ def lift(model_text, inputs=(), time_budget=DEFAULT_TIME_BUDGET, engine='auto', 
     L.terms, L.features = terms, features
     L.input_symbols = U
     L.engine = dict(engine_report, input_free=input_free and not any(i['kind'] == 'derivative' for i in m.inputs),
-                    notes=notes, n_polynomial_aux=len(aux_T), n_monomials=len(q.W) - len(V))
+                    notes=notes, n_polynomial_aux=len(aux_T), n_monomials=len(q.W) - len(V),
+                    polynomial_terms=n_terms, polynomial_degree=degree)
     L.timings = timings
     L.smoothing_report = _load_json(smoothing_report)
     L.timings['lift'] = time.perf_counter() - t_start
@@ -1107,7 +1212,8 @@ def _symbolic_operators(L):
                     _add_to(B, (i, f), c)
                 else:
                     _add_to(N[f], (i, idx[0]), c)
-    clean = lambda d: {k: v for k, v in d.items() if sp.expand(v) != 0}  # noqa: E731
+    points = _parameter_points(L.model.param_values())
+    clean = lambda d: _drop_cancelled(d, points, rel=1e-15)  # noqa: E731
     L.A, L.H, L.B, L.C, L.N = clean(A), clean(H), clean(B), clean(C), [clean(x) for x in N]
     L.feature_names = [_feature_name(L, f) for f in L.features]
 
@@ -1861,7 +1967,7 @@ def write_outputs(L, output_dir, name='model'):
 
 def lift_cellml_file(model_path, output_dir=None, inputs=(), smoothing_report=None, time_budget=DEFAULT_TIME_BUDGET,
                      engine='auto', max_aux=DEFAULT_MAX_AUX, sim_time=10.0, dt=0.01, solver_info=None,
-                     do_verify=True):
+                     do_verify=True, max_terms=DEFAULT_MAX_TERMS):
     """Lifts a (smoothed) flat CellML model and writes the lifted CellML model, ``lifting_functions.py`` and
     ``lifting.json`` (with the verification, the operator check and the structure) into ``output_dir``.
     Returns the lifting.json dict."""
@@ -1869,7 +1975,7 @@ def lift_cellml_file(model_path, output_dir=None, inputs=(), smoothing_report=No
     t0 = time.perf_counter()
     name = os.path.splitext(os.path.basename(model_path))[0]
     output_dir = output_dir or os.path.join(os.path.dirname(os.path.abspath(model_path)), 'lifting')
-    L = lift(model_path, inputs, time_budget, engine, max_aux, smoothing_report)
+    L = lift(model_path, inputs, time_budget, engine, max_aux, smoothing_report, max_terms)
     cellml_path, py_path = write_outputs(L, output_dir, name)
     with open(cellml_path, encoding='utf-8') as f:
         issues = libcellml_issues(f.read())
@@ -1902,13 +2008,15 @@ def main(argv=None):
     parser.add_argument('--time-budget', type=float, default=DEFAULT_TIME_BUDGET, help='s for each QBee stage')
     parser.add_argument('--engine', choices=('auto', 'qbee', 'rules'), default='auto')
     parser.add_argument('--max-aux', type=int, default=DEFAULT_MAX_AUX)
+    parser.add_argument('--max-terms', type=int, default=DEFAULT_MAX_TERMS,
+                        help='largest polynomial system (terms) to quadratize')
     parser.add_argument('--sim-time', type=float, default=10.0, help='verification run length')
     parser.add_argument('--dt', type=float, default=0.01)
     parser.add_argument('--no-verify', action='store_true')
     args = parser.parse_args(argv)
     doc = lift_cellml_file(args.model, args.output_dir, [s for s in args.inputs.split(',') if s],
                            args.smoothing_report, args.time_budget, args.engine, args.max_aux, args.sim_time,
-                           args.dt, do_verify=not args.no_verify)
+                           args.dt, do_verify=not args.no_verify, max_terms=args.max_terms)
     e = doc['engine']
     print(f'{doc["size"]["n"]} -> {doc["size"]["n_w"]} lifted variables ({e.get("polynomialize")}, '
           f'{e.get("quadratize")}); operators: {", ".join(k for k, v in doc["operators"]["present"].items() if v)}')

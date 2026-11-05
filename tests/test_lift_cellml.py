@@ -116,6 +116,12 @@ def test_an_input_times_a_square_has_no_input_affine_lift_and_the_search_says_so
         lc.lift(str(path), inputs=['u'], engine='rules', max_aux=12)
 
 
+def test_a_polynomial_system_over_max_terms_stops_with_its_size():
+    """(1 + x + y)^30 has 496 terms: over max_terms, the lift stops before any quadratization and says why."""
+    with pytest.raises(lc.LiftError, match='too large to quadratize'):
+        lc.lift(_model({x: -x + (1 + x + y) ** 30 * 1e-30, y: -y}, {x: 0.1, y: 0.1}, {}), engine='rules', max_terms=400)
+
+
 def test_auxiliaries_identically_constant_or_equal_are_removed():
     """QBee may add w = sqrt(g) * (1/sqrt(g)) = 1 or two monomials with one T: the lift drops them."""
     L = lc.lift(_model({x: 2 - sp.sqrt(x ** 2 + 1)}, {x: 0.0}, {}), time_budget=5.0)
