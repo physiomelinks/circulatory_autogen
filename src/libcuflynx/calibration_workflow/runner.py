@@ -89,7 +89,8 @@ STEP_OUTPUTS = {'calibration': ('param_id_output_dir', 'distribution_dir'),
                 'set': (),
                 'sweep': ('sweep_dir', 'sweep_results')}
 #: what a value set by a set step is marked with
-SET_BY_HAND = ORIGINS[-1]
+SET_BY_HAND = 'set_by_hand'
+assert SET_BY_HAND in ORIGINS
 
 # what a step's user_inputs get unless the workflow's settings say otherwise
 STEP_DEFAULTS = {'model_type': 'cellml', 'DEBUG': False, 'do_ad': False, 'do_ia': False,
