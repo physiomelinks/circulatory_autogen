@@ -23,8 +23,18 @@ Decided by Finbar Argus on 2026-10-31.
 - A parameter leaf may name its derivation (`"derivation": "R_T0"`); its `value` is the cached
   result. `cuflynx-derive <derivations.json> --obs <obs_data.json>` checks every cached value
   (rtol 1e-9; exit 1 when one is stale) and `--write` updates them.
+- A CellML derivation model must take every constant it has as an input: one the derivation leaves
+  out is an error naming it, not its placeholder initial value. Imported CellML files are among
+  the files a derivation reads. An output that is not finite, or an equation that cannot be
+  evaluated (a zero flow), is an error naming the derivation.
+- `cuflynx-derive --write` exits 1 when a parameter names a derivation that does not set it, and
+  an unreadable file or failing derivation is a message with exit 2, not a traceback.
+- `load_obs_items` reads a data item's `source` as its `data_reference`, as
+  `parse_obs_data_json` does (#618). An input item's `source` is kept as written.
 - `pack_workflow` copies the derivations file beside each parameters file it packs, with its CellML
-  and Python files. Docs: `tutorial/docs/parameter-derivations.md`.
+  (and the CellML it imports) and Python files. So does a study's working dir, into
+  `inputs/system/` beside the parameters file (#619). Docs:
+  `tutorial/docs/parameter-derivations.md`.
 
 ### Added — profile likelihood for identifiability analysis (#519)
 

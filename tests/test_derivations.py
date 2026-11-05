@@ -117,6 +117,24 @@ def test_an_input_item_the_parser_refuses(change, message):
 
 
 @pytest.mark.unit
+def test_a_data_items_source_is_read_as_its_data_reference_by_the_derivations_too(toy):
+    from libcuflynx.derivations import load_obs_items
+    obs = _read(toy['obs'])
+    obs['data_items'][0]['source'] = 'Smith2020'
+    with pytest.warns(UserWarning, match="1 item\\(s\\) use 'source'"):
+        items = load_obs_items(obs)
+    assert items['data_item']['MAP']['data_reference'] == 'Smith2020'
+    assert 'source' not in items['data_item']['MAP']
+    # an input item's source is read as written (an open question)
+    assert items['input_item']['CVP_toy']['source'] == 'toy value'
+    _write(toy['obs'], obs)
+    with pytest.warns(UserWarning):
+        results, _ = _evaluate(toy)
+    assert {r.derivation.name: r for r in results}['R_T0'].inputs['MAP']['data_reference'] \
+        == 'Smith2020'
+
+
+@pytest.mark.unit
 def test_obs_data_creator_adds_input_items():
     obs = ObsDataCreator()
     obs.add_protocol_info([0.0], [[1.0]], {})
@@ -216,8 +234,74 @@ def test_a_cellml_equation_whose_units_do_not_match_is_refused(toy):
 ])
 def test_a_cellml_derivation_refuses_inputs_and_outputs_it_cannot_take(toy, inputs, outputs,
                                                                         message):
+    every = {'MAP': (93.0, 'mmHg'), 'CVP': (5.0, 'mmHg'), 'Q': (Q, 'm3_per_s')}
     with pytest.raises(DerivationModelError, match=message):
-        evaluate_cellml(toy['cellml'], inputs, outputs)
+        evaluate_cellml(toy['cellml'], dict(every, **inputs), outputs)
+
+
+@pytest.mark.unit
+def test_an_input_the_derivation_leaves_out_is_refused_not_left_at_its_placeholder(toy):
+    doc = _read(toy['derivations'])
+    del doc['derivations'][0]['inputs']['CVP']
+    _write(toy['derivations'], doc)
+    # CVP's initial value 0 would give R = 93 * MMHG / Q, 154986825 in place of 146654200
+    with pytest.raises(DerivationModelError,
+                       match="derivation 'R_T0': .*input\\(s\\) 'CVP' of the model are not given"):
+        _evaluate(toy)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('flow, message', [
+    (0.0, r'evaluating the model failed \(float division by zero\) with .*Q = 0.0 m3_per_s'),
+    (1e-320, "output 'R' is inf"),
+])
+def test_a_cellml_derivation_that_cannot_give_a_finite_number_is_refused(toy, flow, message):
+    obs = _read(toy['obs'])
+    obs['input_items'][1]['value'] = flow
+    _write(toy['obs'], obs)
+    with pytest.raises(DerivationModelError, match="derivation 'R_T0': .*" + message):
+        _evaluate(toy)
+
+
+UNITS = '''<?xml version="1.0" encoding="UTF-8"?>
+<model xmlns="http://www.cellml.org/cellml/2.0#" xmlns:xlink="http://www.w3.org/1999/xlink" name="{name}">
+{body}
+</model>
+'''
+
+
+def _import_units(cellml):
+    """Move the units of the derivation model ``cellml`` into ``units/si.cellml``, which it
+    imports through ``units/derivation_units.cellml``."""
+    with open(cellml) as f:
+        text = f.read()
+    units = [line for line in text.splitlines() if line.strip().startswith('<units ')]
+    names = ('Pa', 'mmHg', 'm3_per_s', 'J_s_per_m6')
+    refs = ''.join(f'<units name="{n}" units_ref="{n}"/>' for n in names)
+    here = os.path.join(os.path.dirname(cellml), 'units')
+    os.makedirs(here)
+    with open(os.path.join(here, 'si.cellml'), 'w') as f:
+        f.write(UNITS.format(name='si', body='\n'.join(units)))
+    with open(os.path.join(here, 'derivation_units.cellml'), 'w') as f:
+        f.write(UNITS.format(name='derivation_units',
+                             body=f'  <import xlink:href="si.cellml">{refs}</import>'))
+    for u in units:
+        text = text.replace(u + '\n', '')
+    text = text.replace('<component ', '<import xmlns:xlink="http://www.w3.org/1999/xlink" '
+                        f'xlink:href="units/derivation_units.cellml">{refs}</import>\n  '
+                        '<component ', 1)
+    with open(cellml, 'w') as f:
+        f.write(text)
+    return [os.path.join(here, 'derivation_units.cellml'), os.path.join(here, 'si.cellml')]
+
+
+@pytest.mark.unit
+def test_a_derivation_models_imports_are_among_the_files_it_reads(toy):
+    imported = _import_units(toy['cellml'])
+    assert '<units name=' not in open(toy['cellml']).read().split('<import')[0]
+    assert derivation_files(toy['derivations']) == [
+        toy['cellml'], *imported, os.path.join(toy['dir'], 'derivations', 'derivation_funcs.py')]
+    assert _values(_evaluate(toy)[0])['Systemic_T/R_T0'] == pytest.approx(R, rel=1e-12)
 
 
 @pytest.mark.unit
@@ -385,6 +469,30 @@ def test_derive_write_round_trips(toy, capsys):
 
 
 @pytest.mark.unit
+def test_derive_write_fails_when_a_parameter_names_a_derivation_that_does_not_set_it(toy, capsys):
+    params = _read(toy['parameters'])
+    params['Systemic_T']['C_T']['derivation'] = 'R_T0'
+    _write(toy['parameters'], params)
+    assert derive_main([toy['derivations'], '--obs', toy['obs'], '--write']) == 1
+    out = capsys.readouterr().out
+    assert "Systemic_T/C_T: names derivation 'R_T0', which does not set it." in out
+    assert '--write cannot fix' in out
+
+
+@pytest.mark.unit
+def test_derive_reports_an_error_as_a_message_not_a_traceback(toy, capsys):
+    obs = _read(toy['obs'])
+    obs['input_items'][1]['value'] = 0.0
+    _write(toy['obs'], obs)
+    assert derive_main([toy['derivations'], '--obs', toy['obs']]) == 2
+    err = capsys.readouterr().err
+    assert err.startswith("cuflynx-derive: error: derivation 'R_T0': ")
+    assert 'Traceback' not in err
+    assert derive_main([toy['derivations'] + '.missing', '--obs', toy['obs']]) == 2
+    assert 'No such file' in capsys.readouterr().err
+
+
+@pytest.mark.unit
 def test_derive_write_names_each_output_by_its_derivation(toy):
     params = _read(toy['parameters'])
     del params['Systemic_T']['R_T0']['derivation']
@@ -419,7 +527,20 @@ def test_a_packed_workflow_carries_the_targets_derivations(tmp_path):
         os.path.join(os.path.dirname(packed_derivations), 'derivations', name)
         for name in ('systemic_resistance.cellml', 'derivation_funcs.py')]
 
+    # a derivation model's imports are packed at their paths, so it evaluates from the pack
+    _import_units(os.path.join(here, 'derivations', 'systemic_resistance.cellml'))
+    pack_workflow(library['chain_array'], str(tmp_path / 'pack_imports'))
+    packed_model = os.path.join(str(tmp_path / 'pack_imports'), target_dir, 'derivations',
+                                'systemic_resistance.cellml')
+    for name in ('derivation_units.cellml', 'si.cellml'):
+        assert os.path.isfile(os.path.join(os.path.dirname(packed_model), 'units', name))
+    shutil.rmtree(os.path.join(here, 'derivations'))
+    packed_r = evaluate_cellml(packed_model, {'MAP': (93.0, 'mmHg'), 'CVP': (5.0, 'mmHg'),
+                                              'Q': (Q, 'm3_per_s')}, {'R': None})
+    assert packed_r['R'] == pytest.approx(R, rel=1e-12)
+
     # a file outside the derivations file's directory cannot be packed beside it
+    shutil.copytree(os.path.join(TOY, 'derivations'), os.path.join(here, 'derivations'))
     doc = _read(derivations_file_for(target))
     doc['derivations'][0]['cellml'] = '../elsewhere.cellml'
     _write(derivations_file_for(target), doc)

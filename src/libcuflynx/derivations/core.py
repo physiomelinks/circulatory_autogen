@@ -53,10 +53,13 @@ class Derivation:
     comment: str = ''
 
     def files(self):
-        '''The files the method reads, absolute: the CellML model, or the Python file (none for
-        a shipped function).'''
+        '''The files the method reads, absolute: the CellML model with the local CellML files it
+        imports (recursively), or the Python file (none for a shipped function).'''
         if self.method == 'cellml':
-            return [os.path.normpath(os.path.join(self.base_dir, self.spec))]
+            from libcuflynx.utilities.cuflynx_study import _cellml_imports
+            files = [os.path.normpath(os.path.join(self.base_dir, self.spec))]
+            _cellml_imports(files[0], files)
+            return files
         from libcuflynx.derivations.python_method import split_python_spec
         file, _ = split_python_spec(self.spec, self.base_dir)
         return [file] if file else []
@@ -158,6 +161,7 @@ def load_obs_items(obs_data):
     '''``{'input_item': {name: item}, 'data_item': {name: item}}`` of one obs_data or several
     (paths or JSON objects), each checked against the obs_data schema. A name in two files is a
     DerivationError.'''
+    from libcuflynx.parsers.PrimitiveParsers import read_source_as_data_reference
     if obs_data is None:
         obs_data = []
     if isinstance(obs_data, (str, os.PathLike, dict)):
@@ -171,6 +175,8 @@ def load_obs_items(obs_data):
             with open(source, encoding='utf-8-sig') as f:
                 doc = json.load(f)
         validate(OBS_DATA_SCHEMA, doc, source=where, what='obs_data file')
+        # a data item's source is read as its data_reference, as parse_obs_data_json reads it
+        doc = read_source_as_data_reference(doc, where)
         found = {'input_item': parse_input_items(doc),
                  'data_item': {str(i['data_item_name']): i for i in doc.get('data_items') or []}}
         for kind, named in found.items():
@@ -248,7 +254,7 @@ def evaluate_derivations(derivations, doc, obs_data=None):
     '''Evaluate ``derivations`` (``load_derivations``) against the parameters document ``doc``
     (``read_parameters``) and ``obs_data`` (paths or JSON objects; ``load_obs_items``), in
     ``order_derivations`` order. Returns a list of :class:`DerivationResult`.'''
-    from libcuflynx.derivations.cellml_method import evaluate_cellml
+    from libcuflynx.derivations.cellml_method import DerivationModelError, evaluate_cellml
     from libcuflynx.derivations.python_method import evaluate_python
     obs_items = load_obs_items(obs_data)
     derived, results = {}, []
@@ -259,9 +265,12 @@ def evaluate_derivations(derivations, doc, obs_data=None):
         output_units = {s: (str(leaf.get('units') or '').strip() or None)
                         for s, leaf in leaves.items()}
         if d.method == 'cellml':
-            values = evaluate_cellml(d.files()[0],
-                                     {s: (i['value'], i['units']) for s, i in inputs.items()},
-                                     output_units)
+            try:
+                values = evaluate_cellml(d.files()[0],
+                                         {s: (i['value'], i['units']) for s, i in inputs.items()},
+                                         output_units)
+            except DerivationModelError as e:
+                raise DerivationModelError(f"derivation '{d.name}': {e}") from None
         else:
             units = {s: i['units'] for s, i in inputs.items()}
             units.update(output_units)

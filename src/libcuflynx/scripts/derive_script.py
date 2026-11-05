@@ -3,7 +3,8 @@
 with the value cached in the parameters file; ``--write`` updates the cached values.
 
 Exits 0 when every cached value matches its derivation (or after ``--write``), 1 when one does
-not.
+not (or, after ``--write``, when a parameter names a derivation that does not set it), and 2 with
+the message when a file or derivation cannot be read or evaluated.
 '''
 
 import argparse
@@ -50,13 +51,25 @@ def run(args):
     if args.write:
         changed = write_derived_values(parameters, results)
         print(f'wrote {parameters}: {changed} value(s) changed')
+        for result in results:
+            for out in result.outputs.values():
+                out['cached'] = out['value']
+        # what --write cannot fix: a parameter naming a derivation that does not set it
+        problems = check_derivations(results, read_parameters(parameters))
+        for problem in problems:
+            print(f'  {problem}')
+        if problems:
+            print(f'{len(problems)} problem(s) --write cannot fix: remove the derivation key, '
+                  f'or add the derivation that sets the parameter.')
+            return 1
         return 0
     problems = check_derivations(results, doc)
     for problem in problems:
         print(f'  {problem}')
     if problems:
         print(f'{len(problems)} problem(s): a cached value must match its derivation within '
-              f'rtol {CACHE_RTOL}; rerun with --write to update {parameters}.')
+              f'rtol {CACHE_RTOL}; rerun with --write to update {parameters} (a parameter '
+              f'naming a derivation that does not set it needs its derivation key removed).')
         return 1
     print(f'every cached value in {parameters} matches its derivation.')
     return 0
@@ -64,7 +77,13 @@ def run(args):
 
 def main(argv=None):
     """Entry point for the ``cuflynx-derive`` command."""
-    return run(build_parser().parse_args(argv))
+    args = build_parser().parse_args(argv)
+    try:
+        return run(args)
+    except (ValueError, OSError) as e:
+        # a derivation, schema or file error: its message, not a traceback
+        print(f'cuflynx-derive: error: {e}', file=sys.stderr)
+        return 2
 
 
 if __name__ == '__main__':
