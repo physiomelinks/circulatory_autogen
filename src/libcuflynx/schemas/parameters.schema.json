@@ -94,6 +94,10 @@
         "reason": {
           "type": "string",
           "description": "Why the value was chosen. Required when origin is set_by_hand."
+        },
+        "derivation": {
+          "type": "string",
+          "description": "The name of the derivation in the <name>_derivations.json beside this file that calculates the value; value is then its cached result, which cuflynx-derive checks and --write refreshes. Default: none."
         }
       },
       "if": {

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<model xmlns="http://www.cellml.org/cellml/2.0#" xmlns:cellml="http://www.cellml.org/cellml/2.0#" name="systemic_resistance">
+  <units name="Pa"><unit units="kilogram"/><unit units="metre" exponent="-1"/><unit units="second" exponent="-2"/></units>
+  <units name="mmHg"><unit units="Pa" multiplier="133.322"/></units>
+  <units name="m3_per_s"><unit units="metre" exponent="3"/><unit units="second" exponent="-1"/></units>
+  <units name="J_s_per_m6"><unit units="Pa"/><unit units="m3_per_s" exponent="-1"/></units>
+  <component name="derivation">
+    <variable name="MAP" units="Pa" initial_value="0"/>
+    <variable name="CVP" units="Pa" initial_value="0"/>
+    <variable name="Q" units="m3_per_s" initial_value="1"/>
+    <variable name="R" units="J_s_per_m6"/>
+    <math xmlns="http://www.w3.org/1998/Math/MathML">
+      <apply><eq/><ci>R</ci><apply><divide/><apply><minus/><ci>MAP</ci><ci>CVP</ci></apply><ci>Q</ci></apply></apply>
+    </math>
+  </component>
+</model>

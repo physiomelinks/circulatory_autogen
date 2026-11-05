@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/physiomelinks/circulatory_autogen/schemas/derivations.schema.json",
+  "title": "libcuflynx parameter derivations (<name>_derivations.json)",
+  "description": "How parameters are calculated from experimental data: each derivation reads inputs (model parameters, obs_data input_items or data_items) and sets output parameters, by a CellML derivation model or a Python function. It sits beside the parameters file it feeds (<name>_parameters.json), with its CellML and Python files; paths are relative to it. Derivations are for data only and never run in a simulation. Read by libcuflynx.derivations (load_derivations); evaluated by cuflynx-derive.",
+  "type": "object",
+  "required": [
+    "derivations"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "derivations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/derivation"
+      },
+      "description": "The derivations. They run in the order their parameter inputs need (an output another derivation reads runs first); the order here does not matter."
+    }
+  },
+  "$defs": {
+    "derivation": {
+      "type": "object",
+      "description": "One derivation: a method calculating its outputs from its inputs. Each parameter is set by at most one derivation, and a chain of derivations may not loop.",
+      "required": [
+        "name",
+        "inputs",
+        "outputs"
+      ],
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": [
+            "cellml"
+          ]
+        },
+        {
+          "required": [
+            "python"
+          ]
+        }
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^\\S+$",
+          "description": "Required. Unique in the file; a parameter it sets names it in its \"derivation\" key."
+        },
+        "inputs": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/input"
+          },
+          "description": "Required. Symbol -> where its value comes from. The symbol is the CellML variable's name, or the key of the Python function's inputs dict."
+        },
+        "outputs": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "\\S"
+          },
+          "description": "Required. Symbol -> the parameter it sets, as a path in the parameters file (instance/variable, heart/lv/E_A, global/R). The parameter must be in the file, with its units."
+        },
+        "cellml": {
+          "type": "string",
+          "pattern": "\\S",
+          "description": "A CellML 2.0 derivation model: its inputs are constants named as the input symbols, its outputs computed constants named as the output symbols. Its units are checked, and an input or output in other units of the same dimension is converted. Implicit equations are refused (use python)."
+        },
+        "python": {
+          "type": "string",
+          "pattern": "\\S",
+          "description": "A Python function, file.py:function (the file relative to this one) or the name of a function libcuflynx ships (libcuflynx.funcs.derivation_funcs_user). Called f(inputs, units) with {symbol: value} and {symbol: units} for the inputs and outputs, it returns {output symbol: value} in the output parameters' units."
+        },
+        "comment": {
+          "type": "string",
+          "description": "Free text, such as why the equation holds. Not read."
+        }
+      }
+    },
+    "input": {
+      "type": "object",
+      "description": "Exactly one source: a model parameter, an obs_data input_item, or an obs_data data_item (a calibration target that is also an input). Its units are the source's.",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "maxProperties": 1,
+      "properties": {
+        "parameter": {
+          "type": "string",
+          "pattern": "\\S",
+          "description": "A parameter's path in the parameters file, possibly another derivation's output."
+        },
+        "input_item": {
+          "type": "string",
+          "pattern": "\\S",
+          "description": "The data_item_name of an obs_data input_item."
+        },
+        "data_item": {
+          "type": "string",
+          "pattern": "\\S",
+          "description": "The data_item_name of an obs_data data_item with a constant value."
+        }
+      }
+    }
+  }
+}

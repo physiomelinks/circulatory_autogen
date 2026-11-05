@@ -1,0 +1,36 @@
+{
+  "protocol_info": {
+    "pre_times": [0.0],
+    "sim_times": [[1.0]],
+    "params_to_change": {}
+  },
+  "data_items": [
+    {
+      "data_item_name": "MAP",
+      "data_type": "constant",
+      "operands": ["Systemic_T/u"],
+      "operation": "mean",
+      "unit": "mmHg",
+      "value": 93.0,
+      "std": 5.0
+    }
+  ],
+  "input_items": [
+    {
+      "data_item_name": "CVP_toy",
+      "value": 5.0,
+      "std": 1.0,
+      "unit": "mmHg",
+      "source": "toy value",
+      "data_reference": "Toy2026"
+    },
+    {
+      "data_item_name": "CO_toy",
+      "value": 1e-4,
+      "std": 1e-5,
+      "unit": "m3_per_s",
+      "source": "toy value",
+      "comment": "6 L/min"
+    }
+  ]
+}

@@ -18,7 +18,8 @@ from libcuflynx.param_id.math_backend import bind_backend
 
 
 # The built-in funcs modules, which an external file imports as ``libcuflynx.funcs.<name>``.
-_PACKAGED_FUNCS_MODULES = ('cost_funcs_user', 'operation_funcs_user', 'modifier_funcs_user')
+_PACKAGED_FUNCS_MODULES = ('cost_funcs_user', 'operation_funcs_user', 'modifier_funcs_user',
+                          'derivation_funcs_user')
 
 
 def _load_module_from_path(path):
