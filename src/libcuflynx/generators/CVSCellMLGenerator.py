@@ -43,24 +43,46 @@ OVERCONSTRAINED_ERROR = re.compile(
 
 
 def check_tissue_gas_mixing(module_df):
-    """Raise ValueError for a tissue_GE_simple connected straight to a gas_transport_simple.
+    """Raise ValueError for a tissue_GE_simple connected straight to a gas_transport_simple, or
+    a venous_gas_mixing connected to a module through no port.
 
     A gas_transport_simple takes one content and one flow. Several regions' venous blood is
     mixed by a venous_gas_mixing module: each tissue_GE_simple gives it its flow and the gas that
     flow carries on a gas_flux_port, and it gives the flow-weighted contents to the
-    gas_transport_simple."""
-    module_types = dict(zip(module_df["name"], module_df["module_type"]))
-    for row in module_df.itertuples():
+    gas_transport_simple. A neighbour of the mixer that shares no port with it would be left out
+    of the mix without a word (and with no region connected the sums would take their parameter
+    values), so that is an error too."""
+    rows = {row.name: row for row in module_df.itertuples()}
+    for row in rows.values():
         if row.module_type != 'tissue_GE_simple':
             continue
         for out_name in row.out_instances:
-            if module_types.get(out_name) == 'gas_transport_simple':
+            if out_name in rows and rows[out_name].module_type == 'gas_transport_simple':
                 raise ValueError(
                     f'tissue_GE_simple "{row.name}" is connected straight to gas_transport_simple '
                     f'"{out_name}". Mix the regions\' venous blood with a venous_gas_mixing module: '
                     f'connect each tissue_GE_simple (a version with a gas_flux_port) to it, and it '
                     f'to "{out_name}".')
 
+    def port_types(row, sides):
+        return {port['port_type'] for side in sides for port in getattr(row, side)}
+
+    for mixer in rows.values():
+        if mixer.module_type != 'venous_gas_mixing':
+            continue
+        edges = [(rows[name], mixer) for name in mixer.inp_instances if name in rows]
+        edges += [(mixer, rows[name]) for name in mixer.out_instances if name in rows]
+        for upstream, downstream in edges:
+            shared = (port_types(upstream, ['exit_ports', 'general_ports']) &
+                      port_types(downstream, ['entrance_ports', 'general_ports']))
+            if not shared:
+                raise ValueError(
+                    f'"{upstream.name}" ({upstream.module_type} {upstream.module_subtype}) is '
+                    f'connected to "{downstream.name}" ({downstream.module_type} '
+                    f'{downstream.module_subtype}), but no exit port of "{upstream.name}" matches '
+                    f'an entrance port of "{downstream.name}", so nothing would pass between them. '
+                    f'A venous_gas_mixing takes each region through a gas_flux_port: use a '
+                    f'tissue_GE_simple version that has one.')
 
 class CVS0DCellMLGenerator(object):
     '''

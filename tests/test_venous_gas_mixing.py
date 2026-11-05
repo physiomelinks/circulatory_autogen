@@ -6,6 +6,7 @@ and gives ``C_mix = sum(j_i) / sum(v_i)`` to the venous gas_transport_simple. Th
 are listed in different orders for the terminals and the gas-exchange modules, so a mix that
 paired contents and flows by position would weight a content by another region's flow.
 """
+import json
 import os
 import re
 
@@ -23,12 +24,15 @@ TERMINAL_ORDER = ['a', 'b', 'c']
 GE_ORDER = ['c', 'a', 'b']
 
 
-def _rows(mixing):
-    """Module array rows; with ``mixing`` False the gas-exchange modules feed the venous gas
-    transport straight, as module arrays did before venous_gas_mixing."""
+def _rows(mixing, ge_subtypes=None):
+    """Module array rows: three regions mixed by ``mix`` into the venous gas transport ``vgt``,
+    or with ``mixing`` False the gas-exchange modules connected straight to ``vgt``.
+    ``ge_subtypes`` gives a region's tissue_GE_simple subtype (default nn)."""
+    ge_subtypes = ge_subtypes or {}
     venous_inputs = ['mix'] if mixing else [f'g{r}' for r in GE_ORDER]
     rows = [(f't{r}', 'pp_I', 'terminal', [], [f'g{r}']) for r in TERMINAL_ORDER]
-    rows += [(f'g{r}', 'nn', 'tissue_GE_simple', [f't{r}'], ['mix' if mixing else 'vgt'])
+    rows += [(f'g{r}', ge_subtypes.get(r, 'nn'), 'tissue_GE_simple', [f't{r}'],
+              ['mix' if mixing else 'vgt'])
              for r in GE_ORDER]
     if mixing:
         rows.append(('mix', 'nn', 'venous_gas_mixing', [f'g{r}' for r in GE_ORDER], ['vgt']))
@@ -63,15 +67,16 @@ def _params():
     return params
 
 
-def _generate(tmp_path, prefix, mixing):
+def _generate(tmp_path, prefix, mixing, ge_subtypes=None, extra_params=(), external_modules_dir=None):
     resources_dir = tmp_path / 'resources'
     resources_dir.mkdir(parents=True, exist_ok=True)
     lines = ['name,module_subtype,module_type,inp_instances,out_instances']
-    for name, module_subtype, module_type, inp, out in _rows(mixing):
+    for name, module_subtype, module_type, inp, out in _rows(mixing, ge_subtypes):
         lines.append(f"{name},{module_subtype},{module_type},{' '.join(inp)},{' '.join(out)}")
     (resources_dir / f'{prefix}_module_array.csv').write_text('\n'.join(lines) + '\n')
     param_lines = ['variable_name,units,value,data_reference']
-    param_lines += [f'{name},{units},{value},test' for name, units, value in _params()]
+    param_lines += [f'{name},{units},{value},test'
+                    for name, units, value in _params() + list(extra_params)]
     from _parameters import write_parameters
     write_parameters(resources_dir / f'{prefix}_parameters.json', '\n'.join(param_lines) + '\n')
 
@@ -83,6 +88,8 @@ def _generate(tmp_path, prefix, mixing):
               'resources_dir': str(resources_dir),
               'generated_models_dir': str(generated_dir),
               'DEBUG': False}
+    if external_modules_dir:
+        config['external_modules_dir'] = external_modules_dir
     assert generate_with_new_architecture(False, config), f'generation of {prefix} failed'
     return os.path.join(str(generated_dir), prefix, f'{prefix}.cellml')
 
@@ -145,3 +152,47 @@ def test_gas_exchange_straight_into_gas_transport_is_refused(tmp_path):
     the module to add."""
     with pytest.raises(ValueError, match='venous_gas_mixing'):
         _generate(tmp_path, 'venous_unmixed', mixing=False)
+
+
+def _no_flux_port_ge_modules(tmp_path):
+    """An external modules dir with tissue_GE_simple subtype ``no_flux``: the built-in nn
+    without its gas_flux_port, as tissue_GE_simple/Ursino2001_v01 in the module library."""
+    from libcuflynx.utilities.package_resources import builtin_modules_dir
+    builtin = builtin_modules_dir()
+    with open(os.path.join(builtin, 'gas_exchange_modules_config.json')) as f:
+        entry = next(e for e in json.load(f) if e['module_type'] == 'tissue_GE_simple')
+    with open(os.path.join(builtin, 'gas_exchange_modules.cellml')) as f:
+        text = f.read()
+    start = text.index('<component name="tissue_GE_simple_type">')
+    component = text[start:text.index('</component>', start) + len('</component>')]
+    component = component.replace('tissue_GE_simple_type', 'tissue_GE_simple_no_flux_type')
+    entry = dict(entry, module_subtype='no_flux', component_file='no_flux_modules.cellml',
+                 component_type='tissue_GE_simple_no_flux_type',
+                 exit_ports=[p for p in entry['exit_ports'] if p['port_type'] != 'gas_flux_port'])
+    modules_dir = tmp_path / 'external_modules'
+    modules_dir.mkdir()
+    (modules_dir / 'no_flux_modules.cellml').write_text(
+        "<?xml version='1.0' encoding='UTF-8'?>\n"
+        '<model name="no_flux" xmlns="http://www.cellml.org/cellml/1.1#" '
+        'xmlns:cellml="http://www.cellml.org/cellml/1.1#">\n' + component + '\n</model>\n')
+    (modules_dir / 'no_flux_modules_config.json').write_text(json.dumps([entry], indent=2))
+    return str(modules_dir)
+
+
+# values a module library's mixer parameterisation may give its sums when nothing is connected
+MIXER_SUM_DEFAULTS = [('mix/v', 'm3_per_s', 1.0e-4), ('mix/J_O2', 'm3_per_s', 1.5e-5),
+                      ('mix/J_CO2', 'm3_per_s', 5.2e-5)]
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize('no_flux_regions', [['b'], ['a', 'b', 'c']])
+def test_a_gas_exchange_module_without_a_flux_port_is_refused(tmp_path, no_flux_regions):
+    """A region whose gas-exchange module has no gas_flux_port matches no port of the mixer, so
+    its flow and gas would be left out of the mix (or, with every region so, the sums would take
+    their parameter values); generation stops instead and names the edge."""
+    named = '"gb"' if no_flux_regions == ['b'] else '"g[abc]"'
+    with pytest.raises(ValueError, match=named + '.*"mix"'):
+        _generate(tmp_path, 'venous_no_flux', mixing=True,
+                  ge_subtypes={r: 'no_flux' for r in no_flux_regions},
+                  extra_params=MIXER_SUM_DEFAULTS,
+                  external_modules_dir=_no_flux_port_ge_modules(tmp_path))

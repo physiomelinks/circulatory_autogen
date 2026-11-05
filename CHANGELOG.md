@@ -16,7 +16,9 @@ next release; add to that section as you land a change.
   the terminals and the gas-exchange modules were listed in different orders each content was
   weighted by another region's flow.
 - **Breaking:** a `tissue_GE_simple` connected straight to a `gas_transport_simple` is now a
-  ValueError. Migrate a module array by adding a `venous_gas_mixing` record whose
+  ValueError, and so is a `venous_gas_mixing` connected to a module through no port (e.g. a
+  `tissue_GE_simple` version without the `gas_flux_port`), which would leave that region out of
+  the mix. Migrate a module array by adding a `venous_gas_mixing` record whose
   `inp_instances` are the gas-exchange modules and whose `out_instances` is the venous gas
   transport, and pointing those at it (as `resources/control_parasymp_module_array.csv` does).
   The built-in `tissue_GE_simple/nn` has the `gas_flux_port`, and `venous_gas_mixing/nn` is
