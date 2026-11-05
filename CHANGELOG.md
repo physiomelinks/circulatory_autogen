@@ -5,6 +5,19 @@ next release; add to that section as you land a change.
 
 ## Unreleased
 
+### Added — profile likelihood for identifiability analysis (#519)
+
+- `ia_options: {method: profile_likelihood, num_points, range_factor, optimiser_options}` holds
+  each calibrated entry at a sweep of values around the best fit and re-calibrates the others at
+  each one, on `@is_MLE` costs (`MSE` becomes `gaussian_MLE` with a warning; a cost with no MLE
+  form is an error). The 95% interval is where `-ln L` stays within 1.92 of its minimum.
+- `<param_id_output_dir>/profile_likelihood/` gets one JSON and PDF per entry and `summary.json`.
+  Each JSON holds `param_values`, `costs` and `ci_95`, and each point's optimum:
+  `other_param_names` and `optima`, one row of the other entries' values per point. The points'
+  optimisers write no files, so the calibration's best-fit files are never overwritten.
+- `ParamID.make_optimiser` builds the optimiser for a cost object; `ParamID.run` uses it.
+  `remove_params_by_idx` re-indexes modifiers and per-entry lists.
+
 ### Fixed — the mixed venous O2 and CO2 contents weight each region by its own flow
 
 - The venous blood of several `tissue_GE_simple` regions is now mixed by a `venous_gas_mixing`

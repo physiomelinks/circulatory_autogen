@@ -515,7 +515,10 @@ def test_analysis_options_schema_well_formed():
     assert names('uq') == {'method', 'library', 'num_steps', 'num_walkers', 'burn_in',
                            'num_tune', 'pymc_method', 'chain_save_every'}
     assert ANALYSIS_OPTIONS['uq']['options_key'] == 'UQ_options'
-    assert names('identifiability_analysis') == {'method', 'gradient_source', 'sub_method'}
+    # num_points / range_factor / optimiser_options are the profile_likelihood settings.
+    assert names('identifiability_analysis') == {'method', 'gradient_source', 'sub_method',
+                                                 'num_points', 'range_factor',
+                                                 'optimiser_options'}
     # num_stages and the three per-stage lists describe a design drawn in several
     # stages, so that a later one can place its points using the features the earlier
     # ones returned. num_stages 1 is the single-stage design and the other three are
@@ -626,6 +629,22 @@ def test_every_uq_option_the_code_reads_is_advertised():
     assert read <= advertised, (
         f'UQ_options read by the code but not declared in ANALYSIS_OPTIONS["uq"]: '
         f'{sorted(read - advertised)}')
+
+
+def test_every_ia_option_the_code_reads_is_advertised():
+    """As for UQ_options: an ia_options key read but not declared cannot be set from CUFLynx."""
+    src_dir = pathlib.Path(__file__).resolve().parent.parent / 'src'
+    pattern = re.compile(r"""ia_options(?:\.get\(|\[)\s*['"]([A-Za-z_][A-Za-z0-9_]*)['"]""")
+    read = set()
+    for path in src_dir.rglob('*.py'):
+        read.update(pattern.findall(_without_docstrings(path.read_text(encoding='utf-8'))))
+
+    advertised = {o['name'] for o in analysis_options('identifiability_analysis')}
+    assert {'num_points', 'range_factor', 'optimiser_options'} <= read, \
+        'the profile likelihood settings are no longer read where this scan looks'
+    assert read <= advertised, (
+        f'ia_options read by the code but not declared in '
+        f'ANALYSIS_OPTIONS["identifiability_analysis"]: {sorted(read - advertised)}')
 
 
 def test_uq_options_are_filtered_by_sampler_library():

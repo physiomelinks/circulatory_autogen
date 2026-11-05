@@ -114,6 +114,20 @@ def test_documented_imports_use_the_libcuflynx_namespace():
 
 
 @pytest.mark.unit
+def test_package_sources_use_the_libcuflynx_namespace():
+    """No module in the package imports a flat name: there is no flat package to import."""
+    offenders = []
+    for path in sorted((REPO_ROOT / "src" / "libcuflynx").rglob("*.py")):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for match in _FLAT_IMPORT_RE.finditer(text):
+            lineno = text.count("\n", 0, match.end()) + 1
+            offenders.append("%s:%d: %s" % (_rel(path), lineno, match.group(0).strip()))
+    assert not offenders, (
+        "package modules must import from `libcuflynx.`:\n" + "\n".join(offenders)
+    )
+
+
+@pytest.mark.unit
 def test_mkdocstrings_identifiers_are_package_qualified():
     """``::: parsers.ModelParsers`` no longer resolves; every identifier needs the package."""
     bad = []

@@ -62,7 +62,8 @@ class Optimiser(ABC):
             param_id_info: Dictionary with param_names, param_mins, param_maxs
             param_norm_obj: Normalise_class object for parameter normalization
             num_params: Number of parameters to optimize
-            output_dir: Directory to save optimization results
+            output_dir: Directory to save optimization results. None (on every rank) writes
+                no files, as for profile-likelihood points.
             optimiser_options: Dictionary with optimizer-specific options (preferred)
             DEBUG: Debug flag for reduced population sizes in GA
         """
@@ -133,7 +134,7 @@ class Optimiser(ABC):
     
     def _save_best_params(self):
         """Helper method to save best parameters and cost."""
-        if self.rank == 0:
+        if self.rank == 0 and self.output_dir is not None:
             np.save(os.path.join(self.output_dir, 'best_cost'), self.best_cost)
             np.save(os.path.join(self.output_dir, 'best_param_vals'), self.best_param_vals)
             # How much work this run actually did, for a scaling sweep to be checked against
@@ -427,14 +428,15 @@ class GeneticAlgorithmOptimiser(Optimiser):
                 print('worst survivor params normed : {}'.format(param_vals_norm[:, num_survivors - 1]))
                 print('best params normed : {}'.format(param_vals_norm[:, 0]))
                 
-                np.save(os.path.join(self.output_dir, 'best_cost'), cost[0])
-                np.save(os.path.join(self.output_dir, 'best_param_vals'), param_vals[:, 0])
-                
-                with open(os.path.join(self.output_dir, 'best_cost_history.csv'), 'a') as file:
-                    np.savetxt(file, cost[:10].reshape(1,-1), fmt='%1.9f', delimiter=', ')
-                
-                with open(os.path.join(self.output_dir, 'best_param_vals_history.csv'), 'a') as file:
-                    np.savetxt(file, param_vals_norm[:, 0].reshape(1,-1), fmt='%.5e', delimiter=', ')
+                if self.output_dir is not None:
+                    np.save(os.path.join(self.output_dir, 'best_cost'), cost[0])
+                    np.save(os.path.join(self.output_dir, 'best_param_vals'), param_vals[:, 0])
+
+                    with open(os.path.join(self.output_dir, 'best_cost_history.csv'), 'a') as file:
+                        np.savetxt(file, cost[:10].reshape(1,-1), fmt='%1.9f', delimiter=', ')
+
+                    with open(os.path.join(self.output_dir, 'best_param_vals_history.csv'), 'a') as file:
+                        np.savetxt(file, param_vals_norm[:, 0].reshape(1,-1), fmt='%.5e', delimiter=', ')
                 
                 #count the repeat number
                 if last_loss is not None:
@@ -636,12 +638,13 @@ class BayesianOptimiser(Optimiser):
                 if best_cost_val < self.best_cost:
                     self.best_cost = best_cost_val
                     self.best_param_vals = best_params
-                    np.save(os.path.join(self.output_dir, 'best_cost'), self.best_cost)
-                    np.save(os.path.join(self.output_dir, 'best_param_vals'), self.best_param_vals)
-                    
-                    with open(os.path.join(self.output_dir, 'best_param_vals_history.csv'), 'a') as file:
-                        param_vals_norm = self.param_norm_obj.normalise(self.best_param_vals.reshape(-1, 1))
-                        np.savetxt(file, param_vals_norm.reshape(1,-1), fmt='%.5e', delimiter=', ')
+                    if self.output_dir is not None:
+                        np.save(os.path.join(self.output_dir, 'best_cost'), self.best_cost)
+                        np.save(os.path.join(self.output_dir, 'best_param_vals'), self.best_param_vals)
+
+                        with open(os.path.join(self.output_dir, 'best_param_vals_history.csv'), 'a') as file:
+                            param_vals_norm = self.param_norm_obj.normalise(self.best_param_vals.reshape(-1, 1))
+                            np.savetxt(file, param_vals_norm.reshape(1,-1), fmt='%.5e', delimiter=', ')
         
         # Broadcast final results
         if rank == 0:
@@ -887,13 +890,14 @@ class CMAESOptimiser(Optimiser):
                         # Save intermediate results
                         self.best_cost = best_cost
                         self.best_param_vals = np.array(best_params)
-                        np.save(os.path.join(self.output_dir, 'best_cost'), self.best_cost)
-                        np.save(os.path.join(self.output_dir, 'best_param_vals'), self.best_param_vals)
-                        
-                        # Save to history
-                        with open(os.path.join(self.output_dir, 'best_param_vals_history.csv'), 'a') as file:
-                            param_vals_norm = self.param_norm_obj.normalise(self.best_param_vals.reshape(-1, 1))
-                            np.savetxt(file, param_vals_norm.reshape(1,-1), fmt='%.5e', delimiter=', ')
+                        if self.output_dir is not None:
+                            np.save(os.path.join(self.output_dir, 'best_cost'), self.best_cost)
+                            np.save(os.path.join(self.output_dir, 'best_param_vals'), self.best_param_vals)
+
+                            # Save to history
+                            with open(os.path.join(self.output_dir, 'best_param_vals_history.csv'), 'a') as file:
+                                param_vals_norm = self.param_norm_obj.normalise(self.best_param_vals.reshape(-1, 1))
+                                np.savetxt(file, param_vals_norm.reshape(1,-1), fmt='%.5e', delimiter=', ')
                 
                 iteration += num_candidates
                 
@@ -1078,9 +1082,11 @@ class SciPyMinimizeOptimiser(Optimiser):
                     # normalised space; dJ/dp = dJ/dq / (max - min) = grad_norm / param_ranges.
                     return gradient_func(x_norm) / self.param_ranges
 
-                cost_history_path = os.path.join(self.output_dir, 'best_cost_history.csv')
-                param_history_path = os.path.join(self.output_dir, 'best_param_vals_history.csv')
-                gradient_history_path = os.path.join(self.output_dir, 'best_gradient_history.csv')
+                writes_files = self.output_dir is not None
+                if writes_files:
+                    cost_history_path = os.path.join(self.output_dir, 'best_cost_history.csv')
+                    param_history_path = os.path.join(self.output_dir, 'best_param_vals_history.csv')
+                    gradient_history_path = os.path.join(self.output_dir, 'best_gradient_history.csv')
 
                 # Start the gradient stream fresh with a header of parameter labels (one dJ/dp
                 # column per parameter). Self-contained to this gradient-based optimiser -- unlike
@@ -1090,8 +1096,9 @@ class SciPyMinimizeOptimiser(Optimiser):
                 # readers of those files.
                 grad_labels = [(names[0] if isinstance(names, (list, tuple)) else str(names)).replace('/', ' ')
                                for names in self.param_id_info["param_names"]]
-                with open(gradient_history_path, 'w') as file:
-                    file.write(', '.join(grad_labels) + '\n')
+                if writes_files:
+                    with open(gradient_history_path, 'w') as file:
+                        file.write(', '.join(grad_labels) + '\n')
 
                 def _append_history(cost_val, x_norm, grad_real):
                     # Append one row per L-BFGS-B iteration so the cost / parameter / gradient
@@ -1099,6 +1106,8 @@ class SciPyMinimizeOptimiser(Optimiser):
                     # population-based optimisers use). x_norm is already in
                     # normalised parameter space, matching best_param_vals_history; grad_real is
                     # dJ/dp in real parameter space.
+                    if not writes_files:
+                        return
                     with open(cost_history_path, 'a') as file:
                         np.savetxt(file, np.array([[float(cost_val)]]), fmt='%1.9f', delimiter=', ')
                     with open(param_history_path, 'a') as file:
@@ -1223,7 +1232,9 @@ class SciPyMinimizeOptimiser(Optimiser):
             # history during the run. Record the final best as the last point, but
             # only when L-BFGS-B refined past the last callback iterate (otherwise
             # it would duplicate the last streamed row).
-            if last_iterate["cost"] is None or float(best_cost_array[0]) < float(last_iterate["cost"]):
+            refined = (last_iterate["cost"] is None
+                       or float(best_cost_array[0]) < float(last_iterate["cost"]))
+            if self.output_dir is not None and refined:
                 with open(os.path.join(self.output_dir, 'best_cost_history.csv'), 'a') as file:
                     np.savetxt(file, np.array([[float(best_cost_array[0])]]), fmt='%1.9f', delimiter=', ')
                 with open(os.path.join(self.output_dir, 'best_param_vals_history.csv'), 'a') as file:
@@ -1788,8 +1799,9 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
                 best_result = min(all_results, key=lambda r: r['final_cost'])
                 best_param_vals = self.param_norm_obj.unnormalise(best_result['final_x_norm'])
 
-                self._write_history(all_results)
-                self._write_start_summary(all_results)
+                if self.output_dir is not None:
+                    self._write_history(all_results)
+                    self._write_start_summary(all_results)
                 self._cluster_converged_starts(all_results)
 
                 # Scaling bookkeeping. The serial cost is the sum of every start's own wall time; the
@@ -1910,7 +1922,7 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
         convergence_cluster_tol_frac of that parameter's range (max - min) -- so on a multi-modal
         problem the clusters are the distinct minima found, and their sizes say how the starts
         split between them. Sets self.num_converged and self.convergence_clusters (largest first)
-        and writes multi_start_convergence_clusters.csv.
+        and writes multi_start_convergence_clusters.csv (unless output_dir is None).
         """
         cost_convergence = self.optimiser_options['cost_convergence']
         tol = self.optimiser_options['convergence_cluster_tol_frac'] * self.param_ranges
@@ -1940,6 +1952,8 @@ class MultiStartSciPyMinimizeOptimiser(Optimiser):
 
         from libcuflynx.parsers.PrimitiveParsers import param_entry_labels
         param_labels = param_entry_labels(self.param_id_info)
+        if self.output_dir is None:
+            return
         path = os.path.join(self.output_dir, 'multi_start_convergence_clusters.csv')
         with open(path, 'w') as file:
             writer = csv.writer(file)
