@@ -30,6 +30,13 @@ next release; add to that section as you land a change.
 - `smooth(..., only=[k, ...])` smooths only the named sites, to attribute an error to sites.
 - `rel={"variables": {"component/variable": rel}}` sets eps for the sites of one equation, over their
   kind's `rel`.
+- `exempt=[{"variable": "[component/]glob", "reason": ...}]` (`cuflynx-smooth --exempt file.json`)
+  leaves the sites of those equations as written, for switches meant to stay; the report records
+  them as `exempt` with the reason.
+- The report suggests `jump_candidates` (never applied): a piecewise with a constant branch that
+  differs from another (a jump) whose result is only a state derivative (an on/off rate) or is used
+  only inside cos/sin. Exempt sites and jump candidates carry `switch_variables`: the states or floor
+  phases (`phase: true`, v = s - floor(s)) their comparisons depend on through algebraic equations.
 - A piecewise is blended by splitting on one comparison at a time, so the weights of its pieces sum
   to 1, and comparisons of the same operands either way round (`x <= 0.25`, `x > 0.25`) share one
   site. Written as two sites, a phase-rate boundary got weights H and (1 - H)^2, summing to 0.75: the

@@ -395,6 +395,67 @@ def test_a_branch_that_may_be_undefined_off_its_condition_is_flagged():
     assert report['sites'][0]['flags'] == []
 
 
+PHASE_VARIABLES = ('<variable name="s" units="dimensionless" initial_value="0"/>'
+                   '<variable name="mt" units="dimensionless"/><variable name="act" units="dimensionless"/>'
+                   '<variable name="e" units="dimensionless"/><variable name="c" units="dimensionless" initial_value="0"/>')
+PHASE_EQUATIONS = (
+    '<apply><eq/><apply><diff/><bvar><ci>t</ci></bvar><ci>s</ci></apply><cn cellml:units="per_s">1</cn></apply>'
+    '<apply><eq/><ci>mt</ci><apply><minus/><ci>s</ci><apply><floor/><ci>s</ci></apply></apply></apply>'
+    '<apply><eq/><ci>act</ci><piecewise><piece><apply><times/><cn cellml:units="dimensionless">2</cn><ci>mt</ci></apply>'
+    '<apply><leq/><ci>mt</ci><cn cellml:units="dimensionless">0.5</cn></apply></piece>'
+    '<otherwise><cn cellml:units="dimensionless">0</cn></otherwise></piecewise></apply>'
+    '<apply><eq/><ci>e</ci><apply><times/><cn cellml:units="dimensionless">0.5</cn><apply><minus/>'
+    '<cn cellml:units="dimensionless">1</cn><apply><cos/><apply><times/><cn cellml:units="dimensionless">2</cn><pi/>'
+    '<ci>act</ci></apply></apply></apply></apply></apply>'
+    '<apply><eq/><apply><diff/><bvar><ci>t</ci></bvar><ci>c</ci></apply><piecewise>'
+    '<piece><cn cellml:units="per_s">1</cn><apply><lt/><ci>mt</ci><cn cellml:units="dimensionless">0.3</cn></apply></piece>'
+    '<otherwise><cn cellml:units="per_s">0</cn></otherwise></piecewise></apply>' + PIECEWISE_GEQ)
+
+
+def _phase_model():
+    return _model(PHASE_EQUATIONS, PHASE_VARIABLES).replace(
+        '<units name="mmHg">', '<units name="per_s"><unit units="second" exponent="-1"/></units>\n  <units name="mmHg">')
+
+
+def test_jump_candidates_are_reported_with_their_switch_variables():
+    """act jumps from 1 to 0 but reaches only cos(2 pi act); c's rate is on/off; y has no constant branch."""
+    text = _phase_model()
+    smoothed, report = sc.smooth(text, _ranges())
+    found = {j['variable']: j for j in report['jump_candidates']}
+    assert set(found) == {'act', 'c'}
+    assert 'cos/sin' in found['act']['reason'] and 'state derivative' in found['c']['reason']
+    assert found['act']['switch_variables'] == [{'variable': 'mt', 'phase': True, 'state': 's'}]
+    assert not found['act']['exempt']
+    y_site = next(s for s in report['sites'] if s['variable'] == 'y')
+    assert 'jump_candidate' not in y_site['flags']
+    assert y_site['status'] == 'smoothed'
+    assert 'sm1_H' in _equation(smoothed, 'act')            # reported only, still smoothed
+    _no_new_issues(text, smoothed)
+
+
+def test_exempt_sites_are_left_as_written_with_their_reason():
+    text = _phase_model()
+    exempt = [{'variable': 'act', 'reason': 'continuous through cos'}, {'variable': 'c/c', 'reason': 'on/off rate'}]
+    smoothed, report = sc.smooth(text, _ranges(), exempt=exempt)
+    by_variable = {s['variable']: s for s in report['sites']}
+    assert by_variable['act']['status'] == 'exempt' and by_variable['act']['reason'] == 'continuous through cos'
+    assert by_variable['act']['switch_variables'] == [{'variable': 'mt', 'phase': True, 'state': 's'}]
+    assert by_variable['c']['status'] == 'exempt' and by_variable['y']['status'] == 'smoothed'
+    assert _equation(smoothed, 'act').startswith('{(2*mt) if (mt<=0.5)')
+    assert report['counts'] == {'piecewise_exempt': 2, 'piecewise': 1, 'floor_not_smoothed': 1}
+    assert report['exempt'] == exempt and all(j['exempt'] for j in report['jump_candidates'])
+    _no_new_issues(text, smoothed)
+
+
+def test_switch_variables_follow_algebraic_equations_to_a_state():
+    variables = '<variable name="d" units="mmHg"/>'
+    equations = ('<apply><eq/><ci>d</ci><apply><minus/><ci>v</ci><ci>half</ci></apply></apply>'
+                 + _y('<apply><abs/><ci>d</ci></apply>'))
+    smoothed, report = sc.smooth(_model(equations, variables), _ranges(), exempt=[{'variable': 'y'}])
+    assert report['sites'][0]['switch_variables'] == [{'variable': 'v', 'phase': False, 'state': 'v'}]
+    assert report['sites'][0]['reason'] == 'exempt'
+
+
 # ---------------------------------------------------------------------------------------------
 # probe, the file helper and the command
 

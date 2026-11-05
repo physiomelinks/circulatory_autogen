@@ -36,6 +36,10 @@ and connections), a piecewise branch that may be undefined where it is not activ
 read from t = 0, through ``pre_time``), and a site NaN or Inf at the initial state in the probed or
 smoothed model (``nan_at_init``, :func:`flag_nan_at_init`).
 
+``exempt`` leaves the sites of named equations as written (a switch meant to stay, such as a phase
+gate). ``jump_candidates`` in the report suggest such sites, and exempt sites and candidates carry
+``switch_variables``, the states or floor phases their comparisons switch on.
+
 Use in two stages: :func:`probe` adds only the ``sm<k>_x`` variables, so reference runs of the
 probed model give each argument's range; :func:`smooth` then sets ``eps_sm<k> = rel * range`` and
 rewrites the sites. :func:`smooth_cellml_file` does both, running the reference runs with
@@ -217,8 +221,12 @@ class _Site:
 
 
 class _Pass:
-    def __init__(self, root, mode, ranges=None, rel=None, collapse=None, abs_eps=DEFAULT_ABS_EPS, only=None):
+    def __init__(self, root, mode, ranges=None, rel=None, collapse=None, abs_eps=DEFAULT_ABS_EPS, only=None,
+                 exempt=None):
         self.root, self.mode = root, mode
+        self.exempt = [(e['variable'], e.get('reason', '')) for e in exempt or []]
+        self.graph = _ModelGraph(root)
+        self.jump_candidates = []
         self.only = None if only is None else set(only)
         self.ranges = ranges or {}
         self.rel = dict(DEFAULT_REL)
@@ -288,7 +296,8 @@ class _Pass:
                     if _op(eq) != 'eq' or len(_args(eq)) != 2:
                         continue
                     lhs, rhs = _args(eq)
-                    if _op(lhs) == 'diff':
+                    self.is_rate = _op(lhs) == 'diff'
+                    if self.is_rate:
                         lhs = _args(lhs)[0]
                     self.variable = (lhs.text or '').strip() if _tag(lhs) == 'ci' else infix(lhs)
                     new = self._visit(rhs)
@@ -317,6 +326,29 @@ class _Pass:
             return self._piecewise(e, snapshot)
         return e
 
+    def _exempt_reason(self):
+        import fnmatch
+        for pattern, reason in self.exempt:
+            name = f'{self.component.get("name")}/{self.variable}' if '/' in pattern else self.variable
+            if fnmatch.fnmatchcase(name, pattern):
+                return reason or 'exempt'
+        return None
+
+    def _jump_candidate(self, pieces, otherwise):
+        """Why a piecewise looks meant to jump (reported, never applied), or None: a constant branch that
+        differs from another branch (a jump at the switch), and a result that reaches only a state
+        derivative, or only arguments of cos/sin (check that function is continuous across the jump)."""
+        branches = [p[0] for p in pieces] + [otherwise]
+        constants = [b for b in branches if _tag(b) == 'cn']
+        if not constants or len({infix(b) for b in branches}) < 2:
+            return None
+        if self.is_rate:
+            return 'an on/off rate: its result is a state derivative only'
+        uses = self.graph.uses(self.component.get('name'), self.variable)
+        if uses and uses <= {'trig'}:
+            return 'used only inside cos/sin: check that it is continuous across the jump'
+        return None
+
     def _not_smoothed(self, kind, original, reason):
         self.not_smoothed.append({'kind': kind, 'component': self.component.get('name'),
                                   'variable': self.variable, 'original': original, 'reason': reason})
@@ -329,6 +361,7 @@ class _Pass:
         k = self.k
         site = _Site(k, kind, self.component.get('name'), self.variable, original)
         site.strict = strict
+        site.x = copy.deepcopy(x)
         names = {s: f'sm{k}_{s}' for s in ('x', 'w', 'z')}
         if kind == 'piecewise':
             names['H'] = f'sm{k}_H'
@@ -336,6 +369,12 @@ class _Pass:
         if self._floor_upstream(x):
             site.record['flags'].append('floor_upstream')
         self.sites.append(site)
+        reason = self._exempt_reason()
+        if reason is not None:
+            site.record['status'] = 'exempt'
+            site.record['reason'] = reason
+            site.record['switch_variables'] = self.graph.switch_variables(site.component, x)
+            return None
         if self.mode == 'smooth' and self.only is not None and k not in self.only:
             site.record['status'] = 'left'
             site.record['reason'] = 'not in only'
@@ -485,11 +524,21 @@ class _Pass:
         atoms = {}      # (A, B) -> atom index: the comparison "A over B", sm<k>_x = A - B
         values = []     # per atom: the sm<k>_H element, True / False (collapsed), or None (skipped)
         conditions = [self._condition(p[1], atoms, values) for p in pieces]
+        jump = self._jump_candidate(pieces, otherwise[0][0])
         for site in self.sites[first_site - 1:]:
             site.record['piecewise'] = original
             site.record['piecewise_k'] = first_site
             if branch_domain:
                 site.record['flags'].append('branch_domain')
+            if jump:
+                site.record['flags'].append('jump_candidate')
+                site.record['jump_reason'] = jump
+                site.record.setdefault('switch_variables', self.graph.switch_variables(site.component, site.x))
+        if jump:
+            self.jump_candidates.append({'component': self.component.get('name'), 'variable': self.variable,
+                                         'k': [s.k for s in self.sites[first_site - 1:]], 'reason': jump,
+                                         'exempt': self._exempt_reason() is not None,
+                                         'switch_variables': _merge_switch(self.sites[first_site - 1:])})
         if self.mode == 'probe' or any(v is None for v in values):
             return e
         fixed = {i: v for i, v in enumerate(values) if isinstance(v, bool)}
@@ -605,6 +654,94 @@ def _fmt(value):
     return str(int(value)) if value == int(value) else repr(value)
 
 
+def _merge_switch(sites):
+    out = []
+    for site in sites:
+        for v in site.record.get('switch_variables') or []:
+            if v not in out:
+                out.append(v)
+    return out
+
+
+class _ModelGraph:
+    """Variables across connections, each with its defining equation: for switch_variables (the
+    states or floor phases a comparison switches on) and for where a variable is used."""
+
+    def __init__(self, root):
+        self.parent = {}
+        for conn in root.findall(_C + 'connection'):
+            c1, c2 = conn.get('component_1'), conn.get('component_2')
+            for mv in conn.findall(_C + 'map_variables'):
+                a, b = self.find((c1, mv.get('variable_1'))), self.find((c2, mv.get('variable_2')))
+                if a != b:
+                    self.parent[a] = b
+        self.defs, self._uses = {}, {}
+        for comp in root.findall(_C + 'component'):
+            name = comp.get('name')
+            for m in comp.findall(_M + 'math'):
+                for eq in m:
+                    if _op(eq) != 'eq' or len(_args(eq)) != 2:
+                        continue
+                    lhs, rhs = _args(eq)
+                    rate = _op(lhs) == 'diff'
+                    target = _args(lhs)[0] if rate else lhs
+                    if _tag(target) != 'ci':
+                        continue
+                    key = self.find((name, target.text.strip()))
+                    self.defs[key] = ('state', name, target.text.strip()) if rate else \
+                        self._algebraic(name, target.text.strip(), rhs)
+                    self._collect_uses(name, rhs, False)
+
+    def find(self, a):
+        while self.parent.get(a, a) != a:
+            a = self.parent[a]
+        return a
+
+    def _algebraic(self, comp, var, rhs):
+        args = _args(rhs)
+        if _op(rhs) == 'minus' and len(args) == 2 and _tag(args[0]) == 'ci' and _op(args[1]) == 'floor' \
+                and _tag(_args(args[1])[0]) == 'ci' and args[0].text.strip() == _args(args[1])[0].text.strip():
+            return ('phase', comp, var, self.find((comp, args[0].text.strip())))
+        return ('algebraic', comp, var, {self.find((comp, n.text.strip())) for n in rhs.iter() if _tag(n) == 'ci'})
+
+    def _collect_uses(self, comp, e, trig):
+        if _tag(e) == 'ci':
+            self._uses.setdefault(self.find((comp, e.text.strip())), set()).add('trig' if trig else 'other')
+            return
+        trig = trig or _op(e) in ('sin', 'cos')
+        for child in e:
+            self._collect_uses(comp, child, trig)
+
+    def uses(self, comp, var):
+        """How a variable is used on right-hand sides: {'trig'} (only inside cos/sin), 'other', or empty."""
+        return self._uses.get(self.find((comp, var)), set())
+
+    def switch_variables(self, comp, x):
+        """The states and floor phases x depends on through algebraic equations, as
+        [{"variable", "phase", "state"}]: a floor phase (v = s - floor(s)) is {v, true, s}."""
+        out, seen = [], set()
+        todo = [self.find((comp, n.text.strip())) for n in x.iter() if _tag(n) == 'ci']
+        while todo:
+            key = todo.pop(0)
+            if key in seen:
+                continue
+            seen.add(key)
+            d = self.defs.get(key)
+            if d is None:
+                continue
+            if d[0] == 'state':
+                entry = {'variable': d[2], 'phase': False, 'state': d[2]}
+            elif d[0] == 'phase':
+                state = self.defs.get(d[3])
+                entry = {'variable': d[2], 'phase': True, 'state': state[2] if state else d[3][1]}
+            else:
+                todo.extend(d[3])
+                continue
+            if entry not in out:
+                out.append(entry)
+        return out
+
+
 def _floor_tainted(root):
     """(component, variable) pairs whose value depends on a floor or ceiling through algebraic
     equations and connections (not through integration)."""
@@ -693,7 +830,7 @@ def probe(model):
     return _write(root)
 
 
-def smooth(model, ranges, rel=None, collapse=None, abs_eps=DEFAULT_ABS_EPS, only=None):
+def smooth(model, ranges, rel=None, collapse=None, abs_eps=DEFAULT_ABS_EPS, only=None, exempt=None):
     """The smoothed model and its report.
 
     Args:
@@ -711,18 +848,22 @@ def smooth(model, ranges, rel=None, collapse=None, abs_eps=DEFAULT_ABS_EPS, only
         abs_eps: eps of a site whose argument is zero throughout, or that has no range.
         only: the site numbers k to smooth; the others are left as written (status ``left``). A
             piecewise is smoothed only when all its comparisons are (``piecewise_k`` groups them).
+        exempt: ``[{"variable": "[component/]glob", "reason": ...}]``: the sites in the equations of
+            those variables are left as written (status ``exempt``, with the reason and the
+            ``switch_variables`` they switch on), for switches meant to stay (a phase gate).
 
     Returns:
         (CellML text, report dict)
     """
     root = _read(model)
-    p = _Pass(root, 'smooth', ranges, rel, collapse, abs_eps, only)
+    p = _Pass(root, 'smooth', ranges, rel, collapse, abs_eps, only, exempt)
     p.run()
     report = {'settings': {'rel': p.rel, 'collapse': collapse if collapse in (None, True, False)
                            else sorted(collapse), 'abs_eps': abs_eps},
               'counts': _counts(p),
               'sites': [s.record for s in p.sites],
-              'not_smoothed': p.not_smoothed}
+              'not_smoothed': p.not_smoothed, 'exempt': exempt or [],
+              'jump_candidates': p.jump_candidates}
     return _write(root), report
 
 
@@ -731,6 +872,9 @@ def _counts(p):
     for s in p.sites:
         key = s.kind if s.record['status'] == 'smoothed' else f'{s.kind}_{s.record["status"]}'
         if s.record['status'] == 'left':
+            continue
+        if s.record['status'] == 'exempt':
+            counts[f'{s.kind}_exempt'] = counts.get(f'{s.kind}_exempt', 0) + 1
             continue
         if s.record.get('collapsed'):
             key += '_collapsed'
@@ -859,7 +1003,7 @@ def flag_nan_at_init(report, probed_path, smooth_path):
 
 
 def smooth_cellml_file(model_path, runs=None, output_dir=None, ranges=None, rel=None, collapse=None,
-                       abs_eps=DEFAULT_ABS_EPS):
+                       abs_eps=DEFAULT_ABS_EPS, exempt=None):
     """Probe, run the reference runs (unless ``ranges`` is given), smooth, and write
     ``<name>_smooth.cellml`` and ``smoothing_report.json`` into ``output_dir``, with the ranges from
     the runs in ``smoothing_ranges.json`` (for ``--ranges``).
@@ -881,7 +1025,7 @@ def smooth_cellml_file(model_path, runs=None, output_dir=None, ranges=None, rel=
         ranges = reference_ranges(probed_path, runs)
         with open(os.path.join(output_dir, 'smoothing_ranges.json'), 'w', encoding='utf-8') as f:
             json.dump(ranges, f, indent=2)
-    smoothed, report = smooth(original, ranges, rel=rel, collapse=collapse, abs_eps=abs_eps)
+    smoothed, report = smooth(original, ranges, rel=rel, collapse=collapse, abs_eps=abs_eps, exempt=exempt)
     before, after = libcellml_issues(original), libcellml_issues(smoothed)
     report['model'] = os.path.abspath(model_path)
     report['runs'] = runs
@@ -909,6 +1053,7 @@ def main(argv=None):
                                        '"param_vals"}, simulated with CVODE_myokit')
     parser.add_argument('--output-dir', help='where to write (default: next to the model)')
     parser.add_argument('--rel', type=float, help='eps relative to each range, for every kind (default 1e-3)')
+    parser.add_argument('--exempt', help='JSON [{"variable": "[component/]glob", "reason": ...}]: sites left as written')
     parser.add_argument('--collapse', action='store_true',
                         help='replace sites that never switch in the runs by their active branch')
     args = parser.parse_args(argv)
@@ -920,7 +1065,7 @@ def main(argv=None):
     smooth_path, report_path = smooth_cellml_file(
         args.model, runs=load(args.runs) if args.runs else None,
         ranges=load(args.ranges) if args.ranges else None, output_dir=args.output_dir,
-        rel=args.rel, collapse=True if args.collapse else None)
+        rel=args.rel, collapse=True if args.collapse else None, exempt=load(args.exempt) if args.exempt else None)
     print(smooth_path)
     print(report_path)
     return 0
