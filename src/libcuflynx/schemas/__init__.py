@@ -58,8 +58,8 @@ PARAMS_FOR_ID_SCHEMA = 'params_for_id.schema.json'
 CALIBRATION_WORKFLOW_SCHEMA = 'calibration_workflow.schema.json'
 VARIABLE_MAPPING_SCHEMA = 'variable_mapping.schema.json'
 PARAMETERS_SCHEMA = 'parameters.schema.json'
-PROVENANCE_GRAPH_SCHEMA = 'provenance_graph.schema.json'
 DERIVATIONS_SCHEMA = 'derivations.schema.json'
+PROVENANCE_GRAPH_SCHEMA = 'provenance_graph.schema.json'
 
 
 def schema_file(name):

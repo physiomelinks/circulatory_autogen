@@ -10,6 +10,7 @@ needs the ``python`` method. libCellML's Python code is generated, the input con
 computed once, and the outputs are read and converted to the output parameters' units.
 '''
 
+import math
 import os
 
 import libcellml as lc
@@ -132,7 +133,20 @@ def evaluate_cellml(path, inputs, output_units):
                                        f"model's '{symbol}' in '{to_units}': {e}") from None
         constants[i] = float(value) * factor
 
-    namespace['compute_computed_constants'](constants, computed, algebraic)
+    # a constant's initial value is a placeholder, so every constant must be given
+    missing = [entry['name'] for entry in constant_info if entry['name'] not in inputs]
+    if missing:
+        raise DerivationModelError(
+            f"{path}: input(s) {', '.join(repr(m) for m in missing)} of the model are not given; "
+            f"name each constant of the model in the derivation's inputs (an initial value is "
+            f"only a placeholder; write a fixed number in the equation).")
+
+    try:
+        namespace['compute_computed_constants'](constants, computed, algebraic)
+    except ArithmeticError as e:
+        given = ', '.join(f'{s} = {v} {u}' for s, (v, u) in inputs.items())
+        raise DerivationModelError(f'{path}: evaluating the model failed ({e}) with {given}.') \
+            from None
 
     results = {}
     for symbol, units in output_units.items():
@@ -149,4 +163,6 @@ def evaluate_cellml(path, inputs, output_units):
             raise DerivationModelError(f"{path}: output '{symbol}' is in '{from_units}' and its "
                                        f"parameter in '{units}': {e}") from None
         results[symbol] = float(computed[i]) * factor
+        if not math.isfinite(results[symbol]):
+            raise DerivationModelError(f"{path}: output '{symbol}' is {results[symbol]}.")
     return results

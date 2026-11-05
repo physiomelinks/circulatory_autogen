@@ -29,7 +29,7 @@ validated against.
 | `data_item_name` | Required. Unique across the file's data, prediction and input items. |
 | `value`, `unit` | Required. One number and its unit (a CellML unit name). |
 | `std` | Its standard deviation. |
-| `source`, `data_reference`, `comment`, `species`, `location` | Where it comes from; not read. |
+| `source`, `data_reference`, `comment`, `species`, `location` | Where it comes from; not read. An input item's `source` is kept as written (a data item's `source` is read as its `data_reference`, with a warning). |
 | `prob_dist_params` | The number as a distribution; not read yet. |
 
 A derivation may also read a `data_item` with a constant value, when the same number is a
@@ -73,6 +73,9 @@ The structure is defined by `src/libcuflynx/schemas/derivations.schema.json`.
 
 The equation is a CellML 2.0 model. Its inputs are constants named as the input symbols (their
 initial values are placeholders); its outputs are computed constants named as the output symbols.
+Every constant of the model must be an input: one the derivation leaves out is an error, not its
+placeholder. Write a fixed number in the equation itself (`<cn>`). The model may import units or
+components from other CellML files beside it or below it.
 
 ```xml
 <component name="derivation">
@@ -93,7 +96,8 @@ once. Any issue is an error, including units that do not balance in an equation.
 units differ from its variable's but have the same dimension is converted (MAP in mmHg into `Pa`
 above, if the model defines `mmHg`); so is an output whose parameter is in other units of the same
 dimension. Units of different dimensions are an error. Implicit equations are refused: use a
-Python function for those.
+Python function for those. An output that is not a finite number (a division by zero flow, say) is
+an error.
 
 You can write the model in CellML Text and convert it with physiomelinks' `cellml-text-editor`, or
 edit it in PhLynx's Instance Editor (the CellML Text and Math Editor tabs) and export the
@@ -135,7 +139,9 @@ The first evaluates every derivation and prints each parameter's cached and deri
 0 when every cached value matches within a relative tolerance of 1e-9 and 1 otherwise, so a test or
 CI job can run it. A parameter that names a derivation that does not set it is reported too.
 `--write` writes the derived values into the parameters file, and adds `derivation` to each output
-parameter; every other key and parameter is kept.
+parameter; every other key and parameter is kept. It exits 1 when a parameter still names a
+derivation that does not set it, which `--write` cannot fix: remove that `derivation` key. A file or
+derivation that cannot be read or evaluated is an error message and exit 2.
 
 `--obs` may be given several times; `--parameters` names the parameters file when it is not
 `<name>_parameters.json` beside the derivations file. From Python:
@@ -155,6 +161,10 @@ review page or a table.
 
 `pack_workflow` (and `cuflynx-calibration-workflow --pack`) copies the derivations file beside each
 parameters file it packs, with the CellML and Python files it reads at the same paths relative to
-it, so they go into the OMEX archive CUFLynx makes from the pack. A derivation's files must be in
-the derivations file's directory or below it. A module version from a library is packed whole, with
-its derivations.
+it, so they go into the OMEX archive CUFLynx makes from the pack. A CellML derivation model brings
+the CellML files it imports. A derivation's files must be in the derivations file's directory or
+below it. A module version from a library is packed whole, with its derivations.
+
+A study's working dir does the same: when the parameters file is copied into
+`inputs/system/<date>/`, its derivations file and the files it reads are copied beside it, and an
+edit to any of them makes a new dated copy.
