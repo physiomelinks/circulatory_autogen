@@ -25,6 +25,10 @@
           {
             "port_type":"O2_port",
             "variables":["C_O2_p"]
+          },
+          {
+            "port_type":"gas_flux_port",
+            "variables":["v_out","j_CO2","j_O2"]
           }
         ],
         "general_ports":[],
@@ -39,7 +43,46 @@
           ["C_CO2_p_init", "dimensionless", "access", "constant"],
           ["C_O2_p_init", "dimensionless", "access", "constant"],
           ["M_CO2", "m3_per_s", "access", "constant"],
-          ["M_O2", "m3_per_s", "access", "constant"]
+          ["M_O2", "m3_per_s", "access", "constant"],
+          ["v_out", "m3_per_s", "access", "variable"],
+          ["j_CO2", "m3_per_s", "access", "variable"],
+          ["j_O2", "m3_per_s", "access", "variable"]
+        ]
+      },
+      {
+        "module_type":"venous_gas_mixing",
+        "module_subtype":"nn",
+        "module_format":"cellml",
+        "component_file":"gas_exchange_modules.cellml",
+        "component_type":"venous_gas_mixing",
+        "entrance_ports":
+        [
+          {
+            "port_type":"gas_flux_port",
+            "variables":["v","J_CO2","J_O2"],
+            "multi_port":"sum"
+          }
+        ],
+        "exit_ports":
+        [
+          {
+            "port_type":"gas_port",
+            "variables":["C_CO2_mix","C_O2_mix"]
+          },
+          {
+            "port_type":"flow_port",
+            "variables":["v_mix"]
+          }
+        ],
+        "general_ports":[],
+        "variables_and_units":
+        [
+          ["v", "m3_per_s", "access", "boundary_condition"],
+          ["J_CO2", "m3_per_s", "access", "boundary_condition"],
+          ["J_O2", "m3_per_s", "access", "boundary_condition"],
+          ["v_mix", "m3_per_s", "access", "variable"],
+          ["C_CO2_mix", "dimensionless", "access", "variable"],
+          ["C_O2_mix", "dimensionless", "access", "variable"]
         ]
       },
       {
