@@ -285,15 +285,20 @@ def get_valid_plot_types():
 # (libcuflynx.derivations), never scored. Required keys first; the rest default to None.
 INPUT_ITEM_REQUIRED_KEYS = ('data_item_name', 'value', 'unit')
 INPUT_ITEM_KEYS = INPUT_ITEM_REQUIRED_KEYS + (
-    'std', 'prob_dist_params', 'source', 'data_reference', 'comment', 'species', 'location')
+    'std', 'prob_dist_params', 'data_reference', 'comment', 'species', 'location')
 
 
 def parse_input_items(json_obj):
     """An obs_data's ``input_items`` as ``{data_item_name: item}``, each item with every key of
     ``INPUT_ITEM_KEYS`` (None where it is not given). The schema has checked their keys and
-    types; a name given twice is a ValueError."""
+    types; a name given twice, or a ``source`` key (an input item names its reference in
+    ``data_reference``), is a ValueError."""
     items = {}
     for idx, raw in enumerate((json_obj or {}).get('input_items') or []):
+        if 'source' in raw:
+            raise ValueError(f"input_items[{idx}] ({raw.get('data_item_name')!r}) has 'source', "
+                             f"which an input item does not take: name where the number comes "
+                             f"from in 'data_reference'.")
         missing = [k for k in INPUT_ITEM_REQUIRED_KEYS if raw.get(k) is None]
         if missing:
             raise ValueError(f'input_items[{idx}] is missing {missing}.')
@@ -495,9 +500,10 @@ class ObsDataCreator:
         """Add an input item: a number a parameter derivation reads, never scored.
 
         entry: dict with ``data_item_name``, ``value`` and ``unit``, and optionally ``std``,
-        ``source``, ``data_reference``, ``comment``, ``species``, ``location`` and
+        ``data_reference``, ``comment``, ``species``, ``location`` and
         ``prob_dist_params``.
         """
+        parse_input_items({'input_items': [entry]})
         unknown = sorted(set(entry) - set(INPUT_ITEM_KEYS))
         if unknown:
             raise ValueError(f"input item keys {unknown} are not input item keys "
@@ -508,7 +514,6 @@ class ObsDataCreator:
         if entry.get('data_item_name') in names:
             raise ValueError(f"data_item_name {entry.get('data_item_name')!r} is already used "
                              f"by another item.")
-        parse_input_items({'input_items': [entry]})
         self.obs_data_dict.setdefault('input_items', []).append(dict(entry))
 
     def get_obs_data_dict(self):

@@ -108,6 +108,8 @@ def test_input_items_change_nothing_a_calibration_reads(tmp_path):
     (lambda d: d['input_items'].append(dict(d['input_items'][0])), 'CVP_toy'),
     (lambda d: d['input_items'][0].update(operands=['a/b']), "'operands' was unexpected"),
     (lambda d: d['input_items'][0].pop('unit'), "'unit' is a required property"),
+    (lambda d: d['input_items'][0].update(source='Smith 2001'),
+     'Not accepted in an input item: name where the number comes from in data_reference'),
 ])
 def test_an_input_item_the_parser_refuses(change, message):
     doc = _read(os.path.join(TOY, 'toy_obs_data.json'))
@@ -125,8 +127,7 @@ def test_a_data_items_source_is_read_as_its_data_reference_by_the_derivations_to
         items = load_obs_items(obs)
     assert items['data_item']['MAP']['data_reference'] == 'Smith2020'
     assert 'source' not in items['data_item']['MAP']
-    # an input item's source is read as written (an open question)
-    assert items['input_item']['CVP_toy']['source'] == 'toy value'
+    assert 'source' not in items['input_item']['CVP_toy']
     _write(toy['obs'], obs)
     with pytest.warns(UserWarning):
         results, _ = _evaluate(toy)
@@ -139,7 +140,7 @@ def test_obs_data_creator_adds_input_items():
     obs = ObsDataCreator()
     obs.add_protocol_info([0.0], [[1.0]], {})
     obs.add_input_item({'data_item_name': 'CVP', 'value': 5.0, 'unit': 'mmHg', 'std': 1.0,
-                        'source': 'toy'})
+                        'data_reference': 'toy'})
     with pytest.raises(ValueError, match='already used'):
         obs.add_input_item({'data_item_name': 'CVP', 'value': 6.0, 'unit': 'mmHg'})
     with pytest.raises(ValueError, match='not input item keys'):
@@ -147,6 +148,26 @@ def test_obs_data_creator_adds_input_items():
     doc = obs.get_obs_data_dict()
     assert problems(OBS_DATA_SCHEMA, doc) == []
     assert _parse_obs(doc)['input_items']['CVP']['value'] == 5.0
+
+
+@pytest.mark.unit
+def test_an_input_item_with_source_is_refused_naming_data_reference(toy):
+    """An input item names its reference in data_reference only: source is refused by the
+    schema, by parse_input_items (a document the schema never saw) and by ObsDataCreator."""
+    from libcuflynx.derivations import load_obs_items
+    from libcuflynx.utilities.obs_data_helpers import parse_input_items
+    obs = _read(toy['obs'])
+    obs['input_items'][0]['source'] = 'Smith 2001'
+    with pytest.raises(ValueError, match="input_items\\[0\\] \\('CVP_toy'\\)\\.source.*\\n.*Not accepted in an "
+                                         "input item: name where the number comes from in "
+                                         "data_reference"):
+        load_obs_items(obs)
+    with pytest.raises(ValueError, match="input_items\\[0\\] \\('CVP_toy'\\) has 'source'.*"
+                                         "in 'data_reference'"):
+        parse_input_items(obs)
+    with pytest.raises(ValueError, match="has 'source'.*in 'data_reference'"):
+        ObsDataCreator().add_input_item({'data_item_name': 'x', 'value': 1.0, 'unit': 'm',
+                                         'source': 'Smith 2001'})
 
 
 # -------------------------------------------------------------------------------- the file
@@ -439,7 +460,7 @@ def test_the_cache_check_fails_after_an_input_changes(toy):
 @pytest.mark.unit
 def test_a_parameter_naming_a_derivation_that_does_not_set_it_is_reported(toy):
     params = _read(toy['parameters'])
-    params['Systemic_T']['C_T']['derivation'] = 'R_T0'
+    params['Systemic_T']['C_T'].update(derivation='R_T0', origin='derived')
     _write(toy['parameters'], params)
     found = check_derivations(*_evaluate(toy))
     assert found == ["Systemic_T/C_T: names derivation 'R_T0', which does not set it."]
@@ -471,7 +492,7 @@ def test_derive_write_round_trips(toy, capsys):
 @pytest.mark.unit
 def test_derive_write_fails_when_a_parameter_names_a_derivation_that_does_not_set_it(toy, capsys):
     params = _read(toy['parameters'])
-    params['Systemic_T']['C_T']['derivation'] = 'R_T0'
+    params['Systemic_T']['C_T'].update(derivation='R_T0', origin='derived')
     _write(toy['parameters'], params)
     assert derive_main([toy['derivations'], '--obs', toy['obs'], '--write']) == 1
     out = capsys.readouterr().out
@@ -493,13 +514,75 @@ def test_derive_reports_an_error_as_a_message_not_a_traceback(toy, capsys):
 
 
 @pytest.mark.unit
-def test_derive_write_names_each_output_by_its_derivation(toy):
+def test_derive_write_names_each_output_by_its_derivation_and_marks_it_derived(toy):
     params = _read(toy['parameters'])
     del params['Systemic_T']['R_T0']['derivation']
+    params['Systemic_T']['R_T0']['origin'] = 'measured'
     _write(toy['parameters'], params)
     assert derive_main([toy['derivations'], '--obs', toy['obs'], '--write',
                         '--parameters', toy['parameters']]) == 0
-    assert _read(toy['parameters'])['Systemic_T']['R_T0']['derivation'] == 'R_T0'
+    leaf = _read(toy['parameters'])['Systemic_T']['R_T0']
+    assert (leaf['derivation'], leaf['origin']) == ('R_T0', 'derived')
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('origin', [None, 'measured', 'calibrated'])
+def test_a_parameter_naming_a_derivation_must_have_origin_derived(toy, origin):
+    params = _read(toy['parameters'])
+    leaf = params['Systemic_T']['R_T0']
+    leaf.pop('origin')
+    if origin:
+        leaf['origin'] = origin
+    _write(toy['parameters'], params)
+    with pytest.raises(ValueError, match='A value a derivation calculates .* has origin derived'):
+        read_parameters(toy['parameters'])
+
+
+@pytest.mark.unit
+def test_derive_never_checks_or_overwrites_a_calibrated_value(toy, capsys):
+    params = _read(toy['parameters'])
+    params['Systemic_T']['R_T0'] = {'value': 2e8, 'units': 'J_s_per_m6', 'origin': 'calibrated',
+                                    'data_reference': 'calibrated by workflow wf, step s'}
+    _write(toy['parameters'], params)
+    args = [toy['derivations'], '--obs', toy['obs']]
+    assert derive_main(args) == 0
+    out = capsys.readouterr().out
+    assert 'Systemic_T/R_T0: calibrated 200000000.0, derived' in out
+    assert '(calibrated: neither checked nor written)' in out
+    assert 'matches its derivation (1 calibrated value not checked).' in out
+    assert derive_main(args + ['--write']) == 0
+    assert _read(toy['parameters'])['Systemic_T']['R_T0'] == params['Systemic_T']['R_T0']
+
+
+@pytest.mark.unit
+def test_a_calibrated_value_drops_its_derivation_so_derive_write_keeps_it(toy):
+    """write_calibrated_parameters marks a calibrated leaf calibrated and drops its
+    derivation; cuflynx-derive --write on that file then leaves the calibrated value, and the
+    derivation still gives the derived value."""
+    from libcuflynx.calibration_workflow.runner import write_calibrated_parameters
+
+    class _Target:
+        kind = 'array'
+        parameters_path = toy['parameters']
+
+        def file(self, suffix):
+            return os.path.join(toy['dir'], f'toy_{suffix}')
+
+    merged = [{'model_name': 'R_T0_Systemic_T', 'host_name': 'Systemic_T/R_T0', 'value': 2e8,
+               'units': 'J_s_per_m6', 'from_step': 'fit'}]
+    path = write_calibrated_parameters(_Target(), merged, 'wf', generated_path=toy['parameters'])
+    leaves = _read(path)['Systemic_T']
+    assert 'derivation' not in leaves['R_T0'] and leaves['R_T0']['origin'] == 'calibrated'
+    assert leaves['R_T0']['value'] == 2e8
+    # a value no step fitted keeps its derivation
+    assert (leaves['Q_T0']['derivation'], leaves['Q_T0']['origin']) == ('Q_T0', 'derived')
+    assert derive_main([toy['derivations'], '--obs', toy['obs'], '--parameters', path,
+                        '--write']) == 0
+    after = _read(path)['Systemic_T']['R_T0']
+    assert after == leaves['R_T0']
+    # the derived value is not lost: the source parameters file and the derivation still have it
+    assert _read(toy['parameters'])['Systemic_T']['R_T0']['value'] == pytest.approx(R, rel=1e-12)
+    assert _values(_evaluate(toy)[0])['Systemic_T/R_T0'] == pytest.approx(R, rel=1e-12)
 
 
 # ------------------------------------------------------------------------------ packing
@@ -568,7 +651,7 @@ def test_a_calibrations_cost_ignores_input_items(base_user_inputs, resources_dir
     with_inputs = copy.deepcopy(doc)
     with_inputs['input_items'] = [
         {'data_item_name': 'p_measured', 'value': 1.0, 'std': 0.1, 'unit': 'dimensionless',
-         'source': 'a number only a derivation reads'}]
+         'data_reference': 'a number only a derivation reads'}]
     paths = {}
     for name, obs in (('without', doc), ('with', with_inputs)):
         paths[name] = str(tmp_path / f'{name}_obs_data.json')

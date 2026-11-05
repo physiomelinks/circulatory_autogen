@@ -12,6 +12,7 @@ import tempfile
 import warnings
 from sys import exit
 from libcuflynx.utilities.paths import default_resources_dir
+from libcuflynx.utilities.parameters_file import CALIBRATED
 from libcuflynx.utilities.module_library import (ModuleSources, ModuleShadowWarning, collect_units,
                                                  CELLML_1_1_NS)
 from libcuflynx.generators.port_order import neighbour_port_index
@@ -482,14 +483,17 @@ class CVS0DCellMLGenerator(object):
         self._write_text_file_atomic(output_path, _write_parameters)
 
     def __modify_parameters_array_from_param_id(self):
-        # first modify param_const names easily by modifying them in the array
+        # an identified value is calibrated: its origin says so, and a reason for a hand-set
+        # value no longer applies (the parameters array carries no derivation key)
         print('modifying constants to values identified from parameter id')
+        params = self.model.parameters_array
         for const_name, val in self.model.param_id_name_and_vals:
-            self.model.parameters_array[np.where(self.model.parameters_array['variable_name'] ==
-                                           const_name)[0][0]]['value'] = f'{val:.10e}'
-            self.model.parameters_array[np.where(self.model.parameters_array['variable_name'] ==
-                                                 const_name)[0][0]]['data_reference'] = \
-                f'{self.model.param_id_date}_identified'
+            idx = np.where(params['variable_name'] == const_name)[0][0]
+            params[idx]['value'] = f'{val:.10e}'
+            params[idx]['data_reference'] = f'{self.model.param_id_date}_identified'
+            if 'origin' in params.dtype.names:
+                params[idx]['origin'] = CALIBRATED
+                params[idx]['reason'] = ''
 
     def __write_parameters_json(self):
         # <prefix>_parameters.json beside the generated model: every value the model uses, in the

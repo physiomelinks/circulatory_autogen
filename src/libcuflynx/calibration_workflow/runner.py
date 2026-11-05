@@ -61,7 +61,7 @@ from libcuflynx.sensitivity_analysis.parameter_reduction import SobolReduction
 from libcuflynx.calibration_workflow.spec import (INHERITED_BASE, WORKFLOW_FILE_NAME,
                                                   WorkflowError, load_workflow,
                                                   uses_log_posterior)
-from libcuflynx.utilities.parameters_file import ORIGINS
+from libcuflynx.utilities.parameters_file import SET_BY_HAND
 from libcuflynx.utilities.paths import git_state, repo_root
 
 STEP_RESULT = 'step_result.json'
@@ -88,8 +88,6 @@ STEP_OUTPUTS = {'calibration': ('param_id_output_dir', 'distribution_dir'),
                 'identifiability': ('laplace',),
                 'set': (),
                 'sweep': ('sweep_dir', 'sweep_results')}
-#: what a value set by a set step is marked with
-SET_BY_HAND = ORIGINS[-1]
 
 # what a step's user_inputs get unless the workflow's settings say otherwise
 STEP_DEFAULTS = {'model_type': 'cellml', 'DEBUG': False, 'do_ad': False, 'do_ia': False,
@@ -1150,7 +1148,13 @@ def write_calibrated_parameters(target, merged_parameters, workflow_name, path=N
     value set at the path the target names it by -- ``<vessel>/<variable>`` in a
     module array's file (a vessel inside a super instance, ``sys__C/q``, at ``sys/C/q``), the
     module's own path in a parameterisation. So the result reproduces the run without the
-    module library. Only ``path`` is written; the target's files are not changed.'''
+    module library. Only ``path`` is written; the target's files are not changed.
+
+    A merged value's leaf gets origin ``calibrated`` and loses ``derivation`` and ``reason``
+    (``parameters_file.calibrated_leaf``), so ``cuflynx-derive --write`` never overwrites it. The
+    derived value is not lost: the target's parameters file still holds it, its derivations file
+    still calculates it (``cuflynx-derive``), and the step's generated parameters file
+    (``generated.parameters_path`` in its result) holds it as the value the step started from.'''
     from libcuflynx.utilities import parameters_file as pf
     kind = pf.MODEL if target.kind == 'array' else pf.MODULE
     doc = target_generated_parameters(target, library_inputs, generated_path)
@@ -1161,11 +1165,14 @@ def write_calibrated_parameters(target, merged_parameters, workflow_name, path=N
     for record in merged_parameters:
         name = record['host_name'] if target.kind == 'array' else record['parameterisation_name']
         place = pf.name_path(name, kind)
-        leaf = dict(pf.get_leaf(doc, place) or {'units': record.get('units', '')})
         how = 'set by hand in' if record.get('origin') else 'calibrated by'
-        leaf.update(value='%.10g' % record['value'],
-                    data_reference=f'{how} workflow {workflow_name}, step '
-                                   f'{record["from_step"]} ({today})', **_how_set(record))
+        # calibrated_leaf drops derivation and reason; a set step's value then says it was set
+        # by hand, with its reason
+        leaf = pf.calibrated_leaf(pf.get_leaf(doc, place) or {'units': record.get('units', '')},
+                                  '%.10g' % record['value'],
+                                  f'{how} workflow {workflow_name}, step '
+                                  f'{record["from_step"]} ({today})')
+        leaf.update(_how_set(record))
         if 'sourced' in leaf:
             leaf['sourced'] = 'no'
         pf.set_leaf(doc, place, leaf)

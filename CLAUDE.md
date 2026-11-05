@@ -163,7 +163,7 @@ User-extensible (kept outside the package): `module_config_user/` (custom CellML
   "input_items": [...]
 }
 ```
-`input_items` (`{data_item_name, value, unit, std, source, data_reference, ...}`) are numbers only parameter derivations read (`libcuflynx.derivations`, `cuflynx-derive`): `parse_obs_data_json` returns them under `"input_items"` and nothing that scores, plots or validates reads them.
+`input_items` (`{data_item_name, value, unit, std, data_reference, ...}`; `source` is refused, naming `data_reference`) are numbers only parameter derivations read (`libcuflynx.derivations`, `cuflynx-derive`): `parse_obs_data_json` returns them under `"input_items"` and nothing that scores, plots or validates reads them.
 `protocol_info` with `pre_times` and `sim_times` is required; a bare list of data items is refused (`cuflynx-upgrade obs-data`).
 A `params_to_change` value is a **float** (constant) or a **string** (trace key into `protocol_traces`). Series entries currently must have a `std` set (single-likelihood assumption — see commit history).
 
