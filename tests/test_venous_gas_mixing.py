@@ -196,3 +196,79 @@ def test_a_gas_exchange_module_without_a_flux_port_is_refused(tmp_path, no_flux_
                   ge_subtypes={r: 'no_flux' for r in no_flux_regions},
                   extra_params=MIXER_SUM_DEFAULTS,
                   external_modules_dir=_no_flux_port_ge_modules(tmp_path))
+
+
+def _mixing_component_model(tmp_path):
+    """The built-in venous_gas_mixing component on its own, as a Myokit model whose inputs
+    (total flow v and the gas sums J_O2, J_CO2) are set by the caller."""
+    import myokit
+    import myokit.formats.cellml
+    from libcuflynx.utilities.package_resources import builtin_modules_dir
+    with open(os.path.join(builtin_modules_dir(), 'gas_exchange_modules.cellml')) as f:
+        text = f.read()
+    start = text.index('<component name="venous_gas_mixing">')
+    component = text[start:text.index('</component>', start) + len('</component>')]
+    component = re.sub(r'<variable name="(\w+)" public_interface="in" units="(\w+)"/>',
+                       r'<variable name="\1" units="\2" initial_value="0"/>', component)
+    component = component.replace(' public_interface="out"', '')
+    path = tmp_path / 'venous_gas_mixing.cellml'
+    path.write_text(
+        "<?xml version='1.0' encoding='UTF-8'?>\n"
+        '<model name="mixing" xmlns="http://www.cellml.org/cellml/1.1#" '
+        'xmlns:cellml="http://www.cellml.org/cellml/1.1#">\n'
+        '<units name="m3_per_s"><unit exponent="3" units="metre"/>'
+        '<unit exponent="-1" units="second"/></units>\n' + component + '\n</model>\n')
+    model = myokit.formats.cellml.CellMLImporter().model(str(path))
+    flow_unit = myokit.parse_unit('m^3/s')
+
+    def mix(v, j_o2, j_co2):
+        for name, value in (('v', v), ('J_O2', j_o2), ('J_CO2', j_co2)):
+            model.get(f'venous_gas_mixing.{name}').set_rhs(myokit.Number(value, flow_unit))
+        return (model.get('venous_gas_mixing.C_O2_mix').eval(),
+                model.get('venous_gas_mixing.C_CO2_mix').eval())
+
+    return model, mix
+
+
+# mixed contents of a typical venous return
+C_O2_V, C_CO2_V = 0.15, 0.52
+
+
+def test_mixing_is_smooth_with_balanced_units(tmp_path):
+    """The mix has no switch for the solver to see, and J v / (v^2 + eps^2) is dimensionless."""
+    import myokit
+    model, mix = _mixing_component_model(tmp_path)
+    mix(1.0e-4, 1.0e-4 * C_O2_V, 1.0e-4 * C_CO2_V)
+    model.get('venous_gas_mixing.t').set_rhs(myokit.Number(0, myokit.units.s))
+    model.check_units(myokit.UNIT_STRICT)
+    for gas in ('O2', 'CO2'):
+        code = model.get(f'venous_gas_mixing.C_{gas}_mix').rhs().code()
+        assert 'if' not in code and 'piecewise' not in code and 'abs' not in code, code
+
+
+def test_mixing_at_zero_flow_is_zero(tmp_path):
+    _, mix = _mixing_component_model(tmp_path)
+    assert mix(0.0, 0.0, 0.0) == (0.0, 0.0)
+
+
+@pytest.mark.parametrize('sign', [1.0, -1.0])
+def test_mixing_at_real_flow_is_the_flow_weighted_average(tmp_path, sign):
+    """At a venous return of 1e-4 m3/s, forward or with every flow reversed, the mix is
+    sum(v_i C_i) / sum(v_i): the content stays positive when the flow reverses."""
+    _, mix = _mixing_component_model(tmp_path)
+    v = sign * 1.0e-4
+    c_o2, c_co2 = mix(v, v * C_O2_V, v * C_CO2_V)
+    np.testing.assert_allclose([c_o2, c_co2], [C_O2_V, C_CO2_V], rtol=1e-12, atol=0.0)
+
+
+def test_mixing_is_continuous_through_zero_flow(tmp_path):
+    """Sampled from v = -1e-11 to 1e-11 m3/s, each region's content fixed, the mix goes smoothly
+    to 0 at zero flow: no NaN, and no step larger than its slope (at most 0.65 C / eps) allows."""
+    _, mix = _mixing_component_model(tmp_path)
+    flows = np.linspace(-1.0e-11, 1.0e-11, 2001)
+    mixed = np.array([mix(v, v * C_O2_V, v * C_CO2_V) for v in flows])
+    assert np.isfinite(mixed).all()
+    step = flows[1] - flows[0]
+    max_jump = 0.65 * np.array([C_O2_V, C_CO2_V]) * step / 1.0e-12
+    assert (np.abs(np.diff(mixed, axis=0)) <= max_jump).all()
+    assert mixed[1000].tolist() == [0.0, 0.0]
