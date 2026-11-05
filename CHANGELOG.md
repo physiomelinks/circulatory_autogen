@@ -38,6 +38,34 @@ next release; add to that section as you land a change.
   built in; in the module library they are `tissue_GE_simple/Ursino2001_v02` and
   `venous_gas_mixing/ArgusUNPUBLISHED_v01`.
 
+### Added — `set` and `sweep` workflow steps
+
+- A `set` step declares values or scales by hand, each with a required `reason`. A scale multiplies
+  a calibration or set step's value, or the target's own (`"of": "inherited"`). Later steps take
+  the values with `fixed_from`, and they are merged into the target. Reports, the target's
+  parameters, the calibrated parameters file and the provenance diagram mark them `set_by_hand`.
+- A `sweep` step runs a model across chosen parameter values, by `grid` or `one_at_a_time`, and
+  keeps every run in `<step_id>/sweep/`, spread across MPI ranks. A failed point stays as a NaN row.
+  An obs_data's `prediction_items` give a feature per point, drawn as `feature_vs_input` plots. A
+  sweep feeds nothing forward, so no step can take from it and it does not reach the target.
+  On `CVODE_myokit` a point runs with no `MaximumStep` unless the step's `solver_info` gives one,
+  as a calibration evaluation does, so a long `pre_time` costs no more per point than per evaluation.
+- A sweep with `"on_target": true` runs on the target with every calibration's and set step's
+  values merged as the target merges them, after all of them: each step's own values, in run
+  order, so a value a step was only given as fixed never overrides a later set step. Its `zip` groups move parameters
+  together as one axis, and a sweep with no parameters is one run of its protocol. The provenance
+  diagram draws it below the merged box, with a box for each file it wrote.
+- A workflow's optional `external_figures` declares figure scripts that run outside it: the
+  command, the step or target they read from, and the files they read and write. libcuflynx never
+  runs them. The provenance diagram draws each as a dashed box with its files, current, stale or
+  not run by file times. A run's recorded workflow digest leaves `external_figures` out, so
+  declaring them after a run keeps it current.
+- The provenance graph is `schema_version` 2, for the new `figure` and `external` node kinds and
+  `writes` and `reads` edge styles. The schema is closed, so the version goes up whenever it gains
+  or changes a kind, style or key. `read_provenance_graph` and `provenance_svg` refuse a version
+  they don't know, naming the version found and the versions they read; write an older run's
+  graph again with `cuflynx-provenance <output_dir>`.
+
 ### Added — a calibration workflow run writes its provenance
 
 - A run writes `provenance_graph.json`, with a schema and a version, and `provenance.svg`, a

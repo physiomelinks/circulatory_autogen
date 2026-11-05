@@ -9,10 +9,11 @@ is a module array of CA, a module of a module library, or (with a module-array t
 selection of the target's instances, which runs as one of the other two (``select``). A
 step's ``kind`` makes it a
 sensitivity analysis, a reduction (the parameters a later calibration fits, chosen by Sobol
-indices), an emulator training or an identifiability analysis instead (see ``spec``). A later
-step can take earlier steps' calibrated values as fixed values (``fixed_from``) or their stored
-posteriors as priors (``priors_from``). Editing an input and re-running the workflow redoes
-everything downstream of it.
+indices), an emulator training, an identifiability analysis, a declaration of values set by hand
+or a parameter sweep instead (see ``spec``). A later step can take earlier steps' calibrated or
+hand-set values as fixed values (``fixed_from``) or their stored posteriors as priors
+(``priors_from``). Editing an input and re-running the workflow redoes everything downstream of
+it.
 
 Entry points: :func:`run_calibration_workflow` (and the ``cuflynx-calibration-workflow``
 command), :func:`pack_workflow` (every file a run needs, in one directory),

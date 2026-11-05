@@ -11,9 +11,11 @@ from libcuflynx.calibration_workflow import (WorkflowError, run_calibration_work
                                              workflow_status)
 from libcuflynx.calibration_workflow.runner import module_library_digest, settings_digest
 from libcuflynx.external_testing.workflow_library import build_workflow_library
-from libcuflynx.reporting.provenance import (GRAPH_FILE, HAND_NODE, MEASURED_NODE, SOURCE_NODE,
-                                             SVG_FILE, TARGET_NODE, provenance_graph,
-                                             provenance_svg, write_provenance)
+from libcuflynx.reporting.provenance import (GRAPH_FILE, HAND_NODE, MEASURED_NODE,
+                                             SCHEMA_VERSION, SOURCE_NODE, SVG_FILE, TARGET_NODE,
+                                             ProvenanceVersionError, provenance_graph,
+                                             provenance_svg, read_provenance_graph,
+                                             write_provenance)
 from libcuflynx.schemas import PROVENANCE_GRAPH_SCHEMA
 from libcuflynx.schemas.validation import validate
 from libcuflynx.scripts import provenance_script
@@ -82,7 +84,7 @@ def test_a_run_writes_its_provenance_and_says_what_set_each_value(library, tmp_p
 
     graph = _read_json(os.path.join(out, GRAPH_FILE))
     validate(PROVENANCE_GRAPH_SCHEMA, graph, source='graph', what='provenance graph')
-    assert graph['schema_version'] == 1
+    assert graph['schema_version'] == SCHEMA_VERSION == 2
     assert graph['producer']['name'] == 'libcuflynx'
     assert graph['workflow']['output_dir'] == out
     assert graph['workflow']['order'] == ['fit_a', 'rest']
@@ -244,10 +246,9 @@ def _box(node_id, kind='step'):
             'status': 'done', 'stale': False, 'counts': {}, 'parameters': [], 'inputs': []}
 
 
-@pytest.mark.unit
-def test_another_producer_validates_and_is_named_in_the_footer():
+def _another_producers_graph():
     git = {'commit': 'abcdef1234567890', 'dirty': False}
-    graph = {'schema_version': 1,
+    graph = {'schema_version': 2,
              'workflow': {'name': 'w', 'output_dir': '/runs/w', 'file': None, 'file_status': 'current',
                           'order': ['a'], 'complete': True, 'finished': None, 'stale': False},
              'producer': {'name': 'opinf', 'version': '0.1', 'git': git},
@@ -256,14 +257,37 @@ def test_another_producer_validates_and_is_named_in_the_footer():
              'counts': {'calibrated': 0, 'measured': 0, 'inherited': 0, 'set_by_hand': 0,
                         'unclassified': 0},
              'nodes': [_box('a')], 'edges': []}
+    return graph
+
+
+@pytest.mark.unit
+def test_another_producer_validates_and_is_named_in_the_footer():
+    graph = _another_producers_graph()
     validate(PROVENANCE_GRAPH_SCHEMA, graph, source='graph', what='provenance graph')
     assert 'opinf 0.1: abcdef1234' in provenance_svg(graph)
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize('version', [1, 3, None])
+def test_a_graph_of_a_version_it_does_not_know_is_refused(tmp_path, version):
+    graph = _another_producers_graph()
+    path = str(tmp_path / GRAPH_FILE)
+    _write_json(path, graph)
+    assert read_provenance_graph(path) == graph
+    graph['schema_version'] = version
+    _write_json(path, graph)
+    message = rf'schema_version {version!r}; .* reads provenance graph schema_version 2 only'
+    with pytest.raises(ProvenanceVersionError, match=message):
+        read_provenance_graph(path)
+    with pytest.raises(ProvenanceVersionError, match=message):
+        provenance_svg(graph)
+
+
+@pytest.mark.unit
 def test_an_arrow_past_a_row_crosses_no_box():
     long_name = '/a/very/long/output/directory/' * 6
-    graph = {'workflow': {'name': 'w', 'output_dir': long_name}, 'code': {}, 'counts': {},
+    graph = {'schema_version': 2, 'workflow': {'name': 'w', 'output_dir': long_name},
+             'code': {}, 'counts': {},
              'nodes': [_box('a'), _box('b'), _box('c')],
              'edges': [{'from': 'a', 'to': 'b', 'label': '', 'style': 'order'},
                        {'from': 'b', 'to': 'c', 'label': '', 'style': 'order'},

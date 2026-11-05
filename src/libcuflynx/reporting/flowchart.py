@@ -26,7 +26,7 @@ EDGE_STYLES = {
 }
 
 
-def _latex(text):
+def latex(text):
     '''A graph's plain ``text`` as LaTeX: escaped, with what is between backticks in ``\\texttt``.'''
     parts = str(text).split('`')
     return ''.join(r'\texttt{' + escape(part) + '}' if i % 2 else escape(part)
@@ -77,16 +77,16 @@ def tikz(nodes, edges, x_gap=5.2, y_gap=2.6, text_width='4.2cm'):
         for i, n in enumerate(row):
             x = (offset + i) * x_gap
             y = -depth * y_gap
-            body = r'\textbf{' + _latex(n['title']) + '}'
+            body = r'\textbf{' + latex(n['title']) + '}'
             if n.get('lines'):
-                body += r'\\ ' + r'\\ '.join(_latex(line) for line in n['lines'])
+                body += r'\\ ' + r'\\ '.join(latex(line) for line in n['lines'])
             style = NODE_STYLES.get(n.get('kind', 'step'), NODE_STYLES['step'])
             lines.append(f'  \\node[box, {style}] ({_tikz_id(n["id"])}) at ({x:.2f},{y:.2f}) '
                          f'{{{body}}};')
     for e in edges:
         style = EDGE_STYLES.get(e.get('style', 'order'), EDGE_STYLES['order'])
         label = (f' node[midway, fill=white, inner sep=1pt, font=\\scriptsize] '
-                 f'{{{_latex(e["label"])}}}') if e.get('label') else ''
+                 f'{{{latex(e["label"])}}}') if e.get('label') else ''
         lines.append(f'  \\draw[{style}] ({_tikz_id(e["from"])}) -- '
                      f'({_tikz_id(e["to"])}){label};')
     lines.append(r'\end{tikzpicture}')
@@ -150,7 +150,9 @@ def model_line(model):
 #: what an edge from each source key is labelled
 _SOURCE_LABELS = {'fixed_from': 'fixed', 'priors_from': 'prior', 'emulator_from': 'emulator',
                   'result_from': 'at its fit', 'sensitivity_from': 'indices',
-                  'params_for_id_from': 'parameters'}
+                  'params_for_id_from': 'parameters', 'scale_from': 'scaled from'}
+#: the kinds whose values are merged into the target
+MERGED_KINDS = ('calibration', 'set')
 
 
 def _kind_line(s):
@@ -167,16 +169,63 @@ def _kind_line(s):
     return _method_label(settings) + (' on the emulator' if s.get('emulator_from') else '')
 
 
+def set_line(entry):
+    '''One entry of a set step, with its reason.'''
+    how = (f'= {entry["value"]}' if 'value' in entry
+           else f'scaled {entry["scale"]} times `{entry["of"]}`')
+    return f'`{entry["parameter"]}` {how}: {entry["reason"]}'
+
+
+def _number_text(value):
+    return f'{value:g}' if isinstance(value, (int, float)) else str(value)
+
+
+def sweep_values_text(spec):
+    '''The values one sweep range gives, in a few words: listed, as factors, or as a range.'''
+    if isinstance(spec, list):
+        spec = {'min': spec[0], 'max': spec[1]}
+    if 'values' in spec:
+        return '{' + ', '.join(_number_text(v) for v in spec['values']) + '}'
+    if 'factors' in spec:
+        return '× {' + ', '.join(_number_text(v) for v in spec['factors']) + '}'
+    scale = ', log' if spec.get('scale') == 'log' else ''
+    return (f'{_number_text(spec["min"])} to {_number_text(spec["max"])}, '
+            f'{spec.get("points", 5)} points{scale}')
+
+
+def _sweep_lines(s):
+    sweep = s.get('sweep') or {}
+    parameters = sweep.get('parameters') or {}
+    first = 'the merged target' if s.get('on_target') else model_line(s['model'])
+    if not parameters:
+        return [first, 'the protocol, nothing swept']
+    zipped = {name: group for group in sweep.get('zip') or [] for name in group}
+    design = 'one at a time' if sweep.get('design') == 'one_at_a_time' else 'every combination'
+    lines, seen = [first], set()
+    for name, spec in parameters.items():
+        if name in seen:
+            continue
+        group = zipped.get(name, [name])
+        seen.update(group)
+        lines.append(' with '.join(f'`{member}` {sweep_values_text(parameters[member])}'
+                                   for member in group))
+    if len(lines) > 2:
+        lines.append(design)
+    return lines
+
+
 def workflow_graph(steps):
     '''Nodes and edges for a workflow. ``steps`` are dicts ``{'id', 'kind', 'model',
     'n_parameters', 'n_data_items', 'settings', 'depends_on', 'fixed_from', 'priors_from' (step
     ids), 'store_distribution'}``, with ``emulator_from``, ``result_from``,
-    ``sensitivity_from``, ``params_for_id_from`` and (a reduction) ``reduction`` where a step
-    has them, plus ``model`` (the workflow's target), ``n_merged`` and optionally ``merged_from``
-    (the steps whose values reached the target, by default every calibration) in a final dict
-    with ``'id': None``. A model is a library module ``{module_type, version,
-    parameterisation}``, ``{module_array}`` or ``{select}``; a reduction has none, and a step
-    given ``'model': None`` has not run.'''
+    ``sensitivity_from``, ``params_for_id_from``, ``scale_from`` and (a reduction, set or sweep
+    step) ``reduction``, ``set`` or ``sweep`` where a step has them, plus ``model`` (the
+    workflow's target), ``n_merged``, optionally ``n_set`` (the merged values set by hand, the
+    rest being calibrated) and optionally ``merged_from`` (the steps whose values reached the
+    target, by default every calibration and set step) in a final dict with ``'id': None``. A
+    model is a library module ``{module_type, version, parameterisation}``, ``{module_array}`` or
+    ``{select}``; a reduction or set step has none, and any other step given ``'model': None``
+    has not run.'''
     *step_list, target = steps
     nodes, edges = [], []
     for s in step_list:
@@ -185,8 +234,12 @@ def workflow_graph(steps):
             options = s.get('reduction') or {}
             lines = [f'keeps the top {options.get("top_n")} by Sobol '
                      f'{options.get("index_type", "ST")}']
+        elif kind == 'set':
+            lines = [set_line(entry) for entry in s.get('set') or []]
         elif s.get('model') is None:
             lines = ['not run']
+        elif kind == 'sweep':
+            lines = _sweep_lines(s)
         else:
             lines = [model_line(s['model']),
                      f'{_count(s["n_parameters"], "parameter")}, '
@@ -195,7 +248,12 @@ def workflow_graph(steps):
         if s.get('store_distribution'):
             lines.append('then MCMC: posterior stored')
         nodes.append({'id': s['id'], 'title': s['id'], 'lines': lines,
-                      'kind': 'step' if kind == 'calibration' else 'analysis'})
+                      'kind': {'calibration': 'step', 'set': 'values'}.get(kind, 'analysis')})
+        if s.get('on_target'):
+            # it runs on the merged target, which the merge edges already draw
+            edges.append({'from': '__target__', 'to': s['id'], 'label': 'runs on',
+                          'style': 'order'})
+            continue
         for dep in s['depends_on']:
             kinds = [label for key, label in _SOURCE_LABELS.items()
                      if dep in (s.get(key) or []) or dep == s.get(key)]
@@ -203,14 +261,17 @@ def workflow_graph(steps):
                           'style': 'prior' if 'prior' in kinds else
                           ('fixed' if 'fixed' in kinds else 'order')})
     t = target['model']
+    n_set = target.get('n_set', 0)
     nodes.append({'id': '__target__', 'title': 'Merged: ' + _model_name(t),
                   'lines': [_model_detail(t),
-                            f'{_count(target["n_merged"], "calibrated value")}'],
+                            f'{_count(target["n_merged"] - n_set, "calibrated value")}']
+                           + ([f'{_count(n_set, "value")} set by hand'] if n_set else []),
                   'kind': 'target'})
-    # every calibration is merged into the target; a later one wins a parameter they share
+    # every calibration and set step is merged into the target; a later one wins a parameter
+    # they share
     merged_from = target.get('merged_from')
     for s in step_list:
-        if s.get('kind', 'calibration') == 'calibration' and \
+        if s.get('kind', 'calibration') in MERGED_KINDS and \
                 (merged_from is None or s['id'] in merged_from):
             edges.append({'from': s['id'], 'to': '__target__', 'label': '',
                           'style': 'merge'})

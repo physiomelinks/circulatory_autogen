@@ -256,6 +256,9 @@ def resolve_workflow(workflow):
             resolved[step.id] = ResolvedStep(step=step, model=None, vessel_map=None,
                                              parameters=[], target=target)
             continue
+        if step.kind == 'set':
+            resolved[step.id] = _resolve_set_step(step, target, claimed)
+            continue
         selection = None
         if step.model.kind == 'selection':
             selection = resolve_selection(step, target, components, supermodules)
@@ -270,14 +273,18 @@ def resolve_workflow(workflow):
             model = _resolve_model(step.model, components, supermodules, where)
         # a calibration fitting a reduction's choice is checked against every candidate: the
         # params_for_id of the sensitivity step the reduction reads
-        params_for_id = step.params_for_id or workflow.step(
-            workflow.step(step.params_for_id_from).sensitivity_from).params_for_id
+        params_for_id = None
+        if step.kind != 'sweep':
+            params_for_id = step.params_for_id or workflow.step(
+                workflow.step(step.params_for_id_from).sensitivity_from).params_for_id
         for path, what in ((step.obs_data, 'obs_data'), (params_for_id, 'params_for_id')):
-            if not os.path.isfile(path):
+            if path and not os.path.isfile(path):
                 raise WorkflowError(f'{where}: its {what} file {path} does not exist.')
         if selection is None:
             vessel_map = _vessel_map(step, model, workflow.target, target, supermodules)
-        parameters = read_calibrated_parameters(params_for_id, where)
+        parameters = read_calibrated_parameters(params_for_id, where) if params_for_id else []
+        if step.kind == 'sweep':
+            parameters = _swept_parameters(step, model)
         if selection is not None and selection.vessel:
             parameters = _in_step_naming(parameters, vessel_map, target.vessels, step)
         resolved_step = ResolvedStep(step=step, model=model, vessel_map=vessel_map,
@@ -324,6 +331,39 @@ def resolve_workflow(workflow):
                     f'Values can only be passed into a model that contains what they were '
                     f'calibrated on.')
     return result
+
+
+def split_parameter(name):
+    '''``<vessel>/<parameter>`` as a CalibratedParameter; a nested vessel's path (``sys/C/q``) is
+    its flat name.'''
+    vessel, _, param = name.rpartition('/')
+    return CalibratedParameter(vessel=flat_name(tuple(vessel.split('/'))), param=param)
+
+
+def _resolve_set_step(step, target, claimed):
+    '''A set step's parameters, named as the target names them. Its map is the target's own.'''
+    resolved = ResolvedStep(step=step, model=None, parameters=[], target=target,
+                            vessel_map=naming.Renamed({}, target.vessels))
+    for entry in step.set_values:
+        parameter = split_parameter(entry['parameter'])
+        if parameter.vessel not in target.vessels and not naming.is_global(parameter.vessel):
+            raise WorkflowError(f'set step "{step.id}": "{entry["parameter"]}" names vessel '
+                                f'"{parameter.vessel}", which the target does not have (its '
+                                f'vessels: {sorted(target.vessels)}).')
+        resolved.parameters.append(parameter)
+        claimed.setdefault(resolved.target_model_name(parameter), []).append(step.id)
+    return resolved
+
+
+def _swept_parameters(step, model):
+    parameters = [split_parameter(name) for name in step.sweep['parameters']]
+    for parameter in parameters:
+        if parameter.vessel not in model.vessels and not naming.is_global(parameter.vessel):
+            raise WorkflowError(
+                f'sweep step "{step.id}" sweeps "{parameter.vessel}/{parameter.param}", but its '
+                f'model {step.model.label()} has no such vessel (its vessels: '
+                f'{sorted(model.vessels)}).')
+    return parameters
 
 
 def _resolve_model(model, components, supermodules, where):
@@ -392,7 +432,7 @@ def _library_vessel(path, target, step):
 
 def _warn_recalibrated(workflow, claimed):
     '''One UserWarning for the target parameters ``{name: [step ids]}`` that several steps
-    calibrate. The merge takes them in run order, so the last step's value is used.'''
+    calibrate or set. The merge takes them in run order, so the last step's value is used.'''
     if not claimed:
         return
     order = [s.id for s in workflow.topological_order()]
